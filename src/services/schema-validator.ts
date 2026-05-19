@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as Ajv from 'ajv';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 import {
   Logger,
 } from '../utils/logger';
@@ -27,21 +28,18 @@ export interface ValidationOptions {
  * Uses AJV (Another JSON Validator) for schema validation
  */
 export class SchemaValidator {
-  private readonly ajv: Ajv.Ajv;
-  private readonly schemaCache: Map<string, Ajv.ValidateFunction>;
+  private readonly ajv: Ajv;
+  private readonly schemaCache: Map<string, ReturnType<Ajv['compile']>>;
   private readonly logger: Logger;
   private readonly extensionPath: string;
 
   constructor(extensionPath?: string) {
-    // Use default export for AJV v6
-    // eslint-disable-next-line @typescript-eslint/naming-convention -- name reflects domain terminology
-    const AjvConstructor = (Ajv as any).default || Ajv;
-    this.ajv = new AjvConstructor({
-      allErrors: true, // Collect all errors, not just first
-      verbose: true // Include validated data in errors
+    this.ajv = new Ajv({
+      allErrors: true,
+      strict: false
     });
 
-    // Add custom format for semver
+    addFormats(this.ajv);
     this.ajv.addFormat('semver', /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$/);
 
     this.schemaCache = new Map();
@@ -54,8 +52,7 @@ export class SchemaValidator {
    * @param schemaPath Path to the JSON schema file
    * @returns Compiled validation function
    */
-  private async loadSchema(schemaPath: string): Promise<Ajv.ValidateFunction> {
-    // Check cache first
+  private async loadSchema(schemaPath: string): Promise<ReturnType<Ajv['compile']>> {
     if (this.schemaCache.has(schemaPath)) {
       return this.schemaCache.get(schemaPath)!;
     }
@@ -80,7 +77,7 @@ export class SchemaValidator {
    * @param errors AJV error objects
    * @returns Formatted error messages
    */
-  private formatErrors(errors: Ajv.ErrorObject[]): string[] {
+  private formatErrors(errors: NonNullable<ReturnType<Ajv['compile']>['errors']>): string[] {
     return errors.map((error) => {
       const dataPath = error.instancePath || '';
       const message = error.message || 'validation failed';
