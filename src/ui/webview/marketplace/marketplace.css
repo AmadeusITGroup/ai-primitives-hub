@@ -387,6 +387,26 @@ body {
     border-color: var(--vscode-gitDecoration-addedResourceForeground);
 }
 
+.curated-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    box-shadow: 0 1px 4px rgba(102, 126, 234, 0.3);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.curated-badge::before {
+    content: "✨";
+    font-size: 10px;
+}
+
 .installed-badge {
     position: absolute;
     top: 12px;
@@ -403,15 +423,141 @@ body {
     margin-bottom: 12px;
 }
 
+.bundle-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
 .bundle-title {
     font-size: 18px;
     font-weight: 600;
-    margin-bottom: 4px;
+    flex: 1;
+    min-width: 0;
+}
+
+.bundle-author-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .bundle-author {
     font-size: 12px;
     color: var(--vscode-descriptionForeground);
+}
+
+.rating-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.rating-badge.clickable {
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.rating-badge.clickable:hover {
+    background: var(--vscode-list-hoverBackground);
+    border-color: var(--vscode-focusBorder);
+    transform: translateY(-1px);
+}
+
+.rating-stars {
+    color: #ffa500;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.rating-score {
+    font-weight: 600;
+    color: var(--vscode-badge-foreground);
+}
+
+.rating-votes {
+    opacity: 0.8;
+    font-size: 11px;
+}
+
+/* Interactive star rating */
+.interactive-stars {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    cursor: pointer;
+    padding: 4px 8px;
+    background: var(--vscode-badge-background);
+    border-radius: 12px;
+    flex-shrink: 0;
+}
+
+.interactive-stars .star {
+    font-size: 16px;
+    color: var(--vscode-descriptionForeground);
+    transition: color 0.1s ease;
+    cursor: pointer;
+    user-select: none;
+}
+
+.interactive-stars .star.filled {
+    color: #ffa500;
+}
+
+.interactive-stars .star.hovered {
+    color: #ffc966;
+}
+
+/* Inline feedback form */
+.inline-feedback-form {
+    display: none;
+    margin-top: 8px;
+    padding: 8px;
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+}
+
+.inline-feedback-form.visible {
+    display: block;
+}
+
+.inline-feedback-form textarea {
+    width: 100%;
+    min-height: 60px;
+    padding: 6px;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 3px;
+    resize: vertical;
+}
+
+.inline-feedback-form textarea:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+}
+
+.inline-feedback-form .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 6px;
 }
 
 .bundle-description {
@@ -421,6 +567,7 @@ body {
     line-height: 1.5;
     display: -webkit-box;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
@@ -692,4 +839,276 @@ body {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* Feedback Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.modal-content {
+    position: relative;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    font-size: 28px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.modal-close:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.feedback-summary {
+    margin-bottom: 24px;
+    padding: 16px;
+    background: var(--vscode-textBlockQuote-background);
+    border-left: 4px solid var(--vscode-focusBorder);
+    border-radius: 4px;
+}
+
+.rating-overview {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 16px;
+}
+
+.rating-large {
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.rating-stars-large {
+    font-size: 24px;
+    color: #ffa500;
+    line-height: 1;
+}
+
+.rating-count {
+    font-size: 14px;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 4px;
+}
+
+.rating-bars {
+    flex: 1;
+}
+
+.rating-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.rating-bar-label {
+    font-size: 12px;
+    width: 60px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.rating-bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--vscode-input-background);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.rating-bar-fill {
+    height: 100%;
+    background: #ffa500;
+    transition: width 0.3s ease;
+}
+
+.rating-bar-count {
+    font-size: 12px;
+    width: 40px;
+    text-align: right;
+    color: var(--vscode-descriptionForeground);
+}
+
+.feedback-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.feedback-item {
+    padding: 16px;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+}
+
+.feedback-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.feedback-rating {
+    color: #ffa500;
+    font-size: 16px;
+}
+
+.feedback-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.feedback-version {
+    padding: 2px 6px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.feedback-comment {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--vscode-foreground);
+}
+
+.feedback-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.feedback-empty-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+}
+
+/* Rating badge on marketplace tiles (populated from bundleRating view-model field) */
+.rating-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+.rating-stars {
+  color: var(--vscode-charts-yellow, #d4a526);
+}
+.rating-count {
+  color: var(--vscode-descriptionForeground);
+}
+.rating-badge .star {
+  display: inline-block;
+  line-height: 1;
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground);
+}
+.rating-badge .star-filled {
+  color: var(--vscode-charts-yellow, #d4a526);
+}
+.rating-badge .star-empty {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.35;
+}
+.rating-badge .rating-stars {
+  display: inline-flex;
+  gap: 1px;
+}
+.rating-badge .rating-count {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+.rating-badge .star[data-action="rateBundle"] {
+  cursor: pointer;
+  transition: color 0.1s ease, transform 0.1s ease;
+}
+.rating-badge .star[data-action="rateBundle"]:hover,
+.rating-badge .star[data-action="rateBundle"]:focus {
+  color: var(--vscode-charts-yellow, #d4a526);
+  transform: scale(1.1);
+  outline: none;
+}
+
+#feedbackCollectModal .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+#feedbackCollectModal textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 3px;
+  resize: vertical;
+  box-sizing: border-box;
 }

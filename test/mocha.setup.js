@@ -202,12 +202,27 @@ const vscode = {
             toString: () => `${base.scheme}://${joined}`
         };
     },
-    parse: (value) => ({
-        fsPath: value,
-        scheme: value.startsWith('http') ? value.split('://')[0] : 'file',
-        path: value,
-        toString: () => value
-    })
+    parse: (value) => {
+        let scheme = 'file';
+        let path = value;
+        let query = '';
+        if (value.startsWith('http')) {
+            scheme = value.split('://')[0];
+        }
+        const qIdx = value.indexOf('?');
+        if (qIdx !== -1) {
+            query = value.substring(qIdx + 1);
+            path = value.substring(0, qIdx);
+        }
+        return {
+            fsPath: value,
+            scheme,
+            path,
+            query,
+            fragment: '',
+            toString: () => value
+        };
+    }
   },
   EventEmitter: class EventEmitter {
     constructor() {

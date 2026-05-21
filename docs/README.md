@@ -32,6 +32,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Architecture](contributor-guide/architecture.md)** — System overview
   - [Adapters](contributor-guide/architecture/adapters.md)
   - [Authentication](contributor-guide/architecture/authentication.md)
+  - [Engagement](contributor-guide/architecture/engagement.md)
   - [Installation Flow](contributor-guide/architecture/installation-flow.md)
   - [Update System](contributor-guide/architecture/update-system.md)
   - [UI Components](contributor-guide/architecture/ui-components.md)
@@ -52,6 +53,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Commands](reference/commands.md)** — VS Code commands
 - **[Settings](reference/settings.md)** — Extension settings
 - **[Adapter API](reference/adapter-api.md)** — Custom adapters
+- **[Engagement API](reference/engagement-api.md)** — Ratings and feedback API
 - **[Hub Schema](reference/hub-schema.md)** — Hub configuration
 
 ---

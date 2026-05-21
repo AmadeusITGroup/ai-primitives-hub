@@ -219,6 +219,22 @@ export function generateLegacyHubSourceId(
 }
 
 /**
+ * Parse a composite "sourceId:bundleId" string into its components.
+ * Handles bundle IDs that contain colons (takes first segment as sourceId, rest as bundleId).
+ * @param resourceId Composite resource identifier in "sourceId:bundleId" format
+ */
+export function parseCompositeResourceId(resourceId: string): { sourceId: string; bundleId: string } {
+  const colonIndex = resourceId.indexOf(':');
+  if (colonIndex === -1) {
+    return { sourceId: '', bundleId: resourceId };
+  }
+  return {
+    sourceId: resourceId.substring(0, colonIndex),
+    bundleId: resourceId.substring(colonIndex + 1)
+  };
+}
+
+/**
  * Generate a legacy hub key using pre-v2 normalization (host-only lowercase).
  * `@migration-cleanup(sourceId-normalization-v2)`: Remove once all lockfiles are migrated
  * Returns undefined if the legacy key is identical to the current key.

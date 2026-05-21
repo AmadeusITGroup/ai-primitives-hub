@@ -8,13 +8,36 @@ WebView-based marketplace with tiles, search, and filters.
 
 ```mermaid
 graph TD
-    A["Webview (HTML/JS)<br/>Search | Filters | Bundle Tiles"] 
+    A["Webview (HTML/JS/CSS)<br/>Search | Filters | Bundle Tiles"] 
     B["MarketplaceViewProvider<br/>(TypeScript)"]
     C["RegistryManager"]
     
     A -->|postMessage| B
     B --> C
 ```
+
+### File Structure
+
+Webview assets are externalized for maintainability and CSP compliance:
+
+```
+src/ui/webview/
+├── marketplace/
+│   ├── marketplace.html    # HTML template with placeholders
+│   ├── marketplace.css     # Styles
+│   └── marketplace.js      # Client-side logic (IIFE pattern)
+├── bundleDetails/
+│   ├── bundleDetails.html  # HTML template with placeholders
+│   ├── bundleDetails.css   # Styles
+│   └── bundleDetails.js    # Client-side logic (IIFE pattern)
+└── shared/                 # Shared assets (if any)
+```
+
+**Key patterns:**
+- **HTML templates** use `{{placeholder}}` syntax replaced at runtime by TypeScript
+- **JavaScript** uses IIFE pattern with event delegation for CSP compliance
+- **No inline event handlers** — use `data-action` attributes instead of `onclick`
+- **Nonce-based CSP** — all `<script>` tags require `nonce="{{nonce}}"`
 
 ### Message Types
 
@@ -31,6 +54,7 @@ graph TD
 | `getVersions` | Webview → Host | Get available versions |
 | `toggleAutoUpdate` | Webview → Host | Toggle auto-update |
 | `openSourceRepository` | Webview → Host | Open source repo |
+| `feedback` | Webview → Host | Open unified feedback dialog |
 
 ### Interaction Flow
 

@@ -9,19 +9,35 @@
   let selectedTags = [];
   let showInstalledOnly = false;
   let setupState = 'complete'; // Default to complete to avoid showing setup prompt unnecessarily
+  let pendingFeedbackContext = null; // { bundleId, sourceId, stars }
   let sourcesCount = 0;
 
   // Handle messages from extension
   window.addEventListener('message', (event) => {
     const message = event.data;
 
-    if (message.type === 'bundlesLoaded') {
-      allBundles = message.bundles;
-      filterOptions = message.filterOptions || { tags: [], sources: [] };
-      setupState = message.setupState || 'complete';
-      sourcesCount = message.sourcesCount || 0;
-      updateFilterUI();
-      renderBundles();
+    switch (message.type) {
+      case 'bundlesLoaded': {
+        allBundles = message.bundles;
+        filterOptions = message.filterOptions || { tags: [], sources: [] };
+        setupState = message.setupState || 'complete';
+        sourcesCount = message.sourcesCount || 0;
+        updateFilterUI();
+        renderBundles();
+
+        break;
+      }
+      case 'updateRating': {
+        updateRatingOnTile(message.bundleId, message.sourceId, message.bundleRating);
+
+        break;
+      }
+      case 'openFeedbackModal': {
+        openFeedbackCollectModal(message.bundleId, message.sourceId, message.stars, message.bundleName);
+
+        break;
+      }
+    // No default
     }
   });
 
@@ -408,12 +424,13 @@
         + (bundle.installed && bundle.autoUpdateEnabled ? '<div class="installed-badge">🔄 Auto-Update</div>' : (bundle.installed ? '<div class="installed-badge">✓ Installed</div>' : ''))
 
         + '<div class="bundle-header">'
-        + '<div class="bundle-title">' + bundle.name + '</div>'
-        + '<div class="bundle-author">by ' + (bundle.author || 'Unknown') + ' • ' + formatVersionLabel(bundle.version) + '</div>'
+        + '<div class="bundle-title">' + escapeHtml(bundle.name) + '</div>'
+        + '<div class="bundle-author">by ' + escapeHtml(bundle.author || 'Unknown') + ' • ' + formatVersionLabel(bundle.version) + '</div>'
+        + renderRatingBadge(bundle.bundleRating)
         + '</div>'
 
         + '<div class="bundle-description">'
-        + (bundle.description || 'No description available')
+        + escapeHtml(bundle.description || 'No description available')
         + '</div>'
 
         + '<div class="content-breakdown">'
@@ -426,7 +443,7 @@
 
         + '<div class="bundle-tags">'
         + (bundle.tags || []).slice(0, 4).map((tag) => {
-          return '<span class="tag">' + tag + '</span>';
+          return '<span class="tag">' + escapeHtml(tag) + '</span>';
         }).join('')
         + '</div>'
 
@@ -527,6 +544,87 @@
     return '<button class="btn btn-primary" data-action="installBundle" data-bundle-id="' + bundle.id + '">Install</button>';
   };
 
+  const escapeHtml = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  const escapeAttr = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+  const renderRatingBadge = (rating) => {
+    if (!rating || !rating.voteCount) {
+      return '';
+    }
+    const stars = Math.round(rating.starRating || 0);
+    const bundleId = rating.bundleId || '';
+    const sourceId = rating.sourceId || '';
+    const glyphs = [1, 2, 3, 4, 5].map((n) => {
+      const cls = n <= stars ? 'star-filled' : 'star-empty';
+      return '<span class="star ' + cls + '" '
+        + 'data-action="rateBundle" '
+        + 'data-bundle-id="' + escapeAttr(bundleId) + '" '
+        + 'data-source-id="' + escapeAttr(sourceId) + '" '
+        + 'data-star="' + n + '" '
+        + 'role="button" '
+        + 'title="Rate ' + n + ' star' + (n === 1 ? '' : 's') + '">★</span>';
+    }).join('');
+    return '<div class="rating-badge" data-stop-propagation="true">'
+      + '<span class="rating-stars">' + glyphs + '</span>'
+      + '<span class="rating-count">(' + rating.voteCount + ')</span>'
+      + '</div>';
+  };
+
+  // Minimal CSS attribute-value escape for use in querySelector attribute selectors.
+  // Uses the platform CSS.escape when available; otherwise a safe fallback that
+  // escapes backslashes and double quotes (the only characters we embed inside "...").
+  const cssEscapeAttr = (value) => {
+    var str = String(value == null ? '' : value);
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+      return CSS.escape(str);
+    }
+    return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  };
+
+  // Update a bundle tile's rating badge in place, without a full re-render.
+  // Also syncs the cached rating back into allBundles so subsequent filter/search
+  // re-renders don't revert to a stale value.
+  const updateRatingOnTile = (bundleId, sourceId, bundleRating) => {
+    var tiles = document.querySelectorAll('.bundle-card[data-bundle-id="' + cssEscapeAttr(bundleId) + '"]');
+    tiles.forEach((tile) => {
+      var existingBadge = tile.querySelector('.rating-badge');
+      var newBadgeHtml = renderRatingBadge(bundleRating);
+
+      if (existingBadge) {
+        if (newBadgeHtml) {
+          var tempReplace = document.createElement('div');
+          tempReplace.innerHTML = newBadgeHtml;
+          var newBadge = tempReplace.firstChild;
+          if (newBadge) {
+            existingBadge.replaceWith(newBadge);
+          }
+        } else {
+          existingBadge.remove();
+        }
+      } else if (newBadgeHtml) {
+        var header = tile.querySelector('.bundle-header');
+        if (header) {
+          var tempAppend = document.createElement('div');
+          tempAppend.innerHTML = newBadgeHtml;
+          var addedBadge = tempAppend.firstChild;
+          if (addedBadge) {
+            header.append(addedBadge);
+          }
+        }
+      }
+    });
+
+    // Keep the in-memory bundle list in sync so re-renders pick up the new rating.
+    if (Array.isArray(allBundles)) {
+      var match = allBundles.find((b) => {
+        return b && b.id === bundleId && (!sourceId || b.sourceId === sourceId);
+      });
+      if (match) {
+        match.bundleRating = bundleRating;
+      }
+    }
+  };
+
   const renderContentItem = (icon, label, count) => {
     if (count === 0) {
       return '';
@@ -556,6 +654,48 @@
 
   const openSourceRepo = (bundleId) => {
     vscode.postMessage({ type: 'openSourceRepository', bundleId: bundleId });
+  };
+
+  const rateBundle = (bundleId, sourceId, stars) => {
+    vscode.postMessage({ type: 'rateBundle', bundleId: bundleId, sourceId: sourceId, stars: stars });
+  };
+
+  const resolveBundleName = (bundleId) => {
+    if (!Array.isArray(allBundles)) {
+      return undefined;
+    }
+    const b = allBundles.find((x) => x && x.id === bundleId);
+    return b ? b.name : undefined;
+  };
+
+  const openFeedbackCollectModal = (bundleId, sourceId, stars, bundleName) => {
+    pendingFeedbackContext = { bundleId: bundleId, sourceId: sourceId, stars: stars };
+    const modal = document.querySelector('#feedbackCollectModal');
+    const textarea = document.querySelector('#feedbackCollectText');
+    const prompt = document.querySelector('#feedbackCollectPrompt');
+    if (textarea) {
+      textarea.value = '';
+    }
+    const resolvedName = bundleName || resolveBundleName(bundleId);
+    if (prompt && resolvedName) {
+      prompt.textContent = 'You rated "' + resolvedName + '" ' + stars + ' star' + (stars === 1 ? '' : 's') + '. Would you like to share any comments? (optional)';
+    } else if (prompt) {
+      prompt.textContent = 'You rated ' + stars + ' star' + (stars === 1 ? '' : 's') + '. Would you like to share any comments? (optional)';
+    }
+    if (modal) {
+      modal.style.display = 'flex';
+    }
+    if (textarea) {
+      textarea.focus();
+    }
+  };
+
+  const closeFeedbackCollectModal = () => {
+    const modal = document.querySelector('#feedbackCollectModal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+    pendingFeedbackContext = null;
   };
 
   const completeSetup = () => {
@@ -670,6 +810,36 @@
         case 'completeSetup': {
           e.stopPropagation();
           completeSetup();
+          break;
+        }
+        case 'rateBundle': {
+          e.stopPropagation();
+          var stars = Number.parseInt(actionElement.dataset.star, 10);
+          var sourceId = actionElement.dataset.sourceId;
+          if (bundleId && sourceId && stars >= 1 && stars <= 5) {
+            rateBundle(bundleId, sourceId, stars);
+          }
+          break;
+        }
+        case 'cancelFeedbackCollect': {
+          e.stopPropagation();
+          closeFeedbackCollectModal();
+          break;
+        }
+        case 'submitFeedbackCollect': {
+          e.stopPropagation();
+          if (pendingFeedbackContext) {
+            const textarea = document.querySelector('#feedbackCollectText');
+            const comment = textarea ? textarea.value.trim() : '';
+            vscode.postMessage({
+              type: 'submitFeedback',
+              bundleId: pendingFeedbackContext.bundleId,
+              sourceId: pendingFeedbackContext.sourceId,
+              stars: pendingFeedbackContext.stars,
+              comment: comment
+            });
+            closeFeedbackCollectModal();
+          }
           break;
         }
       }

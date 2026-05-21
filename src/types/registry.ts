@@ -2,6 +2,9 @@
  * Core type definitions for the Prompt Registry system
  */
 import {
+  CachedRating,
+} from './engagement';
+import {
   McpServersManifest,
 } from './mcp';
 
@@ -79,6 +82,7 @@ export interface Bundle {
     algorithm: string;
     hash: string;
   };
+  bundleRating?: CachedRating; // Optional rating summary for UI rating badge (populated from RatingCache)
 }
 
 /**
