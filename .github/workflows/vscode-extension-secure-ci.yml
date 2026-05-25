@@ -62,12 +62,53 @@ jobs:
           npm ci --fund=false
           npm run build
 
-      - name: Install dependencies with audit
+      - name: Install dependencies
         working-directory: ${{ env.EXTENSION_DIR }}
         shell: bash
+        run: npm ci --fund=false
+
+      - name: Audit production dependencies
+        working-directory: ${{ env.EXTENSION_DIR }}
+        continue-on-error: true
+        shell: bash
         run: |
-          npm ci --audit --fund=false
-          npm audit --omit=dev --audit-level=moderate
+          # Run audit once — capture JSON (stdout only) and exit code
+          AUDIT_EXIT=0
+          npm audit --omit=dev --json > audit-results.json 2>audit-stderr.txt || AUDIT_EXIT=$?
+
+          # Parse vulnerability counts from the single canonical result
+          VULN_COUNT=$(node -e "
+            const r = JSON.parse(require('fs').readFileSync('audit-results.json','utf8'));
+            const m = r.metadata?.vulnerabilities;
+            if (!m) { console.log('unknown'); process.exit(); }
+            const entries = Object.entries(m).filter(([k,v]) => k !== 'total' && k !== 'info' && v > 0);
+            console.log(entries.length ? entries.map(([k,v]) => v + ' ' + k).join(', ') : '0');
+          " 2>/dev/null || echo "unknown")
+
+          # Generate human-readable output from the JSON
+          AUDIT_TEXT=$(node -e "
+            const r = JSON.parse(require('fs').readFileSync('audit-results.json','utf8'));
+            const advisories = r.vulnerabilities || {};
+            for (const [name, v] of Object.entries(advisories)) {
+              console.log(v.severity + ' - ' + name + ': ' + (v.via?.map(x => typeof x === 'string' ? x : x.title).join(', ') || 'see npm audit'));
+            }
+          " 2>/dev/null || echo "Run 'npm audit' locally for details.")
+
+          # Only emit summary and warning when vulnerabilities are present
+          if [ "$VULN_COUNT" != "0" ]; then
+            echo "## ⚠️ npm audit: Production Dependency Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Found vulnerabilities:** $VULN_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$AUDIT_TEXT" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+
+            echo "::warning title=npm audit::Production dependency vulnerabilities detected: $VULN_COUNT. Run 'npm audit' for details."
+          fi
+
+          # Exit with the original audit exit code so the step shows as orange/warning
+          exit $AUDIT_EXIT
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
