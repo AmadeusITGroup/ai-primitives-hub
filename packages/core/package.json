@@ -26,8 +26,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src test",
-    "lint:fix": "eslint src test --fix",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {

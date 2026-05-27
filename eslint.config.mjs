@@ -20,13 +20,14 @@ export default defineConfig([
       '**/*.d.ts',
       'node_modules/',
       'test/**/*.js',
-      'lib/'
+      'lib/',
+      'packages/*/test/**/*'
     ],
     'prompt-registry/ignores'
   ),
   ...createSharedConfig({
     name: 'prompt-registry',
-    tsProjects: ['tsconfig.json', 'tsconfig.test.json', 'packages/core/tsconfig.json', 'packages/core/tsconfig.test.json'],
+    tsProjects: ['tsconfig.json', 'tsconfig.test.json'],
     tsconfigRootDir: import.meta.dirname,
     nodeGlobFiles: ['src/**/*.ts']
   }),
