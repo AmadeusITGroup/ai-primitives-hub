@@ -323,6 +323,28 @@ importers:
         specifier: ^4.1.7
         version: 4.1.7(@types/node@20.19.41)(@vitest/coverage-v8@4.1.7)(vite@8.0.14)
 
+  packages/sdk:
+    dependencies:
+      '@prompt-registry/app':
+        specifier: workspace:*
+        version: link:../app
+      '@prompt-registry/core':
+        specifier: workspace:*
+        version: link:../core
+      '@prompt-registry/infra':
+        specifier: workspace:*
+        version: link:../infra
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^4.1.7
+        version: 4.1.7(vitest@4.1.7)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.7(@types/node@20.19.41)(@vitest/coverage-v8@4.1.7)(vite@8.0.14)
+
 packages:
 
   /@algolia/abtesting@1.14.1:
