@@ -62,6 +62,7 @@ describe('domain barrel shape', () => {
         'validateManifest',
         'validateSkillDescription',
         'validateSkillName',
+        'validateTargetLayoutsConfig',
         'validateVersion'
       ]);
     });

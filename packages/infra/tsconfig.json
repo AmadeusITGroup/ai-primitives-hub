@@ -14,8 +14,8 @@
     "moduleResolution": "node",
     "composite": true
   },
-  "include": ["src/**/*", "src/**/*.json"],
-  "exclude": ["node_modules", "dist", "test"],
+  "include": ["src/**/*", "src/**/*.json", "test/**/*"],
+  "exclude": ["node_modules", "dist"],
   "references": [
     { "path": "../core" }
   ]
