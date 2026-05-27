@@ -16,7 +16,7 @@ import {
   validateSkillDescription,
   validateSkillFolder,
   validateSkillName,
-} from '../src/skills';
+} from '@prompt-registry/cli';
 
 function createTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -219,7 +219,7 @@ description: "Second skill description"
       const result = validateAllSkills(tempDir, 'skills');
       assert.strictEqual(result.valid, false);
       // The second skill should have a "does not match" error
-      assert.ok(result.skills.some((s) => s.errors.some((e) => e.includes('does not match'))));
+      assert.ok(result.skills.some((s) => s.errors.some((e: string) => e.includes('does not match'))));
     });
   });
 

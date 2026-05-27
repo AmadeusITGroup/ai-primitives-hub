@@ -7,7 +7,7 @@ import {
   hasFlag,
   parseMultiArg,
   parseSingleArg,
-} from '@prompt-registry/cli';
+} from '../src/cli';
 
 describe('CLI Module', () => {
   describe('parseSingleArg()', () => {

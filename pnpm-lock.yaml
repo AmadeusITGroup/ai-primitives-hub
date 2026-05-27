@@ -192,6 +192,9 @@ importers:
       '@prompt-registry/app':
         specifier: workspace:*
         version: link:../packages/app
+      '@prompt-registry/cli':
+        specifier: workspace:*
+        version: link:../packages/cli
       '@prompt-registry/core':
         specifier: workspace:*
         version: link:../packages/core

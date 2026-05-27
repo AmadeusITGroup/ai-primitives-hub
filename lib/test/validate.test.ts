@@ -16,7 +16,7 @@ import {
   validateItemKind,
   validateVersion,
   VALIDATION_RULES,
-} from '../src/validate';
+} from '@prompt-registry/cli';
 
 function createTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -387,7 +387,7 @@ items: []
         'collections/second.collection.yml'
       ]);
       assert.strictEqual(result.ok, false);
-      assert.ok(result.errors.some((e) => e.includes('Duplicate collection name')));
+      assert.ok(result.errors.some((e: string) => e.includes('Duplicate collection name')));
     });
   });
 

@@ -4,7 +4,7 @@
 import * as assert from 'node:assert';
 import {
   generateBundleId,
-} from '../src/bundle-id';
+} from '@prompt-registry/cli';
 
 describe('Bundle ID Module', () => {
   describe('generateBundleId()', () => {
