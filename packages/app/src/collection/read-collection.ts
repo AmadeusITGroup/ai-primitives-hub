@@ -12,11 +12,11 @@ import type {
   AllCollectionsResult,
   Collection,
   FileValidationResult,
-} from '../../domain/collection/types';
+} from '@prompt-registry/core';
 import {
   normalizeRepoRelativePath,
   validateCollectionObject,
-} from '../../domain/collection/validate';
+} from '@prompt-registry/core';
 
 /**
  * Load valid item kinds from the JSON schema (single source of truth).

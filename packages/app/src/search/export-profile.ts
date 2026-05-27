@@ -5,11 +5,11 @@
 
 import type {
   PrimitiveIndex,
-} from '../../infra/search/primitive-index';
+} from '@prompt-registry/infra';
 import type {
   Primitive,
   Shortlist,
-} from '../../infra/search/types';
+} from '@prompt-registry/infra';
 
 export interface HubProfileBundleRef {
   id: string;

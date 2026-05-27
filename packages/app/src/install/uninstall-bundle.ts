@@ -10,16 +10,16 @@ import {
   UninstallPipeline,
   type UninstallPlan,
   type UninstallResult,
-} from '../../app/install/uninstall-pipeline';
+} from '../install/uninstall-pipeline';
 import type {
   Target,
-} from '../../domain/install';
+} from '@prompt-registry/core';
 import type {
   FileSystem,
-} from '../../ports/filesystem';
+} from '@prompt-registry/core';
 import type {
   TargetWriter,
-} from '../../ports/target-writer';
+} from '@prompt-registry/core';
 
 export interface UninstallBundleInput {
   bundleId?: string;

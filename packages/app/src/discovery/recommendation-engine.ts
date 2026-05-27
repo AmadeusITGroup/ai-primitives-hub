@@ -8,10 +8,10 @@
 import type {
   DiscoveryOptions,
   ResourceRecommendation,
-} from '../../domain/discovery/types';
+} from '@prompt-registry/core';
 import type {
   CopilotSdk,
-} from '../../ports/copilot-sdk';
+} from '@prompt-registry/core';
 import type {
   DetectedContext,
 } from '../context-detection';

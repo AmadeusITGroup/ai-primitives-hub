@@ -13,12 +13,12 @@
  */
 import type {
   Target,
-} from '../../domain/install';
+} from '@prompt-registry/core';
 import type {
   ScopedLayoutDef,
   TargetLayout,
   TargetLayoutsConfig,
-} from '../../domain/install/layout';
+} from '@prompt-registry/core';
 
 /** Workspace-root token resolved from target at install time. */
 const WORKSPACE_ROOT_TOKEN = '${workspaceRoot}';

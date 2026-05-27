@@ -1,0 +1,142 @@
+{
+  "layouts": {
+    "vscode": {
+      "user": {
+        "baseDir": "${HOME}/.config/Code/User",
+        "kindRoutes": {
+          "prompts/": "prompts/",
+          "chatmodes/": "chatmodes/",
+          "instructions/": "instructions/",
+          "skills/": "skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".github/prompts/",
+          "chatmodes/": ".github/chatmodes/",
+          "instructions/": ".github/instructions/",
+          "skills/": ".github/skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    },
+    "vscode-insiders": {
+      "user": {
+        "baseDir": "${HOME}/.config/Code - Insiders/User",
+        "kindRoutes": {
+          "prompts/": "prompts/",
+          "chatmodes/": "chatmodes/",
+          "instructions/": "instructions/",
+          "skills/": "skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".github/prompts/",
+          "chatmodes/": ".github/chatmodes/",
+          "instructions/": ".github/instructions/",
+          "skills/": ".github/skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    },
+    "copilot-cli": {
+      "user": {
+        "baseDir": "${HOME}/.copilot",
+        "kindRoutes": {
+          "prompts/": "prompts/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "prompt-registry/prompts/": "prompts/",
+          "prompt-registry/agents/": "agents/",
+          "prompt-registry/skills/": "skills/",
+          "prompt-registry/instructions/": "instructions/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".github/prompts/",
+          "agents/": ".github/agents/",
+          "skills/": ".github/skills/",
+          "prompt-registry/prompts/": ".github/prompts/",
+          "prompt-registry/agents/": ".github/agents/",
+          "prompt-registry/skills/": ".github/skills/",
+          "prompt-registry/instructions/": ".github/instructions/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
+      }
+    },
+    "kiro": {
+      "user": {
+        "baseDir": "${HOME}/.kiro",
+        "kindRoutes": {
+          "prompts/": "steering/",
+          "agents/": "agents/",
+          "instructions/": "steering/",
+          "skills/": "skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".kiro/steering/",
+          "agents/": ".kiro/agents/",
+          "instructions/": ".kiro/steering/",
+          "skills/": ".kiro/skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    },
+    "windsurf": {
+      "user": {
+        "baseDir": "${HOME}/.codeium/windsurf",
+        "kindRoutes": {
+          "prompts/": "rules/",
+          "instructions/": "rules/",
+          "skills/": "skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".windsurf/rules/",
+          "instructions/": ".windsurf/rules/",
+          "skills/": ".windsurf/skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    },
+    "claude-code": {
+      "user": {
+        "baseDir": "${HOME}/.claude",
+        "kindRoutes": {
+          "prompts/": "commands/",
+          "agents/": "agents/",
+          "instructions/": "instructions/",
+          "chatmodes/": "modes/",
+          "skills/": "skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".claude/commands/",
+          "agents/": ".claude/agents/",
+          "instructions/": ".claude/instructions/",
+          "chatmodes/": ".claude/modes/",
+          "skills/": ".claude/skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    }
+  }
+}

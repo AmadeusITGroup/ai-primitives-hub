@@ -18,25 +18,25 @@
 import {
   type ValidatedManifest,
   validateManifest,
-} from '../../domain';
+} from '@prompt-registry/core';
 import type {
   BundleSpec,
   Installable,
   Target,
-} from '../../domain/install';
+} from '@prompt-registry/core';
 import type {
   TargetWriter,
   TargetWriteResult,
-} from '../../infra/writers/file-tree-writer';
+} from '../writers/file-tree-writer';
 import type {
   BundleDownloader,
-} from '../../ports/bundle-downloader';
+} from '@prompt-registry/core';
 import type {
   BundleExtractor,
-} from '../../ports/bundle-extractor';
+} from '@prompt-registry/core';
 import type {
   BundleResolver,
-} from '../../ports/source-resolver';
+} from '@prompt-registry/core';
 
 /**
  * Pipeline events emitted during install.

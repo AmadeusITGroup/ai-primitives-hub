@@ -13,21 +13,21 @@
 
 import type {
   Target,
-} from '../../domain/install';
+} from '@prompt-registry/core';
 import type {
   LockfileEntry,
-} from '../../infra/stores/json-lockfile-store';
+} from '../stores/json-lockfile-store';
 import {
   readLockfile,
   removeEntry,
   writeLockfile,
-} from '../../infra/stores/json-lockfile-store';
+} from '../stores/json-lockfile-store';
 import type {
   TargetWriter,
-} from '../../infra/writers/file-tree-writer';
+} from '../writers/file-tree-writer';
 import type {
   FileSystem,
-} from '../../ports/filesystem';
+} from '@prompt-registry/core';
 
 /**
  * Options for uninstall pipeline.

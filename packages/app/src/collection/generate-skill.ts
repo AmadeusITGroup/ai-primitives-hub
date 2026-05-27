@@ -11,13 +11,13 @@ import * as path from 'node:path';
 import type {
   AllSkillsValidationResult,
   SkillValidationResult,
-} from '../../domain/skill/validate';
+} from '@prompt-registry/core';
 import {
   MAX_ASSET_SIZE,
   parseFrontmatter,
   validateSkillDescription,
   validateSkillName,
-} from '../../domain/skill/validate';
+} from '@prompt-registry/core';
 
 /**
  * Validate a single skill folder.

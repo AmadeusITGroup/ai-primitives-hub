@@ -8,7 +8,7 @@
 import type {
   ProfileDraft,
   ResourceSelection,
-} from '../../domain/discovery/types';
+} from '@prompt-registry/core';
 
 /**
  * Profile generator class.

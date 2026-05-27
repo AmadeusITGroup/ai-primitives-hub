@@ -26,41 +26,41 @@ import {
   type ProfileActivationState,
   type RegistrySource,
   type Target,
-} from '../../domain';
+} from '@prompt-registry/core';
 import {
   validateManifest,
-} from '../../domain';
+} from '@prompt-registry/core';
 import {
   type Installable,
-} from '../../domain/install';
+} from '@prompt-registry/core';
 import {
   HttpsBundleDownloader,
-} from '../../infra/downloaders/https-downloader';
+} from '@prompt-registry/infra';
 import {
   YauzlBundleExtractor,
-} from '../../infra/extractors/yauzl-extractor';
+} from '@prompt-registry/infra';
 import {
   AssetFetcher,
-} from '../../infra/github/asset-fetcher';
+} from '@prompt-registry/infra';
 import {
   readLocalBundle,
-} from '../../infra/resolvers/local-resolver';
+} from '@prompt-registry/infra';
 import {
   SourceDispatcher,
-} from '../../infra/resolvers/resolver-registry';
+} from '../resolvers/resolver-registry';
 import {
   FileTreeTargetWriter,
-} from '../../infra/writers/file-tree-writer';
+} from '../writers/file-tree-writer';
 import {
   type ExtractedFiles,
-} from '../../ports/bundle-extractor';
+} from '@prompt-registry/core';
 import type {
   FileSystem,
-} from '../../ports/filesystem';
+} from '@prompt-registry/core';
 import {
   type HttpClient,
   type TokenProvider,
-} from '../../ports/http';
+} from '@prompt-registry/core';
 
 export interface ProfileActivatorDeps {
   /** Filesystem abstraction. */

@@ -11,23 +11,23 @@ import {
   type InstallOutcome,
   InstallPipeline,
   type PipelineEvent,
-} from '../../app/install/pipeline';
+} from '../install/pipeline';
 import type {
   BundleSpec,
   Target,
-} from '../../domain/install';
+} from '@prompt-registry/core';
 import type {
   BundleDownloader,
-} from '../../ports/bundle-downloader';
+} from '@prompt-registry/core';
 import type {
   BundleExtractor,
-} from '../../ports/bundle-extractor';
+} from '@prompt-registry/core';
 import type {
   BundleResolver,
-} from '../../ports/source-resolver';
+} from '@prompt-registry/core';
 import type {
   TargetWriter,
-} from '../../ports/target-writer';
+} from '@prompt-registry/core';
 
 export interface InstallBundleInput {
   spec: BundleSpec;

@@ -17,16 +17,16 @@ import {
   type HubReference,
   type Profile,
   type RegistrySource,
-} from '../../domain/registry';
+} from '@prompt-registry/core';
 import {
   type HubResolver,
-} from '../../infra/resolvers/hub-resolver';
+} from '@prompt-registry/infra';
 import {
   ActiveHubStore,
-} from '../../infra/stores/active-hub-store';
+} from '@prompt-registry/infra';
 import {
   HubStore,
-} from '../../infra/stores/yaml-hub-store';
+} from '@prompt-registry/infra';
 
 export interface HubInfo {
   id: string;
