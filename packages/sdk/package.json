@@ -32,8 +32,7 @@
   },
   "dependencies": {
     "@prompt-registry/core": "workspace:*",
-    "@prompt-registry/infra": "workspace:*",
-    "@prompt-registry/app": "workspace:*"
+    "@prompt-registry/infra": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.7",
