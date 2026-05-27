@@ -1,0 +1,153 @@
+{
+  "description": "Realistic golden-set for pattern-based relevance eval against the combined Amadeus + github/awesome-copilot live index. Each case represents a real user query; mustMatch patterns are regex-based so the gold set survives re-harvests.",
+  "cases": [
+    {
+      "id": "code-review",
+      "query": { "q": "code review" },
+      "mustMatch": [
+        { "title": "code[- ]review|review.*code" }
+      ],
+      "shouldMatch": [
+        { "kind": "skill" },
+        { "sourceId": "rail-context|ai-engineering-primitives|clean-code-in-the-cloud" }
+      ]
+    },
+    {
+      "id": "typescript-mcp",
+      "query": { "q": "typescript mcp server" },
+      "mustMatch": [
+        { "title": "typescript-mcp-server-generator" },
+        { "bundleId": "typescript-mcp-development" }
+      ]
+    },
+    {
+      "id": "python-best-practices",
+      "query": { "q": "python best practices" },
+      "mustMatch": [
+        { "title": "python" }
+      ]
+    },
+    {
+      "id": "azure-cost",
+      "query": { "q": "azure cost optimization" },
+      "mustMatch": [
+        { "title": "az-cost-optimize|azure.*cost|cost.*optim" }
+      ],
+      "shouldMatch": [
+        { "bundleId": "azure-cloud-development" }
+      ]
+    },
+    {
+      "id": "azure-pricing",
+      "query": { "q": "azure pricing" },
+      "mustMatch": [
+        { "title": "azure-pricing" }
+      ]
+    },
+    {
+      "id": "swift-mcp",
+      "query": { "q": "swift development" },
+      "mustMatch": [
+        { "bundleId": "swift-mcp-development|swift" }
+      ]
+    },
+    {
+      "id": "git-commit",
+      "query": { "q": "git commit message" },
+      "mustMatch": [
+        { "title": "commit|git" }
+      ]
+    },
+    {
+      "id": "testing-guidelines",
+      "query": { "q": "unit testing guidelines" },
+      "mustMatch": [
+        { "title": "testing|test.*guideline" }
+      ]
+    },
+    {
+      "id": "architecture-review",
+      "query": { "q": "architecture review" },
+      "mustMatch": [
+        { "title": "arch.*review|architecture" }
+      ]
+    },
+    {
+      "id": "openapi",
+      "query": { "q": "openapi rest api" },
+      "mustMatch": [
+        { "title": "openapi|rest|api" }
+      ]
+    },
+    {
+      "id": "terraform",
+      "query": { "q": "terraform infrastructure" },
+      "mustMatch": [
+        { "title": "infrastructure-as-code|terraform" }
+      ]
+    },
+    {
+      "id": "security",
+      "query": { "q": "security best practices" },
+      "mustMatch": [
+        { "title": "security|best-practice" }
+      ]
+    },
+    {
+      "id": "kubernetes",
+      "query": { "q": "kubernetes helm" },
+      "mustMatch": [
+        { "description": "kubernetes|k8s|helm|container|elasticity" }
+      ]
+    },
+    {
+      "id": "documentation",
+      "query": { "q": "documentation writer" },
+      "mustMatch": [
+        { "description": "docs|documentation" }
+      ]
+    },
+    {
+      "id": "mcp-server-facet",
+      "query": { "q": "mcp", "kinds": ["mcp-server"] },
+      "mustMatch": [
+        { "kind": "mcp-server" }
+      ]
+    },
+    {
+      "id": "skills-only-facet",
+      "query": { "q": "code", "kinds": ["skill"] },
+      "mustMatch": [
+        { "kind": "skill" }
+      ]
+    },
+    {
+      "id": "dotnet",
+      "query": { "q": "dotnet c#" },
+      "mustMatch": [
+        { "title": "dotnet|\\.net|csharp" }
+      ]
+    },
+    {
+      "id": "oracle-migration",
+      "query": { "q": "oracle to postgres migration" },
+      "mustMatch": [
+        { "bundleId": "oracle-to-postgres-migration|oracle" }
+      ]
+    },
+    {
+      "id": "sql-optimization",
+      "query": { "q": "sql query optimization" },
+      "mustMatch": [
+        { "title": "sql" }
+      ]
+    },
+    {
+      "id": "clean-architecture",
+      "query": { "q": "clean architecture" },
+      "mustMatch": [
+        { "title": "architecture|arch-review" }
+      ]
+    }
+  ]
+}
