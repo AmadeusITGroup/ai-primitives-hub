@@ -189,6 +189,9 @@ importers:
 
   lib:
     dependencies:
+      '@prompt-registry/app':
+        specifier: workspace:*
+        version: link:../packages/app
       '@prompt-registry/core':
         specifier: workspace:*
         version: link:../packages/core
