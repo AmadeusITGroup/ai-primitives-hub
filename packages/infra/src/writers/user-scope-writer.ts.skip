@@ -1,0 +1,193 @@
+/**
+ * UserScopeWriter.
+ *
+ * Writer for user-scoped installations. Places bundle files into
+ * user configuration directories based on target type.
+ *
+ * Uses FileTreeTargetWriter internally for file operations and adds
+ * remove capability for uninstall symmetry.
+ *
+ * Mirrors RepositoryScopeWriter's remove functionality but for user
+ * scope (no git exclude handling needed).
+ */
+import * as path from 'node:path';
+import type {
+  Target,
+} from '@prompt-registry/core';
+import type {
+  ExtractedFiles,
+} from '@prompt-registry/core';
+import type {
+  TargetWriter,
+  TargetWriteResult,
+} from '@prompt-registry/core';
+import {
+  expandPath,
+  resolveLayout,
+  type WriterFs,
+} from './file-tree-writer';
+
+/**
+ * Deployment manifest structure (matches test format).
+ */
+interface DeploymentManifest {
+  id?: string;
+  version?: string;
+  name?: string;
+  description?: string;
+  prompts?: { id: string; file: string; type: string }[];
+  agents?: { id: string; file: string; type: string }[];
+  instructions?: { id: string; file: string; type: string }[];
+  skills?: { id: string; file: string; type: string }[];
+}
+
+/**
+ * Options for UserScopeWriter.
+ */
+export interface UserScopeWriterOptions {
+  /** Filesystem abstraction. */
+  fs: WriterFs;
+  /** Process env, used for ${VAR} expansion. */
+  env: Record<string, string | undefined>;
+}
+
+/**
+ * User-scope writer for bundle installations.
+ *
+ * Uses FileTreeTargetWriter internally for write operations
+ * and provides remove capability for uninstall symmetry.
+ */
+export class UserScopeWriter implements TargetWriter {
+  private readonly fs: WriterFs;
+  private readonly env: Record<string, string | undefined>;
+
+  /**
+   * Construct a UserScopeWriter.
+   * @param opts Writer options including filesystem and environment.
+   */
+  public constructor(opts: UserScopeWriterOptions) {
+    this.fs = opts.fs;
+    this.env = opts.env;
+  }
+
+  /**
+   * Pick a route for a bundle path.
+   * @param bundlePath - Path in bundle.
+   * @param routes - Kind routes.
+   * @returns Picked route or null.
+   */
+  private pickRoute(bundlePath: string, routes: Record<string, string>): { prefix: string; outPrefix: string; tail: string } | null {
+    for (const [prefix, outPrefix] of Object.entries(routes)) {
+      if (bundlePath.startsWith(prefix)) {
+        return { prefix, outPrefix, tail: bundlePath.slice(prefix.length) };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Map a layout prefix back to the primitive kind it represents.
+   * @param prefix - Layout prefix (e.g., "prompts/").
+   * @returns Kind name without trailing slash.
+   */
+  private routeToKind(prefix: string): string {
+    return prefix.replace(/\/$/, '');
+  }
+
+  /**
+   * Write the bundle into the target.
+   * Delegates to FileTreeTargetWriter.
+   * @param target - Target chosen via `--target <name>`.
+   * @param files - Extracted bundle files.
+   * @returns TargetWriteResult.
+   */
+  public async write(target: Target, files: ExtractedFiles): Promise<TargetWriteResult> {
+    const layout = resolveLayout(target);
+    const baseDir = expandPath(layout.baseDir, this.env);
+    const skip = new Set(layout.skipPaths);
+    const allowed = target.allowedKinds === undefined ? null : new Set(target.allowedKinds);
+    const written: string[] = [];
+    const skipped: string[] = [];
+
+    // Eager mkdir of the routed-kind directories
+    for (const sub of Object.values(layout.kindRoutes)) {
+      await this.fs.mkdir(path.join(baseDir, sub), { recursive: true });
+    }
+
+    for (const [bundlePath, bytes] of files) {
+      if (skip.has(bundlePath)) {
+        continue;
+      }
+      const route = this.pickRoute(bundlePath, layout.kindRoutes);
+      if (route === null) {
+        skipped.push(bundlePath);
+        continue;
+      }
+      if (allowed !== null && !allowed.has(this.routeToKind(route.prefix))) {
+        skipped.push(bundlePath);
+        continue;
+      }
+      const outPath = path.join(baseDir, route.outPrefix, route.tail);
+      await this.fs.mkdir(path.dirname(outPath), { recursive: true });
+      await this.fs.writeFile(outPath, new TextDecoder().decode(bytes));
+      written.push(outPath);
+    }
+    return { written, skipped };
+  }
+
+  /**
+   * Remove a file from the target.
+   * @param target - Target chosen via `--target <name>`.
+   * @param filePath - Relative file path to remove (from bundle root).
+   */
+  public async remove(target: Target, filePath: string): Promise<void> {
+    const layout = resolveLayout(target);
+    const baseDir = expandPath(layout.baseDir, this.env);
+    const route = this.pickRoute(filePath, layout.kindRoutes);
+    if (route === null) {
+      return; // Unrouted file, nothing to do
+    }
+    const outPath = path.join(baseDir, route.outPrefix, route.tail);
+    await this.fs.remove(outPath);
+  }
+
+  /**
+   * Remove all files for a bundle from user scope.
+   * @param target - Target configuration.
+   * @param manifest - Deployment manifest to determine which files to remove.
+   */
+  public async removeBundle(target: Target, manifest: DeploymentManifest): Promise<void> {
+    const layout = resolveLayout(target);
+    const baseDir = expandPath(layout.baseDir, this.env);
+
+    const pathsToRemove: string[] = [];
+
+    // Collect files to remove from manifest
+    const collectFiles = (items?: { file: string; type: string }[]) => {
+      if (!items) {
+        return;
+      }
+      for (const item of items) {
+        const route = this.pickRoute(item.file, layout.kindRoutes);
+        if (route) {
+          const outPath = path.join(baseDir, route.outPrefix, route.tail);
+          pathsToRemove.push(outPath);
+        }
+      }
+    };
+
+    collectFiles(manifest.prompts);
+    collectFiles(manifest.agents);
+    collectFiles(manifest.instructions);
+    collectFiles(manifest.skills);
+
+    // Remove files
+    for (const p of pathsToRemove) {
+      try {
+        await this.fs.remove(p);
+      } catch {
+        // Ignore errors if file doesn't exist
+      }
+    }
+  }
+}

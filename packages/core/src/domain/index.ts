@@ -31,6 +31,26 @@ export type {
 } from './hub';
 
 export type {
+  Target,
+  TargetType,
+  TargetCommon,
+  VsCodeTarget,
+  CopilotCliTarget,
+  KiroTarget,
+  WindsurfTarget,
+} from './install';
+export { TARGET_TYPES, isTarget } from './install';
+export type { BundleSpec, Installable } from './install';
+export type {
+  ScopedLayoutDef,
+  TargetLayoutDef,
+  TargetLayoutsConfig,
+  KindRoutes,
+  TargetLayout,
+} from './install';
+export { validateTargetLayoutsConfig } from './install';
+
+export type {
   Collection,
   CollectionItem,
   ValidationResult,
@@ -69,19 +89,6 @@ export {
   validateSkillName,
   validateSkillDescription,
 } from './skill/validate';
-
-// Install-related domain types (Target tagged union).
-export type {
-  Target,
-  TargetType,
-  TargetCommon,
-  VsCodeTarget,
-  CopilotCliTarget,
-  KiroTarget,
-  WindsurfTarget,
-} from './install';
-export { TARGET_TYPES, isTarget } from './install';
-export type { BundleSpec, Installable } from './install';
 
 // Registry-config domain (hubs, sources, profiles).
 export type {
