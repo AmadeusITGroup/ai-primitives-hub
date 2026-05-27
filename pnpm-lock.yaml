@@ -189,6 +189,9 @@ importers:
 
   lib:
     dependencies:
+      '@prompt-registry/core':
+        specifier: workspace:*
+        version: link:../packages/core
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
@@ -225,6 +228,22 @@ importers:
         version: 5.9.3
 
   packages/core:
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^4.1.7
+        version: 4.1.7(vitest@4.1.7)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.7(@types/node@20.19.41)(@vitest/coverage-v8@4.1.7)(vite@8.0.14)
+
+  packages/infra:
+    dependencies:
+      '@prompt-registry/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.1.7
