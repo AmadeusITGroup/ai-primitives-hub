@@ -1,0 +1,46 @@
+{
+  "name": "@prompt-registry/app",
+  "version": "1.0.0",
+  "description": "Application layer for Prompt Registry - orchestration, install commands, registry management",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AmadeusITGroup/prompt-registry.git",
+    "directory": "packages/app"
+  },
+  "keywords": [
+    "prompt-registry",
+    "app",
+    "install",
+    "registry",
+    "orchestration"
+  ],
+  "author": "Amadeus IT Group",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@prompt-registry/core": "workspace:*",
+    "@prompt-registry/infra": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
