@@ -1,5 +1,72 @@
 # @prompt-registry/collection-scripts
 
+> **DEPRECATED**: This package is deprecated. Please migrate to the new package structure.
+
+## Migration Guide
+
+The `@prompt-registry/collection-scripts` package has been split into multiple focused packages:
+
+- `@prompt-registry/core` - Core domain types and interfaces
+- `@prompt-registry/infra` - Infrastructure layer (adapters, writers, stores)
+- `@prompt-registry/app` - Application layer (CLI-dependent modules)
+- `@prompt-registry/cli` - CLI utilities and commands
+- `@prompt-registry/sdk` - High-level SDK for integrations
+
+### API Migration
+
+**Old import:**
+```typescript
+import { validateCollectionId, generateBundleId } from '@prompt-registry/collection-scripts';
+```
+
+**New import:**
+```typescript
+import { validateCollectionId, generateBundleId } from '@prompt-registry/cli';
+```
+
+### CLI Migration
+
+The CLI binaries are now available in `@prompt-registry/cli`:
+
+```bash
+# Old
+npx --package @prompt-registry/collection-scripts validate-collections
+
+# New
+npx --package @prompt-registry/cli prompt-registry validate collections
+```
+
+### Package Dependencies
+
+If your package.json depends on `@prompt-registry/collection-scripts`, update to:
+
+```json
+{
+  "dependencies": {
+    "@prompt-registry/core": "workspace:*",
+    "@prompt-registry/infra": "workspace:*",
+    "@prompt-registry/app": "workspace:*",
+    "@prompt-registry/cli": "workspace:*"
+  }
+}
+```
+
+For external consumers:
+```json
+{
+  "dependencies": {
+    "@prompt-registry/core": "^1.0.0",
+    "@prompt-registry/infra": "^1.0.0",
+    "@prompt-registry/app": "^1.0.0",
+    "@prompt-registry/cli": "^1.0.0"
+  }
+}
+```
+
+---
+
+**Note**: This package will continue to receive security updates for 6 months (until [date]), after which it will be archived.
+
 Shared scripts for building, validating, and publishing Copilot prompt collections.
 
 ## Installation
