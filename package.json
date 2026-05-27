@@ -794,7 +794,6 @@
     "webpack-cli": "^5.0.1"
   },
   "dependencies": {
-    "@prompt-registry/collection-scripts": "workspace:^",
     "adm-zip": "^0.5.16",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
