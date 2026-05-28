@@ -8,7 +8,7 @@
       "type": "shell",
       "command": "pnpm run watch",
       "options": {
-        "cwd": "/home/wherka/workspace/opensource/prompt-registry/apps/vscode-extension"
+        "cwd": "${workspaceFolder}/apps/vscode-extension"
       },
       "problemMatcher": {
         "base": "$tsc-watch",
@@ -33,7 +33,7 @@
       "type": "shell",
       "command": "pnpm run watch-tests",
       "options": {
-        "cwd": "/home/wherka/workspace/opensource/prompt-registry/apps/vscode-extension"
+        "cwd": "${workspaceFolder}/apps/vscode-extension"
       },
       "problemMatcher": "$tsc-watch",
       "isBackground": true,
@@ -53,7 +53,7 @@
       "type": "shell",
       "command": "pnpm run compile",
       "options": {
-        "cwd": "/home/wherka/workspace/opensource/prompt-registry/apps/vscode-extension"
+        "cwd": "${workspaceFolder}/apps/vscode-extension"
       },
       "problemMatcher": [],
       "group": "build",

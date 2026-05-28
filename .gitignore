@@ -169,6 +169,15 @@ post-compile-fixes-cross-platform.js
 
 # Cache directories
 .cache/
+lib/.primitive-index/
+lib/.scannerwork/
+lib/ratings-output/
+lib/sonar-issues-summary.json
+lib/sonar-issues.json
+lib/eslint-report.json
+lib/setup-discussions.log
+packages/**/*.test.ts.skip
+packages/infra/src/writers/*.ts.skip
 
 # Claude local settings file
 .claude/settings.local.json
