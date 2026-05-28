@@ -18,7 +18,7 @@ on:
         description: "Target registries (comma-separated: vscode-marketplace,open-vsx)"
         required: false
         type: string
-        default: "vscode-marketplace"
+        default: "vscode-marketplace,open-vsx"
 
 # Security: Minimal permissions following principle of least privilege
 permissions:
@@ -27,7 +27,7 @@ permissions:
 
 env:
   NODE_VERSION: "24"
-  EXTENSION_DIR: "."
+  EXTENSION_DIR: "apps/vscode-extension"
   EXTENSION_NAME: "prompt-registry"
 
 jobs:
@@ -89,23 +89,28 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: "${{ env.EXTENSION_DIR }}/package-lock.json"
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
 
       - name: Install dependencies with integrity check
         working-directory: ${{ env.EXTENSION_DIR }}
         run: |
-          npm ci --fund=false
-          npm audit --omit=dev --audit-level=moderate
+          pnpm install --frozen-lockfile
+          pnpm audit --prod --audit-level=moderate
 
       - name: Update version in package.json
         working-directory: ${{ env.EXTENSION_DIR }}
         run: |
-          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+          pnpm version ${{ steps.version.outputs.version }} --no-git-tag-version
 
       - name: Run final security scan
         uses: aquasecurity/trivy-action@master
@@ -119,10 +124,10 @@ jobs:
       - name: Build and package extension
         working-directory: ${{ env.EXTENSION_DIR }}
         run: |
-          npm run compile
-          npm install -g @vscode/vsce
+          pnpm run compile
+          pnpm add -g @vscode/vsce
 
-          npm run package:prepare
+          pnpm run package:prepare
 
           # Package with integrity verification
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
@@ -131,7 +136,7 @@ jobs:
             vsce package --out ${{env.EXTENSION_NAME}}-${{ steps.version.outputs.version }}.vsix
           fi
 
-          npm run package:cleanup
+          pnpm run package:cleanup
 
       - name: Generate package checksums and attestation
         id: package
