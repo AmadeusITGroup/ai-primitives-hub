@@ -3,6 +3,10 @@
  * @module test/app/discovery/profile-generator
  */
 
+import type {
+  ProfileDraft,
+  ResourceSelection,
+} from '@prompt-registry/core';
 import {
   beforeEach,
   describe,
@@ -12,10 +16,6 @@ import {
 import {
   ProfileGenerator,
 } from '../../src/discovery/profile-generator';
-import type {
-  ProfileDraft,
-  ResourceSelection,
-} from '@prompt-registry/core';
 
 describe('ProfileGenerator', () => {
   let generator: ProfileGenerator;

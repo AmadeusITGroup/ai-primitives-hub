@@ -17,27 +17,18 @@
  * through the injected `WriterFs`.
  */
 import * as path from 'node:path';
-import {
-  resolveLayoutFromLayers,
-} from '../install/layout-resolver';
-import type {
-  Target,
-} from '@prompt-registry/core';
-import type {
-  KindRoutes,
-  TargetLayout,
-  TargetLayoutsConfig,
-} from '@prompt-registry/core';
 import type {
   ExtractedFiles,
-} from '@prompt-registry/core';
-import type {
+  KindRoutes,
   LayoutConfigLoader,
-} from '@prompt-registry/core';
-import type {
+  Target,
+  TargetLayout,
   TargetWriter,
   TargetWriteResult,
 } from '@prompt-registry/core';
+import {
+  resolveLayoutFromLayers,
+} from '../install/layout-resolver';
 import builtInLayouts from './default-layouts.json';
 
 export type {
@@ -82,7 +73,7 @@ export type { KindRoutes, TargetLayout } from '@prompt-registry/core';
  * @returns Resolved TargetLayout.
  */
 export const resolveLayout = (target: Target): TargetLayout => {
-  const result = resolveLayoutFromLayers(target, [builtInLayouts as TargetLayoutsConfig]);
+  const result = resolveLayoutFromLayers(target, [builtInLayouts]);
   if (result === null) {
     throw new Error(`No layout defined for target type "${target.type}"`);
   }

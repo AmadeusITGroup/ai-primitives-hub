@@ -16,13 +16,13 @@
  * config in the upward walk; if none exists, we create one in `cwd`.
  */
 import * as path from 'node:path';
+import type {
+  Target,
+} from '@prompt-registry/core';
 import {
   load as parseYaml,
   dump as stringifyYaml,
 } from 'js-yaml';
-import type {
-  Target,
-} from '@prompt-registry/core';
 
 const PROJECT_CONFIG_NAMES = ['prompt-registry.yml', 'prompt-registry.yaml'];
 

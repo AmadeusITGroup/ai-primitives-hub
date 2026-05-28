@@ -4,6 +4,10 @@
  * The resolver is pure (no IO), so tests are simple unit assertions
  * over different target/layer configurations.
  */
+import type {
+  Target,
+  TargetLayoutsConfig,
+} from '@prompt-registry/core';
 import {
   describe,
   expect,
@@ -12,12 +16,6 @@ import {
 import {
   resolveLayoutFromLayers,
 } from '../../src/install/layout-resolver';
-import type {
-  Target,
-} from '@prompt-registry/core';
-import type {
-  TargetLayoutsConfig,
-} from '@prompt-registry/core';
 
 const minimalConfig = (
   type: string,

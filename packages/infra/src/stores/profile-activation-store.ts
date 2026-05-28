@@ -8,10 +8,8 @@
  */
 import * as path from 'node:path';
 import {
-  type ProfileActivationState,
-} from '@prompt-registry/core';
-import type {
   FileSystem,
+  type ProfileActivationState,
 } from '@prompt-registry/core';
 
 /**

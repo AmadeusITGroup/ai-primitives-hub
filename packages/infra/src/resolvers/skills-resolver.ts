@@ -19,27 +19,21 @@
  * @module install/skills-resolver
  */
 import * as path from 'node:path';
-import * as yaml from 'js-yaml';
-import {
-  type BundleSpec,
-  type Installable,
+import type {
+  BundleResolver,
+  BundleSpec,
+  FileSystem,
+  HttpClient,
+  Installable,
+  TokenProvider,
 } from '@prompt-registry/core';
 import {
   generateSourceId,
 } from '@prompt-registry/core';
+import * as yaml from 'js-yaml';
 import {
   buildZip,
 } from '../writers/zip-writer';
-import type {
-  FileSystem,
-} from '@prompt-registry/core';
-import {
-  type HttpClient,
-  type TokenProvider,
-} from '@prompt-registry/core';
-import {
-  type BundleResolver,
-} from '@prompt-registry/core';
 
 /* eslint-disable @typescript-eslint/naming-convention -- GitHub API */
 interface ContentsEntry {

@@ -7,16 +7,14 @@
  * `HubStorage` shape (modulo the storage location).
  */
 import * as path from 'node:path';
-import * as yaml from 'js-yaml';
 import {
+  FileSystem,
   type HubConfig,
   type HubReference,
   isHubConfig,
   sanitizeHubId,
 } from '@prompt-registry/core';
-import type {
-  FileSystem,
-} from '@prompt-registry/core';
+import * as yaml from 'js-yaml';
 
 /**
  * Sidecar metadata stored next to each hub-config YAML.

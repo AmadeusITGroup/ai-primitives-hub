@@ -19,17 +19,11 @@
  */
 
 import type {
-  RegistrySource,
-} from '@prompt-registry/core';
-import type {
-  FileSystem,
-} from '@prompt-registry/core';
-import type {
-  HttpClient,
-  TokenProvider,
-} from '@prompt-registry/core';
-import type {
   BundleResolver,
+  FileSystem,
+  HttpClient,
+  RegistrySource,
+  TokenProvider,
 } from '@prompt-registry/core';
 import {
   AwesomeCopilotBundleResolver,

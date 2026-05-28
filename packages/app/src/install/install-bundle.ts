@@ -7,27 +7,19 @@
  * port interface methods.
  * @module app/install/install-bundle
  */
+import type {
+  BundleDownloader,
+  BundleExtractor,
+  BundleResolver,
+  BundleSpec,
+  Target,
+  TargetWriter,
+} from '@prompt-registry/core';
 import {
   type InstallOutcome,
   InstallPipeline,
   type PipelineEvent,
 } from '../install/pipeline';
-import type {
-  BundleSpec,
-  Target,
-} from '@prompt-registry/core';
-import type {
-  BundleDownloader,
-} from '@prompt-registry/core';
-import type {
-  BundleExtractor,
-} from '@prompt-registry/core';
-import type {
-  BundleResolver,
-} from '@prompt-registry/core';
-import type {
-  TargetWriter,
-} from '@prompt-registry/core';
 
 export interface InstallBundleInput {
   spec: BundleSpec;

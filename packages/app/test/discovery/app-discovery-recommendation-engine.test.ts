@@ -3,6 +3,9 @@
  * @module test/app/discovery/recommendation-engine
  */
 
+import type {
+  DiscoveryOptions,
+} from '@prompt-registry/core';
 import {
   beforeEach,
   describe,
@@ -17,9 +20,6 @@ import {
   RecommendationEngine,
   RecommendationEngineError,
 } from '../../src/discovery/recommendation-engine';
-import type {
-  DiscoveryOptions,
-} from '@prompt-registry/core';
 
 describe('RecommendationEngine', () => {
   let mockContext: DetectedContext;

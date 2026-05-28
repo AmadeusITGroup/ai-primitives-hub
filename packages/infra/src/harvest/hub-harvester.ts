@@ -17,8 +17,6 @@ import {
 import * as path from 'node:path';
 import type {
   HubSourceSpec,
-} from '@prompt-registry/core';
-import type {
   TokenProvider,
 } from '@prompt-registry/core';
 import {
@@ -321,10 +319,10 @@ function resolveHarvestPaths(opts: HubHarvestPipelineOptions, env: NodeJS.Proces
   const hubBranch = opts.hubBranch ?? 'main';
   const hubId = opts.noHubConfig === true || opts.hubConfigFile !== undefined ? 'local' : hubRepo;
   const cacheDir = opts.cacheDir
-    ?? defaultHubCacheDir(hubId, env as Parameters<typeof defaultHubCacheDir>[1]);
+    ?? defaultHubCacheDir(hubId, env);
   const progressFile = opts.progressFile ?? path.join(cacheDir, 'progress.jsonl');
   const outFile = opts.outFile
-    ?? defaultIndexFile(env as Parameters<typeof defaultIndexFile>[0]);
+    ?? defaultIndexFile(env);
   const concurrency = opts.concurrency ?? 4;
   return { hubRepo, hubBranch, cacheDir, progressFile, outFile, concurrency };
 }

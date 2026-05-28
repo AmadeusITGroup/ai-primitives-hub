@@ -32,5 +32,9 @@ ehthumbs.db
 *.backup
 *_backup.*
 
+# Test artifacts (written by test runs into extension directory)
+prompts/
+test-temp*/
+
 # Cache directories
 .cache/

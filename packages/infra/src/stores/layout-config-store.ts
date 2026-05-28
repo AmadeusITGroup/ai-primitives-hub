@@ -14,17 +14,15 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  load as parseYaml,
-} from 'js-yaml';
-import type {
-  TargetLayoutsConfig,
-} from '@prompt-registry/core';
-import {
   validateTargetLayoutsConfig,
 } from '@prompt-registry/core';
 import type {
   LayoutConfigLoader,
+  TargetLayoutsConfig,
 } from '@prompt-registry/core';
+import {
+  load as parseYaml,
+} from 'js-yaml';
 import builtInLayouts from '../writers/default-layouts.json';
 
 /** File name used for user and project override files. */
@@ -123,7 +121,7 @@ export class FileSystemLayoutConfigLoader implements LayoutConfigLoader {
 
   public async load(): Promise<TargetLayoutsConfig[]> {
     const layers: TargetLayoutsConfig[] = [
-      builtInLayouts as TargetLayoutsConfig
+      builtInLayouts
     ];
 
     // Layer 2: user config (~/.config/prompt-registry/layouts.yml)

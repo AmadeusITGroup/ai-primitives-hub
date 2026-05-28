@@ -119,7 +119,7 @@ export class GitHubClient {
     this.tokens = opts.tokens;
     this.baseUrl = (opts.baseUrl ?? DEFAULT_API_BASE).replace(/\/+$/, '');
     this.userAgent = opts.userAgent ?? DEFAULT_UA;
-    this.fetchImpl = opts.fetch ?? (((req: Request) => fetch(req)) as FetchLike);
+    this.fetchImpl = opts.fetch ?? ((req: Request) => fetch(req));
     this.maxRetries = opts.maxRetries ?? 4;
     this.backoffBaseMs = opts.backoffBaseMs ?? 250;
     this.jitterMs = opts.jitterMs ?? 250;

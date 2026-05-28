@@ -20,13 +20,13 @@
  * absolute).
  */
 import {
-  type ZipFile,
-} from 'yauzl';
-import * as yauzl from 'yauzl';
-import {
   type BundleExtractor,
   type ExtractedFiles,
 } from '@prompt-registry/core';
+import {
+  type ZipFile,
+} from 'yauzl';
+import * as yauzl from 'yauzl';
 
 /**
  * YauzlBundleExtractor - extracts bundle zips using yauzl.

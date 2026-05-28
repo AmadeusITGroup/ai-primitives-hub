@@ -6,20 +6,16 @@
  * port interface methods.
  * @module app/install/uninstall-bundle
  */
+import type {
+  FileSystem,
+  Target,
+  TargetWriter,
+} from '@prompt-registry/core';
 import {
   UninstallPipeline,
   type UninstallPlan,
   type UninstallResult,
 } from '../install/uninstall-pipeline';
-import type {
-  Target,
-} from '@prompt-registry/core';
-import type {
-  FileSystem,
-} from '@prompt-registry/core';
-import type {
-  TargetWriter,
-} from '@prompt-registry/core';
 
 export interface UninstallBundleInput {
   bundleId?: string;

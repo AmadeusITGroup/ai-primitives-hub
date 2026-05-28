@@ -12,10 +12,8 @@
  *   - `skipPaths`: replaced if specified in a higher layer.
  */
 import type {
-  Target,
-} from '@prompt-registry/core';
-import type {
   ScopedLayoutDef,
+  Target,
   TargetLayout,
   TargetLayoutsConfig,
 } from '@prompt-registry/core';

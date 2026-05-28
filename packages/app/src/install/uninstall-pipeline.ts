@@ -12,6 +12,7 @@
  */
 
 import type {
+  FileSystem,
   Target,
 } from '@prompt-registry/core';
 import type {
@@ -25,9 +26,6 @@ import {
 import type {
   TargetWriter,
 } from '../writers/file-tree-writer';
-import type {
-  FileSystem,
-} from '@prompt-registry/core';
 
 /**
  * Options for uninstall pipeline.

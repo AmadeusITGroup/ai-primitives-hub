@@ -9,18 +9,12 @@
  * Uses a `TokenProvider` rather than reading env directly.
  */
 import {
-  type BundleSpec,
-  type Installable,
-} from '@prompt-registry/core';
-import {
-  generateSourceId,
-} from '@prompt-registry/core';
-import {
-  type HttpClient,
-  type TokenProvider,
-} from '@prompt-registry/core';
-import {
   type BundleResolver,
+  type BundleSpec,
+  generateSourceId,
+  type HttpClient,
+  type Installable,
+  type TokenProvider,
 } from '@prompt-registry/core';
 
 /**

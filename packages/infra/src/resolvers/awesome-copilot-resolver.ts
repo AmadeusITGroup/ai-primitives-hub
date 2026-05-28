@@ -13,24 +13,18 @@
  * companion file; same parser, different IO.
  * @module install/awesome-copilot-resolver
  */
-import * as yaml from 'js-yaml';
 import {
+  type BundleResolver,
   type BundleSpec,
-  type Installable,
-} from '@prompt-registry/core';
-import {
   generateSourceId,
+  type HttpClient,
+  type Installable,
+  type TokenProvider,
 } from '@prompt-registry/core';
+import * as yaml from 'js-yaml';
 import {
   buildZip,
 } from '../writers/zip-writer';
-import {
-  type HttpClient,
-  type TokenProvider,
-} from '@prompt-registry/core';
-import {
-  type BundleResolver,
-} from '@prompt-registry/core';
 
 function resolveManifestVersion(spec: BundleSpec): string {
   if (spec.bundleVersion === 'latest') {

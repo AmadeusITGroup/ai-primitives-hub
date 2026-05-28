@@ -13,14 +13,10 @@
  *     in an internal AssetFetcher so the behavior is identical.
  */
 import {
-  type Installable,
-} from '@prompt-registry/core';
-import {
   type BundleDownloader,
   type DownloadResult,
-} from '@prompt-registry/core';
-import {
   type HttpClient,
+  type Installable,
   type TokenProvider,
 } from '@prompt-registry/core';
 import {

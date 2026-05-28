@@ -1,21 +1,12 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2024",
-    "module": "commonjs",
-    "lib": ["ES2024"],
-    "declaration": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "moduleResolution": "node",
     "composite": true
   },
-  "include": ["src/**/*", "src/**/*.json", "test/**/*"],
-  "exclude": ["node_modules", "dist"],
+  "include": ["src/**/*", "src/**/*.json"],
+  "exclude": ["node_modules", "dist", "test"],
   "references": [
     { "path": "../core" }
   ]

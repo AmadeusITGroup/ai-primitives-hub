@@ -21,29 +21,25 @@
  * job, not the activator's).
  */
 import * as path from 'node:path';
-import {
-  type Profile,
-  type ProfileActivationState,
-  type RegistrySource,
-  type Target,
+import type {
+  ExtractedFiles,
+  FileSystem,
+  HttpClient,
+  Installable,
+  Profile,
+  ProfileActivationState,
+  RegistrySource,
+  Target,
+  TokenProvider,
 } from '@prompt-registry/core';
 import {
   validateManifest,
 } from '@prompt-registry/core';
 import {
-  type Installable,
-} from '@prompt-registry/core';
-import {
-  HttpsBundleDownloader,
-} from '@prompt-registry/infra';
-import {
-  YauzlBundleExtractor,
-} from '@prompt-registry/infra';
-import {
   AssetFetcher,
-} from '@prompt-registry/infra';
-import {
+  HttpsBundleDownloader,
   readLocalBundle,
+  YauzlBundleExtractor,
 } from '@prompt-registry/infra';
 import {
   SourceDispatcher,
@@ -51,16 +47,6 @@ import {
 import {
   FileTreeTargetWriter,
 } from '../writers/file-tree-writer';
-import {
-  type ExtractedFiles,
-} from '@prompt-registry/core';
-import type {
-  FileSystem,
-} from '@prompt-registry/core';
-import {
-  type HttpClient,
-  type TokenProvider,
-} from '@prompt-registry/core';
 
 export interface ProfileActivatorDeps {
   /** Filesystem abstraction. */

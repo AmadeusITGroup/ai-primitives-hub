@@ -154,6 +154,18 @@ INTEGRATION_TEST_*.md
 .specification/
 .tmp/
 lib/
+packages/
+apps/
+github-actions/
+website/
+schemas/
+pnpm-workspace.yaml
+eslint.shared.mjs
+eslint.config.mjs
+
+# Test artifacts (written by test runs into extension directory)
+prompts/
+test-temp*/
 
 # Test results
 test-results/

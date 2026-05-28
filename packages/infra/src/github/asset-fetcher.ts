@@ -90,7 +90,7 @@ export class AssetFetcher {
 
   public constructor(opts: AssetFetcherOptions) {
     this.tokens = opts.tokens;
-    this.fetchImpl = opts.fetch ?? (((req: Request) => fetch(req)) as FetchLike);
+    this.fetchImpl = opts.fetch ?? ((req: Request) => fetch(req));
     this.userAgent = opts.userAgent ?? DEFAULT_UA;
     this.maxRetries = opts.maxRetries ?? 3;
     this.backoffBaseMs = opts.backoffBaseMs ?? 250;

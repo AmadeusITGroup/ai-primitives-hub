@@ -33,7 +33,7 @@ const APP_SUBDIR = 'prompt-registry';
  * serialised index) under this directory.
  * @param env
  */
-export function defaultCacheDir(env: DefaultPathEnv = process.env as DefaultPathEnv): string {
+export function defaultCacheDir(env: DefaultPathEnv = process.env): string {
   if (env.PROMPT_REGISTRY_CACHE) {
     return env.PROMPT_REGISTRY_CACHE;
   }
@@ -49,7 +49,7 @@ export function defaultCacheDir(env: DefaultPathEnv = process.env as DefaultPath
  * `search` / `stats` / `shortlist` work without any extra flags.
  * @param env
  */
-export function defaultIndexFile(env: DefaultPathEnv = process.env as DefaultPathEnv): string {
+export function defaultIndexFile(env: DefaultPathEnv = process.env): string {
   return path.join(defaultCacheDir(env), 'primitive-index.json');
 }
 
@@ -61,7 +61,7 @@ export function defaultIndexFile(env: DefaultPathEnv = process.env as DefaultPat
  *              resolves to `local` (CLI uses this when `--no-hub-config`).
  * @param env
  */
-export function defaultHubCacheDir(hubId: string | undefined, env: DefaultPathEnv = process.env as DefaultPathEnv): string {
+export function defaultHubCacheDir(hubId: string | undefined, env: DefaultPathEnv = process.env): string {
   const id = (hubId && hubId.trim().length > 0) ? hubId : 'local';
   const sanitised = id.replaceAll(/[^a-zA-Z0-9._-]/gu, '_');
   return path.join(defaultCacheDir(env), 'hubs', sanitised);
@@ -73,6 +73,6 @@ export function defaultHubCacheDir(hubId: string | undefined, env: DefaultPathEn
  * @param hubId
  * @param env
  */
-export function defaultProgressFile(hubId: string | undefined, env: DefaultPathEnv = process.env as DefaultPathEnv): string {
+export function defaultProgressFile(hubId: string | undefined, env: DefaultPathEnv = process.env): string {
   return path.join(defaultHubCacheDir(hubId, env), 'progress.jsonl');
 }

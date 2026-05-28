@@ -8,9 +8,12 @@ import type {
   BundleDownloader,
   BundleExtractor,
   BundleResolver,
+  BundleSpec,
   DownloadResult,
   ExtractedFiles,
-} from '../../src/ports';
+  FileSystem,
+  Installable,
+} from '@prompt-registry/core';
 
 /**
  * Simple in-memory bundle downloader for tests.
@@ -18,7 +21,7 @@ import type {
 export class MemoryBundleDownloader implements BundleDownloader {
   public constructor(private readonly bytesByUrl: Record<string, Uint8Array>) {}
 
-  public async download(installable: import('../../src/domain/install').Installable): Promise<DownloadResult> {
+  public async download(installable: Installable): Promise<DownloadResult> {
     const bytes = this.bytesByUrl[installable.downloadUrl];
     if (!bytes) {
       throw new Error(`no bytes registered`);
@@ -68,9 +71,9 @@ export class DictBundleExtractor implements BundleExtractor {
  * Simple map-based bundle resolver for tests.
  */
 export class MapBundleResolver implements BundleResolver {
-  public constructor(private readonly entries: Record<string, import('../../src/domain/install').Installable[]>) {}
+  public constructor(private readonly entries: Record<string, Installable[]>) {}
 
-  public async resolve(spec: import('../../src/domain/install').BundleSpec): Promise<import('../../src/domain/install').Installable | null> {
+  public async resolve(spec: BundleSpec): Promise<Installable | null> {
     // Handle bare bundleId (no sourceId)
     if (!spec.sourceId) {
       const firstItems = this.entries[spec.bundleId];
@@ -102,7 +105,7 @@ export class MapBundleResolver implements BundleResolver {
  * Convert a record of filenames to content into ExtractedFiles format.
  * @param record
  */
-export function filesFromRecord(record: Record<string, string>): import('../../src/ports').ExtractedFiles {
+export function filesFromRecord(record: Record<string, string>): ExtractedFiles {
   const map = new Map<string, Uint8Array>();
   for (const [path, content] of Object.entries(record)) {
     map.set(path, new TextEncoder().encode(content));
@@ -114,7 +117,7 @@ export function filesFromRecord(record: Record<string, string>): import('../../s
  * Simple mock filesystem for tests.
  * Provides basic implementations of common filesystem operations.
  */
-export function createSimpleMockFs(): import('../../src/ports').FileSystem {
+export function createSimpleMockFs(): FileSystem {
   return {
     readFile: async () => new Uint8Array(),
     writeFile: async () => {},

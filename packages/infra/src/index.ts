@@ -1,7 +1,6 @@
 /**
- * @prompt-registry/infra
- *
  * Infrastructure layer for Prompt Registry.
+ * @module infra
  */
 
 // GitHub
@@ -31,9 +30,6 @@ export * from './extractors/yauzl-extractor';
 
 // Downloaders
 export * from './downloaders/https-downloader';
-
-// GitHub
-export * from './github/asset-fetcher';
 
 // Stores
 export * from './stores/active-hub-store';

@@ -7,7 +7,6 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as yaml from 'js-yaml';
 import type {
   AllCollectionsResult,
   Collection,
@@ -17,6 +16,7 @@ import {
   normalizeRepoRelativePath,
   validateCollectionObject,
 } from '@prompt-registry/core';
+import * as yaml from 'js-yaml';
 
 /**
  * Load valid item kinds from the JSON schema (single source of truth).

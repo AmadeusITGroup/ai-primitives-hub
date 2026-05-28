@@ -6,11 +6,9 @@
  */
 
 import type {
+  CopilotSdk,
   DiscoveryOptions,
   ResourceRecommendation,
-} from '@prompt-registry/core';
-import type {
-  CopilotSdk,
 } from '@prompt-registry/core';
 import type {
   DetectedContext,

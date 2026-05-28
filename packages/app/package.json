@@ -27,8 +27,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src",
-    "lint:fix": "eslint src --fix",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -36,6 +36,8 @@
     "@prompt-registry/infra": "workspace:*"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.11.0",
     "@vitest/coverage-v8": "^4.1.7",
     "typescript": "^5.9.3",
     "vitest": "^4.1.7"

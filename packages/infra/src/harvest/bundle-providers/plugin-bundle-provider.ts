@@ -16,10 +16,8 @@
  */
 
 import type {
-  PluginManifest,
-} from '@prompt-registry/core';
-import type {
   HubSourceSpec,
+  PluginManifest,
 } from '@prompt-registry/core';
 import {
   BlobCache,

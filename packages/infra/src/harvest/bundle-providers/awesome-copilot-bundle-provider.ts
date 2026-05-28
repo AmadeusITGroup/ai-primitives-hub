@@ -15,10 +15,10 @@
  *          └── readFile(ref, path) → raw GitHub content
  */
 
-import * as yaml from 'js-yaml';
 import type {
   HubSourceSpec,
 } from '@prompt-registry/core';
+import * as yaml from 'js-yaml';
 import {
   BlobCache,
 } from '../../github/blob-cache';

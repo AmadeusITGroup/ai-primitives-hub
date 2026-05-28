@@ -16,27 +16,19 @@
  * - Enables lockfile updates to include commitMode for repository scope
  */
 import {
+  type BundleDownloader,
+  type BundleExtractor,
+  type BundleResolver,
+  type BundleSpec,
+  type Installable,
+  type Target,
   type ValidatedManifest,
   validateManifest,
-} from '@prompt-registry/core';
-import type {
-  BundleSpec,
-  Installable,
-  Target,
 } from '@prompt-registry/core';
 import type {
   TargetWriter,
   TargetWriteResult,
 } from '../writers/file-tree-writer';
-import type {
-  BundleDownloader,
-} from '@prompt-registry/core';
-import type {
-  BundleExtractor,
-} from '@prompt-registry/core';
-import type {
-  BundleResolver,
-} from '@prompt-registry/core';
 
 /**
  * Pipeline events emitted during install.

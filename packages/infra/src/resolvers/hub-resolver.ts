@@ -12,19 +12,15 @@
  * — persistence is the HubStore's job.
  */
 import * as path from 'node:path';
-import * as yaml from 'js-yaml';
 import {
+  type FileSystem,
+  type HttpClient,
   type HubConfig,
   type HubReference,
   isHubConfig,
-} from '@prompt-registry/core';
-import type {
-  FileSystem,
-} from '@prompt-registry/core';
-import {
-  type HttpClient,
   type TokenProvider,
 } from '@prompt-registry/core';
+import * as yaml from 'js-yaml';
 
 export interface ResolvedHub {
   config: HubConfig;

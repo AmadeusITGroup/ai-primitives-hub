@@ -4,11 +4,9 @@
 
 import type {
   BundleManifest,
-  BundleRef,
-} from '../../src/domain';
-import type {
   BundleProvider,
-} from '../../src/domain/bundle/types';
+  BundleRef,
+} from '@prompt-registry/core';
 
 /**
  * Fake bundle provider for tests.

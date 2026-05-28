@@ -1,4 +1,6 @@
 engineStrict: true
 packages:
   - 'packages/*'
+  - 'apps/*'
   - 'lib'  # Keep legacy in workspace during migration
+  - 'github-actions/*'

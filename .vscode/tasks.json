@@ -4,8 +4,12 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "watch",
+      "label": "pnpm: watch",
+      "type": "shell",
+      "command": "pnpm run watch",
+      "options": {
+        "cwd": "/home/wherka/workspace/opensource/prompt-registry/apps/vscode-extension"
+      },
       "problemMatcher": {
         "base": "$tsc-watch",
         "background": {
@@ -25,8 +29,12 @@
       }
     },
     {
-      "type": "npm",
-      "script": "watch-tests",
+      "label": "pnpm: watch-tests",
+      "type": "shell",
+      "command": "pnpm run watch-tests",
+      "options": {
+        "cwd": "/home/wherka/workspace/opensource/prompt-registry/apps/vscode-extension"
+      },
       "problemMatcher": "$tsc-watch",
       "isBackground": true,
       "presentation": {
@@ -37,13 +45,16 @@
     },
     {
       "label": "tasks: watch-tests",
-      "dependsOn": ["npm: watch", "npm: watch-tests"],
+      "dependsOn": ["pnpm: watch", "pnpm: watch-tests"],
       "problemMatcher": []
     },
     {
-      "type": "npm",
-      "script": "compile",
-      "label": "npm: compile",
+      "label": "pnpm: compile",
+      "type": "shell",
+      "command": "pnpm run compile",
+      "options": {
+        "cwd": "/home/wherka/workspace/opensource/prompt-registry/apps/vscode-extension"
+      },
       "problemMatcher": [],
       "group": "build",
       "presentation": {

@@ -10,10 +10,10 @@
  * experiments can consume new fields without forcing a schema bump here.
  */
 
-import * as yaml from 'js-yaml';
 import type {
   HubSourceSpec,
 } from '@prompt-registry/core';
+import * as yaml from 'js-yaml';
 
 // HubSourceSpec was promoted into `lib/src/domain/hub/`.
 // The back-compat re-export from this module was removed after

@@ -4,10 +4,8 @@
  */
 
 import type {
-  PrimitiveIndex,
-} from '@prompt-registry/infra';
-import type {
   Primitive,
+  PrimitiveIndex,
   Shortlist,
 } from '@prompt-registry/infra';
 

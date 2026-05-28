@@ -9,23 +9,23 @@
       "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
-      "preLaunchTask": "npm: compile"
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/apps/vscode-extension"],
+      "outFiles": ["${workspaceFolder}/apps/vscode-extension/dist/**/*.js"],
+      "preLaunchTask": "pnpm: compile"
     },
     {
       "name": "Extension Tests",
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}",
-        "--extensionTestsPath=${workspaceFolder}/test-out/test/suite/index"
+        "--extensionDevelopmentPath=${workspaceFolder}/apps/vscode-extension",
+        "--extensionTestsPath=${workspaceFolder}/apps/vscode-extension/test-out/test/suite/index"
       ],
       "outFiles": [
-        "${workspaceFolder}/out/**/*.js",
-        "${workspaceFolder}/test-out/**/*.js"
+        "${workspaceFolder}/apps/vscode-extension/out/**/*.js",
+        "${workspaceFolder}/apps/vscode-extension/test-out/**/*.js"
       ],
-      "preLaunchTask": "npm: compile"
+      "preLaunchTask": "pnpm: compile"
     }
   ]
 }
