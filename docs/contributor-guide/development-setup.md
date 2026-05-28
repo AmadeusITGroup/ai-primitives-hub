@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node.js 18.x or 20.x
-- npm 8.x+
+- pnpm 8.x+
 - TypeScript 5.3+
 - VS Code (latest)
 - Git
@@ -13,9 +13,9 @@
 ```bash
 git clone https://github.com/AmadeusITGroup/prompt-registry.git
 cd prompt-registry
-npm install
-npm run compile
-npm test
+pnpm install
+pnpm run extension:compile
+pnpm test
 ```
 
 Press `F5` in VS Code to launch Extension Development Host.
@@ -23,39 +23,96 @@ Press `F5` in VS Code to launch Extension Development Host.
 ## Commands
 
 ```bash
-# Development
-npm run watch          # Dev mode with auto-compile
-npm run compile        # Production build
-npm run lint           # Check code style (ESLint v9 flat config)
-npm run lint:fix       # Auto-fix lint issues
+# Workspace-level commands
+pnpm install              # Install all workspace dependencies
+pnpm build                # Build all packages
+pnpm test                 # Run all tests (all packages)
+pnpm lint                 # Lint all packages
+pnpm lint:fix             # Auto-fix lint issues
+
+# Extension-specific commands
+pnpm --filter=prompt-registry run compile        # Production build
+pnpm --filter=prompt-registry run watch          # Dev mode with auto-compile
+pnpm --filter=prompt-registry run package:vsix   # Create .vsix package
+
+# Package-specific commands
+pnpm --filter=@prompt-registry/core run build    # Build core package
+pnpm --filter=@prompt-registry/infra run build   # Build infra package
+# ... etc for other packages
 
 # Testing
-npm test               # Run all tests (unit + integration)
-npm run test:unit      # Unit tests only
-npm run test:one -- test/path/to/file.test.ts  # Single test file
-npm run test:integration  # Integration tests only
-npm run test:coverage  # With coverage report
-
-# Packaging
-npm run package:vsix   # Create .vsix package
-npm run package:production  # Optimized production package
+pnpm test                 # Run all tests (unit + integration)
+pnpm --filter=prompt-registry run test:unit      # Unit tests only
+pnpm --filter=prompt-registry run test:integration  # Integration tests only
 ```
 
 ## Project Structure
 
 ```
-src/
-├── adapters/       # Source adapters (GitHub, Local, APM)
-├── commands/       # VS Code command handlers
-├── config/         # Configuration defaults
-├── integrations/   # External integrations (Copilot)
-├── notifications/  # Notification services
-├── services/       # Core business logic
-├── storage/        # Persistent state management
-├── types/          # TypeScript definitions
-├── ui/             # WebView and TreeView providers
-├── utils/          # Shared utilities
-└── extension.ts    # Entry point
+apps/vscode-extension/
+├── src/
+│   ├── adapters/       # Source adapters (GitHub, Local, APM, Skills)
+│   ├── commands/       # VS Code command handlers
+│   ├── config/         # Configuration defaults
+│   ├── integrations/   # External integrations (Copilot)
+│   ├── notifications/  # Notification services
+│   ├── services/       # Core business logic
+│   ├── storage/        # Persistent state management
+│   ├── types/          # TypeScript definitions
+│   ├── ui/             # WebView and TreeView providers
+│   ├── utils/          # Shared utilities
+│   └── extension.ts    # Entry point
+├── test/               # Extension tests
+├── package.json        # Extension package.json
+└── tsconfig.json       # Extension TypeScript config
+
+packages/
+├── core/               # Domain types and interfaces
+│   ├── src/
+│   │   ├── domain/     # Domain types (Bundle, Source, Profile, etc.)
+│   │   ├── ports/      # Port interfaces
+│   │   └── index.ts
+│   ├── package.json
+│   └── tsconfig.json
+├── infra/              # Infrastructure layer
+│   ├── src/
+│   │   ├── discovery/  # Discovery implementations
+│   │   ├── downloaders/# Download implementations
+│   │   ├── extractors/ # Archive extraction
+│   │   ├── fs/         # File system operations
+│   │   ├── github/     # GitHub API client
+│   │   ├── harvest/    # Harvesting logic
+│   │   ├── http/       # HTTP client
+│   │   ├── resolvers/  # Source resolvers
+│   │   ├── search/     # Search engine
+│   │   ├── stores/     # Storage implementations
+│   │   └── writers/     # Bundle writers
+│   ├── test/
+│   ├── package.json
+│   └── tsconfig.json
+├── app/                # Application layer
+│   ├── src/
+│   │   ├── install/    # Installation logic
+│   │   ├── registry/   # Registry management
+│   │   └── index.ts
+│   ├── package.json
+│   └── tsconfig.json
+├── cli/                # CLI tool
+│   ├── src/
+│   │   ├── commands/   # CLI commands
+│   │   └── index.ts
+│   ├── bin/
+│   ├── package.json
+│   └── tsconfig.json
+└── sdk/                # SDK for integrations
+    ├── src/
+    ├── package.json
+    └── tsconfig.json
+
+pnpm-workspace.yaml     # Workspace configuration
+tsconfig.base.json      # Shared TypeScript config
+tsconfig.json           # Solution root (references all packages)
+package.json            # Workspace root (scripts only)
 ```
 
 ## Debugging
@@ -66,9 +123,9 @@ src/
 
 ## Common Issues
 
-- **"Cannot find module 'vscode'"** → Run `npm install`
+- **"Cannot find module 'vscode'"** → Run `pnpm install`
 - **Tests fail "suite is not defined"** → Check mocha setup
-- **Extension not loading** → Check `package.json` activation events
+- **Extension not loading** → Check `apps/vscode-extension/package.json` activation events
 
 ## See Also
 

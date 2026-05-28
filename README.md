@@ -84,9 +84,9 @@ code --install-extension prompt-registry-0.0.2.vsix
 ```bash
 git clone https://github.com/AmadeusITGroup/prompt-registry.git
 cd prompt-registry
-npm install
-npm run package:vsix
-code --install-extension prompt-registry-0.0.2.vsix
+pnpm install
+pnpm run extension:package
+code --install-extension apps/vscode-extension/prompt-registry-0.0.2.vsix
 ```
 
 **For custom VS Code instances** (with custom user-data-dir/extensions-dir):
@@ -113,9 +113,21 @@ code --user-data-dir "$ud" --extensions-dir "$ed" --install-extension prompt-reg
 ## 🏗️ Architecture Overview
 
 ```
-Marketplace/Tree View → Registry Manager → Adapters (GitHub, Local, etc.)
-                              ↓
-                       Bundle Installer → Copilot Sync
+apps/vscode-extension/
+├── src/
+│   ├── adapters/       # Source adapters (GitHub, Local, APM)
+│   ├── commands/       # VS Code command handlers
+│   ├── services/       # Core business logic
+│   ├── storage/        # Persistent state management
+│   ├── ui/             # WebView and TreeView providers
+│   └── extension.ts    # Entry point
+
+packages/
+├── core/              # Domain types and interfaces
+├── infra/             # Infrastructure (GitHub clients, harvesters, search)
+├── app/               # Application layer (orchestration)
+├── cli/               # CLI tool
+└── sdk/               # SDK for integrations
 ```
 
 → [Full Architecture Documentation](./docs/contributor-guide/architecture.md)

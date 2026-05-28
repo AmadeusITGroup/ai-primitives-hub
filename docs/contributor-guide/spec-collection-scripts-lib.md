@@ -1,6 +1,14 @@
 # Specification: Collection Scripts Library (`@prompt-registry/collection-scripts`)
 
-## Overview
+**⚠️ DEPRECATED:** This specification is deprecated. The `@prompt-registry/collection-scripts` package has been replaced by individual packages in the monorepo:
+- `@prompt-registry/core` for domain types and interfaces
+- `@prompt-registry/infra` for infrastructure (harvesters, search, storage)
+- `@prompt-registry/app` for application layer
+- `@prompt-registry/cli` for CLI tool
+
+The `lib/` directory is maintained for backward compatibility but will be removed in a future release.
+
+## Overview (Deprecated)
 
 Extract the scaffold scripts from `templates/scaffolds/github/scripts/` into a standalone npm package published to GitHub Packages. This eliminates duplication across collection repositories and enables centralized maintenance.
 

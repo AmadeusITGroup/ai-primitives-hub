@@ -12,12 +12,12 @@
 Use the automated version scripts:
 
 ```bash
-npm run version:bump:patch   # 0.0.2 → 0.0.3
-npm run version:bump:minor   # 0.0.2 → 0.1.0
-npm run version:bump:major   # 0.0.2 → 1.0.0
+pnpm run version:bump:patch   # 0.0.2 → 0.0.3
+pnpm run version:bump:minor   # 0.0.2 → 0.1.0
+pnpm run version:bump:major   # 0.0.2 → 1.0.0
 ```
 
-These scripts update `package.json` and version references in `README.md`.
+These scripts update `apps/vscode-extension/package.json` and version references in `README.md`.
 
 ## Release Checklist
 
@@ -28,9 +28,9 @@ These scripts update `package.json` and version references in `README.md`.
 
 2. **Run tests**:
    ```bash
-   npm run lint
-   npm run compile
-   npm test
+   pnpm run lint
+   pnpm run extension:compile
+   pnpm test
    ```
 
 3. **Commit and push**:
@@ -61,8 +61,8 @@ These scripts update `package.json` and version references in `README.md`.
 Test locally before releasing:
 
 ```bash
-npm run package:production   # Build optimized package
-code --install-extension prompt-registry-*.vsix
+pnpm run extension:package   # Build optimized package
+code --install-extension apps/vscode-extension/prompt-registry-*.vsix
 ```
 
 Test on: macOS, Linux, Windows, VS Code Stable + Insiders.
@@ -70,7 +70,7 @@ Test on: macOS, Linux, Windows, VS Code Stable + Insiders.
 ## PR Process
 
 1. Update from main: `git fetch upstream && git rebase upstream/main`
-2. Run checks: `npm run lint && npm run compile && npm test`
+2. Run checks: `pnpm run lint && pnpm run extension:compile && pnpm test`
 3. Submit PR with description
 4. Address review feedback
 5. Merge after approval

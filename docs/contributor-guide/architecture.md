@@ -74,6 +74,46 @@ graph TD
 | **TemplateEngine** | Scaffold template loading and rendering |
 | **NotificationManager** | User notifications and update alerts |
 
+## Monorepo Structure
+
+The project uses a pnpm workspace with the following structure:
+
+```
+prompt-registry/
+├── apps/
+│   └── vscode-extension/    # VS Code extension
+│       ├── src/              # Extension source code
+│       ├── test/             # Extension tests
+│       ├── resources/        # Extension resources (skills, icons)
+│       ├── templates/        # Scaffold templates
+│       └── package.json
+├── packages/
+│   ├── core/                # Domain types and interfaces
+│   ├── infra/               # Infrastructure (GitHub, harvesters, search)
+│   ├── app/                 # Application layer
+│   ├── cli/                 # CLI tool
+│   └── sdk/                 # SDK for integrations
+├── lib/                     # Legacy collection scripts (deprecated)
+├── pnpm-workspace.yaml      # Workspace configuration
+├── tsconfig.base.json       # Shared TypeScript config
+└── tsconfig.json            # Solution root
+```
+
+**Workspace Protocol:**
+- Packages use `workspace:*` protocol for internal dependencies
+- Example: `@prompt-registry/infra` depends on `@prompt-registry/core: workspace:*`
+- pnpm resolves these to local package versions during development
+
+**TypeScript Configuration:**
+- `tsconfig.base.json` contains shared compiler options
+- Each package extends `tsconfig.base.json` via `extends: "../../tsconfig.base.json"`
+- Root `tsconfig.json` is a solution file referencing all packages for IDE support
+
+**ESLint Configuration:**
+- Root `eslint.config.mjs` contains workspace-level ignores
+- Each package has its own `eslint.config.mjs` extending the shared config
+- This allows package-specific lint rules while maintaining consistency
+
 ## Copilot Chat Skills
 
 The extension ships built-in Copilot skills via the `contributes.chatSkills` entry in `package.json`.
