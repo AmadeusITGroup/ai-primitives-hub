@@ -51,6 +51,10 @@ lib/dist-test/
 coverage/
 .nyc_output/
 
+# Vitest compiled output in packages/*/test/
+packages/*/test/**/*.test.js
+packages/*/test/**/*.test.d.ts
+
 # TypeScript
 *.tsbuildinfo
 
