@@ -27,11 +27,16 @@ function cleanup(dir: string): void {
  * @param routes - Map of path substring → response data (will be JSON-stringified).
  *                 Use a function for dynamic matching on the full args[1] path.
  * @param fallback - Default result when no route matches (default: error status).
+ * @param fallback.status - Exit code (default: 1).
+ * @param fallback.stdout - Standard output (optional).
+ * @param fallback.stderr - Standard error (optional).
  */
 function createMockSpawnSync(
-  routes: Record<string, unknown> | ((apiPath: string) => unknown | undefined),
-  fallback: { status: number; stdout?: string; stderr?: string } = { status: 1 }
+  routes: Record<string, unknown> | ((apiPath: string) => unknown),
+  fallback?: { status: number; stdout?: string; stderr?: string }
 ) {
+  const defaultFallback = { status: 1 };
+  const finalFallback = fallback ?? defaultFallback;
   return (cmd: string, args: string[]) => {
     if (cmd === 'gh' && args[0] === 'api') {
       const apiPath = args[1];
@@ -48,7 +53,7 @@ function createMockSpawnSync(
         }
       }
     }
-    return fallback;
+    return finalFallback;
   };
 }
 
@@ -56,23 +61,31 @@ function createMockSpawnSync(
 const sharedMockAggregated = {
   bySource: [
     { sourceId: 'src1', sourceName: 'Source 1', sourceRepo: 'owner/repo1', totalDownloads: 1000, bundleCount: 5, versionCount: 10, latestRelease: '2024-01-01' },
-    { sourceId: 'src2', sourceName: 'Source 2', sourceRepo: 'owner/repo2', totalDownloads: 500, bundleCount: 3, versionCount: 6, latestRelease: '2024-02-01' },
+    { sourceId: 'src2', sourceName: 'Source 2', sourceRepo: 'owner/repo2', totalDownloads: 500, bundleCount: 3, versionCount: 6, latestRelease: '2024-02-01' }
   ],
   byBundle: [
     { bundleId: 'bundle-a', totalDownloads: 800, versionCount: 3, sourceCount: 2 },
-    { bundleId: 'bundle-b', totalDownloads: 700, versionCount: 2, sourceCount: 1 },
+    { bundleId: 'bundle-b', totalDownloads: 700, versionCount: 2, sourceCount: 1 }
   ],
   detailed: [
-    { sourceId: 'src1', sourceName: 'Source 1', bundleId: 'bundle-a', version: '1.0.0', assetName: 'a-1.0.0.zip', assetSize: 1024, downloadCount: 100, releaseTag: 'v1.0.0', releaseDate: '2024-01-01' },
-    { sourceId: 'src1', sourceName: 'Source 1', bundleId: 'bundle-b', version: '2.0.0', assetName: 'b-2.0.0.zip', assetSize: 2048, downloadCount: 200, releaseTag: 'v2.0.0', releaseDate: '2024-02-01' },
-  ],
+    {
+      sourceId: 'src1', sourceName: 'Source 1', bundleId: 'bundle-a', version: '1.0.0',
+      assetName: 'a-1.0.0.zip', assetSize: 1024, downloadCount: 100, releaseTag: 'v1.0.0',
+      releaseDate: '2024-01-01'
+    },
+    {
+      sourceId: 'src1', sourceName: 'Source 1', bundleId: 'bundle-b', version: '2.0.0',
+      assetName: 'b-2.0.0.zip', assetSize: 2048, downloadCount: 200, releaseTag: 'v2.0.0',
+      releaseDate: '2024-02-01'
+    }
+  ]
 };
 
 const sharedMockArgs = {
   hubSource: 'https://github.com/owner/repo',
   minDownloads: 0,
   sourceFilter: null,
-  bundleFilter: null,
+  bundleFilter: null
 };
 
 describe('Hub Release Analyzer', () => {
@@ -162,7 +175,7 @@ describe('Hub Release Analyzer', () => {
     it('should detect GitHub URLs with .yml/.yaml extension as yaml-url', () => {
       for (const url of [
         'https://github.com/owner/repo/tree/develop/config/hub.yml',
-        'https://github.com/owner/repo/blob/feature/test/hub.yaml',
+        'https://github.com/owner/repo/blob/feature/test/hub.yaml'
       ]) {
         const result = detectInputType(url);
         assert.strictEqual(result.type, 'yaml-url', `Expected yaml-url for ${url}`);
@@ -230,8 +243,12 @@ describe('Hub Release Analyzer', () => {
     const { loadHubConfig } = analyzer;
     let tempDir: string;
 
-    beforeEach(() => { tempDir = createTempDir('hub-test-'); });
-    afterEach(() => { cleanup(tempDir); });
+    beforeEach(() => {
+      tempDir = createTempDir('hub-test-');
+    });
+    afterEach(() => {
+      cleanup(tempDir);
+    });
 
     it('should load and parse local YAML file', () => {
       const hubPath = path.join(tempDir, 'hub-config.yml');
@@ -274,7 +291,7 @@ metadata:
 sources: []
 `;
       const mockSpawnSync = createMockSpawnSync({
-        '': { content: Buffer.from(hubYaml).toString('base64') },
+        '': { content: Buffer.from(hubYaml).toString('base64') }
       });
 
       const result = loadHubConfig('https://github.com/owner/repo', { spawnSync: mockSpawnSync });
@@ -294,7 +311,7 @@ sources: []
         ['some-asset-latest.zip', 'some-asset-latest', 'unknown'],
         ['bundle-1.0.0-beta.1.zip', 'bundle', '1.0.0-beta.1'],
         ['my-bundle.bundle.zip', 'my-bundle', 'unknown'],
-        ['my-bundle.bundle-1.0.0.zip', 'my-bundle', '1.0.0'],
+        ['my-bundle.bundle-1.0.0.zip', 'my-bundle', '1.0.0']
       ];
       for (const [filename, expectedId, expectedVersion] of cases) {
         const result = extractBundleInfo(filename);
@@ -375,8 +392,24 @@ sources: []
         .find((r: any) => r.bundleId === 'bundle-a' && r.version === '1.0.0');
       assert.ok(record);
       assert.deepStrictEqual(
-        { sourceId: record.sourceId, sourceName: record.sourceName, sourceRepo: record.sourceRepo, downloadCount: record.downloadCount, assetSize: record.assetSize, releaseTag: record.releaseTag, releaseDate: record.releaseDate },
-        { sourceId: 'test-src', sourceName: 'Test Source', sourceRepo: 'owner/repo', downloadCount: 100, assetSize: 1024, releaseTag: 'v1.0.0', releaseDate: '2024-01-01T00:00:00Z' }
+        {
+          sourceId: record.sourceId,
+          sourceName: record.sourceName,
+          sourceRepo: record.sourceRepo,
+          downloadCount: record.downloadCount,
+          assetSize: record.assetSize,
+          releaseTag: record.releaseTag,
+          releaseDate: record.releaseDate
+        },
+        {
+          sourceId: 'test-src',
+          sourceName: 'Test Source',
+          sourceRepo: 'owner/repo',
+          downloadCount: 100,
+          assetSize: 1024,
+          releaseTag: 'v1.0.0',
+          releaseDate: '2024-01-01T00:00:00Z'
+        }
       );
     });
   });
@@ -439,8 +472,12 @@ sources: []
     const { generateCsvReports } = analyzer;
     let tempDir: string;
 
-    beforeEach(() => { tempDir = createTempDir('csv-test-'); });
-    afterEach(() => { cleanup(tempDir); });
+    beforeEach(() => {
+      tempDir = createTempDir('csv-test-');
+    });
+    afterEach(() => {
+      cleanup(tempDir);
+    });
 
     it('should generate all three CSV files with correct content', () => {
       const reports = generateCsvReports(sharedMockAggregated, tempDir, '2024-01-01');
@@ -459,7 +496,7 @@ sources: []
       const withComma = {
         ...sharedMockAggregated,
         bySource: [{ sourceId: 'src1', sourceName: 'Source, with comma', sourceRepo: 'owner/repo1', totalDownloads: 1000, bundleCount: 5, versionCount: 10, latestRelease: '2024-01-01' }],
-        byBundle: [], detailed: [],
+        byBundle: [], detailed: []
       };
       generateCsvReports(withComma, tempDir, '2024-01-01');
       const content = fs.readFileSync(path.join(tempDir, 'hub-analytics-2024-01-01-by-source.csv'), 'utf8');
@@ -471,8 +508,12 @@ sources: []
     const { generateMarkdownReport } = analyzer;
     let tempDir: string;
 
-    beforeEach(() => { tempDir = createTempDir('md-test-'); });
-    afterEach(() => { cleanup(tempDir); });
+    beforeEach(() => {
+      tempDir = createTempDir('md-test-');
+    });
+    afterEach(() => {
+      cleanup(tempDir);
+    });
 
     it('should generate markdown with summary, source, and bundle tables', () => {
       const report = generateMarkdownReport(sharedMockAggregated, tempDir, '2024-01-01', sharedMockArgs);
@@ -498,12 +539,12 @@ sources: []
         totalBundles: 2,
         totalPrimitives: 15,
         nonGitHubBundles: [
-          { sourceId: 'awesome-src', bundleId: 'awesome-bundle', primitiveCount: 3 },
+          { sourceId: 'awesome-src', bundleId: 'awesome-bundle', primitiveCount: 3 }
         ],
         allBundleDetails: [
           { bundleId: 'bundle-a', primitiveCount: 5, sourceId: 'src1', isGitHub: true },
-          { bundleId: 'awesome-bundle', primitiveCount: 3, sourceId: 'awesome-src', isGitHub: false },
-        ],
+          { bundleId: 'awesome-bundle', primitiveCount: 3, sourceId: 'awesome-src', isGitHub: false }
+        ]
       };
 
       generateMarkdownReport(sharedMockAggregated, tempDir, '2024-01-01', sharedMockArgs, totals);
@@ -524,8 +565,8 @@ sources: []
       const mockSpawnSync = createMockSpawnSync({
         '': [
           { tag_name: 'v1.0.0', assets: [] },
-          { tag_name: 'v2.0.0', assets: [] },
-        ],
+          { tag_name: 'v2.0.0', assets: [] }
+        ]
       });
 
       const result = fetchReleases('owner/repo', { spawnSync: mockSpawnSync });
@@ -549,7 +590,7 @@ sources: []
     const mockSources = [
       { id: 'src1', name: 'Source 1', repo: 'owner/repo1', type: 'github' },
       { id: 'src2', name: 'Source 2', repo: 'owner/repo2', type: 'github' },
-      { id: 'src3', name: 'Source 3', repo: 'owner/repo3', type: 'github' },
+      { id: 'src3', name: 'Source 3', repo: 'owner/repo3', type: 'github' }
     ];
 
     it('should process all sources and return records', () => {
@@ -558,9 +599,9 @@ sources: []
           {
             tag_name: 'v1.0.0',
             published_at: '2024-01-01T00:00:00Z',
-            assets: [{ name: 'bundle-a-1.0.0.zip', size: 1024, download_count: 10 }],
-          },
-        ],
+            assets: [{ name: 'bundle-a-1.0.0.zip', size: 1024, download_count: 10 }]
+          }
+        ]
       });
 
       const result = processSources(mockSources, { spawnSync: mockSpawnSync });
@@ -573,7 +614,7 @@ sources: []
         { id: 'src2', name: 'S2', repo: 'owner/repo2', type: 'github' },
         { id: 'src3', name: 'S3', repo: 'owner/repo3', type: 'github' },
         { id: 'src4', name: 'S4', repo: 'owner/repo4', type: 'github' },
-        { id: 'src5', name: 'S5', repo: 'owner/repo5', type: 'github' },
+        { id: 'src5', name: 'S5', repo: 'owner/repo5', type: 'github' }
       ];
 
       const mockSpawnSync = createMockSpawnSync({
@@ -581,23 +622,28 @@ sources: []
           {
             tag_name: 'v1.0.0',
             published_at: '2024-01-01T00:00:00Z',
-            assets: [{ name: 'bundle-a-1.0.0.zip', size: 1024, download_count: 10 }],
-          },
-        ],
+            assets: [{ name: 'bundle-a-1.0.0.zip', size: 1024, download_count: 10 }]
+          }
+        ]
       });
 
       // Capture verbose log output to observe batch structure
       const logs: string[] = [];
+      // eslint-disable-next-line no-console -- Intentionally capturing console.log for test verification
       const origLog = console.log;
-      console.log = (msg: string) => { logs.push(String(msg)); };
+      // eslint-disable-next-line no-console -- Intentionally redirecting console.log to capture test output
+      console.log = (msg: string) => {
+        logs.push(String(msg));
+      };
       try {
         processSources(fiveSources, { concurrency: 2, verbose: true, spawnSync: mockSpawnSync });
       } finally {
+        // eslint-disable-next-line no-console -- Restoring console.log after test
         console.log = origLog;
       }
 
       // With concurrency=2 and 5 sources, expect 3 batches (2, 2, 1)
-      const batchLogs = logs.filter(l => l.includes('batch'));
+      const batchLogs = logs.filter((l) => l.includes('batch'));
       assert.strictEqual(batchLogs.length, 3, `Expected 3 batch logs, got: ${JSON.stringify(batchLogs)}`);
     });
   });
@@ -640,7 +686,7 @@ sources:
           argv: ['--dry-run', hubPath],
           env: {},
           spawnSync: () => ({ status: 0 }),
-          logger: { log: () => {}, error: () => {} },
+          logger: { log: () => {}, error: () => {} }
         })
       );
     });
@@ -655,8 +701,8 @@ sources:
           { id: 'src1', enabled: true, type: 'github' },
           { id: 'src2', enabled: true, type: 'awesome-copilot' },
           { id: 'src3', enabled: false, type: 'github' },
-          { id: 'src4', enabled: true, type: 'apm' },
-        ],
+          { id: 'src4', enabled: true, type: 'apm' }
+        ]
       };
 
       const result = getAllEnabledSources(hubConfig, {});
@@ -669,12 +715,12 @@ sources:
         sources: [
           { id: 'github-src', enabled: true },
           { id: 'awesome-src', enabled: true },
-          { id: 'github-other', enabled: true },
-        ],
+          { id: 'github-other', enabled: true }
+        ]
       };
 
       const result = getAllEnabledSources(hubConfig, {
-        sourceFilter: /^github-/,
+        sourceFilter: /^github-/
       });
       assert.strictEqual(result.length, 2);
       assert.deepStrictEqual(result.map((s: any) => s.id), ['github-src', 'github-other']);
@@ -692,36 +738,42 @@ sources:
             type: 'awesome-copilot',
             enabled: true,
             url: 'https://github.com/owner/awesome-repo',
-            config: { branch: 'main', collectionsPath: 'collections' },
+            config: { branch: 'main', collectionsPath: 'collections' }
           },
           {
             id: 'github-src',
             type: 'github',
             enabled: true,
             repository: 'owner/github-repo',
-            config: { branch: 'main', collectionsPath: 'collections' },
-          },
-        ],
+            config: { branch: 'main', collectionsPath: 'collections' }
+          }
+        ]
       };
 
       const collectionYaml = 'id: test\nitems:\n  - path: test.prompt.md\n  - path: test.skill/SKILL.md\nmcpServers:\n  server1: {}';
       const collectionContent = { content: Buffer.from(collectionYaml).toString('base64') };
 
       const mockSpawnSync = createMockSpawnSync((apiPath: string) => {
-        if (apiPath.includes('.collection.yml')) return collectionContent;
-        if (apiPath.includes('owner/awesome-repo')) return [
-          { name: 'bundle-a.collection.yml' },
-          { name: 'bundle-b.collection.yml' },
-        ];
-        if (apiPath.includes('owner/github-repo')) return [
-          { name: 'bundle-c.collection.yml' },
-        ];
+        if (apiPath.includes('.collection.yml')) {
+          return collectionContent;
+        }
+        if (apiPath.includes('owner/awesome-repo')) {
+          return [
+            { name: 'bundle-a.collection.yml' },
+            { name: 'bundle-b.collection.yml' }
+          ];
+        }
+        if (apiPath.includes('owner/github-repo')) {
+          return [
+            { name: 'bundle-c.collection.yml' }
+          ];
+        }
         return undefined;
       }, { status: 0, stdout: '[]' });
 
       const result = countBundlesFromAllSources(hubConfig, {
         verbose: false,
-        spawnSync: mockSpawnSync,
+        spawnSync: mockSpawnSync
       });
 
       // 3 collections mocked (2 in awesome-repo, 1 in github-repo), each with 3 primitives (2 items + 1 mcpServer)
@@ -739,7 +791,7 @@ sources:
       assert.strictEqual(formatNumber(0), '0');
       assert.strictEqual(formatNumber(999), '999');
       assert.strictEqual(formatNumber(1000), '1,000');
-      assert.strictEqual(formatNumber(1234567), '1,234,567');
+      assert.strictEqual(formatNumber(1_234_567), '1,234,567');
     });
   });
 
@@ -760,7 +812,7 @@ sources:
     });
 
     it('should format megabytes', () => {
-      assert.strictEqual(formatBytes(1048576), '1 MB');
+      assert.strictEqual(formatBytes(1_048_576), '1 MB');
     });
   });
 
