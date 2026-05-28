@@ -130,10 +130,11 @@ jobs:
           pnpm run package:prepare
 
           # Package with integrity verification
+          # Use --no-dependencies to skip npm list validation which fails with pnpm's node_modules structure
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
-            vsce package --pre-release --out ${{env.EXTENSION_NAME}}-${{ steps.version.outputs.version }}.vsix
+            vsce package --pre-release --no-dependencies --out ${{env.EXTENSION_NAME}}-${{ steps.version.outputs.version }}.vsix
           else
-            vsce package --out ${{env.EXTENSION_NAME}}-${{ steps.version.outputs.version }}.vsix
+            vsce package --no-dependencies --out ${{env.EXTENSION_NAME}}-${{ steps.version.outputs.version }}.vsix
           fi
 
           pnpm run package:cleanup
@@ -161,8 +162,8 @@ jobs:
         with:
           name: extension-package
           path: |
-            ${{ env.EXTENSION_NAME }}-${{ steps.version.outputs.version }}.vsix
-            checksums.txt
+            ${{ env.EXTENSION_DIR }}/${{ env.EXTENSION_NAME }}-${{ steps.version.outputs.version }}.vsix
+            ${{ env.EXTENSION_DIR }}/checksums.txt
 
   # Generate SLSA provenance
   provenance:
