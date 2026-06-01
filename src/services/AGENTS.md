@@ -20,6 +20,7 @@ Services contain business logic, separated from UI and commands.
 | `HubManager` | Hub configurations and profiles |
 | `McpServerManager` | MCP server lifecycle |
 | `UpdateChecker` | Detects bundle updates |
+| `GitHubClient` | Shared GitHub API client (Octokit-based, auth chain, used by all GitHub adapters) |
 
 ## Patterns
 

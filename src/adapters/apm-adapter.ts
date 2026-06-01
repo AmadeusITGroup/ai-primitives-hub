@@ -1,7 +1,7 @@
 /**
  * ApmAdapter
  *
- * Fetches APM packages from GitHub repositories.
+ * Fetches APM packages from GitHub repositories using GitHubClient.
  * Integrates with APM CLI for package installation.
  *
  * Security considerations:
@@ -11,25 +11,21 @@
  * - Uses APM CLI for actual package operations
  */
 
-import {
-  exec,
-} from 'node:child_process';
 import * as fs from 'node:fs';
-import * as https from 'node:https';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  promisify,
-} from 'node:util';
 import archiver from 'archiver';
 import * as yaml from 'js-yaml';
-import * as vscode from 'vscode';
 import {
   ApmCliWrapper,
 } from '../services/apm-cli-wrapper';
 import {
   ApmRuntimeManager,
 } from '../services/apm-runtime-manager';
+import {
+  GitHubClient,
+  TreeEntry,
+} from '../services/github-client';
 import {
   Bundle,
   RegistrySource,
@@ -43,6 +39,9 @@ import {
   ApmManifest,
   ApmPackageMapper,
 } from './apm-package-mapper';
+import {
+  titleCase,
+} from './helpers/collection-parser';
 import {
   RepositoryAdapter,
 } from './repository-adapter';
@@ -105,15 +104,14 @@ export class ApmAdapter extends RepositoryAdapter {
   private readonly mapper: ApmPackageMapper;
   private readonly runtime: ApmRuntimeManager;
   private readonly cli: ApmCliWrapper;
+  private readonly client: GitHubClient;
   private readonly logger: Logger;
   private readonly cache: Map<string, CacheEntry> = new Map();
-  private authToken: string | undefined;
-  private authMethod: 'vscode' | 'gh-cli' | 'explicit' | 'none' = 'none';
 
-  constructor(source: RegistrySource) {
+  constructor(source: RegistrySource, client?: GitHubClient) {
     super(source);
 
-    // Validate URL format
+    // Validate URL format (strict security validation)
     if (!this.isValidGitHubUrl(source.url)) {
       throw new Error(`Invalid GitHub URL: ${source.url}. Use format: https://github.com/owner/repo`);
     }
@@ -131,71 +129,13 @@ export class ApmAdapter extends RepositoryAdapter {
     this.cli = new ApmCliWrapper();
     this.logger = Logger.getInstance();
 
+    // Use provided client or create default
+    this.client = client ?? new GitHubClient({
+      sourceUrl: source.url,
+      explicitToken: source.token
+    });
+
     this.logger.info(`[ApmAdapter] Initialized for: ${source.url}`);
-  }
-
-  /**
-   * Get authentication token using fallback chain:
-   * 1. VSCode GitHub API (if user is logged in)
-   * 2. gh CLI (if installed and authenticated)
-   * 3. Explicit token from source configuration
-   */
-  private async getAuthenticationToken(): Promise<string | undefined> {
-    // Return cached token if already resolved
-    if (this.authToken !== undefined) {
-      this.logger.debug(`[ApmAdapter] Using cached token (method: ${this.authMethod})`);
-      return this.authToken;
-    }
-
-    this.logger.info('[ApmAdapter] Attempting authentication...');
-
-    // Try VSCode GitHub authentication first
-    try {
-      this.logger.debug('[ApmAdapter] Trying VSCode GitHub authentication...');
-      const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
-      if (session) {
-        this.authToken = session.accessToken;
-        this.authMethod = 'vscode';
-        this.logger.info('[ApmAdapter] ✓ Using VSCode GitHub authentication');
-        this.logger.debug(`[ApmAdapter] Token preview: ${this.authToken.substring(0, 8)}...`);
-        return this.authToken;
-      }
-      this.logger.debug('[ApmAdapter] VSCode auth session not found');
-    } catch (error) {
-      this.logger.warn(`[ApmAdapter] VSCode auth failed: ${error}`);
-    }
-
-    // Try gh CLI authentication
-    try {
-      this.logger.debug('[ApmAdapter] Trying gh CLI authentication...');
-      const { stdout } = await this.execShell('gh auth token');
-      const token = stdout.trim();
-      if (token && token.length > 0) {
-        this.authToken = token;
-        this.authMethod = 'gh-cli';
-        this.logger.info('[ApmAdapter] ✓ Using gh CLI authentication');
-        this.logger.debug(`[ApmAdapter] Token preview: ${this.authToken.substring(0, 8)}...`);
-        return this.authToken;
-      }
-      this.logger.debug('[ApmAdapter] gh CLI returned empty token');
-    } catch (error) {
-      this.logger.warn(`[ApmAdapter] gh CLI auth failed: ${error}`);
-    }
-
-    // Fall back to explicit token from source configuration
-    const explicitToken = this.getAuthToken();
-    if (explicitToken) {
-      this.authToken = explicitToken;
-      this.authMethod = 'explicit';
-      this.logger.info('[ApmAdapter] ✓ Using explicit token from configuration');
-      this.logger.debug(`[ApmAdapter] Token preview: ${this.authToken.substring(0, 8)}...`);
-      return this.authToken;
-    }
-
-    // No authentication available
-    this.authMethod = 'none';
-    this.logger.warn('[ApmAdapter] ✗ No authentication available - API rate limits will apply and private repos will be inaccessible');
-    return undefined;
   }
 
   /**
@@ -208,26 +148,11 @@ export class ApmAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Parse owner and repo from GitHub URL
-   */
-  private parseGitHubUrl(): { owner: string; repo: string } {
-    const match = this.source.url.match(GITHUB_URL_PATTERN);
-    if (!match) {
-      throw new Error(`Invalid GitHub URL: ${this.source.url}`);
-    }
-    return {
-      owner: match[1],
-      repo: match[2].replace(/\.git$/, '')
-    };
-  }
-
-  /**
    * Ensure APM runtime is available
    */
   private async ensureRuntime(): Promise<void> {
     const status = await this.runtime.getStatus();
     if (!status.installed && !status.uvxAvailable) {
-      // Try to install automatically
       const success = await this.runtime.setupRuntime();
       if (!success) {
         throw new Error(
@@ -238,14 +163,19 @@ export class ApmAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Fetch packages from GitHub
+   * Fetch packages from GitHub using GitHubClient tree API
    */
   private async fetchFromGitHub(): Promise<ApmBundle[]> {
-    const { owner, repo } = this.parseGitHubUrl();
     const bundles: ApmBundle[] = [];
 
     // Fetch git tree recursively (single API call)
-    const tree = await this.fetchGitTree(owner, repo, this.config.branch);
+    let tree: TreeEntry[];
+    try {
+      tree = await this.client.getTree(this.config.branch, true);
+    } catch (error) {
+      this.logger.warn(`[ApmAdapter] Failed to fetch git tree: ${error}`);
+      return [];
+    }
 
     // Find all apm.yml files in root or immediate subdirectories
     const manifestPaths = tree
@@ -256,28 +186,22 @@ export class ApmAdapter extends RepositoryAdapter {
         }
 
         // Immediate subdirectory apm.yml (e.g., package-a/apm.yml)
-        // We avoid deep nesting to match LocalApmAdapter behavior and avoid noise
         const parts = item.path.split('/');
         return parts.length === 2 && parts[1] === 'apm.yml' && !SKIP_DIRECTORIES.includes(parts[0]);
       })
       .map((item) => item.path);
 
-    // Fetch manifests
-    // Note: we still have to fetch each manifest content individually,
-    // but we saved the directory scanning calls.
-    // We could optimize further by using the 'blob' API if we had the SHA,
-    // but raw.githubusercontent.com is efficient enough and doesn't hit API limits.
-
+    // Fetch each manifest content via GitHubClient
     for (const manifestPath of manifestPaths) {
       const dir = path.dirname(manifestPath);
       const subpath = dir === '.' ? '' : dir;
 
-      const manifest = await this.fetchApmManifest(owner, repo, subpath);
+      const manifest = await this.fetchApmManifest(manifestPath);
       if (manifest) {
         bundles.push(this.mapper.toBundle(manifest, {
           sourceId: this.source.id,
-          owner,
-          repo,
+          owner: this.client.owner,
+          repo: this.client.repo,
           path: subpath
         }));
       }
@@ -287,88 +211,16 @@ export class ApmAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Fetch git tree from GitHub
-   * @param owner
-   * @param repo
-   * @param branch
+   * Fetch apm.yml content via GitHubClient
+   * @param filePath
    */
-  private async fetchGitTree(owner: string, repo: string, branch: string): Promise<{ path: string; type: string; sha: string }[]> {
-    const url = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
-
+  private async fetchApmManifest(filePath: string): Promise<ApmManifest | null> {
     try {
-      const content = await this.httpsGet(url, {
-        Accept: 'application/vnd.github.v3+json'
-      });
-
-      const result = JSON.parse(content);
-      if (result.truncated) {
-        this.logger.warn(`[ApmAdapter] Git tree for ${owner}/${repo} is truncated`);
-      }
-
-      return result.tree || [];
-    } catch (error) {
-      this.logger.warn(`[ApmAdapter] Failed to fetch git tree: ${error}`);
-      return [];
-    }
-  }
-
-  /**
-   * Fetch apm.yml from GitHub
-   * @param owner
-   * @param repo
-   * @param subpath
-   */
-  private async fetchApmManifest(
-    owner: string,
-    repo: string,
-    subpath: string
-  ): Promise<ApmManifest | null> {
-    const pathPrefix = subpath ? `${subpath}/` : '';
-    const url = `https://raw.githubusercontent.com/${owner}/${repo}/${this.config.branch}/${pathPrefix}apm.yml`;
-
-    try {
-      const content = await this.httpsGet(url);
-      return yaml.load(content) as ApmManifest;
+      const content = await this.client.getFileContent(filePath, this.config.branch);
+      return yaml.load(content.toString('utf8')) as ApmManifest;
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Make HTTPS GET request
-   * @param url
-   * @param extraHeaders
-   */
-  private async httpsGet(url: string, extraHeaders?: Record<string, string>): Promise<string> {
-    const token = await this.getAuthenticationToken();
-
-    return new Promise((resolve, reject) => {
-      const headers: Record<string, string> = {
-        ...this.getHeaders(),
-        ...extraHeaders
-      };
-
-      if (token) {
-        headers.Authorization = `token ${token}`;
-      }
-
-      https.get(url, { headers }, (res) => {
-        if (res.statusCode === 404) {
-          reject(new Error('Not found'));
-          return;
-        }
-
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          return;
-        }
-
-        let data = '';
-        res.on('data', (chunk) => data += chunk);
-        res.on('end', () => resolve(data));
-        res.on('error', reject);
-      }).on('error', reject);
-    });
   }
 
   /**
@@ -473,7 +325,7 @@ export class ApmAdapter extends RepositoryAdapter {
 
       return {
         id,
-        name: this.titleCase(id.replace(/-/g, ' ')),
+        name: titleCase(id.replace(/-/g, ' ')),
         description: `From ${bundle.name}`,
         file: `prompts/${filename}`,
         type: this.detectFileType(filename),
@@ -563,24 +415,6 @@ export class ApmAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Convert to title case
-   * @param str
-   */
-  private titleCase(str: string): string {
-    return str.split(' ')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
-  }
-
-  /**
-   * Execute shell command
-   * @param command
-   */
-  protected async execShell(command: string): Promise<{ stdout: string; stderr: string }> {
-    return promisify(exec)(command);
-  }
-
-  /**
    * Fetch available bundles from GitHub repository
    */
   public async fetchBundles(): Promise<Bundle[]> {
@@ -614,14 +448,13 @@ export class ApmAdapter extends RepositoryAdapter {
     this.logger.debug(`[ApmAdapter] Downloading: ${bundle.id}`);
 
     await this.ensureRuntime();
-    const token = await this.getAuthenticationToken();
 
     const packageRef = (bundle as ApmBundle).apmPackageRef || bundle.id;
     const tempDir = await this.createTempDir();
 
     try {
-      // Install using APM CLI
-      const result = await this.cli.install(packageRef, tempDir, token);
+      // Install using APM CLI (pass source token for private repo access)
+      const result = await this.cli.install(packageRef, tempDir, this.source.token);
 
       if (!result.success) {
         throw new Error(`Failed to install package: ${result.error}`);
@@ -630,7 +463,6 @@ export class ApmAdapter extends RepositoryAdapter {
       // Create archive from installed package
       return await this.createBundleArchive(bundle, tempDir);
     } finally {
-      // Cleanup
       await this.cleanupTempDir(tempDir);
     }
   }
@@ -639,12 +471,11 @@ export class ApmAdapter extends RepositoryAdapter {
    * Fetch source metadata
    */
   public async fetchMetadata(): Promise<SourceMetadata> {
-    const { owner, repo } = this.parseGitHubUrl();
     const bundles = await this.fetchBundles();
     const runtimeStatus = await this.runtime.getStatus();
 
     return {
-      name: `${owner}/${repo}`,
+      name: `${this.client.owner}/${this.client.repo}`,
       description: `APM packages from ${this.source.url}`,
       bundleCount: bundles.length,
       lastUpdated: new Date().toISOString(),
@@ -682,8 +513,7 @@ export class ApmAdapter extends RepositoryAdapter {
   }
 
   public getManifestUrl(_bundleId: string, _version?: string): string {
-    const { owner, repo } = this.parseGitHubUrl();
-    return `https://raw.githubusercontent.com/${owner}/${repo}/${this.config.branch}/apm.yml`;
+    return `https://raw.githubusercontent.com/${this.client.owner}/${this.client.repo}/${this.config.branch}/apm.yml`;
   }
 
   public getDownloadUrl(bundleId: string, version?: string): string {

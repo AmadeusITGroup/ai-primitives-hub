@@ -52,6 +52,14 @@ import {
   Logger,
 } from '../utils/logger';
 import {
+  calculateBreakdown,
+  CollectionManifest,
+  inferEnvironments,
+  mapKindToType,
+  parseCollectionYaml,
+  titleCase,
+} from './helpers/collection-parser';
+import {
   RepositoryAdapter,
 } from './repository-adapter';
 
@@ -60,33 +68,6 @@ const readdir = promisify(fs.readdir);
 const readFile = promisify(fs.readFile);
 const stat = promisify(fs.stat);
 const access = promisify(fs.access);
-
-/**
- * Awesome Copilot Collection Schema
- */
-interface CollectionManifest {
-  id: string;
-  name: string;
-  description: string;
-  version?: string;
-  author?: string;
-  tags?: string[];
-  items: CollectionItem[];
-  display?: {
-    ordering?: string;
-    // eslint-disable-next-line @typescript-eslint/naming-convention -- matches external API response shape
-    show_badge?: boolean;
-  };
-  mcp?: {
-    items?: Record<string, any>;
-  };
-  mcpServers?: Record<string, any>;
-}
-
-interface CollectionItem {
-  path: string;
-  kind: 'prompt' | 'instruction' | 'chat-mode' | 'agent' | 'skill';
-}
 
 /**
  * LocalAwesomeCopilotAdapter Configuration
@@ -209,13 +190,13 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
       const collectionFilePath = path.join(collectionsPath, collectionFile);
 
       const yamlContent = await readFile(collectionFilePath, 'utf8');
-      const collection = yaml.load(yamlContent) as CollectionManifest;
+      const collection = parseCollectionYaml(yamlContent);
 
       // Extract MCP servers from either 'mcp.items' or 'mcpServers' field
       const mcpServers = collection.mcpServers || collection.mcp?.items;
 
       // Count items by kind (including MCP servers)
-      const breakdown = this.calculateBreakdown(collection.items, mcpServers);
+      const breakdown = calculateBreakdown(collection.items, mcpServers);
 
       // Get file stats for timestamp
       const stats = await stat(collectionFilePath);
@@ -228,7 +209,7 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
         author: collection.author || 'Local Developer',
         repository: this.source.url,
         tags: collection.tags || [],
-        environments: this.inferEnvironments(collection.tags || []),
+        environments: inferEnvironments(collection.tags || []),
         sourceId: this.source.id,
         manifestUrl: `file://${collectionFilePath}`,
         downloadUrl: `file://${collectionFilePath}`,
@@ -347,7 +328,7 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
         const skillName = skillMatch ? skillMatch[1] : 'unknown-skill';
         return {
           id: skillName,
-          name: this.titleCase(skillName.replace(/-/g, ' ')),
+          name: titleCase(skillName.replace(/-/g, ' ')),
           description: `Skill from ${collection.name}`,
           file: itemPath, // Preserve full path for skills
           type: 'skill',
@@ -361,10 +342,10 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
 
       return {
         id,
-        name: this.titleCase(id.replace(/-/g, ' ')),
+        name: titleCase(id.replace(/-/g, ' ')),
         description: `From ${collection.name}`,
         file: `prompts/${filename}`,
-        type: this.mapKindToType(itemKind),
+        type: mapKindToType(itemKind),
         tags: collection.tags || []
       };
     });
@@ -384,102 +365,6 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
       prompts,
       ...(mcpServers && Object.keys(mcpServers).length > 0 ? { mcpServers } : {})
     };
-  }
-
-  /**
-   * Map collection kind to Prompt Registry type
-   * @param kind
-   */
-  private mapKindToType(kind: string): 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill' {
-    const kindMap: Record<string, 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill'> = {
-      prompt: 'prompt',
-      instruction: 'instructions',
-      'chat-mode': 'chatmode',
-      agent: 'agent',
-      skill: 'skill'
-    };
-    return kindMap[kind] || 'prompt';
-  }
-
-  /**
-   * Calculate content breakdown from items
-   * @param items
-   * @param mcpServers
-   */
-  private calculateBreakdown(items: CollectionItem[], mcpServers?: Record<string, any>): Record<string, number> {
-    const breakdown = {
-      prompts: 0,
-      instructions: 0,
-      chatmodes: 0,
-      agents: 0,
-      skills: 0,
-      mcpServers: mcpServers ? Object.keys(mcpServers).length : 0
-    };
-
-    for (const item of items) {
-      switch (item.kind) {
-        case 'prompt': {
-          breakdown.prompts++;
-          break;
-        }
-        case 'instruction': {
-          breakdown.instructions++;
-          break;
-        }
-        case 'chat-mode': {
-          breakdown.chatmodes++;
-          break;
-        }
-        case 'agent': {
-          breakdown.agents++;
-          break;
-        }
-        case 'skill': {
-          breakdown.skills++;
-          break;
-        }
-      }
-    }
-
-    return breakdown;
-  }
-
-  /**
-   * Infer environments from tags
-   * @param tags
-   */
-  private inferEnvironments(tags: string[]): string[] {
-    const envMap: Record<string, string> = {
-      azure: 'cloud',
-      aws: 'cloud',
-      gcp: 'cloud',
-      frontend: 'web',
-      backend: 'server',
-      database: 'data',
-      devops: 'infrastructure',
-      testing: 'testing'
-    };
-
-    const environments = new Set<string>();
-    for (const tag of tags) {
-      const env = envMap[tag.toLowerCase()];
-      if (env) {
-        environments.add(env);
-      }
-    }
-
-    return environments.size > 0 ? Array.from(environments) : ['general'];
-  }
-
-  /**
-   * Convert kebab-case to Title Case
-   * @param str
-   */
-  private titleCase(str: string): string {
-    return str
-      .split(' ')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
   }
 
   /**
@@ -562,7 +447,7 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
       this.logger.debug(`Reading collection from: ${collectionFilePath}`);
 
       const yamlContent = await readFile(collectionFilePath, 'utf8');
-      const collection = yaml.load(yamlContent) as CollectionManifest;
+      const collection = parseCollectionYaml(yamlContent);
       this.logger.debug(`Collection loaded: ${collection.name}, items: ${collection.items.length}`);
 
       // Create zip archive

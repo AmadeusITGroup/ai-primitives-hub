@@ -1,14 +1,21 @@
 /**
  * SkillsAdapter Tests
  * Tests for GitHub-based Anthropic-style skills repository adapter
+ * Uses sinon stubs for GitHubClient (no nock/HTTP mocking)
  */
 
 import * as assert from 'node:assert';
-import nock from 'nock';
 import * as sinon from 'sinon';
 import {
   SkillsAdapter,
 } from '../../src/adapters/skills-adapter';
+import {
+  GitHubClient,
+  GitHubContentItem,
+} from '../../src/services/github-client';
+import {
+  GitHubNotFoundError,
+} from '../../src/services/github-client-errors';
 import {
   RegistrySource,
 } from '../../src/types/registry';
@@ -24,65 +31,75 @@ suite('SkillsAdapter Tests', () => {
     token: 'test-token'
   };
 
+  let mockClient: sinon.SinonStubbedInstance<GitHubClient>;
+
   /**
-   * Helper to set up mock GitHub API responses for skills structure
+   * Create a stubbed GitHubClient with owner/repo properties
+   */
+  const createMockClient = (): sinon.SinonStubbedInstance<GitHubClient> => {
+    const client = sinon.createStubInstance(GitHubClient);
+    Object.defineProperty(client, 'owner', { value: 'test-owner', writable: false });
+    Object.defineProperty(client, 'repo', { value: 'test-skills-repo', writable: false });
+    return client;
+  };
+
+  /**
+   * Helper to set up mock responses for a skills structure
    * @param options
    * @param options.skills
    * @param options.skillsDirectoryExists
    */
-  const setupSkillsStructureMocks = (options: {
+  const setupSkillsMocks = (options: {
     skills?: {
       id: string;
       name: string;
       description: string;
       license?: string;
-      files?: string[];
+      files?: { name: string; sha?: string }[];
     }[];
     skillsDirectoryExists?: boolean;
   }): void => {
     const { skills = [], skillsDirectoryExists = true } = options;
 
     if (!skillsDirectoryExists) {
-      nock('https://api.github.com')
-        .get('/repos/test-owner/test-skills-repo/contents/skills')
-        .reply(404, { message: 'Not Found' });
+      mockClient.getContents.withArgs('skills').rejects(
+        new GitHubNotFoundError('test-owner', 'test-skills-repo', 'skills')
+      );
       return;
     }
 
-    // Mock skills/ directory listing (persist to allow multiple calls during validation)
-    const skillDirs = skills.map((skill) => ({
+    // Mock skills/ directory listing
+    const skillDirs: GitHubContentItem[] = skills.map((skill) => ({
       name: skill.id,
       path: `skills/${skill.id}`,
       type: 'dir' as const
     }));
-
-    nock('https://api.github.com')
-      .persist()
-      .get('/repos/test-owner/test-skills-repo/contents/skills')
-      .reply(200, skillDirs);
+    mockClient.getContents.withArgs('skills').resolves(skillDirs);
 
     // Mock each skill directory contents and SKILL.md
     for (const skill of skills) {
-      const skillFiles = [
+      const additionalFiles = (skill.files || []).map((f) => ({
+        name: f.name,
+        path: `skills/${skill.id}/${f.name}`,
+        type: 'file' as const,
+        download_url: `https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/${skill.id}/${f.name}`,
+        sha: f.sha || `sha-${f.name}`
+      }));
+
+      const skillFiles: GitHubContentItem[] = [
         {
           name: 'SKILL.md',
           path: `skills/${skill.id}/SKILL.md`,
           type: 'file' as const,
-          download_url: `https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/${skill.id}/SKILL.md`
+          download_url: `https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/${skill.id}/SKILL.md`,
+          sha: `sha-skill-md-${skill.id}`
         },
-        ...(skill.files || []).map((f) => ({
-          name: f,
-          path: `skills/${skill.id}/${f}`,
-          type: 'file' as const,
-          download_url: `https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/${skill.id}/${f}`
-        }))
+        ...additionalFiles
       ];
 
-      nock('https://api.github.com')
-        .get(`/repos/test-owner/test-skills-repo/contents/skills/${skill.id}`)
-        .reply(200, skillFiles);
+      mockClient.getContents.withArgs(`skills/${skill.id}`).resolves(skillFiles);
 
-      // Mock SKILL.md download
+      // Mock SKILL.md file content
       const skillMdContent = `---
 name: ${skill.name}
 description: ${skill.description}
@@ -93,48 +110,27 @@ ${skill.license ? `license: ${skill.license}` : ''}
 
 Instructions for ${skill.name}
 `;
-
-      nock('https://raw.githubusercontent.com')
-        .get(`/test-owner/test-skills-repo/main/skills/${skill.id}/SKILL.md`)
-        .reply(200, skillMdContent);
+      mockClient.getFileContent.withArgs(`skills/${skill.id}/SKILL.md`).resolves(
+        Buffer.from(skillMdContent)
+      );
     }
   };
 
-  /**
-   * Helper to set up GitHub repository validation mocks
-   */
-  const setupValidationMocks = (): void => {
-    // Mock GitHub releases endpoint for GitHubAdapter validation
-    nock('https://api.github.com')
-      .get('/repos/test-owner/test-skills-repo/releases')
-      .reply(200, []);
-
-    // Mock repository info endpoint (may be called during validation)
-    nock('https://api.github.com')
-      .get('/repos/test-owner/test-skills-repo')
-      .reply(200, {
-        name: 'test-skills-repo',
-        full_name: 'test-owner/test-skills-repo',
-        default_branch: 'main'
-      });
-  };
-
   setup(() => {
-    nock.cleanAll();
+    mockClient = createMockClient();
   });
 
   teardown(() => {
-    nock.cleanAll();
     sinon.restore();
   });
 
   suite('Constructor', () => {
     test('should create adapter with valid GitHub URL', () => {
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       assert.strictEqual(adapter.type, 'skills');
     });
 
-    test('should throw error for invalid URL', () => {
+    test('should throw error for invalid URL when no client provided', () => {
       const invalidSource: RegistrySource = {
         ...mockSource,
         url: 'https://example.com/owner/repo'
@@ -148,17 +144,17 @@ Instructions for ${skill.name}
 
   suite('fetchBundles()', () => {
     test('should discover skills from skills/ directory', async () => {
-      setupSkillsStructureMocks({
+      setupSkillsMocks({
         skills: [{
           id: 'algorithmic-art',
           name: 'algorithmic-art',
           description: 'Creating algorithmic art using p5.js',
           license: 'Apache-2.0',
-          files: ['README.md']
+          files: [{ name: 'README.md' }]
         }]
       });
 
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
       assert.strictEqual(bundles.length, 1);
@@ -170,7 +166,7 @@ Instructions for ${skill.name}
     });
 
     test('should discover multiple skills', async () => {
-      setupSkillsStructureMocks({
+      setupSkillsMocks({
         skills: [
           {
             id: 'algorithmic-art',
@@ -190,7 +186,7 @@ Instructions for ${skill.name}
         ]
       });
 
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
       assert.strictEqual(bundles.length, 3);
@@ -205,80 +201,73 @@ Instructions for ${skill.name}
     });
 
     test('should include nested files when hashing remote skills', async () => {
-      const mockNestedSkill = (assetSha: string) => {
-        nock.cleanAll();
+      const setupNestedSkill = (assetSha: string) => {
+        mockClient.getContents.reset();
+        mockClient.getFileContent.reset();
 
-        nock('https://api.github.com')
-          .get('/repos/test-owner/test-skills-repo/contents/skills')
-          .reply(200, [
-            { name: 'deep-skill', path: 'skills/deep-skill', type: 'dir' }
-          ]);
+        mockClient.getContents.withArgs('skills').resolves([
+          { name: 'deep-skill', path: 'skills/deep-skill', type: 'dir' as const }
+        ]);
 
-        nock('https://api.github.com')
-          .get('/repos/test-owner/test-skills-repo/contents/skills/deep-skill')
-          .reply(200, [
-            {
-              name: 'SKILL.md',
-              path: 'skills/deep-skill/SKILL.md',
-              type: 'file',
-              download_url: 'https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/deep-skill/SKILL.md',
-              sha: 'sha-skill'
-            },
-            {
-              name: 'assets',
-              path: 'skills/deep-skill/assets',
-              type: 'dir'
-            }
-          ]);
+        mockClient.getContents.withArgs('skills/deep-skill').resolves([
+          {
+            name: 'SKILL.md',
+            path: 'skills/deep-skill/SKILL.md',
+            type: 'file' as const,
+            download_url: 'https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/deep-skill/SKILL.md',
+            sha: 'sha-skill'
+          },
+          {
+            name: 'assets',
+            path: 'skills/deep-skill/assets',
+            type: 'dir' as const
+          }
+        ]);
 
-        nock('https://api.github.com')
-          .get('/repos/test-owner/test-skills-repo/contents/skills/deep-skill/assets')
-          .reply(200, [
-            {
-              name: 'diagram.png',
-              path: 'skills/deep-skill/assets/diagram.png',
-              type: 'file',
-              download_url: 'https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/deep-skill/assets/diagram.png',
-              sha: assetSha
-            }
-          ]);
+        mockClient.getContents.withArgs('skills/deep-skill/assets').resolves([
+          {
+            name: 'diagram.png',
+            path: 'skills/deep-skill/assets/diagram.png',
+            type: 'file' as const,
+            download_url: 'https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/deep-skill/assets/diagram.png',
+            sha: assetSha
+          }
+        ]);
 
-        nock('https://raw.githubusercontent.com')
-          .get('/test-owner/test-skills-repo/main/skills/deep-skill/SKILL.md')
-          .reply(200, '---\nname: Deep Skill\ndescription: Deep skill description\n---\n\n# Deep Skill');
+        mockClient.getFileContent.withArgs('skills/deep-skill/SKILL.md').resolves(
+          Buffer.from('---\nname: Deep Skill\ndescription: Deep skill description\n---\n\n# Deep Skill')
+        );
       };
 
-      mockNestedSkill('sha-diagram');
-      let adapter = new SkillsAdapter(mockSource);
+      setupNestedSkill('sha-diagram');
+      let adapter = new SkillsAdapter(mockSource, mockClient);
       let bundles = await adapter.fetchBundles();
       assert.strictEqual(bundles.length, 1);
       const versionWithOriginalAsset = bundles[0].version;
 
-      mockNestedSkill('sha-diagram-updated');
-      adapter = new SkillsAdapter(mockSource);
+      setupNestedSkill('sha-diagram-updated');
+      adapter = new SkillsAdapter(mockSource, mockClient);
       bundles = await adapter.fetchBundles();
       const versionWithUpdatedAsset = bundles[0].version;
 
+      // Versions differ when nested file content changes
       assert.notStrictEqual(versionWithOriginalAsset, versionWithUpdatedAsset);
-      assert.ok(versionWithUpdatedAsset.startsWith('hash:'), 'Version should be hash-based');
     });
 
     test('should handle many skills efficiently', async () => {
-      // Create 10 skills to verify the adapter handles multiple skills correctly
       const manySkills = Array.from({ length: 10 }, (_, i) => ({
         id: `skill-${i}`,
         name: `Skill ${i}`,
         description: `Description for skill ${i}`
       }));
 
-      setupSkillsStructureMocks({ skills: manySkills });
+      setupSkillsMocks({ skills: manySkills });
 
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
       assert.strictEqual(bundles.length, 10);
 
-      // Verify all skills were discovered
       for (let i = 0; i < 10; i++) {
         const bundle = bundles.find((b) => b.name === `Skill ${i}`);
         assert.ok(bundle, `Should find skill-${i}`);
@@ -287,33 +276,25 @@ Instructions for ${skill.name}
     });
 
     test('should skip directories without SKILL.md', async () => {
-      // Mock skills/ directory with one valid skill and one without SKILL.md
-      nock('https://api.github.com')
-        .get('/repos/test-owner/test-skills-repo/contents/skills')
-        .reply(200, [
-          { name: 'valid-skill', path: 'skills/valid-skill', type: 'dir' },
-          { name: 'invalid-skill', path: 'skills/invalid-skill', type: 'dir' }
-        ]);
+      mockClient.getContents.withArgs('skills').resolves([
+        { name: 'valid-skill', path: 'skills/valid-skill', type: 'dir' as const },
+        { name: 'invalid-skill', path: 'skills/invalid-skill', type: 'dir' as const }
+      ]);
 
       // Valid skill with SKILL.md
-      nock('https://api.github.com')
-        .get('/repos/test-owner/test-skills-repo/contents/skills/valid-skill')
-        .reply(200, [
-          { name: 'SKILL.md', path: 'skills/valid-skill/SKILL.md', type: 'file', download_url: 'https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/valid-skill/SKILL.md' }
-        ]);
-
-      nock('https://raw.githubusercontent.com')
-        .get('/test-owner/test-skills-repo/main/skills/valid-skill/SKILL.md')
-        .reply(200, '---\nname: valid-skill\ndescription: A valid skill\n---\n\nInstructions');
+      mockClient.getContents.withArgs('skills/valid-skill').resolves([
+        { name: 'SKILL.md', path: 'skills/valid-skill/SKILL.md', type: 'file' as const, download_url: 'https://example.com/SKILL.md', sha: 'sha1' }
+      ]);
+      mockClient.getFileContent.withArgs('skills/valid-skill/SKILL.md').resolves(
+        Buffer.from('---\nname: valid-skill\ndescription: A valid skill\n---\n\nInstructions')
+      );
 
       // Invalid skill without SKILL.md
-      nock('https://api.github.com')
-        .get('/repos/test-owner/test-skills-repo/contents/skills/invalid-skill')
-        .reply(200, [
-          { name: 'README.md', path: 'skills/invalid-skill/README.md', type: 'file' }
-        ]);
+      mockClient.getContents.withArgs('skills/invalid-skill').resolves([
+        { name: 'README.md', path: 'skills/invalid-skill/README.md', type: 'file' as const }
+      ]);
 
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
       assert.strictEqual(bundles.length, 1);
@@ -323,8 +304,13 @@ Instructions for ${skill.name}
 
   suite('validate()', () => {
     test('should validate repository with skills/ directory', async () => {
-      setupValidationMocks();
-      setupSkillsStructureMocks({
+      mockClient.getRepository.resolves({
+        name: 'test-skills-repo',
+        description: 'Test',
+        updatedAt: new Date().toISOString()
+      });
+
+      setupSkillsMocks({
         skills: [{
           id: 'test-skill',
           name: 'test-skill',
@@ -332,7 +318,7 @@ Instructions for ${skill.name}
         }]
       });
 
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const result = await adapter.validate();
 
       assert.strictEqual(result.valid, true);
@@ -341,14 +327,15 @@ Instructions for ${skill.name}
     });
 
     test('should fail validation when skills/ directory is missing', async () => {
-      setupValidationMocks();
+      mockClient.getRepository.resolves({
+        name: 'test-skills-repo',
+        description: 'Test',
+        updatedAt: new Date().toISOString()
+      });
 
-      // Mock 404 for skills directory
-      nock('https://api.github.com')
-        .get('/repos/test-owner/test-skills-repo/contents/skills')
-        .reply(404, { message: 'Not Found' });
+      setupSkillsMocks({ skillsDirectoryExists: false });
 
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const result = await adapter.validate();
 
       assert.strictEqual(result.valid, false);
@@ -356,16 +343,16 @@ Instructions for ${skill.name}
     });
 
     test('should warn when no valid skills found', async () => {
-      setupValidationMocks();
+      mockClient.getRepository.resolves({
+        name: 'test-skills-repo',
+        description: 'Test',
+        updatedAt: new Date().toISOString()
+      });
 
-      // Empty skills directory - need to mock twice (once for validate check, once for scan)
-      nock('https://api.github.com')
-        .get('/repos/test-owner/test-skills-repo/contents/skills')
-        .reply(200, [])
-        .get('/repos/test-owner/test-skills-repo/contents/skills')
-        .reply(200, []);
+      // Empty skills directory
+      mockClient.getContents.withArgs('skills').resolves([]);
 
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const result = await adapter.validate();
 
       assert.strictEqual(result.valid, true);
@@ -375,7 +362,7 @@ Instructions for ${skill.name}
 
   suite('getManifestUrl()', () => {
     test('should return correct manifest URL for skill', () => {
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const url = adapter.getManifestUrl('skills-test-owner-test-skills-repo-algorithmic-art');
 
       assert.strictEqual(url, 'https://raw.githubusercontent.com/test-owner/test-skills-repo/main/skills/algorithmic-art/SKILL.md');
@@ -384,10 +371,64 @@ Instructions for ${skill.name}
 
   suite('getDownloadUrl()', () => {
     test('should return repository archive URL', () => {
-      const adapter = new SkillsAdapter(mockSource);
+      const adapter = new SkillsAdapter(mockSource, mockClient);
       const url = adapter.getDownloadUrl('skills-test-owner-test-skills-repo-algorithmic-art');
 
       assert.strictEqual(url, 'https://github.com/test-owner/test-skills-repo/archive/refs/heads/main.zip');
+    });
+  });
+
+  suite('downloadBundle()', () => {
+    test('should package skill as ZIP with deployment manifest', async () => {
+      // Setup for single skill fetch
+      mockClient.getContents.withArgs('skills/my-skill').resolves([
+        { name: 'SKILL.md', path: 'skills/my-skill/SKILL.md', type: 'file' as const, download_url: 'https://example.com/SKILL.md', sha: 'sha1' }
+      ]);
+      mockClient.getFileContent.withArgs('skills/my-skill/SKILL.md').resolves(
+        Buffer.from('---\nname: My Skill\ndescription: A test skill\n---\n\n# My Skill\nInstructions')
+      );
+
+      const adapter = new SkillsAdapter(mockSource, mockClient);
+      const bundle = {
+        id: 'skills-test-owner-test-skills-repo-my-skill',
+        name: 'My Skill',
+        version: '1.0.0',
+        description: 'A test skill',
+        author: 'test-owner',
+        sourceId: 'test-skills-source',
+        environments: ['claude'],
+        tags: ['skill'],
+        lastUpdated: new Date().toISOString(),
+        size: '1 files',
+        dependencies: [],
+        license: 'MIT',
+        repository: mockSource.url,
+        homepage: '',
+        manifestUrl: '',
+        downloadUrl: ''
+      };
+
+      const zipBuffer = await adapter.downloadBundle(bundle);
+      assert.ok(Buffer.isBuffer(zipBuffer));
+      assert.ok(zipBuffer.length > 0);
+    });
+  });
+
+  suite('fetchMetadata()', () => {
+    test('should return skill count metadata', async () => {
+      setupSkillsMocks({
+        skills: [
+          { id: 'skill-a', name: 'Skill A', description: 'First' },
+          { id: 'skill-b', name: 'Skill B', description: 'Second' }
+        ]
+      });
+
+      const adapter = new SkillsAdapter(mockSource, mockClient);
+      const metadata = await adapter.fetchMetadata();
+
+      assert.strictEqual(metadata.bundleCount, 2);
+      assert.strictEqual(metadata.name, 'test-owner/test-skills-repo');
+      assert.strictEqual(metadata.description, 'Skills Repository');
     });
   });
 });

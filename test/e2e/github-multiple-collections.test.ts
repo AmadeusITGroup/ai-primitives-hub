@@ -140,6 +140,7 @@ Version: ${version}
     nock('https://api.github.com')
       .persist()
       .get('/repos/test-owner/test-repo/releases')
+      .query(true)
       .reply(200, releasesResponse);
 
     // Mock repository info
@@ -163,19 +164,11 @@ Version: ${version}
         .get(`/repos/test-owner/test-repo/releases/assets/${1000 + index}`)
         .reply(200, manifest);
 
-      // Bundle download (API URL redirects)
+      // Bundle download (Octokit getReleaseAsset with octet-stream returns binary directly)
       nock('https://api.github.com')
         .persist()
         .get(`/repos/test-owner/test-repo/releases/assets/${2000 + index}`)
-        .reply(302, '', {
-          location: `https://objects.githubusercontent.com/test-owner/test-repo/${col.tag}/bundle.zip`
-        });
-
-      // Actual bundle content
-      nock('https://objects.githubusercontent.com')
-        .persist()
-        .get(`/test-owner/test-repo/${col.tag}/bundle.zip`)
-        .reply(200, bundleZip);
+        .reply(200, bundleZip, { 'content-type': 'application/octet-stream' });
     });
   };
 

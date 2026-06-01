@@ -187,28 +187,25 @@ suite('Repository Fixture Helpers', () => {
       assert.strictEqual(manifest.version, '1.0.0');
     });
 
-    test('should configure bundle download with redirect (Requirement 1.4)', async () => {
+    test('should configure bundle download as direct response (Requirement 1.4)', async () => {
       const config = createTestConfig();
       setupReleaseMocks(config, [{ tag: 'v1.0.0', version: '1.0.0', content: 'test' }]);
 
       const axios = require('axios');
 
-      // First request gets redirect
-      const redirectResponse = await axios.get(
+      // Bundle asset returns binary content directly (Octokit uses getReleaseAsset with octet-stream)
+      const bundleResponse = await axios.get(
         `https://api.github.com/repos/${config.owner}/${config.repo}/releases/assets/2000`,
-        { maxRedirects: 0, validateStatus: (status: number) => status === 302 }
+        { responseType: 'arraybuffer' }
       );
-
-      assert.strictEqual(redirectResponse.status, 302);
-      assert.ok(redirectResponse.headers.location.includes('objects.githubusercontent.com'));
-
-      // Follow redirect to get actual bundle
-      const bundleResponse = await axios.get(redirectResponse.headers.location, {
-        responseType: 'arraybuffer'
-      });
 
       assert.strictEqual(bundleResponse.status, 200);
       assert.ok(bundleResponse.data.length > 0, 'bundle should have content');
+
+      // Verify it's a valid ZIP (starts with PK signature)
+      const buffer = Buffer.from(bundleResponse.data);
+      assert.strictEqual(buffer[0], 0x50, 'Should start with P (ZIP signature)');
+      assert.strictEqual(buffer[1], 0x4B, 'Should have K (ZIP signature)');
     });
 
     test('should support multiple releases', async () => {

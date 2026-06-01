@@ -292,28 +292,53 @@ This is an example prompt for testing.
       const skillName = 'test-skill';
       const skillPath = `skills/${skillName}/SKILL.md`;
 
-      // Setup mocks for source with skill
+      // Setup mocks for source with skill (Octokit encodes slashes in path as %2F)
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-skills/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-skills/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'skill-collection.collection.yml', type: 'file' }
         ]);
 
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-skills/main/collections/skill-collection.collection.yml')
-        .reply(200, createCollectionWithSkill('skill-collection', skillPath));
+        .get('/repos/test-owner/awesome-copilot-skills/contents/collections%2Fskill-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionWithSkill('skill-collection', skillPath)).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-skills/main/prompts/example.prompt.md')
-        .reply(200, createPromptContent());
+        .get('/repos/test-owner/awesome-copilot-skills/contents/prompts%2Fexample.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent()).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
-      nock('https://raw.githubusercontent.com')
+      // Skills directory listing (getContentsRecursive calls getContents for the skill dir)
+      nock('https://api.github.com')
         .persist()
-        .get(`/test-owner/awesome-copilot-skills/main/${skillPath}`)
-        .reply(200, createSkillMd('Test Skill', 'A test skill for e2e testing'));
+        .get('/repos/test-owner/awesome-copilot-skills/contents/skills%2Ftest-skill')
+        .query({ ref: 'main' })
+        .reply(200, [
+          { name: 'SKILL.md', path: 'skills/test-skill/SKILL.md', type: 'file' }
+        ]);
+
+      nock('https://api.github.com')
+        .persist()
+        .get('/repos/test-owner/awesome-copilot-skills/contents/skills%2Ftest-skill%2FSKILL.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createSkillMd('Test Skill', 'A test skill for e2e testing')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Add source and sync
       await testContext.registryManager.addSource(source);
@@ -471,36 +496,71 @@ items:
     kind: skill
 `;
 
-      // Setup mocks
+      // Setup mocks (Octokit encodes slashes in path as %2F)
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/mixed-content/contents/collections?ref=main')
+        .get('/repos/test-owner/mixed-content/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [{ name: 'mixed.collection.yml', type: 'file' }]);
 
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/mixed-content/main/collections/mixed.collection.yml')
-        .reply(200, mixedCollection);
+        .get('/repos/test-owner/mixed-content/contents/collections%2Fmixed.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(mixedCollection).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/mixed-content/main/prompts/example.prompt.md')
-        .reply(200, '---\nname: Example\n---\n# Example');
+        .get('/repos/test-owner/mixed-content/contents/prompts%2Fexample.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from('---\nname: Example\n---\n# Example').toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/mixed-content/main/instructions/example.instructions.md')
-        .reply(200, '---\nname: Example Instruction\n---\n# Instruction');
+        .get('/repos/test-owner/mixed-content/contents/instructions%2Fexample.instructions.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from('---\nname: Example Instruction\n---\n# Instruction').toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/mixed-content/main/agents/example.agent.md')
-        .reply(200, '---\nname: Example Agent\n---\n# Agent');
+        .get('/repos/test-owner/mixed-content/contents/agents%2Fexample.agent.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from('---\nname: Example Agent\n---\n# Agent').toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
-      nock('https://raw.githubusercontent.com')
+      // Skills directory listing
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/mixed-content/main/skills/code-review/SKILL.md')
-        .reply(200, createSkillMd('Code Review', 'Performs code review'));
+        .get('/repos/test-owner/mixed-content/contents/skills%2Fcode-review')
+        .query({ ref: 'main' })
+        .reply(200, [
+          { name: 'SKILL.md', path: 'skills/code-review/SKILL.md', type: 'file' }
+        ]);
+
+      nock('https://api.github.com')
+        .persist()
+        .get('/repos/test-owner/mixed-content/contents/skills%2Fcode-review%2FSKILL.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createSkillMd('Code Review', 'Performs code review')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Add source, sync, and install
       await testContext.registryManager.addSource(source);

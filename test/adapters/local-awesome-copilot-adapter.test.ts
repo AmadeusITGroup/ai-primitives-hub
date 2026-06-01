@@ -149,14 +149,15 @@ suite('LocalAwesomeCopilotAdapter', () => {
       }
     });
 
-    test('should infer environments from tags', async () => {
+    test('should use tags as environments', async () => {
       const adapter = new LocalAwesomeCopilotAdapter(mockSource);
       const bundles = await adapter.fetchBundles();
 
       const testBundle = bundles.find((b) => b.id === 'test-collection');
       assert.ok(testBundle);
-      // Should have 'cloud' environment from 'azure' tag
-      assert.ok(testBundle.environments.includes('cloud'));
+      // Tags are passed through as environments for filtering
+      assert.ok(testBundle.environments.includes('azure'));
+      assert.ok(testBundle.environments.includes('test'));
     });
 
     test('should calculate item breakdown', async () => {

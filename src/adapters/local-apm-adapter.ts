@@ -46,6 +46,9 @@ import {
   ApmPackageMapper,
 } from './apm-package-mapper';
 import {
+  titleCase,
+} from './helpers/collection-parser';
+import {
   RepositoryAdapter,
 } from './repository-adapter';
 
@@ -329,7 +332,7 @@ export class LocalApmAdapter extends RepositoryAdapter {
 
       return {
         id,
-        name: this.titleCase(id.replace(/-/g, ' ')),
+        name: titleCase(id.replace(/-/g, ' ')),
         description: `From ${bundle.name}`,
         file: `prompts/${filename}`,
         type: this.detectFileType(filename),
@@ -418,16 +421,6 @@ export class LocalApmAdapter extends RepositoryAdapter {
       return 'agent';
     }
     return 'prompt';
-  }
-
-  /**
-   * Convert string to title case
-   * @param str
-   */
-  private titleCase(str: string): string {
-    return str.split(' ')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
   }
 
   /**

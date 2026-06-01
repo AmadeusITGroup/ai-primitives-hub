@@ -245,10 +245,11 @@ export function setupReleaseMocks(
     ]
   }));
 
-  // Mock releases endpoint
+  // Mock releases endpoint (Octokit adds ?per_page=100)
   nock('https://api.github.com')
     .persist()
     .get(`/repos/${config.owner}/${config.repo}/releases`)
+    .query(true)
     .reply(200, releasesResponse);
 
   // Mock repository metadata endpoint
@@ -272,19 +273,11 @@ export function setupReleaseMocks(
       .get(`/repos/${config.owner}/${config.repo}/releases/assets/${MANIFEST_ASSET_BASE_ID + index}`)
       .reply(200, JSON.stringify(manifest));
 
-    // Mock bundle asset download (redirect to githubusercontent)
+    // Mock bundle asset download (Octokit getReleaseAsset with octet-stream returns binary directly)
     nock('https://api.github.com')
       .persist()
       .get(`/repos/${config.owner}/${config.repo}/releases/assets/${BUNDLE_ASSET_BASE_ID + index}`)
-      .reply(302, '', {
-        location: `https://objects.githubusercontent.com/${config.owner}/${config.repo}/${r.tag}/bundle.zip`
-      });
-
-    // Mock actual bundle download from githubusercontent
-    nock('https://objects.githubusercontent.com')
-      .persist()
-      .get(`/${config.owner}/${config.repo}/${r.tag}/bundle.zip`)
-      .reply(200, bundleZip);
+      .reply(200, bundleZip, { 'content-type': 'application/octet-stream' });
   });
 }
 

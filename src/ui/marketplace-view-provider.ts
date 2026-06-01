@@ -57,7 +57,6 @@ interface WebviewMessage {
 interface ContentBreakdown {
   prompts: number;
   instructions: number;
-  chatmodes: number;
   agents: number;
   skills: number;
   mcpServers: number;
@@ -357,7 +356,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const breakdown: ContentBreakdown = {
       prompts: 0,
       instructions: 0,
-      chatmodes: 0,
       agents: 0,
       skills: 0,
       mcpServers: mcpServersCount
@@ -374,10 +372,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
           breakdown.instructions++;
           break;
         }
-        case 'chatmode': {
-          breakdown.chatmodes++;
-          break;
-        }
+        case 'chatmode':
         case 'agent': {
           breakdown.agents++;
           break;
@@ -416,7 +411,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       return {
         prompts: bundleData.breakdown.prompts || 0,
         instructions: bundleData.breakdown.instructions || 0,
-        chatmodes: bundleData.breakdown.chatmodes || 0,
         agents: bundleData.breakdown.agents || 0,
         skills: bundleData.breakdown.skills || 0,
         mcpServers: bundleData.breakdown.mcpServers || this.countMcpServers(bundleData)
@@ -428,7 +422,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       return {
         prompts: 0,
         instructions: 0,
-        chatmodes: 0,
         agents: 0,
         skills: bundleData.skills.length,
         mcpServers: this.countMcpServers(bundleData)
@@ -441,7 +434,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     return {
       prompts: 0,
       instructions: 0,
-      chatmodes: 0,
       agents: 0,
       skills: 0,
       mcpServers: this.countMcpServers(bundleData)

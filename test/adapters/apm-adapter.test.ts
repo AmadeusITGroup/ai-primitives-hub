@@ -1,12 +1,10 @@
 /**
  * ApmAdapter Unit Tests
- * Tests remote APM package adapter (GitHub-based)
+ * Tests remote APM package adapter (GitHub-based) using GitHubClient mocks
  */
 
 import * as assert from 'node:assert';
-import nock from 'nock';
 import * as sinon from 'sinon';
-import * as vscode from 'vscode';
 import {
   ApmAdapter,
 } from '../../src/adapters/apm-adapter';
@@ -14,12 +12,16 @@ import {
   ApmRuntimeManager,
 } from '../../src/services/apm-runtime-manager';
 import {
+  GitHubClient,
+} from '../../src/services/github-client';
+import {
   RegistrySource,
 } from '../../src/types/registry';
 
 suite('ApmAdapter', () => {
   let sandbox: sinon.SinonSandbox;
   let mockRuntime: sinon.SinonStubbedInstance<ApmRuntimeManager>;
+  let mockClient: sinon.SinonStubbedInstance<GitHubClient>;
 
   const mockSource: RegistrySource = {
     id: 'test-apm',
@@ -32,135 +34,53 @@ suite('ApmAdapter', () => {
 
   setup(() => {
     sandbox = sinon.createSandbox();
-    nock.cleanAll(); // Clean any existing nocks (e.g. from unit.setup.js)
 
     // Mock runtime manager
     ApmRuntimeManager.resetInstance();
     mockRuntime = sandbox.createStubInstance(ApmRuntimeManager);
     mockRuntime.getStatus.resolves({ installed: true, version: '1.0.0' });
-
     sandbox.stub(ApmRuntimeManager, 'getInstance').returns(mockRuntime);
 
-    // Stub vscode authentication
-    sandbox.stub(vscode.authentication, 'getSession').resolves(undefined);
+    // Mock GitHubClient
+    mockClient = sandbox.createStubInstance(GitHubClient);
+    Object.defineProperty(mockClient, 'owner', { value: 'test-owner', configurable: true });
+    Object.defineProperty(mockClient, 'repo', { value: 'test-repo', configurable: true });
+
+    // Default: empty tree
+    mockClient.getTree.resolves([]);
   });
 
   teardown(() => {
     sandbox.restore();
     ApmRuntimeManager.resetInstance();
-    nock.cleanAll();
-  });
-
-  suite('Authentication', () => {
-    test('should use VS Code authentication token when available', async () => {
-      const adapter = new ApmAdapter(mockSource);
-      const token = 'vscode-token';
-
-      // Mock VS Code auth
-      (vscode.authentication.getSession as sinon.SinonStub).resolves({
-        accessToken: token,
-        scopes: ['repo'],
-        id: 'id',
-        account: { id: 'acc', label: 'acc' }
-      });
-
-      // Verify nock request
-      const scope = nock('https://api.github.com')
-        .get('/repos/test-owner/test-repo/git/trees/main')
-        .query({ recursive: '1' })
-        .matchHeader('Authorization', `token ${token}`)
-        .reply(200, { tree: [] });
-
-      await adapter.fetchBundles();
-
-      assert.ok(scope.isDone(), 'Request with auth header was not made');
-    });
-
-    test('should use token in HTTPS requests', async () => {
-      const adapter = new ApmAdapter(mockSource);
-      const token = 'test-token-123';
-
-      // Mock VS Code auth
-      (vscode.authentication.getSession as sinon.SinonStub).resolves({
-        accessToken: token,
-        scopes: ['repo'],
-        id: 'id',
-        account: { id: 'acc', label: 'acc' }
-      });
-
-      // Verify nock request
-      const scope = nock('https://api.github.com')
-        .get('/repos/test-owner/test-repo/git/trees/main')
-        .query({ recursive: '1' })
-        .matchHeader('Authorization', `token ${token}`)
-        .reply(200, { tree: [] });
-
-      await adapter.fetchBundles();
-
-      assert.ok(scope.isDone(), 'Request with auth header was not made');
-    });
-
-    test('should fallback to config token if VS Code auth fails', async () => {
-      const sourceWithToken = { ...mockSource, token: 'config-token' };
-      const adapter = new ApmAdapter(sourceWithToken);
-
-      // Stub execShell to fail (simulate gh not installed or not authenticated)
-      sandbox.stub(adapter as any, 'execShell').rejects(new Error('gh not found'));
-
-      // VS Code auth fails/returns undefined
-      (vscode.authentication.getSession as sinon.SinonStub).resolves(undefined);
-
-      // Verify nock request
-      const scope = nock('https://api.github.com')
-        .get('/repos/test-owner/test-repo/git/trees/main')
-        .query({ recursive: '1' })
-        .matchHeader('Authorization', 'token config-token')
-        .reply(200, { tree: [] });
-
-      await adapter.fetchBundles();
-
-      assert.ok(scope.isDone(), 'Request with config token auth header was not made');
-    });
   });
 
   suite('Constructor and Validation', () => {
     test('should accept valid GitHub URL', () => {
-      const adapter = new ApmAdapter(mockSource);
+      const adapter = new ApmAdapter(mockSource, mockClient);
       assert.strictEqual(adapter.type, 'apm');
     });
 
     test('should accept GitHub URL with .git suffix', () => {
       const source = { ...mockSource, url: 'https://github.com/owner/repo.git' };
-      const adapter = new ApmAdapter(source);
+      const adapter = new ApmAdapter(source, mockClient);
       assert.ok(adapter);
     });
 
     test('should throw error for invalid URL', () => {
       const source = { ...mockSource, url: 'not-a-url' };
-      assert.throws(() => new ApmAdapter(source), /Invalid|URL/i);
+      assert.throws(() => new ApmAdapter(source, mockClient), /Invalid|URL/i);
     });
 
     test('should throw error for non-GitHub URL', () => {
       const source = { ...mockSource, url: 'https://example.com/owner/repo' };
-      assert.throws(() => new ApmAdapter(source), /GitHub/i);
+      assert.throws(() => new ApmAdapter(source, mockClient), /GitHub/i);
     });
-  });
 
-  suite('parseGitHubUrl', () => {
-    test('should extract owner and repo from URL', () => {
+    test('should create default GitHubClient when none provided', () => {
+      // This just verifies construction succeeds without passing client
       const adapter = new ApmAdapter(mockSource);
-      const { owner, repo } = (adapter as any).parseGitHubUrl();
-
-      assert.strictEqual(owner, 'test-owner');
-      assert.strictEqual(repo, 'test-repo');
-    });
-
-    test('should handle .git suffix', () => {
-      const source = { ...mockSource, url: 'https://github.com/owner/repo.git' };
-      const adapter = new ApmAdapter(source);
-      const { repo } = (adapter as any).parseGitHubUrl();
-
-      assert.strictEqual(repo, 'repo');
+      assert.ok(adapter);
     });
   });
 
@@ -169,7 +89,7 @@ suite('ApmAdapter', () => {
       mockRuntime.getStatus.resolves({ installed: false, uvxAvailable: false });
       mockRuntime.setupRuntime.resolves(false);
 
-      const adapter = new ApmAdapter(mockSource);
+      const adapter = new ApmAdapter(mockSource, mockClient);
 
       await assert.rejects(
         () => adapter.fetchBundles(),
@@ -183,48 +103,42 @@ suite('ApmAdapter', () => {
       mockRuntime.getStatus.resolves({ installed: false, uvxAvailable: false });
       mockRuntime.setupRuntime.resolves(true);
 
-      const adapter = new ApmAdapter(mockSource);
-
-      // Stub fetchGitTree to avoid network
-      sandbox.stub(adapter as any, 'fetchGitTree').resolves([]);
-
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
       assert.ok(mockRuntime.setupRuntime.called);
       assert.ok(Array.isArray(bundles));
     });
 
-    test('should return empty array when manifest not found', async () => {
-      const adapter = new ApmAdapter(mockSource);
+    test('should return empty array when tree fetch fails', async () => {
+      mockClient.getTree.rejects(new Error('Network error'));
 
-      sandbox.stub(adapter as any, 'httpsGet').rejects(new Error('Not Found'));
-
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
       assert.ok(Array.isArray(bundles));
+      assert.strictEqual(bundles.length, 0);
     });
 
-    test('should fetch bundles using git tree optimization', async () => {
-      const adapter = new ApmAdapter(mockSource);
+    test('should fetch bundles using git tree API', async () => {
+      // Mock tree response
+      mockClient.getTree.withArgs('main', true).resolves([
+        { path: 'apm.yml', type: 'blob', sha: 'abc123' },
+        { path: 'sub-package/apm.yml', type: 'blob', sha: 'def456' },
+        { path: 'node_modules/apm.yml', type: 'blob', sha: 'ghi789' } // Should be ignored
+      ]);
 
-      // Mock httpsGet to return tree then manifests
-      const httpsGetStub = sandbox.stub(adapter as any, 'httpsGet');
+      // Mock file content for root manifest
+      mockClient.getFileContent.withArgs('apm.yml', 'main').resolves(
+        Buffer.from('name: root-pkg\nversion: 1.0.0')
+      );
 
-      // 1. Git Tree response
-      httpsGetStub.onCall(0).resolves(JSON.stringify({
-        tree: [
-          { path: 'apm.yml', type: 'blob' },
-          { path: 'sub-package/apm.yml', type: 'blob' },
-          { path: 'node_modules/apm.yml', type: 'blob' } // Should be ignored
-        ]
-      }));
+      // Mock file content for sub-package manifest
+      mockClient.getFileContent.withArgs('sub-package/apm.yml', 'main').resolves(
+        Buffer.from('name: sub-pkg\nversion: 1.0.0')
+      );
 
-      // 2. Root manifest response
-      httpsGetStub.onCall(1).resolves('name: root-pkg\nversion: 1.0.0');
-
-      // 3. Sub-package manifest response
-      httpsGetStub.onCall(2).resolves('name: sub-pkg\nversion: 1.0.0');
-
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
       assert.strictEqual(bundles.length, 2);
@@ -232,18 +146,54 @@ suite('ApmAdapter', () => {
       assert.strictEqual(bundles[1].name, 'sub-pkg');
     });
 
+    test('should skip manifests in deep nested directories', async () => {
+      mockClient.getTree.withArgs('main', true).resolves([
+        { path: 'apm.yml', type: 'blob', sha: 'abc' },
+        { path: 'a/b/apm.yml', type: 'blob', sha: 'deep' } // depth > 1, ignored
+      ]);
+
+      mockClient.getFileContent.withArgs('apm.yml', 'main').resolves(
+        Buffer.from('name: root-pkg\nversion: 1.0.0')
+      );
+
+      const adapter = new ApmAdapter(mockSource, mockClient);
+      const bundles = await adapter.fetchBundles();
+
+      assert.strictEqual(bundles.length, 1);
+      assert.strictEqual(bundles[0].name, 'root-pkg');
+    });
+
+    test('should handle manifest fetch failure gracefully', async () => {
+      mockClient.getTree.withArgs('main', true).resolves([
+        { path: 'apm.yml', type: 'blob', sha: 'abc' }
+      ]);
+
+      mockClient.getFileContent.rejects(new Error('Not found'));
+
+      const adapter = new ApmAdapter(mockSource, mockClient);
+      const bundles = await adapter.fetchBundles();
+
+      assert.strictEqual(bundles.length, 0);
+    });
+
     test('should cache results', async () => {
-      const adapter = new ApmAdapter(mockSource);
+      mockClient.getTree.withArgs('main', true).resolves([
+        { path: 'apm.yml', type: 'blob', sha: 'abc' }
+      ]);
+      mockClient.getFileContent.withArgs('apm.yml', 'main').resolves(
+        Buffer.from('name: cached-pkg\nversion: 1.0.0')
+      );
 
-      const httpsGetStub = sandbox.stub(adapter as any, 'httpsGet');
-      httpsGetStub.resolves(JSON.stringify({ tree: [] }));
+      const adapter = new ApmAdapter(mockSource, mockClient);
 
+      // First call
       const bundles1 = await adapter.fetchBundles();
+      // Second call should use cache
       const bundles2 = await adapter.fetchBundles();
 
-      assert.ok(Array.isArray(bundles1));
-      assert.ok(Array.isArray(bundles2));
-      assert.strictEqual(httpsGetStub.callCount, 1, 'Should only make one network call due to caching');
+      assert.deepStrictEqual(bundles1, bundles2);
+      // getTree should only be called once (cache hit on second call)
+      assert.strictEqual(mockClient.getTree.callCount, 1);
     });
   });
 
@@ -251,7 +201,7 @@ suite('ApmAdapter', () => {
     test('should return invalid when runtime not installed', async () => {
       mockRuntime.getStatus.resolves({ installed: false });
 
-      const adapter = new ApmAdapter(mockSource);
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const result = await adapter.validate();
 
       assert.strictEqual(result.valid, false);
@@ -259,26 +209,37 @@ suite('ApmAdapter', () => {
       assert.ok(result.errors[0].includes('APM CLI'));
     });
 
-    test('should return runtime version in status', async () => {
-      mockRuntime.getStatus.resolves({
-        installed: true,
-        version: '2.0.0'
-      });
+    test('should return valid with bundle count', async () => {
+      mockRuntime.getStatus.resolves({ installed: true, version: '2.0.0' });
+      mockClient.getTree.withArgs('main', true).resolves([
+        { path: 'apm.yml', type: 'blob', sha: 'abc' }
+      ]);
+      mockClient.getFileContent.withArgs('apm.yml', 'main').resolves(
+        Buffer.from('name: test-pkg\nversion: 1.0.0')
+      );
 
-      const adapter = new ApmAdapter(mockSource);
-
-      sandbox.stub(adapter as any, 'httpsGet').resolves(JSON.stringify({ tree: [] }));
-
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const result = await adapter.validate();
 
-      assert.ok('valid' in result);
-      assert.ok('errors' in result);
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.bundlesFound, 1);
+    });
+
+    test('should warn when no packages found', async () => {
+      mockRuntime.getStatus.resolves({ installed: true, version: '2.0.0' });
+
+      const adapter = new ApmAdapter(mockSource, mockClient);
+      const result = await adapter.validate();
+
+      assert.strictEqual(result.valid, true);
+      assert.ok(result.warnings.length > 0);
+      assert.ok(result.warnings[0].includes('No APM packages'));
     });
   });
 
   suite('getManifestUrl', () => {
     test('should generate correct raw GitHub URL', () => {
-      const adapter = new ApmAdapter(mockSource);
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const url = adapter.getManifestUrl('some-bundle');
 
       assert.ok(url.includes('raw.githubusercontent.com'));
@@ -289,7 +250,7 @@ suite('ApmAdapter', () => {
 
   suite('getDownloadUrl', () => {
     test('should return manifest URL (APM has no pre-built downloads)', () => {
-      const adapter = new ApmAdapter(mockSource);
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const downloadUrl = adapter.getDownloadUrl('some-bundle');
       const manifestUrl = adapter.getManifestUrl('some-bundle');
 
@@ -299,14 +260,14 @@ suite('ApmAdapter', () => {
 
   suite('requiresAuthentication', () => {
     test('should return false for public repos by default', () => {
-      const adapter = new ApmAdapter(mockSource);
+      const adapter = new ApmAdapter(mockSource, mockClient);
 
       assert.strictEqual(adapter.requiresAuthentication(), false);
     });
 
     test('should return true when source is marked private', () => {
       const source = { ...mockSource, private: true };
-      const adapter = new ApmAdapter(source);
+      const adapter = new ApmAdapter(source, mockClient);
 
       assert.strictEqual(adapter.requiresAuthentication(), true);
     });
@@ -318,9 +279,22 @@ suite('ApmAdapter', () => {
         ...mockSource,
         config: { branch: 'develop' }
       };
-      const adapter = new ApmAdapter(source);
+      const adapter = new ApmAdapter(source, mockClient);
 
       assert.ok(adapter);
+    });
+
+    test('should use custom branch in tree API call', async () => {
+      const source = {
+        ...mockSource,
+        config: { branch: 'develop' }
+      };
+      mockClient.getTree.withArgs('develop', true).resolves([]);
+
+      const adapter = new ApmAdapter(source, mockClient);
+      await adapter.fetchBundles();
+
+      assert.ok(mockClient.getTree.calledWith('develop', true));
     });
 
     test('should accept custom cache TTL config', () => {
@@ -328,7 +302,7 @@ suite('ApmAdapter', () => {
         ...mockSource,
         config: { cacheTtl: 60_000 }
       };
-      const adapter = new ApmAdapter(source);
+      const adapter = new ApmAdapter(source, mockClient);
 
       assert.ok(adapter);
     });
@@ -344,9 +318,10 @@ suite('ApmAdapter', () => {
       ];
 
       for (const url of maliciousUrls) {
+        const client = mockClient;
         const source = { ...mockSource, url };
         assert.throws(
-          () => new ApmAdapter(source),
+          () => new ApmAdapter(source, client),
           /Invalid|URL|GitHub/i,
           `Should reject: ${url}`
         );
@@ -354,30 +329,32 @@ suite('ApmAdapter', () => {
     });
 
     test('should not execute arbitrary code from manifest', async () => {
-      const adapter = new ApmAdapter(mockSource);
+      // Verify adapter only parses YAML data, not executes scripts
+      mockClient.getTree.withArgs('main', true).resolves([
+        { path: 'apm.yml', type: 'blob', sha: 'abc' }
+      ]);
+      mockClient.getFileContent.withArgs('apm.yml', 'main').resolves(
+        Buffer.from('name: evil-pkg\nversion: 1.0.0\nscripts:\n  postinstall: "rm -rf /"')
+      );
 
-      const httpsGetStub = sandbox.stub(adapter as any, 'httpsGet');
-      httpsGetStub.onCall(0).resolves(JSON.stringify({
-        tree: [{ path: 'apm.yml', type: 'blob' }]
-      }));
-      httpsGetStub.onCall(1).resolves('name: malicious\nversion: 1.0.0\nscripts:\n  preinstall: "rm -rf /"');
-
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
+      // Should return bundle without executing any scripts
       assert.ok(Array.isArray(bundles));
       assert.strictEqual(bundles.length, 1);
-      assert.strictEqual(bundles[0].name, 'malicious');
+      assert.strictEqual(bundles[0].name, 'evil-pkg');
     });
   });
 
   suite('Error Handling', () => {
     test('should handle network errors gracefully', async () => {
-      const adapter = new ApmAdapter(mockSource);
+      mockClient.getTree.rejects(new Error('ECONNREFUSED'));
 
-      sandbox.stub(adapter as any, 'httpsGet').rejects(new Error('ECONNREFUSED'));
-
+      const adapter = new ApmAdapter(mockSource, mockClient);
       const bundles = await adapter.fetchBundles();
 
+      // Should return empty array on failure
       assert.ok(Array.isArray(bundles));
       assert.strictEqual(bundles.length, 0);
     });
@@ -385,7 +362,7 @@ suite('ApmAdapter', () => {
     test('should provide helpful error messages when runtime not installed', async () => {
       mockRuntime.getStatus.resolves({ installed: false });
 
-      const adapter = new ApmAdapter(mockSource);
+      const adapter = new ApmAdapter(mockSource, mockClient);
 
       try {
         await adapter.fetchBundles();
@@ -393,6 +370,25 @@ suite('ApmAdapter', () => {
       } catch (error: any) {
         assert.ok(error.message.includes('APM') || error.message.includes('install'));
       }
+    });
+  });
+
+  suite('fetchMetadata', () => {
+    test('should return source metadata', async () => {
+      mockClient.getTree.withArgs('main', true).resolves([
+        { path: 'apm.yml', type: 'blob', sha: 'abc' }
+      ]);
+      mockClient.getFileContent.withArgs('apm.yml', 'main').resolves(
+        Buffer.from('name: test-pkg\nversion: 1.0.0')
+      );
+
+      const adapter = new ApmAdapter(mockSource, mockClient);
+      const metadata = await adapter.fetchMetadata();
+
+      assert.strictEqual(metadata.name, 'test-owner/test-repo');
+      assert.ok(metadata.description.includes(mockSource.url));
+      assert.strictEqual(metadata.bundleCount, 1);
+      assert.strictEqual(metadata.version, '1.0.0');
     });
   });
 });

@@ -148,20 +148,31 @@ Content: ${content}
       // API calls for validation and syncs
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-test/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'test-collection.collection.yml', type: 'file' }
         ]);
 
-      // First sync + install: initial version
-      nock('https://raw.githubusercontent.com')
+      // First sync + install: initial version (Octokit encodes slashes in path as %2F)
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/collections/test-collection.collection.yml')
-        .reply(200, createCollectionYaml(initialVersion, 'initial'));
-      nock('https://raw.githubusercontent.com')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections%2Ftest-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionYaml(initialVersion, 'initial')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/prompts/test.prompt.md')
-        .reply(200, createPromptContent('initial content'));
+        .get('/repos/test-owner/awesome-copilot-test/contents/prompts%2Ftest.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent('initial content')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Step 1: Add source (triggers validation)
       await testContext.registryManager.addSource(source);
@@ -198,20 +209,31 @@ Content: ${content}
       // Setup mocks for second sync with updated version
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-test/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'test-collection.collection.yml', type: 'file' }
         ]);
 
       // Collection YAML with updated version (for sync + update download)
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/collections/test-collection.collection.yml')
-        .reply(200, createCollectionYaml(updatedVersion, 'updated'));
-      nock('https://raw.githubusercontent.com')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections%2Ftest-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionYaml(updatedVersion, 'updated')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/prompts/test.prompt.md')
-        .reply(200, createPromptContent('updated content'));
+        .get('/repos/test-owner/awesome-copilot-test/contents/prompts%2Ftest.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent('updated content')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Step 5: Sync source again - this triggers auto-update for Awesome Copilot bundles
       await testContext.registryManager.syncSource(sourceId);
@@ -238,18 +260,29 @@ Content: ${content}
       // Setup mocks for validation + first sync + install
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-test/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'test-collection.collection.yml', type: 'file' }
         ]);
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/collections/test-collection.collection.yml')
-        .reply(200, createCollectionYaml(initialVersion, 'initial'));
-      nock('https://raw.githubusercontent.com')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections%2Ftest-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionYaml(initialVersion, 'initial')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/prompts/test.prompt.md')
-        .reply(200, createPromptContent('INITIAL_CONTENT_MARKER'));
+        .get('/repos/test-owner/awesome-copilot-test/contents/prompts%2Ftest.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent('INITIAL_CONTENT_MARKER')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Add and sync source
       await testContext.registryManager.addSource(source);
@@ -288,18 +321,29 @@ Content: ${content}
 
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-test/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'test-collection.collection.yml', type: 'file' }
         ]);
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/collections/test-collection.collection.yml')
-        .reply(200, createCollectionYaml(updatedVersion, 'updated'));
-      nock('https://raw.githubusercontent.com')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections%2Ftest-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionYaml(updatedVersion, 'updated')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/prompts/test.prompt.md')
-        .reply(200, createPromptContent('UPDATED_CONTENT_MARKER'));
+        .get('/repos/test-owner/awesome-copilot-test/contents/prompts%2Ftest.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent('UPDATED_CONTENT_MARKER')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Sync to trigger auto-update
       await testContext.registryManager.syncSource(sourceId);
@@ -332,18 +376,29 @@ Content: ${content}
       // Setup mocks for validation + first sync + install
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-test/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'test-collection.collection.yml', type: 'file' }
         ]);
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/collections/test-collection.collection.yml')
-        .reply(200, createCollectionYaml(initialVersion, 'initial'));
-      nock('https://raw.githubusercontent.com')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections%2Ftest-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionYaml(initialVersion, 'initial')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/prompts/test.prompt.md')
-        .reply(200, createPromptContent('initial'));
+        .get('/repos/test-owner/awesome-copilot-test/contents/prompts%2Ftest.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent('initial')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Add, sync, and install
       await testContext.registryManager.addSource(source);
@@ -373,18 +428,29 @@ Content: ${content}
 
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-test/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'test-collection.collection.yml', type: 'file' }
         ]);
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/collections/test-collection.collection.yml')
-        .reply(200, createCollectionYaml(updatedVersion, 'updated'));
-      nock('https://raw.githubusercontent.com')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections%2Ftest-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionYaml(updatedVersion, 'updated')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/prompts/test.prompt.md')
-        .reply(200, createPromptContent('updated'));
+        .get('/repos/test-owner/awesome-copilot-test/contents/prompts%2Ftest.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent('updated')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Sync to trigger auto-update
       await testContext.registryManager.syncSource(sourceId);
@@ -410,18 +476,29 @@ Content: ${content}
       // Setup mocks for validation + first sync + install
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-test/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'test-collection.collection.yml', type: 'file' }
         ]);
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/collections/test-collection.collection.yml')
-        .reply(200, createCollectionYaml(initialVersion, 'initial'));
-      nock('https://raw.githubusercontent.com')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections%2Ftest-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionYaml(initialVersion, 'initial')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/prompts/test.prompt.md')
-        .reply(200, createPromptContent('initial'));
+        .get('/repos/test-owner/awesome-copilot-test/contents/prompts%2Ftest.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent('initial')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Add, sync, and install with specific scope
       await testContext.registryManager.addSource(source);
@@ -451,18 +528,29 @@ Content: ${content}
 
       nock('https://api.github.com')
         .persist()
-        .get('/repos/test-owner/awesome-copilot-test/contents/collections?ref=main')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections')
+        .query({ ref: 'main' })
         .reply(200, [
           { name: 'test-collection.collection.yml', type: 'file' }
         ]);
-      nock('https://raw.githubusercontent.com')
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/collections/test-collection.collection.yml')
-        .reply(200, createCollectionYaml(updatedVersion, 'updated'));
-      nock('https://raw.githubusercontent.com')
+        .get('/repos/test-owner/awesome-copilot-test/contents/collections%2Ftest-collection.collection.yml')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createCollectionYaml(updatedVersion, 'updated')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
+      nock('https://api.github.com')
         .persist()
-        .get('/test-owner/awesome-copilot-test/main/prompts/test.prompt.md')
-        .reply(200, createPromptContent('updated'));
+        .get('/repos/test-owner/awesome-copilot-test/contents/prompts%2Ftest.prompt.md')
+        .query({ ref: 'main' })
+        .reply(200, {
+          content: Buffer.from(createPromptContent('updated')).toString('base64'),
+          encoding: 'base64',
+          type: 'file'
+        });
 
       // Sync to trigger auto-update
       await testContext.registryManager.syncSource(sourceId);
