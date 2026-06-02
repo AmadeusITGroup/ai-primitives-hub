@@ -12,6 +12,9 @@ import {
   CreateCollectionCommand,
 } from './commands/create-collection-command';
 import {
+  FeedbackCommands,
+} from './commands/feedback-commands';
+import {
   GitHubAuthCommand,
 } from './commands/github-auth-command';
 import {
@@ -62,6 +65,9 @@ import {
 import {
   AutoUpdateService,
 } from './services/auto-update-service';
+import {
+  EngagementService,
+} from './services/engagement/engagement-service';
 import {
   HubManager,
 } from './services/hub-manager';
@@ -168,6 +174,10 @@ export class PromptRegistryExtension {
   // Telemetry
   private telemetryService: TelemetryService | undefined;
 
+  // Engagement (ratings + feedback)
+  private engagementService: EngagementService | undefined;
+  private feedbackCommands: FeedbackCommands | undefined;
+
   // Repository-level installation services
   private lockfileManager: LockfileManager | undefined;
   private repositoryActivationService: RepositoryActivationService | undefined;
@@ -210,6 +220,38 @@ export class PromptRegistryExtension {
       this.telemetryService.subscribeToRegistryEvents(this.registryManager);
     } catch (error) {
       this.logger.warn('Failed to initialize telemetry service (non-fatal)', error);
+    }
+  }
+
+  /**
+   * Initialize engagement system (ratings + feedback).
+   * Creates the EngagementService singleton and registers feedback commands.
+   * Per-hub backend registration is handled elsewhere.
+   */
+  private async initializeEngagementSystem(): Promise<void> {
+    try {
+      this.engagementService = EngagementService.getInstance(this.context);
+      await this.engagementService.initialize();
+
+      this.feedbackCommands = new FeedbackCommands();
+      this.feedbackCommands.setEngagementService(this.engagementService);
+      this.feedbackCommands.registerCommands(this.context);
+
+      // Register engagement backends and warm caches for all imported hubs
+      if (this.hubManager) {
+        await this.hubManager.initializeEngagementBackends();
+      }
+
+      // Drain any unsynced pending feedback saved during a previous offline session (non-fatal)
+      if (this.feedbackCommands) {
+        try {
+          await this.feedbackCommands.drainUnsyncedFeedback();
+        } catch (error) {
+          this.logger.debug('Drain unsynced feedback failed (non-fatal)', error);
+        }
+      }
+    } catch (error) {
+      this.logger.warn('Failed to initialize engagement system (non-fatal)', error);
     }
   }
 
@@ -1576,6 +1618,9 @@ export class PromptRegistryExtension {
       // Initialize telemetry service
       this.initializeTelemetry();
 
+      // Initialize engagement system (ratings + feedback)
+      await this.initializeEngagementSystem();
+
       // Initialize repository-level installation services
       await this.initializeRepositoryServices();
 
@@ -1621,6 +1666,9 @@ export class PromptRegistryExtension {
 
       // Dispose telemetry event subscriptions
       this.telemetryService?.dispose();
+
+      // Dispose engagement service (feedback command disposables are on context.subscriptions)
+      this.engagementService?.dispose();
 
       // Dispose hub sync scheduler
       this.hubSyncScheduler?.dispose();

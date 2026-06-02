@@ -408,6 +408,24 @@
         "title": "Clean Up Stale Repository Bundles",
         "category": "Prompt Registry",
         "icon": "$(trash)"
+      },
+      {
+        "command": "promptRegistry.feedback",
+        "title": "Rate & Feedback",
+        "category": "Prompt Registry",
+        "icon": "$(star-full)"
+      },
+      {
+        "command": "promptRegistry.reportIssue",
+        "title": "Report Issue",
+        "category": "Prompt Registry",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "promptRegistry.requestFeature",
+        "title": "Request Feature",
+        "category": "Prompt Registry",
+        "icon": "$(lightbulb)"
       }
     ],
     "viewsContainers": {
@@ -604,6 +622,21 @@
           "command": "promptregistry.openItemRepository",
           "when": "view == promptRegistryExplorer && viewItem == installed_bundle",
           "group": "bundleActions@5"
+        },
+        {
+          "command": "promptRegistry.feedback",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^installed_bundle/",
+          "group": "engagement@1"
+        },
+        {
+          "command": "promptRegistry.reportIssue",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^installed_bundle/",
+          "group": "engagement@2"
+        },
+        {
+          "command": "promptRegistry.requestFeature",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^installed_bundle/",
+          "group": "engagement@3"
         },
         {
           "command": "promptRegistry.moveToRepositoryCommit",

@@ -8,6 +8,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
 import nock from 'nock';
+import * as sinon from 'sinon';
+import * as vscode from 'vscode';
+import {
+  EngagementService,
+} from '../../src/services/engagement/engagement-service';
 import {
   HubManager,
 } from '../../src/services/hub-manager';
@@ -615,6 +620,66 @@ suite('HubManager', () => {
       if (otherProfiles.length > 0) {
         assert.ok(otherProfiles.every((p) => !p.active));
       }
+    });
+  });
+
+  suite('registerHubEngagement', () => {
+    let sandbox: sinon.SinonSandbox;
+    let engagementContext: vscode.ExtensionContext;
+    let registerBackendStub: sinon.SinonStub;
+
+    setup(() => {
+      sandbox = sinon.createSandbox();
+
+      const stubState = {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: () => [] as string[],
+        setKeysForSync: sandbox.stub()
+      };
+      engagementContext = {
+        globalStorageUri: { fsPath: tempDir } as any,
+        subscriptions: [],
+        workspaceState: stubState as any,
+        globalState: stubState as any
+      } as any;
+
+      EngagementService.resetInstance();
+      const service = EngagementService.getInstance(engagementContext);
+      registerBackendStub = sandbox.stub(service, 'registerHubBackend').resolves();
+    });
+
+    teardown(() => {
+      sandbox.restore();
+      EngagementService.resetInstance();
+    });
+
+    test('returns without calling registerHubBackend when engagement is undefined', async () => {
+      await hubManager.registerHubEngagement('some-hub', undefined);
+
+      assert.strictEqual(registerBackendStub.called, false);
+    });
+
+    test('returns without calling registerHubBackend when engagement is disabled', async () => {
+      await hubManager.registerHubEngagement('some-hub', {
+        enabled: false,
+        backend: { type: 'file' }
+      });
+
+      assert.strictEqual(registerBackendStub.called, false);
+    });
+
+    test('calls registerHubBackend when engagement is enabled', async () => {
+      const engagement = {
+        enabled: true,
+        backend: { type: 'file' as const }
+      };
+
+      await hubManager.registerHubEngagement('some-hub', engagement);
+
+      assert.strictEqual(registerBackendStub.calledOnce, true);
+      assert.strictEqual(registerBackendStub.firstCall.args[0], 'some-hub');
+      assert.deepStrictEqual(registerBackendStub.firstCall.args[1], engagement);
     });
   });
 });

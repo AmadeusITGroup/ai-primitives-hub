@@ -35,6 +35,7 @@ docs/
 | Installation/update flows | `contributor-guide/architecture/installation-flow.md`, `contributor-guide/architecture/update-system.md` |
 | Adapters (GitHub, Local, etc.) | `contributor-guide/architecture/adapters.md`, `reference/adapter-api.md` |
 | Authentication | `contributor-guide/architecture/authentication.md` |
+| Engagement/ratings | `contributor-guide/architecture/engagement.md`, `reference/engagement-api.md` |
 | UI (Marketplace, TreeView) | `contributor-guide/architecture/ui-components.md` |
 | Validation logic | `contributor-guide/architecture/validation.md` |
 | MCP integration | `contributor-guide/architecture/mcp-integration.md` |

@@ -20,6 +20,9 @@ import {
   LoadHubResult,
 } from '../storage/hub-storage';
 import {
+  HubEngagementConfig,
+} from '../types/engagement';
+import {
   ConflictResolutionDialog,
   HubConfig,
   HubProfile,
@@ -43,6 +46,18 @@ import {
 import {
   generateHubSourceId,
 } from '../utils/source-id-utils';
+import {
+  EngagementHydrator,
+} from './engagement/engagement-hydrator';
+import {
+  EngagementService,
+} from './engagement/engagement-service';
+import {
+  FeedbackCache,
+} from './engagement/feedback-cache';
+import {
+  RatingCache,
+} from './engagement/rating-cache';
 import {
   SchemaValidator,
   ValidationResult,
@@ -539,9 +554,65 @@ export class HubManager {
       await this.loadHubSources(hubId);
     }
 
+    // Register engagement backend for the newly imported hub (non-fatal)
+    try {
+      await this.registerHubEngagement(hubId, config.engagement, config.sources);
+    } catch (error) {
+      this.logger.warn(`Failed to register engagement for imported hub ${hubId}`, error);
+    }
+
     this._onHubImported.fire(hubId);
 
     return hubId;
+  }
+
+  /**
+   * Register an engagement backend for a hub if the hub config includes engagement settings.
+   * Also warms rating and feedback caches from the hub's static URLs if configured.
+   * Idempotent: safe to call more than once per hub.
+   * @param hubId Hub identifier
+   * @param engagement Engagement configuration (from HubConfig.engagement)
+   * @param hubSources Hub source configurations for building sourceId mappings
+   */
+  public async registerHubEngagement(
+    hubId: string,
+    engagement: HubEngagementConfig | undefined,
+    hubSources?: HubSource[]
+  ): Promise<void> {
+    if (!engagement?.enabled) {
+      return;
+    }
+    try {
+      const engagementService = EngagementService.getInstance();
+      await engagementService.registerHubBackend(hubId, engagement);
+    } catch (error) {
+      this.logger.warn(`Failed to register engagement backend for hub ${hubId}`, error);
+      return;
+    }
+
+    const hydrator = new EngagementHydrator(
+      EngagementService.getInstance(),
+      RatingCache.getInstance(),
+      FeedbackCache.getInstance()
+    );
+    const sourceIdMap = hydrator.buildSourceIdMap(hubSources);
+    await hydrator.hydrate(hubId, engagement, sourceIdMap);
+  }
+
+  /**
+   * Iterate all imported hubs and register their engagement backends.
+   * Called once during extension activation.
+   */
+  public async initializeEngagementBackends(): Promise<void> {
+    const hubs = await this.listHubs();
+    for (const hub of hubs) {
+      try {
+        const { config } = await this.loadHub(hub.id);
+        await this.registerHubEngagement(hub.id, config.engagement, config.sources);
+      } catch (error) {
+        this.logger.warn(`Failed to initialize engagement for hub ${hub.id}`, error);
+      }
+    }
   }
 
   /**

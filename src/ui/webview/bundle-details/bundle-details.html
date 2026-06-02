@@ -20,6 +20,34 @@
 
     {{autoUpdateSection}}
 
+    <div class="rating-section">
+        <div class="rating-display">
+            {{ratingDisplay}}
+        </div>
+        <div class="rating-action">
+            <div class="interactive-stars" id="detailStars">
+                <span class="star" data-action="rateBundle" data-star="1" title="1 star">★</span>
+                <span class="star" data-action="rateBundle" data-star="2" title="2 stars">★</span>
+                <span class="star" data-action="rateBundle" data-star="3" title="3 stars">★</span>
+                <span class="star" data-action="rateBundle" data-star="4" title="4 stars">★</span>
+                <span class="star" data-action="rateBundle" data-star="5" title="5 stars">★</span>
+                <span class="star-label">Rate this bundle</span>
+            </div>
+        </div>
+        <div class="inline-feedback-form" id="detailFeedbackForm">
+            <textarea id="detailFeedbackText" placeholder="Optional: share your experience..." maxlength="1000"></textarea>
+            <div class="form-actions">
+                <button class="btn btn-secondary btn-small" id="cancelFeedbackBtn" data-action="cancelFeedbackForm">Cancel</button>
+                <button class="btn btn-primary btn-small" id="submitFeedbackBtn" data-action="submitFeedbackForm">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="issue-links">
+        <button class="btn btn-link" id="reportIssueBtn" data-action="reportIssue">Report Issue</button>
+        <button class="btn btn-link" id="requestFeatureBtn" data-action="requestFeature">Request Feature</button>
+    </div>
+
     <div class="section">
         <h2>Description</h2>
         <p>{{description}}</p>
@@ -63,7 +91,11 @@
         // Initialize bundle details data for the external JS
         window.bundleDetailsData = {
             autoUpdateEnabled: {{autoUpdateEnabled}},
-            bundleId: '{{bundleId}}'
+            bundleId: '{{bundleId}}',
+            sourceId: '{{sourceId}}',
+            hubId: '{{hubId}}',
+            sourceUrl: '{{sourceUrl}}',
+            userRating: {{userRating}}
         };
     </script>
     <script nonce="{{nonce}}" src="{{scriptUri}}"></script>

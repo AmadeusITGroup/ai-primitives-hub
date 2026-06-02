@@ -2,6 +2,10 @@ import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  CachedRating,
+  RatingCache,
+} from '../../src/services/engagement/rating-cache';
+import {
   HubManager,
 } from '../../src/services/hub-manager';
 import {
@@ -10,6 +14,10 @@ import {
 import {
   HubProfile,
 } from '../../src/types/hub';
+import {
+  Bundle,
+  InstalledBundle,
+} from '../../src/types/registry';
 import {
   RegistryTreeItem,
   RegistryTreeProvider,
@@ -1150,5 +1158,220 @@ suite('RegistryTreeProvider - Files Missing Warning Indicator', () => {
       !normalItem.contextValue?.startsWith('installedBundle.filesMissing'),
       'Normal bundle should not have filesMissing context value'
     );
+  });
+});
+
+/**
+ * Task 6: Rating suffix on tree-view bundle descriptions
+ *
+ * When a bundle has a cached rating, the tree item's description should be
+ * suffixed with ` ★ X.X (N)` so users can see community ratings alongside
+ * the version number.
+ */
+suite('RegistryTreeProvider - Rating Suffix on Descriptions', () => {
+  let sandbox: sinon.SinonSandbox;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+    // Reset RatingCache singleton so each test starts clean
+    RatingCache.resetInstance();
+  });
+
+  teardown(() => {
+    sandbox.restore();
+    RatingCache.resetInstance();
+  });
+
+  const makeCachedRating = (overrides: Partial<CachedRating> = {}): CachedRating => {
+    return {
+      sourceId: 'source1',
+      bundleId: 'bundle-1',
+      starRating: 4.2,
+      wilsonScore: 0.8,
+      voteCount: 10,
+      confidence: 'medium',
+      cachedAt: Date.now(),
+      ...overrides
+    };
+  };
+
+  const makeInstalledBundle = (overrides: Partial<InstalledBundle> = {}): InstalledBundle => {
+    return {
+      bundleId: 'bundle-1',
+      version: '1.0.0',
+      installedAt: new Date().toISOString(),
+      scope: 'user',
+      installPath: '/user/path',
+      manifest: {} as any,
+      sourceId: 'source1',
+      ...overrides
+    };
+  };
+
+  const makeBundle = (overrides: Partial<Bundle> = {}): Bundle => {
+    return {
+      id: 'bundle-1',
+      name: 'Bundle One',
+      version: '1.0.0',
+      description: 'desc',
+      author: 'author',
+      sourceId: 'source1',
+      environments: [],
+      tags: [],
+      lastUpdated: new Date().toISOString(),
+      size: '1MB',
+      dependencies: [],
+      license: 'MIT',
+      manifestUrl: 'https://example.com/manifest',
+      downloadUrl: 'https://example.com/download',
+      ...overrides
+    };
+  };
+
+  test('INSTALLED_BUNDLE description includes star suffix when rating is cached', () => {
+    sandbox.stub(RatingCache.getInstance(), 'getRating').returns(
+      makeCachedRating({ starRating: 4.2, voteCount: 10 })
+    );
+
+    const installed = makeInstalledBundle();
+    const item = new RegistryTreeItem(
+      'Bundle One',
+      TreeItemType.INSTALLED_BUNDLE,
+      installed,
+      vscode.TreeItemCollapsibleState.None
+    );
+
+    assert.ok(typeof item.description === 'string', 'description should be a string');
+    const desc = item.description;
+    assert.ok(desc.startsWith('v1.0.0'), `description should start with version, got: ${desc}`);
+    assert.ok(desc.includes('★ 4.2'), `description should include star rating, got: ${desc}`);
+    assert.ok(desc.includes('(10)'), `description should include vote count, got: ${desc}`);
+  });
+
+  test('INSTALLED_BUNDLE description has no star suffix when no rating is cached', () => {
+    sandbox.stub(RatingCache.getInstance(), 'getRating').returns(undefined);
+
+    const installed = makeInstalledBundle();
+    const item = new RegistryTreeItem(
+      'Bundle One',
+      TreeItemType.INSTALLED_BUNDLE,
+      installed,
+      vscode.TreeItemCollapsibleState.None
+    );
+
+    assert.strictEqual(item.description, 'v1.0.0');
+  });
+
+  test('INSTALLED_BUNDLE with undefined sourceId short-circuits to no star suffix', () => {
+    const getRatingStub = sandbox.stub(RatingCache.getInstance(), 'getRating').returns(
+      makeCachedRating({ starRating: 4.2, voteCount: 10 })
+    );
+
+    const installed = makeInstalledBundle({ sourceId: undefined });
+    const item = new RegistryTreeItem(
+      'Bundle One',
+      TreeItemType.INSTALLED_BUNDLE,
+      installed,
+      vscode.TreeItemCollapsibleState.None
+    );
+
+    assert.strictEqual(item.description, 'v1.0.0');
+    assert.strictEqual(getRatingStub.called, false, 'getRating should not be called when sourceId is undefined');
+  });
+
+  test('INSTALLED_BUNDLE description has no star suffix when cached rating has zero votes', () => {
+    sandbox.stub(RatingCache.getInstance(), 'getRating').returns(
+      makeCachedRating({ starRating: 0, voteCount: 0 })
+    );
+
+    const installed = makeInstalledBundle();
+    const item = new RegistryTreeItem(
+      'Bundle One',
+      TreeItemType.INSTALLED_BUNDLE,
+      installed,
+      vscode.TreeItemCollapsibleState.None
+    );
+
+    assert.strictEqual(item.description, 'v1.0.0');
+  });
+
+  test('BUNDLE description includes star suffix when rating is cached', () => {
+    sandbox.stub(RatingCache.getInstance(), 'getRating').returns(
+      makeCachedRating({ starRating: 4.2, voteCount: 10 })
+    );
+
+    const bundle = makeBundle();
+    const item = new RegistryTreeItem(
+      bundle.name,
+      TreeItemType.BUNDLE,
+      bundle,
+      vscode.TreeItemCollapsibleState.None
+    );
+
+    assert.ok(typeof item.description === 'string', 'description should be a string');
+    const desc = item.description;
+    assert.ok(desc.startsWith('1.0.0'), `description should start with version, got: ${desc}`);
+    assert.ok(desc.includes('★ 4.2'), `description should include star rating, got: ${desc}`);
+    assert.ok(desc.includes('(10)'), `description should include vote count, got: ${desc}`);
+  });
+
+  test('BUNDLE description has no star suffix when no rating is cached', () => {
+    sandbox.stub(RatingCache.getInstance(), 'getRating').returns(undefined);
+
+    const bundle = makeBundle();
+    const item = new RegistryTreeItem(
+      bundle.name,
+      TreeItemType.BUNDLE,
+      bundle,
+      vscode.TreeItemCollapsibleState.None
+    );
+
+    assert.strictEqual(item.description, '1.0.0');
+  });
+
+  test('getInstalledBundleItems preserves rating suffix after setVersionDisplay overwrite', async () => {
+    // Regression: setVersionDisplay used to flat-overwrite treeItem.description with a
+    // version-only string, dropping the star suffix produced by RegistryTreeItem's constructor.
+    sandbox.stub(RatingCache.getInstance(), 'getRating').returns(
+      makeCachedRating({ starRating: 4.2, voteCount: 10 })
+    );
+
+    const registryManagerStub = sandbox.createStubInstance(RegistryManager);
+    const hubManagerStub = sandbox.createStubInstance(HubManager);
+    setupTreeProviderMocks(registryManagerStub, hubManagerStub, sandbox);
+
+    const installed = makeInstalledBundle();
+    registryManagerStub.listInstalledBundles.resolves([installed]);
+    registryManagerStub.getBundleDetails.withArgs(installed.bundleId).resolves({
+      id: installed.bundleId,
+      name: 'Bundle One',
+      version: '1.0.0',
+      description: 'desc',
+      author: 'author',
+      sourceId: 'source1',
+      environments: [],
+      tags: [],
+      lastUpdated: new Date().toISOString(),
+      size: '1MB',
+      dependencies: [],
+      license: 'MIT',
+      manifestUrl: 'https://example.com/manifest',
+      downloadUrl: 'https://example.com/download'
+    });
+
+    const provider = new RegistryTreeProvider(registryManagerStub, hubManagerStub);
+
+    const installedRoot = new RegistryTreeItem(
+      'Installed Bundles',
+      TreeItemType.INSTALLED_ROOT,
+      undefined,
+      vscode.TreeItemCollapsibleState.Expanded
+    );
+
+    const items = await provider.getChildren(installedRoot);
+
+    assert.strictEqual(items.length, 1);
+    const desc = items[0].description as string;
+    assert.strictEqual(desc, 'v1.0.0 ★ 4.2 (10)');
   });
 });
