@@ -412,6 +412,44 @@ sources: []
         }
       );
     });
+
+    it('should use release tag version when asset filename has no semver (.bundle.zip pattern)', () => {
+      const bundleZipReleases = [
+        {
+          tag_name: 'v1.0.17',
+          published_at: '2025-01-15T00:00:00Z',
+          assets: [
+            { name: 'workflow-nevio.bundle.zip', size: 512000, download_count: 42 }
+          ]
+        }
+      ];
+      const result = processReleases(mockSource, bundleZipReleases);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].bundleId, 'workflow-nevio');
+      assert.strictEqual(result[0].version, '1.0.17',
+        'version should be tag-derived (v stripped) when filename carries no semver');
+      assert.strictEqual(result[0].releaseTag, 'v1.0.17',
+        'releaseTag must still preserve the original tag including the v prefix');
+    });
+
+    it('should NOT use release tag version when asset filename already carries a semver', () => {
+      const versionedFilenameReleases = [
+        {
+          tag_name: 'v2.5.0',
+          published_at: '2025-03-01T00:00:00Z',
+          assets: [
+            { name: 'my-bundle-2.5.0.zip', size: 1024, download_count: 10 }
+          ]
+        }
+      ];
+      const result = processReleases(mockSource, versionedFilenameReleases);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].version, '2.5.0',
+        'filename-parsed version must be preserved when it is not unknown');
+      assert.strictEqual(result[0].releaseTag, 'v2.5.0');
+    });
   });
 
   describe('aggregateData()', () => {
