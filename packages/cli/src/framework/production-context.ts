@@ -113,15 +113,6 @@ const createProductionStdin = (): InputStream => ({
   read: (): string => '' // streaming read added in a later iteration
 });
 
-/**
- * Build the production Context the real CLI binary uses at startup.
- * @param overrides - Optional Context-field overrides. Added
- *   `cwd` so the `--cwd` flag can redirect filesystem operations
- *   without `chdir`-ing the whole process (which would corrupt
- *   relative paths outside the command's own scope).
- * @param overrides.cwd
- * @returns A `Context` whose IO surfaces are wired to real Node primitives.
- */
 const detectColorDepth = (): number => {
   if (process.env.NO_COLOR !== undefined) {
     return 0;
@@ -132,6 +123,15 @@ const detectColorDepth = (): number => {
   return 0;
 };
 
+/**
+ * Build the production Context the real CLI binary uses at startup.
+ * @param overrides - Optional Context-field overrides. Added
+ *   `cwd` so the `--cwd` flag can redirect filesystem operations
+ *   without `chdir`-ing the whole process (which would corrupt
+ *   relative paths outside the command's own scope).
+ * @param overrides.cwd
+ * @returns A `Context` whose IO surfaces are wired to real Node primitives.
+ */
 export const createProductionContext = (overrides: { cwd?: string } = {}): Context => ({
   fs: createProductionFs(),
   net: createProductionNet(),

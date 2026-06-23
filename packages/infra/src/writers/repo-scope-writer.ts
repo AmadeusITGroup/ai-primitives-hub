@@ -15,22 +15,16 @@
  * Added removeFile method for uninstall pipeline.
  */
 import * as path from 'node:path';
-import {
-  load as parseYaml,
-} from 'js-yaml';
-import type {
-  Target,
-} from '@prompt-registry/core';
 import type {
   ExtractedFiles,
-} from '@prompt-registry/core';
-import type {
   FileSystem,
-} from '@prompt-registry/core';
-import type {
+  Target,
   TargetWriter,
   TargetWriteResult,
 } from '@prompt-registry/core';
+import {
+  load as parseYaml,
+} from 'js-yaml';
 
 /**
  * Section header for Prompt Registry entries in .git/info/exclude

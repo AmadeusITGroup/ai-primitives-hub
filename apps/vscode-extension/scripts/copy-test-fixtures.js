@@ -25,7 +25,8 @@ const ITEMS_TO_COPY = [
 // Templates need to be in test-dist/src/ because compiled code uses __dirname
 const ROOT_ITEMS = [
     { source: 'templates', dest: 'templates' },           // For root-level access
-    { source: 'templates', dest: 'src/templates' }        // For compiled code access (__dirname)
+    { source: 'templates', dest: 'src/templates' },       // For compiled code access (__dirname)
+    { source: '../../schemas', dest: 'schemas' }          // JSON schemas (extensionPath-relative)
 ];
 
 try {

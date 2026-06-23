@@ -25,5 +25,5 @@ export const TEMPLATE_PATHS = {
   agent: path.join(TEMPLATE_ROOT, 'agent'),
   skill: path.join(TEMPLATE_ROOT, 'skill'),
   plugin: path.join(TEMPLATE_ROOT, 'plugin'),
-  hook: path.join(TEMPLATE_ROOT, 'hook'),
+  hook: path.join(TEMPLATE_ROOT, 'hook')
 } as const;

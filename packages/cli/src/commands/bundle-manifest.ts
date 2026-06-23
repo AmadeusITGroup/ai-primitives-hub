@@ -10,10 +10,10 @@
  * clipanion positional.
  */
 import * as path from 'node:path';
-import * as yaml from 'js-yaml';
 import {
   normalizeRepoRelativePath,
 } from '@prompt-registry/core';
+import * as yaml from 'js-yaml';
 import {
   Command,
   copyCommandPrototype,
@@ -77,7 +77,7 @@ abstract class BaseBundleManifestCommand extends Command {
  */
 export class BundleManifestCommand extends BaseBundleManifestCommand {
   public static readonly paths = [['bundle', 'manifest']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Generate a deployment-manifest.yml from a collection.yml.',
     category: 'Build & Author',
@@ -159,7 +159,7 @@ const createBundleManifestCommandDefinition = (
   }
   copyCommandPrototype(BundleManifestCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof BundleManifestCommand;
+  return ConfiguredCommand;
 };
 
 /**

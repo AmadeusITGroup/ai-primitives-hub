@@ -63,7 +63,7 @@ abstract class BaseSkillNewCommand extends Command {
  */
 export class SkillNewCommand extends BaseSkillNewCommand {
   public static readonly paths = [['skill', 'new']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Create a new agent skill folder + SKILL.md template.',
     category: 'Build & Author',
@@ -147,7 +147,7 @@ const createSkillNewCommandDefinition = (
   }
   copyCommandPrototype(SkillNewCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof SkillNewCommand;
+  return ConfiguredCommand;
 };
 
 /**

@@ -9,19 +9,11 @@ import {
   resolveUserConfigPaths,
 } from '@prompt-registry/app';
 import {
-  defaultIndexFile,
-} from '@prompt-registry/infra';
-import {
   ActiveHubStore,
-} from '@prompt-registry/infra';
-import {
-  tryLoadIndex,
-} from '@prompt-registry/infra';
-import {
-  readLockfile,
-} from '@prompt-registry/infra';
-import {
+  defaultIndexFile,
   HubStore,
+  readLockfile,
+  tryLoadIndex,
 } from '@prompt-registry/infra';
 import {
   Command,
@@ -81,7 +73,7 @@ export const createStatusCommand = (
  */
 export class StatusCommand extends Command {
   public static readonly paths = [['status']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Show current configuration state: targets, active hub, index, and lockfile.',
     category: 'Configure & Debug',

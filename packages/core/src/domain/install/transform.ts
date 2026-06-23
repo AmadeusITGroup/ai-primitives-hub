@@ -8,7 +8,9 @@
  *
  * Pure domain: no IO, no framework imports, no feature layer imports.
  */
-import type { Target } from './target';
+import type {
+  Target,
+} from './target';
 
 /**
  * Context provided to transformers.
@@ -41,7 +43,7 @@ export interface TransformResult {
  */
 export const noChange = (content: string): TransformResult => ({
   content,
-  modified: false,
+  modified: false
 });
 
 /**
@@ -51,5 +53,5 @@ export const noChange = (content: string): TransformResult => ({
  */
 export const changed = (content: string): TransformResult => ({
   content,
-  modified: true,
+  modified: true
 });

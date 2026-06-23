@@ -13,8 +13,6 @@ import {
 } from '@prompt-registry/core';
 import {
   findLockfile,
-} from '@prompt-registry/infra';
-import {
   readTargetsHierarchical,
 } from '@prompt-registry/infra';
 import {

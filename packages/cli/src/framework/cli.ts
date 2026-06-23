@@ -16,6 +16,10 @@
  *   thrown error         -> 70 (EX_SOFTWARE)
  *   --version / --help   -> 0
  */
+import type {
+  HttpClient,
+  TokenProvider,
+} from '@prompt-registry/core';
 import {
   Builtins,
   Cli,
@@ -25,10 +29,6 @@ import {
 import type {
   CommandClass,
 } from 'clipanion';
-import type {
-  HttpClient,
-  TokenProvider,
-} from '@prompt-registry/core';
 import type {
   Context,
 } from './context';
@@ -127,7 +127,7 @@ const toClipanionCommandClass = (
 ): CommandClass => {
   class DynamicCommand extends Command {
     public static readonly paths: string[][] = [def.path];
-    // eslint-disable-next-line new-cap, @typescript-eslint/explicit-member-accessibility -- clipanion's static factory uses PascalCase by convention; we mirror its API.
+    // eslint-disable-next-line @typescript-eslint/explicit-member-accessibility -- clipanion's static factory uses PascalCase by convention; we mirror its API.
     static readonly usage = Command.Usage({ description: def.description, category: def.category });
 
     public async execute(): Promise<number> {

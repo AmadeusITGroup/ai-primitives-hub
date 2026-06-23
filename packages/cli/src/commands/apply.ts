@@ -22,9 +22,9 @@ import {
 } from '@prompt-registry/core';
 import {
   envTokenProvider,
-} from '@prompt-registry/infra';
-import {
   NodeHttpClient,
+  ProfileActivationStore,
+  readTargets,
 } from '@prompt-registry/infra';
 import {
   type Lockfile,
@@ -33,12 +33,6 @@ import {
   upsertEntry,
   upsertSource,
   writeLockfile,
-} from '@prompt-registry/infra';
-import {
-  ProfileActivationStore,
-} from '@prompt-registry/infra';
-import {
-  readTargets,
 } from '@prompt-registry/infra';
 import {
   type CommandDefinition,

@@ -1,23 +1,31 @@
 /**
  * Unit tests for KiroTransformer.
  */
-import { describe, it, expect } from 'vitest';
-import { KiroTransformer } from '../../src/transform/transformers/kiro-transformer';
-import type { Target } from '@prompt-registry/core';
+import type {
+  Target,
+} from '@prompt-registry/core';
+import {
+  describe,
+  expect,
+  it,
+} from 'vitest';
+import {
+  KiroTransformer,
+} from '../../src/transform/transformers/kiro-transformer';
 
 describe('KiroTransformer', () => {
   const transformer = new KiroTransformer();
   const mockTarget: Target = {
     name: 'test-kiro',
     type: 'kiro',
-    scope: 'user',
+    scope: 'user'
   };
 
   it('should return no change for non-agent files', () => {
     const context = {
       target: mockTarget,
       filePath: 'prompts/example.md',
-      content: 'some content',
+      content: 'some content'
     };
     const result = transformer.transform(context);
     expect(result.modified).toBe(false);
@@ -28,7 +36,7 @@ describe('KiroTransformer', () => {
     const context = {
       target: mockTarget,
       filePath: 'agents/example.txt',
-      content: 'some content',
+      content: 'some content'
     };
     const result = transformer.transform(context);
     expect(result.modified).toBe(false);
@@ -39,7 +47,7 @@ describe('KiroTransformer', () => {
     const context = {
       target: mockTarget,
       filePath: 'agents/example.md',
-      content: '---\nname: "existing-name"\ntitle: "Example"\n---\nContent',
+      content: '---\nname: "existing-name"\ntitle: "Example"\n---\nContent'
     };
     const result = transformer.transform(context);
     expect(result.modified).toBe(false);
@@ -50,7 +58,7 @@ describe('KiroTransformer', () => {
     const context = {
       target: mockTarget,
       filePath: 'agents/example.md',
-      content: '---\ntitle: "My Agent"\n---\nContent',
+      content: '---\ntitle: "My Agent"\n---\nContent'
     };
     const result = transformer.transform(context);
     expect(result.modified).toBe(true);
@@ -61,7 +69,7 @@ describe('KiroTransformer', () => {
     const context = {
       target: mockTarget,
       filePath: 'agents/my-cool-agent.md',
-      content: '---\n---\nContent',
+      content: '---\n---\nContent'
     };
     const result = transformer.transform(context);
     expect(result.modified).toBe(true);
@@ -72,13 +80,13 @@ describe('KiroTransformer', () => {
     const context = {
       target: mockTarget,
       filePath: 'agents/my-agent.md',
-      content: '---\n---\nContent',
+      content: '---\n---\nContent'
     };
     const firstResult = transformer.transform(context);
     const secondContext = {
       target: mockTarget,
       filePath: 'agents/my-agent.md',
-      content: firstResult.content,
+      content: firstResult.content
     };
     const secondResult = transformer.transform(secondContext);
     expect(secondResult.modified).toBe(false);
@@ -89,7 +97,7 @@ describe('KiroTransformer', () => {
     const context = {
       target: mockTarget,
       filePath: 'agents/example.md',
-      content: 'no frontmatter here',
+      content: 'no frontmatter here'
     };
     const result = transformer.transform(context);
     expect(result.modified).toBe(false);
@@ -100,7 +108,7 @@ describe('KiroTransformer', () => {
     const context = {
       target: mockTarget,
       filePath: 'agents/my-awesome-agent.md',
-      content: '---\n---\nContent',
+      content: '---\n---\nContent'
     };
     const result = transformer.transform(context);
     expect(result.modified).toBe(true);

@@ -11,17 +11,17 @@
  */
 import * as path from 'node:path';
 import {
-  TemplateEngine,
-  TEMPLATE_PATHS,
-} from '@prompt-registry/infra';
-import {
   generateSanitizedId,
   TemplateContext,
 } from '@prompt-registry/core';
 import {
+  TEMPLATE_PATHS,
+  TemplateEngine,
+} from '@prompt-registry/infra';
+import {
   Command,
-  Option,
   copyCommandPrototype,
+  Option,
 } from '../framework';
 import {
   type Context,
@@ -50,7 +50,7 @@ abstract class BaseCollectionCreateCommand extends Command {
  */
 export class CollectionCreateCommand extends BaseCollectionCreateCommand {
   public static readonly paths = [['collection', 'create']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Create a new collection file',
     category: 'Collection',
@@ -82,7 +82,7 @@ export class CollectionCreateCommand extends BaseCollectionCreateCommand {
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
-    const fmt = (this.output ?? 'text') as OutputFormat;
+    const fmt = (this.output ?? 'text');
 
     try {
       // Determine collection ID and display name
@@ -90,8 +90,8 @@ export class CollectionCreateCommand extends BaseCollectionCreateCommand {
       const displayName = this.nameOption || this.name;
 
       // Parse tags
-      const tags = this.tags ? this.tags.split(',').map(t => t.trim()).filter(t => t.length > 0) : [];
-      const tagsLine = tags.length > 0 ? `tags: ${tags.map(t => `"${t}"`).join(', ')}` : '';
+      const tags = this.tags ? this.tags.split(',').map((t) => t.trim()).filter((t) => t.length > 0) : [];
+      const tagsLine = tags.length > 0 ? `tags: ${tags.map((t) => `"${t}"`).join(', ')}` : '';
 
       // Build template context
       const context: TemplateContext = {
@@ -162,6 +162,7 @@ export class CollectionCreateCommand extends BaseCollectionCreateCommand {
 
 /**
  * Create a configured collection create command class.
+ * @param ctx
  */
 const createCollectionCreateCommandDefinition = (
   ctx: Context
@@ -175,11 +176,12 @@ const createCollectionCreateCommandDefinition = (
 
   copyCommandPrototype(CollectionCreateCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof CollectionCreateCommand;
+  return ConfiguredCommand;
 };
 
 /**
  * Factory function to create a configured collection create command class.
+ * @param ctx
  */
 export const createCollectionCreateCommandClass = (
   ctx: Context

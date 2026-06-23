@@ -14,11 +14,11 @@ import {
   generateSourceId,
 } from '@prompt-registry/core';
 import type {
-  TokenProvider,
-} from '@prompt-registry/infra';
-import type {
   HttpClient,
 } from '@prompt-registry/core';
+import type {
+  TokenProvider,
+} from '@prompt-registry/infra';
 import {
   Command,
   createHubManager,
@@ -76,6 +76,7 @@ export class SourceAddCommand extends BaseSourceCommand {
         $ prompt-registry source add --type local --url ./skills --id local-skills
     `
   });
+
   public sourceType = Option.String('--type');
   public url = Option.String('--url');
   public sourceId = Option.String('--id');
@@ -125,6 +126,7 @@ export class SourceListCommand extends BaseSourceCommand {
         $ prompt-registry source list --hub my-hub
     `
   });
+
   public hubId = Option.String('--hub');
 
   public async execute() {
@@ -170,6 +172,7 @@ export class SourceRemoveCommand extends BaseSourceCommand {
         $ prompt-registry source remove local-skills
     `
   });
+
   public sourceId = Option.String();
 
   public async execute() {

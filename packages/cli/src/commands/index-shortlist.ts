@@ -7,16 +7,12 @@
  * and writes it back atomically (saveIndex creates parent dirs).
  * @module cli/commands/index-shortlist
  */
-import {
-  defaultIndexFile,
-} from '@prompt-registry/infra';
 import type {
   PrimitiveIndex,
-} from '@prompt-registry/infra';
-import type {
   Shortlist,
 } from '@prompt-registry/infra';
 import {
+  defaultIndexFile,
   loadIndex,
   saveIndex,
 } from '@prompt-registry/infra';
@@ -219,7 +215,7 @@ const classifyError = (cause: unknown, indexPath: string): RegistryError => {
  */
 export class IndexShortlistNewCommand extends Command {
   public static readonly paths = [['index', 'shortlist', 'new']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Create a new shortlist.',
     category: 'Index & Search',
@@ -271,7 +267,7 @@ export class IndexShortlistNewCommand extends Command {
  */
 export class IndexShortlistAddCommand extends Command {
   public static readonly paths = [['index', 'shortlist', 'add']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Add a primitive to a shortlist.',
     category: 'Index & Search',
@@ -333,7 +329,7 @@ export class IndexShortlistAddCommand extends Command {
  */
 export class IndexShortlistRemoveCommand extends Command {
   public static readonly paths = [['index', 'shortlist', 'remove']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Remove a primitive from a shortlist.',
     category: 'Index & Search',
@@ -395,7 +391,7 @@ export class IndexShortlistRemoveCommand extends Command {
  */
 export class IndexShortlistListCommand extends Command {
   public static readonly paths = [['index', 'shortlist', 'list']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'List all shortlists.',
     category: 'Index & Search',

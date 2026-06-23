@@ -55,9 +55,10 @@ export const renderTable = <T>(opts: RenderTableOptions<T>): string => {
   const fmtRow = (cells: string[]): string =>
     cells.map((c, i) => pad(c, widths[i], columns[i].align ?? 'left')).join(' '.repeat(gap));
 
-  const lines: string[] = [];
-  lines.push(fmtRow(columns.map((c) => c.header)));
-  lines.push(...rows.map((r) => fmtRow(columns.map((c) => c.get(r)))));
+  const lines = [
+    fmtRow(columns.map((c) => c.header)),
+    ...rows.map((r) => fmtRow(columns.map((c) => c.get(r))))
+  ];
 
   return lines.join('\n') + '\n';
 };

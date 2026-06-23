@@ -34,11 +34,11 @@
   "dependencies": {
     "@prompt-registry/core": "workspace:*",
     "@prompt-registry/infra": "workspace:*",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.2.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^20.11.0",
+    "@types/node": "^20.19.41",
     "@vitest/coverage-v8": "^4.1.7",
     "typescript": "^5.9.3",
     "vitest": "^4.1.7"

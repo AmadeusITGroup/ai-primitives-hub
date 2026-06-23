@@ -1,5 +1,7 @@
 # Collection Scripts Library
 
+**⚠️ Deprecation Notice:** The `@prompt-registry/collection-scripts` package is deprecated. Use the individual monorepo packages (`@prompt-registry/core`, `@prompt-registry/infra`, etc.) for new projects. The package is maintained for backward compatibility only.
+
 The Prompt Registry provides a shared npm package `@prompt-registry/collection-scripts` that contains all the scripts needed for building, validating, and publishing Copilot prompt collections.
 
 ## Installation

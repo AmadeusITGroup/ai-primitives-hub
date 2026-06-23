@@ -235,7 +235,7 @@ export const createExplainCommand = (
  */
 export class ExplainCommand extends Command {
   public static readonly paths = [['explain']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Print documentation for a RegistryError code.',
     category: 'Configure & Debug',

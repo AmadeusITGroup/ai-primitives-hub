@@ -1,16 +1,16 @@
 # Contributing to Prompt Registry
 
-Thank you for your interest in contributing to Prompt Registry! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to Prompt Registry! This is a pnpm monorepo shipping both a **VS Code extension** and a **CLI** (`prompt-registry`). This document covers the workspace as a whole; for extension-specific details see [apps/vscode-extension/CONTRIBUTING.md](apps/vscode-extension/CONTRIBUTING.md).
 
-## 🎯 Table of Contents
+## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
-- [Development Setup](#development-setup)
-- [Project Structure](#project-structure)
-- [How to Contribute](#how-to-contribute)
+- [Monorepo Structure](#monorepo-structure)
+- [Architecture](#architecture)
+- [Build Commands](#build-commands)
+- [Testing](#testing)
 - [Coding Standards](#coding-standards)
-- [Testing Guidelines](#testing-guidelines)
 - [Commit Messages](#commit-messages)
 - [Pull Request Process](#pull-request-process)
 - [Release Process](#release-process)
@@ -19,7 +19,7 @@ Thank you for your interest in contributing to Prompt Registry! This document pr
 
 ## Code of Conduct
 
-This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to the project maintainers.
+This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
 
 ---
 
@@ -27,536 +27,198 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ### Prerequisites
 
-- **Node.js**: Version 18.x or 20.x
-- **npm**: Version 8.x or higher
-- **VS Code**: Latest stable version
-- **Git**: For version control
+- **Node.js** 18.x or 20.x
+- **pnpm** 11.5.0+ (`npm install -g pnpm@11`)
+- **Git**
+- **VS Code** (latest stable) — only required for extension development
 
 ### Quick Start
 
-1. **Fork the repository**
-   ```bash
-   # Click "Fork" on GitHub, then clone your fork
-   git clone https://github.com/YOUR_USERNAME/prompt-registry.git
-   cd prompt-registry
-   ```
+```bash
+# Fork on GitHub, then:
+git clone https://github.com/YOUR_USERNAME/prompt-registry.git
+cd prompt-registry
+pnpm install
+pnpm build
+pnpm test
+```
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Build the extension**
-   ```bash
-   npm run compile
-   ```
-
-4. **Run tests**
-   ```bash
-   npm test
-   ```
-
-5. **Launch in VS Code**
-   - Press `F5` in VS Code to open Extension Development Host
-   - The extension will be loaded and ready to test
+Before starting any work: check [existing issues](https://github.com/AmadeusITGroup/prompt-registry/issues) to avoid duplicates, and open an issue to discuss major features before coding.
 
 ---
 
-## Development Setup
+## Monorepo Structure
 
-### Environment Configuration
-
-1. **TypeScript Compilation**
-   ```bash
-   # Watch mode for development
-   npm run watch
-   
-   # Single compilation
-   npm run compile
-   ```
-
-2. **Testing**
-   ```bash
-   # Run all tests
-   npm run test:all
-   
-   # Run unit tests only
-   npm run test:unit
-   
-   # Run with coverage
-   npm run test:coverage
-   ```
-
-3. **Linting**
-   ```bash
-   # Check code style
-   npm run lint
-   
-   # Auto-fix issues
-   npm run lint -- --fix
-   ```
-
-### Recommended VS Code Extensions
-
-- **ESLint**: Code quality
-- **Prettier**: Code formatting
-- **TypeScript**: Language support
-- **Test Explorer**: Run tests in UI
-
----
-
-## Project Structure
+This is a **pnpm workspace** (`pnpm-workspace.yaml`). Members are `packages/*`, `apps/*`, and `lib`.
 
 ```
 prompt-registry/
-├── src/
-│   ├── adapters/          # Source adapters (GitHub, Local, etc.)
-│   ├── commands/          # VS Code commands
-│   ├── services/          # Core business logic
-│   ├── ui/                # WebView UI components
-│   ├── types/             # TypeScript type definitions
-│   ├── utils/             # Utility functions
-│   └── extension.ts       # Extension entry point
-├── templates/
-│   └── scaffolds/         # Project scaffolding templates
-│       ├── github/        # GitHub scaffold with CI/CD publishing
-│       └── apm/           # APM package template
-├── test/
-│   ├── adapters/          # Adapter unit tests
-│   ├── services/          # Service unit tests
-│   ├── integration/       # Integration tests
-│   └── e2e/               # End-to-end tests
-├── docs/                  # Additional documentation
-├── .github/
-│   └── workflows/         # CI/CD pipelines
-└── package.json           # Extension manifest
+├── packages/
+│   ├── core/      @prompt-registry/core   — Domain types + port interfaces. No external deps.
+│   ├── infra/     @prompt-registry/infra  — Adapters (GitHub, HTTP, fs, ZIP, search, stores, writers)
+│   ├── app/       @prompt-registry/app    — Use-case orchestration (install/uninstall pipelines)
+│   ├── cli/       @prompt-registry/cli    — Clipanion CLI (binary: prompt-registry)
+│   └── sdk/       @prompt-registry/sdk    — High-level API for integrations
+├── apps/
+│   └── vscode-extension/                  — VS Code extension (webpack, Mocha tests)
+├── lib/                                   — Legacy collection scripts (deprecated, being migrated)
+├── docs/                                  — Contributor and user documentation
+├── schemas/                               — JSON Schemas for manifests/configs
+├── pnpm-workspace.yaml
+├── tsconfig.base.json                     — Shared TS config
+└── tsconfig.json                          — Solution root (references all packages)
 ```
 
-### Key Files
-
-- **`src/extension.ts`**: Extension activation and setup
-- **`src/types/registry.ts`**: Core type definitions
-- **`src/commands/ScaffoldCommand.ts`**: Project scaffolding command
-- **[Architecture](docs/contributor-guide/architecture.md)**: Detailed architecture documentation
-- **[Core Flows](docs/contributor-guide/core-flows.md)**: Key system flows and processes
-
-### Scaffolding System
-
-The extension includes a scaffolding system for creating new prompt projects:
-
-| Scaffold Type | Description | Template Location |
-|--------------|-------------|-------------------|
-| **GitHub** | Full-featured template with GitHub Releases CI for automated collection publishing | `templates/scaffolds/github/` |
-| **APM** | APM package template | `templates/scaffolds/apm/` |
-
-**GitHub Scaffold Features:**
-- GitHub Actions workflows for automated publishing
-- Collection validation scripts
-- Example prompts, instructions, and agents
-- Pre-commit hooks for validation
-
-When contributing to scaffolding:
-- Templates use `{{variable}}` syntax for substitution
-- Test changes with `npm run test:unit` (scaffold tests in `test/commands/`)
-- Ensure all generated files are valid and functional
+Internal dependencies use `workspace:*`. Each package extends `tsconfig.base.json`.
 
 ---
 
-## How to Contribute
+## Architecture
 
-### Types of Contributions
+The codebase follows **Clean Architecture / Ports & Adapters**. The load-bearing rule: **dependencies point inward toward `core`**. Never import `infra` from `core`.
 
-We welcome all types of contributions:
+| Layer | Package | Responsibility |
+|-------|---------|----------------|
+| Domain | `core` | Types (`Bundle`, `Collection`, `Target`, `Hub`, `Profile`), port interfaces, validation |
+| Infrastructure | `infra` | Concrete adapters for ports: `NodeHttpClient`, `GitHubClient`, target writers, source resolvers |
+| Application | `app` | Wires ports + adapters into use cases: install/uninstall pipeline, resource transformers |
+| Delivery | `cli`, `sdk`, `vscode-extension` | Thin layers over `app` |
 
-- 🐛 **Bug fixes**
-- ✨ **New features**
-- 📝 **Documentation improvements**
-- 🧪 **Test coverage**
-- 🎨 **UI/UX enhancements**
-- 🌍 **Translations** (future)
-- 💡 **Ideas and suggestions**
+**Adding a capability that touches the outside world:**
+1. Define or extend a **port** (interface) in `core`
+2. Implement the **adapter** in `infra`
+3. Orchestrate in `app`
+4. Expose in `cli`/`sdk`/extension
 
-### Finding Work
+See [docs/contributor-guide/architecture.md](docs/contributor-guide/architecture.md) and [docs/library-centric-architecture/](docs/library-centric-architecture/) for full diagrams.
 
-1. **Check Issues**: Browse [GitHub Issues](https://github.com/AmadeusITGroup/prompt-registry/issues)
-2. **Good First Issues**: Look for `good-first-issue` label
-3. **Help Wanted**: Look for `help-wanted` label
-4. **Propose New**: Create an issue to discuss new features
+---
 
-### Before You Start
+## Build Commands
 
-1. **Check for existing work**: Search issues and PRs to avoid duplicates
-2. **Discuss large changes**: Open an issue first for major features
-3. **Read the docs**: Review [Architecture](docs/contributor-guide/architecture.md) and [Core Flows](docs/contributor-guide/core-flows.md)
+### Workspace-level (runs recursively across all packages)
+
+```bash
+pnpm install          # Install all dependencies
+pnpm build            # Build all packages (pnpm -r run build)
+pnpm test             # Run all tests
+pnpm lint             # Lint all packages
+pnpm lint:fix         # Auto-fix lint issues
+```
+
+### Per-package (preferred while iterating — much faster)
+
+```bash
+pnpm --filter=@prompt-registry/core  run build
+pnpm --filter=@prompt-registry/infra run build
+pnpm --filter=@prompt-registry/app   run build
+pnpm --filter=@prompt-registry/cli   run build
+pnpm --filter=@prompt-registry/cli   run test
+pnpm --filter=@prompt-registry/infra run test:watch
+pnpm --filter=@prompt-registry/app   run test:coverage
+```
+
+### VS Code extension
+
+```bash
+pnpm --filter=prompt-registry run compile       # webpack production build
+pnpm --filter=prompt-registry run watch         # dev mode (auto-compile)
+pnpm --filter=prompt-registry run package:vsix  # build .vsix
+```
+
+See [apps/vscode-extension/CONTRIBUTING.md](apps/vscode-extension/CONTRIBUTING.md) for extension-specific workflows.
+
+---
+
+## Testing
+
+### Packages (`packages/*`) — Vitest
+
+```bash
+pnpm --filter=@prompt-registry/cli  run test             # run once
+pnpm --filter=@prompt-registry/infra run test:watch      # watch mode
+pnpm --filter=@prompt-registry/app  run test:coverage    # with coverage
+```
+
+> Note: `core` and `infra` builds copy assets via a Node script (`copy-schemas` / `copy-templates`). Don't replace those steps with shell `cp` — the Node approach is intentional for Windows compatibility.
+
+### VS Code extension — Mocha (two-tier)
+
+```bash
+cd apps/vscode-extension
+
+LOG_LEVEL=ERROR npm run test:unit          # Node, vscode mocked
+npm run test:integration                   # real VS Code (Electron host)
+npm test                                   # both
+npm run test:one -- test/services/foo.test.ts   # single file
+```
+
+Tests compile to `test-dist/` first. `test/suite/` = real VS Code; everything else = mocked.
+
+See [docs/contributor-guide/testing.md](docs/contributor-guide/testing.md) for full test guidance.
 
 ---
 
 ## Coding Standards
 
-### TypeScript Style
+- **TypeScript strict**, no `any`. ESLint flat-config: root `eslint.config.mjs` + per-package configs extending `eslint.shared.mjs`.
+- **Named exports** preferred over default exports.
+- **Naming**: `PascalCase` classes/interfaces, `camelCase` functions, `UPPER_SNAKE_CASE` constants, files match class name or `camelCase` for utilities.
+- **No `process.exit` outside the framework entry points** — commands use `ctx.exit()`.
+- **CLI commands**: use `getCommandContext(this)`, `formatOutput(...)`, and `failWith(...)` — never write to stdout directly. Honor `-o/--output` format (`text`/`json`/`yaml`/`ndjson`). Register new command classes in `packages/cli/src/main.ts`.
 
-```typescript
-// ✅ Good: Type-safe, clear naming
-export interface Bundle {
-    id: string;
-    name: string;
-    version: string;
-}
-
-async function fetchBundle(bundleId: string): Promise<Bundle> {
-    // Implementation
-}
-
-// ❌ Bad: Any types, unclear names
-async function fetch(id: any): Promise<any> {
-    // Implementation
-}
-```
-
-### Naming Conventions
-
-- **Classes**: `PascalCase` (e.g., `GitHubAdapter`)
-- **Functions**: `camelCase` (e.g., `fetchBundles`)
-- **Constants**: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_TIMEOUT`)
-- **Interfaces**: `PascalCase` (e.g., `RegistrySource`)
-- **Files**: Match class name or `camelCase` for utilities
-
-### Code Organization
-
-1. **Imports**: Group by external, internal, types
-   ```typescript
-   // External
-   import * as vscode from 'vscode';
-   import axios from 'axios';
-   
-   // Internal
-   import { Logger } from '../utils/logger';
-   
-   // Types
-   import { Bundle } from '../types/registry';
-   ```
-
-2. **Exports**: Prefer named exports
-   ```typescript
-   // ✅ Good
-   export class GitHubAdapter { }
-   export function parseManifest() { }
-   
-   // ❌ Avoid (unless single export)
-   export default class GitHubAdapter { }
-   ```
-
-3. **Error Handling**: Always use try-catch for async
-   ```typescript
-   async function fetchData(): Promise<void> {
-       try {
-           const data = await api.fetch();
-           // Process data
-       } catch (error) {
-           logger.error('Failed to fetch', error as Error);
-           throw new Error('Fetch failed');
-       }
-   }
-   ```
-
-### Documentation
-
-1. **JSDoc Comments**: For public APIs
-   ```typescript
-   /**
-    * Fetches bundles from a registry source
-    * @param sourceId - Unique source identifier
-    * @returns Array of bundle metadata
-    * @throws {Error} If source is not accessible
-    */
-   async fetchBundles(sourceId: string): Promise<Bundle[]> {
-       // Implementation
-   }
-   ```
-
-2. **Inline Comments**: For complex logic
-   ```typescript
-   // Use path.join for cross-platform compatibility
-   const bundlePath = path.join(baseDir, 'bundles', bundleId);
-   ```
-
----
-
-## Testing Guidelines
-
-### Test Structure
-
-```typescript
-import * as assert from 'assert';
-import { GitHubAdapter } from '../../src/adapters/GitHubAdapter';
-
-suite('GitHubAdapter', () => {
-    suite('Constructor', () => {
-        test('should accept valid URL', () => {
-            const adapter = new GitHubAdapter({ url: 'https://github.com/user/repo' });
-            assert.ok(adapter);
-        });
-        
-        test('should reject invalid URL', () => {
-            assert.throws(() => {
-                new GitHubAdapter({ url: 'invalid' });
-            });
-        });
-    });
-});
-```
-
-### Testing Best Practices
-
-1. **Unit Tests**: Test individual functions/classes in isolation
-2. **Integration Tests**: Test component interactions
-3. **Mocking**: Use `nock` for HTTP, mock VS Code APIs
-4. **Coverage**: Aim for 70%+ coverage on new code
-5. **Naming**: Descriptive test names (what and expected outcome)
-
-### Running Tests
-
-```bash
-# Run specific test file
-npx mocha test-dist/test/adapters/GitHubAdapter.test.js
-
-# Run with debugger
-# Add breakpoint, then F5 in VS Code with "Extension Tests" config
-
-# Generate coverage report
-npm run test:coverage
-```
+See [docs/contributor-guide/coding-standards.md](docs/contributor-guide/coding-standards.md) for full standards.
 
 ---
 
 ## Commit Messages
 
-We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
-
-### Format
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 <type>(<scope>): <subject>
-
-<body>
-
-<footer>
 ```
 
-### Types
+**Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`
 
-- **feat**: New feature
-- **fix**: Bug fix
-- **docs**: Documentation only
-- **style**: Code style (formatting, no logic change)
-- **refactor**: Code restructuring (no feature/bug change)
-- **test**: Adding or updating tests
-- **chore**: Maintenance tasks (dependencies, build config)
-- **perf**: Performance improvements
-- **ci**: CI/CD changes
+**Examples:**
 
-### Examples
-
-```bash
-# Feature
-feat(adapters): add APM adapter support
-
-Implements APM adapter with package repository support
-and release fetching.
-
-Closes #42
-
-# Bug fix
-fix(installer): handle symlink failures on Windows
-
-Falls back to file copy when symlink creation fails.
-Fixes installation issues on Windows systems.
-
-Fixes #56
-
-# Documentation
-docs(readme): add installation troubleshooting section
-
-# Test
-test(adapters): add comprehensive GitHubAdapter tests
-
-Adds 15 test cases covering URL validation, metadata fetching,
-and error handling.
+```
+feat(cli): add install --dry-run flag
+fix(infra): handle rate-limit retry on GitHub API
+docs(contributing): update monorepo structure
+test(app): add coverage for uninstall pipeline
 ```
 
-### Guidelines
-
-- **Subject**: 50 chars max, imperative mood ("add" not "added")
-- **Body**: Wrap at 72 chars, explain *what* and *why*
-- **Footer**: Reference issues (`Closes #123`, `Fixes #456`)
+- Subject: ≤50 chars, imperative mood ("add" not "added")
+- Body: wrap at 72 chars, explain *what* and *why*
+- Footer: reference issues (`Closes #123`, `Fixes #456`)
 
 ---
 
 ## Pull Request Process
 
-### Before Submitting
-
-1. **Update from main**
-   ```bash
-   git fetch upstream
-   git rebase upstream/main
-   ```
-
-2. **Run all checks**
-   ```bash
-   npm run lint
-   npm run compile
-   npm test
-   ```
-
-3. **Update documentation** if needed
-
-4. **Add tests** for new features
-
-### PR Description Template
-
-```markdown
-## Description
-Brief description of changes
-
-## Type of Change
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
-- [ ] Documentation update
-
-## Testing
-- [ ] Unit tests added/updated
-- [ ] Manual testing completed
-- [ ] All tests passing
-
-## Checklist
-- [ ] Code follows style guidelines
-- [ ] Self-review completed
-- [ ] Comments added for complex code
-- [ ] Documentation updated
-- [ ] No new warnings generated
-- [ ] Tests added proving fix/feature works
-```
-
-### Review Process
-
-1. **Automated checks**: Must pass CI/CD
-2. **Code review**: At least one maintainer approval
-3. **Testing**: Reviewers may test locally
-4. **Feedback**: Address review comments
-5. **Merge**: Maintainers will merge when ready
-
-### After Merge
-
-- Delete your feature branch
-- Update your fork
-- Celebrate! 🎉
+1. **Update from main**: `git fetch upstream && git rebase upstream/main`
+2. **Run checks**: `pnpm lint && pnpm build && pnpm test`
+3. **Add tests** for new features or bug fixes
+4. **Open PR** using the [PR template](.github/pull_request_template.md)
+5. **Address review feedback**
+6. Maintainers merge after CI passes and at least one approval
 
 ---
 
 ## Release Process
 
-### Versioning
+See [docs/contributor-guide/releasing.md](docs/contributor-guide/releasing.md) for the full process.
 
-We use [Semantic Versioning](https://semver.org/):
-
-- **MAJOR**: Breaking changes (v1.0.0 → v2.0.0)
-- **MINOR**: New features, backward compatible (v1.0.0 → v1.1.0)
-- **PATCH**: Bug fixes, backward compatible (v1.0.0 → v1.0.1)
-
-### Release Checklist
-
-1. Update version in `package.json`
-2. Update `CHANGELOG.md`
-3. Run full test suite
-4. Create git tag
-5. Publish to VS Code Marketplace
-6. Create GitHub release with notes
-
-### Pre-release Testing
-
-- Run on all supported OS (macOS, Linux, Windows)
-- Test with VS Code Stable and Insiders
-- Verify marketplace package size
+We use [Semantic Versioning](https://semver.org/). Publishing the VS Code extension to the Marketplace is triggered automatically by creating a GitHub release. The CLI packages are published to npm independently.
 
 ---
 
-## Development Tips
+## License
 
-### Debugging
+This project is licensed under the Apache License 2.0 — see [LICENSE.txt](LICENSE.txt) for details. By contributing, you agree your contributions are licensed under the same terms.
 
-1. **VS Code Extension Host**
-   - Press `F5` to launch
-   - Set breakpoints in TypeScript
-   - Check Debug Console for logs
-
-2. **Extension Logs**
-   - View → Output → Select "Prompt Registry"
-   - Check for error messages and warnings
-
-3. **Network Inspection**
-   - Use `nock` in tests to capture requests
-   - Check browser DevTools for WebView issues
-
-### Common Issues
-
-**Issue**: "Cannot find module 'vscode'"
-- **Solution**: Run `npm install`, ensure you're in VS Code
-
-**Issue**: Tests failing with "suite is not defined"
-- **Solution**: Check test file uses correct mocha setup
-
-**Issue**: Extension not loading
-- **Solution**: Check `package.json` activation events, rebuild
-
-### Performance Considerations
-
-- **Minimize API calls**: Cache when possible
-- **Lazy loading**: Load heavy resources on demand
-- **Async operations**: Use `async/await`, avoid blocking
-- **Memory**: Clean up resources in `dispose()` methods
-
----
-
-## Community
-
-### Communication Channels
-
-- **GitHub Issues**: Bug reports and feature requests
-- **GitHub Discussions**: General questions and ideas
-- **Pull Requests**: Code contributions
-
-### Getting Help
-
-1. Check existing [documentation](README.md)
-2. Search [closed issues](https://github.com/AmadeusITGroup/prompt-registry/issues?q=is%3Aissue+is%3Aclosed)
-3. Ask in [GitHub Discussions](https://github.com/AmadeusITGroup/prompt-registry/discussions)
-4. Open a new issue with details
-
-### Recognition
-
-Contributors are recognized in:
-- GitHub contributors page
-- Release notes
-- Project README (major contributors)
-
----
-
-## Legal
-
-### Contributor License Agreement
-
-By contributing, you agree that:
-- Your contributions are your own work
-- You grant us rights to use your contribution
-- Your contribution is licensed under the Apache License 2.0
-
-### License
-
-This project is licensed under the Apache License 2.0 - see [LICENSE](LICENSE.txt) for details.
-
----
 
 ## Thank You! 🙏
 

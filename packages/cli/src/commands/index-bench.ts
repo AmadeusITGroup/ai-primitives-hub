@@ -7,18 +7,15 @@
  * aggregate QPS.
  * @module cli/commands/index-bench
  */
-// eslint-disable-next-line local/no-framework-imports -- bounded sync read of the gold-set file; refactoring loadIndex+gold to async ctx.fs is tracked separately.
 import * as fs from 'node:fs';
 import {
   defaultIndexFile,
+  loadIndex,
 } from '@prompt-registry/infra';
 import {
   type BenchCase,
   renderBenchReportMarkdown,
   runBench,
-} from '@prompt-registry/infra';
-import {
-  loadIndex,
 } from '@prompt-registry/infra';
 import {
   Command,
@@ -103,7 +100,7 @@ export const createIndexBenchCommand = (
  */
 export class IndexBenchCommand extends Command {
   public static readonly paths = [['index', 'bench']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Run a search microbenchmark over a gold-set against an index.',
     category: 'Index & Search',

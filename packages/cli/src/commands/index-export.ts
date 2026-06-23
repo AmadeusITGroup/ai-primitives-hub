@@ -8,21 +8,18 @@
  * paths.
  * @module cli/commands/index-export
  */
-// eslint-disable-next-line local/no-framework-imports -- bounded sync writes for the profile/collection YAML output paired with sync loadIndex; refactor tracked separately.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {
-  dump as toYaml,
-} from 'js-yaml';
 import {
   exportShortlistAsProfile,
 } from '@prompt-registry/app';
 import {
   defaultIndexFile,
-} from '@prompt-registry/infra';
-import {
   loadIndex,
 } from '@prompt-registry/infra';
+import {
+  dump as toYaml,
+} from 'js-yaml';
 import {
   Command,
   type CommandDefinition,
@@ -170,7 +167,7 @@ const buildIndexExportError = (cause: unknown, indexPath: string): RegistryError
  */
 export class IndexExportCommand extends Command {
   public static readonly paths = [['index', 'export']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Export a shortlist as a hub profile YAML.',
     category: 'Index & Search',

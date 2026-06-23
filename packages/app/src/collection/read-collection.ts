@@ -14,8 +14,8 @@ import type {
 } from '@prompt-registry/core';
 import {
   normalizeRepoRelativePath,
-  validateCollectionObject,
   SCHEMA_DIR,
+  validateCollectionObject,
 } from '@prompt-registry/core';
 import * as yaml from 'js-yaml';
 

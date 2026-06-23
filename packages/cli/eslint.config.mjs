@@ -19,6 +19,14 @@ export default defineConfig([
     tsconfigRootDir: import.meta.dirname
   }),
   {
+    name: 'cli/clipanion-patterns',
+    files: ['**/*.ts'],
+    rules: {
+      // Command.Usage is a Clipanion static factory method, not a constructor
+      'new-cap': ['error', { capIsNewExceptionPattern: '^Command\\.' }]
+    }
+  },
+  {
     name: 'cli/temporary-warn-rules-ts',
     files: ['**/*.ts'],
     rules: temporaryWarnRulesTs

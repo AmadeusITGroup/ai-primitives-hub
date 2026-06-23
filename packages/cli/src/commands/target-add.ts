@@ -23,9 +23,7 @@ import {
 } from '@prompt-registry/infra';
 import {
   Command,
-  type CommandDefinition,
   Context,
-  defineCommand,
   failWith,
   formatOutput,
   getCommandContext,
@@ -125,14 +123,13 @@ async function ensureTargetDirectory(fs: Context['fs'], targetPath: string | und
  * @param err Registry error.
  */
 
-
 /**
  * Target add command class.
  * Accepts positional arguments for name and type.
  */
 export class TargetAddCommand extends Command {
   public static readonly paths = [['target', 'add']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Register a new install target.',
     category: 'Install & Manage',

@@ -10,83 +10,49 @@
  *   prompt-registry install --lockfile <path>   (declarative from a lockfile)
  */
 import * as path from 'node:path';
-import inquirer from 'inquirer';
 import {
   resolveUserConfigPaths,
 } from '@prompt-registry/app';
 import {
+  FileTreeTargetWriter,
+  type TargetWriter,
+  TransformerRegistry,
+} from '@prompt-registry/app';
+import {
+  type BundleResolver,
+  type HttpClient,
+  parseBundleSpec,
+  type RegistrySource,
+  Target,
+  type TokenProvider,
   validateManifest,
 } from '@prompt-registry/core';
-import type {
-  Target,
-} from '@prompt-registry/core';
-import {
-  type RegistrySource,
-} from '@prompt-registry/core';
-import {
-  parseBundleSpec,
-} from '@prompt-registry/core';
-import {
-  checksumFiles,
-} from '@prompt-registry/infra';
-import {
-  HttpsBundleDownloader,
-} from '@prompt-registry/infra';
-import {
-  YauzlBundleExtractor,
-} from '@prompt-registry/infra';
-import {
-  defaultTokenProvider,
-} from '@prompt-registry/infra';
-import {
-  NodeHttpClient,
-} from '@prompt-registry/infra';
-import {
-  GitHubBundleResolver,
-} from '@prompt-registry/infra';
-import {
-  readLocalBundle,
-} from '@prompt-registry/infra';
-import {
-  SourceDispatcher,
-} from '@prompt-registry/infra';
 import {
   ActiveHubStore,
+  checksumFiles,
+  defaultTokenProvider,
+  GitHubBundleResolver,
+  HttpsBundleDownloader,
+  HubStore,
+  NodeHttpClient,
+  readLocalBundle,
+  readTargets,
+  SourceDispatcher,
+  TargetStateStore,
+  YauzlBundleExtractor,
 } from '@prompt-registry/infra';
 import {
   type LockfileEntry,
   type LockfileSource,
   readLockfile,
+  type RepositoryCommitMode,
+  RepositoryScopeWriter,
+  RepositoryScopeWriterAdapter,
   upsertEntry,
   upsertSource,
   writeLockfile,
 } from '@prompt-registry/infra';
-import {
-  TargetStateStore,
-} from '@prompt-registry/infra';
-import {
-  readTargets,
-} from '@prompt-registry/infra';
-import {
-  HubStore,
-} from '@prompt-registry/infra';
-import {
-  FileTreeTargetWriter,
-  TransformerRegistry,
-  type TargetWriter,
-} from '@prompt-registry/app';
-import {
-  type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-} from '@prompt-registry/infra';
-import {
-  type HttpClient,
-  type TokenProvider,
-} from '@prompt-registry/core';
-import {
-  type BundleResolver,
-} from '@prompt-registry/core';
+import inquirer from 'inquirer';
 import {
   Command,
   createHubManager,
@@ -212,7 +178,7 @@ abstract class BaseInstallCommand extends Command {
  */
 export class InstallCommand extends BaseInstallCommand {
   public static readonly paths = [['install']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Install bundles to a configured target.',
     category: 'Install & Manage',

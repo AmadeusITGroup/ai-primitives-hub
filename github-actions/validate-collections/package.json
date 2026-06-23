@@ -6,11 +6,11 @@
     "build": "rollup --config rollup.config.js"
   },
   "dependencies": {
-    "js-yaml": "^4.1.1"
+    "js-yaml": "^4.2.0"
   },
   "devDependencies": {
-    "rollup": "^4.59.0",
-    "@rollup/plugin-commonjs": "^25.0.0",
-    "@rollup/plugin-node-resolve": "^15.0.0"
+    "@rollup/plugin-commonjs": "^25.0.8",
+    "@rollup/plugin-node-resolve": "^15.3.1",
+    "rollup": "^4.60.4"
   }
 }

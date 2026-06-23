@@ -11,5 +11,5 @@ export {
   TemplateContext,
   TemplateInfo,
   TemplateManifest,
-  ScaffoldResult
+  ScaffoldResult,
 } from './types';

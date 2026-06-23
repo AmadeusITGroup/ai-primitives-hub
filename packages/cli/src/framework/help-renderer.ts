@@ -92,11 +92,9 @@ export const renderGlobalHelp = (
     list.sort((a, b) => a.path.localeCompare(b.path));
   }
 
-  const lines: string[] = [];
-  lines.push(`${name} ${version} — Copilot prompt bundle manager\n`);
+  const lines: string[] = [`${name} ${version} — Copilot prompt bundle manager\n`, 'Quick Start\n'];
 
   // Quick Start — 3-command onboarding strip.
-  lines.push('Quick Start\n');
   const qsMaxPath = Math.min(18, Math.max(...QUICK_START.map((e) => e.command.length)));
   for (const entry of QUICK_START) {
     const pathCol = entry.command.padEnd(qsMaxPath + 2);

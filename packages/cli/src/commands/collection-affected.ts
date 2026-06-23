@@ -11,12 +11,12 @@
  * dropped silently.
  */
 import {
+  readCollection,
+} from '@prompt-registry/app';
+import {
   listCollectionFiles,
   resolveCollectionItemPaths,
 } from '../collections';
-import {
-  readCollection,
-} from '@prompt-registry/app';
 import {
   Command,
   copyCommandPrototype,
@@ -70,7 +70,7 @@ abstract class BaseCollectionAffectedCommand extends Command {
  */
 export class CollectionAffectedCommand extends BaseCollectionAffectedCommand {
   public static readonly paths = [['collection', 'affected']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Print collections that overlap with the supplied changed-path list.',
     category: 'Build & Author',
@@ -154,7 +154,7 @@ const createCollectionAffectedCommandDefinition = (
   }
   copyCommandPrototype(CollectionAffectedCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof CollectionAffectedCommand;
+  return ConfiguredCommand;
 };
 
 /**

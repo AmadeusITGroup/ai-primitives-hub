@@ -7,32 +7,24 @@
 
 import {
   HubManager,
-} from '@prompt-registry/app';
-import {
   resolveUserConfigPaths,
 } from '@prompt-registry/app';
+import {
+  type HttpClient,
+} from '@prompt-registry/core';
 import {
   envTokenProvider,
   type TokenProvider,
 } from '@prompt-registry/infra';
 import {
-  NodeHttpClient,
-} from '@prompt-registry/infra';
-import {
+  ActiveHubStore,
   CompositeHubResolver,
   GitHubHubResolver,
+  HubStore,
   LocalHubResolver,
+  NodeHttpClient,
   UrlHubResolver,
 } from '@prompt-registry/infra';
-import {
-  ActiveHubStore,
-} from '@prompt-registry/infra';
-import {
-  HubStore,
-} from '@prompt-registry/infra';
-import {
-  type HttpClient,
-} from '@prompt-registry/core';
 import {
   type Context,
 } from './context';

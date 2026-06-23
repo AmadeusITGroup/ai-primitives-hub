@@ -22,20 +22,12 @@ import {
   resolveUserConfigPaths,
 } from '@prompt-registry/app';
 import {
-  defaultTokenProvider,
-} from '@prompt-registry/infra';
-import {
-  NodeHttpClient,
-} from '@prompt-registry/infra';
-import {
   ActiveHubStore,
-} from '@prompt-registry/infra';
-import {
+  defaultTokenProvider,
   findProjectConfigPath,
-  readTargets,
-} from '@prompt-registry/infra';
-import {
   HubStore,
+  NodeHttpClient,
+  readTargets,
 } from '@prompt-registry/infra';
 import {
   Command,
@@ -87,7 +79,7 @@ abstract class BaseDoctorCommand extends Command {
  */
 export class DoctorCommand extends BaseDoctorCommand {
   public static readonly paths = [['doctor']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Run environment self-checks and print a health report.',
     category: 'Configure & Debug',
@@ -148,7 +140,7 @@ const createDoctorCommandDefinition = (
   }
   copyCommandPrototype(DoctorCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof DoctorCommand;
+  return ConfiguredCommand;
 };
 
 /**

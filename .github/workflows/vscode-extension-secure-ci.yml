@@ -129,6 +129,58 @@ jobs:
             license-summary.txt
             license-report.csv
 
+  # Workspace-wide lint + tests (all packages + lib)
+  workspace-checks:
+    name: Workspace Lint & Tests
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Workspace packages must be built first: cross-package imports
+      # (e.g. @prompt-registry/core) resolve to each package's dist/ output,
+      # so dependents' Vitest suites need the built artifacts on disk.
+      - name: Build workspace packages
+        run: pnpm -r --filter=./packages/... run build
+
+      - name: Build lib package
+        run: pnpm --filter=@prompt-registry/collection-scripts run build
+
+      # Lints every workspace member that defines a lint script
+      # (packages/*, lib, and the extension).
+      - name: Lint all packages
+        run: pnpm lint
+
+      # Runs Vitest suites for packages/* plus the lib Mocha suite.
+      # The extension's unit/integration suites run in the dedicated
+      # `validate` and `integration-test` jobs below.
+      - name: Test packages and lib
+        run: pnpm -r --filter=./packages/... --filter=@prompt-registry/collection-scripts run test
+
   # Multi-platform validation
   validate:
     name: Validate Extension
@@ -167,16 +219,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run linting
-        working-directory: ${{ env.EXTENSION_DIR }}
-        run: pnpm run lint
-
+      # Linting for the whole workspace (incl. this extension) runs once in
+      # the `workspace-checks` job — intentionally not repeated here.
       - name: Build workspace packages
         run: pnpm -r --filter=./packages/... run build
 
       - name: Compile extension
         working-directory: ${{ env.EXTENSION_DIR }}
         run: pnpm run compile
+
+      # test:unit runs Mocha against test-dist/, which is produced by
+      # compile-tests (tsc -p tsconfig.test.json + fixture copy) — compile
+      # alone does not emit it.
+      - name: Compile extension tests
+        working-directory: ${{ env.EXTENSION_DIR }}
+        run: pnpm run compile-tests
 
       - name: Install VS Code dependencies (Linux)
         if: runner.os == 'Linux'
@@ -312,7 +369,7 @@ jobs:
   compliance-report:
     name: Generate Compliance Report
     runs-on: ubuntu-latest
-    needs: [security-scan, dependency-analysis, validate, integration-test]
+    needs: [security-scan, dependency-analysis, workspace-checks, validate, integration-test]
     if: always()
 
     permissions:
@@ -366,7 +423,7 @@ jobs:
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [security-scan, dependency-analysis, validate, integration-test, compliance-report]
+    needs: [security-scan, dependency-analysis, workspace-checks, validate, integration-test, compliance-report]
     if: always()
 
     steps:

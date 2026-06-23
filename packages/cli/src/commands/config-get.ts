@@ -53,7 +53,7 @@ abstract class BaseConfigGetCommand extends Command {
  */
 export class ConfigGetCommand extends BaseConfigGetCommand {
   public static readonly paths = [['config', 'get']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Read a config value by dotted key path (e.g., `output.json.indent`).',
     category: 'Configure & Debug',
@@ -154,7 +154,7 @@ const createConfigGetCommandDefinition = (
   }
   copyCommandPrototype(ConfigGetCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof ConfigGetCommand;
+  return ConfiguredCommand;
 };
 
 /**

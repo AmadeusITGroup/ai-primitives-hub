@@ -8,23 +8,23 @@ import {
   it,
 } from 'vitest';
 import {
-  IndexSearchCommand,
-} from '../../src/commands/index-search';
-import {
-  IndexStatsCommand,
-} from '../../src/commands/index-stats';
-import {
   IndexHarvestCommand,
 } from '../../src/commands/index-harvest';
 import {
   IndexReportCommand,
 } from '../../src/commands/index-report';
 import {
-  IndexShortlistNewCommand,
+  IndexSearchCommand,
+} from '../../src/commands/index-search';
+import {
   IndexShortlistAddCommand,
-  IndexShortlistRemoveCommand,
   IndexShortlistListCommand,
+  IndexShortlistNewCommand,
+  IndexShortlistRemoveCommand,
 } from '../../src/commands/index-shortlist';
+import {
+  IndexStatsCommand,
+} from '../../src/commands/index-stats';
 import {
   runCommand,
 } from '../../src/framework';

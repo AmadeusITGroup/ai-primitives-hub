@@ -10,25 +10,21 @@
  * @module cli/commands/discover
  */
 import {
+  buildSearchQueries,
   ContextDetector,
   type DetectedContext,
-  buildSearchQueries,
   RecommendationEngine,
 } from '@prompt-registry/app';
 import type {
   DiscoveryOptions as DomainDiscoveryOptions,
 } from '@prompt-registry/core';
-import {
-  CopilotSdkClient,
-} from '@prompt-registry/infra';
-import {
-  defaultIndexFile,
-} from '@prompt-registry/infra';
 import type {
   PrimitiveKind,
   SearchHit,
 } from '@prompt-registry/infra';
 import {
+  CopilotSdkClient,
+  defaultIndexFile,
   loadIndex,
 } from '@prompt-registry/infra';
 import {
@@ -164,7 +160,7 @@ export const createDiscoverCommand = (
  */
 export class DiscoverCommand extends Command {
   public static readonly paths = [['discover']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Discover relevant Copilot resources based on project context.',
     category: 'Hub & Discovery',

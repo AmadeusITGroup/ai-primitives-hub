@@ -8,8 +8,10 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  SCHEMA_DIR,
+} from '@prompt-registry/core';
 import * as yaml from 'js-yaml';
-import { SCHEMA_DIR } from '@prompt-registry/core';
 import type {
   AllCollectionsResult,
   Collection,

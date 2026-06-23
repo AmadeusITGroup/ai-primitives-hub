@@ -4,137 +4,136 @@
  * This file is the main entry point for the SEA binary.
  */
 import {
-  createProductionContext,
-} from './framework/production-context';
-import {
-  runCli,
-} from './framework/cli';
-import {
   defaultTokenProvider,
   NodeHttpClient,
 } from '@prompt-registry/infra';
 import {
+  AgentCreateCommand,
+} from './commands/agent-create';
+import {
+  createApplyCommand,
+} from './commands/apply';
+import {
+  BundleBuildCommand,
+} from './commands/bundle-build';
+import {
+  BundleManifestCommand,
+} from './commands/bundle-manifest';
+import {
+  CollectionAffectedCommand,
+} from './commands/collection-affected';
+import {
+  CollectionCreateCommand,
+} from './commands/collection-create';
+import {
+  CollectionListCommand,
+} from './commands/collection-list';
+import {
+  CollectionValidateCommand,
+} from './commands/collection-validate';
+import {
+  CompletionCommand,
+} from './commands/completion';
+import {
+  ConfigGetCommand,
+} from './commands/config-get';
+import {
+  createConfigListCommand,
+} from './commands/config-list';
+import {
+  createDiscoverCommand,
+} from './commands/discover';
+import {
+  createDoctorCommandClass,
+} from './commands/doctor';
+import {
+  ExplainCommand,
+} from './commands/explain';
+import {
+  HookCreateCommand,
+} from './commands/hook-create';
+import {
+  HubAddCommand,
+  HubCreateCommand,
+  HubListCommand,
+  HubRefreshCommand,
+  HubRemoveCommand,
+  HubSyncCommand,
+  HubUseCommand,
+} from './commands/hub';
+import {
+  IndexBenchCommand,
+} from './commands/index-bench';
+import {
+  IndexBuildCommand,
+} from './commands/index-build';
+import {
+  IndexEvalCommand,
+} from './commands/index-eval';
+import {
+  IndexExportCommand,
+} from './commands/index-export';
+import {
+  IndexHarvestCommand,
+} from './commands/index-harvest';
+import {
+  IndexReportCommand,
+} from './commands/index-report';
+import {
+  IndexSearchCommand,
+} from './commands/index-search';
+import {
+  IndexShortlistAddCommand,
+  IndexShortlistListCommand,
+  IndexShortlistNewCommand,
+  IndexShortlistRemoveCommand,
+} from './commands/index-shortlist';
+import {
+  IndexStatsCommand,
+} from './commands/index-stats';
+import {
+  InitCommand,
+} from './commands/init';
+import {
   InstallCommand,
 } from './commands/install';
 import {
-  UninstallCommand,
-} from './commands/uninstall';
+  InstructionCreateCommand,
+} from './commands/instruction-create';
 import {
-  UpdateCommand,
-} from './commands/update';
+  PluginCreateCommand,
+} from './commands/plugin-create';
 import {
-  StatusCommand,
-} from './commands/status';
+  createPluginsListCommandClass,
+} from './commands/plugins-list';
 import {
-  ProfileListCommand,
   ProfileActivateCommand,
-  ProfileDeactivateCommand,
-  ProfileShowCommand,
   ProfileCreateCommand,
+  ProfileDeactivateCommand,
+  ProfileListCommand,
   ProfilePublishCommand,
+  ProfileShowCommand,
 } from './commands/profile';
 import {
-  HubCreateCommand,
-  HubAddCommand,
-  HubListCommand,
-  HubUseCommand,
-  HubRemoveCommand,
-  HubSyncCommand,
-  HubRefreshCommand,
-} from './commands/hub';
+  PromptCreateCommand,
+} from './commands/prompt-create';
+import {
+  SkillCreateCommand,
+} from './commands/skill-create';
+import {
+  SkillNewCommand,
+} from './commands/skill-new';
+import {
+  createSkillValidateCommandClass,
+} from './commands/skill-validate';
 import {
   SourceAddCommand,
   SourceListCommand,
   SourceRemoveCommand,
 } from './commands/source';
 import {
-  createApplyCommand,
-} from './commands/apply';
-import {
-  InitCommand,
-} from './commands/init';
-import {
-  createDoctorCommand,
-  createDoctorCommandClass,
-  DoctorCommand,
-} from './commands/doctor';
-import {
-  createDiscoverCommand,
-} from './commands/discover';
-import {
-  CollectionListCommand,
-  createCollectionListCommandClass,
-} from './commands/collection-list';
-import {
-  CollectionValidateCommand,
-  createCollectionValidateCommandClass,
-} from './commands/collection-validate';
-import {
-  CollectionAffectedCommand,
-  createCollectionAffectedCommandClass,
-} from './commands/collection-affected';
-import {
-  CollectionCreateCommand,
-  createCollectionCreateCommandClass,
-} from './commands/collection-create';
-import {
-  PromptCreateCommand,
-  createPromptCreateCommandClass,
-} from './commands/prompt-create';
-import {
-  InstructionCreateCommand,
-  createInstructionCreateCommandClass,
-} from './commands/instruction-create';
-import {
-  AgentCreateCommand,
-  createAgentCreateCommandClass,
-} from './commands/agent-create';
-import {
-  SkillCreateCommand,
-  createSkillCreateCommandClass,
-} from './commands/skill-create';
-import {
-  PluginCreateCommand,
-  createPluginCreateCommandClass,
-} from './commands/plugin-create';
-import {
-  HookCreateCommand,
-  createHookCreateCommandClass,
-} from './commands/hook-create';
-import {
-  createSkillValidateCommand,
-  createSkillValidateCommandClass,
-  SkillValidateCommand,
-} from './commands/skill-validate';
-import {
-  IndexSearchCommand,
-} from './commands/index-search';
-import {
-  IndexShortlistNewCommand,
-  IndexShortlistAddCommand,
-  IndexShortlistRemoveCommand,
-  IndexShortlistListCommand,
-} from './commands/index-shortlist';
-import {
-  IndexHarvestCommand,
-} from './commands/index-harvest';
-import {
-  IndexStatsCommand,
-} from './commands/index-stats';
-import {
-  IndexReportCommand,
-} from './commands/index-report';
-import {
-  TargetTypesCommand,
-} from './commands/target-types';
-import {
-  createConfigListCommand,
-} from './commands/config-list';
-import {
-  createPluginsListCommand,
-  createPluginsListCommandClass,
-  PluginsListCommand,
-} from './commands/plugins-list';
+  StatusCommand,
+} from './commands/status';
 import {
   TargetAddCommand,
 } from './commands/target-add';
@@ -145,38 +144,23 @@ import {
   TargetRemoveCommand,
 } from './commands/target-remove';
 import {
-  IndexBuildCommand,
-} from './commands/index-build';
+  TargetTypesCommand,
+} from './commands/target-types';
 import {
-  IndexExportCommand,
-} from './commands/index-export';
+  UninstallCommand,
+} from './commands/uninstall';
 import {
-  ExplainCommand,
-} from './commands/explain';
-import {
-  ConfigGetCommand,
-} from './commands/config-get';
-import {
-  SkillNewCommand,
-} from './commands/skill-new';
-import {
-  BundleBuildCommand,
-} from './commands/bundle-build';
-import {
-  BundleManifestCommand,
-} from './commands/bundle-manifest';
+  UpdateCommand,
+} from './commands/update';
 import {
   VersionComputeCommand,
 } from './commands/version-compute';
 import {
-  IndexEvalCommand,
-} from './commands/index-eval';
+  runCli,
+} from './framework/cli';
 import {
-  IndexBenchCommand,
-} from './commands/index-bench';
-import {
-  CompletionCommand,
-} from './commands/completion';
+  createProductionContext,
+} from './framework/production-context';
 
 /**
  * Main entry point.
@@ -189,7 +173,7 @@ async function main(): Promise<number> {
   const commands = [
     createApplyCommand(),
     createDiscoverCommand(),
-    createConfigListCommand(),
+    createConfigListCommand()
   ];
 
   const commandClasses = [
@@ -249,7 +233,7 @@ async function main(): Promise<number> {
     createDoctorCommandClass(ctx),
     createPluginsListCommandClass(ctx),
     createSkillValidateCommandClass(ctx),
-    CompletionCommand,
+    CompletionCommand
   ];
 
   const exitCode = await runCli(process.argv.slice(2), {
@@ -260,7 +244,7 @@ async function main(): Promise<number> {
     version: '1.0.0',
     http,
     tokens,
-    defaultOutput: 'text',
+    defaultOutput: 'text'
   });
 
   return exitCode;

@@ -18,37 +18,27 @@ import {
   resolveUserConfigPaths,
 } from '@prompt-registry/app';
 import {
-  type Target,
-} from '@prompt-registry/core';
+  resolveLayout,
+} from '@prompt-registry/app';
 import {
+  type HttpClient,
   type ProfileBundle,
+  type Target,
+  type TokenProvider,
 } from '@prompt-registry/core';
 import {
   generateSourceId,
 } from '@prompt-registry/core';
 import {
+  HubStore,
+  ProfileActivationStore,
   readLockfile,
+  readTargets,
   upsertEntry,
   upsertSource,
   upsertUseProfile,
   writeLockfile,
 } from '@prompt-registry/infra';
-import {
-  ProfileActivationStore,
-} from '@prompt-registry/infra';
-import {
-  readTargets,
-} from '@prompt-registry/infra';
-import {
-  HubStore,
-} from '@prompt-registry/infra';
-import {
-  resolveLayout,
-} from '@prompt-registry/app';
-import {
-  type HttpClient,
-  type TokenProvider,
-} from '@prompt-registry/core';
 import {
   Command,
   createHttpClientAndTokens,
@@ -216,6 +206,7 @@ export class ProfileShowCommand extends BaseProfileCommand {
         prompt-registry profile show my-profile --hub my-hub
     `
   });
+
   public profileId = Option.String({ required: false });
 
   public async execute() {
@@ -287,6 +278,7 @@ export class ProfileActivateCommand extends BaseProfileCommand {
         prompt-registry profile activate default --dry-run
     `
   });
+
   public profileId = Option.String({ required: false });
   public targets = Option.String('--target');
   public dryRun = Option.Boolean('--dry-run', false);
@@ -410,6 +402,7 @@ export class ProfileDeactivateCommand extends BaseProfileCommand {
         prompt-registry profile deactivate --dry-run
     `
   });
+
   public dryRun = Option.Boolean('--dry-run', false);
 
   public async execute() {
@@ -497,7 +490,7 @@ export class ProfileCurrentCommand extends BaseProfileCommand {
  */
 export class ProfileCreateCommand extends BaseProfileCommand {
   public static readonly paths = [['profile', 'create']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Create a new local profile in the default-local hub.',
     category: 'Hub & Discovery',
@@ -594,7 +587,7 @@ const applyBundleAdditions = (bundles: ProfileBundle[], spec: string, hubId: str
  */
 export class ProfileEditCommand extends BaseProfileCommand {
   public static readonly paths = [['profile', 'edit']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Edit an existing local profile (add/remove bundles, change description).',
     category: 'Hub & Discovery',
@@ -742,7 +735,7 @@ async function updateActivationLockfile(
  */
 export class ProfilePublishCommand extends BaseProfileCommand {
   public static readonly paths = [['profile', 'publish']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Publish a profile to a hub by injecting it into hub-config.yml and syncing.',
     category: 'Hub & Discovery',
