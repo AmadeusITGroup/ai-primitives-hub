@@ -108,7 +108,7 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 
-describe('Prompt Registry Integration Test Scenarios', () => {
+describe('AI Primitives Hub Integration Test Scenarios', () => {
   // Note: The extension may show a first-run hub selector dialog.
   // Commands are registered before this dialog appears, so we can test
   // command registration without waiting for full activation.
@@ -147,7 +147,7 @@ describe('Prompt Registry Integration Test Scenarios', () => {
         || ext.id.toLowerCase().includes('promptregistry')
       );
 
-      assert.ok(promptRegistryExt, 'Prompt Registry extension should be found');
+      assert.ok(promptRegistryExt, 'AI Primitives Hub extension should be found');
 
       // If not already active, activate it
       if (!promptRegistryExt.isActive) {
