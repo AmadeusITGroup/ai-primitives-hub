@@ -1,5 +1,5 @@
 {
-  "name": "prompt-registry",
+  "name": "ai-primitives-hub",
   "displayName": "AI Primitives Hub",
   "description": "AI Primitives Hub - AI prompt management framework for VSCode and its forks",
   "version": "0.0.2",
@@ -11,12 +11,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AmadeusITGroup/prompt-registry.git"
+    "url": "https://github.com/AmadeusITGroup/ai-primitives-hub.git"
   },
   "bugs": {
-    "url": "https://github.com/AmadeusITGroup/prompt-registry/issues"
+    "url": "https://github.com/AmadeusITGroup/ai-primitives-hub/issues"
   },
-  "homepage": "https://github.com/AmadeusITGroup/prompt-registry#readme",
+  "homepage": "https://github.com/AmadeusITGroup/ai-primitives-hub#readme",
   "keywords": [
     "ai",
     "assistant",
