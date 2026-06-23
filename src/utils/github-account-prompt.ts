@@ -4,7 +4,7 @@ import {
 } from './logger';
 
 /**
- * Prompt the user to select which GitHub account Prompt Registry should use.
+ * Prompt the user to select which GitHub account AI Primitives Hub should use.
  *
  * Uses `clearSessionPreference: true` so VS Code shows its native account
  * picker even when an existing session is already trusted.

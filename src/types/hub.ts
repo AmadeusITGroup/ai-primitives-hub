@@ -1,5 +1,5 @@
 /**
- * Hub system types for Prompt Registry
+ * Hub system types for AI Primitives Hub
  * Defines interfaces and validation for curated hub management
  */
 

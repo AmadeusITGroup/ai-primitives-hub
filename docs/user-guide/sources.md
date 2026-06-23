@@ -4,7 +4,7 @@ Sources are repositories hosting prompt bundles.
 
 ## Automatic Source Setup
 
-On first launch, Prompt Registry automatically adds the **Awesome Copilot** source (`github/awesome-copilot`). This gives you immediate access to community-curated collections without manual configuration.
+On first launch, AI Primitives Hub automatically adds the **Awesome Copilot** source (`github/awesome-copilot`). This gives you immediate access to community-curated collections without manual configuration.
 
 If you select a hub during first-run setup, all sources defined in that hub are also automatically synced.
 
@@ -23,7 +23,7 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 
 ## Adding a Source
 
-`Ctrl+Shift+P` → "Prompt Registry: Add Source"
+`Ctrl+Shift+P` → "AI Primitives Hub: Add Source"
 
 ## Managing Sources
 
@@ -35,7 +35,7 @@ In Registry Explorer:
 - **Open Repository** — Right-click → Open Repository
 
 Command Palette:
-- **Sync All Sources** — `Ctrl+Shift+P` → "Prompt Registry: Sync All Sources"
+- **Sync All Sources** — `Ctrl+Shift+P` → "AI Primitives Hub: Sync All Sources"
 
 ## Skill Update Detection
 
@@ -51,7 +51,7 @@ Authentication tries in order:
 2. **GitHub CLI** — Run `gh auth login`
 3. **Explicit Token** — Add when editing source (needs `repo` scope)
 
-Verify: `Ctrl+Shift+P` → "Prompt Registry: Validate Repository Access"
+Verify: `Ctrl+Shift+P` → "AI Primitives Hub: Validate Repository Access"
 
 ## See Also
 

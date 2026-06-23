@@ -1,6 +1,6 @@
 # Documentation Guide for AI Assistants
 
-This file helps AI assistants understand and maintain the Prompt Registry documentation.
+This file helps AI assistants understand and maintain the AI Primitives Hub documentation.
 
 ## Documentation Structure
 

@@ -324,12 +324,12 @@ export class LockfileManager {
 
       const content = await fs.promises.readFile(excludePath, 'utf8');
 
-      // Find the Prompt Registry section
+      // Find the AI Primitives Hub section
       const sectionHeader = '# Prompt Registry (local)';
       const sectionIndex = content.indexOf(sectionHeader);
 
       if (sectionIndex === -1) {
-        this.logger.debug('Prompt Registry section not found in git exclude');
+        this.logger.debug('AI Primitives Hub section not found in git exclude');
         return;
       }
 
@@ -503,7 +503,7 @@ export class LockfileManager {
         return;
       }
 
-      // Add local lockfile to git exclude under Prompt Registry section
+      // Add local lockfile to git exclude under AI Primitives Hub section
       const sectionHeader = '# Prompt Registry (local)';
       const sectionIndex = content.indexOf(sectionHeader);
 

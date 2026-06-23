@@ -1,6 +1,6 @@
 # Testing SSH Remote Support
 
-This guide explains how to set up a Podman container with SSH to test the Prompt Registry extension in VS Code remote SSH scenarios.
+This guide explains how to set up a Podman container with SSH to test the AI Primitives Hub extension in VS Code remote SSH scenarios.
 
 ## Prerequisites
 
@@ -110,7 +110,7 @@ code --install-extension ~/prompt-registry-0.0.2.vsix
 
 1. Check `vscode.env.remoteName` - should be `'ssh-remote'`
 2. Install a prompt collection
-3. Check Output → "Prompt Registry" for logs
+3. Check Output → "AI Primitives Hub" for logs
 4. Verify prompts sync to remote filesystem
 
 ## Cleanup

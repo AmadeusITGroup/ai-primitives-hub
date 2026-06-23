@@ -1,6 +1,6 @@
 # Hub Configuration Schema
 
-This document describes the YAML schema for Prompt Registry hub configuration files.
+This document describes the YAML schema for AI Primitives Hub hub configuration files.
 
 ## Overview
 
@@ -319,7 +319,7 @@ Hub configurations are automatically validated during import and loading operati
 To manually validate a hub configuration:
 
 1. Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
-2. Run "Prompt Registry: Import Hub"
+2. Run "AI Primitives Hub: Import Hub"
 3. The extension validates the configuration before importing
 
 Validation errors are displayed in VS Code notifications and logged to the output channel.

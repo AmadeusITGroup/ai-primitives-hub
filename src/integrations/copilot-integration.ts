@@ -73,14 +73,14 @@ export class CopilotIntegration implements vscode.Disposable {
   private async showHelp(stream: vscode.ChatResponseStream): Promise<void> {
     const availablePrompts = await this.promptLoader.getAvailablePrompts();
 
-    stream.markdown('# 📚 Prompt Registry\n\n');
+    stream.markdown('# 📚 AI Primitives Hub\n\n');
     stream.markdown('Use installed prompts directly in Copilot Chat!\n\n');
 
     stream.markdown('## Available Commands\n\n');
 
     if (availablePrompts.length === 0) {
       stream.markdown('⚠️ No prompts installed yet.\n\n');
-      stream.markdown('1. Install a bundle from the Prompt Registry view\n');
+      stream.markdown('1. Install a bundle from the AI Primitives Hub view\n');
       stream.markdown('2. Activate a profile containing prompts\n');
       stream.markdown('3. Use prompts with `@prompts /command`\n\n');
     } else {
@@ -113,7 +113,7 @@ export class CopilotIntegration implements vscode.Disposable {
     stream.markdown('## 📋 Available Prompts\n\n');
 
     if (availablePrompts.length === 0) {
-      stream.markdown('No prompts installed. Install bundles from the Prompt Registry view.\n');
+      stream.markdown('No prompts installed. Install bundles from the AI Primitives Hub view.\n');
       return;
     }
 

@@ -20,7 +20,7 @@ export class McpServerManager {
   // ===== Repository Scope Methods =====
 
   /**
-   * Section header for Prompt Registry entries in .git/info/exclude
+   * Section header for AI Primitives Hub entries in .git/info/exclude
    */
   private static readonly GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
   private readonly logger: Logger;
@@ -207,7 +207,7 @@ export class McpServerManager {
   }
 
   /**
-   * Add path to .git/info/exclude under the Prompt Registry section
+   * Add path to .git/info/exclude under the AI Primitives Hub section
    * @param workspaceRoot
    * @param pathToExclude
    */

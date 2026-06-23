@@ -1,6 +1,6 @@
 # Collection Scripts Library
 
-The Prompt Registry provides a shared npm package `@prompt-registry/collection-scripts` that contains all the scripts needed for building, validating, and publishing Copilot prompt collections.
+The AI Primitives Hub provides a shared npm package `@prompt-registry/collection-scripts` that contains all the scripts needed for building, validating, and publishing Copilot prompt collections.
 
 ## Installation
 
@@ -74,7 +74,7 @@ The scaffolded GitHub Actions automatically use the npm package:
 
 ## VS Code Extension Integration
 
-The Prompt Registry VS Code extension uses the same validation logic as the CLI tools, ensuring consistent behavior between the extension and command-line tools.
+The AI Primitives Hub VS Code extension uses the same validation logic as the CLI tools, ensuring consistent behavior between the extension and command-line tools.
 
 ## Available Commands
 

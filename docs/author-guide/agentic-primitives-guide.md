@@ -1,6 +1,6 @@
 # Agentic Primitives Guide
 
-This guide helps you choose the right type of agentic primitive for your use case in the Prompt Registry ecosystem.
+This guide helps you choose the right type of agentic primitive for your use case in the AI Primitives Hub ecosystem.
 
 ## Decision Tree
 
@@ -288,7 +288,7 @@ flowchart LR
 
 ## Resources
 
-- [Prompt Registry Documentation](../README.md)
+- [AI Primitives Hub Documentation](../README.md)
 - [Collection Authoring Guide](creating-source-bundle.md)
 - [Skill Development Guide](creating-skills.md)
 - [Hub Configuration Guide](../reference/hub-schema.md)

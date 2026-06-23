@@ -1,6 +1,6 @@
 # Developer Guide: Core System Flows
 
-This guide explains the core architectural flows in the Prompt Registry extension. Use this as a reference when contributing to or extending the codebase.
+This guide explains the core architectural flows in the AI Primitives Hub extension. Use this as a reference when contributing to or extending the codebase.
 
 ---
 
@@ -141,7 +141,7 @@ The pipeline includes error handling for:
 - **Validation failures**: Missing manifest, corrupt ZIP
 - **Sync failures**: Permission issues, disk space
 
-All errors are logged to the Output panel under "Prompt Registry".
+All errors are logged to the Output panel under "AI Primitives Hub".
 
 ---
 
@@ -735,7 +735,7 @@ npm test -- --coverage
 View detailed logs in the Output panel:
 
 1. Open Output: `View → Output`
-2. Select **Prompt Registry** from dropdown
+2. Select **AI Primitives Hub** from dropdown
 3. Watch authentication and installation logs
 
 Relevant log messages:
@@ -781,7 +781,7 @@ vscode.postMessage({ type: 'test', data: 'hello' });
     "commands": [{
         "command": "promptRegistry.myCommand",
         "title": "My Command",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
     }]
 }
 ```

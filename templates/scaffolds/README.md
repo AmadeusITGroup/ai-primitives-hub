@@ -1,6 +1,6 @@
 # Scaffold Templates
 
-This directory contains templates for different scaffold types that can be used to create new projects with the Prompt Registry extension.
+This directory contains templates for different scaffold types that can be used to create new projects with the AI Primitives Hub extension.
 
 ## Directory Structure
 

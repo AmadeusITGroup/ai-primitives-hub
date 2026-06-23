@@ -2,7 +2,7 @@
  * Local Awesome Copilot Collection Adapter
  *
  * Adapter for local awesome-copilot style collection repositories.
- * Discovers .collection.yml files from local filesystem and exposes them as Prompt Registry bundles.
+ * Discovers .collection.yml files from local filesystem and exposes them as AI Primitives Hub bundles.
  *
  * This adapter is useful for developing and testing collections locally before publishing to GitHub.
  *
@@ -387,7 +387,7 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Map collection kind to Prompt Registry type
+   * Map collection kind to AI Primitives Hub type
    * @param kind
    */
   private mapKindToType(kind: string): 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill' {

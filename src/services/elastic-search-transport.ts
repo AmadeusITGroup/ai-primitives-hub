@@ -50,7 +50,7 @@ export class ElasticSearchTransport implements TelemetryTransport {
 
   private log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void {
     // Route every level through the main logger (which gates by LOG_LEVEL) so the
-    // connection lifecycle is observable in the "Prompt Registry" output channel,
+    // connection lifecycle is observable in the "AI Primitives Hub" output channel,
     // not just on warn/error. The dedicated debug channel (only present with the
     // ES_LOCAL_URL dev override) mirrors everything when enabled.
     this.logger[level](`[ES Transport] ${message}`);
@@ -226,7 +226,7 @@ export class ElasticSearchTransport implements TelemetryTransport {
   public subscribeToHubEvents(hubManager: HubManager): void {
     const esLocalUrl = process.env.ES_LOCAL_URL;
     if (esLocalUrl) {
-      this.debugChannel = vscode.window.createOutputChannel('Prompt Registry - Elastic Search');
+      this.debugChannel = vscode.window.createOutputChannel('AI Primitives Hub - Elastic Search');
       this.log('info', `Dev override: using ES_LOCAL_URL=${esLocalUrl}`);
       void this.registerHub('dev-local', { node: esLocalUrl });
       return;

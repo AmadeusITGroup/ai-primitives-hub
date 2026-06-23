@@ -5,7 +5,7 @@ Validate your collection files before publishing to catch errors early.
 ## Quick Validation
 
 ```bash
-Ctrl+Shift+P → "Prompt Registry: Validate Collections"
+Ctrl+Shift+P → "AI Primitives Hub: Validate Collections"
 ```
 
 Validates all `.collection.yml` files in your `collections/` directory, including:

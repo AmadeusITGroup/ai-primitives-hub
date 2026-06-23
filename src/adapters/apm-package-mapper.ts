@@ -1,6 +1,6 @@
 /**
  * APM Package Mapper
- * Maps APM (Agent Package Manager) manifest format to Prompt Registry Bundle format
+ * Maps APM (Agent Package Manager) manifest format to AI Primitives Hub Bundle format
  */
 
 import {
@@ -54,7 +54,7 @@ const ENV_TAG_MAP: Record<string, string> = {
 const MAX_ID_LENGTH = 200;
 
 /**
- * Maps APM package manifests to Prompt Registry Bundle format
+ * Maps APM package manifests to AI Primitives Hub Bundle format
  */
 export class ApmPackageMapper {
   /**
@@ -166,7 +166,7 @@ export class ApmPackageMapper {
    * Convert APM manifest to Bundle
    * @param manifest APM manifest object
    * @param context Package context (source, owner, repo, path)
-   * @returns Bundle object compatible with Prompt Registry
+   * @returns Bundle object compatible with AI Primitives Hub
    */
   public toBundle(manifest: ApmManifest, context: PackageContext): Bundle & { apmPackageRef: string } {
     const packageRef = this.buildPackageRef(context);

@@ -90,7 +90,7 @@ Before implementing anything new:
 
 ## Big Picture
 
-This is a VS Code extension (Prompt Registry) that provides a marketplace and registry for Copilot prompt bundles.
+This is a VS Code extension (AI Primitives Hub) that provides a marketplace and registry for Copilot prompt bundles.
 
 ### Architecture Overview
 

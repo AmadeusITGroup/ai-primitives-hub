@@ -7,15 +7,15 @@
 
 ## Installation
 
-Search "Prompt Registry" in VS Code Extensions (`Ctrl+Shift+X`) and click Install.
+Search "AI Primitives Hub" in VS Code Extensions (`Ctrl+Shift+X`) and click Install.
 
 Alternatively, install directly from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=AmadeusITGroup.prompt-registry). You will be prompted to authenticate with GitHub — click Allow and sign in.
 
 ## First Launch: GitHub Account and Hub Selection
 
-On first launch, Prompt Registry shows a welcome dialog to help you get started:
+On first launch, AI Primitives Hub shows a welcome dialog to help you get started:
 
-1. **GitHub Account** — If you have multiple GitHub accounts signed in to VS Code, Prompt Registry asks which one to use. Pick the account that has access to the hub or sources you need. If only one account is signed in, you can still add another from the same picker. Cancelling this step leaves the extension in a "Setup Not Complete" state; on the next launch you will see a "Would you like to resume?" prompt. You can also re-pick later by running the **Prompt Registry: Force GitHub Authentication** command (`promptregistry.forceGitHubAuth`) from the Command Palette.
+1. **GitHub Account** — If you have multiple GitHub accounts signed in to VS Code, AI Primitives Hub asks which one to use. Pick the account that has access to the hub or sources you need. If only one account is signed in, you can still add another from the same picker. Cancelling this step leaves the extension in a "Setup Not Complete" state; on the next launch you will see a "Would you like to resume?" prompt. You can also re-pick later by running the **AI Primitives Hub: Force GitHub Authentication** command (`promptregistry.forceGitHubAuth`) from the Command Palette.
 
 2. **Hub Selector** — Choose from available hubs:
    - Pre-configured hubs (verified for availability)
@@ -30,12 +30,12 @@ On first launch, Prompt Registry shows a welcome dialog to help you get started:
 
 4. **Ongoing Sync** — On each VS Code startup, the active hub is automatically synced to keep your configuration up-to-date.
 
-To reset and re-trigger the first-run experience: `Ctrl+Shift+P` → "Prompt Registry: Reset First Run"
+To reset and re-trigger the first-run experience: `Ctrl+Shift+P` → "AI Primitives Hub: Reset First Run"
 
 ## Quick Start (5 minutes)
 
 1. **Pick GitHub Account, then Select Hub** — Choose which GitHub account to use, then pick a hub from the welcome dialog (or skip)
-2. **Open Marketplace** — Click the Prompt Registry icon in the Activity Bar
+2. **Open Marketplace** — Click the AI Primitives Hub icon in the Activity Bar
 3. **Browse** — Search or filter by tags/source
 4. **Install** — Click a bundle tile → Install
 5. **Use** — Prompts appear in Copilot Chat as `/<bundle-id>-<prompt-id>`

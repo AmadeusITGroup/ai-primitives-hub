@@ -6,7 +6,7 @@ A **Profile** groups bundles from multiple sources. Activate with one click.
 
 ### Commands
 
-- **Create**: `Ctrl+Shift+P` → "Prompt Registry: Create Profile"
+- **Create**: `Ctrl+Shift+P` → "AI Primitives Hub: Create Profile"
 - **Activate**: Right-click profile → Activate Profile
 - **Deactivate**: Right-click active profile → Deactivate Profile
 
@@ -23,7 +23,7 @@ A **Hub** is a centralized repository of versioned profiles and sources. Share a
 
 ### First-Run Hub Selection
 
-On first launch, Prompt Registry offers a hub selection dialog:
+On first launch, AI Primitives Hub offers a hub selection dialog:
 
 1. **Pre-configured Hubs** — Default hubs are verified for availability before being shown
 2. **Custom Hub URL** — Import from any URL
@@ -50,10 +50,10 @@ After every hub sync (startup, periodic, or manual), all sources are automatical
 
 ### Commands
 
-- **Import**: `Ctrl+Shift+P` → "Prompt Registry: Import Hub"
-- **Export**: `Ctrl+Shift+P` → "Prompt Registry: Export Hub Configuration"
+- **Import**: `Ctrl+Shift+P` → "AI Primitives Hub: Import Hub"
+- **Export**: `Ctrl+Shift+P` → "AI Primitives Hub: Export Hub Configuration"
 - **Sync**: Right-click hub → Sync Hub
-- **Reset First Run**: `Ctrl+Shift+P` → "Prompt Registry: Reset First Run" (re-triggers hub selector)
+- **Reset First Run**: `Ctrl+Shift+P` → "AI Primitives Hub: Reset First Run" (re-triggers hub selector)
 
 ### Hub Config Format
 

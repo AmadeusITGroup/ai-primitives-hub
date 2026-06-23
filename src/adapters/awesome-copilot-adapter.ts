@@ -2,7 +2,7 @@
  * Awesome Copilot Collection Adapter
  *
  * Adapter for github/awesome-copilot style collection repositories.
- * Discovers .collection.yml files and exposes them as Prompt Registry bundles.
+ * Discovers .collection.yml files and exposes them as AI Primitives Hub bundles.
  *
  * Collection Format:
  * ```yaml
@@ -344,7 +344,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Map collection kind to Prompt Registry type
+   * Map collection kind to AI Primitives Hub type
    * @param kind
    */
   private mapKindToType(kind: string): 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill' {

@@ -1,10 +1,10 @@
 # Adapter API Reference
 
-This document describes how to create custom adapters for the Prompt Registry extension.
+This document describes how to create custom adapters for the AI Primitives Hub extension.
 
 ## Overview
 
-Adapters provide a unified interface for fetching bundles from different sources. The Prompt Registry uses the adapter pattern to support multiple source types (GitHub, local files, and curated collections).
+Adapters provide a unified interface for fetching bundles from different sources. The AI Primitives Hub uses the adapter pattern to support multiple source types (GitHub, local files, and curated collections).
 
 ## IRepositoryAdapter Interface
 

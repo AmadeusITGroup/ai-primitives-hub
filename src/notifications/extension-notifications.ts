@@ -31,7 +31,7 @@ export class ExtensionNotifications {
    * Show first install welcome notification with button to open marketplace
    */
   public async showWelcomeNotification(): Promise<'marketplace' | 'dismiss' | undefined> {
-    const message = 'Welcome to Prompt Registry! Browse and install AI prompt bundles for GitHub Copilot.';
+    const message = 'Welcome to AI Primitives Hub! Browse and install AI prompt bundles for GitHub Copilot.';
 
     const action = await this.notificationManager.showInfo(message, 'Open Marketplace', 'Dismiss');
 

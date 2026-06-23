@@ -1,5 +1,5 @@
 /**
- * Shared constants for the Prompt Registry extension
+ * Shared constants for the AI Primitives Hub extension
  * Centralizes configuration values to maintain consistency across services
  */
 

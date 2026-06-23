@@ -51,14 +51,14 @@ const stat = promisify(fs.stat);
 const rm = promisify(fs.rm);
 
 /**
- * Section header for Prompt Registry entries in .git/info/exclude
+ * Section header for AI Primitives Hub entries in .git/info/exclude
  */
 const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
 
 /**
- * Directories in .github/ that are managed by Prompt Registry.
+ * Directories in .github/ that are managed by AI Primitives Hub.
  * Only these directories should be cleaned up during uninstallation.
- * Other directories (workflows, ISSUE_TEMPLATE, etc.) are not managed by Prompt Registry.
+ * Other directories (workflows, ISSUE_TEMPLATE, etc.) are not managed by AI Primitives Hub.
  */
 const PROMPT_REGISTRY_MANAGED_DIRS = ['prompts', 'agents', 'instructions', 'skills'] as const;
 
@@ -446,9 +446,9 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Clean up empty prompt registry subdirectories in .github/
+   * Clean up empty AI Primitives Hub subdirectories in .github/
    *
-   * Only removes directories that prompt registry manages:
+   * Only removes directories that AI Primitives Hub manages:
    * - .github/prompts
    * - .github/agents
    * - .github/instructions
@@ -553,7 +553,7 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Add paths to .git/info/exclude under the Prompt Registry section
+   * Add paths to .git/info/exclude under the AI Primitives Hub section
    * @param paths - Relative paths to add
    */
   private async addToGitExclude(paths: string[]): Promise<void> {
@@ -857,7 +857,7 @@ export class RepositoryScopeService implements IScopeService {
         const pathsForExclude = this.consolidateSkillPathsForGitExclude(removedPaths);
         await this.removeFromGitExclude(pathsForExclude);
 
-        // Clean up empty prompt registry subdirectories
+        // Clean up empty AI Primitives Hub subdirectories
         // Only removes directories that are completely empty
         await this.cleanupEmptyPromptRegistryDirectories();
       }

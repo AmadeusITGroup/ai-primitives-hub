@@ -68,7 +68,7 @@ your-repo/
 The `.git/info/exclude` file will contain:
 
 ```
-# Prompt Registry (local)
+# AI Primitives Hub (local)
 .github/prompts/my-prompt.prompt.md
 .github/agents/my-agent.agent.md
 prompt-registry.local.lock.json

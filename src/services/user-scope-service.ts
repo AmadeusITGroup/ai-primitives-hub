@@ -178,7 +178,7 @@ export class UserScopeService implements IScopeService {
 
     if (this.isRunningInWSL()) {
       this.logger.warn('[UserScopeService] Unable to resolve Windows path from WSL. Prompts may not be visible to Copilot.');
-      vscode.window.showWarningMessage('Prompt Registry: Unable to resolve Windows path from WSL. Prompts may not be visible to Copilot.');
+      vscode.window.showWarningMessage('AI Primitives Hub: Unable to resolve Windows path from WSL. Prompts may not be visible to Copilot.');
     }
 
     // Non-WSL: parse the User dir from the globalStorage path

@@ -1,5 +1,5 @@
 /**
- * Core type definitions for the Prompt Registry system
+ * Core type definitions for the AI Primitives Hub system
  */
 import {
   McpServersManifest,

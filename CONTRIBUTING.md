@@ -1,6 +1,6 @@
-# Contributing to Prompt Registry
+# Contributing to AI Primitives Hub
 
-Thank you for your interest in contributing to Prompt Registry! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to AI Primitives Hub! This document provides guidelines and instructions for contributing to the project.
 
 ## 🎯 Table of Contents
 
@@ -492,7 +492,7 @@ We use [Semantic Versioning](https://semver.org/):
    - Check Debug Console for logs
 
 2. **Extension Logs**
-   - View → Output → Select "Prompt Registry"
+   - View → Output → Select "AI Primitives Hub"
    - Check for error messages and warnings
 
 3. **Network Inspection**

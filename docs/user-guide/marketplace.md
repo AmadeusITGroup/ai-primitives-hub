@@ -1,6 +1,6 @@
 # Marketplace
 
-Open via Activity Bar icon or `Ctrl+Shift+P` → "Prompt Registry: Focus On Marketplace View"
+Open via Activity Bar icon or `Ctrl+Shift+P` → "AI Primitives Hub: Focus On Marketplace View"
 
 ## Browsing
 
@@ -23,10 +23,10 @@ Open via Activity Bar icon or `Ctrl+Shift+P` → "Prompt Registry: Focus On Mark
 Right-click bundle → "Check for Updates"
 
 # Update all
-Ctrl+Shift+P → "Prompt Registry: Update All Bundles"
+Ctrl+Shift+P → "AI Primitives Hub: Update All Bundles"
 ```
 
-Auto-update settings in `File → Preferences → Settings → Prompt Registry`:
+Auto-update settings in `File → Preferences → Settings → AI Primitives Hub`:
 
 | Setting | Default |
 |---------|---------|

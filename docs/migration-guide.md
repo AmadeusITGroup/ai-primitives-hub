@@ -10,7 +10,7 @@ If you have a repository with a `collections/` folder but no GitHub Actions work
 
 1. Run the scaffold command in your existing project directory:
    ```bash
-   # From VS Code Command Palette: "Prompt Registry: Scaffold Project" → "GitHub"
+   # From VS Code Command Palette: "AI Primitives Hub: Scaffold Project" → "GitHub"
    ```
 
 2. Delete the generated example files:

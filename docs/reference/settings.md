@@ -1,6 +1,6 @@
 # Settings Reference
 
-This document describes all configuration settings available for the Prompt Registry extension.
+This document describes all configuration settings available for the AI Primitives Hub extension.
 
 ## General Settings
 
@@ -14,14 +14,14 @@ This document describes all configuration settings available for the Prompt Regi
 
 - **Type:** `boolean`
 - **Default:** `true`
-- **Description:** Enable detailed logging for debugging purposes. When enabled, logs are written to the Output panel under "Prompt Registry".
+- **Description:** Enable detailed logging for debugging purposes. When enabled, logs are written to the Output panel under "AI Primitives Hub".
 
 ### `promptregistry.installationScope`
 
 - **Type:** `string`
 - **Default:** `"user"`
 - **Options:** `"user"`, `"workspace"`, `"project"`
-- **Description:** Default installation scope for Prompt Registry components.
+- **Description:** Default installation scope for AI Primitives Hub components.
   - `user` — Install bundles for the current user (available across all workspaces)
   - `workspace` — Install bundles for the current workspace only
   - `project` — Install bundles at the project level

@@ -110,7 +110,7 @@ interface TemplateContext {
 ## Usage
 
 ```bash
-Ctrl+Shift+P → "Prompt Registry: Scaffold Project"
+Ctrl+Shift+P → "AI Primitives Hub: Scaffold Project"
 ```
 
 ## See Also

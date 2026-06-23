@@ -62,7 +62,7 @@ display:                            # Optional. UI preferences
 
 ## MCP Server Duplicate Detection
 
-When multiple collections define the same MCP server, Prompt Registry automatically detects and manages duplicates to prevent conflicts in VS Code's `mcp.json`.
+When multiple collections define the same MCP server, AI Primitives Hub automatically detects and manages duplicates to prevent conflicts in VS Code's `mcp.json`.
 
 ### How It Works
 
@@ -80,7 +80,7 @@ This allows multiple collections to safely share common MCP servers without conf
 
 ## Validation
 
-Run `Ctrl+Shift+P` → "Prompt Registry: Validate Collections"
+Run `Ctrl+Shift+P` → "AI Primitives Hub: Validate Collections"
 
 ## See Also
 

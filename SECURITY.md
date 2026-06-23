@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-We actively support the following versions of Prompt Registry with security updates:
+We actively support the following versions of AI Primitives Hub with security updates:
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -299,4 +299,4 @@ If you have questions about this security policy, please:
 **Last Updated**: November 4, 2025  
 **Policy Version**: 1.0
 
-Thank you for helping keep Prompt Registry and its users safe! 🔒
+Thank you for helping keep AI Primitives Hub and its users safe! 🔒

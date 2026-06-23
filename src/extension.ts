@@ -1113,13 +1113,13 @@ export class PromptRegistryExtension {
       },
       {
         label: '$(gear) Open Settings',
-        description: 'Configure Prompt Registry',
+        description: 'Configure AI Primitives Hub',
         command: 'promptRegistry.openSettings'
       }
     );
 
     const selected = await vscode.window.showQuickPick(commands, {
-      placeHolder: 'Select a Prompt Registry command',
+      placeHolder: 'Select an AI Primitives Hub command',
       matchOnDescription: true,
       matchOnDetail: true,
       ignoreFocusOut: true
@@ -1469,7 +1469,7 @@ export class PromptRegistryExtension {
 
     const selected = await vscode.window.showQuickPick(items, {
       placeHolder: 'Select a hub to get started',
-      title: 'Welcome to Prompt Registry - Choose Your Hub',
+      title: 'Welcome to AI Primitives Hub - Choose Your Hub',
       ignoreFocusOut: true
     });
 
@@ -1554,7 +1554,7 @@ export class PromptRegistryExtension {
 
   public async activate(): Promise<void> {
     try {
-      this.logger.info('Activating Prompt Registry extension...');
+      this.logger.info('Activating AI Primitives Hub extension...');
 
       // Initialize McpConfigLocator for profile support
       McpConfigLocator.initialize(this.context);
@@ -1607,11 +1607,11 @@ export class PromptRegistryExtension {
       // Ensure only one profile is active (cleanup any multi-active state)
       await this.ensureSingleActiveProfile();
 
-      this.logger.info('Prompt Registry extension activated successfully');
+      this.logger.info('AI Primitives Hub extension activated successfully');
     } catch (error) {
-      this.logger.error('Failed to activate Prompt Registry extension', error as Error);
+      this.logger.error('Failed to activate AI Primitives Hub extension', error as Error);
       await this.notifications.showError(
-        `Failed to activate Prompt Registry extension: ${(error as Error).message}`,
+        `Failed to activate AI Primitives Hub extension: ${(error as Error).message}`,
         'Show Logs'
       ).then((action) => {
         if (action === 'Show Logs') {
@@ -1626,7 +1626,7 @@ export class PromptRegistryExtension {
    */
   public deactivate(): void {
     try {
-      this.logger.info('Deactivating Prompt Registry extension...');
+      this.logger.info('Deactivating AI Primitives Hub extension...');
 
       // Dispose of all resources
       this.disposables.forEach((disposable) => disposable.dispose());
@@ -1653,16 +1653,16 @@ export class PromptRegistryExtension {
       this.statusBar.dispose();
       this.logger.dispose();
 
-      this.logger.info('Prompt Registry extension deactivated successfully');
+      this.logger.info('AI Primitives Hub extension deactivated successfully');
     } catch (error) {
-      console.error('Error during Prompt Registry extension deactivation:', error);
+      console.error('Error during AI Primitives Hub extension deactivation:', error);
     }
   }
 }
 
 // Extension activation function called by VS Code
 /**
- * Activate the Prompt Registry extension.
+ * Activate the AI Primitives Hub extension.
  * @param context
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -1672,7 +1672,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 // Extension deactivation function called by VS Code
 /**
- * Deactivate the Prompt Registry extension.
+ * Deactivate the AI Primitives Hub extension.
  */
 export function deactivate(): void {
   if (extensionInstance) {

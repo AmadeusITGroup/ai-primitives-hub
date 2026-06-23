@@ -110,7 +110,7 @@ Before committing, validate your hub configuration:
 
 ```bash
 # If you have the extension installed locally
-Ctrl+Shift+P → "Prompt Registry: Import Hub" → [Your hub URL]
+Ctrl+Shift+P → "AI Primitives Hub: Import Hub" → [Your hub URL]
 ```
 
 ### 2. Test Source Connectivity
@@ -153,7 +153,7 @@ metadata:
 
 Users can sync the updated hub:
 - Right-click hub in Registry Explorer → "Sync Hub"
-- Or: `Ctrl+Shift+P` → "Prompt Registry: Sync Hub"
+- Or: `Ctrl+Shift+P` → "AI Primitives Hub: Sync Hub"
 
 ## Example: Complete Addition
 

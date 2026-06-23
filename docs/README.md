@@ -1,4 +1,4 @@
-# Prompt Registry Documentation
+# AI Primitives Hub Documentation
 
 Marketplace and registry for Copilot prompt bundles in VS Code.
 

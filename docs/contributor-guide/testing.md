@@ -1,6 +1,6 @@
 # Testing Guide
 
-How to run tests in the Prompt Registry extension.
+How to run tests in the AI Primitives Hub extension.
 
 > **For test writing patterns** (style, helpers, anti-patterns, deduplication rules), see [`test/AGENTS.md`](../../test/AGENTS.md). This file covers commands and tooling only.
 

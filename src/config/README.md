@@ -1,6 +1,6 @@
 # Default Hubs Configuration
 
-This directory contains the configuration for default hubs that are offered to users during their first-time installation of the Prompt Registry extension.
+This directory contains the configuration for default hubs that are offered to users during their first-time installation of the AI Primitives Hub extension.
 
 ## Files
 

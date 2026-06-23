@@ -47,7 +47,7 @@ See [Collection Schema](./collection-schema.md) for full reference.
 
 ## Scaffolding a Project
 
-`Ctrl+Shift+P` → "Prompt Registry: Scaffold Project"
+`Ctrl+Shift+P` → "AI Primitives Hub: Scaffold Project"
 
 ### 1. Select project type
 

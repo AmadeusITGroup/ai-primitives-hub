@@ -1,6 +1,6 @@
 # Creating Agent Skills
 
-This guide covers how to create and manage Agent Skills in the Prompt Registry.
+This guide covers how to create and manage Agent Skills in the AI Primitives Hub.
 
 ## What is an Agent Skill?
 
@@ -78,7 +78,7 @@ Example interactions demonstrating the skill...
 The easiest way to create a new skill is using the scaffold command:
 
 1. Open Command Palette (`Ctrl+Shift+P`)
-2. Run "Prompt Registry: Scaffold Project"
+2. Run "AI Primitives Hub: Scaffold Project"
 3. Select "Agent Skill"
 4. Choose target directory
 5. Enter skill name and details
@@ -105,9 +105,9 @@ Skills installed at workspace scope are only available in that workspace:
 cp -r my-skill .copilot/skills/
 ```
 
-### Using Prompt Registry
+### Using AI Primitives Hub
 
-Skills can be included in bundles and installed via the Prompt Registry extension. Add a skill to your collection manifest:
+Skills can be included in bundles and installed via the AI Primitives Hub extension. Add a skill to your collection manifest:
 
 ```yaml
 id: my-collection
@@ -143,7 +143,7 @@ Skills can restrict which tools they use via the `allowed-tools` field. Common t
 
 ### Versioning & Updates
 
-- Prompt Registry calculates the displayed version for GitHub/local skills from a **content hash**. Any change to files inside the skill directory (`SKILL.md`, `scripts/`, `references/`, `assets/`, etc.) produces a new hash so the Marketplace shows **Update** after sync.
+- AI Primitives Hub calculates the displayed version for GitHub/local skills from a **content hash**. Any change to files inside the skill directory (`SKILL.md`, `scripts/`, `references/`, `assets/`, etc.) produces a new hash so the Marketplace shows **Update** after sync.
 - The optional `metadata.version` field in `SKILL.md` is still useful for humans but is not the signal that drives update detection.
 - When developing locally, simply edit your files and run **Sync Source**—the installed entry refreshes automatically because local installs are symlinked to the source folder.
 

@@ -1,6 +1,6 @@
 # Configuration
 
-Access: `File → Preferences → Settings → Extensions → Prompt Registry`
+Access: `File → Preferences → Settings → Extensions → AI Primitives Hub`
 
 ## Settings
 
@@ -22,7 +22,7 @@ Telemetry respects VS Code's built-in telemetry setting. To enable or disable it
 2. Search for `telemetry.telemetryLevel`
 3. Choose a level:
 
-| Level | Effect on Prompt Registry |
+| Level | Effect on AI Primitives Hub |
 |-------|--------------------------|
 | `all` | Telemetry events are collected |
 | `error` | Only error events are collected |

@@ -1,6 +1,6 @@
 # Command Reference
 
-This document lists all VS Code commands provided by the Prompt Registry extension.
+This document lists all VS Code commands provided by the AI Primitives Hub extension.
 
 ## Bundle Management
 

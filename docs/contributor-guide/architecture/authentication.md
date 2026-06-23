@@ -67,7 +67,7 @@ Failure:
 
 ## Account Selection on First Run
 
-When Prompt Registry is installed for the first time (setup state
+When AI Primitives Hub is installed for the first time (setup state
 `NOT_STARTED`), `Extension.initializeHub()` calls
 `promptGitHubAccountSelection` before the hub selector opens. That helper
 invokes:

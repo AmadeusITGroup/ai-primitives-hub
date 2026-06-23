@@ -1,7 +1,7 @@
 {
   "name": "prompt-registry",
-  "displayName": "Prompt Registry",
-  "description": "Prompt Registry Framework - AI prompt management framework for VSCode and its forks",
+  "displayName": "AI Primitives Hub",
+  "description": "AI Primitives Hub - AI prompt management framework for VSCode and its forks",
   "version": "0.0.2",
   "publisher": "AmadeusITGroup",
   "author": {
@@ -53,360 +53,360 @@
       {
         "command": "promptRegistry.resetFirstRun",
         "title": "Reset First Run (for Testing)",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptregistry.forceGitHubAuth",
         "title": "Force GitHub Authentication",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.scaffoldProject",
         "title": "Scaffold Project",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.addResource",
         "title": "Add Resource (Prompt/Instruction/Agent/Skill)",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.validateCollections",
         "title": "Validate Collections",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.validateApm",
         "title": "Validate APM Package",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.listCollections",
         "title": "List All Collections",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.createProfile",
         "title": "Create New Profile",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.editProfile",
         "title": "Edit Profile",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.activateProfile",
         "title": "Activate Profile",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.deactivateProfile",
         "title": "Deactivate Profile",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.deleteProfile",
         "title": "Delete Profile",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.exportProfile",
         "title": "Export Profile",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.importProfile",
         "title": "Import Profile",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.exportSettings",
         "title": "Export Settings",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(save-as)"
       },
       {
         "command": "promptRegistry.importSettings",
         "title": "Import Settings",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(folder-opened)"
       },
       {
         "command": "promptRegistry.openSettings",
         "title": "Open Settings",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(gear)"
       },
       {
         "command": "promptRegistry.listProfiles",
         "title": "List All Profiles",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.createCollection",
         "title": "Create New Collection",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.updateBundle",
         "title": "Update Bundle",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.checkBundleUpdates",
         "title": "Check for Bundle Updates",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.manualCheckForUpdates",
         "title": "Check for Updates (Manual)",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.enableAutoUpdate",
         "title": "Enable Auto-Update",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.disableAutoUpdate",
         "title": "Disable Auto-Update",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.updateAllBundles",
         "title": "Update All Bundles",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.uninstallBundle",
         "title": "Uninstall Bundle",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.viewBundle",
         "title": "View Bundle Details",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptRegistry.addSource",
         "title": "Add Source",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(add)"
       },
       {
         "command": "promptRegistry.editSource",
         "title": "Edit Source",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(edit)"
       },
       {
         "command": "promptRegistry.removeSource",
         "title": "Remove Source",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(trash)"
       },
       {
         "command": "promptRegistry.syncSource",
         "title": "Sync Source",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(sync)"
       },
       {
         "command": "promptRegistry.syncAllSources",
         "title": "Sync All Sources",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(sync)"
       },
       {
         "command": "promptRegistry.toggleSource",
         "title": "Toggle Source Enabled/Disabled",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(circle-slash)"
       },
       {
         "command": "promptregistry.importHub",
         "title": "Import Hub",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(cloud-download)"
       },
       {
         "command": "promptregistry.listHubs",
         "title": "List Hubs",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(server)"
       },
       {
         "command": "promptregistry.syncHub",
         "title": "Sync Hub",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(sync)"
       },
       {
         "command": "promptregistry.deleteHub",
         "title": "Delete Hub",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(trash)"
       },
       {
         "command": "promptregistry.listHubProfiles",
         "title": "List Hub Profiles",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(package)"
       },
       {
         "command": "promptregistry.browseHubProfiles",
         "title": "Browse Hub Profiles",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(search)"
       },
       {
         "command": "promptregistry.viewHubProfile",
         "title": "View Hub Profile",
-        "category": "Prompt Registry"
+        "category": "AI Primitives Hub"
       },
       {
         "command": "promptregistry.activateHubProfile",
         "title": "Activate Hub Profile",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(check)"
       },
       {
         "command": "promptregistry.deactivateHubProfile",
         "title": "Deactivate Hub Profile",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(close)"
       },
       {
         "command": "promptregistry.showActiveProfiles",
         "title": "Show Active Hub Profiles",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(list-selection)"
       },
       {
         "command": "promptregistry.checkForUpdates",
         "title": "Check Hub Profile for Updates",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(sync)"
       },
       {
         "command": "promptregistry.viewProfileChanges",
         "title": "View Hub Profile Changes",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(diff)"
       },
       {
         "command": "promptregistry.syncProfileNow",
         "title": "Sync Hub Profile Now",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(cloud-download)"
       },
       {
         "command": "promptregistry.reviewAndSyncProfile",
         "title": "Review and Sync Hub Profile",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(eye)"
       },
       {
         "command": "promptregistry.viewSyncHistory",
         "title": "View Hub Profile Sync History",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(history)"
       },
       {
         "command": "promptregistry.rollbackProfile",
         "title": "Rollback Hub Profile",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(discard)"
       },
       {
         "command": "promptregistry.clearSyncHistory",
         "title": "Clear Hub Profile Sync History",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(clear-all)"
       },
       {
         "command": "promptregistry.switchHub",
         "title": "Switch Hub",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(sync)"
       },
       {
         "command": "promptregistry.exportHubConfig",
         "title": "Export Hub Configuration",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(export)"
       },
       {
         "command": "promptregistry.openHubRepository",
         "title": "Open Hub Repository",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(repo)"
       },
       {
         "command": "promptregistry.openItemRepository",
         "title": "Open Repository",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(link-external)"
       },
       {
         "command": "promptRegistry.toggleProfileView",
         "title": "Toggle Favorites View",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(star)"
       },
       {
         "command": "promptRegistry.showFavoritesView",
         "title": "Show Favorites",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(star)"
       },
       {
         "command": "promptRegistry.hideFavoritesView",
         "title": "Show All Profiles",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(star-full)"
       },
       {
         "command": "promptRegistry.toggleProfileFavorite",
         "title": "Toggle Favorite",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(star)"
       },
       {
         "command": "promptRegistry.moveToRepositoryCommit",
         "title": "Move to Repository (Commit)",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(repo)"
       },
       {
         "command": "promptRegistry.moveToRepositoryLocalOnly",
         "title": "Move to Repository (Local Only)",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(eye-closed)"
       },
       {
         "command": "promptRegistry.moveToUser",
         "title": "Move to User",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(account)"
       },
       {
         "command": "promptRegistry.switchToLocalOnly",
         "title": "Switch to Local Only",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(eye-closed)"
       },
       {
         "command": "promptRegistry.switchToCommit",
         "title": "Switch to Commit",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(git-commit)"
       },
       {
         "command": "promptRegistry.cleanupStaleLockfileEntries",
         "title": "Clean Up Stale Repository Bundles",
-        "category": "Prompt Registry",
+        "category": "AI Primitives Hub",
         "icon": "$(trash)"
       }
     ],
@@ -414,7 +414,7 @@
       "activitybar": [
         {
           "id": "promptRegistry",
-          "title": "Prompt Registry",
+          "title": "AI Primitives Hub",
           "icon": "$(package)"
         }
       ]
@@ -432,7 +432,7 @@
           "id": "promptRegistryExplorer",
           "name": "Registry Explorer",
           "icon": "$(list-tree)",
-          "contextualTitle": "Prompt Registry"
+          "contextualTitle": "AI Primitives Hub"
         }
       ]
     },
@@ -633,7 +633,7 @@
       ]
     },
     "configuration": {
-      "title": "Prompt Registry",
+      "title": "AI Primitives Hub",
       "properties": {
         "promptregistry.autoCheckUpdates": {
           "type": "boolean",
@@ -648,7 +648,7 @@
             "project"
           ],
           "default": "user",
-          "description": "Default installation scope for Prompt Registry components"
+          "description": "Default installation scope for AI Primitives Hub components"
         },
         "promptregistry.enableLogging": {
           "type": "boolean",

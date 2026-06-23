@@ -1,6 +1,6 @@
 # Project Scripts
 
-This directory contains utility scripts for managing the Prompt Registry project.
+This directory contains utility scripts for managing the AI Primitives Hub project.
 
 ## 📋 Table of Contents
 

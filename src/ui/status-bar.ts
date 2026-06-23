@@ -4,7 +4,7 @@ import {
 } from '../utils/logger';
 
 /**
- * Status bar item for Prompt Registry extension
+ * Status bar item for AI Primitives Hub extension
  * Shows a command menu with all available extension commands
  */
 export class StatusBar {
@@ -21,8 +21,8 @@ export class StatusBar {
     );
 
     this.statusBarItem.command = 'promptRegistry.showCommandMenu';
-    this.statusBarItem.text = '$(extensions) Prompt Registry';
-    this.statusBarItem.tooltip = 'Prompt Registry - Click to show all commands';
+    this.statusBarItem.text = '$(extensions) AI Primitives Hub';
+    this.statusBarItem.tooltip = 'AI Primitives Hub - Click to show all commands';
   }
 
   public static getInstance(): StatusBar {

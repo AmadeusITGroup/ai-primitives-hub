@@ -23,17 +23,17 @@ Best when you want full control over the review and release cycle.
 If you're contributing a collection to a source you don't own:
 
 1. **Fork** the source repository on GitHub
-2. **Clone** your fork and open it in VS Code with Prompt Registry installed
-3. **Create a new collection**: `Ctrl+Shift+P` → "Prompt Registry: Create Collection"
+2. **Clone** your fork and open it in VS Code with AI Primitives Hub installed
+3. **Create a new collection**: `Ctrl+Shift+P` → "AI Primitives Hub: Create Collection"
 4. Fill in the collection metadata (id, name, description, version, author, tags) and link your primitives — see [Collection Schema](./collection-schema.md)
-5. **Validate**: `Ctrl+Shift+P` → "Prompt Registry: Validate Collections"
+5. **Validate**: `Ctrl+Shift+P` → "AI Primitives Hub: Validate Collections"
 6. Create a new branch, commit, and open a **Pull Request** against the upstream source repository
 
 ## Creating a New Source (GitHub Recommended)
 
 ### Setup
 
-1. Scaffold a new repository: `Ctrl+Shift+P` → "Prompt Registry: Scaffold Project" → `Awesome Copilot Project`
+1. Scaffold a new repository: `Ctrl+Shift+P` → "AI Primitives Hub: Scaffold Project" → `Awesome Copilot Project`
 2. Choose an empty folder where the repository should be bootstrap
 3. Update the content of different folder and collections files
 4. Validate your collection [Validation](./validation.md)

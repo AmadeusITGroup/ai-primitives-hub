@@ -12,7 +12,7 @@ export enum LogLevel {
 }
 
 /**
- * Logger utility for Prompt Registry extension
+ * Logger utility for AI Primitives Hub extension
  */
 export class Logger {
   private static instance: Logger;
@@ -37,12 +37,12 @@ export class Logger {
 
     this.outputChannel = this.isTestEnvironment
       ? {
-        appendLine: (message: string) => console.log(`[Prompt Registry] ${message}`),
+        appendLine: (message: string) => console.log(`[AI Primitives Hub] ${message}`),
         show: () => {},
         hide: () => {},
         dispose: () => {}
       }
-      : vscode.window.createOutputChannel('Prompt Registry');
+      : vscode.window.createOutputChannel('AI Primitives Hub');
   }
 
   public static getInstance(): Logger {

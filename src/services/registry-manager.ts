@@ -1105,10 +1105,10 @@ export class RegistryManager {
    * Initialize the registry
    */
   public async initialize(): Promise<void> {
-    this.logger.info('Initializing Prompt Registry...');
+    this.logger.info('Initializing AI Primitives Hub...');
     await this.storage.initialize();
     await this.loadAdapters();
-    this.logger.info('Prompt Registry initialized successfully');
+    this.logger.info('AI Primitives Hub initialized successfully');
   }
 
   /**

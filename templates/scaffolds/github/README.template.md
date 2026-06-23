@@ -16,13 +16,13 @@ Welcome to your prompt collection! This repository contains prompts, instruction
 └── package.json          # Node.js dependencies
 ```
 
-## 🔗 About Prompt Registry
+## 🔗 About AI Primitives Hub
 
-This repository is part of the **Prompt Registry** ecosystem - a VS Code extension and framework for managing AI prompt collections for GitHub Copilot.
+This repository is part of the **AI Primitives Hub** ecosystem - a VS Code extension and framework for managing AI prompt collections for GitHub Copilot.
 
-### What is Prompt Registry?
+### What is AI Primitives Hub?
 
-Prompt Registry is a comprehensive platform that enables:
+AI Primitives Hub is a comprehensive platform that enables:
 - **Discovery**: Browse and install prompt collections from various sources
 - **Management**: Organize prompts, instructions, agents, and skills in one place
 - **Collaboration**: Share collections within your team or organization
@@ -36,13 +36,13 @@ Prompt Registry is a comprehensive platform that enables:
 - 🔧 **Development Tools**: Scaffolding, validation, and publishing workflows
 - 🌐 **Multi-Source Support**: GitHub repositories, local files, and custom sources
 
-### Getting Started with Prompt Registry
+### Getting Started with AI Primitives Hub
 
-1. **Install the Extension**: Search "Prompt Registry" in the VS Code Marketplace
-2. **Browse Collections**: Use the Registry Explorer to discover available content
+1. **Install the Extension**: Search "AI Primitives Hub" in the VS Code Marketplace
+2. **Browse Collections**: Use the Hub Explorer to discover available content
 3. **Install & Use**: One-click installation makes prompts available in Copilot Chat
 
-📖 **Learn More**: [Prompt Registry Documentation](https://github.com/AmadeusITGroup/prompt-registry)
+📖 **Learn More**: [AI Primitives Hub Documentation](https://github.com/AmadeusITGroup/prompt-registry)
 
 ## 🚀 Quick Start
 
@@ -123,16 +123,16 @@ git branch -M main
 git push -u origin main
 ```
 
-### 9. Use with Prompt Registry Extension
+### 9. Use with AI Primitives Hub Extension
 
 **Option A: Add as Source**
 1. Open VS Code Command Palette (`Ctrl+Shift+P`)
-2. Run: "Prompt Registry: Add Source"
+2. Run: "AI Primitives Hub: Add Source"
 3. Select "Github Releases" or "Collection from GitHub repository"
 4. Enter your repo URL: `https://github.com/YOUR_USERNAME/YOUR_REPO`
 
 **Option B: Pre-configured Default**
-The Prompt Registry extension automatically includes the official [github/awesome-copilot](https://github.com/github/awesome-copilot) source. Once published, your collection will be available similarly.
+The AI Primitives Hub extension automatically includes the official [github/awesome-copilot](https://github.com/github/awesome-copilot) source. Once published, your collection will be available similarly.
 
 ## 🌐 Publishing to Hub and Profiles
 
@@ -159,7 +159,7 @@ npm run validate
 npm run skill:validate
 
 # Test installation locally
-# (Use Prompt Registry extension to add your repo as a source)
+# (Use AI Primitives Hub extension to add your repo as a source)
 ```
 
 #### Step 2: Contact Hub Maintainers
@@ -179,7 +179,7 @@ Hub maintainers will:
 #### Step 4: User Access
 
 Once published, users can:
-1. **Install the Hub**: Add the hub to their Prompt Registry
+1. **Install the Hub**: Add the hub to their AI Primitives Hub
 2. **Browse Collections**: Find your content in the hub catalog
 3. **Install Collections**: One-click install to their Copilot environment
 4. **Use Profiles**: Activate curated profiles containing your content
@@ -434,7 +434,7 @@ The included workflow (`.github/workflows/validate-collections.yml`) runs automa
 ### Manual Testing
 
 1. **In Copilot Chat**: Use `/` to access prompts
-2. **With Prompt Registry**: Browse and install collections
+2. **With AI Primitives Hub**: Browse and install collections
 3. **Validate Files**: Check YAML syntax and file references
 4. **Validate Skills**: Verify SKILL.md frontmatter
 5. **MCP Servers** (if enabled): Verify server appears in VS Code MCP settings
@@ -464,12 +464,12 @@ Before committing:
 
 ## 🛠️ Extension Commands
 
-Available when using Prompt Registry extension:
+Available when using AI Primitives Hub extension:
 
-- `Prompt Registry: Validate Collections` - Validate all collections
-- `Prompt Registry: Create New Collection` - Interactive collection wizard
-- `Prompt Registry: List All Collections` - View collection metadata
-- `Prompt Registry: Add Resource` - Add prompt/instruction/agent/skill
+- `AI Primitives Hub: Validate Collections` - Validate all collections
+- `AI Primitives Hub: Create New Collection` - Interactive collection wizard
+- `AI Primitives Hub: List All Collections` - View collection metadata
+- `AI Primitives Hub: Add Resource` - Add prompt/instruction/agent/skill
 
 ## 📄 License
 

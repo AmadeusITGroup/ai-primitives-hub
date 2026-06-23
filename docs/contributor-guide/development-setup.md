@@ -62,7 +62,7 @@ src/
 
 1. Press `F5` → Extension Development Host
 2. Set breakpoints in TypeScript
-3. View logs: `View → Output → Prompt Registry`
+3. View logs: `View → Output → AI Primitives Hub`
 
 ## Common Issues
 

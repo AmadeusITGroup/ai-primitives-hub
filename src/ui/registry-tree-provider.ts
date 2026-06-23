@@ -1,5 +1,5 @@
 /**
- * Tree View Provider for Prompt Registry Explorer
+ * Tree View Provider for AI Primitives Hub Explorer
  * Displays sources, profiles, bundles, and discovery options in sidebar
  */
 

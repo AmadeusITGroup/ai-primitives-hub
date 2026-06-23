@@ -1,17 +1,17 @@
 ---
 name: prompt-registry-helper
-description: Answer questions about using Prompt Registry and authoring bundles. Use this skill whenever the user asks about bundles, collections, hubs, profiles, sources, scopes, marketplace, repository installation, deployment manifests, source scaffolding, collection schemas, validation errors, publishing, or any Prompt Registry extension feature — even if they don't name the extension explicitly.
+description: Answer questions about using AI Primitives Hub and authoring bundles. Use this skill whenever the user asks about bundles, collections, hubs, profiles, sources, scopes, marketplace, repository installation, deployment manifests, source scaffolding, collection schemas, validation errors, publishing, or any AI Primitives Hub extension feature — even if they don't name the extension explicitly.
 license: SEE LICENSE IN LICENSE.txt
 metadata:
-  author: Prompt Registry Maintainers
+  author: AI Primitives Hub Maintainers
   version: 1.2.0
-compatibility: Requires only Prompt Registry extension installation.
+compatibility: Requires only AI Primitives Hub extension installation.
 ---
 
-# Prompt Registry Helper Skill
+# AI Primitives Hub Helper Skill
 
 Use this skill when the user asks about:
-- Prompt Registry setup, installation, sources, hubs, profiles, marketplace behavior, repository installation, or troubleshooting
+- AI Primitives Hub setup, installation, sources, hubs, profiles, marketplace behavior, repository installation, or troubleshooting
 - Authoring collections, bundles, prompts, instructions, agents, skills, manifests, validation, and publishing
 
 This skill is documentation-first, but not documentation-shaped. Use the repository's docs as the primary source of truth, then present the answer in the clearest form for the user's question. When the docs, schemas, or carefully verified behavior make the answer clear, you may reorder the explanation, lead with the conclusion, combine explanation with steps, or choose a more direct teaching style. Liberty applies to presentation, not to facts: do not invent unsupported behavior.
@@ -24,7 +24,7 @@ This skill should not assume extra setup, external services, or custom tooling b
 
 All documentation is bundled in the `references/` directory alongside this SKILL.md file. Use `read_file` to read docs from the `references/` subdirectories.
 
-**This is the ONLY source of truth for this skill.** Do not search the user's workspace, local clones of the `prompt-registry` repository, or any other local files for Prompt Registry documentation. The bundled `references/` directory is always authoritative — even when a local clone of the repository happens to be open in the editor.
+**This is the ONLY source of truth for this skill.** Do not search the user's workspace, local clones of the `prompt-registry` repository, or any other local files for AI Primitives Hub documentation. The bundled `references/` directory is always authoritative — even when a local clone of the repository happens to be open in the editor.
 
 The references directory is organized as:
 - `references/user-guide/` — End-user documentation (setup, marketplace, sources, profiles, troubleshooting)
@@ -80,7 +80,7 @@ Identify the user's likely perspective before answering. This skill serves two a
 
 Always consider looking into `references/reference/commands.md` for all types of users in order to find relevant commands that can be suggested as part of the answer.
 
-### Prompt Registry User
+### AI Primitives Hub User
 
 Use this path when the question is about operating the extension.
 
@@ -105,9 +105,9 @@ Primary docs:
 - `references/user-guide/configuration.md`
 - `references/user-guide/troubleshooting.md`
 
-### Prompt Registry Author
+### AI Primitives Hub Author
 
-Use this path when the question is about creating, publishing, or contributing collections, bundles, or skills. Any mention of "contributing to Prompt Registry" without an explicit reference to extension source code falls here.
+Use this path when the question is about creating, publishing, or contributing collections, bundles, or skills. Any mention of "contributing to AI Primitives Hub" without an explicit reference to extension source code falls here.
 
 Typical topics:
 - scaffold and repository layout
@@ -260,7 +260,7 @@ After the main answer, always end with:
 - When the user asks for instructions, default to the most practical documented workflow rather than enumerating every possible path.
 - Always surface relevant extension commands when they are documented in `references/reference/commands.md`. Never invent, paraphrase, or "best guess" a command name. If no documented command exists, say so and give the manual workflow instead.
 - Under no circumstance should you mention code, architecture details, or internal implementation to a user. Answer exclusively from the reference documentation.
-- Never search the user's workspace or any local repository clone for Prompt Registry documentation. The bundled `references/` directory is the sole source of truth; if something is not covered there, say so explicitly rather than browsing local files.
+- Never search the user's workspace or any local repository clone for AI Primitives Hub documentation. The bundled `references/` directory is the sole source of truth; if something is not covered there, say so explicitly rather than browsing local files.
 - All documentation links shown to the user MUST be GitHub URLs under `https://github.com/AmadeusITGroup/prompt-registry/`. Do not present local file paths as citations.
 - If a question is contributor-oriented (architecture, internals, testing, development), decline and point to the contributor guide at https://github.com/AmadeusITGroup/prompt-registry/tree/main/docs/contributor-guide or https://github.com/AmadeusITGroup/prompt-registry/blob/main/AGENTS.md.
 - Do not answer procedural questions by restating documentation sections or examples alone; synthesize them into a practical sequence with brief explanation of why each step matters

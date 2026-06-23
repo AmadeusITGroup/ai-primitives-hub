@@ -1,4 +1,4 @@
-# 🎨 Prompt Registry
+# 🎨 AI Primitives Hub
 
 > A visual marketplace for discovering, installing, and managing GitHub Copilot prompt libraries from multiple sources.
 
@@ -9,17 +9,19 @@
 
 ---
 
-**Prompt Registry** transforms how you discover and manage GitHub Copilot prompts. Browse a visual marketplace, search by tags, and install curated prompt libraries with a single click—no manual file copying or repository cloning required.
+**AI Primitives Hub** transforms how you discover and manage GitHub Copilot prompts. Browse a visual marketplace, search by tags, and install curated prompt libraries with a single click—no manual file copying or repository cloning required.
 
-![Prompt Registry - main views](./docs/assets/prompt-registry-in-vscode.png)
+> **ℹ️ Note:** This project was formerly known as **Prompt Registry**. It has been renamed to **AI Primitives Hub** to better reflect its broader scope.
+
+![AI Primitives Hub - main views](./docs/assets/prompt-registry-in-vscode.png)
 
 ---
 
 ## 🚀 Quick Start
 
-1. **Install** — Search "Prompt Registry" in VS Code Extensions (`Ctrl+Shift+X`)
+1. **Install** — Search "AI Primitives Hub" in VS Code Extensions (`Ctrl+Shift+X`)
 2. **Select Hub** — On first launch, choose a hub from the welcome dialog (or skip to configure later)
-3. **Browse** — Click "MARKETPLACE" in the Prompt Registry sidebar
+3. **Browse** — Click "MARKETPLACE" in the AI Primitives Hub sidebar
 4. **Install** — Click any bundle tile, then click **Install**
 5. **Use** — Your prompts are now available in GitHub Copilot! 🎉
 
@@ -35,14 +37,14 @@ The extension automatically adds the Awesome Copilot source and syncs your selec
 - **🔌 Multi-Source Support** — Connect to GitHub, local directories, APM repositories, or Awesome Copilot collections ([details](./docs/user-guide/sources.md))
 - **📦 Version Management** — Track versions, detect updates, and enable automatic background updates ([details](./docs/user-guide/configuration.md))
 - **👥 Profiles & Hubs** — Organize bundles by project/team and share configurations across your organization ([details](./docs/user-guide/profiles-and-hubs.md))
-- **🤖 Built-in Copilot Skill** — Ask GitHub Copilot questions about Prompt Registry directly in chat — setup, authoring, troubleshooting, and more
+- **🤖 Built-in Copilot Skill** — Ask GitHub Copilot questions about AI Primitives Hub directly in chat — setup, authoring, troubleshooting, and more
 - **🌍 Cross-Platform** — Works on macOS, Linux, and Windows with all VS Code flavors
 
 ---
 
-## 🤖 Ask Copilot About Prompt Registry
+## 🤖 Ask Copilot About AI Primitives Hub
 
-Prompt Registry ships with a built-in **Copilot skill** that lets you ask GitHub Copilot questions about the extension directly in chat. No extra setup is required — the skill is available as soon as the extension is installed.
+AI Primitives Hub ships with a built-in **Copilot skill** that lets you ask GitHub Copilot questions about the extension directly in chat. No extra setup is required — the skill is available as soon as the extension is installed.
 
 **What you can ask:**
 - **Users** — "How do I add a local source?", "What scopes are available?", "Why isn't my hub showing?"
@@ -73,7 +75,7 @@ The skill answers from the extension's own documentation, so responses are alway
 
 **From VS Code Marketplace:**
 1. Open VS Code → Press `Ctrl+Shift+X`
-2. Search "Prompt Registry" → Click **Install**
+2. Search "AI Primitives Hub" → Click **Install**
 
 **From VSIX:**
 ```bash
@@ -126,7 +128,7 @@ Marketplace/Tree View → Registry Manager → Adapters (GitHub, Local, etc.)
 
 **Bundles not showing in Copilot?**
 - Check sync completed in extension logs
-- Run "Prompt Registry: Sync All Bundles"
+- Run "AI Primitives Hub: Sync All Bundles"
 - Restart VS Code (`Ctrl+R`)
 
 **Installation fails?**
