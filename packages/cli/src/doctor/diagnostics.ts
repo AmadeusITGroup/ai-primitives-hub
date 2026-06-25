@@ -16,7 +16,25 @@ import type {
   CommandClass,
 } from 'clipanion';
 import {
+  BundleManifestCommand,
+} from '../commands/bundle-manifest';
+import {
+  CollectionListCommand,
+} from '../commands/collection-list';
+import {
+  CollectionValidateCommand,
+} from '../commands/collection-validate';
+import {
+  ConfigGetCommand,
+} from '../commands/config-get';
+import {
+  ExplainCommand,
+} from '../commands/explain';
+import {
   HubAddCommand,
+  HubCreateCommand,
+  HubListCommand,
+  HubRefreshCommand,
   HubSyncCommand,
   HubUseCommand,
 } from '../commands/hub';
@@ -24,16 +42,41 @@ import {
   IndexBuildCommand,
 } from '../commands/index-build';
 import {
+  IndexEvalCommand,
+} from '../commands/index-eval';
+import {
+  IndexExportCommand,
+} from '../commands/index-export';
+import {
   IndexSearchCommand,
 } from '../commands/index-search';
+import {
+  IndexShortlistAddCommand,
+  IndexShortlistListCommand,
+  IndexShortlistNewCommand,
+  IndexShortlistRemoveCommand,
+} from '../commands/index-shortlist';
+import {
+  IndexStatsCommand,
+} from '../commands/index-stats';
 import {
   InstallCommand,
 } from '../commands/install';
 import {
+  PluginsListCommand,
+} from '../commands/plugins-list';
+import {
   ProfileActivateCommand,
+  ProfileCurrentCommand,
   ProfileDeactivateCommand,
   ProfileListCommand,
+  ProfileShowCommand,
 } from '../commands/profile';
+import {
+  SourceAddCommand,
+  SourceListCommand,
+  SourceRemoveCommand,
+} from '../commands/source';
 import {
   StatusCommand,
 } from '../commands/status';
@@ -41,8 +84,17 @@ import {
   TargetAddCommand,
 } from '../commands/target-add';
 import {
+  TargetListCommand,
+} from '../commands/target-list';
+import {
+  TargetTypesCommand,
+} from '../commands/target-types';
+import {
   UninstallCommand,
 } from '../commands/uninstall';
+import {
+  UpdateCommand,
+} from '../commands/update';
 import type {
   CapturedOutputStream,
   Context,
@@ -230,8 +282,12 @@ const prepareWorkspace = async (
   workspace: string
 ): Promise<{
   bundleDir: string;
+  bundleSubDir: string;
   hubDir: string;
   targetDir: string;
+  collectionsDir: string;
+  goldFile: string;
+  exportDir: string;
   hubId: string;
   bundleId: string;
   sourceId: string;
@@ -245,33 +301,52 @@ const prepareWorkspace = async (
   await fsPromises.mkdir(bundleDir, { recursive: true });
   await fsPromises.mkdir(hubDir, { recursive: true });
   await fsPromises.mkdir(targetDir, { recursive: true });
-  await fsPromises.mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
-  await fsPromises.mkdir(path.join(bundleDir, 'skills', 'test-skill'), { recursive: true });
+  const localFooDir = path.join(bundleDir, 'local-foo');
+  await fsPromises.mkdir(path.join(localFooDir, 'prompts'), { recursive: true });
+  await fsPromises.mkdir(path.join(localFooDir, 'skills', 'test-skill'), { recursive: true });
 
   await fsPromises.writeFile(
-    path.join(bundleDir, 'deployment-manifest.yml'),
+    path.join(localFooDir, 'deployment-manifest.yml'),
     DEPLOYMENT_MANIFEST
   );
   await fsPromises.writeFile(
-    path.join(bundleDir, 'prompts', 'hello.prompt.md'),
+    path.join(localFooDir, 'prompts', 'hello.prompt.md'),
     HELLO_PROMPT
   );
   await fsPromises.writeFile(
-    path.join(bundleDir, 'skills', 'test-skill', 'SKILL.md'),
+    path.join(localFooDir, 'skills', 'test-skill', 'SKILL.md'),
     TEST_SKILL
   );
 
   const hubConfig = HUB_CONFIG
-    .replace(/\{\{BUNDLE_DIR\}\}/g, bundleDir)
+    .replace(/\{\{BUNDLE_DIR\}\}/g, localFooDir)
     .replace(/\{\{BUNDLE_ID\}\}/g, 'local-foo')
     .replace(/\{\{SOURCE_ID\}\}/g, 'local-foo-src')
-    .replace(/\{\{PROFILE_ID\}\}/g, 'backend');
+    .replace(/\{\{PROFILE_ID\}\}/g, 'backend')
+    .replace(/\{\{HUB_ID\}\}/g, 'local-test-hub');
   await fsPromises.writeFile(path.join(hubDir, 'hub-config.yml'), hubConfig);
+
+  const collectionsDir = path.join(workspace, 'collections');
+  await fsPromises.mkdir(collectionsDir, { recursive: true });
+  await fsPromises.writeFile(
+    path.join(collectionsDir, 'foo.collection.yml'),
+    COLLECTION_YML
+  );
+
+  const goldFile = path.join(workspace, 'gold-queries.json');
+  await fsPromises.writeFile(goldFile, GOLD_QUERIES);
+
+  const exportDir = path.join(workspace, 'exports');
+  await fsPromises.mkdir(exportDir, { recursive: true });
 
   return {
     bundleDir,
+    bundleSubDir: localFooDir,
     hubDir,
     targetDir,
+    collectionsDir,
+    goldFile,
+    exportDir,
     hubId: 'local-test-hub',
     bundleId: 'local-foo',
     sourceId: 'local-foo-src',
@@ -323,6 +398,56 @@ profiles:
         source: {{SOURCE_ID}}
         required: true
 `;
+
+const COLLECTION_YML = `id: foo
+name: Foo Collection
+description: Diagnostic collection for validation
+items:
+  - path: bundle/local-foo/prompts/hello.prompt.md
+    kind: prompt
+  - path: bundle/local-foo/skills/test-skill/SKILL.md
+    kind: skill
+`;
+
+const GOLD_QUERIES = JSON.stringify({
+  cases: [
+    {
+      id: 'case-1',
+      query: { q: 'hello' },
+      mustMatch: [{ bundleId: 'local-foo' }]
+    }
+  ]
+});
+
+/**
+ * Extract the shortlist ID from a `shortlist new` JSON response.
+ * Falls back to 'shortlist-1' if parsing fails.
+ * @param stdout Captured stdout from the shortlist new command.
+ * @returns Shortlist ID string.
+ */
+const extractShortlistId = (stdout: string): string => {
+  try {
+    const parsed = JSON.parse(stdout) as { data?: { shortlist?: { id?: string } } };
+    return parsed.data?.shortlist?.id ?? 'shortlist-1';
+  } catch {
+    return 'shortlist-1';
+  }
+};
+
+/**
+ * Extract the first primitive ID from a search JSON response.
+ * Falls back to 'local-foo/hello.prompt.md' if parsing fails.
+ * @param stdout Captured stdout from the search command.
+ * @returns Primitive ID string.
+ */
+const extractFirstPrimitiveId = (stdout: string): string => {
+  try {
+    const parsed = JSON.parse(stdout) as { data?: { hits?: { primitive?: { id?: string } }[] } };
+    return parsed.data?.hits?.[0]?.primitive?.id ?? 'local-foo/hello.prompt.md';
+  } catch {
+    return 'local-foo/hello.prompt.md';
+  }
+};
 
 /**
  * Verify that a file exists on disk and record the result.
@@ -401,13 +526,25 @@ export const runDiagnostics = async (
       '-o', 'json'
     ]);
 
-    // Step 6: Activate a profile.
+    // Step 6: Show profile details.
+    await runStep('profile-show', [
+      'profile', 'show', fixtures.profileId,
+      '-o', 'json'
+    ], { profileId: fixtures.profileId });
+
+    // Step 7: Activate a profile.
     await runStep('activate-profile', [
       'profile', 'activate', fixtures.profileId, '--target', 'copilot',
       '-o', 'json'
     ], { profileId: fixtures.profileId, targetDir: fixtures.targetDir });
 
-    // Step 7: Verify resources were installed.
+    // Step 8: Show currently active profile.
+    await runStep('profile-current', [
+      'profile', 'current',
+      '-o', 'json'
+    ]);
+
+    // Step 9: Verify resources were installed.
     const promptInstalled = await fileExists(
       fsAbstraction,
       path.join(fixtures.targetDir, 'prompts', 'hello.prompt.md')
@@ -420,30 +557,100 @@ export const runDiagnostics = async (
       'status', '-o', 'json'
     ], { promptInstalled, skillInstalled });
 
-    // Step 8: Build a local primitive index.
+    // Step 10: Build a local primitive index.
+    const indexPath = path.join(workspace, 'primitive-index.json');
     await runStep('build-index', [
       'index', 'build',
       '--root', fixtures.bundleDir,
-      '--out', path.join(workspace, 'primitive-index.json'),
+      '--out', indexPath,
       '--source-id', fixtures.sourceId,
       '-o', 'json'
     ], { bundleDir: fixtures.bundleDir });
 
-    // Step 9: Search the index.
-    await runStep('search-index', [
+    // Step 11: Search the index.
+    const searchStep = await runStep('search-index', [
       'index', 'search',
       '--query', 'hello',
-      '--index', path.join(workspace, 'primitive-index.json'),
+      '--index', indexPath,
       '-o', 'json'
     ]);
 
-    // Step 10: Deactivate the profile.
+    // Step 12: Search the index filtered by kind.
+    await runStep('search-index-kinds', [
+      'index', 'search',
+      '--query', 'hello',
+      '--kinds', 'prompt',
+      '--index', indexPath,
+      '-o', 'json'
+    ]);
+
+    // Step 13: Show index statistics.
+    await runStep('index-stats', [
+      'index', 'stats',
+      '--index', indexPath,
+      '-o', 'json'
+    ]);
+
+    // Step 14: Create a shortlist.
+    const shortlistStep = await runStep('shortlist-new', [
+      'index', 'shortlist', 'new',
+      '--name', 'Diagnostic Shortlist',
+      '--index', indexPath,
+      '-o', 'json'
+    ]);
+
+    // Step 15: Add a primitive to the shortlist.
+    const shortlistId = extractShortlistId(shortlistStep.stdout);
+    const primitiveId = extractFirstPrimitiveId(searchStep.stdout);
+    await runStep('shortlist-add', [
+      'index', 'shortlist', 'add',
+      '--id', shortlistId,
+      '--primitive', primitiveId,
+      '--index', indexPath,
+      '-o', 'json'
+    ], { shortlistId, primitiveId });
+
+    // Step 16: List shortlists.
+    await runStep('shortlist-list', [
+      'index', 'shortlist', 'list',
+      '--index', indexPath,
+      '-o', 'json'
+    ]);
+
+    // Step 17: Remove the primitive from the shortlist.
+    await runStep('shortlist-remove', [
+      'index', 'shortlist', 'remove',
+      '--id', shortlistId,
+      '--primitive', primitiveId,
+      '--index', indexPath,
+      '-o', 'json'
+    ]);
+
+    // Step 18: Export shortlist as a profile YAML.
+    await runStep('index-export', [
+      'index', 'export',
+      '--shortlist', shortlistId,
+      '--profile-id', 'exported-profile',
+      '--out-dir', fixtures.exportDir,
+      '--index', indexPath,
+      '-o', 'json'
+    ], { exportDir: fixtures.exportDir });
+
+    // Step 19: Run pattern-based relevance eval.
+    await runStep('index-eval', [
+      'index', 'eval',
+      '--gold', fixtures.goldFile,
+      '--index', indexPath,
+      '-o', 'json'
+    ], { goldFile: fixtures.goldFile });
+
+    // Step 20: Deactivate the profile.
     await runStep('deactivate-profile', [
       'profile', 'deactivate',
       '-o', 'json'
     ]);
 
-    // Step 11: Verify resources were removed.
+    // Step 21: Verify resources were removed.
     const promptRemoved = !(await fileExists(
       fsAbstraction,
       path.join(fixtures.targetDir, 'prompts', 'hello.prompt.md')
@@ -456,23 +663,125 @@ export const runDiagnostics = async (
       'status', '-o', 'json'
     ], { promptRemoved, skillRemoved });
 
-    // Step 12: Direct bundle install.
+    // Step 22: Direct bundle install.
     await runStep('install-bundle', [
       'install', fixtures.bundleId,
-      '--from', fixtures.bundleDir,
+      '--from', fixtures.bundleSubDir,
       '--target', 'copilot',
       '-o', 'json'
-    ], { bundleDir: fixtures.bundleDir });
+    ], { bundleSubDir: fixtures.bundleSubDir });
 
-    // Step 13: Uninstall all bundles for the target.
+    // Step 23: Update dry-run (should report 0 updates).
+    await runStep('update-dry-run', [
+      'update', '--dry-run', '--no-hub-sync', '--target', 'copilot',
+      '-o', 'json'
+    ]);
+
+    // Step 24: Uninstall all bundles for the target.
     await runStep('uninstall-bundle', [
       'uninstall', '--target', 'copilot', '--all',
       '-o', 'json'
     ]);
 
-    // Step 14: Final status check.
+    // Step 25: List configured targets.
+    await runStep('target-list', [
+      'target', 'list',
+      '-o', 'json'
+    ]);
+
+    // Step 26: List supported target types.
+    await runStep('target-types', [
+      'target', 'types',
+      '-o', 'json'
+    ]);
+
+    // Step 27: List imported hubs.
+    await runStep('hub-list', [
+      'hub', 'list',
+      '-o', 'json'
+    ]);
+
+    // Step 28: Refresh the active hub.
+    await runStep('hub-refresh', [
+      'hub', 'refresh',
+      '-o', 'json'
+    ]);
+
+    // Step 29: Scaffold a hub-config.yml skeleton.
+    await runStep('hub-create', [
+      'hub', 'create', '--name', 'Diagnostic Hub',
+      '--out', path.join(workspace, 'scaffolded-hub'),
+      '-o', 'json'
+    ]);
+
+    // Step 30: Add a detached source.
+    await runStep('source-add', [
+      'source', 'add', '--type', 'local', '--url', fixtures.bundleSubDir,
+      '--id', 'diag-source', '--name', 'Diagnostic Source',
+      '-o', 'json'
+    ], { bundleSubDir: fixtures.bundleSubDir });
+
+    // Step 31: List sources across all hubs.
+    await runStep('source-list', [
+      'source', 'list',
+      '-o', 'json'
+    ]);
+
+    // Step 32: Remove the detached source.
+    await runStep('source-remove', [
+      'source', 'remove', 'diag-source',
+      '-o', 'json'
+    ]);
+
+    // Step 33: List collections (from collections/ dir in workspace).
+    await runStep('collection-list', [
+      'collection', 'list',
+      '-o', 'json'
+    ], { collectionsDir: fixtures.collectionsDir });
+
+    // Step 34: Validate collections.
+    await runStep('collection-validate', [
+      'collection', 'validate',
+      '-o', 'json'
+    ]);
+
+    // Step 35: Generate a deployment manifest from the collection.
+    await runStep('bundle-manifest', [
+      'bundle', 'manifest',
+      '--version', '1.0.0',
+      '--collection-file', 'collections/foo.collection.yml',
+      '--out-file', path.join(workspace, 'generated-manifest.yml'),
+      '-o', 'json'
+    ]);
+
+    // Step 36: Explain an error code.
+    await runStep('explain', [
+      'explain', 'INDEX.NOT_FOUND',
+      '-o', 'json'
+    ]);
+
+    // Step 37: List CLI plugins.
+    await runStep('plugins-list', [
+      'plugins', 'list',
+      '-o', 'json'
+    ]);
+
+    // Step 38: Read a config value.
+    await runStep('config-get', [
+      'config', 'get', 'output.json.indent',
+      '-o', 'json'
+    ]);
+
+    // Step 39: Final status check.
     await runStep('final-status', [
       'status', '-o', 'json'
+    ]);
+
+    // Step 40: Search alias as top-level command.
+    await runStep('search-alias', [
+      'search', '--query', 'hello',
+      '--index', indexPath,
+      '-o', 'json'
     ]);
   } catch (err) {
     // Record the unexpected error as a synthetic step so the report always
@@ -514,14 +823,38 @@ export const runDiagnostics = async (
 export const getDiagnosticCommandClasses = (): CommandClass[] => [
   StatusCommand,
   TargetAddCommand,
+  TargetListCommand,
+  TargetTypesCommand,
   HubAddCommand,
   HubUseCommand,
   HubSyncCommand,
+  HubListCommand,
+  HubRefreshCommand,
+  HubCreateCommand,
   ProfileListCommand,
+  ProfileShowCommand,
+  ProfileCurrentCommand,
   ProfileActivateCommand,
   ProfileDeactivateCommand,
   IndexBuildCommand,
   IndexSearchCommand,
+  IndexStatsCommand,
+  IndexShortlistNewCommand,
+  IndexShortlistAddCommand,
+  IndexShortlistRemoveCommand,
+  IndexShortlistListCommand,
+  IndexExportCommand,
+  IndexEvalCommand,
   InstallCommand,
-  UninstallCommand
+  UninstallCommand,
+  UpdateCommand,
+  SourceAddCommand,
+  SourceListCommand,
+  SourceRemoveCommand,
+  CollectionListCommand,
+  CollectionValidateCommand,
+  BundleManifestCommand,
+  ExplainCommand,
+  PluginsListCommand,
+  ConfigGetCommand
 ];
