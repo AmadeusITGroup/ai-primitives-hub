@@ -26,7 +26,7 @@
     "bin"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run copy-schemas",
     "watch": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -34,6 +34,7 @@
     "lint": "eslint src test",
     "lint:fix": "eslint src test --fix",
     "prepublishOnly": "npm run build",
+    "copy-schemas": "node -e \"const fs=require('fs');const path=require('path');const srcPath=path.resolve('../core/dist/public/schemas');const destPath=path.resolve('dist/public/schemas');if(fs.existsSync(srcPath)){fs.mkdirSync(destPath,{recursive:true});fs.cpSync(srcPath,destPath,{recursive:true,force:true});console.log('Copied schemas from',srcPath,'to',destPath);}else{console.error('Source schemas not found at',srcPath);process.exit(1);}\"",
     "build:sea": "node scripts/build-sea.js",
     "build:sea:local": "node scripts/build-sea.js --local"
   },

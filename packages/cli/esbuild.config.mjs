@@ -20,5 +20,8 @@ await esbuild.build({
   sourcemap: false,
   treeShaking: true,
   metafile: true,
-  absWorkingDir: __dirname
+  absWorkingDir: __dirname,
+  loader: {
+    '.json': 'json'
+  }
 });

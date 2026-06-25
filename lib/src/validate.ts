@@ -9,6 +9,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
+import collectionSchema from '../../schemas/collection.schema.json';
 import type {
   AllCollectionsResult,
   Collection,
@@ -19,23 +20,18 @@ import type {
 } from './types';
 
 /**
- * Load valid item kinds from the JSON schema (single source of truth).
- * Falls back to a default list if schema cannot be loaded.
- * @param schemaDir - Directory containing the schema file
+ * Load valid item kinds from the embedded JSON schema (single source of truth).
+ * Falls back to a default list if schema is malformed.
  * @returns Array of valid item kinds
  */
-export function loadItemKindsFromSchema(schemaDir?: string): string[] {
+export function loadItemKindsFromSchema(): string[] {
   try {
-    const schemaPath = schemaDir
-      ? path.join(schemaDir, 'collection.schema.json')
-      : path.join(__dirname, '..', '..', 'schemas', 'collection.schema.json');
-    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
-    const kinds = schema?.properties?.items?.items?.properties?.kind?.enum;
+    const kinds = collectionSchema?.properties?.items?.items?.properties?.kind?.enum;
     if (Array.isArray(kinds) && kinds.length > 0) {
       return kinds;
     }
   } catch {
-    // Schema unavailable or malformed, use fallback
+    // Schema malformed, use fallback
   }
   return ['prompt', 'instruction', 'agent', 'skill'];
 }

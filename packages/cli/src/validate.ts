@@ -9,7 +9,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
-import { SCHEMA_DIR } from '@prompt-registry/core';
+import { COLLECTION_SCHEMA } from '@prompt-registry/core';
 import type {
   AllCollectionsResult,
   Collection,
@@ -20,31 +20,27 @@ import type {
 } from './types';
 
 /**
- * Load valid item kinds from the JSON schema (single source of truth).
- * Falls back to a default list if schema cannot be loaded.
- * @param schemaDir - Directory containing the schema file
+ * Load valid item kinds from the embedded JSON schema (single source of truth).
+ * Falls back to a default list if schema is malformed.
  * @returns Array of valid item kinds
  */
-export function loadItemKindsFromSchema(schemaDir?: string): string[] {
+export function loadItemKindsFromSchema(): string[] {
   try {
-    const schemaPath = schemaDir
-      ? path.join(schemaDir, 'collection.schema.json')
-      : path.join(SCHEMA_DIR, 'collection.schema.json');
-    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
-    const kinds = schema?.properties?.items?.items?.properties?.kind?.enum;
+    const kinds = COLLECTION_SCHEMA?.properties?.items?.items?.properties?.kind?.enum;
     if (Array.isArray(kinds) && kinds.length > 0) {
       return kinds;
     }
   } catch {
-    // Schema unavailable or malformed, use fallback
+    // Schema malformed, use fallback
+    console.warn('Failed to load item kinds from embedded schema, using fallback');
   }
-  return ['prompt', 'instruction', 'agent', 'skill'];
+  return ['prompt', 'instruction', 'chat-mode', 'agent', 'skill', 'plugin', 'hook'];
 }
 
 /**
  * Validation rules for collections.
  * These rules are shared across all validation components for consistency.
- * Item kinds are loaded from the JSON schema for single source of truth.
+ * Item kinds are loaded from the embedded JSON schema for single source of truth.
  */
 export const VALIDATION_RULES: ValidationRules = {
   collectionId: {
