@@ -19,7 +19,6 @@ runs:
   using: composite
   steps:
     - name: Collect audit findings and post PR comment
-      if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
       env:
         AUDIT_FLAGS: ${{ inputs.audit-flags }}
@@ -42,12 +41,14 @@ runs:
           let report
           try {
             const json = JSON.parse(auditOutput)
-            const advisories = Object.values(json.vulnerabilities ?? {})
-              .flatMap(v => (Array.isArray(v.via) ? v.via : [v.via]))
-              .filter(v => v && typeof v === 'object' && v.url)
-              .reduce((map, v) => { map[v.url] = v; return map }, {})
+            const advisories = new Map(
+              Object.values(json.vulnerabilities ?? {})
+                .flatMap(v => (Array.isArray(v.via) ? v.via : [v.via]))
+                .filter(v => v && typeof v === 'object' && v.url)
+                .map(v => [v.url, v])
+            )
 
-            const rows = Object.values(advisories).map(a =>
+            const rows = [...advisories.values()].map(a =>
               `| ${a.severity} | [${a.title}](${a.url}) | \`${a.module_name ?? a.name}\` |`
             )
 
@@ -69,10 +70,11 @@ runs:
           const marker = `<!-- npm-audit-comment:${process.env.LABEL} -->`
           const body = `${marker}\n### npm audit — \`${process.env.LABEL}\`\n\n${report}`
 
-          const { data: comments } = await github.rest.issues.listComments({
+          const comments = await github.paginate(github.rest.issues.listComments, {
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: context.issue.number,
+            per_page: 100,
           })
 
           const existing = comments.find(c => c.body.includes(marker))

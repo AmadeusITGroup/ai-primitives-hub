@@ -1,0 +1,32 @@
+name: Dependency Review
+
+on:
+  workflow_call:
+    inputs:
+      fail-on-severity:
+        description: Minimum severity to fail on (low, moderate, high, critical)
+        required: false
+        type: string
+        default: high
+
+jobs:
+  dependency-review:
+    name: Dependency Review (fail on new vulnerabilities)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: ${{ inputs.fail-on-severity }}
+          vulnerability-check: true
