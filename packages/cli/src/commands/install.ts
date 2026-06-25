@@ -912,7 +912,7 @@ async function performRemoteInstall(
           + '  prompt-registry install foo --from <localDir> --target my-vscode'
       });
     }
-    const http = opts.http ?? new NodeHttpClient();
+    const http = opts.http ?? new NodeHttpClient({ env: ctx.env });
     const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
 
     // Use SourceDispatcher to select the appropriate resolver based on source config

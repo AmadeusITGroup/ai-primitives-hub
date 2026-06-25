@@ -42,6 +42,7 @@ export * from './downloaders/https-downloader';
 
 // HTTP
 export * from './http/node-http-client';
+export * from './http/proxy-aware-fetch';
 
 // Writers
 export * from './writers/zip-writer';

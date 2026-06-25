@@ -37,6 +37,7 @@
     "@prompt-registry/core": "workspace:*",
     "axios": "^1.7.9",
     "js-yaml": "^4.1.0",
+    "undici": "^6.26.0",
     "yauzl": "^3.0.0"
   },
   "devDependencies": {

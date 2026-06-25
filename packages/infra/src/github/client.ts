@@ -29,6 +29,10 @@ import {
   randomInt,
 } from 'node:crypto';
 import {
+  createProxyAwareFetch,
+  type FetchLike,
+} from '../http/proxy-aware-fetch';
+import {
   GitHubApiError,
 } from './errors';
 import type {
@@ -38,8 +42,7 @@ import type {
   TokenProvider,
 } from './token';
 
-/** Native fetch shape (Node 18+ / browsers). */
-export type FetchLike = (req: Request) => Promise<Response>;
+export type { FetchLike } from '../http/proxy-aware-fetch';
 
 export interface GitHubClientOptions {
   /** Token provider — resolves Bearer tokens per host. */
@@ -48,8 +51,13 @@ export interface GitHubClientOptions {
   baseUrl?: string;
   /** User-Agent. Defaults to a sensible identifier. */
   userAgent?: string;
-  /** Injected fetch for tests. Defaults to `globalThis.fetch`. */
+  /** Injected fetch for tests. Defaults to a proxy-aware `globalThis.fetch`. */
   fetch?: FetchLike;
+  /**
+   * Environment bag used to build the default proxy-aware fetch.
+   * Ignored when `fetch` is provided. Defaults to `process.env`.
+   */
+  env?: Record<string, string | undefined>;
   /** Max retries after a transient failure. Default 4. */
   maxRetries?: number;
   /** Initial backoff (ms). Each retry doubles it. Default 250. */
@@ -119,7 +127,7 @@ export class GitHubClient {
     this.tokens = opts.tokens;
     this.baseUrl = (opts.baseUrl ?? DEFAULT_API_BASE).replace(/\/+$/, '');
     this.userAgent = opts.userAgent ?? DEFAULT_UA;
-    this.fetchImpl = opts.fetch ?? ((req: Request) => fetch(req));
+    this.fetchImpl = opts.fetch ?? createProxyAwareFetch(opts.env ?? process.env);
     this.maxRetries = opts.maxRetries ?? 4;
     this.backoffBaseMs = opts.backoffBaseMs ?? 250;
     this.jitterMs = opts.jitterMs ?? 250;

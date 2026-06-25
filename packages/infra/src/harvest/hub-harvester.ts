@@ -266,7 +266,7 @@ export const harvestHub = async (
 ): Promise<HubHarvestPipelineResult> => {
   validateHarvestOptions(opts);
   const { hubRepo, hubBranch, cacheDir, progressFile, outFile, concurrency } = resolveHarvestPaths(opts, env);
-  const { resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts);
+  const { resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts, env);
   const sources = await resolveHubSources({
     noHubConfig: opts.noHubConfig === true,
     hubConfigFile: opts.hubConfigFile,
@@ -327,7 +327,11 @@ function resolveHarvestPaths(opts: HubHarvestPipelineOptions, env: NodeJS.Proces
   return { hubRepo, hubBranch, cacheDir, progressFile, outFile, concurrency };
 }
 
-async function createGitHubClient(hubRepo: string, opts: HubHarvestPipelineOptions): Promise<{
+async function createGitHubClient(
+  hubRepo: string,
+  opts: HubHarvestPipelineOptions,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<{
   resolvedToken: string;
   client: GitHubClient;
   tokenSource: string;
@@ -337,7 +341,7 @@ async function createGitHubClient(hubRepo: string, opts: HubHarvestPipelineOptio
     throw new Error('No GitHub token available (tried explicit, env, gh CLI).');
   }
   const resolvedToken: string = token.token;
-  const client = new GitHubClient({ tokens: staticTokenProvider(resolvedToken) });
+  const client = new GitHubClient({ tokens: staticTokenProvider(resolvedToken), env });
   const [owner, repo] = hubRepo.split('/');
   if (owner === undefined || repo === undefined || owner.length === 0 || repo.length === 0) {
     throw new Error(`Invalid hubRepo: ${hubRepo} (expected "owner/repo").`);

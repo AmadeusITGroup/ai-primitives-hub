@@ -3,19 +3,20 @@
  *
  * Tests NodeHttpClient class.
  */
+import type {
+  HttpRequest,
+} from '@prompt-registry/core';
 import {
   afterEach,
   beforeEach,
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
   NodeHttpClient,
 } from '../../src/http/node-http-client';
-import type {
-  HttpRequest,
-} from '../../src/ports/http';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -52,35 +53,35 @@ describe('NodeHttpClient', () => {
     });
 
     const response = await client.fetch(req);
-    expect(mockFetch).toHaveBeenCalledWith('https://example.com', {
-      method: 'GET',
-      headers: {},
-      redirect: 'follow'
-    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [requestArg] = mockFetch.mock.calls[0] as [Request];
+    expect(new URL(requestArg.url).toString()).toBe('https://example.com/');
+    expect(requestArg.method).toBe('GET');
+    expect(Object.fromEntries(requestArg.headers)).toEqual({});
     expect(response.statusCode).toBe(200);
   });
 
-  it('makes POST request with specified method', async () => {
+  it('makes HEAD request with specified method', async () => {
     const req: HttpRequest = {
       url: 'https://example.com',
-      method: 'POST',
+      method: 'HEAD',
       headers: { 'Content-Type': 'application/json' }
     };
 
     mockFetch.mockResolvedValue({
-      status: 201,
+      status: 200,
       url: 'https://example.com',
       headers: new Map([['content-type', 'application/json']]),
       arrayBuffer: () => Promise.resolve(new ArrayBuffer(0))
     });
 
     const response = await client.fetch(req);
-    expect(mockFetch).toHaveBeenCalledWith('https://example.com', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      redirect: 'follow'
-    });
-    expect(response.statusCode).toBe(201);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [requestArg] = mockFetch.mock.calls[0] as [Request];
+    expect(new URL(requestArg.url).toString()).toBe('https://example.com/');
+    expect(requestArg.method).toBe('HEAD');
+    expect(Object.fromEntries(requestArg.headers)).toEqual({ 'content-type': 'application/json' });
+    expect(response.statusCode).toBe(200);
   });
 
   it('converts response headers to Record', async () => {

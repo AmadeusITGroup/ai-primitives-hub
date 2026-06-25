@@ -175,7 +175,7 @@ export class UpdateCommand extends BaseUpdateCommand {
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
-    const http = this.commandContext.http ?? new NodeHttpClient();
+    const http = this.commandContext.http ?? new NodeHttpClient({ env: ctx.env });
     const tokens = this.commandContext.tokens ?? defaultTokenProvider(ctx.env);
     const fmt = (this.output ?? 'text');
 

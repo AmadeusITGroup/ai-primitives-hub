@@ -57,6 +57,7 @@ import {
   createDoctorCommand,
   createDoctorCommandClass,
   DoctorCommand,
+  DOCTOR_DIAGNOSTICS_COMMAND_CLASS,
 } from './commands/doctor';
 import {
   createDiscoverCommand,
@@ -183,7 +184,7 @@ import {
  */
 async function main(): Promise<number> {
   const ctx = createProductionContext();
-  const http = new NodeHttpClient();
+  const http = new NodeHttpClient({ env: ctx.env });
   const tokens = defaultTokenProvider(ctx.env);
 
   const commands = [
@@ -247,6 +248,7 @@ async function main(): Promise<number> {
     PluginCreateCommand,
     HookCreateCommand,
     createDoctorCommandClass(ctx),
+    DOCTOR_DIAGNOSTICS_COMMAND_CLASS,
     createPluginsListCommandClass(ctx),
     createSkillValidateCommandClass(ctx),
     CompletionCommand,

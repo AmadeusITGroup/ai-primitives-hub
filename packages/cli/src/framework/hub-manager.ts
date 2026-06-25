@@ -49,7 +49,7 @@ export const createHttpClientAndTokens = (
   ctx: Context,
   tokens: TokenProvider | undefined
 ): [HttpClient, TokenProvider] => {
-  const httpClient = http ?? new NodeHttpClient();
+  const httpClient = http ?? new NodeHttpClient({ env: ctx.env });
   const tokenProvider = tokens ?? envTokenProvider(ctx.env);
   return [httpClient, tokenProvider];
 };
