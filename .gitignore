@@ -48,6 +48,7 @@ resources/skills/prompt-registry-helper/references
 test-out/
 test-dist/
 lib/dist-test/
+lib/schemas/
 coverage/
 .nyc_output/
 

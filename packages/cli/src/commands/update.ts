@@ -157,7 +157,7 @@ export class UpdateCommand extends BaseUpdateCommand {
     const { ctx } = this.commandContext;
     const http = this.commandContext.http ?? new NodeHttpClient({ env: ctx.env });
     const tokens = this.commandContext.tokens ?? defaultTokenProvider(ctx.env);
-    const fmt = (this.output ?? 'text');
+    const fmt: OutputFormat = (this.output ?? 'text') as OutputFormat;
 
     const lockPath = await resolveLockfilePath(ctx, this.lockfile);
     if (lockPath === null) {

@@ -484,6 +484,9 @@ const checkNetworkConfig = (ctx: Context, verbose: boolean): DoctorCheck => {
   const logs = createLogger(verbose);
   const proxy = summarizeProxyEnv(ctx.env);
   log(logs, 'info', `proxyConfigured: ${proxy.configured ? 'true' : 'false'}`);
+  if (proxy.source !== undefined) {
+    log(logs, 'info', `proxySource: ${proxy.source}`);
+  }
   if (proxy.httpProxy !== undefined) {
     log(logs, 'info', `HTTP_PROXY: ${proxy.httpProxy}`);
   }
@@ -493,22 +496,32 @@ const checkNetworkConfig = (ctx: Context, verbose: boolean): DoctorCheck => {
   if (proxy.noProxy !== undefined) {
     log(logs, 'info', `NO_PROXY: ${proxy.noProxy}`);
   }
+  if (ctx.env.NODE_EXTRA_CA_CERTS !== undefined) {
+    log(logs, 'info', `NODE_EXTRA_CA_CERTS: ${ctx.env.NODE_EXTRA_CA_CERTS}`);
+  }
   if (proxy.configured) {
-    return {
-      name: 'network-config',
-      status: 'ok',
-      detail: `Proxy env vars configured: ${[
+    const parts: string[] = [];
+    if (proxy.source === 'git-config' || proxy.source === 'both') {
+      parts.push('git config http.proxy');
+    }
+    if (proxy.source === 'env' || proxy.source === 'both') {
+      parts.push([
         proxy.httpProxy === undefined ? '' : 'HTTP_PROXY',
         proxy.httpsProxy === undefined ? '' : 'HTTPS_PROXY',
         proxy.noProxy === undefined ? '' : 'NO_PROXY'
-      ].filter(Boolean).join(', ')}.`,
+      ].filter(Boolean).join(', '));
+    }
+    return {
+      name: 'network-config',
+      status: 'ok',
+      detail: `Proxy configured via ${parts.join(' + ')}.`,
       logs
     };
   }
   return {
     name: 'network-config',
     status: 'ok',
-    detail: 'No proxy env vars configured.',
+    detail: 'No proxy env vars or git config proxy configured.',
     logs
   };
 };
@@ -743,11 +756,27 @@ const checkApiReachable = async (ctx: Context, verbose: boolean): Promise<Doctor
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined;
     log(logs, 'error', msg);
+    if (cause !== undefined) {
+      log(logs, 'error', `cause: ${cause}`);
+    }
+    const proxy = summarizeProxyEnv(ctx.env);
+    const hints: string[] = [];
+    if (!proxy.configured) {
+      hints.push('No proxy env vars set. If behind a corporate proxy, set HTTPS_PROXY (and optionally HTTP_PROXY/NO_PROXY).');
+    }
+    if (ctx.env.NODE_EXTRA_CA_CERTS === undefined) {
+      hints.push('If TLS errors occur behind a corporate proxy, set NODE_EXTRA_CA_CERTS to your custom CA bundle path.');
+    }
+    const detailParts = [`api.github.com unreachable: ${cause ?? msg}`];
+    if (hints.length > 0) {
+      detailParts.push(hints.join(' '));
+    }
     return {
       name: 'github-api',
       status: 'warn',
-      detail: `api.github.com unreachable: ${msg}`,
+      detail: detailParts.join(' '),
       logs
     };
   }

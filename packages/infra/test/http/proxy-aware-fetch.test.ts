@@ -6,6 +6,9 @@
  * variables just like the `gh` CLI does.
  */
 import {
+  execSync,
+} from 'node:child_process';
+import {
   describe,
   expect,
   it,
@@ -16,6 +19,12 @@ import {
   hasProxyEnv,
   summarizeProxyEnv,
 } from '../../src/http/proxy-aware-fetch';
+
+// Mock execSync so git config reads are deterministic regardless of the
+// developer's local git config.
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn()
+}));
 
 describe('hasProxyEnv', () => {
   it('returns false when no proxy env vars are set', () => {
@@ -47,15 +56,31 @@ describe('summarizeProxyEnv', () => {
       HTTPS_PROXY: 'http://proxy:8080',
       NO_PROXY: 'localhost'
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       configured: true,
       httpsProxy: 'http://proxy:8080',
-      noProxy: 'localhost'
+      noProxy: 'localhost',
+      source: 'env'
     });
   });
 
   it('reports no proxy env vars', () => {
     expect(summarizeProxyEnv({})).toEqual({ configured: false });
+  });
+
+  it('reports git config proxy when env vars are not set', () => {
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (cmd.includes('https.proxy')) {
+        return 'http://git-proxy:8080';
+      }
+      throw new Error('not set');
+    });
+    const result = summarizeProxyEnv({});
+    expect(result).toMatchObject({
+      configured: true,
+      source: 'git-config'
+    });
+    vi.mocked(execSync).mockReset();
   });
 });
 
