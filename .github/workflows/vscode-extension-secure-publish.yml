@@ -245,7 +245,7 @@ jobs:
 
     environment:
       name: open-vsx
-      url: https://open-vsx.org/extension/AmadeusITGroup/prompt-registry
+      url: https://open-vsx.org/extension/AmadeusITGroup/${{ env.EXTENSION_NAME }}
 
     permissions:
       contents: read
@@ -264,7 +264,14 @@ jobs:
 
       - name: Verify package integrity
         run: |
+          # Verify checksums
           sha256sum -c checksums.txt
+
+          # Additional integrity checks
+          if [ ! -f "${{env.EXTENSION_NAME}}-${{ needs.pre-publish-security.outputs.version }}.vsix" ]; then
+            echo "Package file not found!"
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -284,7 +291,7 @@ jobs:
             exit 1
           fi
 
-          # Publish to Open VSX
+          # Publish with explicit package path
           ovsx publish ${{env.EXTENSION_NAME}}-${{ needs.pre-publish-security.outputs.version }}.vsix -p $OVSX_PAT
 
   # Create installation bundles
