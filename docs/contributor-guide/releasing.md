@@ -54,7 +54,11 @@ These scripts update `package.json` and version references in `README.md`.
    - Add release notes
    - Publish release
    
-   **⚠️ Important:** Publishing the release triggers the CI workflow to publish to VS Code Marketplace
+   **Important:** Publishing the release triggers the CI workflow to publish to VS Code Marketplace and Open VSX Registry.
+
+   Required publishing secrets:
+   - `VSCODE_MARKETPLACE_TOKEN` for VS Code Marketplace
+   - `OPEN_VSX_TOKEN` for Open VSX Registry
 
 ## Pre-release Testing
 

@@ -18,7 +18,7 @@ on:
         description: "Target registries (comma-separated: vscode-marketplace,open-vsx)"
         required: false
         type: string
-        default: "vscode-marketplace"
+        default: "vscode-marketplace,open-vsx"
 
 # Security: Minimal permissions following principle of least privilege
 permissions:
@@ -241,8 +241,7 @@ jobs:
     name: Publish to Open VSX Registry
     runs-on: ubuntu-latest
     needs: [pre-publish-security] # provenance]
-    # Note: we are not ready to publish it to OpenVSX Registry
-    if: contains(github.event.inputs.target_registries, 'open-vsx')
+    if: github.event_name == 'release' || contains(github.event.inputs.target_registries, 'open-vsx')
 
     environment:
       name: open-vsx
