@@ -52,6 +52,7 @@ jobs:
       - name: Report pre-existing vulnerabilities on PR
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/npm-audit-pr-comment
+        continue-on-error: true
         with:
           working-directory: ${{ github.workspace }}/website
           min-severity: high
