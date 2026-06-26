@@ -19,11 +19,11 @@ import {
   TransformerRegistry,
 } from '@prompt-registry/app';
 import type {
-  type BundleResolver,
-  type HttpClient,
-  type RegistrySource,
+  BundleResolver,
+  HttpClient,
+  RegistrySource,
   Target,
-  type TokenProvider,
+  TokenProvider,
 } from '@prompt-registry/core';
 import {
   parseBundleSpec,
