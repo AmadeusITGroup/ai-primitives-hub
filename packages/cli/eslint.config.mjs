@@ -29,6 +29,15 @@ export default defineConfig([
     rules: temporaryWarnRules
   },
   {
+    name: 'cli/ts-rules',
+    files: ['**/*.ts'],
+    rules: {
+      'new-cap': ['error', {
+        capIsNewExceptions: ['Command.Usage']
+      }]
+    }
+  },
+  {
     name: 'cli/test-ts-rules',
     files: ['test/**/*.ts'],
     rules: {

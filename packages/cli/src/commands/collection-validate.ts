@@ -26,13 +26,6 @@ import {
   listCollectionFiles,
 } from '../collections';
 import {
-  type AllCollectionsResult,
-} from '../types';
-import {
-  generateMarkdown,
-  validateAllCollections,
-} from '../validate';
-import {
   Command,
   copyCommandPrototype,
   Option,
@@ -46,6 +39,13 @@ import {
   RegistryError,
   renderError,
 } from '../framework';
+import {
+  type AllCollectionsResult,
+} from '../types';
+import {
+  generateMarkdown,
+  validateAllCollections,
+} from '../validate';
 
 /**
  * Validation data.
@@ -96,7 +96,7 @@ abstract class BaseCollectionValidateCommand extends Command {
  */
 export class CollectionValidateCommand extends BaseCollectionValidateCommand {
   public static readonly paths = [['collection', 'validate']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Validate `*.collection.yml` files against the schema.',
     category: 'Build & Author',
@@ -198,7 +198,7 @@ const createCollectionValidateCommandDefinition = (
   }
   copyCommandPrototype(CollectionValidateCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof CollectionValidateCommand;
+  return ConfiguredCommand;
 };
 
 /**

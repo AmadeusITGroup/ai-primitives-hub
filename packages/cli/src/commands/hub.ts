@@ -12,11 +12,11 @@
  */
 import * as path from 'node:path';
 import type {
-  TokenProvider,
-} from '@prompt-registry/infra';
-import type {
   HttpClient,
 } from '@prompt-registry/core';
+import type {
+  TokenProvider,
+} from '@prompt-registry/infra';
 import {
   Command,
   createHubManager,
@@ -71,6 +71,7 @@ export class HubListCommand extends BaseHubCommand {
         prompt-registry hub list --check
     `
   });
+
   public check = Option.Boolean('--check');
 
   public async execute() {
@@ -140,6 +141,7 @@ export class HubAddCommand extends BaseHubCommand {
         prompt-registry hub add --type local --location ./my-hub --id local-hub
     `
   });
+
   public refType = Option.String('--type');
   public refLocation = Option.String('--location');
   public refRef = Option.String('--ref');
@@ -222,6 +224,7 @@ export class HubUseCommand extends BaseHubCommand {
         prompt-registry hub use --clear
     `
   });
+
   public clear = Option.Boolean('--clear');
   public hubId = Option.String({ required: false });
 
@@ -277,6 +280,7 @@ export class HubRemoveCommand extends BaseHubCommand {
         prompt-registry hub remove old-hub
     `
   });
+
   public hubId = Option.String({ required: false });
 
   public async execute() {
@@ -324,6 +328,7 @@ export class HubCreateCommand extends BaseHubCommand {
         $ prompt-registry hub create --name "Dev Hub" --out ./hubs/dev
     `
   });
+
   public name = Option.String('--name');
   public out = Option.String('--out');
   public addSource = Option.String('--add-source');
@@ -391,6 +396,7 @@ export class HubSyncCommand extends BaseHubCommand {
         $ prompt-registry hub sync my-hub   # sync specific hub
     `
   });
+
   public hubId = Option.String({ required: false });
 
   public async execute() {

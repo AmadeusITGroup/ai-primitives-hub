@@ -9,17 +9,21 @@
  */
 import * as path from 'node:path';
 import {
-  TemplateEngine,
-  TEMPLATE_PATHS,
-} from '@prompt-registry/infra';
-import {
   generateSanitizedId,
   TemplateContext,
 } from '@prompt-registry/core';
 import {
+  TEMPLATE_PATHS,
+  TemplateEngine,
+} from '@prompt-registry/infra';
+import {
+  readCollection,
+  writeCollection,
+} from '../collections';
+import {
   Command,
-  Option,
   copyCommandPrototype,
+  Option,
 } from '../framework';
 import {
   type Context,
@@ -28,12 +32,7 @@ import {
   RegistryError,
   renderError,
 } from '../framework';
-import {
-  readCollection,
-  writeCollection,
-} from '../collections';
 import type {
-  Collection,
   CollectionItem,
 } from '../types';
 
@@ -56,7 +55,7 @@ abstract class BaseSkillCreateCommand extends Command {
  */
 export class SkillCreateCommand extends BaseSkillCreateCommand {
   public static readonly paths = [['skill', 'create']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Create a new skill directory',
     category: 'Primitive',
@@ -84,7 +83,7 @@ export class SkillCreateCommand extends BaseSkillCreateCommand {
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
-    const fmt = (this.output ?? 'text') as OutputFormat;
+    const fmt = (this.output ?? 'text');
 
     try {
       // Determine skill name
@@ -181,6 +180,7 @@ export class SkillCreateCommand extends BaseSkillCreateCommand {
 
 /**
  * Create a configured skill create command class.
+ * @param ctx
  */
 const createSkillCreateCommandDefinition = (
   ctx: Context
@@ -194,11 +194,12 @@ const createSkillCreateCommandDefinition = (
 
   copyCommandPrototype(SkillCreateCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof SkillCreateCommand;
+  return ConfiguredCommand;
 };
 
 /**
  * Factory function to create a configured skill create command class.
+ * @param ctx
  */
 export const createSkillCreateCommandClass = (
   ctx: Context

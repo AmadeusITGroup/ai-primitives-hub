@@ -39,25 +39,6 @@ export class CompletionCommand extends BaseCompletionCommand {
 
   public shell = Option.String('--shell');
 
-  public async execute(): Promise<number> {
-    const { ctx } = this.commandContext;
-    const shell = this.shell;
-
-    if (!shell) {
-      ctx.stderr.write('Error: --shell is required. Use "bash" or "zsh".\n');
-      return 1;
-    }
-
-    if (shell !== 'bash' && shell !== 'zsh') {
-      ctx.stderr.write(`Error: Unsupported shell "${shell}". Use "bash" or "zsh".\n`);
-      return 1;
-    }
-
-    const script = shell === 'bash' ? this.generateBashCompletion() : this.generateZshCompletion();
-    ctx.stdout.write(script);
-    return 0;
-  }
-
   private generateBashCompletion(): string {
     return `# bash completion for prompt-registry
 _prompt_registry_completion() {
@@ -94,52 +75,52 @@ _prompt_registry_completion() {
   case \${words[0]} in
     prompt-registry)
       if [[ \${cword} -eq 1 ]]; then
-        COMPREPLY=(\$(compgen -W "\$commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
       fi
       ;;
     index)
       if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=(\$(compgen -W "\$index_commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$index_commands" -- "$cur"))
       fi
       ;;
     hub)
       if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=(\$(compgen -W "\$hub_commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$hub_commands" -- "$cur"))
       fi
       ;;
     profile)
       if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=(\$(compgen -W "\$profile_commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$profile_commands" -- "$cur"))
       fi
       ;;
     source)
       if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=(\$(compgen -W "\$source_commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$source_commands" -- "$cur"))
       fi
       ;;
     target)
       if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=(\$(compgen -W "\$target_commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$target_commands" -- "$cur"))
       fi
       ;;
     collection)
       if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=(\$(compgen -W "\$collection_commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$collection_commands" -- "$cur"))
       fi
       ;;
     config)
       if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=(\$(compgen -W "\$config_commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$config_commands" -- "$cur"))
       fi
       ;;
     shortlist)
       if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=(\$(compgen -W "\$shortlist_commands" -- "\$cur"))
+        COMPREPLY=($(compgen -W "$shortlist_commands" -- "$cur"))
       fi
       ;;
     *)
       # File completion for arguments
-      COMPREPLY=(\$(compgen -f -- "\$cur"))
+      COMPREPLY=($(compgen -f -- "$cur"))
       ;;
   esac
 }
@@ -282,5 +263,24 @@ _prompt_registry() {
 
 _prompt_registry
 `;
+  }
+
+  public async execute(): Promise<number> {
+    const { ctx } = this.commandContext;
+    const shell = this.shell;
+
+    if (!shell) {
+      ctx.stderr.write('Error: --shell is required. Use "bash" or "zsh".\n');
+      return 1;
+    }
+
+    if (shell !== 'bash' && shell !== 'zsh') {
+      ctx.stderr.write(`Error: Unsupported shell "${shell}". Use "bash" or "zsh".\n`);
+      return 1;
+    }
+
+    const script = shell === 'bash' ? this.generateBashCompletion() : this.generateZshCompletion();
+    ctx.stdout.write(script);
+    return 0;
   }
 }

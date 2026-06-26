@@ -1,11 +1,11 @@
 // Core package exports - domain types and ports
 
 import * as path from 'node:path';
-import collectionSchema from './public/schemas/collection.schema.json';
 
 // Force runtime imports to ensure file emission
 import './domain';
 import './ports';
+import './public/schemas/collection.schema.json';
 
 export * from './domain';
 export * from './ports';
@@ -21,4 +21,4 @@ export const SCHEMA_DIR = path.join(__dirname, './public/schemas');
  * Use this instead of loading from disk to ensure schema is always available
  * in single-executable applications.
  */
-export const COLLECTION_SCHEMA = collectionSchema;
+export { default as COLLECTION_SCHEMA } from './public/schemas/collection.schema.json';

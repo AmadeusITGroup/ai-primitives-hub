@@ -5,6 +5,9 @@
  * collectRepeated flag validation.
  */
 import {
+  PRIMITIVE_KINDS,
+} from '@prompt-registry/infra';
+import {
   describe,
   expect,
   it,
@@ -15,9 +18,6 @@ import {
   parseCsvKinds,
   parseCsvNonEmpty,
 } from '../../src/framework/parsers';
-import {
-  PRIMITIVE_KINDS,
-} from '@prompt-registry/infra';
 
 describe('CLI Argument Parsing - Fix 1: Type Assertion Bug', () => {
   describe('parseCsvKinds with PrimitiveKind validation', () => {

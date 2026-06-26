@@ -174,25 +174,25 @@ export class FileTreeTargetWriter implements TargetWriter {
         skipped.push(bundlePath);
         continue;
       }
-      
+
       // Decode content
       let content = new TextDecoder().decode(bytes);
-      
+
       // Apply transformation if transformer is provided
       if (this.opts.transformer !== undefined) {
         try {
           const result = this.opts.transformer.transform({
             target,
             filePath: bundlePath,
-            content,
+            content
           });
           content = result.content;
-        } catch (transformError) {
+        } catch {
           // Fail-safe: on transformation error, use original content
           // In production, this would log a warning
         }
       }
-      
+
       const outPath = path.join(baseDir, route.outPrefix, route.tail);
       await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
       await this.opts.fs.writeFile(outPath, content);

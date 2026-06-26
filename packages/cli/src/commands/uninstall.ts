@@ -12,24 +12,20 @@ import * as path from 'node:path';
 import {
   UninstallPipeline,
 } from '@prompt-registry/app';
+import {
+  FileTreeTargetWriter,
+  type TargetWriter,
+} from '@prompt-registry/app';
 import type {
   Target,
 } from '@prompt-registry/core';
 import {
   readLockfile,
+  readTargets,
   removeEntry,
+  TargetStateStore,
   writeLockfile,
 } from '@prompt-registry/infra';
-import {
-  TargetStateStore,
-} from '@prompt-registry/infra';
-import {
-  readTargets,
-} from '@prompt-registry/infra';
-import {
-  FileTreeTargetWriter,
-  type TargetWriter,
-} from '@prompt-registry/app';
 import {
   type RepositoryCommitMode,
   RepositoryScopeWriter,
@@ -136,7 +132,7 @@ abstract class BaseUninstallCommand extends Command {
  */
 export class UninstallCommand extends BaseUninstallCommand {
   public static readonly paths = [['uninstall']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Remove bundles from a configured target.',
     category: 'Install & Manage',

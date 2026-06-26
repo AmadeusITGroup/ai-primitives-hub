@@ -173,7 +173,7 @@ export const resolveTargetName = async <T extends { name: string }>(
       return lastUsed;
     }
     const configuredTargets = await readTargetsSafely(readTargetsFn());
-    const hint = generateTargetHint(configuredTargets as { name: string }[]);
+    const hint = generateTargetHint(configuredTargets);
     throw new RegistryError({
       code: 'USAGE.MISSING_FLAG',
       message: `${commandName}: --target <name> is required`,
@@ -227,7 +227,7 @@ export const resolveTarget = async <T extends { name: string }>(
   const targets = await readTargetsFn();
   const target = targets.find((t) => t.name === targetName);
   if (target === undefined) {
-    throwTargetNotFoundError(commandName, targetName, targets as { name: string }[]);
+    throwTargetNotFoundError(commandName, targetName, targets);
   }
   return target!;
 };

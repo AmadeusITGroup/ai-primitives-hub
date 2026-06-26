@@ -9,7 +9,6 @@
  * - Idempotent: Applying the transformation multiple times yields the same result
  * - Independent: Each transformation should not depend on other transformations
  * - Fail-safe: On error, return the original content (log warning separately)
- *
  * @module ports/resource-transformer
  */
 import type {

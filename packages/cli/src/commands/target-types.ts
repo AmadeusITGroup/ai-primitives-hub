@@ -51,7 +51,7 @@ export interface TargetTypesOptions {
  */
 export class TargetTypesCommand extends Command {
   public static readonly paths = [['target', 'types']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'List all supported install target types with descriptions.',
     category: 'Install & Manage',

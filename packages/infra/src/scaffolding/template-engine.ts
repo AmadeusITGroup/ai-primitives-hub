@@ -8,14 +8,16 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
+  ScaffoldResult,
   TemplateContext,
   TemplateInfo,
   TemplateManifest,
-  ScaffoldResult
 } from '@prompt-registry/core';
 
 /**
  * Escape special regex characters in a string.
+ * @param str - The string to escape.
+ * @returns Escaped string.
  */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -23,6 +25,10 @@ function escapeRegex(str: string): string {
 
 /**
  * Replace all occurrences of a literal string in text.
+ * @param text - The text to search in.
+ * @param search - The literal string to search for.
+ * @param replacement - The replacement string.
+ * @returns Text with all occurrences replaced.
  */
 function replaceAll(text: string, search: string, replacement: string): string {
   const escapedSearch = escapeRegex(search);
@@ -32,6 +38,12 @@ function replaceAll(text: string, search: string, replacement: string): string {
 
 /**
  * Replace template variables in text with values.
+ * @param text - The text to process.
+ * @param variables - Key-value pairs of variable names to values.
+ * @param options - Optional configuration.
+ * @param options.prefix - Variable prefix (default: `{{`).
+ * @param options.suffix - Variable suffix (default: `}}`).
+ * @returns Text with variables replaced.
  */
 function replaceVariables(
   text: string,
@@ -54,6 +66,8 @@ function replaceVariables(
 
 /**
  * Sanitize an ID by converting to lowercase and replacing non-alphanumeric chars with hyphens.
+ * @param name - The name to sanitize.
+ * @returns Sanitized ID string.
  */
 function generateSanitizedId(name: string): string {
   return name
@@ -73,6 +87,9 @@ export class TemplateEngine {
 
   /**
    * Resolve relative path for a template, handling special cases.
+   * @param name - Template name.
+   * @param templatePath - Template path.
+   * @returns Resolved relative path.
    */
   private resolveRelativePath(name: string, templatePath: string): string {
     let relativePath = templatePath;
@@ -116,6 +133,8 @@ export class TemplateEngine {
 
   /**
    * Enhance context with computed values.
+   * @param context - Template context.
+   * @returns Enhanced context record.
    */
   private enhanceContext(context: TemplateContext): Record<string, string> {
     const enhanced: Record<string, string> = { ...context };
@@ -189,6 +208,9 @@ export class TemplateEngine {
 
   /**
    * Copy a template to target location with variable substitution.
+   * @param name - Template name.
+   * @param targetPath - Target file path.
+   * @param context - Template context.
    */
   private async copyTemplate(
     name: string,
@@ -207,6 +229,9 @@ export class TemplateEngine {
 
   /**
    * Render a template with variable substitution.
+   * @param name - Template name.
+   * @param context - Template context.
+   * @returns Rendered template string.
    */
   public async renderTemplate(name: string, context: TemplateContext): Promise<string> {
     const manifest = await this.loadManifest();
@@ -236,6 +261,9 @@ export class TemplateEngine {
 
   /**
    * Scaffold a complete project or set of files.
+   * @param targetPath - Target directory path.
+   * @param context - Template context.
+   * @returns Scaffold result.
    */
   public async scaffoldProject(
     targetPath: string,
@@ -247,8 +275,8 @@ export class TemplateEngine {
       const manifest = await this.loadManifest();
 
       // Check if this is a skill scaffold (contains SKILL.md template at root)
-      const isSkillScaffold = manifest.templates['skill-md'] &&
-        Object.values<TemplateInfo>(manifest.templates).some((t) => t.path === 'SKILL.md.template');
+      const isSkillScaffold = manifest.templates['skill-md']
+        && Object.values<TemplateInfo>(manifest.templates).some((t) => t.path === 'SKILL.md.template');
 
       // For skill scaffolds, create files in a subdirectory named after the project
       const effectiveTargetPath = isSkillScaffold && context.projectName

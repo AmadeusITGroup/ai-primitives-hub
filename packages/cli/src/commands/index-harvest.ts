@@ -17,8 +17,6 @@ import {
 } from '@prompt-registry/infra';
 import {
   ActiveHubStore,
-} from '@prompt-registry/infra';
-import {
   HubStore,
 } from '@prompt-registry/infra';
 import {
@@ -115,7 +113,7 @@ export const createIndexHarvestCommand = (
       const runner = opts.runPipeline ?? defaultHarvestHub;
       let result: HubHarvestPipelineResult;
       try {
-        result = await runner(pipelineOpts, ctx.env as NodeJS.ProcessEnv);
+        result = await runner(pipelineOpts, ctx.env);
       } catch (cause) {
         return failWith(ctx, fmt, 'index.harvest', new RegistryError({
           code: 'INDEX.HARVEST_FAILED',
@@ -189,7 +187,7 @@ const isHubRefMissing = (noHubConfig: boolean, hubConfigFile: string | undefined
  */
 export class IndexHarvestCommand extends Command {
   public static readonly paths = [['index', 'harvest']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Fetch hub-config, walk every source, and write a primitive index.',
     category: 'Index & Search',
@@ -273,7 +271,7 @@ export class IndexHarvestCommand extends Command {
     let result: HubHarvestPipelineResult;
 
     try {
-      result = await runner(pipelineOpts, ctx.env as NodeJS.ProcessEnv);
+      result = await runner(pipelineOpts, ctx.env);
     } catch (cause) {
       return failWith(ctx, fmt, 'index.harvest', buildHarvestError(cause));
     }

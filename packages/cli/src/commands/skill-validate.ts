@@ -6,11 +6,11 @@
  * framework's output formatter.
  */
 import {
-  type AllSkillsValidationResult,
-} from '@prompt-registry/core';
-import {
   validateAllSkills,
 } from '@prompt-registry/app';
+import {
+  type AllSkillsValidationResult,
+} from '@prompt-registry/core';
 import {
   Command,
   copyCommandPrototype,
@@ -52,7 +52,7 @@ abstract class BaseSkillValidateCommand extends Command {
  */
 export class SkillValidateCommand extends BaseSkillValidateCommand {
   public static readonly paths = [['skill', 'validate']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Validate every skill folder under <cwd>/skills/ against the Agent Skills spec.',
     category: 'Build & Author',
@@ -127,7 +127,7 @@ const createSkillValidateCommandDefinition = (
   }
   copyCommandPrototype(SkillValidateCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof SkillValidateCommand;
+  return ConfiguredCommand;
 };
 
 /**

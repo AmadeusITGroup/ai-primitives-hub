@@ -8,23 +8,16 @@
  * @module cli/commands/index-build
  */
 import * as path from 'node:path';
-import {
-  LocalFolderBundleProvider,
-} from '@prompt-registry/infra';
-import {
-  PrimitiveIndex,
-} from '@prompt-registry/infra';
 import type {
   IndexStats,
 } from '@prompt-registry/infra';
 import {
+  LocalFolderBundleProvider,
+  PrimitiveIndex,
   saveIndex,
 } from '@prompt-registry/infra';
 import {
   Command,
-  type CommandDefinition,
-  type Context,
-  defineCommand,
   failWith,
   formatOutput,
   getCommandContext,
@@ -48,14 +41,13 @@ interface BuildResult {
   stats: IndexStats;
 }
 
-
 /**
  * Index build command class.
  * Builds a primitive index from a local folder of bundles.
  */
 export class IndexBuildCommand extends Command {
   public static readonly paths = [['index', 'build']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Build a primitive index from a local folder of bundles.',
     category: 'Index & Search',

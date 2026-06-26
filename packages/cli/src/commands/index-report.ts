@@ -11,8 +11,6 @@
 import * as path from 'node:path';
 import {
   BlobCache,
-} from '@prompt-registry/infra';
-import {
   defaultHubCacheDir,
   defaultProgressFile,
 } from '@prompt-registry/infra';
@@ -137,7 +135,7 @@ const renderReportMarkdown = (progressFile: string, d: ReportData): string => {
  */
 export class IndexReportCommand extends Command {
   public static readonly paths = [['index', 'report']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Render a hub-harvest report from a progress log.',
     category: 'Index & Search',

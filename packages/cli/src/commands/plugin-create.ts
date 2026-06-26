@@ -9,17 +9,21 @@
  */
 import * as path from 'node:path';
 import {
-  TemplateEngine,
-  TEMPLATE_PATHS,
-} from '@prompt-registry/infra';
-import {
   generateSanitizedId,
   TemplateContext,
 } from '@prompt-registry/core';
 import {
+  TEMPLATE_PATHS,
+  TemplateEngine,
+} from '@prompt-registry/infra';
+import {
+  readCollection,
+  writeCollection,
+} from '../collections';
+import {
   Command,
-  Option,
   copyCommandPrototype,
+  Option,
 } from '../framework';
 import {
   type Context,
@@ -28,12 +32,7 @@ import {
   RegistryError,
   renderError,
 } from '../framework';
-import {
-  readCollection,
-  writeCollection,
-} from '../collections';
 import type {
-  Collection,
   CollectionItem,
 } from '../types';
 
@@ -56,7 +55,7 @@ abstract class BasePluginCreateCommand extends Command {
  */
 export class PluginCreateCommand extends BasePluginCreateCommand {
   public static readonly paths = [['plugin', 'create']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Create a new plugin directory',
     category: 'Primitive',
@@ -86,7 +85,7 @@ export class PluginCreateCommand extends BasePluginCreateCommand {
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
-    const fmt = (this.output ?? 'text') as OutputFormat;
+    const fmt = (this.output ?? 'text');
 
     try {
       // Determine plugin name
@@ -184,6 +183,7 @@ export class PluginCreateCommand extends BasePluginCreateCommand {
 
 /**
  * Create a configured plugin create command class.
+ * @param ctx
  */
 const createPluginCreateCommandDefinition = (
   ctx: Context
@@ -197,11 +197,12 @@ const createPluginCreateCommandDefinition = (
 
   copyCommandPrototype(PluginCreateCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof PluginCreateCommand;
+  return ConfiguredCommand;
 };
 
 /**
  * Factory function to create a configured plugin create command class.
+ * @param ctx
  */
 export const createPluginCreateCommandClass = (
   ctx: Context

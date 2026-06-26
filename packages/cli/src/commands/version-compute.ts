@@ -14,10 +14,10 @@
 import {
   spawnSync,
 } from 'node:child_process';
-import * as semver from 'semver';
 import {
   readCollection,
 } from '@prompt-registry/app';
+import * as semver from 'semver';
 import {
   Command,
   copyCommandPrototype,
@@ -81,7 +81,7 @@ abstract class BaseVersionComputeCommand extends Command {
  */
 export class VersionComputeCommand extends BaseVersionComputeCommand {
   public static readonly paths = [['version', 'compute']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Compute the next semver version + git tag for a collection.',
     category: 'Build & Author',
@@ -161,7 +161,7 @@ const createVersionComputeCommandDefinition = (
   }
   copyCommandPrototype(VersionComputeCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof VersionComputeCommand;
+  return ConfiguredCommand;
 };
 
 /**

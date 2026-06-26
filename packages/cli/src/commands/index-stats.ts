@@ -6,13 +6,11 @@
  * all produce the canonical envelope.
  * @module cli/commands/index-stats
  */
-import {
-  defaultIndexFile,
-} from '@prompt-registry/infra';
 import type {
   IndexStats,
 } from '@prompt-registry/infra';
 import {
+  defaultIndexFile,
   loadIndex,
 } from '@prompt-registry/infra';
 import {
@@ -55,7 +53,7 @@ abstract class BaseIndexStatsCommand extends Command {
  */
 export class IndexStatsCommand extends BaseIndexStatsCommand {
   public static readonly paths = [['index', 'stats']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Show summary statistics for a primitive index.',
     category: 'Index & Search',
@@ -134,7 +132,7 @@ const createIndexStatsCommandDefinition = (
   }
   copyCommandPrototype(IndexStatsCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof IndexStatsCommand;
+  return ConfiguredCommand;
 };
 
 /**

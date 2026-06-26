@@ -8,6 +8,8 @@
 
 /**
  * Sanitize an ID by converting to lowercase and replacing non-alphanumeric chars with hyphens.
+ * @param name - The name to sanitize.
+ * @returns Sanitized ID string.
  */
 export function generateSanitizedId(name: string): string {
   return name
@@ -22,20 +24,20 @@ export function generateSanitizedId(name: string): string {
  */
 export enum ScaffoldType {
   // Collection scaffolding
-  Collection = 'collection',
+  collection = 'collection',
 
   // Primitive scaffolding
-  Prompt = 'prompt',
-  Instruction = 'instruction',
-  Agent = 'agent',
-  Skill = 'skill',
-  Plugin = 'plugin',
-  Hook = 'hook',
-  ChatMode = 'chat-mode',
+  prompt = 'prompt',
+  instruction = 'instruction',
+  agent = 'agent',
+  skill = 'skill',
+  plugin = 'plugin',
+  hook = 'hook',
+  chatMode = 'chat-mode',
 
   // Project scaffolding
-  ProjectGitHub = 'project-github',
-  ProjectApm = 'project-apm'
+  projectGitHub = 'project-github',
+  projectApm = 'project-apm'
 }
 
 /**

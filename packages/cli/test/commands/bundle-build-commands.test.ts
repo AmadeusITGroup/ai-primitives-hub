@@ -10,9 +10,9 @@
  *  4. version compute option recognition.
  *  5. Error paths: missing --version, missing collection file, invalid collection id.
  */
+import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import * as fs from 'node:fs/promises';
 import {
   afterEach,
   beforeEach,
@@ -27,14 +27,14 @@ import {
   BundleManifestCommand,
 } from '../../src/commands/bundle-manifest';
 import {
-  CollectionValidateCommand,
-} from '../../src/commands/collection-validate';
+  CollectionAffectedCommand,
+} from '../../src/commands/collection-affected';
 import {
   CollectionListCommand,
 } from '../../src/commands/collection-list';
 import {
-  CollectionAffectedCommand,
-} from '../../src/commands/collection-affected';
+  CollectionValidateCommand,
+} from '../../src/commands/collection-validate';
 import {
   SkillValidateCommand,
 } from '../../src/commands/skill-validate';
@@ -55,7 +55,7 @@ import {
 const baseContext = () => ({
   cwd: '/tmp',
   fs: createNodeFsAdapter(),
-  env: {} as Record<string, string>,
+  env: {} as Record<string, string>
 });
 
 // ---------------------------------------------------------------------------
@@ -297,7 +297,7 @@ describe('bundle build - repo-slug fallback', () => {
         'description: Test collection',
         'items:',
         '  - path: prompts/hello.prompt.md',
-        '    kind: prompt',
+        '    kind: prompt'
       ].join('\n')
     );
     const promptsDir = path.join(tmpDir, 'prompts');
@@ -320,11 +320,11 @@ describe('bundle build - repo-slug fallback', () => {
         '--version', '1.0.0',
         '--repo-slug', 'acme-corp',
         '--out-dir', path.join(tmpDir, 'dist'),
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [BundleBuildCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -342,15 +342,15 @@ describe('bundle build - repo-slug fallback', () => {
         '--collection-file', 'collections/hello.collection.yml',
         '--version', '1.0.0',
         '--out-dir', path.join(tmpDir, 'dist'),
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [BundleBuildCommand],
         context: {
           cwd: tmpDir,
           fs: createNodeFsAdapter(),
-          env: { GITHUB_REPOSITORY: 'my-org/my-repo' },
-        },
+          env: { GITHUB_REPOSITORY: 'my-org/my-repo' }
+        }
       }
     );
     expect(exitCode).toBe(0);
@@ -367,11 +367,11 @@ describe('bundle build - repo-slug fallback', () => {
         '--collection-file', 'collections/hello.collection.yml',
         '--version', '1.0.0',
         '--out-dir', path.join(tmpDir, 'dist'),
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [BundleBuildCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -390,15 +390,15 @@ describe('bundle build - repo-slug fallback', () => {
         '--version', '1.0.0',
         '--repo-slug', 'explicit-slug',
         '--out-dir', path.join(tmpDir, 'dist'),
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [BundleBuildCommand],
         context: {
           cwd: tmpDir,
           fs: createNodeFsAdapter(),
-          env: { GITHUB_REPOSITORY: 'should-not-appear/in-bundle-id' },
-        },
+          env: { GITHUB_REPOSITORY: 'should-not-appear/in-bundle-id' }
+        }
       }
     );
     expect(exitCode).toBe(0);
@@ -417,11 +417,11 @@ describe('bundle build - repo-slug fallback', () => {
         '--version', '1.0.0',
         '--repo-slug', 'test-org',
         '--out-dir', outDir,
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [BundleBuildCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -446,11 +446,11 @@ describe('bundle build - repo-slug fallback', () => {
         'bundle', 'build',
         '--collection-file', 'collections/noid.collection.yml',
         '--version', '1.0.0',
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [BundleBuildCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(1);
@@ -480,7 +480,7 @@ describe('collection validate - integration', () => {
       ['collection', 'validate', '-o', 'json'],
       {
         commandClasses: [CollectionValidateCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(1);
@@ -504,14 +504,14 @@ describe('collection validate - integration', () => {
         'description: A valid collection',
         'items:',
         '  - path: prompts/hello.prompt.md',
-        '    kind: prompt',
+        '    kind: prompt'
       ].join('\n')
     );
     const { exitCode, stdout } = await runCommand(
       ['collection', 'validate', '-o', 'json'],
       {
         commandClasses: [CollectionValidateCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -543,7 +543,7 @@ describe('collection affected - integration', () => {
         'name: Hello',
         'items:',
         '  - path: prompts/hello.prompt.md',
-        '    kind: prompt',
+        '    kind: prompt'
       ].join('\n')
     );
   });
@@ -557,11 +557,11 @@ describe('collection affected - integration', () => {
       [
         'collection', 'affected',
         '--changed-path', 'collections/hello.collection.yml',
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [CollectionAffectedCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -575,11 +575,11 @@ describe('collection affected - integration', () => {
       [
         'collection', 'affected',
         '--changed-path', 'prompts/hello.prompt.md',
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [CollectionAffectedCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -593,11 +593,11 @@ describe('collection affected - integration', () => {
       [
         'collection', 'affected',
         '--changed-path', 'README.md',
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [CollectionAffectedCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -610,7 +610,7 @@ describe('collection affected - integration', () => {
       ['collection', 'affected', '-o', 'json'],
       {
         commandClasses: [CollectionAffectedCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -685,7 +685,7 @@ describe('all-kinds collection - plugin and hook support', () => {
         '  - path: plugins/my-plugin/plugin.json',
         '    kind: plugin',
         '  - path: hooks/format.json',
-        '    kind: hook',
+        '    kind: hook'
       ].join('\n')
     );
   });
@@ -699,7 +699,7 @@ describe('all-kinds collection - plugin and hook support', () => {
       ['collection', 'validate', '-o', 'json'],
       {
         commandClasses: [CollectionValidateCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -716,11 +716,11 @@ describe('all-kinds collection - plugin and hook support', () => {
         '--collection-file', 'collections/all-kinds.collection.yml',
         '--version', '1.0.0',
         '--out-file', outFile,
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [BundleManifestCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -742,11 +742,11 @@ describe('all-kinds collection - plugin and hook support', () => {
         '--version', '1.0.0',
         '--repo-slug', 'test-org',
         '--out-dir', outDir,
-        '-o', 'json',
+        '-o', 'json'
       ],
       {
         commandClasses: [BundleBuildCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(exitCode).toBe(0);
@@ -764,7 +764,7 @@ describe('all-kinds collection - plugin and hook support', () => {
       ['collection', 'affected', '--changed-path', 'plugins/my-plugin/plugin.json', '-o', 'json'],
       {
         commandClasses: [CollectionAffectedCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(e1).toBe(0);
@@ -774,7 +774,7 @@ describe('all-kinds collection - plugin and hook support', () => {
       ['collection', 'affected', '--changed-path', 'hooks/format.json', '-o', 'json'],
       {
         commandClasses: [CollectionAffectedCommand],
-        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} },
+        context: { cwd: tmpDir, fs: createNodeFsAdapter(), env: {} }
       }
     );
     expect(e2).toBe(0);

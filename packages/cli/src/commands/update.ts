@@ -2,40 +2,29 @@
  * `update` command — checks installed bundles for newer versions and upgrades them.
  */
 import * as path from 'node:path';
-import inquirer from 'inquirer';
 import {
+  FileTreeTargetWriter,
   resolveUserConfigPaths,
 } from '@prompt-registry/app';
 import {
   validateManifest,
 } from '@prompt-registry/core';
 import type {
+  HttpClient,
   Installable,
-  Target,
-} from '@prompt-registry/core';
-import type {
   RegistrySource,
+  Target,
+  TokenProvider,
 } from '@prompt-registry/core';
-import {
-  checksumFiles,
-} from '@prompt-registry/infra';
-import {
-  HttpsBundleDownloader,
-} from '@prompt-registry/infra';
-import {
-  YauzlBundleExtractor,
-} from '@prompt-registry/infra';
-import {
-  defaultTokenProvider,
-} from '@prompt-registry/infra';
-import {
-  NodeHttpClient,
-} from '@prompt-registry/infra';
-import {
-  SourceDispatcher,
-} from '@prompt-registry/infra';
 import {
   ActiveHubStore,
+  checksumFiles,
+  defaultTokenProvider,
+  HttpsBundleDownloader,
+  NodeHttpClient,
+  SourceDispatcher,
+  TargetStateStore,
+  YauzlBundleExtractor,
 } from '@prompt-registry/infra';
 import {
   type LockfileEntry,
@@ -45,16 +34,7 @@ import {
   upsertSource,
   writeLockfile,
 } from '@prompt-registry/infra';
-import {
-  TargetStateStore,
-} from '@prompt-registry/infra';
-import {
-  FileTreeTargetWriter,
-} from '@prompt-registry/app';
-import type {
-  HttpClient,
-  TokenProvider,
-} from '@prompt-registry/core';
+import inquirer from 'inquirer';
 import {
   Command,
   type Context,
@@ -140,7 +120,7 @@ function renderUpdateOutput(d: { updated: number; checked: number; updates: Upda
 
 export class UpdateCommand extends BaseUpdateCommand {
   public static readonly paths = [['update']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a Clipanion static factory, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Check for newer versions of installed bundles and upgrade them.',
     category: 'Install & Manage',
@@ -166,7 +146,7 @@ export class UpdateCommand extends BaseUpdateCommand {
     `
   });
 
-  public output = Option.String('-o,--output') as OutputFormat | undefined;
+  public output = Option.String('-o,--output');
   public lockfile = Option.String('--lockfile');
   public target = Option.String('--target');
   public dryRun = Option.Boolean('--dry-run', false);

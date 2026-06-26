@@ -109,7 +109,7 @@ export const createTargetListCommand = (
  */
 export class TargetListCommand extends Command {
   public static readonly paths = [['target', 'list']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'List configured install targets (vscode, copilot-cli, kiro, …).',
     category: 'Install & Manage',

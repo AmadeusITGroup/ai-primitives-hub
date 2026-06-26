@@ -18,21 +18,20 @@
 // bounded usage is the single createWriteStream call inside
 // createDeterministicZip; the natural moment to add Context.fs.createWriteStream
 // is when install downloads are added.
-// eslint-disable-next-line local/no-framework-imports -- bounded fs ops for archiver: createWriteStream, existsSync, unlinkSync
 import {
   createWriteStream,
   existsSync,
   unlinkSync,
 } from 'node:fs';
 import * as path from 'node:path';
-import archiver from 'archiver';
+import {
+  readCollection,
+} from '@prompt-registry/app';
 import {
   generateBundleId,
   normalizeRepoRelativePath,
 } from '@prompt-registry/core';
-import {
-  readCollection,
-} from '@prompt-registry/app';
+import archiver from 'archiver';
 import {
   resolveCollectionItemPaths,
 } from '../collections';
@@ -104,7 +103,7 @@ abstract class BaseBundleBuildCommand extends Command {
  */
 export class BundleBuildCommand extends BaseBundleBuildCommand {
   public static readonly paths = [['bundle', 'build']];
-  // eslint-disable-next-line new-cap -- Command.Usage is a static method, not a constructor
+
   public static readonly usage = Command.Usage({
     description: 'Generate a deployment manifest and zip collection items into a bundle.',
     category: 'Build & Author',
@@ -136,7 +135,7 @@ export class BundleBuildCommand extends BaseBundleBuildCommand {
       const cwd = ctx.cwd();
       const repoSlug = (this.repoSlug
         ?? (ctx.env.GITHUB_REPOSITORY ?? '').replaceAll('/', '-'))
-        || path.basename(cwd);
+      || path.basename(cwd);
       // Resolve outDir against ctx.cwd() so the command honors
       // injected working directories (Context invariant). Legacy
       // script relied on process.cwd() implicitly.
@@ -265,7 +264,7 @@ const createBundleBuildCommandDefinition = (
   }
   copyCommandPrototype(BundleBuildCommand, ConfiguredCommand);
 
-  return ConfiguredCommand as unknown as typeof BundleBuildCommand;
+  return ConfiguredCommand;
 };
 
 /**
@@ -306,7 +305,7 @@ export const createBundleBuildCommand = (
         const cwd = ctx.cwd();
         const repoSlug = (opts.repoSlug
           ?? (ctx.env.GITHUB_REPOSITORY ?? '').replaceAll('/', '-'))
-          || path.basename(cwd);
+        || path.basename(cwd);
         // Resolve outDir against ctx.cwd() so the command honors
         // injected working directories (Context invariant). Legacy
         // script relied on process.cwd() implicitly.
