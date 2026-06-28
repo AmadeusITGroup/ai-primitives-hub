@@ -1,15 +1,138 @@
 /* Bundle Details View Styles */
+/* Amadeus Design Factory — Font faces */
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/light/AmadeusNeueWeb-Light.woff2') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/regular/AmadeusNeueWeb-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/regular/AmadeusNeueWeb-RegularItalic.woff2') format('woff2');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/medium/AmadeusNeueWeb-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/bold/AmadeusNeueWeb-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* Amadeus Design Factory color tokens — light theme (default) */
+:root {
+    --df-color-primary: #0c66e1;
+    --df-color-primary-hover: #0a2f62;
+    --df-color-primary-foreground: #ffffff;
+    --df-color-primary-soft-bg: #c5d5f9;
+    --df-color-primary-subtle-bg: #ebf3ff;
+    --df-color-danger: #df3127;
+    --df-color-danger-hover: #861d17;
+    --df-color-danger-foreground: #ffffff;
+    --df-color-success: #3a862e;
+    --df-color-success-foreground: #ffffff;
+    --df-color-success-subtle-bg: #f0ffec;
+    --df-color-warning: #fa6400;
+    --df-color-page-bg: #ffffff;
+    --df-color-surface-bg: #ffffff;
+    --df-color-surface-subtle-bg: #fafafa;
+    --df-color-foreground: #1a1a1a;
+    --df-color-foreground-muted: #666666;
+    --df-color-border: #cccccc;
+    --df-color-input-bg: #ffffff;
+    --df-color-input-border: #cccccc;
+    --df-color-input-foreground: #1a1a1a;
+    --df-color-dropdown-bg: #ffffff;
+    --df-color-dropdown-border: #cccccc;
+    --df-color-dropdown-foreground: #1a1a1a;
+    --df-color-hover-bg: #f2f2f2;
+    --df-color-active-bg: #e6e6e6;
+    --df-color-badge-bg: #e6e6e6;
+    --df-color-badge-fg: #333333;
+    --df-color-disabled-fg: #b3b3b3;
+    --df-color-disabled-bg: #e6e6e6;
+    --df-color-shadow: rgba(128, 128, 128, 0.25);
+    --df-color-focus: #0c66e1;
+    --df-color-code-bg: #f2f2f2;
+    --df-radius-sm: 0.25rem;
+    --df-radius-md: 0.375rem;
+    --df-radius-lg: 0.5rem;
+    --df-radius-pill: 6.25rem;
+}
+
+/* Amadeus Design Factory color tokens — dark theme */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --df-color-primary: #3a8bff;
+        --df-color-primary-hover: #9fc7ff;
+        --df-color-primary-foreground: #1a1a1a;
+        --df-color-primary-soft-bg: #0a2f62;
+        --df-color-primary-subtle-bg: #000521;
+        --df-color-danger: #ff514d;
+        --df-color-danger-hover: #ff9794;
+        --df-color-danger-foreground: #1a1a1a;
+        --df-color-success: #92ff73;
+        --df-color-success-foreground: #1a1a1a;
+        --df-color-success-subtle-bg: #0f190b;
+        --df-color-warning: #ff7920;
+        --df-color-page-bg: #1a1a1a;
+        --df-color-surface-bg: #333333;
+        --df-color-surface-subtle-bg: #666666;
+        --df-color-foreground: #fafafa;
+        --df-color-foreground-muted: #999999;
+        --df-color-border: #808080;
+        --df-color-input-bg: #333333;
+        --df-color-input-border: #808080;
+        --df-color-input-foreground: #fafafa;
+        --df-color-dropdown-bg: #333333;
+        --df-color-dropdown-border: #808080;
+        --df-color-dropdown-foreground: #fafafa;
+        --df-color-hover-bg: #666666;
+        --df-color-active-bg: #808080;
+        --df-color-badge-bg: #666666;
+        --df-color-badge-fg: #fafafa;
+        --df-color-disabled-fg: #999999;
+        --df-color-disabled-bg: #666666;
+        --df-color-shadow: rgba(102, 102, 102, 0.25);
+        --df-color-focus: #3a8bff;
+        --df-color-code-bg: #666666;
+    }
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: inherit;
+}
 
 body {
-    font-family: var(--vscode-font-family);
-    color: var(--vscode-foreground);
-    background-color: var(--vscode-editor-background);
+    font-family: 'Amadeus Neue Web', var(--vscode-font-family), sans-serif;
+    color: var(--df-color-foreground);
+    background-color: var(--df-color-page-bg);
     padding: 20px;
     line-height: 1.6;
 }
 
 .header {
-    border-bottom: 1px solid var(--vscode-panel-border);
+    border-bottom: 1px solid var(--df-color-border);
     padding-bottom: 20px;
     margin-bottom: 24px;
 }
@@ -20,16 +143,16 @@ h1 {
 }
 
 .meta {
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
     font-size: 14px;
 }
 
 .badge {
     display: inline-block;
-    background: var(--vscode-gitDecoration-addedResourceForeground);
-    color: white;
+    background: var(--df-color-success);
+    color: var(--df-color-success-foreground);
     padding: 4px 12px;
-    border-radius: 12px;
+    border-radius: var(--df-radius-pill);
     font-size: 12px;
     font-weight: 600;
     margin-left: 12px;
@@ -40,9 +163,9 @@ h1 {
     align-items: center;
     gap: 12px;
     padding: 12px 16px;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 6px;
+    background: var(--df-color-input-bg);
+    border: 1px solid var(--df-color-input-border);
+    border-radius: var(--df-radius-md);
     margin-bottom: 16px;
 }
 
@@ -54,7 +177,7 @@ h1 {
 
 .auto-update-description {
     font-size: 12px;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
     margin-top: 4px;
 }
 
@@ -62,16 +185,16 @@ h1 {
     position: relative;
     width: 44px;
     height: 24px;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
+    background: var(--df-color-input-bg);
+    border: 1px solid var(--df-color-input-border);
     border-radius: 12px;
     cursor: pointer;
     transition: background 0.2s;
 }
 
 .toggle-switch.enabled {
-    background: var(--vscode-button-background);
-    border-color: var(--vscode-button-background);
+    background: var(--df-color-primary);
+    border-color: var(--df-color-primary);
 }
 
 .toggle-slider {
@@ -96,7 +219,7 @@ h1 {
 .section h2 {
     font-size: 20px;
     margin-bottom: 12px;
-    border-bottom: 1px solid var(--vscode-panel-border);
+    border-bottom: 1px solid var(--df-color-border);
     padding-bottom: 8px;
 }
 
@@ -108,9 +231,9 @@ h1 {
 }
 
 .breakdown-item {
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 8px;
+    background: var(--df-color-input-bg);
+    border: 1px solid var(--df-color-input-border);
+    border-radius: var(--df-radius-lg);
     padding: 16px;
     text-align: center;
 }
@@ -128,7 +251,7 @@ h1 {
 
 .breakdown-label {
     font-size: 13px;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
 }
 
 .tags {
@@ -139,10 +262,10 @@ h1 {
 }
 
 .tag {
-    background: var(--vscode-badge-background);
-    color: var(--vscode-badge-foreground);
+    background: var(--df-color-badge-bg);
+    color: var(--df-color-badge-fg);
     padding: 4px 12px;
-    border-radius: 12px;
+    border-radius: var(--df-radius-pill);
     font-size: 12px;
 }
 
@@ -160,15 +283,15 @@ h1 {
 
 .info-label {
     font-weight: 600;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
 }
 
 .info-value {
-    color: var(--vscode-foreground);
+    color: var(--df-color-foreground);
 }
 
 code {
-    background: var(--vscode-textCodeBlock-background);
+    background: var(--df-color-code-bg);
     padding: 2px 6px;
     border-radius: 3px;
     font-family: var(--vscode-editor-font-family);
@@ -176,14 +299,14 @@ code {
 }
 
 .prompt-item:hover {
-    background: var(--vscode-list-hoverBackground);
+    background: var(--df-color-hover-bg);
     border-radius: 4px;
 }
 
 .mcp-server-card {
-    background: var(--vscode-editor-background);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 6px;
+    background: var(--df-color-surface-bg);
+    border: 1px solid var(--df-color-border);
+    border-radius: var(--df-radius-md);
     padding: 12px;
     margin-bottom: 12px;
 }
@@ -198,9 +321,9 @@ code {
 }
 
 .mcp-server-command {
-    background: var(--vscode-textCodeBlock-background);
+    background: var(--df-color-code-bg);
     padding: 8px 12px;
-    border-radius: 4px;
+    border-radius: var(--df-radius-sm);
     font-family: var(--vscode-editor-font-family);
     font-size: 12px;
     margin-bottom: 8px;
@@ -214,24 +337,24 @@ code {
 
 .mcp-env-var {
     font-size: 12px;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
     margin: 4px 0;
 }
 
 .mcp-status-badge {
     display: inline-block;
     padding: 2px 8px;
-    border-radius: 12px;
+    border-radius: var(--df-radius-pill);
     font-size: 11px;
     font-weight: 500;
 }
 
 .mcp-status-enabled {
-    background: var(--vscode-testing-iconPassed);
-    color: var(--vscode-editor-background);
+    background: var(--df-color-success);
+    color: var(--df-color-success-foreground);
 }
 
 .mcp-status-disabled {
-    background: var(--vscode-descriptionForeground);
-    color: var(--vscode-editor-background);
+    background: var(--df-color-foreground-muted);
+    color: var(--df-color-page-bg);
 }

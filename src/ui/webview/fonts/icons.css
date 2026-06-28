@@ -1,0 +1,202 @@
+/* Amadeus Design Factory — Font Awesome icon font faces */
+@font-face {
+    font-family: 'Font Awesome 6 Pro';
+    src: url('font-awesome/fa-light-300.woff2') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: block;
+}
+@font-face {
+    font-family: 'Font Awesome 6 Pro';
+    src: url('font-awesome/fa-solid-900.woff2') format('woff2');
+    font-weight: 900;
+    font-style: normal;
+    font-display: block;
+}
+
+/* Font Awesome icon base */
+.fa-icon,
+[class^='fa-'],
+[class*=' fa-'] {
+    font-family: 'Font Awesome 6 Pro', sans-serif;
+    font-weight: 300;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.fa-icon.fa-solid {
+    font-weight: 900;
+}
+
+/* ─── Icon content definitions ─── */
+
+/* Actions — primary operations */
+.fa-download::before { content: '\f019'; }
+.fa-trash::before { content: '\f1f8'; }
+.fa-trash-can::before { content: '\f2ed'; }
+.fa-pen-to-square::before { content: '\f044'; }
+.fa-arrows-rotate::before { content: '\f021'; }
+.fa-arrow-rotate-right::before { content: '\f01e'; }
+.fa-arrow-rotate-left::before { content: '\f0e2'; }
+.fa-magnifying-glass::before { content: '\f002'; }
+.fa-magnifying-glass-plus::before { content: '\f00e'; }
+.fa-magnifying-glass-arrows-rotate::before { content: '\e65e'; }
+.fa-square-plus::before { content: '\f0fe'; }
+.fa-circle-plus::before { content: '\f055'; }
+.fa-plus::before { content: '\2b'; }
+.fa-circle-check::before { content: '\f058'; }
+.fa-check::before { content: '\f00c'; }
+.fa-check-double::before { content: '\f560'; }
+.fa-badge-check::before { content: '\f336'; }
+.fa-arrow-up::before { content: '\f062'; }
+.fa-up-right-from-square::before { content: '\f35d'; }
+.fa-external-link::before { content: '\f08e'; }
+.fa-eye::before { content: '\f06e'; }
+.fa-pen::before { content: '\f304'; }
+.fa-pen-nib::before { content: '\f5ad'; }
+.fa-copy::before { content: '\f0c5'; }
+.fa-clone::before { content: '\f24d'; }
+.fa-share-from-square::before { content: '\f14d'; }
+.fa-share-nodes::before { content: '\f1e0'; }
+.fa-file-export::before { content: '\f56e'; }
+.fa-file-import::before { content: '\f56f'; }
+.fa-play::before { content: '\f04b'; }
+.fa-stop::before { content: '\f04d'; }
+.fa-pause::before { content: '\f04c'; }
+.fa-power-off::before { content: '\f011'; }
+.fa-toggle-off::before { content: '\f204'; }
+.fa-toggle-on::before { content: '\f205'; }
+.fa-ban::before { content: '\f05e'; }
+.fa-forward::before { content: '\f04e'; }
+.fa-bookmark::before { content: '\f02e'; }
+.fa-star::before { content: '\f005'; }
+.fa-user-plus::before { content: '\f234'; }
+.fa-user-xmark::before { content: '\f235'; }
+.fa-user-check::before { content: '\f4f3'; }
+.fa-user-pen::before { content: '\f4ff'; }
+.fa-user-gear::before { content: '\f4fe'; }
+.fa-user-robot::before { content: '\e3b8'; }
+
+/* Content types — what bundles contain */
+.fa-file::before { content: '\f15b'; }
+.fa-file-lines::before { content: '\f15c'; }
+.fa-file-code::before { content: '\f1c9'; }
+.fa-list::before { content: '\f03a'; }
+.fa-list-check::before { content: '\f0ae'; }
+.fa-list-tree::before { content: '\e1d2'; }
+.fa-clipboard-list::before { content: '\f46d'; }
+.fa-rectangle-list::before { content: '\f022'; }
+.fa-robot::before { content: '\f544'; }
+.fa-message-bot::before { content: '\e3b8'; }
+.fa-plug::before { content: '\f1e6'; }
+.fa-plug-circle-plus::before { content: '\e55f'; }
+.fa-plug-circle-check::before { content: '\e55c'; }
+.fa-microchip::before { content: '\f2db'; }
+.fa-microchip-ai::before { content: '\e1ec'; }
+.fa-puzzle-piece::before { content: '\f12e'; }
+.fa-puzzle-piece-simple::before { content: '\e231'; }
+.fa-code::before { content: '\f121'; }
+.fa-terminal::before { content: '\f120'; }
+.fa-rectangle-terminal::before { content: '\e236'; }
+.fa-rectangle-code::before { content: '\e322'; }
+.fa-brackets-curly::before { content: '\f7ea'; }
+.fa-cube::before { content: '\f1b2'; }
+.fa-cubes::before { content: '\f1b3'; }
+.fa-cubes-stacked::before { content: '\e4e6'; }
+.fa-box::before { content: '\f466'; }
+.fa-box-open::before { content: '\f49e'; }
+.fa-box-archive::before { content: '\f187'; }
+.fa-layer-group::before { content: '\f5fd'; }
+.fa-layer-group-plus::before { content: '\f5ff'; }
+.fa-folder::before { content: '\f07b'; }
+.fa-folder-open::before { content: '\f07c'; }
+.fa-folder-tree::before { content: '\f802'; }
+.fa-folder-plus::before { content: '\f65e'; }
+.fa-tag::before { content: '\f02b'; }
+.fa-tags::before { content: '\f02c'; }
+.fa-filter::before { content: '\f0b0'; }
+.fa-sliders::before { content: '\f1de'; }
+.fa-gear::before { content: '\f013'; }
+.fa-gears::before { content: '\f085'; }
+.fa-gear-code::before { content: '\e5e8'; }
+.fa-gear-complex::before { content: '\e5e9'; }
+.fa-cog::before { content: '\f013'; }
+.fa-screwdriver-wrench::before { content: '\f7d9'; }
+.fa-hammer::before { content: '\f6e3'; }
+.fa-wrench::before { content: '\f0ad'; }
+.fa-screwdriver::before { content: '\f54a'; }
+.fa-tools::before { content: '\f7d9'; }
+.fa-lightbulb::before { content: '\f0eb'; }
+.fa-lightbulb-gear::before { content: '\e5fd'; }
+.fa-lightbulb-on::before { content: '\f672'; }
+.fa-wand-magic-sparkles::before { content: '\e2ca'; }
+.fa-sparkles::before { content: '\f890'; }
+.fa-rocket::before { content: '\f135'; }
+.fa-rocket-launch::before { content: '\e027'; }
+
+/* Navigation / sections */
+.fa-globe::before { content: '\f0ac'; }
+.fa-tower-broadcast::before { content: '\f519'; }
+.fa-tower-cell::before { content: '\f5a1'; }
+.fa-satellite-dish::before { content: '\f7c0'; }
+.fa-satellite::before { content: '\f7bf'; }
+.fa-network-wired::before { content: '\f6ff'; }
+.fa-sitemap::before { content: '\f0e8'; }
+.fa-house::before { content: '\f015'; }
+.fa-home::before { content: '\f015'; }
+.fa-server::before { content: '\f233'; }
+.fa-database::before { content: '\f1c0'; }
+.fa-cloud::before { content: '\f0c2'; }
+.fa-cloud-arrow-down::before { content: '\f0ed'; }
+.fa-cloud-arrow-up::before { content: '\f0ee'; }
+.fa-link::before { content: '\f0c1'; }
+.fa-link-simple::before { content: '\e1cd'; }
+.fa-chain::before { content: '\f0c1'; }
+.fa-user::before { content: '\f007'; }
+.fa-users::before { content: '\f0c0'; }
+.fa-user-group::before { content: '\f500'; }
+.fa-key::before { content: '\f084'; }
+.fa-clock::before { content: '\f017'; }
+.fa-clock-rotate-left::before { content: '\f1da'; }
+.fa-history::before { content: '\f1da'; }
+.fa-fire::before { content: '\f06d'; }
+.fa-fire-flame-curved::before { content: '\f7e4'; }
+.fa-bolt::before { content: '\f0e7'; }
+.fa-shield::before { content: '\f132'; }
+.fa-shield-check::before { content: '\f2f7'; }
+.fa-shield-halved::before { content: '\f3ed'; }
+.fa-bell::before { content: '\f0f3'; }
+.fa-compass::before { content: '\f14e'; }
+.fa-route::before { content: '\f4d7'; }
+.fa-map::before { content: '\f279'; }
+.fa-flag::before { content: '\f024'; }
+.fa-thumbtack::before { content: '\f08d'; }
+
+/* Status indicators */
+.fa-circle-info::before { content: '\f05a'; }
+.fa-circle-question::before { content: '\f059'; }
+.fa-circle-exclamation::before { content: '\f06a'; }
+.fa-triangle-exclamation::before { content: '\f071'; }
+.fa-warning::before { content: '\f071'; }
+.fa-circle::before { content: '\f111'; }
+.fa-circle-dot::before { content: '\f192'; }
+.fa-circle-notch::before { content: '\f1ce'; }
+.fa-spinner::before { content: '\f110'; }
+.fa-gauge::before { content: '\f624'; }
+.fa-gauge-high::before { content: '\f625'; }
+.fa-chart-line::before { content: '\f201'; }
+.fa-chart-bar::before { content: '\f080'; }
+.fa-signal::before { content: '\f012'; }
+.fa-signal-stream::before { content: '\f8dd'; }
+.fa-rss::before { content: '\f09e'; }
+.fa-podcast::before { content: '\f2ce'; }
+.fa-stream::before { content: '\f550'; }
+
+/* Code / Git */
+.fa-code-branch::before { content: '\f126'; }
+.fa-code-merge::before { content: '\f387'; }
+.fa-code-pull-request::before { content: '\e13c'; }

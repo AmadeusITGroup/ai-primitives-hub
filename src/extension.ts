@@ -115,8 +115,8 @@ import {
   MarketplaceViewProvider,
 } from './ui/marketplace-view-provider';
 import {
-  RegistryTreeProvider,
-} from './ui/registry-tree-provider';
+  RegistryExplorerViewProvider,
+} from './ui/registry-explorer-view-provider';
 import {
   StatusBar,
 } from './ui/status-bar';
@@ -145,7 +145,7 @@ export class PromptRegistryExtension {
   private readonly statusBar: StatusBar;
   private readonly notifications: ExtensionNotifications;
   private readonly registryManager: RegistryManager;
-  private treeProvider: RegistryTreeProvider | undefined;
+  private explorerProvider: RegistryExplorerViewProvider | undefined;
   private marketplaceProvider: MarketplaceViewProvider | undefined;
   private profileCommands: ProfileCommands | undefined;
   private sourceCommands: SourceCommands | undefined;
@@ -479,45 +479,50 @@ export class PromptRegistryExtension {
   }
 
   /**
-   * Register TreeView for Registry Explorer
+   * Register Webview-based Registry Explorer
    */
   private async registerTreeView(): Promise<void> {
-    this.logger.info('Registering Registry Explorer TreeView...');
+    this.logger.info('Registering Registry Explorer Webview...');
 
-    // Create tree provider
-    this.treeProvider = new RegistryTreeProvider(this.registryManager, this.hubManager!);
+    // Create explorer webview provider
+    this.explorerProvider = new RegistryExplorerViewProvider(
+      this.context,
+      this.registryManager,
+      this.hubManager!
+    );
 
     // Initialize favorites view context (starts in 'all' mode)
     vscode.commands.executeCommand('setContext', 'promptRegistry.favoritesViewActive', false);
 
-    // Register tree view
-    const treeView = vscode.window.createTreeView('promptRegistryExplorer', {
-      treeDataProvider: this.treeProvider,
-      showCollapseAll: true
-    });
-
-    this.disposables.push(treeView);
+    // Register webview view provider
+    this.context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(
+        RegistryExplorerViewProvider.viewType,
+        this.explorerProvider,
+        { webviewOptions: { retainContextWhenHidden: true } }
+      )
+    );
 
     // Register tree view commands
     const treeCommands = [
       vscode.commands.registerCommand('promptRegistry.refresh', () => {
-        this.treeProvider?.refresh();
+        this.explorerProvider?.refresh();
       }),
       vscode.commands.registerCommand('promptRegistry.toggleProfileView', () => {
-        this.treeProvider?.toggleViewMode();
+        this.explorerProvider?.toggleViewMode();
       }),
       vscode.commands.registerCommand('promptRegistry.showFavoritesView', () => {
-        this.treeProvider?.toggleViewMode();
+        this.explorerProvider?.toggleViewMode();
       }),
       vscode.commands.registerCommand('promptRegistry.hideFavoritesView', () => {
-        this.treeProvider?.toggleViewMode();
+        this.explorerProvider?.toggleViewMode();
       })
     ];
 
     this.disposables.push(...treeCommands);
     this.context.subscriptions.push(...treeCommands);
 
-    this.logger.info('Registry Explorer TreeView registered successfully');
+    this.logger.info('Registry Explorer Webview registered successfully');
   }
 
   /**
@@ -624,10 +629,10 @@ export class PromptRegistryExtension {
         this.autoUpdateService
       );
 
-      // Wire up update detection to tree provider
-      if (this.treeProvider) {
+      // Wire up update detection to explorer provider
+      if (this.explorerProvider) {
         this.updateScheduler.onUpdatesDetected((updates) => {
-          this.treeProvider?.onUpdatesDetected(updates);
+          this.explorerProvider?.onUpdatesDetected(updates);
         });
       }
 

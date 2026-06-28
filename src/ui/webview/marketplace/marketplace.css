@@ -1,16 +1,131 @@
 /* Marketplace View Styles */
+/* Amadeus Design Factory — Font faces */
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/light/AmadeusNeueWeb-Light.woff2') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/regular/AmadeusNeueWeb-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/regular/AmadeusNeueWeb-RegularItalic.woff2') format('woff2');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/medium/AmadeusNeueWeb-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/bold/AmadeusNeueWeb-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* Amadeus Design Factory color tokens — light theme (default) */
+:root {
+    --df-color-primary: #0c66e1;
+    --df-color-primary-hover: #0a2f62;
+    --df-color-primary-foreground: #ffffff;
+    --df-color-primary-soft-bg: #c5d5f9;
+    --df-color-primary-subtle-bg: #ebf3ff;
+    --df-color-danger: #df3127;
+    --df-color-danger-hover: #861d17;
+    --df-color-danger-foreground: #ffffff;
+    --df-color-success: #3a862e;
+    --df-color-success-foreground: #ffffff;
+    --df-color-success-subtle-bg: #f0ffec;
+    --df-color-warning: #fa6400;
+    --df-color-page-bg: #ffffff;
+    --df-color-surface-bg: #ffffff;
+    --df-color-surface-subtle-bg: #fafafa;
+    --df-color-foreground: #1a1a1a;
+    --df-color-foreground-muted: #666666;
+    --df-color-border: #cccccc;
+    --df-color-input-bg: #ffffff;
+    --df-color-input-border: #cccccc;
+    --df-color-input-foreground: #1a1a1a;
+    --df-color-dropdown-bg: #ffffff;
+    --df-color-dropdown-border: #cccccc;
+    --df-color-dropdown-foreground: #1a1a1a;
+    --df-color-hover-bg: #f2f2f2;
+    --df-color-active-bg: #e6e6e6;
+    --df-color-badge-bg: #e6e6e6;
+    --df-color-badge-fg: #333333;
+    --df-color-disabled-fg: #b3b3b3;
+    --df-color-disabled-bg: #e6e6e6;
+    --df-color-shadow: rgba(128, 128, 128, 0.25);
+    --df-color-focus: #0c66e1;
+    --df-radius-sm: 0.25rem;
+    --df-radius-md: 0.375rem;
+    --df-radius-lg: 0.5rem;
+    --df-radius-pill: 6.25rem;
+}
+
+/* Amadeus Design Factory color tokens — dark theme */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --df-color-primary: #3a8bff;
+        --df-color-primary-hover: #9fc7ff;
+        --df-color-primary-foreground: #1a1a1a;
+        --df-color-primary-soft-bg: #0a2f62;
+        --df-color-primary-subtle-bg: #000521;
+        --df-color-danger: #ff514d;
+        --df-color-danger-hover: #ff9794;
+        --df-color-danger-foreground: #1a1a1a;
+        --df-color-success: #92ff73;
+        --df-color-success-foreground: #1a1a1a;
+        --df-color-success-subtle-bg: #0f190b;
+        --df-color-warning: #ff7920;
+        --df-color-page-bg: #1a1a1a;
+        --df-color-surface-bg: #333333;
+        --df-color-surface-subtle-bg: #666666;
+        --df-color-foreground: #fafafa;
+        --df-color-foreground-muted: #999999;
+        --df-color-border: #808080;
+        --df-color-input-bg: #333333;
+        --df-color-input-border: #808080;
+        --df-color-input-foreground: #fafafa;
+        --df-color-dropdown-bg: #333333;
+        --df-color-dropdown-border: #808080;
+        --df-color-dropdown-foreground: #fafafa;
+        --df-color-hover-bg: #666666;
+        --df-color-active-bg: #808080;
+        --df-color-badge-bg: #666666;
+        --df-color-badge-fg: #fafafa;
+        --df-color-disabled-fg: #999999;
+        --df-color-disabled-bg: #666666;
+        --df-color-shadow: rgba(102, 102, 102, 0.25);
+        --df-color-focus: #3a8bff;
+    }
+}
 
 * {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    font-family: inherit;
 }
 
 body {
-    font-family: var(--vscode-font-family);
+    font-family: 'Amadeus Neue Web', var(--vscode-font-family), sans-serif;
     font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground);
-    background-color: var(--vscode-editor-background);
+    color: var(--df-color-foreground);
+    background-color: var(--df-color-page-bg);
     padding: 20px;
 }
 
@@ -25,65 +140,77 @@ body {
 }
 
 .header p {
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
     font-size: 14px;
 }
 
 .controls {
     display: flex;
     gap: 8px;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
     align-items: center;
 }
 
 .search-box {
-    flex: 1;
-    min-width: 180px;
-    max-width: 300px;
+    flex: 1 1 200px;
     padding: 6px 10px;
-    background: var(--vscode-input-background);
-    color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 3px;
+    background: var(--df-color-input-bg);
+    color: var(--df-color-input-foreground);
+    border: 1px solid var(--df-color-input-border);
+    border-radius: var(--df-radius-sm);
     font-size: 13px;
     height: 28px;
 }
 
 .search-box:focus {
-    outline: 1px solid var(--vscode-focusBorder);
+    outline: 2px solid var(--df-color-focus);
     outline-offset: -1px;
 }
 
-.filter-group {
+.result-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    min-height: 20px;
 }
 
-.filter-label {
+.result-count {
     font-size: 12px;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
     white-space: nowrap;
-    font-weight: 500;
 }
 
-.filter-select {
-    padding: 4px 8px;
-    background: var(--vscode-dropdown-background);
-    color: var(--vscode-dropdown-foreground);
-    border: 1px solid var(--vscode-dropdown-border);
-    border-radius: 3px;
-    font-size: 12px;
+.filter-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--df-color-primary-subtle-bg);
+    color: var(--df-color-primary);
+    padding: 2px 8px;
+    border-radius: var(--df-radius-pill);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.filter-chip-remove {
     cursor: pointer;
-    min-width: 120px;
-    max-width: 160px;
-    height: 28px;
+    opacity: 0.7;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 0 0 2px;
 }
 
-.filter-select:focus {
-    outline: 1px solid var(--vscode-focusBorder);
-    outline-offset: -1px;
+.filter-chip-remove:hover {
+    opacity: 1;
 }
 
 /* Custom Tag Selector */
@@ -94,10 +221,10 @@ body {
 
 .tag-selector-btn {
     padding: 4px 8px;
-    background: var(--vscode-dropdown-background);
-    color: var(--vscode-dropdown-foreground);
-    border: 1px solid var(--vscode-dropdown-border);
-    border-radius: 3px;
+    background: var(--df-color-dropdown-bg);
+    color: var(--df-color-dropdown-foreground);
+    border: 1px solid var(--df-color-dropdown-border);
+    border-radius: var(--df-radius-sm);
     font-size: 12px;
     cursor: pointer;
     min-width: 120px;
@@ -112,18 +239,18 @@ body {
 }
 
 .tag-selector-btn:hover {
-    background: var(--vscode-dropdown-listBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .tag-selector-btn:focus {
-    outline: 1px solid var(--vscode-focusBorder);
+    outline: 2px solid var(--df-color-focus);
     outline-offset: -1px;
 }
 
 .dropdown-arrow {
     margin-left: 8px;
     font-size: 10px;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
 }
 
 .tag-dropdown {
@@ -131,10 +258,10 @@ body {
     top: 100%;
     left: 0;
     margin-top: 4px;
-    background: var(--vscode-dropdown-background);
-    border: 1px solid var(--vscode-dropdown-border);
-    border-radius: 3px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    background: var(--df-color-dropdown-bg);
+    border: 1px solid var(--df-color-dropdown-border);
+    border-radius: var(--df-radius-sm);
+    box-shadow: 0 2px 8px var(--df-color-shadow);
     z-index: 1000;
     min-width: 220px;
     max-width: 300px;
@@ -142,22 +269,22 @@ body {
 
 .tag-search-container {
     padding: 8px;
-    border-bottom: 1px solid var(--vscode-dropdown-border);
+    border-bottom: 1px solid var(--df-color-dropdown-border);
 }
 
 .tag-search {
     width: 100%;
     padding: 4px 8px;
-    background: var(--vscode-input-background);
-    color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 3px;
+    background: var(--df-color-input-bg);
+    color: var(--df-color-input-foreground);
+    border: 1px solid var(--df-color-input-border);
+    border-radius: var(--df-radius-sm);
     font-size: 12px;
     box-sizing: border-box;
 }
 
 .tag-search:focus {
-    outline: 1px solid var(--vscode-focusBorder);
+    outline: 2px solid var(--df-color-focus);
     outline-offset: -1px;
 }
 
@@ -177,7 +304,7 @@ body {
 }
 
 .tag-item:hover {
-    background: var(--vscode-list-hoverBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .tag-item input[type="checkbox"] {
@@ -197,10 +324,10 @@ body {
 
 .source-selector-btn {
     padding: 4px 8px;
-    background: var(--vscode-dropdown-background);
-    color: var(--vscode-dropdown-foreground);
-    border: 1px solid var(--vscode-dropdown-border);
-    border-radius: 3px;
+    background: var(--df-color-dropdown-bg);
+    color: var(--df-color-dropdown-foreground);
+    border: 1px solid var(--df-color-dropdown-border);
+    border-radius: var(--df-radius-sm);
     font-size: 12px;
     cursor: pointer;
     min-width: 140px;
@@ -215,11 +342,11 @@ body {
 }
 
 .source-selector-btn:hover {
-    background: var(--vscode-dropdown-listBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .source-selector-btn:focus {
-    outline: 1px solid var(--vscode-focusBorder);
+    outline: 2px solid var(--df-color-focus);
     outline-offset: -1px;
 }
 
@@ -228,10 +355,10 @@ body {
     top: 100%;
     left: 0;
     margin-top: 4px;
-    background: var(--vscode-dropdown-background);
-    border: 1px solid var(--vscode-dropdown-border);
-    border-radius: 3px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    background: var(--df-color-dropdown-bg);
+    border: 1px solid var(--df-color-dropdown-border);
+    border-radius: var(--df-radius-sm);
+    box-shadow: 0 2px 8px var(--df-color-shadow);
     z-index: 1000;
     min-width: 240px;
     max-width: 320px;
@@ -239,22 +366,22 @@ body {
 
 .source-search-container {
     padding: 8px;
-    border-bottom: 1px solid var(--vscode-dropdown-border);
+    border-bottom: 1px solid var(--df-color-dropdown-border);
 }
 
 .source-search {
     width: 100%;
     padding: 4px 8px;
-    background: var(--vscode-input-background);
-    color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 3px;
+    background: var(--df-color-input-bg);
+    color: var(--df-color-input-foreground);
+    border: 1px solid var(--df-color-input-border);
+    border-radius: var(--df-radius-sm);
     font-size: 12px;
     box-sizing: border-box;
 }
 
 .source-search:focus {
-    outline: 1px solid var(--vscode-focusBorder);
+    outline: 2px solid var(--df-color-focus);
     outline-offset: -1px;
 }
 
@@ -274,7 +401,7 @@ body {
 }
 
 .source-item:hover {
-    background: var(--vscode-list-hoverBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .source-item input[type="radio"] {
@@ -287,8 +414,8 @@ body {
 }
 
 .source-item.active {
-    background: var(--vscode-list-activeSelectionBackground);
-    color: var(--vscode-list-activeSelectionForeground);
+    background: var(--df-color-primary-subtle-bg);
+    color: var(--df-color-primary);
 }
 
 /* Installed checkbox filter */
@@ -297,9 +424,9 @@ body {
     align-items: center;
     gap: 6px;
     padding: 4px 8px;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 3px;
+    background: var(--df-color-input-bg);
+    border: 1px solid var(--df-color-input-border);
+    border-radius: var(--df-radius-sm);
     cursor: pointer;
     user-select: none;
     height: 28px;
@@ -307,7 +434,7 @@ body {
 }
 
 .installed-filter:hover {
-    background: var(--vscode-list-hoverBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .installed-filter input[type="checkbox"] {
@@ -319,16 +446,16 @@ body {
 .installed-filter label {
     cursor: pointer;
     font-size: 12px;
-    color: var(--vscode-foreground);
+    color: var(--df-color-foreground);
     font-weight: 500;
 }
 
 .filter-btn {
     padding: 5px 12px;
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-    border: none;
-    border-radius: 3px;
+    background: var(--df-color-surface-subtle-bg);
+    color: var(--df-color-foreground);
+    border: 1px solid var(--df-color-border);
+    border-radius: var(--df-radius-sm);
     cursor: pointer;
     font-size: 12px;
     transition: background 0.15s;
@@ -337,7 +464,7 @@ body {
 }
 
 .filter-btn:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .filter-btn:active {
@@ -346,10 +473,10 @@ body {
 
 .refresh-btn {
     padding: 5px 12px;
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
+    background: var(--df-color-primary);
+    color: var(--df-color-primary-foreground);
     border: none;
-    border-radius: 3px;
+    border-radius: var(--df-radius-sm);
     cursor: pointer;
     font-size: 12px;
     height: 28px;
@@ -357,7 +484,7 @@ body {
 }
 
 .refresh-btn:hover {
-    background: var(--vscode-button-hoverBackground);
+    background: var(--df-color-primary-hover);
 }
 
 .marketplace-grid {
@@ -368,9 +495,9 @@ body {
 }
 
 .bundle-card {
-    background: var(--vscode-editor-background);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 8px;
+    background: var(--df-color-surface-bg);
+    border: 1px solid var(--df-color-border);
+    border-radius: var(--df-radius-lg);
     padding: 20px;
     cursor: pointer;
     transition: all 0.2s;
@@ -378,23 +505,23 @@ body {
 }
 
 .bundle-card:hover {
-    border-color: var(--vscode-focusBorder);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    transform: translateY(-2px);
+    border-color: var(--df-color-primary);
+    box-shadow: 0 2px 6px var(--df-color-shadow);
+    transform: translateY(-1px);
 }
 
 .bundle-card.installed {
-    border-color: var(--vscode-gitDecoration-addedResourceForeground);
+    border-color: var(--df-color-success);
 }
 
 .installed-badge {
     position: absolute;
     top: 12px;
     right: 12px;
-    background: var(--vscode-gitDecoration-addedResourceForeground);
-    color: white;
+    background: var(--df-color-success);
+    color: var(--df-color-success-foreground);
     padding: 4px 8px;
-    border-radius: 12px;
+    border-radius: var(--df-radius-pill);
     font-size: 11px;
     font-weight: 600;
 }
@@ -411,12 +538,12 @@ body {
 
 .bundle-author {
     font-size: 12px;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
 }
 
 .bundle-description {
     font-size: 14px;
-    color: var(--vscode-foreground);
+    color: var(--df-color-foreground);
     margin-bottom: 16px;
     line-height: 1.5;
     display: -webkit-box;
@@ -426,27 +553,28 @@ body {
 }
 
 .content-breakdown {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
     margin-bottom: 16px;
 }
 
 .content-item {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--vscode-descriptionForeground);
+    gap: 4px;
+    font-size: 12px;
+    color: var(--df-color-foreground-muted);
+    white-space: nowrap;
 }
 
 .content-icon {
-    font-size: 16px;
+    font-size: 14px;
 }
 
 .content-count {
     font-weight: 600;
-    color: var(--vscode-foreground);
+    color: var(--df-color-foreground);
 }
 
 .bundle-tags {
@@ -457,12 +585,17 @@ body {
 }
 
 .tag {
-    background: var(--vscode-badge-background);
-    color: var(--vscode-badge-foreground);
+    background: var(--df-color-badge-bg);
+    color: var(--df-color-badge-fg);
     padding: 4px 8px;
-    border-radius: 12px;
+    border-radius: var(--df-radius-pill);
     font-size: 11px;
     font-weight: 500;
+}
+
+.tag-more {
+    background: var(--df-color-primary-subtle-bg);
+    color: var(--df-color-primary);
 }
 
 .bundle-actions {
@@ -474,7 +607,7 @@ body {
     flex: 1;
     padding: 8px 16px;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--df-radius-sm);
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
@@ -482,26 +615,27 @@ body {
 }
 
 .btn-primary {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
+    background: var(--df-color-primary);
+    color: var(--df-color-primary-foreground);
 }
 
 .btn-primary:hover {
-    background: var(--vscode-button-hoverBackground);
+    background: var(--df-color-primary-hover);
 }
 
 .btn-secondary {
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
+    background: var(--df-color-surface-subtle-bg);
+    color: var(--df-color-foreground);
+    border: 1px solid var(--df-color-border);
 }
 
 .btn-secondary:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .btn-danger {
-    background: var(--vscode-errorForeground);
-    color: white;
+    background: var(--df-color-danger);
+    color: var(--df-color-danger-foreground);
 }
 
 .btn-danger:hover {
@@ -509,8 +643,9 @@ body {
 }
 
 .btn-link {
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
+    background: var(--df-color-surface-subtle-bg);
+    color: var(--df-color-foreground);
+    border: 1px solid var(--df-color-border);
     padding: 8px 10px;
     min-width: auto;
     display: flex;
@@ -519,7 +654,7 @@ body {
 }
 
 .btn-link:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .btn-link svg {
@@ -534,16 +669,16 @@ body {
 }
 
 .version-selector-group .btn {
-    border-radius: 4px 0 0 4px;
+    border-radius: var(--df-radius-sm) 0 0 var(--df-radius-sm);
 }
 
 .version-selector-arrow {
     padding: 8px 10px;
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
+    background: var(--df-color-primary);
+    color: var(--df-color-primary-foreground);
     border: none;
     border-left: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--df-radius-sm) var(--df-radius-sm) 0;
     cursor: pointer;
     font-size: 11px;
     transition: background 0.2s;
@@ -552,11 +687,11 @@ body {
 }
 
 .version-selector-arrow:hover {
-    background: var(--vscode-button-hoverBackground);
+    background: var(--df-color-primary-hover);
 }
 
 .version-selector-arrow.danger {
-    background: var(--vscode-errorForeground);
+    background: var(--df-color-danger);
     border-left: 1px solid rgba(255, 255, 255, 0.2);
 }
 
@@ -569,10 +704,10 @@ body {
     bottom: 100%;
     left: 0;
     margin-bottom: 4px;
-    background: var(--vscode-dropdown-background);
-    border: 1px solid var(--vscode-dropdown-border);
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    background: var(--df-color-dropdown-bg);
+    border: 1px solid var(--df-color-dropdown-border);
+    border-radius: var(--df-radius-sm);
+    box-shadow: 0 4px 12px var(--df-color-shadow);
     z-index: 1000;
     min-width: 220px;
     max-width: 300px;
@@ -587,10 +722,10 @@ body {
 
 .version-dropdown-header {
     padding: 8px 12px;
-    border-bottom: 1px solid var(--vscode-dropdown-border);
+    border-bottom: 1px solid var(--df-color-dropdown-border);
     font-size: 12px;
     font-weight: 600;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
 }
 
 .version-item {
@@ -604,35 +739,35 @@ body {
 }
 
 .version-item:hover {
-    background: var(--vscode-list-hoverBackground);
+    background: var(--df-color-hover-bg);
 }
 
 .version-item.current {
-    background: var(--vscode-list-activeSelectionBackground);
-    color: var(--vscode-list-activeSelectionForeground);
+    background: var(--df-color-primary-subtle-bg);
+    color: var(--df-color-primary);
 }
 
 .version-item.uninstall {
-    color: var(--vscode-errorForeground);
+    color: var(--df-color-danger);
     font-weight: 600;
-    border-bottom: 1px solid var(--vscode-dropdown-border);
+    border-bottom: 1px solid var(--df-color-dropdown-border);
 }
 
 .version-item.uninstall:hover {
-    background: var(--vscode-inputValidation-errorBackground);
+    background: var(--df-color-danger-subtle-bg, var(--df-color-danger));
 }
 
 .version-badge {
     font-size: 10px;
     padding: 2px 6px;
-    border-radius: 8px;
-    background: var(--vscode-badge-background);
-    color: var(--vscode-badge-foreground);
+    border-radius: var(--df-radius-pill);
+    background: var(--df-color-badge-bg);
+    color: var(--df-color-badge-fg);
 }
 
 .version-badge.latest {
-    background: var(--vscode-gitDecoration-addedResourceForeground);
-    color: white;
+    background: var(--df-color-success);
+    color: var(--df-color-success-foreground);
 }
 
 .empty-state {
@@ -645,7 +780,7 @@ body {
     padding: 60px 20px;
     box-sizing: border-box;
     max-width: 1100px;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
 }
 
 .empty-state-icon {
@@ -660,31 +795,31 @@ body {
 }
 
 .primary-button {
-    background-color: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
+    background-color: var(--df-color-primary);
+    color: var(--df-color-primary-foreground);
     border: none;
     padding: 8px 16px;
-    border-radius: 3px;
+    border-radius: var(--df-radius-sm);
     cursor: pointer;
     font-size: 13px;
     margin-top: 16px;
 }
 
 .primary-button:hover {
-    background-color: var(--vscode-button-hoverBackground);
+    background-color: var(--df-color-primary-hover);
 }
 
 .loading {
     text-align: center;
     padding: 40px;
-    color: var(--vscode-descriptionForeground);
+    color: var(--df-color-foreground-muted);
 }
 
 .spinner {
     display: inline-block;
     width: 24px;
     height: 24px;
-    border: 3px solid var(--vscode-descriptionForeground);
+    border: 3px solid var(--df-color-foreground-muted);
     border-top-color: transparent;
     border-radius: 50%;
     animation: spin 1s linear infinite;

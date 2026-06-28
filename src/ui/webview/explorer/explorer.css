@@ -1,0 +1,324 @@
+/* Registry Explorer View Styles */
+/* Amadeus Design Factory — Font faces */
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/light/AmadeusNeueWeb-Light.woff2') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/regular/AmadeusNeueWeb-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/regular/AmadeusNeueWeb-RegularItalic.woff2') format('woff2');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/medium/AmadeusNeueWeb-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/bold/AmadeusNeueWeb-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* Amadeus Design Factory color tokens — light theme (default) */
+:root {
+    --df-color-primary: #0c66e1;
+    --df-color-primary-hover: #0a2f62;
+    --df-color-primary-foreground: #ffffff;
+    --df-color-primary-subtle-bg: #ebf3ff;
+    --df-color-danger: #df3127;
+    --df-color-danger-foreground: #ffffff;
+    --df-color-success: #3a862e;
+    --df-color-success-foreground: #ffffff;
+    --df-color-warning: #fa6400;
+    --df-color-page-bg: #ffffff;
+    --df-color-surface-bg: #ffffff;
+    --df-color-surface-subtle-bg: #fafafa;
+    --df-color-foreground: #1a1a1a;
+    --df-color-foreground-muted: #666666;
+    --df-color-border: #cccccc;
+    --df-color-hover-bg: #f2f2f2;
+    --df-color-active-bg: #e6e6e6;
+    --df-color-badge-bg: #e6e6e6;
+    --df-color-badge-fg: #333333;
+    --df-color-shadow: rgba(128, 128, 128, 0.25);
+    --df-color-focus: #0c66e1;
+    --df-radius-sm: 0.25rem;
+    --df-radius-md: 0.375rem;
+    --df-radius-lg: 0.5rem;
+    --df-radius-pill: 6.25rem;
+}
+
+/* Amadeus Design Factory color tokens — dark theme */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --df-color-primary: #3a8bff;
+        --df-color-primary-hover: #9fc7ff;
+        --df-color-primary-foreground: #1a1a1a;
+        --df-color-primary-subtle-bg: #000521;
+        --df-color-danger: #ff514d;
+        --df-color-danger-foreground: #1a1a1a;
+        --df-color-success: #92ff73;
+        --df-color-success-foreground: #1a1a1a;
+        --df-color-warning: #ff7920;
+        --df-color-page-bg: #1a1a1a;
+        --df-color-surface-bg: #333333;
+        --df-color-surface-subtle-bg: #666666;
+        --df-color-foreground: #fafafa;
+        --df-color-foreground-muted: #999999;
+        --df-color-border: #808080;
+        --df-color-hover-bg: #666666;
+        --df-color-active-bg: #808080;
+        --df-color-badge-bg: #666666;
+        --df-color-badge-fg: #fafafa;
+        --df-color-shadow: rgba(102, 102, 102, 0.25);
+        --df-color-focus: #3a8bff;
+    }
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: inherit;
+}
+
+body {
+    font-family: 'Amadeus Neue Web', var(--vscode-font-family), sans-serif;
+    font-size: var(--vscode-font-size);
+    color: var(--df-color-foreground);
+    background-color: var(--df-color-page-bg);
+    padding: 4px 0;
+}
+
+#explorer {
+    user-select: none;
+}
+
+/* Tree node styles */
+.tree-node {
+    display: flex;
+    align-items: center;
+    padding: 2px 8px 2px 0;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 22px;
+    font-size: 13px;
+    color: var(--df-color-foreground);
+    transition: background 0.1s;
+}
+
+.tree-node:hover {
+    background: var(--df-color-hover-bg);
+}
+
+.tree-node.active {
+    background: var(--df-color-primary-subtle-bg);
+}
+
+.tree-node.indent-0 { padding-left: 8px; }
+.tree-node.indent-1 { padding-left: 24px; }
+.tree-node.indent-2 { padding-left: 40px; }
+.tree-node.indent-3 { padding-left: 56px; }
+.tree-node.indent-4 { padding-left: 72px; }
+
+.tree-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-right: 2px;
+    color: var(--df-color-foreground-muted);
+    font-size: 10px;
+    transition: transform 0.15s;
+}
+
+.tree-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
+.tree-chevron-spacer {
+    display: inline-block;
+    width: 18px;
+    flex-shrink: 0;
+}
+
+.tree-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-right: 4px;
+    font-size: 14px;
+}
+
+.tree-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-description {
+    color: var(--df-color-foreground-muted);
+    font-size: 11px;
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+
+/* Inline action buttons (shown on hover) */
+.tree-actions {
+    display: none;
+    gap: 2px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.tree-node:hover .tree-actions {
+    display: flex;
+}
+
+.tree-action-btn {
+    background: none;
+    border: none;
+    color: var(--df-color-foreground-muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: var(--df-radius-sm);
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+}
+
+.tree-action-btn:hover {
+    background: var(--df-color-active-bg);
+    color: var(--df-color-foreground);
+}
+
+.tree-action-btn.tree-action-danger:hover {
+    color: var(--df-color-danger);
+}
+
+.tree-section-header {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    color: var(--df-color-foreground-muted);
+    padding: 8px 8px 4px 8px;
+    letter-spacing: 0.5px;
+}
+
+/* Status indicators */
+.status-update { color: var(--df-color-warning); }
+.status-auto-update { color: var(--df-color-primary); }
+.status-installed { color: var(--df-color-success); }
+.status-warning { color: var(--df-color-danger); }
+
+/* Context menu */
+.context-menu {
+    position: fixed;
+    background: var(--df-color-surface-bg);
+    border: 1px solid var(--df-color-border);
+    border-radius: var(--df-radius-sm);
+    box-shadow: 0 4px 12px var(--df-color-shadow);
+    z-index: 10000;
+    min-width: 180px;
+    padding: 4px 0;
+    font-size: 12px;
+}
+
+.context-menu-item {
+    padding: 6px 16px;
+    cursor: pointer;
+    color: var(--df-color-foreground);
+    white-space: nowrap;
+}
+
+.context-menu-item:hover {
+    background: var(--df-color-hover-bg);
+}
+
+.context-menu-item.danger {
+    color: var(--df-color-danger);
+}
+
+.context-menu-separator {
+    height: 1px;
+    background: var(--df-color-border);
+    margin: 4px 0;
+}
+
+/* Toolbar */
+.toolbar {
+    display: flex;
+    gap: 4px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--df-color-border);
+    margin-bottom: 4px;
+}
+
+.toolbar-btn {
+    background: none;
+    border: none;
+    color: var(--df-color-foreground-muted);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: var(--df-radius-sm);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.toolbar-btn:hover {
+    background: var(--df-color-hover-bg);
+    color: var(--df-color-foreground);
+}
+
+/* Loading */
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: var(--df-color-foreground-muted);
+    font-size: 12px;
+}
+
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--df-color-foreground-muted);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 6px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

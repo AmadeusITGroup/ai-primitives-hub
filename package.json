@@ -431,6 +431,7 @@
         {
           "id": "promptRegistryExplorer",
           "name": "Registry Explorer",
+          "type": "webview",
           "icon": "$(list-tree)",
           "contextualTitle": "AI Primitives Hub"
         }
@@ -706,10 +707,12 @@
     "vscode:prepublish": "npm run compile",
     "compile-lib": "npm run build --workspace=lib",
     "copy-webview": "cpy \"src/ui/webview/marketplace/*\" dist/webview/marketplace && cpy \"src/ui/webview/bundle-details/*\" dist/webview/bundle-details",
+    "copy-fonts": "cpy \"node_modules/@design-factory/styles/assets/fonts/amadeus-neue/**/*.woff2\" dist/webview/fonts/amadeus-neue && cpy \"node_modules/@design-factory/styles/assets/fonts/font-awesome/*.woff2\" dist/webview/fonts/font-awesome && cpy \"src/ui/webview/fonts/icons.css\" dist/webview/fonts --flat",
+    "copy-explorer": "cpy \"src/ui/webview/explorer/*\" dist/webview/explorer",
     "copy-skill-references": "cpy docs/README.md resources/skills/prompt-registry-helper/references/docs-index.md && cpy \"docs/**\" \"!docs/README.md\" \"!docs/contributor-guide\" \"!docs/contributor-guide/**\" \"!docs/reference/adapter-api.md\" \"!docs/AGENTS.md\" resources/skills/prompt-registry-helper/references",
-    "compile": "npm run compile-lib && webpack --mode production && npm run copy-webview && npm run copy-skill-references",
+    "compile": "npm run compile-lib && webpack --mode production && npm run copy-webview && npm run copy-explorer && npm run copy-fonts && npm run copy-skill-references",
     "watch": "webpack --mode development --watch",
-    "package": "webpack --mode production --devtool hidden-source-map && npm run copy-webview",
+    "package": "webpack --mode production --devtool hidden-source-map && npm run copy-webview && npm run copy-explorer && npm run copy-fonts",
     "package:vsix": "vsce package",
     "compile-tests": "tsc -p tsconfig.test.json && node scripts/copy-test-fixtures.js",
     "watch-tests": "tsc -p tsconfig.test.json -w",
@@ -742,6 +745,7 @@
     "version:bump:patch": "npm version patch --no-git-tag-version && npm run version:update"
   },
   "devDependencies": {
+    "@design-factory/styles": "^21.1.0",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
     "@eslint/js": "^9.39.2",
     "@istanbuljs/nyc-config-typescript": "^1.0.0",

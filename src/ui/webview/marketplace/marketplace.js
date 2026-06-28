@@ -362,6 +362,8 @@
       // Check if we have any bundles at all (before filtering)
       var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || showInstalledOnly;
 
+      updateResultBar(0, allBundles.length, true);
+
       if (allBundles.length === 0) {
         var hasNoSources = setupState === 'complete' && sourcesCount === 0;
         var shouldShowSetupPrompt = setupState === 'incomplete' || setupState === 'not_started' || setupState === 'in_progress' || hasNoSources;
@@ -372,7 +374,7 @@
 
         marketplace.innerHTML = shouldShowSetupPrompt
           ? '<div class="empty-state">'
-          + '<div class="empty-state-icon">⚙️</div>'
+          + '<div class="empty-state-icon fa-icon fa-gear fa-solid"></div>'
           + '<div class="empty-state-title">Setup Not Complete</div>'
           + '<p>' + setupMessage + '</p>'
           + '<button class="primary-button" data-action="completeSetup">'
@@ -388,14 +390,14 @@
         // Has bundles but filters hide them all
         marketplace.innerHTML =
           '<div class="empty-state">'
-          + '<div class="empty-state-icon">🔍</div>'
+          + '<div class="empty-state-icon fa-icon fa-magnifying-glass"></div>'
           + '<div class="empty-state-title">No bundles match your filters</div>'
           + '<p>Try adjusting your search or filters</p>'
           + '</div>';
       } else {
         marketplace.innerHTML =
           '<div class="empty-state">'
-          + '<div class="empty-state-icon">📦</div>'
+          + '<div class="empty-state-icon fa-icon fa-box"></div>'
           + '<div class="empty-state-title">No bundles found</div>'
           + '<p>Try adjusting your search or filters</p>'
           + '</div>';
@@ -405,7 +407,7 @@
 
     marketplace.innerHTML = filteredBundles.map((bundle) => {
       return '<div class="bundle-card ' + (bundle.installed ? 'installed' : '') + '" data-bundle-id="' + bundle.id + '" data-action="openDetails">'
-        + (bundle.installed && bundle.autoUpdateEnabled ? '<div class="installed-badge">🔄 Auto-Update</div>' : (bundle.installed ? '<div class="installed-badge">✓ Installed</div>' : ''))
+        + (bundle.installed && bundle.autoUpdateEnabled ? '<div class="installed-badge"><i class="fa-icon fa-arrows-rotate fa-solid"></i> Auto-Update</div>' : (bundle.installed ? '<div class="installed-badge"><i class="fa-icon fa-circle-check"></i> Installed</div>' : ''))
 
         + '<div class="bundle-header">'
         + '<div class="bundle-title">' + bundle.name + '</div>'
@@ -417,22 +419,22 @@
         + '</div>'
 
         + '<div class="content-breakdown">'
-        + renderContentItem('💬', 'Prompts', bundle.contentBreakdown ? bundle.contentBreakdown.prompts || 0 : 0)
-        + renderContentItem('📋', 'Instructions', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
-        + renderContentItem('🤖', 'Agents', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
-        + renderContentItem('🛠️', 'Skills', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
-        + renderContentItem('🔌', 'MCP Servers', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
+        + renderContentItem('fa-file-lines', 'Prompts', bundle.contentBreakdown ? bundle.contentBreakdown.prompts || 0 : 0)
+        + renderContentItem('fa-list-check', 'Instructions', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
+        + renderContentItem('fa-user-robot', 'Agents', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
+        + renderContentItem('fa-puzzle-piece', 'Skills', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
+        + renderContentItem('fa-plug-circle-plus', 'MCP Servers', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
         + '</div>'
 
         + '<div class="bundle-tags">'
         + (bundle.tags || []).slice(0, 4).map((tag) => {
           return '<span class="tag">' + tag + '</span>';
         }).join('')
+        + ((bundle.tags || []).length > 4 ? '<span class="tag tag-more">+' + (bundle.tags.length - 4) + ' more</span>' : '')
         + '</div>'
 
         + '<div class="bundle-actions" data-stop-propagation="true">'
         + renderBundleButtons(bundle)
-        + '<button class="btn btn-secondary" data-action="openDetails" data-bundle-id="' + bundle.id + '">Details</button>'
         + '<button class="btn btn-link" data-action="openSourceRepo" data-bundle-id="' + bundle.id + '" title="Open Source Repository">'
         + '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">'
         + '<path d="M4.5 3A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13h7a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 1 1 0v2'
@@ -443,6 +445,68 @@
         + '</div>'
         + '</div>';
     }).join('');
+
+    updateResultBar(filteredBundles.length, allBundles.length, false);
+  };
+
+  const updateResultBar = (shown, total, isEmpty) => {
+    var bar = document.querySelector('#resultBar');
+    if (!bar) {
+      return;
+    }
+
+    var html = '';
+
+    // Result count
+    if (total > 0) {
+      if (shown === total) {
+        html += '<span class="result-count">' + total + ' bundles</span>';
+      } else {
+        html += '<span class="result-count">Showing ' + shown + ' of ' + total + ' bundles</span>';
+      }
+    }
+
+    // Active filter chips
+    var chips = [];
+
+    if (selectedSource !== 'all') {
+      var sourceName = 'Source';
+      var sourceItems = document.querySelectorAll('.source-item');
+      sourceItems.forEach((item) => {
+        if (item.dataset.source === selectedSource) {
+          var label = item.querySelector('label');
+          if (label) {
+            sourceName = label.textContent;
+          }
+        }
+      });
+      chips.push('<span class="filter-chip">' + escapeHtml(sourceName) + '<span class="filter-chip-remove" data-chip-action="clearSource">✕</span></span>');
+    }
+
+    selectedTags.forEach((tag) => {
+      chips.push('<span class="filter-chip">' + escapeHtml(tag) + '<span class="filter-chip-remove" data-chip-action="clearTag" data-chip-value="' + escapeHtml(tag) + '">✕</span></span>');
+    });
+
+    if (showInstalledOnly) {
+      chips.push('<span class="filter-chip">Installed only<span class="filter-chip-remove" data-chip-action="clearInstalled">✕</span></span>');
+    }
+
+    var searchTerm = document.querySelector('#searchBox').value;
+    if (searchTerm && searchTerm.trim() !== '') {
+      chips.push('<span class="filter-chip">Search: ' + escapeHtml(searchTerm) + '<span class="filter-chip-remove" data-chip-action="clearSearch">✕</span></span>');
+    }
+
+    if (chips.length > 0) {
+      html += '<div class="filter-chips">' + chips.join('') + '</div>';
+    }
+
+    bar.innerHTML = html;
+  };
+
+  const escapeHtml = (text) => {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   };
 
   const renderBundleButtons = (bundle) => {
@@ -532,7 +596,7 @@
       return '';
     }
     return '<div class="content-item">'
-      + '<span class="content-icon">' + icon + '</span>'
+      + '<span class="content-icon fa-icon ' + icon + '"></span>'
       + '<span class="content-count">' + count + '</span>'
       + '<span>' + label + '</span>'
       + '</div>';
@@ -604,6 +668,51 @@
   // Event delegation for all click handlers (CSP compliant)
   document.addEventListener('click', (e) => {
     var target = e.target;
+
+    // Handle filter chip removal
+    var chipRemove = target.closest('[data-chip-action]');
+    if (chipRemove) {
+      var chipAction = chipRemove.dataset.chipAction;
+      switch (chipAction) {
+        case 'clearSource': {
+          selectedSource = 'all';
+          document.querySelector('#sourceSelectorText').textContent = 'All Sources';
+          document.querySelectorAll('.source-item').forEach((item) => {
+            item.classList.remove('active');
+            if (item.dataset.source === 'all') {
+              item.classList.add('active');
+              item.querySelector('input[type="radio"]').checked = true;
+            }
+          });
+          renderBundles();
+          break;
+        }
+        case 'clearTag': {
+          var tagValue = chipRemove.dataset.chipValue;
+          var tagCheckboxes = document.querySelectorAll('#tagList input[type="checkbox"]');
+          tagCheckboxes.forEach((cb) => {
+            if (cb.value === tagValue) {
+              cb.checked = false;
+            }
+          });
+          updateSelectedTags();
+          break;
+        }
+        case 'clearInstalled': {
+          document.querySelector('#installedCheckbox').checked = false;
+          showInstalledOnly = false;
+          renderBundles();
+          break;
+        }
+        case 'clearSearch': {
+          document.querySelector('#searchBox').value = '';
+          renderBundles();
+          break;
+        }
+      }
+      e.stopPropagation();
+      return;
+    }
 
     // Handle bundle-actions stop propagation
     if (target.closest('[data-stop-propagation]')) {
