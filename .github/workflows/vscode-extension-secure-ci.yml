@@ -222,13 +222,17 @@ jobs:
             ./post_compile_fixes.sh
           fi
 
+      - name: Apply essential post-compilation fixes (all platforms)
+        shell: bash
+        run: node .github/workflows/scripts/post-compile-fixes-essential.js
+
       - name: Run unit tests
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
-            xvfb-run -a npm test
+            xvfb-run -a npm run test:unit
           else
-            npm test
+            npm run test:unit
           fi
 
       - name: Switch to production .vscodeignore for packaging
