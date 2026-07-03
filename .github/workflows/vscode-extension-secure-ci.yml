@@ -222,6 +222,10 @@ jobs:
             ./post_compile_fixes.sh
           fi
 
+      - name: Compile tests
+        shell: bash
+        run: npm run compile-tests
+
       - name: Apply essential post-compilation fixes (all platforms)
         shell: bash
         run: node .github/workflows/scripts/post-compile-fixes-essential.js
