@@ -36,7 +36,8 @@
     const chevron = hasChildren
       ? `<span class="tree-chevron ${isExpanded ? '' : 'collapsed'}" data-action="toggle" data-node-id="${escapeAttr(node.id)}">▾</span>`
       : '<span class="tree-chevron-spacer"></span>';
-    const icon = node.icon ? `<span class="tree-icon fa-icon ${node.icon}"></span>` : '<span class="tree-chevron-spacer"></span>';
+    const iconClass = node.icon && node.icon.startsWith('codicon-') ? `codicon ${node.icon}` : `fa-icon ${node.icon || ''}`;
+    const icon = node.icon ? `<span class="tree-icon ${iconClass}"></span>` : '<span class="tree-chevron-spacer"></span>';
     const description = node.description ? `<span class="tree-description">${escapeHtml(node.description)}</span>` : '';
     const statusClass = node.statusClass ? ` ${node.statusClass}` : '';
 
@@ -45,7 +46,8 @@
     if (node.actions && node.actions.length > 0) {
       actionsHtml = '<span class="tree-actions">' + node.actions.map((action) => {
         const dangerClass = action.danger ? ' tree-action-danger' : '';
-        return `<button class="tree-action-btn${dangerClass}" data-action="executeAction" data-command="${escapeAttr(action.command)}" data-node-id="${escapeAttr(node.id)}" title="${escapeAttr(action.label)}"><i class="fa-icon ${action.icon}"></i></button>`;
+        const actionClass = action.icon && action.icon.startsWith('codicon-') ? `codicon ${action.icon}` : `fa-icon ${action.icon || ''}`;
+        return `<button class="tree-action-btn${dangerClass}" data-action="executeAction" data-command="${escapeAttr(action.command)}" data-node-id="${escapeAttr(node.id)}" title="${escapeAttr(action.label)}"><i class="${actionClass}"></i></button>`;
       }).join('') + '</span>';
     }
 

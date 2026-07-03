@@ -77,34 +77,34 @@ interface NodeContextData {
  * Action definitions for each context value type
  */
 const PROFILE_ACTIONS: TreeAction[] = [
-  { command: 'promptRegistry.activateProfile', icon: 'fa-power-off', label: 'Activate' },
-  { command: 'promptRegistry.deactivateProfile', icon: 'fa-power-off', label: 'Deactivate' },
-  { command: 'promptRegistry.editProfile', icon: 'fa-pen-to-square', label: 'Edit' },
-  { command: 'promptRegistry.exportProfile', icon: 'fa-file-export', label: 'Export' },
-  { command: 'promptRegistry.deleteProfile', icon: 'fa-trash-can', label: 'Delete', danger: true }
+  { command: 'promptRegistry.activateProfile', icon: 'codicon-play', label: 'Activate' },
+  { command: 'promptRegistry.deactivateProfile', icon: 'codicon-circle-slash', label: 'Deactivate' },
+  { command: 'promptRegistry.editProfile', icon: 'codicon-edit', label: 'Edit' },
+  { command: 'promptRegistry.exportProfile', icon: 'codicon-export', label: 'Export' },
+  { command: 'promptRegistry.deleteProfile', icon: 'codicon-trash', label: 'Delete', danger: true }
 ];
 
 const HUB_PROFILE_ACTIONS: TreeAction[] = [
-  { command: 'promptRegistry.activateProfile', icon: 'fa-power-off', label: 'Activate' },
-  { command: 'promptRegistry.deactivateProfile', icon: 'fa-power-off', label: 'Deactivate' },
-  { command: 'promptRegistry.editProfile', icon: 'fa-pen-to-square', label: 'Edit' },
-  { command: 'promptRegistry.exportProfile', icon: 'fa-file-export', label: 'Export' },
-  { command: 'promptRegistry.toggleProfileFavorite', icon: 'fa-bookmark', label: 'Toggle Favorite' },
-  { command: 'promptregistry.openItemRepository', icon: 'fa-up-right-from-square', label: 'Open Repository' },
-  { command: 'promptRegistry.deleteProfile', icon: 'fa-trash-can', label: 'Delete', danger: true }
+  { command: 'promptRegistry.activateProfile', icon: 'codicon-play', label: 'Activate' },
+  { command: 'promptRegistry.deactivateProfile', icon: 'codicon-circle-slash', label: 'Deactivate' },
+  { command: 'promptRegistry.editProfile', icon: 'codicon-edit', label: 'Edit' },
+  { command: 'promptRegistry.exportProfile', icon: 'codicon-export', label: 'Export' },
+  { command: 'promptRegistry.toggleProfileFavorite', icon: 'codicon-bookmark', label: 'Toggle Favorite' },
+  { command: 'promptregistry.openItemRepository', icon: 'codicon-link-external', label: 'Open Repository' },
+  { command: 'promptRegistry.deleteProfile', icon: 'codicon-trash', label: 'Delete', danger: true }
 ];
 
 const HUB_ACTIONS: TreeAction[] = [
-  { command: 'promptregistry.syncHub', icon: 'fa-arrows-rotate', label: 'Sync' },
-  { command: 'promptregistry.openItemRepository', icon: 'fa-up-right-from-square', label: 'Open Repository' },
-  { command: 'promptregistry.deleteHub', icon: 'fa-trash-can', label: 'Delete', danger: true }
+  { command: 'promptregistry.syncHub', icon: 'codicon-sync', label: 'Sync' },
+  { command: 'promptregistry.openItemRepository', icon: 'codicon-link-external', label: 'Open Repository' },
+  { command: 'promptregistry.deleteHub', icon: 'codicon-trash', label: 'Delete', danger: true }
 ];
 
 const SOURCE_ACTIONS: TreeAction[] = [
-  { command: 'promptRegistry.editSource', icon: 'fa-pen-to-square', label: 'Edit' },
-  { command: 'promptRegistry.syncSource', icon: 'fa-arrows-rotate', label: 'Sync' },
-  { command: 'promptRegistry.toggleSource', icon: 'fa-toggle-off', label: 'Toggle' },
-  { command: 'promptRegistry.removeSource', icon: 'fa-trash-can', label: 'Remove', danger: true }
+  { command: 'promptRegistry.editSource', icon: 'codicon-edit', label: 'Edit' },
+  { command: 'promptRegistry.syncSource', icon: 'codicon-sync', label: 'Sync' },
+  { command: 'promptRegistry.toggleSource', icon: 'codicon-circle-slash', label: 'Toggle' },
+  { command: 'promptRegistry.removeSource', icon: 'codicon-trash', label: 'Remove', danger: true }
 ];
 
 export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider {
@@ -254,22 +254,22 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
     }
     if (contextValue && contextValue.startsWith('installed_bundle')) {
       const actions: TreeAction[] = [
-        { command: 'promptRegistry.viewBundle', icon: 'fa-eye', label: 'View' }
+        { command: 'promptRegistry.viewBundle', icon: 'codicon-eye', label: 'View' }
       ];
 
       if (contextValue.includes('updatable')) {
-        actions.push({ command: 'promptRegistry.updateBundle', icon: 'fa-arrow-rotate-right', label: 'Update' });
+        actions.push({ command: 'promptRegistry.updateBundle', icon: 'codicon-sync', label: 'Update' });
       } else {
-        actions.push({ command: 'promptRegistry.checkBundleUpdates', icon: 'fa-magnifying-glass-arrows-rotate', label: 'Check Updates' });
+        actions.push({ command: 'promptRegistry.checkBundleUpdates', icon: 'codicon-search', label: 'Check Updates' });
       }
 
       if (contextValue.includes('auto_disabled')) {
-        actions.push({ command: 'promptRegistry.enableAutoUpdate', icon: 'fa-arrows-rotate', label: 'Enable Auto-Update' });
+        actions.push({ command: 'promptRegistry.enableAutoUpdate', icon: 'codicon-sync', label: 'Enable Auto-Update' });
       } else if (contextValue.includes('auto_enabled')) {
-        actions.push({ command: 'promptRegistry.disableAutoUpdate', icon: 'fa-pause', label: 'Disable Auto-Update' });
+        actions.push({ command: 'promptRegistry.disableAutoUpdate', icon: 'codicon-stop', label: 'Disable Auto-Update' });
       }
 
-      actions.push({ command: 'promptRegistry.uninstallBundle', icon: 'fa-trash-can', label: 'Uninstall', danger: true });
+      actions.push({ command: 'promptRegistry.uninstallBundle', icon: 'codicon-trash', label: 'Uninstall', danger: true });
 
       return actions;
     }
@@ -452,7 +452,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
     const pickItems = items.map((item) => ({
       label: item.label,
       command: item.command,
-      description: item.danger ? 'fa-triangle-exclamation' : ''
+      description: item.danger ? 'Warning' : ''
     }));
 
     const selected = await vscode.window.showQuickPick(pickItems, {
@@ -480,7 +480,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
       nodes.push({
         id: 'profiles-root',
         label: profileRootLabel,
-        icon: 'fa-sitemap',
+        icon: 'codicon-organization',
         children: profileChildren
       });
 
@@ -489,7 +489,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
       nodes.push({
         id: 'installed-root',
         label: 'Installed Bundles',
-        icon: 'fa-box-archive',
+        icon: 'codicon-archive',
         description: `${installedChildren.length}`,
         children: installedChildren
       });
@@ -499,7 +499,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
       nodes.push({
         id: 'sources-root',
         label: 'Sources',
-        icon: 'fa-satellite-dish',
+        icon: 'codicon-cloud',
         description: `${sourceChildren.length}`,
         children: sourceChildren
       });
@@ -533,13 +533,13 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
         for (const profile of profiles) {
           const isFavorite = await this.isFavoriteProfile(hub.id, profile.id);
           const iconPrefix = profile.icon ? `${profile.icon} ` : '';
-          const favoritePrefix = isFavorite ? '<i class="fa-icon fa-bookmark"></i> ' : '';
+          const favoritePrefix = isFavorite ? '<span class="codicon codicon-bookmark"></span> ' : '';
           const label = `${iconPrefix}${favoritePrefix}${profile.name}`;
 
           profileNodes.push({
             id: `hub-${hub.id}-profile-${profile.id}`,
             label: label,
-            icon: 'fa-user-gear',
+            icon: 'codicon-person',
             description: profile.active ? '[Active]' : undefined,
             command: 'promptRegistry.listProfiles',
             contextValue: 'hub_profile'
@@ -549,7 +549,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
         nodes.push({
           id: `hub-${hub.id}`,
           label: hub.name,
-          icon: 'fa-network-wired',
+          icon: 'codicon-organization',
           description: `${profiles.length} profiles`,
           contextValue: 'hub',
           children: profileNodes
@@ -592,7 +592,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
             return {
               id: `fav-hub-${hubId}-profile-${profile.id}`,
               label: `${iconPrefix}${profile.name}`,
-              icon: 'fa-bookmark',
+              icon: 'codicon-person',
               description: profile.active ? '[Active]' : undefined,
               command: 'promptRegistry.listProfiles',
               contextValue: 'hub_profile'
@@ -602,7 +602,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
           nodes.push({
             id: `fav-hub-${hubId}`,
             label: hubInfo.config.metadata.name,
-            icon: 'fa-network-wired',
+            icon: 'codicon-organization',
             description: `${profileIds.length} favorites`,
             contextValue: 'hub',
             children: profileNodes
@@ -619,7 +619,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
           const localNodes: TreeNodeData[] = localProfiles.map((profile) => ({
             id: `local-profile-${profile.id}`,
             label: profile.name,
-            icon: 'fa-user-gear',
+            icon: 'codicon-person',
             description: profile.active ? '[Active]' : undefined,
             command: 'promptRegistry.listProfiles',
             contextValue: profile.active ? 'profile-active' : 'profile'
@@ -628,7 +628,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
           nodes.push({
             id: 'local-profiles',
             label: 'Local Profiles',
-            icon: 'fa-folder-tree',
+            icon: 'codicon-folder',
             children: localNodes
           });
         }
@@ -639,8 +639,8 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
       // Create New Profile
       nodes.push({
         id: 'create-profile',
-        label: '<i class="fa-icon fa-user-plus"></i> Create New Profile...',
-        icon: '',
+        label: 'Create New Profile...',
+        icon: 'codicon-person-add',
         command: 'promptRegistry.createProfile'
       });
 
@@ -663,11 +663,11 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
         return {
           id: 'active-profile-section',
           label: 'Active Profile',
-          icon: 'fa-circle-check',
+          icon: 'codicon-check',
           children: [{
             id: `active-${activeLocalProfile.id}`,
             label: activeLocalProfile.name,
-            icon: 'fa-user-gear',
+            icon: 'codicon-person',
             description: '[Active]',
             command: 'promptRegistry.listProfiles',
             contextValue: 'profile-active'
@@ -685,11 +685,11 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
         return {
           id: 'active-profile-section',
           label: 'Active Profile',
-          icon: 'fa-circle-check',
+          icon: 'codicon-check',
           children: [{
             id: `active-hub-${activeHubProfile.hubId}-${activeHubProfile.profileId}`,
             label: `${iconPrefix}${profile.name}`,
-            icon: 'fa-user-gear',
+            icon: 'codicon-person',
             description: '[Active]',
             command: 'promptRegistry.listProfiles',
             contextValue: 'hub_profile'
@@ -700,7 +700,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
       return {
         id: 'active-profile-section',
         label: 'Active Profile',
-        icon: 'fa-circle-check',
+        icon: 'codicon-check',
         children: [{
           id: 'active-profile-none',
           label: 'None',
@@ -746,17 +746,17 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
           const hasUpdate = updateInfo !== undefined;
           const autoUpdateEnabled = autoUpdatePreferences[bundle.bundleId] ?? false;
 
-          let prefix = '<i class="fa-icon fa-badge-check"></i>';
-          let statusClass = 'status-installed';
+let iconName = 'codicon-check';
+        let statusClass = 'status-installed';
 
-          if (bundle.filesMissing) {
-            prefix = '<i class="fa-icon fa-triangle-exclamation"></i>';
-            statusClass = 'status-warning';
-          } else if (hasUpdate) {
-            prefix = '<i class="fa-icon fa-arrow-rotate-right"></i>';
-            statusClass = 'status-update';
-          } else if (autoUpdateEnabled) {
-            prefix = '<i class="fa-icon fa-arrows-rotate"></i>';
+        if (bundle.filesMissing) {
+          iconName = 'codicon-warning';
+          statusClass = 'status-warning';
+        } else if (hasUpdate) {
+          iconName = 'codicon-sync';
+          statusClass = 'status-update';
+        } else if (autoUpdateEnabled) {
+          iconName = 'codicon-check';
             statusClass = 'status-auto-update';
           }
 
@@ -789,8 +789,8 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
 
           nodes.push({
             id: `installed-${bundle.bundleId}`,
-            label: `${prefix} ${details.name}`,
-            icon: '',
+            label: details.name,
+            icon: iconName,
             description: versionDisplay,
             command: 'promptRegistry.viewBundle',
             contextValue,
@@ -801,7 +801,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
           nodes.push({
             id: `installed-${bundle.bundleId}`,
             label: `${bundle.bundleId}`,
-            icon: '',
+            icon: 'codicon-check',
             description: `v${bundle.version}`,
             command: 'promptRegistry.viewBundle',
             contextValue: 'installed_bundle_auto_disabled_user',
@@ -826,7 +826,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
       const nodes: TreeNodeData[] = sources.map((source) => ({
         id: `source-${source.id}`,
         label: source.name,
-        icon: 'fa-database',
+        icon: 'codicon-database',
         description: `priority: ${source.priority}`,
         command: 'promptRegistry.listSources',
         contextValue: 'source'
@@ -834,8 +834,8 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
 
       nodes.push({
         id: 'add-source',
-        label: '<i class="fa-icon fa-circle-plus"></i> Add Source...',
-        icon: '',
+        label: 'Add Source...',
+        icon: 'codicon-add',
         command: 'promptRegistry.addSource'
       });
 
@@ -852,6 +852,9 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
   private getHtmlContent(webview: vscode.Webview): string {
     const cssUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'explorer', 'explorer.css')
+    );
+    const codiconsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'codicon.css')
     );
     const iconsUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'icons.css')
@@ -874,6 +877,7 @@ export class RegistryExplorerViewProvider implements vscode.WebviewViewProvider 
 
     html = html
       .replace('{{cssUri}}', cssUri.toString())
+      .replace('{{codiconsUri}}', codiconsUri.toString())
       .replace('{{iconsUri}}', iconsUri.toString())
       .replace(/\{\{nonce\}\}/g, nonce)
       .replace('{{cspSource}}', cspSource)
