@@ -8,6 +8,7 @@ on:
       - "*.json"
       - "*.js"
       - "*.ts"
+      - ".github/workflows/**"
       - "!lib/**"
   pull_request:
     branches: [main, develop]
@@ -16,6 +17,7 @@ on:
       - "*.json"
       - "*.js"
       - "*.ts"
+      - ".github/workflows/**"
       - "!lib/**"
   workflow_dispatch:
 
@@ -161,7 +163,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [24]
 
     steps:
