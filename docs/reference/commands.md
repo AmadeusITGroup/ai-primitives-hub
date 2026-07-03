@@ -102,6 +102,8 @@ This is useful when bundle files have been manually deleted but the lockfile sti
 
 ## Hub Management
 
+Hub management commands are available from the Command Palette and activate the extension on demand when invoked directly.
+
 | Command | Title | Description |
 |---------|-------|-------------|
 | `promptregistry.importHub` | Import Hub | Import a hub configuration |
@@ -166,6 +168,16 @@ This is useful when bundle files have been manually deleted but the lockfile sti
 |---------|-------|-------------|
 | `promptregistry.openItemRepository` | Open Repository | Open an item's repository in a browser |
 | `promptRegistry.resetFirstRun` | Reset First Run | Reset first-run state to re-trigger hub selection dialog |
+
+## Chat Integration
+
+The extension contributes the `@prompts` chat participant for GitHub Copilot Chat.
+
+**Participant:** `@prompts`
+
+**Slash commands:**
+- `/help` — Show available prompt commands
+- `/list` — List installed prompts
 
 ## See Also
 

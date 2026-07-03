@@ -31,6 +31,8 @@ The Netskope certificate must be added to Docker's trusted certificates. The app
 
 The error above is about Docker/the OS toolchain. The extension's own telemetry connection to the Elastic Search proxy handles this automatically: the transport loads the operating system trust store (where the Netskope/corporate CA already lives) and merges it with Node's default roots, so the re-signed certificate validates with no per-user configuration.
 
+The Elastic Search transport is loaded lazily during activation, and the `@elastic/elasticsearch` client is bundled into the extension so packaged VSIX builds do not depend on a separate `node_modules` tree at runtime.
+
 This requires a runtime with `tls.getCACertificates` (Node ≥ 22.15). On older hosts the transport falls back to Node's bundled roots only — set `NODE_EXTRA_CA_CERTS` to point at the corporate CA file if the connection then fails.
 
 ### Variable Interpolation in `.env`

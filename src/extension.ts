@@ -63,9 +63,6 @@ import {
   AutoUpdateService,
 } from './services/auto-update-service';
 import {
-  ElasticSearchTransport,
-} from './services/elastic-search-transport';
-import {
   HubManager,
 } from './services/hub-manager';
 import {
@@ -210,13 +207,16 @@ export class PromptRegistryExtension {
   /**
    * Initialize telemetry service and subscribe to events.
    */
-  private initializeTelemetry(): void {
+  private async initializeTelemetry(): Promise<void> {
     try {
       this.telemetryService = TelemetryService.getInstance();
       this.telemetryService.subscribeToRegistryEvents(this.registryManager);
       this.telemetryService.addTransport(new OutputChannelTransport());
 
       if (this.hubManager) {
+        const {
+          ElasticSearchTransport,
+        } = await import('./services/elastic-search-transport');
         const esTransport = new ElasticSearchTransport();
         esTransport.subscribeToHubEvents(this.hubManager);
         this.telemetryService.addTransport(esTransport);
@@ -1556,6 +1556,10 @@ export class PromptRegistryExtension {
     try {
       this.logger.info('Activating AI Primitives Hub extension...');
 
+      // Register commands first so command-triggered activation can still succeed
+      // even if later startup work fails.
+      this.registerCommands();
+
       // Initialize McpConfigLocator for profile support
       McpConfigLocator.initialize(this.context);
 
@@ -1567,9 +1571,6 @@ export class PromptRegistryExtension {
 
       // Run data migrations (idempotent, skips if already completed)
       await this.runMigrations();
-
-      // Register commands
-      this.registerCommands();
 
       // Initialize UI components
       await this.initializeUI();
@@ -1587,7 +1588,7 @@ export class PromptRegistryExtension {
       await this.initializeUpdateSystem();
 
       // Initialize telemetry service
-      this.initializeTelemetry();
+      await this.initializeTelemetry();
 
       // Initialize repository-level installation services
       await this.initializeRepositoryServices();
