@@ -1181,7 +1181,10 @@ prompts:
 
     test('should use getRepositoryTargetDirectory for skill type', () => {
       const targetPath = service.getTargetPath('skill', 'test-skill');
-      assert.ok(targetPath.includes('.github/skills/'), 'Skill target path should include .github/skills/');
+      assert.ok(
+        targetPath.includes(path.join('.github', 'skills', '')),
+        'Skill target path should include .github/skills/'
+      );
     });
   });
 });

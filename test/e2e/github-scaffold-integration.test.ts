@@ -33,7 +33,7 @@ suite('E2E: GitHub Scaffold Integration Tests', () => {
   teardown(() => {
     // Clean up test directory
     if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   });
 

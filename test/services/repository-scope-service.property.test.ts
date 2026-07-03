@@ -157,7 +157,7 @@ suite('RepositoryScopeService Property Tests', () => {
 
           // Path must include .github/
           assert.ok(
-            targetPath.includes('.github/'),
+            targetPath.includes(path.join('.github', '')),
             `Target path should include .github/, got: ${targetPath}`
           );
 

@@ -390,11 +390,13 @@ suite('ScaffoldCommand', () => {
 
   suite('Error Handling', () => {
     test('should throw error for invalid path', async () => {
-      const invalidPath = '/invalid/path/that/does/not/exist/and/cannot/be/created/abc123xyz';
+      const fileParent = path.join(testDir, 'not-a-directory');
+      fs.writeFileSync(fileParent, 'test content');
+      const invalidPath = path.join(fileParent, 'child');
 
       await assert.rejects(
         async () => await scaffoldCommand.execute(invalidPath),
-        /Cannot create directory|permission denied|EACCES|ENOENT/i
+        /Cannot create directory|permission denied|EACCES|ENOENT|ENOTDIR/i
       );
     });
 
