@@ -5,11 +5,11 @@ import {
   PromptRegistryExtension,
 } from '../../src/extension';
 import {
-  ApmRuntimeManager,
-} from '../../src/services/apm-runtime-manager';
-import {
   ExtensionNotifications,
 } from '../../src/notifications/extension-notifications';
+import {
+  ApmRuntimeManager,
+} from '../../src/services/apm-runtime-manager';
 import {
   RegistryManager,
 } from '../../src/services/registry-manager';
