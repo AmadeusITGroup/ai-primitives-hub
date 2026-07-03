@@ -1,18 +1,3 @@
 # Force LF line endings on checkout regardless of OS
 # This prevents CRLF lint errors on Windows CI runners
 * text=auto eol=lf
-
-# Binary files should not be modified
-*.png binary
-*.jpg binary
-*.jpeg binary
-*.gif binary
-*.ico binary
-*.webp binary
-*.woff binary
-*.woff2 binary
-*.ttf binary
-*.eot binary
-*.pdf binary
-*.zip binary
-*.vsix binary
