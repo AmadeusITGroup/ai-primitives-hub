@@ -214,9 +214,7 @@ export class PromptRegistryExtension {
       this.telemetryService.addTransport(new OutputChannelTransport());
 
       if (this.hubManager) {
-        const {
-          ElasticSearchTransport,
-        } = await import('./services/elastic-search-transport');
+        const { ElasticSearchTransport } = await import('./services/elastic-search-transport');
         const esTransport = new ElasticSearchTransport();
         esTransport.subscribeToHubEvents(this.hubManager);
         this.telemetryService.addTransport(esTransport);
