@@ -59,7 +59,9 @@ export class ScaffoldCommand {
     // Otherwise treat as extensionPath and append templates/scaffolds path
     let templatesPath: string;
     if (extensionPathOrTemplateRoot) {
-      templatesPath = extensionPathOrTemplateRoot.includes('templates/scaffolds') ? extensionPathOrTemplateRoot : path.join(extensionPathOrTemplateRoot, 'templates/scaffolds', scaffoldType);
+      // Normalize to forward slashes for cross-platform path comparison
+      const normalizedPath = extensionPathOrTemplateRoot.replace(/\\/g, '/');
+      templatesPath = normalizedPath.includes('templates/scaffolds') ? extensionPathOrTemplateRoot : path.join(extensionPathOrTemplateRoot, 'templates/scaffolds', scaffoldType);
     } else {
       templatesPath = path.join(__dirname, '../templates/scaffolds', scaffoldType);
     }
