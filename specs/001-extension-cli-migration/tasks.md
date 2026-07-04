@@ -29,15 +29,15 @@
 
 **CRITICAL**: No user story implementation or `feat/cli-backup` source port may begin until this phase is complete. T011 and T012 capture the VS Code golden baseline before T017 or any other source-changing foundational implementation.
 
-- [ ] T009 [P] Add failing unit tests for target type, scope, capability, layout, and unsupported-resource validation in `test/services/target-model.test.ts`
-- [ ] T010 [P] Add failing golden output harness helpers for deterministic user and repository target filesystem assertions in `test/helpers/target-golden.ts`
-- [ ] T011 [P] Capture current VS Code user-scope golden output fixtures for prompts, instructions, agents, and skills before source changes in `test/fixtures/golden/vscode-user/`
-- [ ] T012 [P] Capture current VS Code repository-scope golden output fixtures and `prompt-registry.lock.json` expectations before source changes in `test/fixtures/golden/vscode-repository/`
+- [x] T009 [P] Add failing unit tests for target type, scope, capability, layout, and unsupported-resource validation in `test/services/target-model.test.ts`
+- [x] T010 [P] Add failing golden output harness helpers for deterministic user and repository target filesystem assertions in `test/helpers/target-golden.ts`
+- [x] T011 [P] Capture current VS Code user-scope golden output fixtures for prompts, instructions, agents, and skills before source changes in `test/fixtures/golden/vscode-user/`
+- [x] T012 [P] Capture current VS Code repository-scope golden output fixtures and `prompt-registry.lock.json` expectations before source changes in `test/fixtures/golden/vscode-repository/`
 - [ ] T013 [P] Add failing migration parity tests for current VS Code install, update, uninstall, move-scope, and lockfile behavior in `test/services/vscode-install-parity.test.ts`
 - [ ] T014 [P] Add failing transformer contract tests for idempotent, deterministic, and fail-safe resource transformations in `test/services/resource-transformer.test.ts`
 - [ ] T015 [P] Add failing repository-scope secret-safe install tests for prompts, instructions, agents, and skills using secret-like and local-only fixture content in `test/services/repository-install-policy.test.ts`
 - [ ] T016 [P] Add failing application use-case contract tests for shared install, update, uninstall, and validate operations in `test/services/application-use-cases.test.ts`
-- [ ] T017 Define shared Target, TargetScope, TargetLayout, TargetCapability, Resource, ResourceTransformer, and InstallOperation types in `src/types/target.ts`
+- [x] T017 Define shared Target, TargetScope, TargetLayout, TargetCapability, Resource, ResourceTransformer, and InstallOperation types in `src/types/target.ts`
 - [ ] T018 Define shared application use-case interfaces and request/result models for install, update, uninstall, and validate in `src/services/application-use-cases.ts`
 - [ ] T019 Implement the target capability registry with VS Code and Kiro placeholders in `src/services/target-capability-registry.ts`
 - [ ] T020 Implement the target layout registry with user and repository scope resolution in `src/services/target-layout-registry.ts`
