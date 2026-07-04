@@ -47,7 +47,7 @@
       actionsHtml = '<span class="tree-actions">' + node.actions.map((action) => {
         const dangerClass = action.danger ? ' tree-action-danger' : '';
         const actionClass = action.icon && action.icon.startsWith('codicon-') ? `codicon ${action.icon}` : `fa-icon ${action.icon || ''}`;
-        return `<button class="tree-action-btn${dangerClass}" data-action="executeAction" data-command="${escapeAttr(action.command)}" data-node-id="${escapeAttr(node.id)}" title="${escapeAttr(action.label)}"><i class="${actionClass}"></i></button>`;
+        return `<button class="tree-action-btn${dangerClass}" data-action="executeAction" data-command="${escapeAttr(action.command)}" data-node-id="${escapeAttr(node.id)}" title="${escapeAttr(action.label)}"><span class="${actionClass}"></span></button>`;
       }).join('') + '</span>';
     }
 

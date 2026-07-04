@@ -856,6 +856,9 @@ let iconName = 'codicon-check';
     const codiconsUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'codicon.css')
     );
+    const codiconTtfUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'codicon.ttf')
+    );
     const iconsUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'icons.css')
     );
@@ -878,6 +881,7 @@ let iconName = 'codicon-check';
     html = html
       .replace('{{cssUri}}', cssUri.toString())
       .replace('{{codiconsUri}}', codiconsUri.toString())
+      .replace('{{codiconTtfUri}}', codiconTtfUri.toString())
       .replace('{{iconsUri}}', iconsUri.toString())
       .replace(/\{\{nonce\}\}/g, nonce)
       .replace('{{cspSource}}', cspSource)

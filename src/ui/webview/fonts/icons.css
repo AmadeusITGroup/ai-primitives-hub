@@ -20,6 +20,7 @@
 [class*=' fa-'] {
     font-family: 'Font Awesome 6 Pro', sans-serif;
     font-weight: 900;
+    font-style: normal;
     font-variant: normal;
     text-transform: none;
     line-height: 1;
