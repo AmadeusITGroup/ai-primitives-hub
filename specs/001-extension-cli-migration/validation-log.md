@@ -85,6 +85,32 @@
 - Repository update sync now removes obsolete files from the previous lockfile entry when the file is unmodified and not shared by another bundle.
 - Repository uninstall now normalizes legacy lockfile paths with Windows separators before resolving, comparing, removing files, and cleaning git-exclude entries.
 
+## Phase 3 RegistryManager Parity Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/registry-manager.test.ts` | Failed as expected, then passed | New T031 repository workflow parity tests first failed because repository-scope install, update, and uninstall emitted normal bundle events but did not fire `onRepositoryBundlesChanged`. After emitting the repository refresh event for repository-scope mutations, the suite passed with 26 passing. |
+
+### Phase 3 RegistryManager Parity Defects Found and Fixed
+
+- Repository-scope install, update, and uninstall now notify `onRepositoryBundlesChanged`, keeping marketplace/tree UI listeners refreshed after direct RegistryManager operations and command-level move-scope workflows that compose uninstall/install.
+- `RegistryManager` has no dedicated move-scope API; move-scope behavior is currently implemented by `BundleScopeCommands` through `uninstallBundle()` and `installBundle()`, so this parity check covers the service calls that command path depends on.
+
+## Phase 3 Repository Safety Diagnostics Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/registry-manager-repository-safety.test.ts` | Failed as expected, then passed | New T032 RegistryManager repository-safety test first failed because committed repository installs accepted secret-like prompt, instruction, agent, and skill content. After wiring repository-scope `BundleInstaller.installFromBuffer()` through the repository install policy before workspace writes, the suite passed with 2 passing. |
+| `npm run test:one -- test/services/registry-manager.test.ts` | Passed | Revalidated T031 RegistryManager workflow parity after T032 installer changes; 26 passing. |
+| `npx eslint src/services/registry-manager.ts src/services/bundle-installer.ts test/services/registry-manager.test.ts test/services/registry-manager-repository-safety.test.ts` | Passed with warnings | No ESLint errors after T031/T032 changes. Remaining output is pre-existing unsafe-`any` warnings in the large service files. |
+| `git diff --check` | Passed | No whitespace errors after T031/T032 edits. |
+| `npm run compile` | Passed with warning | Production compile completed. Warning remains the known optional Elasticsearch `apache-arrow/Arrow.node` module not found. |
+
+### Phase 3 Repository Safety Defects Found and Fixed
+
+- Committed repository installs now reject manifest resources whose extracted content contains secret-like material, and diagnostics redact matched content with `[REDACTED]`.
+- `local-only` repository mode remains allowed for the same resource content, preserving the non-committed escape hatch.
+
 ## Notes
 
 - No source-code migration or cherry-pick has been applied yet.

@@ -1563,6 +1563,11 @@ export class RegistryManager {
     if (!silent) {
       this._onBundleInstalled.fire(installation);
     }
+
+    if (options.scope === 'repository') {
+      this._onRepositoryBundlesChanged.fire();
+    }
+
     this.logger.info(`Bundle '${bundleId}' installed successfully`);
 
     return installation;
@@ -1662,6 +1667,11 @@ export class RegistryManager {
     if (!silent) {
       this._onBundleUninstalled.fire(installed.bundleId);
     }
+
+    if (scope === 'repository') {
+      this._onRepositoryBundlesChanged.fire();
+    }
+
     this.logger.info(`Bundle '${installed.bundleId}' uninstalled successfully`);
   }
 
@@ -1806,6 +1816,11 @@ export class RegistryManager {
     }
 
     this._onBundleUpdated.fire(updated);
+
+    if (current.scope === 'repository') {
+      this._onRepositoryBundlesChanged.fire();
+    }
+
     this.logger.info(`Bundle '${bundleId}' updated from v${current.version} to v${bundle.version}`);
   }
 
