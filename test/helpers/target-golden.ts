@@ -11,19 +11,28 @@ export interface GoldenFileTree {
   files: GoldenFileEntry[];
 }
 
+/**
+ * Reads a target filesystem tree into deterministic golden entries.
+ * @param root
+ */
 export async function readTargetFileTree(root: string): Promise<GoldenFileTree> {
   const files = await readFiles(root, '');
 
   return {
-    files: files.sort((left, right) => left.path.localeCompare(right.path))
+    files: files.toSorted((left, right) => left.path.localeCompare(right.path))
   };
 }
 
+/**
+ * Asserts that a target filesystem exactly matches the expected golden tree.
+ * @param root
+ * @param expected
+ */
 export async function assertTargetFileSystem(root: string, expected: GoldenFileTree): Promise<void> {
   const actual = await readTargetFileTree(root);
 
   assert.deepStrictEqual(actual, {
-    files: expected.files.slice().sort((left, right) => left.path.localeCompare(right.path))
+    files: expected.files.toSorted((left, right) => left.path.localeCompare(right.path))
   });
 }
 

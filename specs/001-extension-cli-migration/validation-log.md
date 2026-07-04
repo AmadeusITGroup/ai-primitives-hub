@@ -27,8 +27,24 @@
 | `git diff --check` | Passed | No whitespace errors after task regeneration. |
 | `speckit.analyze` | Passed with low note | No critical, high, or medium findings. Low note: optional phase-name mapping between plan and tasks. |
 
+## Phase 2 Foundational Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npx eslint src/types/target.ts src/services/application-use-cases.ts src/services/repository-install-policy.ts src/services/resource-transformer.ts src/services/target-capability-registry.ts src/services/target-layout-registry.ts src/services/target-writer.ts src/services/migration-guards.ts test/helpers/target-golden.ts test/helpers/target-golden.test.ts test/services/application-use-cases.test.ts test/services/repository-install-policy.test.ts test/services/resource-transformer.test.ts test/services/target-model.test.ts test/services/vscode-install-parity.test.ts` | Passed | Phase 2 touched files lint clean. ESLint printed only the existing multi-project performance warning. |
+| `npm run compile-tests` | Passed | TypeScript test compile completed and fixtures copied to `test-dist`. |
+| `npm run test:one -- test/services/target-model.test.ts` | Passed | 8 passing. |
+| `npm run test:one -- test/helpers/target-golden.test.ts` | Passed | 2 passing. |
+| `npm run test:one -- test/services/resource-transformer.test.ts` | Passed | 3 passing. |
+| `npm run test:one -- test/services/repository-install-policy.test.ts` | Passed | 3 passing. |
+| `npm run test:one -- test/services/application-use-cases.test.ts` | Passed | 4 passing. |
+| `npm run test:one -- test/services/vscode-install-parity.test.ts` | Passed | 5 passing. |
+| `npm run compile` | Passed with warning | `lib` TypeScript build and webpack compile completed. Warning remains the known optional `apache-arrow/Arrow.node` module not found from Elasticsearch helper import. |
+| `npm run lint` | Failed baseline | 874 problems: 1 error and 873 warnings. The only error remains existing `@stylistic/comma-dangle` in `test/services/mcp-server-manager.test.ts`; grep of `/tmp/ai-primitives-hub-phase2-lint-after.log` found no Phase 2 touched-file entries. |
+
 ## Notes
 
 - No source-code migration or cherry-pick has been applied yet.
 - Direct merge of `feat/cli-backup` remains disallowed by the plan.
 - Baseline lint and unit test failures are recorded as pre-migration evidence and are not caused by source changes in this branch.
+- Phase 2 foundational contracts, golden helpers, safety policy, transformer pipeline, writer port, and shared use cases are validated and ready for the next planned slice.

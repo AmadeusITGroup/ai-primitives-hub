@@ -33,20 +33,20 @@
 - [x] T010 [P] Add failing golden output harness helpers for deterministic user and repository target filesystem assertions in `test/helpers/target-golden.ts`
 - [x] T011 [P] Capture current VS Code user-scope golden output fixtures for prompts, instructions, agents, and skills before source changes in `test/fixtures/golden/vscode-user/`
 - [x] T012 [P] Capture current VS Code repository-scope golden output fixtures and `prompt-registry.lock.json` expectations before source changes in `test/fixtures/golden/vscode-repository/`
-- [ ] T013 [P] Add failing migration parity tests for current VS Code install, update, uninstall, move-scope, and lockfile behavior in `test/services/vscode-install-parity.test.ts`
-- [ ] T014 [P] Add failing transformer contract tests for idempotent, deterministic, and fail-safe resource transformations in `test/services/resource-transformer.test.ts`
-- [ ] T015 [P] Add failing repository-scope secret-safe install tests for prompts, instructions, agents, and skills using secret-like and local-only fixture content in `test/services/repository-install-policy.test.ts`
-- [ ] T016 [P] Add failing application use-case contract tests for shared install, update, uninstall, and validate operations in `test/services/application-use-cases.test.ts`
+- [x] T013 [P] Add failing migration parity tests for current VS Code install, update, uninstall, move-scope, and lockfile behavior in `test/services/vscode-install-parity.test.ts`
+- [x] T014 [P] Add failing transformer contract tests for idempotent, deterministic, and fail-safe resource transformations in `test/services/resource-transformer.test.ts`
+- [x] T015 [P] Add failing repository-scope secret-safe install tests for prompts, instructions, agents, and skills using secret-like and local-only fixture content in `test/services/repository-install-policy.test.ts`
+- [x] T016 [P] Add failing application use-case contract tests for shared install, update, uninstall, and validate operations in `test/services/application-use-cases.test.ts`
 - [x] T017 Define shared Target, TargetScope, TargetLayout, TargetCapability, Resource, ResourceTransformer, and InstallOperation types in `src/types/target.ts`
-- [ ] T018 Define shared application use-case interfaces and request/result models for install, update, uninstall, and validate in `src/services/application-use-cases.ts`
-- [ ] T019 Implement the target capability registry with VS Code and Kiro placeholders in `src/services/target-capability-registry.ts`
-- [ ] T020 Implement the target layout registry with user and repository scope resolution in `src/services/target-layout-registry.ts`
-- [ ] T021 Implement the shared target writer port and write result model in `src/services/target-writer.ts`
-- [ ] T022 Implement deterministic resource transformer interfaces and diagnostics in `src/services/resource-transformer.ts`
-- [ ] T023 Implement repository-scope secret-safe install policy checks and redacted diagnostics for prompts, instructions, agents, and skills in `src/services/repository-install-policy.ts`
-- [ ] T024 Implement shared install, update, uninstall, and validate use cases over the target, writer, transformer, and safety-policy ports in `src/services/application-use-cases.ts`
-- [ ] T025 Add migration cleanup markers for temporary dual-backend paths in `src/services/migration-guards.ts`
-- [ ] T026 Run `npm run compile`, `npm run lint`, and the foundational tests, then record results in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T018 Define shared application use-case interfaces and request/result models for install, update, uninstall, and validate in `src/services/application-use-cases.ts`
+- [x] T019 Implement the target capability registry with VS Code and Kiro placeholders in `src/services/target-capability-registry.ts`
+- [x] T020 Implement the target layout registry with user and repository scope resolution in `src/services/target-layout-registry.ts`
+- [x] T021 Implement the shared target writer port and write result model in `src/services/target-writer.ts`
+- [x] T022 Implement deterministic resource transformer interfaces and diagnostics in `src/services/resource-transformer.ts`
+- [x] T023 Implement repository-scope secret-safe install policy checks and redacted diagnostics for prompts, instructions, agents, and skills in `src/services/repository-install-policy.ts`
+- [x] T024 Implement shared install, update, uninstall, and validate use cases over the target, writer, transformer, and safety-policy ports in `src/services/application-use-cases.ts`
+- [x] T025 Add migration cleanup markers for temporary dual-backend paths in `src/services/migration-guards.ts`
+- [x] T026 Run `npm run compile`, `npm run lint`, and the foundational tests, then record results in `specs/001-extension-cli-migration/validation-log.md`
 
 **Checkpoint**: Golden VS Code fixtures, shared contracts, repository safety policy, writer contracts, and shared application use cases exist; user story implementation can proceed in priority order.
 

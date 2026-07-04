@@ -129,7 +129,7 @@ suite('TargetModel', () => {
         content: '# Review\n'
       };
       const transformer: ResourceTransformer = {
-        transform: async (input) => ({
+        transform: (input) => Promise.resolve({
           resource: input,
           diagnostics: []
         })

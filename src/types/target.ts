@@ -72,18 +72,34 @@ export interface InstallOperation {
   layout: TargetLayout;
 }
 
+/**
+ * Checks whether a value is a supported target type.
+ * @param value
+ */
 export function isTargetType(value: unknown): value is TargetType {
   return typeof value === 'string' && TARGET_TYPES.includes(value as TargetType);
 }
 
+/**
+ * Checks whether a value is a supported target scope.
+ * @param value
+ */
 export function isTargetScope(value: unknown): value is TargetScope {
   return typeof value === 'string' && TARGET_SCOPES.includes(value as TargetScope);
 }
 
+/**
+ * Checks whether a value is an installable resource kind.
+ * @param value
+ */
 export function isResourceKind(value: unknown): value is ResourceKind {
   return typeof value === 'string' && RESOURCE_KINDS.includes(value as ResourceKind);
 }
 
+/**
+ * Validates a target capability declaration.
+ * @param capability
+ */
 export function validateTargetCapability(capability: TargetCapability): TargetValidationResult {
   const errors: string[] = [];
 
@@ -93,7 +109,7 @@ export function validateTargetCapability(capability: TargetCapability): TargetVa
 
   for (const resourceKind of capability.supportedResources) {
     if (!isResourceKind(resourceKind)) {
-      errors.push(`Unsupported resource kind: ${resourceKind}`);
+      errors.push(`Unsupported resource kind: ${String(resourceKind)}`);
     }
   }
 
@@ -103,6 +119,10 @@ export function validateTargetCapability(capability: TargetCapability): TargetVa
   };
 }
 
+/**
+ * Validates that a target layout can route every resource kind.
+ * @param layout
+ */
 export function validateTargetLayout(layout: TargetLayout): TargetValidationResult {
   const errors: string[] = [];
 
