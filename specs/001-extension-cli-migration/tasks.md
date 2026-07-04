@@ -60,10 +60,10 @@
 
 ### Tests for User Story 1
 
-- [ ] T027 [P] [US1] Add VS Code golden comparison tests for user-scope prompts, instructions, agents, and skills in `test/services/vscode-user-golden.test.ts`
-- [ ] T028 [P] [US1] Add VS Code golden comparison tests for repository-scope prompts, instructions, agents, skills, and lockfile expectations in `test/services/vscode-repository-golden.test.ts`
-- [ ] T029 [P] [US1] Add failing regression tests for WSL and VS Code fork user-path resolution in `test/services/user-scope-service.test.ts`
-- [ ] T030 [P] [US1] Add failing regression tests for repository lockfile compatibility during update and uninstall in `test/services/repository-scope-service.test.ts`
+- [x] T027 [P] [US1] Add VS Code golden comparison tests for user-scope prompts, instructions, agents, and skills in `test/services/vscode-user-golden.test.ts`
+- [x] T028 [P] [US1] Add VS Code golden comparison tests for repository-scope prompts, instructions, agents, skills, and lockfile expectations in `test/services/vscode-repository-golden.test.ts`
+- [x] T029 [P] [US1] Add failing regression tests for WSL and VS Code fork user-path resolution in `test/services/user-scope-service.test.ts`
+- [x] T030 [P] [US1] Add failing regression tests for repository lockfile compatibility during update and uninstall in `test/services/repository-scope-service.test.ts`
 - [ ] T031 [P] [US1] Add failing extension service parity tests for install, update, uninstall, and move-scope workflows in `test/services/registry-manager.test.ts`
 - [ ] T032 [P] [US1] Add failing VS Code repository-scope diagnostics tests for secret-like prompts, instructions, agents, and skills in `test/services/registry-manager-repository-safety.test.ts`
 

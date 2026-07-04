@@ -450,6 +450,37 @@ suite('RepositoryScopeService', () => {
     });
   });
 
+  suite('syncBundle - Lockfile Compatibility', () => {
+    test('should remove obsolete tracked files when updating a bundle', async () => {
+      const bundleId = 'update-lockfile-bundle';
+      const oldPromptsDir = path.join(workspaceRoot, '.github', 'prompts');
+      fs.mkdirSync(oldPromptsDir, { recursive: true });
+      const oldFile = path.join(oldPromptsDir, 'old.prompt.md');
+      fs.writeFileSync(oldFile, '# Old Prompt');
+      const oldChecksum = calculateChecksumSync(oldFile);
+
+      createLockfile(bundleId, 'commit', [
+        { path: '.github/prompts/old.prompt.md', checksum: oldChecksum }
+      ]);
+
+      const updatedBundlePath = createMockBundle(bundleId, [
+        { name: 'new.prompt.md', content: '# New Prompt', type: 'prompt' }
+      ]);
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await service.syncBundle(bundleId, updatedBundlePath, { commitMode: 'commit' });
+
+      assert.ok(
+        !fs.existsSync(oldFile),
+        'Obsolete file tracked by the existing lockfile should be removed during update sync'
+      );
+      assert.ok(
+        fs.existsSync(path.join(workspaceRoot, '.github', 'prompts', 'new.prompt.md')),
+        'Updated bundle file should be installed'
+      );
+    });
+  });
+
   suite('unsyncBundle', () => {
     test('should remove files from .github/ directories', async () => {
       // Setup: create synced files
@@ -473,6 +504,25 @@ suite('RepositoryScopeService', () => {
       await service.unsyncBundle(bundleId);
 
       assert.ok(!fs.existsSync(path.join(promptsDir, 'test.prompt.md')), 'File should be removed');
+    });
+
+    test('should remove files tracked with Windows separators in legacy lockfiles', async () => {
+      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+      fs.mkdirSync(promptsDir, { recursive: true });
+      const promptFile = path.join(promptsDir, 'windows-path.prompt.md');
+      fs.writeFileSync(promptFile, '# Windows Path');
+      const checksum = calculateChecksumSync(promptFile);
+
+      const bundleId = 'windows-path-bundle';
+      createLockfile(bundleId, 'commit', [
+        { path: '.github\\prompts\\windows-path.prompt.md', checksum }
+      ]);
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await service.unsyncBundle(bundleId);
+
+      assert.ok(!fs.existsSync(promptFile), 'File tracked with Windows separators should be removed');
     });
 
     test('should remove entries from .git/info/exclude', async () => {

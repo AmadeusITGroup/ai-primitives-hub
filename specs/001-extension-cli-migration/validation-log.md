@@ -42,6 +42,49 @@
 | `npm run compile` | Passed with warning | `lib` TypeScript build and webpack compile completed. Warning remains the known optional `apache-arrow/Arrow.node` module not found from Elasticsearch helper import. |
 | `npm run lint` | Failed baseline | 874 problems: 1 error and 873 warnings. The only error remains existing `@stylistic/comma-dangle` in `test/services/mcp-server-manager.test.ts`; grep of `/tmp/ai-primitives-hub-phase2-lint-after.log` found no Phase 2 touched-file entries. |
 
+## Phase 3 VS Code Golden Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/helpers/target-golden.test.ts` | Passed | 2 passing. Revalidated deterministic golden helper behavior after adding symlink file reads for user-scope output. |
+| `npm run test:one -- test/services/vscode-user-golden.test.ts` | Passed | 1 passing. Confirms `UserScopeService.syncBundle()` preserves current user-scope prompt, instruction, agent, and skill output. |
+| `npm run test:one -- test/services/vscode-repository-golden.test.ts` | Passed | 1 passing. Confirms `RepositoryScopeService.syncBundle()` plus lockfile creation preserves current repository-scope files and lockfile shape. |
+| `npm run test:one -- test/services/user-scope-service.test.ts` | Passed | 11 passing. Regression coverage for the touched user-scope service still passes. |
+| `npm run test:one -- test/services/repository-scope-service.test.ts` | Passed | Repository-scope service regression suite passed after normalizing singular `instruction` manifest type to `instructions`. |
+| `npm run compile-tests` | Passed | TypeScript test compile completed and fixtures copied to `test-dist`. |
+| `npx eslint src/services/user-scope-service.ts src/services/repository-scope-service.ts test/helpers/target-golden.ts test/services/vscode-user-golden.test.ts test/services/vscode-repository-golden.test.ts` | Passed with warnings | No ESLint errors after T027/T028 fixes. Remaining output is pre-existing unsafe-`any` warnings in the large scope services. |
+
+### Phase 3 Defects Found and Fixed
+
+- User-scope golden output initially missed symlinked files; `test/helpers/target-golden.ts` now reads regular files and symlinks.
+- `UserScopeService` generated an invalid filename for singular manifest type `instruction`; it now maps `instruction` to Copilot file type `instructions`.
+- `RepositoryScopeService` failed repository placement for singular manifest type `instruction`; it now maps `instruction` to Copilot file type `instructions` before resolving target paths.
+
+## Phase 3 User Path Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/user-scope-service.test.ts` | Failed as expected, then passed | New T029 regression first failed because WSL Windsurf sync wrote under the default `Code` path instead of the Windsurf Windows data folder. After adding the Windsurf URI-scheme mapping, the suite passed with 12 passing. |
+| `npm run test:one -- test/services/user-scope-service.wsl.test.ts` | Passed | Existing WSL path behavior still passes with 11 passing, including stable, insiders, unknown-scheme fallback, copy mode, and missing `cmd.exe` fallback cases. |
+| `npx eslint src/services/user-scope-service.ts test/services/user-scope-service.test.ts` | Passed with warnings | No ESLint errors after the T029 test and resolver change. Remaining output is pre-existing unsafe-`any` warnings in `UserScopeService`. |
+
+### Phase 3 User Path Defects Found and Fixed
+
+- `UserScopeService` did not resolve WSL Windsurf installs to the Windows Windsurf user data folder; the WSL URI-scheme map now resolves `windsurf` to `Windsurf`.
+
+## Phase 3 Repository Lockfile Compatibility Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/repository-scope-service.test.ts` | Failed as expected, then passed | New T030 update regression first failed because `syncBundle()` left obsolete lockfile-tracked files behind. New uninstall regression first failed because legacy Windows-separator lockfile paths did not resolve to installed `.github` files on this platform. After cleanup and path-normalization fixes, the suite passed with 42 passing. |
+| `npx eslint src/services/repository-scope-service.ts test/services/repository-scope-service.test.ts` | Passed | T030 touched files lint clean. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check && npm run compile-tests && npm run compile` | Passed with warning | Whitespace check and TypeScript test compile passed. Production compile passed with the known optional Elasticsearch `apache-arrow/Arrow.node` warning. |
+
+### Phase 3 Repository Lockfile Defects Found and Fixed
+
+- Repository update sync now removes obsolete files from the previous lockfile entry when the file is unmodified and not shared by another bundle.
+- Repository uninstall now normalizes legacy lockfile paths with Windows separators before resolving, comparing, removing files, and cleaning git-exclude entries.
+
 ## Notes
 
 - No source-code migration or cherry-pick has been applied yet.

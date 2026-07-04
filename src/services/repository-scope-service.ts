@@ -17,6 +17,9 @@ import {
   RegistryStorage,
 } from '../storage/registry-storage';
 import {
+  Lockfile,
+} from '../types/lockfile';
+import {
   DeploymentManifest,
   RepositoryCommitMode,
 } from '../types/registry';
@@ -137,6 +140,22 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
+   * Normalize a repository-relative path stored in a lockfile.
+   * @param relativePath
+   */
+  private normalizeLockfilePath(relativePath: string): string {
+    return relativePath.replace(/\\/g, '/');
+  }
+
+  /**
+   * Resolve a repository-relative lockfile path on the current platform.
+   * @param relativePath
+   */
+  private resolveLockfilePath(relativePath: string): string {
+    return path.join(this.workspaceRoot, ...this.normalizeLockfilePath(relativePath).split('/'));
+  }
+
+  /**
    * Install files from a bundle to .github/ directories
    * @param bundlePath - Path to bundle directory
    * @param manifest - Deployment manifest
@@ -240,7 +259,9 @@ export class RepositoryScopeService implements IScopeService {
       return;
     }
 
-    const fileType = promptDef.type as CopilotFileType || determineFileType(promptDef.file, promptDef.tags);
+    const fileType = promptDef.type === 'instruction'
+      ? 'instructions'
+      : promptDef.type as CopilotFileType || determineFileType(promptDef.file, promptDef.tags);
     const targetPath = this.getTargetPath(fileType, promptId);
     this.logger.info(`[RepositoryScopeService] File type: ${fileType}, Target path: ${targetPath}`);
 
@@ -416,7 +437,7 @@ export class RepositoryScopeService implements IScopeService {
       for (const [bundleId, entry] of Object.entries(mainLockfile.bundles)) {
         if (bundleId !== excludeBundleId && entry.files) {
           for (const file of entry.files) {
-            usedFiles.add(file.path);
+            usedFiles.add(this.normalizeLockfilePath(file.path));
           }
         }
       }
@@ -427,13 +448,82 @@ export class RepositoryScopeService implements IScopeService {
       for (const [bundleId, entry] of Object.entries(localLockfile.bundles)) {
         if (bundleId !== excludeBundleId && entry.files) {
           for (const file of entry.files) {
-            usedFiles.add(file.path);
+            usedFiles.add(this.normalizeLockfilePath(file.path));
           }
         }
       }
     }
 
     return usedFiles;
+  }
+
+  /**
+   * Read a lockfile from an explicit path.
+   * @param lockfilePath
+   */
+  private async readLockfileAtPath(lockfilePath: string): Promise<Lockfile | null> {
+    if (!fs.existsSync(lockfilePath)) {
+      return null;
+    }
+
+    try {
+      const content = await readFile(lockfilePath, 'utf8');
+      return JSON.parse(content) as Lockfile;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Remove files from the previous lockfile entry that are absent from the newly synced bundle.
+   * @param bundleId
+   * @param installedPaths
+   */
+  private async cleanupObsoleteTrackedFiles(bundleId: string, installedPaths: string[]): Promise<void> {
+    const lockfileManager = LockfileManager.getInstance(this.workspaceRoot);
+    const mainLockfile = await lockfileManager.read();
+    const localLockfile = await this.readLockfileAtPath(lockfileManager.getLocalLockfilePath());
+    const bundleEntry = mainLockfile?.bundles[bundleId] || localLockfile?.bundles[bundleId];
+
+    if (!bundleEntry?.files?.length) {
+      return;
+    }
+
+    const installedPathSet = new Set(installedPaths.map((p) => this.normalizeLockfilePath(p)));
+    const filesUsedByOtherBundles = this.collectFilesUsedByOtherBundles(bundleId, mainLockfile, localLockfile);
+    const removedPaths: string[] = [];
+
+    for (const fileEntry of bundleEntry.files) {
+      const normalizedEntryPath = this.normalizeLockfilePath(fileEntry.path);
+      if (installedPathSet.has(normalizedEntryPath) || filesUsedByOtherBundles.has(normalizedEntryPath)) {
+        continue;
+      }
+
+      const targetPath = this.resolveLockfilePath(fileEntry.path);
+      if (!fs.existsSync(targetPath)) {
+        continue;
+      }
+
+      try {
+        const currentChecksum = await calculateFileChecksum(targetPath);
+        if (currentChecksum !== fileEntry.checksum) {
+          this.logger.info(`[RepositoryScopeService] Preserving user-modified obsolete file: ${fileEntry.path}`);
+          continue;
+        }
+
+        await unlink(targetPath);
+        removedPaths.push(normalizedEntryPath);
+        this.logger.debug(`[RepositoryScopeService] Removed obsolete tracked file: ${fileEntry.path}`);
+      } catch {
+        this.logger.warn(`[RepositoryScopeService] Failed to remove obsolete tracked file: ${fileEntry.path}`);
+      }
+    }
+
+    if (removedPaths.length > 0) {
+      const pathsForExclude = this.consolidateSkillPathsForGitExclude(removedPaths);
+      await this.removeFromGitExclude(pathsForExclude);
+      await this.cleanupEmptyPromptRegistryDirectories();
+    }
   }
 
   /**
@@ -736,6 +826,7 @@ export class RepositoryScopeService implements IScopeService {
 
       // Install files (handles empty prompts array gracefully)
       const installedPaths = await this.installFiles(bundlePath, manifest, commitMode);
+      await this.cleanupObsoleteTrackedFiles(bundleId, installedPaths);
 
       this.logger.info(`[RepositoryScopeService] ✅ Synced ${installedPaths.length} files for bundle: ${bundleId}`);
     } catch (error) {
@@ -764,16 +855,7 @@ export class RepositoryScopeService implements IScopeService {
 
       // Read both lockfiles to get complete picture
       const mainLockfile = await lockfileManager.read();
-      const localLockfilePath = lockfileManager.getLocalLockfilePath();
-      let localLockfile = null;
-      if (fs.existsSync(localLockfilePath)) {
-        try {
-          const content = await readFile(localLockfilePath, 'utf8');
-          localLockfile = JSON.parse(content);
-        } catch {
-          // Ignore parse errors
-        }
-      }
+      const localLockfile = await this.readLockfileAtPath(lockfileManager.getLocalLockfilePath());
 
       // Find the bundle entry in either lockfile
       const bundleEntry = mainLockfile?.bundles[bundleId] || localLockfile?.bundles[bundleId];
@@ -803,7 +885,8 @@ export class RepositoryScopeService implements IScopeService {
 
       // Remove each file tracked in the lockfile
       for (const fileEntry of bundleFiles) {
-        const targetPath = path.join(this.workspaceRoot, fileEntry.path);
+        const normalizedEntryPath = this.normalizeLockfilePath(fileEntry.path);
+        const targetPath = this.resolveLockfilePath(fileEntry.path);
 
         // Skip if file doesn't exist
         if (!fs.existsSync(targetPath)) {
@@ -812,9 +895,9 @@ export class RepositoryScopeService implements IScopeService {
         }
 
         // Skip if file is used by another bundle
-        if (filesUsedByOtherBundles.has(fileEntry.path)) {
-          skippedPaths.push({ path: fileEntry.path, reason: 'used by another bundle' });
-          this.logger.debug(`[RepositoryScopeService] Skipping file used by another bundle: ${fileEntry.path}`);
+        if (filesUsedByOtherBundles.has(normalizedEntryPath)) {
+          skippedPaths.push({ path: normalizedEntryPath, reason: 'used by another bundle' });
+          this.logger.debug(`[RepositoryScopeService] Skipping file used by another bundle: ${normalizedEntryPath}`);
           continue;
         }
 
@@ -822,22 +905,22 @@ export class RepositoryScopeService implements IScopeService {
         try {
           const currentChecksum = await calculateFileChecksum(targetPath);
           if (currentChecksum !== fileEntry.checksum) {
-            skippedPaths.push({ path: fileEntry.path, reason: 'modified by user' });
-            this.logger.info(`[RepositoryScopeService] Preserving user-modified file: ${fileEntry.path}`);
+            skippedPaths.push({ path: normalizedEntryPath, reason: 'modified by user' });
+            this.logger.info(`[RepositoryScopeService] Preserving user-modified file: ${normalizedEntryPath}`);
             continue;
           }
         } catch {
-          this.logger.warn(`[RepositoryScopeService] Failed to calculate checksum for: ${fileEntry.path}`);
+          this.logger.warn(`[RepositoryScopeService] Failed to calculate checksum for: ${normalizedEntryPath}`);
           continue;
         }
 
         // Safe to remove - file is tracked, unmodified, and not shared
         try {
           await unlink(targetPath);
-          removedPaths.push(fileEntry.path);
-          this.logger.debug(`[RepositoryScopeService] Removed: ${fileEntry.path}`);
+          removedPaths.push(normalizedEntryPath);
+          this.logger.debug(`[RepositoryScopeService] Removed: ${normalizedEntryPath}`);
         } catch {
-          this.logger.warn(`[RepositoryScopeService] Failed to remove file: ${fileEntry.path}`);
+          this.logger.warn(`[RepositoryScopeService] Failed to remove file: ${normalizedEntryPath}`);
         }
       }
 

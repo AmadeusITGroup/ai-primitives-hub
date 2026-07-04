@@ -63,7 +63,7 @@ export interface CopilotFile {
   targetPath: string;
 }
 
-type CodeFlavourFolder = 'Code' | 'Code - Insiders';
+type CodeFlavourFolder = 'Code' | 'Code - Insiders' | 'Windsurf';
 
 /**
  * Service to sync bundle prompts to GitHub Copilot's native directories at user level.
@@ -73,7 +73,8 @@ export class UserScopeService implements IScopeService {
   private readonly logger: Logger;
   private readonly appNameMap: Map<string, CodeFlavourFolder> = new Map([
     ['vscode', 'Code'],
-    ['vscode-insiders', 'Code - Insiders']
+    ['vscode-insiders', 'Code - Insiders'],
+    ['windsurf', 'Windsurf']
   ]);
 
   private windowsHomeInWSL: string | undefined;
@@ -396,7 +397,9 @@ export class UserScopeService implements IScopeService {
     const tags = promptDef.tags || [];
 
     // Use manifest type if provided, otherwise detect from file
-    const type: CopilotFileType = promptDef.type ? promptDef.type as CopilotFileType : determineFileType(sourcePath, tags);
+    const type: CopilotFileType = promptDef.type
+      ? (promptDef.type === 'instruction' ? 'instructions' : promptDef.type as CopilotFileType)
+      : determineFileType(sourcePath, tags);
 
     // Create target path: promptId.type.md directly in prompts directory
     const targetFileName = getTargetFileName(promptDef.id, type);

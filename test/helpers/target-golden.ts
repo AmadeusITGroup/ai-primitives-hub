@@ -53,7 +53,7 @@ async function readFiles(root: string, relativeRoot: string): Promise<GoldenFile
       continue;
     }
 
-    if (entry.isFile()) {
+    if (entry.isFile() || entry.isSymbolicLink()) {
       files.push({
         path: toPosixPath(relativePath),
         content: await fs.readFile(path.join(root, relativePath), 'utf8')
