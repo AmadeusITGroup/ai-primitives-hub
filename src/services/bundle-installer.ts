@@ -61,6 +61,12 @@ import {
   checkPathExists,
 } from '../utils/symlink-utils';
 import {
+  ApplicationBundle,
+  ApplicationResource,
+  createApplicationUseCases,
+  InstallUseCaseRequest,
+} from './application-use-cases';
+import {
   LockfileManager,
 } from './lockfile-manager';
 import {
@@ -498,6 +504,134 @@ export class BundleInstaller {
   }
 
   /**
+   * Validate the legacy installer input through the shared application contract.
+   * @param extractDir
+   * @param bundle
+   * @param manifest
+   * @param options
+   */
+  private async validateSharedInstallRequest(
+    extractDir: string,
+    bundle: Bundle,
+    manifest: DeploymentManifest,
+    options: InstallOptions
+  ): Promise<void> {
+    const request = await this.createSharedInstallUseCaseRequest(extractDir, bundle, manifest, options);
+    if (!request) {
+      return;
+    }
+
+    const useCases = createApplicationUseCases({
+      root: this.context.globalStorageUri.fsPath,
+      now: () => new Date().toISOString()
+    });
+    const result = await useCases.validate(request);
+
+    if (result.valid) {
+      return;
+    }
+
+    const diagnostics = result.diagnostics
+      .map((diagnostic) => `${diagnostic.code} ${diagnostic.resourceId ?? bundle.id}: ${diagnostic.message}`)
+      .join('; ');
+
+    throw new Error(`Bundle target validation failed: ${diagnostics}`);
+  }
+
+  /**
+   * Build the shared install use-case request while preserving BundleInstaller's public API.
+   * @param extractDir
+   * @param bundle
+   * @param manifest
+   * @param options
+   */
+  private async createSharedInstallUseCaseRequest(
+    extractDir: string,
+    bundle: Bundle,
+    manifest: DeploymentManifest,
+    options: InstallOptions
+  ): Promise<InstallUseCaseRequest | undefined> {
+    if (options.scope === 'workspace') {
+      return undefined;
+    }
+
+    return {
+      target: {
+        type: 'vscode',
+        scope: options.scope
+      },
+      bundle: await this.createApplicationBundle(extractDir, bundle, manifest),
+      source: {
+        id: bundle.sourceId,
+        type: bundle.sourceId,
+        url: bundle.repository ?? bundle.homepage ?? bundle.manifestUrl
+      },
+      commitMode: options.scope === 'repository' ? (options.commitMode ?? 'commit') : undefined
+    };
+  }
+
+  /**
+   * Convert bundle metadata and manifest entries into the shared application bundle shape.
+   * @param extractDir
+   * @param bundle
+   * @param manifest
+   */
+  private async createApplicationBundle(
+    extractDir: string,
+    bundle: Bundle,
+    manifest: DeploymentManifest
+  ): Promise<ApplicationBundle> {
+    const resources: ApplicationResource[] = [];
+
+    for (const prompt of manifest.prompts ?? []) {
+      const sourcePath = prompt.file;
+      resources.push({
+        kind: this.toApplicationResourceKind(prompt.type, sourcePath),
+        id: prompt.id,
+        sourcePath,
+        content: await this.readRepositoryPolicyResourceContent(extractDir, sourcePath)
+      });
+    }
+
+    return {
+      id: bundle.id,
+      version: bundle.version,
+      resources
+    };
+  }
+
+  /**
+   * Map manifest prompt types into shared resource kinds without rejecting legacy chatmode files.
+   * @param promptType
+   * @param sourcePath
+   */
+  private toApplicationResourceKind(
+    promptType: string | undefined,
+    sourcePath: string
+  ): ResourceKind {
+    const fileType = promptType ?? determineFileType(sourcePath);
+
+    switch (fileType) {
+      case 'prompt':
+      case 'chatmode': {
+        return 'prompt';
+      }
+      case 'instructions': {
+        return 'instruction';
+      }
+      case 'agent': {
+        return 'agent';
+      }
+      case 'skill': {
+        return 'skill';
+      }
+      default: {
+        return fileType as ResourceKind;
+      }
+    }
+  }
+
+  /**
    * Get installation directory for bundle
    * Repository scope bundles are installed in the workspace's bundle storage
    * @param bundleId
@@ -840,6 +974,8 @@ export class BundleInstaller {
       // Step 4: Validate bundle structure
       const manifest = await this.validateBundle(extractDir, bundle);
       this.logger.debug('Bundle validation passed');
+
+      await this.validateSharedInstallRequest(extractDir, bundle, manifest, options);
 
       if (options.scope === 'repository') {
         await this.validateRepositorySafety(extractDir, manifest, options.commitMode ?? 'commit');

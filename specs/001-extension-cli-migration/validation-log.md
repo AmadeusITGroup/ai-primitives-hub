@@ -111,6 +111,51 @@
 - Committed repository installs now reject manifest resources whose extracted content contains secret-like material, and diagnostics redact matched content with `[REDACTED]`.
 - `local-only` repository mode remains allowed for the same resource content, preserving the non-committed escape hatch.
 
+## Phase 3 BundleInstaller Shared Request Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/bundle-installer.repositoryScope.test.ts` | Failed as expected, then passed | New T033 shared-target validation test first failed because repository install accepted a manifest entry with unsupported resource type `manifest` and continued to repository sync. After constructing a shared install use-case request in `BundleInstaller` and validating it before legacy copy/sync, the suite passed with 20 passing. |
+| `npm run test:one -- test/services/registry-manager-repository-safety.test.ts` | Passed | Revalidated T032 after the BundleInstaller shared validation change; 2 passing. |
+| `npx eslint src/services/bundle-installer.ts test/services/bundle-installer.repositoryScope.test.ts` | Passed with warnings | No ESLint errors after T033 changes. Remaining output is pre-existing unsafe-`any` warnings around manifest parsing in `BundleInstaller`. |
+| `git diff --check` | Passed | No whitespace errors after T033 edits. |
+| `npm run compile` | Passed with warning | Production compile completed. Warning remains the known optional Elasticsearch `apache-arrow/Arrow.node` module not found. |
+
+### Phase 3 BundleInstaller Defects Found and Fixed
+
+- `BundleInstaller.installFromBuffer()` now translates validated manifests into the shared application install request shape and runs target validation before legacy scope sync.
+- Unsupported shared target resources are rejected before repository files or lockfiles are written, while existing public `installFromBuffer()` and `update()` signatures remain unchanged.
+
+## Phase 3 UserScopeService Target Layout Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/user-scope-service.test.ts` | Failed as expected, then passed | New T034 shared-layout routing test first failed because user-scope prompt sync still wrote through the legacy hardcoded `User/prompts` path when the shared layout route was stubbed. After routing prompt, instruction, agent, and chatmode file placement through `resolveTargetLayout()`, the suite passed with 13 passing. |
+| `npm run test:one -- test/services/vscode-user-golden.test.ts` | Passed | Revalidated current VS Code user-scope golden output after target-layout routing; 1 passing. |
+| `npx eslint src/services/user-scope-service.ts test/services/user-scope-service.test.ts test/services/vscode-user-golden.test.ts` | Passed with warnings | No ESLint errors after T034 changes. Remaining output is pre-existing unsafe-`any` warnings in `UserScopeService`. |
+| `git diff --check` | Passed | No whitespace errors after T034 edits. |
+| `npm run compile` | Passed with warning | Production compile completed. Warning remains the known optional Elasticsearch `apache-arrow/Arrow.node` module not found. |
+
+### Phase 3 UserScopeService Defects Found and Fixed
+
+- User-scope prompt, instruction, agent, and chatmode file placement now resolves the resource route from the shared target layout contract while preserving existing VS Code profile and WSL base-directory detection.
+- Current VS Code user-scope golden output remains unchanged: prompts, instructions, and agents still land under the active VS Code `User/prompts` route, and skills still use the existing user skill sync path.
+
+## Phase 3 RepositoryScopeService Target Layout Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/repository-scope-service.test.ts` | Failed as expected, then passed | New T035 shared-layout routing test first failed because repository-scope prompt sync still copied to the legacy `.github/prompts` path when the shared layout route was stubbed. After routing prompt, instruction, agent, chatmode, and skill placement through `resolveTargetLayout()`, the suite passed with 43 passing. |
+| `npm run test:one -- test/services/vscode-repository-golden.test.ts` | Passed | Revalidated current VS Code repository-scope files and lockfile layout after target-layout routing; 1 passing. |
+| `npx eslint src/services/repository-scope-service.ts test/services/repository-scope-service.test.ts` | Passed | No ESLint errors after T035 changes. |
+| `git diff --check` | Passed | No whitespace errors after T035 edits. |
+| `npm run compile` | Passed with warning | Production compile completed. Warning remains the known optional Elasticsearch `apache-arrow/Arrow.node` module not found. |
+
+### Phase 3 RepositoryScopeService Defects Found and Fixed
+
+- Repository-scope file and skill placement now resolves target directories from the shared target layout contract while preserving the default VS Code `.github/*` output and lockfile-relative path shape.
+- Local-only git-exclude entries now follow the same layout-routed repository paths produced during sync.
+
 ## Notes
 
 - No source-code migration or cherry-pick has been applied yet.

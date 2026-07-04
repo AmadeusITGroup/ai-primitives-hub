@@ -57,13 +57,22 @@ async function createGoldenBundle(root: string): Promise<string> {
   await fs.mkdir(path.join(bundlePath, 'skills', 'analyzer', 'templates'), { recursive: true });
 
   await fs.writeFile(path.join(bundlePath, 'prompts', 'review.prompt.md'), '# Review\n\nReview the selected change for correctness, maintainability, and tests.');
-  await fs.writeFile(path.join(bundlePath, 'instructions', 'coding.instructions.md'), '# Coding Instructions\n\nUse focused changes, preserve public behavior, and validate before completion.');
+  await fs.writeFile(
+    path.join(bundlePath, 'instructions', 'coding.instructions.md'),
+    '# Coding Instructions\n\nUse focused changes, preserve public behavior, and validate before completion.'
+  );
   await fs.writeFile(
     path.join(bundlePath, 'agents', 'planner.agent.md'),
     '# Planner Agent\n\nCreate an implementation plan with dependencies, validation, and rollback notes.'
   );
-  await fs.writeFile(path.join(bundlePath, 'skills', 'analyzer', 'SKILL.md'), '# Analyzer\n\nAnalyze repository context and return evidence-backed findings.');
-  await fs.writeFile(path.join(bundlePath, 'skills', 'analyzer', 'templates', 'checklist.md'), '# Checklist\n\n- Confirm the target scope.\n- Compare expected and actual files.\n- Record validation evidence.');
+  await fs.writeFile(
+    path.join(bundlePath, 'skills', 'analyzer', 'SKILL.md'),
+    '# Analyzer\n\nAnalyze repository context and return evidence-backed findings.'
+  );
+  await fs.writeFile(
+    path.join(bundlePath, 'skills', 'analyzer', 'templates', 'checklist.md'),
+    '# Checklist\n\n- Confirm the target scope.\n- Compare expected and actual files.\n- Record validation evidence.'
+  );
   await fs.writeFile(path.join(bundlePath, 'deployment-manifest.yml'), [
     'id: golden-vscode-bundle',
     'version: "1.0.0"',

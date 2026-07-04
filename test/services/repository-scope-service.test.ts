@@ -18,6 +18,7 @@ import {
 import {
   RepositoryScopeService,
 } from '../../src/services/repository-scope-service';
+import * as TargetLayoutRegistry from '../../src/services/target-layout-registry';
 import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
@@ -218,6 +219,39 @@ suite('RepositoryScopeService', () => {
   });
 
   suite('syncBundle - File Placement', () => {
+    test('should route repository-scope files through the shared target layout contract', async () => {
+      createGitDirectory();
+
+      const bundleId = 'layout-routed-bundle';
+      const bundlePath = createMockBundle(bundleId, [
+        { name: 'test.prompt.md', content: '# Test Prompt', type: 'prompt' }
+      ]);
+
+      sandbox.stub(TargetLayoutRegistry, 'resolveTargetLayout').returns({
+        targetType: 'vscode',
+        scope: 'repository',
+        basePath: 'repository',
+        routes: {
+          prompt: '.ai-primitives/prompts',
+          instruction: '.ai-primitives/instructions',
+          agent: '.ai-primitives/agents',
+          skill: '.ai-primitives/skills'
+        }
+      });
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      const routedTargetFile = path.join(workspaceRoot, '.ai-primitives', 'prompts', 'test.prompt.md');
+      assert.ok(fs.existsSync(routedTargetFile), 'Prompt file should be placed using the shared repository layout route');
+
+      const excludeContent = readGitExclude();
+      assert.ok(
+        excludeContent?.includes('.ai-primitives/prompts/test.prompt.md'),
+        'Git exclude should contain the layout-routed repository path for local-only mode'
+      );
+    });
+
     test('should place prompt files in .github/prompts/', async () => {
       const bundleId = 'test-bundle';
       const bundlePath = createMockBundle(bundleId, [

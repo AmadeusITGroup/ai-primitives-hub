@@ -276,6 +276,42 @@ prompts:
       assert.ok(!mockUserScopeService.syncBundle.called, 'User scope sync should not be used for repository-scoped skills');
     });
 
+    test('should reject resources unsupported by the shared target contract before repository sync', async () => {
+      const options: InstallOptions = {
+        scope: 'repository',
+        commitMode: 'commit'
+      };
+
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+description: Test unsupported target resource
+author: test
+prompts:
+  - id: deployment-manifest
+    name: Deployment Manifest
+    description: A manifest resource is not an installable primitive
+    file: prompts/deployment-manifest.md
+    type: manifest
+`));
+      zip.addFile('prompts/deployment-manifest.md', Buffer.from('# Deployment Manifest'));
+
+      await assert.rejects(
+        installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github'),
+        /unsupported-resource.*deployment-manifest/
+      );
+
+      assert.strictEqual(
+        mockRepositoryScopeService.syncBundle.called,
+        false,
+        'Unsupported shared target resources should be rejected before repository sync'
+      );
+    });
+
     test('should call LockfileManager.createOrUpdate for repository scope installation', async () => {
       // Requirements: 4.1
       // Verify lockfile is updated when installing at repository scope

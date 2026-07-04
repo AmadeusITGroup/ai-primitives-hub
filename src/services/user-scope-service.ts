@@ -30,6 +30,10 @@ import {
   DeploymentManifest,
 } from '../types/registry';
 import {
+  ResourceKind,
+  TargetType,
+} from '../types/target';
+import {
   CopilotFileType,
   determineFileType,
   getTargetFileName,
@@ -47,6 +51,7 @@ import {
   IScopeService,
   SyncBundleOptions,
 } from './scope-service';
+import * as TargetLayoutRegistry from './target-layout-registry';
 
 const readFile = promisify(fs.readFile);
 const readdir = promisify(fs.readdir);
@@ -78,7 +83,7 @@ export class UserScopeService implements IScopeService {
   ]);
 
   private windowsHomeInWSL: string | undefined;
-  private cachedPromptsDir: string | undefined;
+  private readonly cachedUserResourceDirs = new Map<ResourceKind, string>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.logger = Logger.getInstance();
@@ -149,32 +154,34 @@ export class UserScopeService implements IScopeService {
    *
    * WSL Support: When running in WSL remote context, GitHub Copilot runs in the Windows UI,
    * so we need to sync prompts to the Windows filesystem, not the WSL filesystem.
+   * @param resourceKind
    */
-  private getCopilotPromptsDirectory(): string {
-    if (this.cachedPromptsDir) {
-      return this.cachedPromptsDir;
+  private getCopilotPromptsDirectory(resourceKind: ResourceKind = 'prompt'): string {
+    const cachedDir = this.cachedUserResourceDirs.get(resourceKind);
+    if (cachedDir) {
+      return cachedDir;
     }
 
-    const resolved = this.resolveCopilotPromptsDirectory();
+    const resolved = this.resolveCopilotPromptsDirectory(resourceKind);
 
     // Sanity check: the resolved path should end with 'prompts' and not be a filesystem root
     const basename = path.basename(resolved);
-    if (basename !== 'prompts' || resolved === path.dirname(resolved)) {
-      this.logger.warn(`[UserScopeService] Resolved prompts directory looks suspicious: ${resolved}`);
+    if ((resourceKind !== 'skill' && !basename.includes('prompts')) || resolved === path.dirname(resolved)) {
+      this.logger.warn(`[UserScopeService] Resolved ${resourceKind} directory looks suspicious: ${resolved}`);
     }
 
-    this.cachedPromptsDir = resolved;
+    this.cachedUserResourceDirs.set(resourceKind, resolved);
     return resolved;
   }
 
-  private resolveCopilotPromptsDirectory(): string {
+  private resolveCopilotPromptsDirectory(resourceKind: ResourceKind): string {
     const globalStoragePath = this.context.globalStorageUri.fsPath;
     this.logger.debug(`[UserScopeService] Original globalStorage path: ${globalStoragePath}`);
 
     // WSL: we construct the path ourselves, so we know the User dir directly
     const wslUserDir = this.getWindowsWslUserDir();
     if (wslUserDir) {
-      return this.resolvePromptsFromUserDir(wslUserDir);
+      return this.resolveResourceDirFromUserDir(wslUserDir, resourceKind);
     }
 
     if (this.isRunningInWSL()) {
@@ -197,18 +204,19 @@ export class UserScopeService implements IScopeService {
       const profileId = profilesMatch[1];
       const profileName = this.getActiveProfileName(userDir) || profileId;
       this.logger.info(`[UserScopeService] Using profile: ${profileName}`);
-      return path.join(userDir, 'profiles', profileId, 'prompts');
+      return this.resolveResourceDirFromBaseUserDir(path.join(userDir, 'profiles', profileId), resourceKind);
     }
 
-    return this.resolvePromptsFromUserDir(userDir);
+    return this.resolveResourceDirFromUserDir(userDir, resourceKind);
   }
 
   /**
    * Given a known User directory, resolve the prompts directory
    * (handles profile detection for both WSL and non-WSL paths).
    * @param userDir
+   * @param resourceKind
    */
-  private resolvePromptsFromUserDir(userDir: string): string {
+  private resolveResourceDirFromUserDir(userDir: string, resourceKind: ResourceKind): string {
     this.logger.debug(`[UserScopeService] Resolved User directory: ${userDir}`);
 
     // Extension installed globally but user might be in a profile
@@ -216,12 +224,54 @@ export class UserScopeService implements IScopeService {
     const detectedProfile = this.detectActiveProfile(userDir);
     if (detectedProfile) {
       this.logger.info(`[UserScopeService] Using profile: ${detectedProfile.name}`);
-      return path.join(userDir, 'profiles', detectedProfile.id, 'prompts');
+      return this.resolveResourceDirFromBaseUserDir(path.join(userDir, 'profiles', detectedProfile.id), resourceKind);
     }
 
     // Standard path: User/prompts
     this.logger.info(`[UserScopeService] Using default profile`);
-    return path.join(userDir, 'prompts');
+    return this.resolveResourceDirFromBaseUserDir(userDir, resourceKind);
+  }
+
+  private resolveResourceDirFromBaseUserDir(baseUserDir: string, resourceKind: ResourceKind): string {
+    const layout = TargetLayoutRegistry.resolveTargetLayout({
+      type: this.getCurrentTargetType(),
+      scope: 'user'
+    });
+    const route = layout.routes[resourceKind];
+
+    if (!route) {
+      throw new Error(`Target ${layout.targetType} does not define a user-scope route for ${resourceKind}`);
+    }
+
+    return path.join(baseUserDir, route);
+  }
+
+  private getCurrentTargetType(): TargetType {
+    switch (vscode.env.uriScheme) {
+      case 'vscode-insiders': {
+        return 'vscode-insiders';
+      }
+      case 'windsurf': {
+        return 'windsurf';
+      }
+      default: {
+        return 'vscode';
+      }
+    }
+  }
+
+  private toResourceKind(type: CopilotFileType): ResourceKind {
+    switch (type) {
+      case 'instructions': {
+        return 'instruction';
+      }
+      case 'chatmode': {
+        return 'prompt';
+      }
+      default: {
+        return type;
+      }
+    }
   }
 
   /**
@@ -403,7 +453,7 @@ export class UserScopeService implements IScopeService {
 
     // Create target path: promptId.type.md directly in prompts directory
     const targetFileName = getTargetFileName(promptDef.id, type);
-    const promptsDir = this.getCopilotPromptsDirectory();
+    const promptsDir = this.getCopilotPromptsDirectory(this.toResourceKind(type));
     const targetPath = path.join(promptsDir, targetFileName);
 
     return {

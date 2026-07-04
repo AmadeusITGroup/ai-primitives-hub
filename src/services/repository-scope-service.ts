@@ -24,9 +24,11 @@ import {
   RepositoryCommitMode,
 } from '../types/registry';
 import {
+  ResourceKind,
+} from '../types/target';
+import {
   CopilotFileType,
   determineFileType,
-  getRepositoryTargetDirectory,
   getTargetFileName,
   normalizePromptId,
 } from '../utils/copilot-file-type-utils';
@@ -44,6 +46,7 @@ import {
   IScopeService,
   SyncBundleOptions,
 } from './scope-service';
+import * as TargetLayoutRegistry from './target-layout-registry';
 
 const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
@@ -224,8 +227,7 @@ export class RepositoryScopeService implements IScopeService {
 
     if (skillPaths.length > 0) {
       const skillDir = path.join(
-        this.workspaceRoot,
-        getRepositoryTargetDirectory('skill'),
+        this.getTargetDirectory('skill'),
         skillId
       );
       tracker.skillDirs.push(skillDir);
@@ -346,8 +348,7 @@ export class RepositoryScopeService implements IScopeService {
 
     // Target directory: .github/skills/<skill-id>/
     const targetDir = path.join(
-      this.workspaceRoot,
-      getRepositoryTargetDirectory('skill'),
+      this.getTargetDirectory('skill'),
       skillId
     );
 
@@ -764,6 +765,34 @@ export class RepositoryScopeService implements IScopeService {
     }
   }
 
+  private getTargetDirectory(fileType: CopilotFileType): string {
+    const layout = TargetLayoutRegistry.resolveTargetLayout({
+      type: 'vscode',
+      scope: 'repository'
+    });
+    const route = layout.routes[this.toResourceKind(fileType)];
+
+    if (!route) {
+      throw new Error(`Target ${layout.targetType} does not define a repository-scope route for ${fileType}`);
+    }
+
+    return path.join(this.workspaceRoot, route);
+  }
+
+  private toResourceKind(fileType: CopilotFileType): ResourceKind {
+    switch (fileType) {
+      case 'instructions': {
+        return 'instruction';
+      }
+      case 'chatmode': {
+        return 'prompt';
+      }
+      default: {
+        return fileType;
+      }
+    }
+  }
+
   /**
    * Get the target path for a file of a given type.
    * Implements IScopeService.getTargetPath
@@ -772,9 +801,8 @@ export class RepositoryScopeService implements IScopeService {
    * @returns The full target path where the file should be placed
    */
   public getTargetPath(fileType: CopilotFileType, fileName: string): string {
-    const relativeDir = getRepositoryTargetDirectory(fileType);
     const targetFileName = getTargetFileName(fileName, fileType);
-    return path.join(this.workspaceRoot, relativeDir, targetFileName);
+    return path.join(this.getTargetDirectory(fileType), targetFileName);
   }
 
   /**

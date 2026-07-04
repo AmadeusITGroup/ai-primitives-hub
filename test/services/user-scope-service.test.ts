@@ -14,6 +14,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
+import * as TargetLayoutRegistry from '../../src/services/target-layout-registry';
 import {
   UserScopeService,
 } from '../../src/services/user-scope-service';
@@ -110,6 +111,42 @@ prompts: []
   });
 
   suite('Path Resolution', () => {
+    test('should route user-scope prompt files through the shared target layout contract', async () => {
+      const bundleId = 'layout-routed-bundle';
+      const bundlePath = path.join(tempDir, 'bundles', bundleId);
+      fs.mkdirSync(path.join(bundlePath, 'prompts'), { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'prompts', 'review.md'), '# Review');
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), [
+        `id: ${bundleId}`,
+        'version: "1.0.0"',
+        'name: Layout Routed Bundle',
+        'prompts:',
+        '  - id: review',
+        '    name: Review',
+        '    file: prompts/review.md',
+        '    type: prompt'
+      ].join('\n'));
+
+      pathSandbox.stub(TargetLayoutRegistry, 'resolveTargetLayout').returns({
+        targetType: 'vscode',
+        scope: 'user',
+        basePath: 'user',
+        routes: {
+          prompt: 'layout-prompts',
+          instruction: 'layout-prompts',
+          agent: 'layout-prompts',
+          skill: 'layout-skills'
+        }
+      });
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        fs.existsSync(path.join(tempDir, 'Code', 'User', 'layout-prompts', 'review.prompt.md')),
+        'user-scope prompt sync should use the shared target layout route'
+      );
+    });
+
     test('should resolve WSL Windsurf user prompts to the Windsurf Windows data folder', async () => {
       const windowsHome = path.join(tempDir, 'mnt', 'c', 'Users', 'testuser');
       pathSandbox.stub(vscode.env, 'remoteName').value('wsl');
