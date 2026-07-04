@@ -556,6 +556,11 @@
           "group": "bundleActions@4"
         },
         {
+          "command": "promptRegistry.addSource",
+          "when": "view == promptRegistryExplorer && viewItem == sources_root",
+          "group": "inline"
+        },
+        {
           "command": "promptRegistry.editSource",
           "when": "view == promptRegistryExplorer && viewItem == source",
           "group": "sourceActions@1"

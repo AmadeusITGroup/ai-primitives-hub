@@ -984,16 +984,6 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
         );
       }
 
-      // Add "Add Source" item
-      items.push(
-        new RegistryTreeItem(
-          '➕ Add Source...',
-          TreeItemType.ADD_SOURCE,
-          undefined,
-          vscode.TreeItemCollapsibleState.None
-        )
-      );
-
       return items;
     } catch (error) {
       this.logger.error('Failed to load sources', error as Error);
