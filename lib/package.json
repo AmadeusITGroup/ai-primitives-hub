@@ -5,17 +5,17 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "validate-collections": "./bin/validate-collections.js",
-    "validate-skills": "./bin/validate-skills.js",
-    "build-collection-bundle": "./bin/build-collection-bundle.js",
-    "compute-collection-version": "./bin/compute-collection-version.js",
-    "detect-affected-collections": "./bin/detect-affected-collections.js",
-    "generate-manifest": "./bin/generate-manifest.js",
-    "publish-collections": "./bin/publish-collections.js",
-    "list-collections": "./bin/list-collections.js",
-    "create-skill": "./bin/create-skill.js",
-    "hub-release-analyzer": "./bin/hub-release-analyzer.js",
-    "hub-ownership-analyzer": "./bin/hub-ownership-analyzer.js"
+    "validate-collections": "bin/validate-collections.js",
+    "validate-skills": "bin/validate-skills.js",
+    "build-collection-bundle": "bin/build-collection-bundle.js",
+    "compute-collection-version": "bin/compute-collection-version.js",
+    "detect-affected-collections": "bin/detect-affected-collections.js",
+    "generate-manifest": "bin/generate-manifest.js",
+    "publish-collections": "bin/publish-collections.js",
+    "list-collections": "bin/list-collections.js",
+    "create-skill": "bin/create-skill.js",
+    "hub-release-analyzer": "bin/hub-release-analyzer.js",
+    "hub-ownership-analyzer": "bin/hub-ownership-analyzer.js"
   },
   "scripts": {
     "build": "tsc",
@@ -28,7 +28,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AmadeusITGroup/prompt-registry.git",
+    "url": "git+https://github.com/AmadeusITGroup/ai-primitives-hub.git",
     "directory": "lib"
   },
   "keywords": [
@@ -41,9 +41,9 @@
   "author": "Prompt Registry Contributors",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/AmadeusITGroup/prompt-registry/issues"
+    "url": "https://github.com/AmadeusITGroup/ai-primitives-hub/issues"
   },
-  "homepage": "https://github.com/AmadeusITGroup/prompt-registry/tree/main/lib#readme",
+  "homepage": "https://github.com/AmadeusITGroup/ai-primitives-hub/tree/main/lib#readme",
   "engines": {
     "node": ">=18.0.0"
   },
