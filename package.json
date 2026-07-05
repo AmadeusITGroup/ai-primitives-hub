@@ -39,6 +39,9 @@
     "ui"
   ],
   "main": "./dist/extension.js",
+  "bin": {
+    "prompt-registry": "./out/cli/index.js"
+  },
   "icon": "icon.png",
   "activationEvents": [
     "onStartupFinished"

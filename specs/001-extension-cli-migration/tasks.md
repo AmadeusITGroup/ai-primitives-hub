@@ -88,7 +88,7 @@
 
 ### Tests for User Story 2
 
-- [ ] T039 [P] [US2] Add failing CLI parser and help-output tests for list, validate, install, update, uninstall, and inspect commands in `test/cli/cli-parser.test.ts`
+- [x] T039 [P] [US2] Add failing CLI parser and help-output tests for list, validate, install, update, uninstall, and inspect commands in `test/cli/cli-parser.test.ts`
 - [ ] T040 [P] [US2] Add failing CLI local install success tests using fixture bundles in `test/cli/install-command.test.ts`
 - [ ] T041 [P] [US2] Add failing CLI invalid-input, unsupported-target, and stderr exit-code tests in `test/cli/error-output.test.ts`
 - [ ] T042 [P] [US2] Add failing CLI JSON output stability tests for list, inspect, validate, and install results in `test/cli/json-output.test.ts`
@@ -97,7 +97,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T045 [US2] Add the CLI entrypoint and npm bin wiring without changing package manager in `src/cli/index.ts` and `package.json`
+- [x] T045 [US2] Add the CLI entrypoint and npm bin wiring without changing package manager in `src/cli/index.ts` and `package.json`
 - [ ] T046 [US2] Implement CLI command parsing, help text, and shared command context in `src/cli/cli.ts`
 - [ ] T047 [US2] Implement CLI install and update commands over shared application use cases in `src/cli/commands/install.ts`
 - [ ] T048 [US2] Implement CLI uninstall, validate, list, and inspect commands over shared application use cases in `src/cli/commands/`
