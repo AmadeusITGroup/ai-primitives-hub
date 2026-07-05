@@ -4,6 +4,7 @@ import * as yaml from 'js-yaml';
 import type {
   ApplicationBundle,
   ApplicationInstallResult,
+  ApplicationSource,
   ApplicationUpdateResult,
   ApplicationUseCases,
 } from '../../services/application-use-cases';
@@ -23,6 +24,17 @@ export interface InstallCommandInput {
 export interface InstallCommandDependencies {
   loadBundle(bundleRef: string): Promise<ApplicationBundle>;
   useCases: Pick<ApplicationUseCases, 'install' | 'update'>;
+}
+
+export interface RemoteInstallCommandInput {
+  bundleRef: string;
+  source: ApplicationSource;
+  target: Target;
+}
+
+export interface RemoteInstallCommandDependencies {
+  loadBundle(bundleRef: string, source: ApplicationSource): Promise<ApplicationBundle>;
+  useCases: Pick<ApplicationUseCases, 'install'>;
 }
 
 type LocalManifest = DeploymentManifest & {
@@ -70,6 +82,24 @@ export async function executeInstallCommand(
     target: input.target,
     bundle,
     source: createLocalSource(bundle.id, input.bundleRef)
+  });
+}
+
+/**
+ * Execute the CLI remote install command over the shared application use case.
+ * @param input
+ * @param dependencies
+ */
+export async function executeRemoteInstallCommand(
+  input: RemoteInstallCommandInput,
+  dependencies: RemoteInstallCommandDependencies
+): Promise<ApplicationInstallResult> {
+  const bundle = await dependencies.loadBundle(input.bundleRef, input.source);
+
+  return dependencies.useCases.install({
+    target: input.target,
+    bundle,
+    source: input.source
   });
 }
 

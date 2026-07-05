@@ -91,9 +91,9 @@
 - [x] T039 [P] [US2] Add failing CLI parser and help-output tests for list, validate, install, update, uninstall, and inspect commands in `test/cli/cli-parser.test.ts`
 - [x] T040 [P] [US2] Add failing CLI local install success tests using fixture bundles in `test/cli/install-command.test.ts`
 - [x] T041 [P] [US2] Add failing CLI invalid-input, unsupported-target, and stderr exit-code tests in `test/cli/error-output.test.ts`
-- [ ] T042 [P] [US2] Add failing CLI JSON output stability tests for list, inspect, validate, and install results in `test/cli/json-output.test.ts`
-- [ ] T043 [P] [US2] Add failing CLI remote install regression tests that prove remote paths use the shared writer factory in `test/cli/remote-install-command.test.ts`
-- [ ] T044 [P] [US2] Add failing CLI repository-scope secret-safe install tests for prompts, instructions, agents, and skills in `test/cli/repository-safety-command.test.ts`
+- [x] T042 [P] [US2] Add failing CLI JSON output stability tests for list, inspect, validate, and install results in `test/cli/json-output.test.ts`
+- [x] T043 [P] [US2] Add failing CLI remote install regression tests that prove remote paths use the shared writer factory in `test/cli/remote-install-command.test.ts`
+- [x] T044 [P] [US2] Add failing CLI repository-scope secret-safe install tests for prompts, instructions, agents, and skills in `test/cli/repository-safety-command.test.ts`
 
 Execution note: foundational CLI tasks T045-T047 were completed early to establish the parser, shared context, and install/update adapter seams. Remaining Phase 4 CLI work resumes in numeric order from T040 onward.
 

@@ -212,6 +212,22 @@
 | `npm run test:one -- test/cli/error-output.test.ts` | Failed as expected | New T041 error-output tests confirm the current CLI entrypoint still falls back to the generic `Command "install" is not implemented yet.` stderr path. Invalid `--output` handling already returns exit code `1`, while missing-install-target and unsupported-target diagnostics remain unimplemented. |
 | `npx eslint test/cli/error-output.test.ts` | Passed | Focused lint passed for the new T041 error-output test file. ESLint printed only the existing multi-project performance warning. |
 | `git diff --check` | Passed | No whitespace errors after the T041 error-output test slice. |
+| `npm run test:one -- test/cli/json-output.test.ts` | Failed as expected | New T042 JSON output stability tests now fail at runtime, confirming the migration branch still lacks `src/cli/output.ts`. The expected JSON envelope is pinned for `list`, `inspect`, `validate`, and `install` results before formatter implementation begins. |
+| `npx eslint test/cli/json-output.test.ts` | Passed | Focused lint passed for the new T042 JSON output test file. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check` | Passed | No whitespace errors after the T042 JSON output test slice. |
+| `npm run test:one -- test/cli/remote-install-command.test.ts` | Failed as expected | New T043 remote install regression tests fail at runtime with `command.executeRemoteInstallCommand is not a function`, pinning the missing remote CLI seam before any remote path can bypass the shared install and repository lockfile flow. |
+| `npx eslint test/cli/json-output.test.ts test/cli/remote-install-command.test.ts` | Passed | Focused lint passed for the T042 and T043 CLI test files. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check` | Passed | No whitespace errors after the T043 remote install test slice. |
+| `npm run test:one -- test/cli/repository-safety-command.test.ts` | Failed as expected | New T044 repository-safety CLI test confirms the command path still does not surface redacted repository diagnostics. The current entrypoint never reaches install execution, so the assertion for `secret-like-content` and resource-specific `[REDACTED]` messages stays intentionally red. |
+| `npx eslint test/cli/repository-safety-command.test.ts` | Passed | Focused lint passed for the new T044 repository-safety CLI test file. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check` | Passed | No whitespace errors after the T044 repository-safety CLI test slice. |
+| `npm run test:one -- test/cli/error-output.test.ts` | Passed | The CLI entrypoint now validates install targets, reports missing `--target` and unsupported target types on stderr, and returns exit code `1` for invalid install input. |
+| `npm run test:one -- test/cli/json-output.test.ts` | Passed | The shared `src/cli/output.ts` formatter now renders the stable JSON envelope for `list`, `inspect`, `validate`, and `install` results. |
+| `npm run test:one -- test/cli/remote-install-command.test.ts` | Passed | The CLI install adapter now exposes a remote install seam that forwards remote source metadata through the shared application use case and preserves repository lockfile source tracking. |
+| `npm run test:one -- test/cli/repository-safety-command.test.ts` | Passed | The CLI install path now surfaces redacted repository-safety diagnostics on stderr for unsafe prompt, instruction, agent, and skill content. |
+| `npm run test:one -- test/cli/cli-parser.test.ts && npm run test:one -- test/cli/install-command.test.ts && npm run test:one -- test/cli/error-output.test.ts && npm run test:one -- test/cli/json-output.test.ts && npm run test:one -- test/cli/remote-install-command.test.ts && npm run test:one -- test/cli/repository-safety-command.test.ts` | Passed | Full CLI-focused test sweep passed: parser, local install adapter, install stderr handling, JSON output envelope, remote install adapter, and repository-safety diagnostics. |
+| `npx eslint src/cli/index.ts src/cli/output.ts src/cli/commands/install.ts test/cli/*.test.ts` | Passed | Focused lint passed for the touched CLI source files and CLI test suites. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check` | Passed | No whitespace errors after the CLI implementation checkpoint. |
 
 ### Phase 4 CLI Parser and Entrypoint Defects Found and Fixed
 
@@ -221,6 +237,10 @@
 - The first install/update command tests exposed that no CLI adapter existed between bundle loading and the shared application use cases; `src/cli/commands/install.ts` now shapes a local-source install/update request without duplicating pipeline logic.
 - The first fixture-backed local install test exposed that the CLI command layer still lacked a real loader for local bundle directories; `src/cli/commands/install.ts` now reads `deployment-manifest.yml` plus prompt files and reuses the shared application install use case to produce the repository-scoped outputs.
 - The first error-output tests expose the next missing command-layer behavior: `main()` still treats all install invocations as unimplemented, so actionable `--target` validation and unsupported-target diagnostics need to land before CLI error handling is complete.
+- The first JSON output tests expose the next formatter gap: the CLI branch has no shared `src/cli/output.ts`, so the stable machine-readable envelope for `list`, `inspect`, `validate`, and `install` is now specified by tests ahead of T049 implementation.
+- The first remote install regression tests expose the next CLI source gap: the install command module has no remote-specific seam yet, so remote source metadata and repository lockfile source tracking cannot be validated until that adapter path is implemented over the shared use case.
+- The first repository-safety CLI test exposes the remaining user-facing gap above the shared policy layer: repository-scope secret diagnostics are already modeled in services, but the CLI entrypoint still does not execute install flows or surface those redacted failures on stderr.
+- The current CLI checkpoint closes the highest-priority install gaps without widening into a second pipeline: install target validation, local repository-safety diagnostics, remote source forwarding, and stable JSON envelope rendering now work through the shared application-use-case seam used by the CLI tests.
 
 ## Notes
 

@@ -1,0 +1,3 @@
+-----BEGIN PRIVATE KEY-----
+abc123
+-----END PRIVATE KEY-----
