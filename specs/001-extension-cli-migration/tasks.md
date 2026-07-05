@@ -98,7 +98,7 @@
 ### Implementation for User Story 2
 
 - [x] T045 [US2] Add the CLI entrypoint and npm bin wiring without changing package manager in `src/cli/index.ts` and `package.json`
-- [ ] T046 [US2] Implement CLI command parsing, help text, and shared command context in `src/cli/cli.ts`
+- [x] T046 [US2] Implement CLI command parsing, help text, and shared command context in `src/cli/cli.ts`
 - [ ] T047 [US2] Implement CLI install and update commands over shared application use cases in `src/cli/commands/install.ts`
 - [ ] T048 [US2] Implement CLI uninstall, validate, list, and inspect commands over shared application use cases in `src/cli/commands/`
 - [ ] T049 [US2] Implement CLI output formatters for human-readable and JSON modes in `src/cli/output.ts`

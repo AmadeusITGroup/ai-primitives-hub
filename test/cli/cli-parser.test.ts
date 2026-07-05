@@ -3,6 +3,20 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 type CliModule = {
+  createCliContext(input?: {
+    cwd?: string;
+    stderr?: { write(chunk: string): void };
+    stdout?: { write(chunk: string): void };
+  }): {
+    cwd: string;
+    stderr: { write(chunk: string): void };
+    stdout: { write(chunk: string): void };
+  };
+  getCliCommandDefinition(command: 'inspect' | 'install' | 'list' | 'uninstall' | 'update' | 'validate'): {
+    description: string;
+    name: 'inspect' | 'install' | 'list' | 'uninstall' | 'update' | 'validate';
+    usage: string;
+  };
   parseCliArguments(argv: string[]): {
     command: 'help' | 'inspect' | 'install' | 'list' | 'uninstall' | 'update' | 'validate';
     options: {
@@ -37,6 +51,28 @@ suite('CLI parser', () => {
     assert.match(helpText, /update/);
     assert.match(helpText, /uninstall/);
     assert.match(helpText, /inspect/);
+  });
+
+  test('createCliContext defaults cwd and preserves provided streams', async () => {
+    const cli = await loadCliModule();
+    const stdout = { write: (_chunk: string) => {} };
+    const stderr = { write: (_chunk: string) => {} };
+
+    assert.deepStrictEqual(cli.createCliContext({ stdout, stderr }), {
+      cwd: process.cwd(),
+      stderr,
+      stdout
+    });
+  });
+
+  test('getCliCommandDefinition returns list command metadata', async () => {
+    const cli = await loadCliModule();
+
+    assert.deepStrictEqual(cli.getCliCommandDefinition('list'), {
+      description: 'List available or installed bundles',
+      name: 'list',
+      usage: 'prompt-registry list [options]'
+    });
   });
 
   test('parseCliArguments parses the list command', async () => {

@@ -200,11 +200,15 @@
 | `npm run test:one -- test/cli/cli-parser.test.ts` | Failed as expected, then passed | New T039 parser/help tests first failed because the migration branch had no `src/cli/cli.ts` module or root CLI entrypoint. After adding a minimal parser/help module plus root CLI entrypoint wiring, the focused suite passed with 8 passing. |
 | `npx eslint src/cli/cli.ts src/cli/index.ts test/cli/cli-parser.test.ts` | Passed | Focused lint for the new CLI parser files passed after adding required JSDoc, avoiding object-literal default parameters, and restoring trailing newlines. |
 | `git diff --check` | Passed | No whitespace errors after the initial CLI parser and entrypoint slice. |
+| `npm run test:one -- test/cli/cli-parser.test.ts` | Failed as expected, then passed | New T046 shared-context tests first failed because `createCliContext()` and `getCliCommandDefinition()` did not exist. After introducing shared CLI command metadata plus a reusable execution context, the focused suite passed with 10 passing. |
+| `npx eslint src/cli/cli.ts src/cli/index.ts test/cli/cli-parser.test.ts` | Passed | Focused lint remained clean after adding shared command definitions and context. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check` | Passed | No whitespace errors after the T046 shared-context slice. |
 
 ### Phase 4 CLI Parser and Entrypoint Defects Found and Fixed
 
 - The migration branch had no CLI parser/help module or root entrypoint, so the first CLI command-contract tests failed on a missing module rather than business behavior.
 - A minimal `src/cli/cli.ts` parser/help contract and `src/cli/index.ts` entrypoint now exist, and `package.json` exposes a provisional `prompt-registry` bin target aligned with the TypeScript `out/` tree while broader packaging validation remains deferred to T051.
+- The first shared-context tests exposed that the CLI layer only returned parsed flags and hardcoded help text; `src/cli/cli.ts` now owns reusable command definitions and a shared CLI execution context that the entrypoint can consume without duplicating stream and cwd setup.
 
 ## Notes
 
