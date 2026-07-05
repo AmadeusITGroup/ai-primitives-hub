@@ -140,6 +140,12 @@ function toResourceKind(kind: LocalManifestPrompt['type']): ResourceKind {
     case 'skill': {
       return 'skill';
     }
+    case 'plugin': {
+      return 'plugin';
+    }
+    case 'hook': {
+      return 'hook';
+    }
     case 'prompt':
     case undefined: {
       return 'prompt';

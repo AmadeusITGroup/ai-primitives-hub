@@ -8,6 +8,9 @@ import {
   Target,
 } from '../types/target';
 import {
+  kiroResourceTransformer,
+} from './kiro-resource-transformer';
+import {
   validateRepositoryInstallPolicy,
 } from './repository-install-policy';
 import {
@@ -186,7 +189,7 @@ export const createApplicationUseCases = (options: ApplicationUseCasesOptions): 
       }
     }
 
-    const files = materializeFiles(request.target, request.bundle);
+    const files = await materializeFiles(request.target, request.bundle);
     const targetRoot = path.join(options.root, request.target.scope === 'user' ? 'user' : 'repository');
     const writer = new FileSystemTargetWriter(targetRoot);
     const writeResult = await writer.writeFiles(files);
@@ -327,7 +330,7 @@ export const createApplicationUseCases = (options: ApplicationUseCasesOptions): 
   };
 };
 
-function materializeFiles(target: Target, bundle: ApplicationBundle): TargetWriteFile[] {
+async function materializeFiles(target: Target, bundle: ApplicationBundle): Promise<TargetWriteFile[]> {
   const layout = resolveTargetLayout(target);
   const files: TargetWriteFile[] = [];
 
@@ -337,8 +340,16 @@ function materializeFiles(target: Target, bundle: ApplicationBundle): TargetWrit
       continue;
     }
 
+    const transformed = await kiroResourceTransformer.transform(resource, target);
+    const getContent = (): string => {
+      if (transformed.resource.content !== undefined) {
+        return transformed.resource.content;
+      }
+      return resource.content ?? '';
+    };
+
     if (resource.kind === 'skill') {
-      for (const file of resource.files ?? [{ path: 'SKILL.md', content: resource.content ?? '' }]) {
+      for (const file of resource.files ?? [{ path: 'SKILL.md', content: getContent() }]) {
         files.push({
           relativePath: path.posix.join(route, resource.id, file.path),
           content: file.content
@@ -349,7 +360,7 @@ function materializeFiles(target: Target, bundle: ApplicationBundle): TargetWrit
 
     files.push({
       relativePath: path.posix.join(route, targetFileName(resource)),
-      content: resource.content ?? ''
+      content: getContent()
     });
   }
 
@@ -365,6 +376,12 @@ function targetFileName(resource: Resource): string {
   }
   if (resource.kind === 'agent') {
     return `${resource.id}.agent.md`;
+  }
+  if (resource.kind === 'plugin') {
+    return `${resource.id}.plugin.json`;
+  }
+  if (resource.kind === 'hook') {
+    return `${resource.id}.hook.json`;
   }
   return 'SKILL.md';
 }

@@ -1,3 +1,8 @@
+import {
+  renderTable,
+  type TableColumn,
+} from './table';
+
 export type CliJsonOutputCommand = 'inspect' | 'install' | 'list' | 'validate';
 
 export type CliJsonOutputStatus = 'error' | 'ok' | 'warning';
@@ -103,12 +108,12 @@ export function renderValidateText(data: CliTextValidateData): string {
  * @param entries
  */
 export function renderListText(entries: CliTextListEntry[]): string {
-  if (entries.length === 0) {
-    return 'No bundles installed\n';
-  }
-  return entries
-    .map((entry) => `${entry.bundleId}@${entry.version} (${entry.target.type}:${entry.target.scope})\n`)
-    .join('');
+  const columns: TableColumn<CliTextListEntry>[] = [
+    { header: 'Bundle', get: (e) => e.bundleId },
+    { header: 'Version', get: (e) => e.version },
+    { header: 'Target', get: (e) => `${e.target.type}:${e.target.scope}` }
+  ];
+  return renderTable({ columns, rows: entries, emptyMessage: 'No bundles installed\n' });
 }
 
 /**

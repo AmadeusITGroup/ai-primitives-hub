@@ -10,7 +10,6 @@ import {
   type CliOutputFormat,
   createCliContext,
   parseCliArguments,
-  renderCliHelp,
 } from './cli';
 import {
   executeInspectCommand,
@@ -23,15 +22,24 @@ import {
   executeListCommand,
 } from './commands/list';
 import {
+  executeScaffoldCommand,
+} from './commands/scaffold';
+import {
   executeUninstallCommand,
 } from './commands/uninstall';
 import {
   executeValidateCommand,
 } from './commands/validate';
 import {
+  generateCompletion,
+} from './completion';
+import {
   formatDiagnostic,
   formatError,
 } from './errors';
+import {
+  renderGlobalHelp,
+} from './help-renderer';
 import {
   type CliTextInspectData,
   type CliTextInstallData,
@@ -66,7 +74,7 @@ export async function main(
     const parsed = parseCliArguments(argv);
 
     if (parsed.command === 'help' || parsed.options.help) {
-      context.stdout.write(`${renderCliHelp()}\n`);
+      context.stdout.write(`${renderGlobalHelp()}`);
       return 0;
     }
 
@@ -87,6 +95,12 @@ export async function main(
       }
       case 'inspect': {
         return runInspectCommand(parsed.positionals, context, output);
+      }
+      case 'completion': {
+        return runCompletionCommand(parsed.positionals, context);
+      }
+      case 'scaffold': {
+        return runScaffoldCommand(parsed.positionals, context);
       }
       default: {
         context.stderr.write(`Command "${parsed.command}" is not implemented yet.\n`);
@@ -337,6 +351,62 @@ function formatInspectOutput(result: CliTextInspectData, output: CliOutputFormat
     return renderJsonOutput({ command: 'inspect', data: result }) + '\n';
   }
   return renderInspectText(result);
+}
+
+function runCompletionCommand(positionals: string[], context: CliContext): number {
+  const shell = positionals[0];
+
+  if (!shell) {
+    context.stderr.write('completion: shell argument is required. Use "bash" or "zsh".\n');
+    return 1;
+  }
+
+  if (shell !== 'bash' && shell !== 'zsh') {
+    context.stderr.write(`completion: unsupported shell "${shell}". Use "bash" or "zsh".\n`);
+    return 1;
+  }
+
+  context.stdout.write(generateCompletion(shell));
+  return 0;
+}
+
+async function runScaffoldCommand(positionals: string[], context: CliContext): Promise<number> {
+  const scaffoldType = positionals[0];
+
+  if (!scaffoldType) {
+    context.stderr.write('scaffold: type argument is required. Use "collection", "prompt", "instruction", "agent", "skill", "plugin", or "hook".\n');
+    return 1;
+  }
+
+  const name = readFlagValue(positionals, '--name');
+  if (!name) {
+    context.stderr.write('scaffold: --name <value> is required\n');
+    return 1;
+  }
+
+  const description = readFlagValue(positionals, '--description') ?? '';
+  const author = readFlagValue(positionals, '--author') ?? '';
+  const outputPath = readFlagValue(positionals, '--path') ?? readFlagValue(positionals, '--output');
+  const tagsValue = readFlagValue(positionals, '--tags');
+  const tags = tagsValue ? tagsValue.split(',').map((t) => t.trim()).filter(Boolean) : [];
+
+  const result = await executeScaffoldCommand({
+    name,
+    description,
+    author,
+    tags: tags.length > 0 ? tags : undefined,
+    path: outputPath
+  });
+
+  if (!result.success) {
+    context.stderr.write(`scaffold: ${result.error ?? 'unknown error'}\n`);
+    return 1;
+  }
+
+  for (const file of result.createdFiles) {
+    context.stdout.write(`Created: ${file}\n`);
+  }
+  return 0;
 }
 
 if (require.main === module) {

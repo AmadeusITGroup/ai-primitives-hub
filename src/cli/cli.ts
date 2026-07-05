@@ -4,7 +4,9 @@ export const SUPPORTED_CLI_COMMANDS = [
   'install',
   'update',
   'uninstall',
-  'inspect'
+  'inspect',
+  'completion',
+  'scaffold'
 ] as const;
 
 export type CliCommand = typeof SUPPORTED_CLI_COMMANDS[number];
@@ -56,6 +58,16 @@ const CLI_COMMAND_DEFINITIONS: Record<CliCommand, CliCommandDefinition> = {
     name: 'inspect',
     description: 'Show bundle details',
     usage: 'prompt-registry inspect <bundle> [options]'
+  },
+  completion: {
+    name: 'completion',
+    description: 'Generate shell completion script for bash or zsh',
+    usage: 'prompt-registry completion <shell> [options]'
+  },
+  scaffold: {
+    name: 'scaffold',
+    description: 'Scaffold a new collection or primitive',
+    usage: 'prompt-registry scaffold <type> [options]'
   }
 };
 
@@ -160,7 +172,11 @@ export function renderCliHelp(): string {
     '',
     'Options:',
     '  --help, -h           Show command help',
-    '  --output <format>    Select text or json output'
+    '  --output <format>    Select text or json output',
+    '',
+    'Shell Completion:',
+    '  completion bash       Generate bash completion script',
+    '  completion zsh        Generate zsh completion script'
   ].join('\n');
 }
 

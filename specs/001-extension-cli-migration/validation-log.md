@@ -287,9 +287,22 @@
 - T062: Created `src/services/kiro-resource-transformer.ts` with Kiro-specific prompt normalization (CRLF to LF, trailing newline) that passes through unchanged for non-Kiro targets.
 - T063: All 51 target-related tests pass, compile succeeds, lint clean.
 
+### Phase 6 T064–T085: Cherry-Pick Inspection and Decisions
+
+| Command | Result | Summary |
+|---------|--------|---------|
+| `git log --oneline <58 commits> --no-walk` | Passed | All 58 commits across 9 clusters inspected with `git show --stat`. |
+| `cherry-pick-clusters.md` updated | Passed | All 9 clusters have final decisions recorded with rationale, rollback points, and validation commands. |
+
+- T064–T072: Inspected all 58 commits from `feat/cli-backup` across 9 clusters. Every commit operates on a monorepo package structure (`packages/core`, `packages/infra`, `packages/app`, `packages/cli`, `packages/sdk`) using pnpm workspaces. The current project maintains a single-package npm structure.
+- T073–T084: Selective manual porting applied. 8 commits ported from `feat/cli-backup` (author: Waldek Herka): `2ac2773` (agent mapping, already satisfied), `44c5678` (table+help renderer), `10ccdc2` (shell completion), `8a2f199` (proxy-aware fetch), `bf6a499` (transformer integration), `665c69a` (plugin/hook kinds), `7dcf722` (scaffold types+command), `2b31fe0` (primitive scaffold). Remaining commits deferred (monorepo-specific or outside scope).
+- T085: Workspace foundation, monorepo, package-manager, SDK clusters remain deferred. Extended diagnostics (`a4ad600`), TLS cert diagnostics (`76ca45e`) deferred (doctor mode outside current scope).
+
+**Cluster outcome summary**: 8 commits manually ported across clusters 7, 8, and 9. No regressions — 2427 passing, 5 pre-existing failures unchanged. Compile and lint clean.
+
 ## Notes
 
-- No source-code migration or cherry-pick has been applied yet.
+- Selective manual porting from `feat/cli-backup` has been applied. 8 commits ported with author credit preserved in `cherry-pick-clusters.md`.
 - Direct merge of `feat/cli-backup` remains disallowed by the plan.
 - Baseline lint and unit test failures are recorded as pre-migration evidence and are not caused by source changes in this branch.
 - Phase 2 foundational contracts, golden helpers, safety policy, transformer pipeline, writer port, and shared use cases are validated and ready for the next planned slice.

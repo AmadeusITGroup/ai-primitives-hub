@@ -147,31 +147,31 @@ Execution note: foundational CLI tasks T045-T047 were completed early to establi
 
 ### Decision Gates for User Story 4
 
-- [ ] T064 [P] [US4] Inspect workspace foundation commits `d121584` and `b7e3a56`, then record defer or accept decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T065 [P] [US4] Inspect core contracts commits `25e713f`, `d8a1f1d`, `3900886`, and `fef8fd4`, then record cherry-pick, manual-port, defer, or reject decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T066 [P] [US4] Inspect infra adapter and writer commits `8030749`, `3039306`, `cd2ce23`, `1ff77b8`, `59434aa`, and `a0709e8`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T067 [P] [US4] Inspect app use-case commits `cc83571`, `17e4d26`, `eb7cb8b`, and `14bf71f`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T068 [P] [US4] Inspect CLI and SDK commits `aa2e318`, `5d726d2`, `c1f9383`, and `6df3376`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T069 [P] [US4] Inspect canonical monorepo commits `3b5c1c9`, `0a228be`, `ec15a5d`, `5e9a2f8`, and `8359b59`, then record dedicated-slice or reject decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T070 [P] [US4] Inspect CLI maturation commits `c67b5ea`, `b4ab90c`, `77f64a3`, `7309165`, `e6759d8`, `86a4904`, `2948149`, `dc96a01`, `44c5678`, `3c61682`, `665c69a`, `7dcf722`, `2b31fe0`, `e1c841a`, `4ca3e36`, and `446dda3`, then record split decisions in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T071 [P] [US4] Inspect architecture, transformer, and Kiro commits `93bb4dc`, `e356efd`, `08d6638`, `10ccdc2`, `9d6a20e`, `11bf009`, `97ab644`, `bf6a499`, `eeba72d`, and `3a6a755`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T072 [P] [US4] Inspect diagnostics and environment hardening commits `2ac2773`, `12a44d1`, `8a2f199`, `a4ad600`, `5299597`, `d96ec32`, and `76ca45e`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T064 [P] [US4] Inspect workspace foundation commits `d121584` and `b7e3a56`, then record defer or accept decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T065 [P] [US4] Inspect core contracts commits `25e713f`, `d8a1f1d`, `3900886`, and `fef8fd4`, then record cherry-pick, manual-port, defer, or reject decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T066 [P] [US4] Inspect infra adapter and writer commits `8030749`, `3039306`, `cd2ce23`, `1ff77b8`, `59434aa`, and `a0709e8`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T067 [P] [US4] Inspect app use-case commits `cc83571`, `17e4d26`, `eb7cb8b`, and `14bf71f`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T068 [P] [US4] Inspect CLI and SDK commits `aa2e318`, `5d726d2`, `c1f9383`, and `6df3376`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T069 [P] [US4] Inspect canonical monorepo commits `3b5c1c9`, `0a228be`, `ec15a5d`, `5e9a2f8`, and `8359b59`, then record dedicated-slice or reject decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T070 [P] [US4] Inspect CLI maturation commits `c67b5ea`, `b4ab90c`, `77f64a3`, `7309165`, `e6759d8`, `86a4904`, `2948149`, `dc96a01`, `44c5678`, `3c61682`, `665c69a`, `7dcf722`, `2b31fe0`, `e1c841a`, `4ca3e36`, and `446dda3`, then record split decisions in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T071 [P] [US4] Inspect architecture, transformer, and Kiro commits `93bb4dc`, `e356efd`, `08d6638`, `10ccdc2`, `9d6a20e`, `11bf009`, `97ab644`, `bf6a499`, `eeba72d`, and `3a6a755`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T072 [P] [US4] Inspect diagnostics and environment hardening commits `2ac2773`, `12a44d1`, `8a2f199`, `a4ad600`, `5299597`, `d96ec32`, and `76ca45e`, then record decision in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
 
 ### Porting and Validation for User Story 4
 
-- [ ] T073 [US4] Apply or manually port only the accepted core contracts cluster after Phase 2 and T065, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T074 [US4] Run core contract tests, `npm run compile`, and `npm run lint`, then record core cluster validation in `specs/001-extension-cli-migration/validation-log.md`
-- [ ] T075 [US4] Apply or manually port only the accepted infra adapter and writer cluster after T073, T074, and T066, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T076 [US4] Run writer golden tests, filesystem tests, `npm run compile`, and `npm run lint`, then record infra cluster validation in `specs/001-extension-cli-migration/validation-log.md`
-- [ ] T077 [US4] Apply or manually port only the accepted app use-case cluster after T075, T076, and T067, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T078 [US4] Run extension install, update, uninstall, validate, repository-safety, and app use-case tests plus `npm run compile` and `npm run lint`, then record app cluster validation in `specs/001-extension-cli-migration/validation-log.md`
-- [ ] T079 [US4] Apply or manually port only the accepted CLI baseline cluster after T077, T078, and T068, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T080 [US4] Run CLI command tests, package build checks, `npm run compile`, and `npm run lint`, then record CLI cluster validation in `specs/001-extension-cli-migration/validation-log.md`
-- [ ] T081 [US4] Apply or manually port only the accepted target architecture and Kiro cluster after Phase 2 writer/target contracts, T075, T076, and T071, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T082 [US4] Run VS Code and Kiro golden output tests, repository-safety tests, `npm run compile`, and `npm run lint`, then record target cluster validation in `specs/001-extension-cli-migration/validation-log.md`
-- [ ] T083 [US4] Apply or manually port only accepted diagnostics and environment hardening commits after CLI baseline validation and T072, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T084 [US4] Run diagnostics tests, CLI error-output tests, `npm run compile`, and `npm run lint`, then record diagnostics cluster validation in `specs/001-extension-cli-migration/validation-log.md`
-- [ ] T085 [US4] Keep workspace foundation, monorepo, package-manager, SDK, and CLI maturation clusters deferred unless their decision gates define a dedicated slice with rollback and validation in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T073 [US4] Apply or manually port only the accepted core contracts cluster after Phase 2 and T065, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T074 [US4] Run core contract tests, `npm run compile`, and `npm run lint`, then record core cluster validation in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T075 [US4] Apply or manually port only the accepted infra adapter and writer cluster after T073, T074, and T066, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T076 [US4] Run writer golden tests, filesystem tests, `npm run compile`, and `npm run lint`, then record infra cluster validation in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T077 [US4] Apply or manually port only the accepted app use-case cluster after T075, T076, and T067, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T078 [US4] Run extension install, update, uninstall, validate, repository-safety, and app use-case tests plus `npm run compile` and `npm run lint`, then record app cluster validation in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T079 [US4] Apply or manually port only the accepted CLI baseline cluster after T077, T078, and T068, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T080 [US4] Run CLI command tests, package build checks, `npm run compile`, and `npm run lint`, then record CLI cluster validation in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T081 [US4] Apply or manually port only the accepted target architecture and Kiro cluster after Phase 2 writer/target contracts, T075, T076, and T071, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T082 [US4] Run VS Code and Kiro golden output tests, repository-safety tests, `npm run compile`, and `npm run lint`, then record target cluster validation in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T083 [US4] Apply or manually port only accepted diagnostics and environment hardening commits after CLI baseline validation and T072, then record exact commits or files changed in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T084 [US4] Run diagnostics tests, CLI error-output tests, `npm run compile`, and `npm run lint`, then record diagnostics cluster validation in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T085 [US4] Keep workspace foundation, monorepo, package-manager, SDK, and CLI maturation clusters deferred unless their decision gates define a dedicated slice with rollback and validation in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
 
 **Checkpoint**: Every selected `feat/cli-backup` cluster has evidence, validation, and an explicit outcome.
 

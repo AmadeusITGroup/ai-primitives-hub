@@ -332,7 +332,7 @@ export interface DeploymentManifest {
     description: string;
     file: string;
     tags?: string[];
-    type?: 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill'; // GitHub Copilot file type
+    type?: 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill' | 'plugin' | 'hook'; // GitHub Copilot file type
   }[];
   mcpServers?: McpServersManifest;
 }

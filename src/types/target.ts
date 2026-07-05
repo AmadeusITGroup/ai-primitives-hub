@@ -17,7 +17,7 @@ export const TARGET_SCOPES = ['user', 'repository'] as const;
 
 export type TargetScope = typeof TARGET_SCOPES[number];
 
-export const RESOURCE_KINDS = ['prompt', 'instruction', 'agent', 'skill'] as const;
+export const RESOURCE_KINDS = ['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook'] as const;
 
 export type ResourceKind = typeof RESOURCE_KINDS[number];
 

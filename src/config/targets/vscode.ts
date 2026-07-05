@@ -6,7 +6,7 @@ import type {
 export const VSCODE_CAPABILITY: TargetCapability = {
   targetType: 'vscode',
   supportedScopes: ['user', 'repository'],
-  supportedResources: ['prompt', 'instruction', 'agent', 'skill']
+  supportedResources: ['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook']
 };
 
 export const VSCODE_USER_LAYOUT: TargetLayout = {
@@ -17,7 +17,9 @@ export const VSCODE_USER_LAYOUT: TargetLayout = {
     prompt: 'prompts',
     instruction: 'prompts',
     agent: 'prompts',
-    skill: 'skills'
+    skill: 'skills',
+    plugin: 'plugins',
+    hook: 'hooks'
   }
 };
 
@@ -29,6 +31,8 @@ export const VSCODE_REPOSITORY_LAYOUT: TargetLayout = {
     prompt: '.github/prompts',
     instruction: '.github/instructions',
     agent: '.github/agents',
-    skill: '.github/skills'
+    skill: '.github/skills',
+    plugin: '.github/plugins',
+    hook: '.github/hooks'
   }
 };
