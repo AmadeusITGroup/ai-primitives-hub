@@ -755,6 +755,45 @@ export class RegistryManager {
     return installation;
   }
 
+  private async recordInstallationIfNeeded(installation: InstalledBundle): Promise<void> {
+    if (installation.scope !== 'repository') {
+      await this.storage.recordInstallation(installation);
+    }
+  }
+
+  private async removeInstallationIfNeeded(bundleId: string, scope: InstallationScope): Promise<void> {
+    if (scope !== 'repository') {
+      await this.storage.removeInstallation(bundleId, scope);
+    }
+  }
+
+  private fireRepositoryBundlesChangedForScope(scope: InstallationScope): void {
+    if (scope === 'repository') {
+      this._onRepositoryBundlesChanged.fire();
+    }
+  }
+
+  private finalizeInstall(installation: InstalledBundle, silent: boolean): void {
+    if (!silent) {
+      this._onBundleInstalled.fire(installation);
+    }
+
+    this.fireRepositoryBundlesChangedForScope(installation.scope);
+  }
+
+  private finalizeUninstall(installed: InstalledBundle, silent: boolean): void {
+    if (!silent) {
+      this._onBundleUninstalled.fire(installed.bundleId);
+    }
+
+    this.fireRepositoryBundlesChangedForScope(installed.scope);
+  }
+
+  private finalizeUpdate(current: InstalledBundle, updated: InstalledBundle): void {
+    this._onBundleUpdated.fire(updated);
+    this.fireRepositoryBundlesChangedForScope(current.scope);
+  }
+
   /**
    * Check for local modifications and handle user response before updating
    *
@@ -1552,21 +1591,13 @@ export class RegistryManager {
     // If anything fails here, old versions remain and can be used as fallback
     // Note: Repository scope bundles are tracked via LockfileManager, not RegistryStorage
     // The lockfile is already updated by BundleInstaller during installation
-    if (options.scope !== 'repository') {
-      await this.storage.recordInstallation(installation);
-    }
+    await this.recordInstallationIfNeeded(installation);
 
     // Clean up old versions AFTER successful recording
     // This ensures we don't lose the old version if recording fails
     await this.cleanupOldVersions(bundle, options.scope);
 
-    if (!silent) {
-      this._onBundleInstalled.fire(installation);
-    }
-
-    if (options.scope === 'repository') {
-      this._onRepositoryBundlesChanged.fire();
-    }
+    this.finalizeInstall(installation, silent);
 
     this.logger.info(`Bundle '${bundleId}' installed successfully`);
 
@@ -1660,17 +1691,8 @@ export class RegistryManager {
     // This ensures we remove the correct record even for versioned bundles
     // Note: For repository scope, the lockfile is updated by BundleInstaller.uninstall()
     // Repository scope bundles are tracked via LockfileManager, not RegistryStorage
-    if (scope !== 'repository') {
-      await this.storage.removeInstallation(installed.bundleId, scope);
-    }
-
-    if (!silent) {
-      this._onBundleUninstalled.fire(installed.bundleId);
-    }
-
-    if (scope === 'repository') {
-      this._onRepositoryBundlesChanged.fire();
-    }
+    await this.removeInstallationIfNeeded(installed.bundleId, scope);
+    this.finalizeUninstall(installed, silent);
 
     this.logger.info(`Bundle '${installed.bundleId}' uninstalled successfully`);
   }
@@ -1801,25 +1823,19 @@ export class RegistryManager {
     // Note: Repository scope bundles are tracked via LockfileManager, not RegistryStorage
     // The lockfile is already updated by BundleInstaller during update
     this.logger.debug(`Recording new installation for '${updated.bundleId}' v${updated.version}`);
-    if (current.scope !== 'repository') {
-      await this.storage.recordInstallation(updated);
-    }
+    await this.recordInstallationIfNeeded(updated);
 
     // Only remove old record if bundleId changed (e.g., GitHub bundles with version in ID)
     // For Awesome Copilot bundles, the bundleId doesn't include version, so old and new are the same
     // In that case, recordInstallation already overwrote the old record
     if (updated.bundleId !== bundleId && current.scope !== 'repository') {
       this.logger.debug(`Removing old installation record for '${bundleId}' from ${current.scope} scope`);
-      await this.storage.removeInstallation(bundleId, current.scope);
+      await this.removeInstallationIfNeeded(bundleId, current.scope);
     } else {
       this.logger.debug(`BundleId unchanged ('${bundleId}'), old record already overwritten`);
     }
 
-    this._onBundleUpdated.fire(updated);
-
-    if (current.scope === 'repository') {
-      this._onRepositoryBundlesChanged.fire();
-    }
+    this.finalizeUpdate(current, updated);
 
     this.logger.info(`Bundle '${bundleId}' updated from v${current.version} to v${bundle.version}`);
   }

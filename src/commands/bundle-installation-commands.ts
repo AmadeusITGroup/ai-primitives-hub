@@ -119,6 +119,12 @@ export class BundleInstallationCommands {
         }
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Repository install rejected:')) {
+        await vscode.window.showErrorMessage(`Installation failed: ${errorMessage}`);
+        return;
+      }
+
       await ErrorHandler.handle(error, {
         operation: 'install bundle',
         showUserMessage: true,

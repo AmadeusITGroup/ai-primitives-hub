@@ -939,6 +939,11 @@ suite('RegistryManager - Repository Workflow Parity', () => {
       1,
       'Repository install should notify repository bundle listeners'
     );
+    assert.strictEqual(
+      mockStorage.recordInstallation.callCount,
+      0,
+      'Repository install should not write installation records to RegistryStorage'
+    );
   });
 
   test('uninstallBundle should refresh repository listeners for repository scope', async () => {
@@ -955,6 +960,11 @@ suite('RegistryManager - Repository Workflow Parity', () => {
       repositoryBundlesChangedCount,
       1,
       'Repository uninstall should notify repository bundle listeners'
+    );
+    assert.strictEqual(
+      mockStorage.removeInstallation.callCount,
+      0,
+      'Repository uninstall should not remove installation records from RegistryStorage'
     );
   });
 
@@ -977,6 +987,16 @@ suite('RegistryManager - Repository Workflow Parity', () => {
       repositoryBundlesChangedCount,
       1,
       'Repository update should notify repository bundle listeners'
+    );
+    assert.strictEqual(
+      mockStorage.recordInstallation.callCount,
+      0,
+      'Repository update should not write installation records to RegistryStorage'
+    );
+    assert.strictEqual(
+      mockStorage.removeInstallation.callCount,
+      0,
+      'Repository update should not remove installation records from RegistryStorage'
     );
   });
 });

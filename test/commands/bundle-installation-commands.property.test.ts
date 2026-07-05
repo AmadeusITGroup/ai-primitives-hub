@@ -44,6 +44,7 @@ suite('BundleInstallationCommands - Property Tests', () => {
   let mockCreateQuickPick: sinon.SinonStub;
   let mockWithProgress: sinon.SinonStub;
   let mockShowInformationMessage: sinon.SinonStub;
+  let mockShowErrorMessage: sinon.SinonStub;
   let originalWorkspaceFolders: typeof vscode.workspace.workspaceFolders;
 
   // Store event handlers for scope selection dialog
@@ -172,6 +173,7 @@ suite('BundleInstallationCommands - Property Tests', () => {
     mockCreateQuickPick.reset();
     mockWithProgress.reset();
     mockShowInformationMessage.reset();
+    mockShowErrorMessage.reset();
     acceptHandler = null;
     hideHandler = null;
   };
@@ -199,6 +201,7 @@ suite('BundleInstallationCommands - Property Tests', () => {
     mockCreateQuickPick = sandbox.stub(vscode.window, 'createQuickPick');
     mockWithProgress = sandbox.stub(vscode.window, 'withProgress');
     mockShowInformationMessage = sandbox.stub(vscode.window, 'showInformationMessage');
+    mockShowErrorMessage = sandbox.stub(vscode.window, 'showErrorMessage');
 
     // Save original workspace folders and set workspace as open
     originalWorkspaceFolders = vscode.workspace.workspaceFolders;
@@ -282,6 +285,11 @@ suite('BundleInstallationCommands - Property Tests', () => {
             const [storedBundleId, storedPreference] = mockStorage.setUpdatePreference.firstCall.args;
             assert.strictEqual(storedBundleId, bundleId, 'Should store preference for correct bundle');
             assert.strictEqual(storedPreference, autoUpdateChoice, 'Should store user\'s choice');
+
+            // Verify: Success notification is still shown after installation
+            assert.strictEqual(mockShowInformationMessage.callCount, 1, 'Should show success notification after installation');
+            const [successMessage] = mockShowInformationMessage.firstCall.args;
+            assert.ok(typeof successMessage === 'string' && successMessage.includes('installed successfully'), 'Success notification should confirm installation');
 
             return true;
           }
@@ -404,6 +412,35 @@ suite('BundleInstallationCommands - Property Tests', () => {
         ),
         { ...PropertyTestConfig.FAST_CHECK_OPTIONS, numRuns: PropertyTestConfig.RUNS.QUICK }
       );
+    });
+
+    test('should surface redacted repository-safety diagnostics from installation failures', async () => {
+      const bundleId = 'repository-safety-bundle';
+      const bundle = BundleBuilder.fromSource(bundleId, 'GITHUB')
+        .withVersion('1.0.0')
+        .build();
+
+      resetAllMocks();
+      mockRegistryManager.getBundleDetails.withArgs(bundleId).resolves(bundle);
+      mockRegistryManager.getStorage.returns(mockStorage);
+      mockRegistryManager.installBundle.rejects(
+        new Error('Repository install rejected: secret-like-content token-review: Repository install rejected because prompt token-review contains [REDACTED]. Install to user scope or remove the secret-like content before committing.')
+      );
+
+      mockCreateQuickPick.returns(createMockQuickPick('accept', 'repository', 'commit'));
+      mockShowQuickPick.resolves(createAutoUpdateQuickPickItem(true));
+      mockWithProgress.callsFake(async (_options: any, task: any) => {
+        const mockProgress = { report: sinon.stub() };
+        return await task(mockProgress);
+      });
+
+      await commands.installBundle(bundleId);
+
+      assert.strictEqual(mockShowErrorMessage.callCount, 1, 'Should surface installation failure to the user');
+      const [userMessage] = mockShowErrorMessage.firstCall.args;
+      assert.ok(typeof userMessage === 'string' && userMessage.includes('Installation failed:'), 'Error message should keep the install command prefix');
+      assert.ok(typeof userMessage === 'string' && userMessage.includes('[REDACTED]'), 'Error message should preserve redacted repository-safety diagnostics');
+      assert.ok(typeof userMessage === 'string' && userMessage.includes('Install to user scope'), 'Error message should preserve the repository-safety remediation guidance');
     });
   });
 });

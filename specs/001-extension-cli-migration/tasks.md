@@ -72,9 +72,9 @@
 - [x] T033 [US1] Adapt `BundleInstaller` to construct shared install and update use-case requests while preserving existing public method signatures in `src/services/bundle-installer.ts`
 - [x] T034 [US1] Adapt `UserScopeService` to resolve VS Code user-scope writes through the target layout contract in `src/services/user-scope-service.ts`
 - [x] T035 [US1] Adapt `RepositoryScopeService` to resolve repository-scope writes through the target layout contract and repository safety policy while preserving `prompt-registry.lock.json` shape in `src/services/repository-scope-service.ts`
-- [ ] T036 [US1] Keep `RegistryManager` events, progress, storage integration, and command-facing behavior stable while delegating install, update, uninstall, and validate operations in `src/services/registry-manager.ts`
-- [ ] T037 [US1] Verify extension command handlers still surface existing notifications, redacted repository-safety diagnostics, and errors after service delegation in `src/commands/install-bundle.ts`
-- [ ] T038 [US1] Run `npm run test:unit`, `npm run test:integration`, `npm run compile`, and `npm run lint`, then record VS Code parity evidence in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T036 [US1] Keep `RegistryManager` events, progress, storage integration, and command-facing behavior stable while delegating install, update, uninstall, and validate operations in `src/services/registry-manager.ts`
+- [x] T037 [US1] Verify extension command handlers still surface existing notifications, redacted repository-safety diagnostics, and errors after service delegation in `src/commands/install-bundle.ts`
+- [x] T038 [US1] Run `npm run test:unit`, `npm run test:integration`, `npm run compile`, and `npm run lint`, then record VS Code parity evidence in `specs/001-extension-cli-migration/validation-log.md`
 
 **Checkpoint**: VS Code extension behavior remains compatible with `main`; MVP is independently testable.
 

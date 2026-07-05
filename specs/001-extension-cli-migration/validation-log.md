@@ -156,6 +156,43 @@
 - Repository-scope file and skill placement now resolves target directories from the shared target layout contract while preserving the default VS Code `.github/*` output and lockfile-relative path shape.
 - Local-only git-exclude entries now follow the same layout-routed repository paths produced during sync.
 
+## Phase 3 RegistryManager Delegation Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/registry-manager.test.ts` | Passed | Added T036 assertions proving repository-scope install, update, and uninstall still notify repository listeners while bypassing `RegistryStorage` installation writes/removals. The suite stayed green with 26 passing after centralizing RegistryManager post-delegation storage and event handling. |
+| `npm run test:one -- test/services/registry-manager-repository-safety.test.ts` | Passed | Revalidated repository-safety diagnostics after the T036 RegistryManager delegation refactor; 2 passing. |
+| `npx eslint src/services/registry-manager.ts test/services/registry-manager.test.ts` | Passed with warnings | No ESLint errors after T036 changes. Remaining output is the pre-existing unsafe-`any` warnings in `RegistryManager`. |
+| `git diff --check` | Passed | No whitespace errors after T036 edits. |
+| `npm run compile` | Passed with warning | Production compile completed. Warning remains the known optional Elasticsearch `apache-arrow/Arrow.node` module not found. |
+
+### Phase 3 RegistryManager Defects Found and Fixed
+
+- RegistryManager now centralizes post-delegation install, update, and uninstall side effects so repository-scoped operations continue to bypass `RegistryStorage` while firing the same extension-facing events.
+- Command-facing behavior stayed stable: delegated operations still emit install/update/uninstall events and repository refresh notifications at the same scope boundaries as before.
+
+## Phase 3 Install Command Notification Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/commands/bundle-installation-commands.property.test.ts` | Failed as expected, then passed | New T037 regression first failed because repository-safety install rejections were routed through the generic `ErrorHandler`, which collapsed the redacted diagnostic into a categorized message and dropped the `[REDACTED]` detail. After preserving `Repository install rejected:` messages at the install command boundary, the focused suite passed with 5 passing while still asserting the existing success notification path. |
+| `git diff --check` | Passed | No whitespace errors after T037 edits. |
+
+### Phase 3 Install Command Defects Found and Fixed
+
+- The install command now preserves redacted repository-safety diagnostics and remediation guidance when delegated repository installs are rejected, instead of replacing them with a generic categorized error.
+- Existing success-path notifications remain intact after installation completes and auto-update preference storage succeeds.
+
+## Phase 3 Broader VS Code Parity Validation
+
+| Command | Status | Summary |
+|---------|--------|---------|
+| `LOG_LEVEL=ERROR npm run test:unit` | Failed with baseline issue | Repo-wide unit/property/e2e coverage ran after T037 and reported `2361 passing`, `33 pending`, and `1 failing`. The failing test is the pre-existing `ElasticSearchTransport registerHub() should pass system + default CA certificates to the ES client when available`, which expects `tls.ca` to be an array. No new command-layer or migration-slice regressions were introduced by T037. |
+| `npm run test:integration` | Passed | Real VS Code integration coverage remained green after the delegation and command-layer changes; 7 passing. |
+| `npm run compile` | Passed with warning | Production compile completed. Warning remains the known optional Elasticsearch `apache-arrow/Arrow.node` module not found. |
+| `npm run lint` | Failed with baseline issues | Repo-wide lint still reports `854 problems (4 errors, 850 warnings)`. Errors are outside this slice: `test/services/mcp-server-manager.test.ts` trailing comma and `test/services/vscode-repository-golden.test.ts` max-len plus missing final newline. The remaining output is the existing warning baseline. |
+| `git diff --check` | Passed | No whitespace errors after T037/T038 edits. |
+
 ## Notes
 
 - No source-code migration or cherry-pick has been applied yet.
