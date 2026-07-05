@@ -102,10 +102,10 @@ Execution note: foundational CLI tasks T045-T047 were completed early to establi
 - [x] T045 [US2] Add the CLI entrypoint and npm bin wiring without changing package manager in `src/cli/index.ts` and `package.json`
 - [x] T046 [US2] Implement CLI command parsing, help text, and shared command context in `src/cli/cli.ts`
 - [x] T047 [US2] Implement CLI install and update commands over shared application use cases in `src/cli/commands/install.ts`
-- [ ] T048 [US2] Implement CLI uninstall, validate, list, and inspect commands over shared application use cases in `src/cli/commands/`
-- [ ] T049 [US2] Implement CLI output formatters for human-readable and JSON modes in `src/cli/output.ts`
-- [ ] T050 [US2] Implement CLI error mapping with actionable stderr messages, redacted repository-safety diagnostics, and non-zero exit codes in `src/cli/errors.ts`
-- [ ] T051 [US2] Run CLI tests, `npm run compile`, and `npm run lint`, then record command evidence in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T048 [US2] Implement CLI uninstall, validate, list, and inspect commands over shared application use cases in `src/cli/commands/`
+- [x] T049 [US2] Implement CLI output formatters for human-readable and JSON modes in `src/cli/output.ts`
+- [x] T050 [US2] Implement CLI error mapping with actionable stderr messages, redacted repository-safety diagnostics, and non-zero exit codes in `src/cli/errors.ts`
+- [x] T051 [US2] Run CLI tests, `npm run compile`, and `npm run lint`, then record command evidence in `specs/001-extension-cli-migration/validation-log.md`
 
 **Checkpoint**: CLI is a first-class interface and does not duplicate the install pipeline.
 

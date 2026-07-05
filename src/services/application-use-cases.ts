@@ -71,12 +71,44 @@ export interface MoveScopeUseCaseRequest {
   commitMode?: RepositoryCommitMode;
 }
 
+export interface ListUseCaseRequest {
+  target?: Target;
+}
+
+export interface ApplicationListEntry {
+  bundleId: string;
+  version: string;
+  target: Target;
+}
+
+export interface ApplicationListResult {
+  bundles: ApplicationListEntry[];
+}
+
+export interface InspectUseCaseRequest {
+  target: Target;
+  bundle: ApplicationBundle;
+}
+
+export interface ApplicationInspectResource {
+  kind: string;
+  id: string;
+}
+
+export interface ApplicationInspectResult {
+  bundleId: string;
+  version: string;
+  resources: ApplicationInspectResource[];
+}
+
 export interface ApplicationUseCases {
   install(request: InstallUseCaseRequest): Promise<ApplicationInstallResult>;
   update(request: UpdateUseCaseRequest): Promise<ApplicationUpdateResult>;
   uninstall(request: UninstallUseCaseRequest): Promise<ApplicationUninstallResult>;
   validate(request: ValidateUseCaseRequest): Promise<ApplicationValidateResult>;
   moveScope(request: MoveScopeUseCaseRequest): Promise<ApplicationInstallResult>;
+  list(request: ListUseCaseRequest): Promise<ApplicationListResult>;
+  inspect(request: InspectUseCaseRequest): Promise<ApplicationInspectResult>;
 }
 
 export interface ApplicationDiagnostic {
@@ -258,12 +290,40 @@ export const createApplicationUseCases = (options: ApplicationUseCasesOptions): 
     });
   };
 
+  const list = (request: ListUseCaseRequest): Promise<ApplicationListResult> => {
+    const entries: ApplicationListEntry[] = [];
+    for (const [key, record] of installed) {
+      if (request.target) {
+        const [type, scope] = key.split(':');
+        if (type !== request.target.type || scope !== request.target.scope) {
+          continue;
+        }
+      }
+      entries.push({
+        bundleId: record.bundle.id,
+        version: record.bundle.version,
+        target: record.target
+      });
+    }
+    return Promise.resolve({ bundles: entries });
+  };
+
+  const inspect = (request: InspectUseCaseRequest): Promise<ApplicationInspectResult> => {
+    return Promise.resolve({
+      bundleId: request.bundle.id,
+      version: request.bundle.version,
+      resources: request.bundle.resources.map((r) => ({ kind: r.kind, id: r.id }))
+    });
+  };
+
   return {
     install,
     update,
     uninstall,
     validate,
-    moveScope
+    moveScope,
+    list,
+    inspect
   };
 };
 

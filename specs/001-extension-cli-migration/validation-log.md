@@ -242,6 +242,27 @@
 - The first repository-safety CLI test exposes the remaining user-facing gap above the shared policy layer: repository-scope secret diagnostics are already modeled in services, but the CLI entrypoint still does not execute install flows or surface those redacted failures on stderr.
 - The current CLI checkpoint closes the highest-priority install gaps without widening into a second pipeline: install target validation, local repository-safety diagnostics, remote source forwarding, and stable JSON envelope rendering now work through the shared application-use-case seam used by the CLI tests.
 
+### Phase 4 T048–T051: CLI Command Adapters, Output Formatters, Error Mapping, and Final Verification
+
+| Command | Result | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/cli/commands.test.ts` | Passed (7/7) | Uninstall, validate, list, and inspect command adapters delegate to shared application use cases. Includes a real fixture uninstall test. |
+| `npm run test:one -- test/cli/cli-parser.test.ts` | Passed (10/10) | CLI parser recognizes all six commands and renders help text. |
+| `npm run test:one -- test/cli/install-command.test.ts` | Passed (3/3) | Local and remote install adapters work through shared use cases. |
+| `npm run test:one -- test/cli/error-output.test.ts` | Passed (3/3) | Invalid `--output` flag, missing `--target`, and unsupported target type all produce actionable stderr messages with exit code 1. |
+| `npm run test:one -- test/cli/json-output.test.ts` | Passed (4/4) | Stable JSON envelope rendered for list, inspect, validate, and install results. |
+| `npm run test:one -- test/cli/remote-install-command.test.ts` | Passed (2/2) | Remote install forwards source metadata through shared use case and preserves lockfile tracking. |
+| `npm run test:one -- test/cli/repository-safety-command.test.ts` | Passed (1/1) | Repository-scope install surfaces redacted diagnostics for unsafe prompts, instructions, agents, and skills. |
+| `npm run test:one -- test/services/application-use-cases.test.ts` | Passed (4/4) | Shared application use cases (install, update, uninstall, validate) remain green after adding list and inspect. |
+| `npm run compile` | Passed | Webpack production bundle compiled with 1 warning (existing). |
+| `npx eslint src/cli/index.ts src/cli/errors.ts src/cli/output.ts src/cli/commands/*.ts test/cli/*.test.ts` | Passed | Focused lint clean for all touched CLI source and test files. |
+| `git diff --check` | Passed | No whitespace errors. |
+
+- T048: Implemented `uninstall`, `validate`, `list`, and `inspect` command adapters in `src/cli/commands/`. Added `list` and `inspect` use cases to `src/services/application-use-cases.ts`. Wired all four commands into `src/cli/index.ts` dispatch.
+- T049: Added human-readable text formatters (`renderInstallText`, `renderUninstallText`, `renderValidateText`, `renderListText`, `renderInspectText`) to `src/cli/output.ts`. Wired `--output` flag through all command handlers to select between JSON and text output.
+- T050: Created `src/cli/errors.ts` with `formatDiagnostic`, `formatDiagnostics`, and `formatError` functions. Extracted error formatting from `src/cli/index.ts` into the shared module. Repository-safety diagnostics already include `[REDACTED]` from `repository-install-policy.ts`.
+- T051: All 30 CLI tests pass, compile succeeds, lint clean, whitespace clean.
+
 ## Notes
 
 - No source-code migration or cherry-pick has been applied yet.
