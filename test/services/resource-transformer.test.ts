@@ -77,4 +77,61 @@ suite('ResourceTransformer', () => {
       }
     ]);
   });
+
+  test('produces deterministic YAML frontmatter serialization for metadata transformations', async () => {
+    const metadataTransformer: ResourceTransformer = {
+      transform: (input) => Promise.resolve({
+        resource: {
+          ...input,
+          content: `---\nid: ${input.id}\nkind: ${input.kind}\n---\n${input.content ?? ''}`
+        },
+        diagnostics: []
+      })
+    };
+    const pipeline = createResourceTransformerPipeline({ transformers: [metadataTransformer] });
+
+    const first = await pipeline.transform(resource, target);
+    const second = await pipeline.transform(resource, target);
+
+    assert.strictEqual(first.resource.content, second.resource.content);
+    assert.ok(first.resource.content!.startsWith('---\nid: review\nkind: prompt\n---\n'));
+  });
+
+  test('serializes multiple resources with stable ordering and no cross-contamination', async () => {
+    const tagTransformer: ResourceTransformer = {
+      transform: (input) => Promise.resolve({
+        resource: {
+          ...input,
+          content: `${input.content ?? ''}<!-- id:${input.id} -->`
+        },
+        diagnostics: []
+      })
+    };
+    const pipeline = createResourceTransformerPipeline({ transformers: [tagTransformer] });
+
+    const resourceA: Resource = { kind: 'prompt', id: 'alpha', sourcePath: 'a.md', content: 'A\n' };
+    const resourceB: Resource = { kind: 'prompt', id: 'beta', sourcePath: 'b.md', content: 'B\n' };
+
+    const results = await Promise.all([
+      pipeline.transform(resourceA, target),
+      pipeline.transform(resourceB, target)
+    ]);
+
+    assert.strictEqual(results[0].resource.content, 'A\n<!-- id:alpha -->');
+    assert.strictEqual(results[1].resource.content, 'B\n<!-- id:beta -->');
+  });
+
+  test('preserves content exactly when no transformers modify it', async () => {
+    const identityTransformer: ResourceTransformer = {
+      transform: (input) => Promise.resolve({ resource: input, diagnostics: [] })
+    };
+    const pipeline = createResourceTransformerPipeline({ transformers: [identityTransformer] });
+
+    const result = await pipeline.transform(resource, target);
+
+    assert.strictEqual(result.resource.content, resource.content);
+    assert.strictEqual(result.resource.id, resource.id);
+    assert.strictEqual(result.resource.kind, resource.kind);
+    assert.strictEqual(result.resource.sourcePath, resource.sourcePath);
+  });
 });

@@ -263,6 +263,30 @@
 - T050: Created `src/cli/errors.ts` with `formatDiagnostic`, `formatDiagnostics`, and `formatError` functions. Extracted error formatting from `src/cli/index.ts` into the shared module. Repository-safety diagnostics already include `[REDACTED]` from `repository-install-policy.ts`.
 - T051: All 30 CLI tests pass, compile succeeds, lint clean, whitespace clean.
 
+### Phase 5 T052–T063: Target Layouts, Capabilities, Golden Fixtures, and Kiro Transformer
+
+| Command | Result | Summary |
+|---------|--------|---------|
+| `npm run test:one -- test/services/vscode-target-layout.test.ts` | Passed (7/7) | VS Code user and repository scope layouts resolve correctly with all four resource kinds. vscode-insiders shares the same layout. |
+| `npm run test:one -- test/services/kiro-target-layout.test.ts` | Passed (6/6) | Kiro user and repository scope layouts resolve with prompt and skill routes only. No instruction or agent routes. |
+| `npm run test:one -- test/services/target-golden-output.test.ts` | Passed (8/8) | Golden fixtures for vscode-user, vscode-repository, kiro-user, and kiro-repository match resolveTargetLayout routes. |
+| `npm run test:one -- test/services/target-capability-registry.test.ts` | Passed (10/10) | VS Code supports all four resource kinds in both scopes. Kiro supports only prompt and skill. Unsupported targets return undefined. |
+| `npm run test:one -- test/services/resource-transformer.test.ts` | Passed (6/6) | Deterministic YAML frontmatter serialization, stable multi-resource ordering, identity preservation, and redaction on failure. |
+| `npm run test:one -- test/services/target-repository-safety.test.ts` | Passed (6/6) | All resource kinds (prompt, instruction, agent, skill) obey shared safety policy for both VS Code and Kiro. Secrets redacted, local-only references flagged. |
+| `npm run test:one -- test/services/target-model.test.ts` | Passed (8/8) | Existing target model tests remain green after refactoring layout/capability registries to delegate to config/targets. |
+| `npm run compile` | Passed | Webpack production bundle compiled successfully. |
+| `npx eslint src/config/targets/*.ts src/services/target-layout-registry.ts src/services/target-capability-registry.ts src/services/default-target-writer.ts src/services/kiro-resource-transformer.ts test/services/{vscode-target-layout,kiro-target-layout,target-golden-output,target-capability-registry,resource-transformer,target-repository-safety}.test.ts` | Passed | Lint clean for all new and modified source and test files. |
+
+- T052–T053: Added VS Code and Kiro layout registry tests verifying user and repository scope route resolution.
+- T054: Added Kiro golden fixtures (`kiro-user/`, `kiro-repository/`) alongside existing VS Code fixtures. Created `target-golden-output.test.ts` to verify all four fixture trees match `resolveTargetLayout` routes.
+- T055: Added capability registry tests covering VS Code (all 4 resources), Kiro (prompt + skill only), and unsupported targets (copilot-cli, windsurf, claude-code).
+- T056: Extended `resource-transformer.test.ts` with deterministic serialization tests for YAML frontmatter, multi-resource ordering, and identity preservation.
+- T057: Created `target-repository-safety.test.ts` proving all resource kinds obey the shared safety policy for both VS Code and Kiro, with secret redaction and local-only reference detection.
+- T058–T060: Extracted concrete layouts and capabilities into `src/config/targets/vscode.ts`, `src/config/targets/kiro.ts`, and `src/config/targets/index.ts`. Updated `target-layout-registry.ts` and `target-capability-registry.ts` to delegate to the config modules.
+- T061: Created `src/services/default-target-writer.ts` with `DefaultTargetWriter` class that routes resources through `resolveTargetLayout` and delegates file I/O to `FileSystemTargetWriter`.
+- T062: Created `src/services/kiro-resource-transformer.ts` with Kiro-specific prompt normalization (CRLF to LF, trailing newline) that passes through unchanged for non-Kiro targets.
+- T063: All 51 target-related tests pass, compile succeeds, lint clean.
+
 ## Notes
 
 - No source-code migration or cherry-pick has been applied yet.

@@ -119,21 +119,21 @@ Execution note: foundational CLI tasks T045-T047 were completed early to establi
 
 ### Tests for User Story 3
 
-- [ ] T052 [P] [US3] Add VS Code layout registry tests for user and repository scopes in `test/services/vscode-target-layout.test.ts`
-- [ ] T053 [P] [US3] Add Kiro layout registry tests for user and repository scopes in `test/services/kiro-target-layout.test.ts`
-- [ ] T054 [P] [US3] Add VS Code and Kiro golden output fixtures for transformed resources in `test/fixtures/golden/target-layouts/`
-- [ ] T055 [P] [US3] Add unsupported capability tests for resources and operations not supported by a target in `test/services/target-capability-registry.test.ts`
-- [ ] T056 [P] [US3] Add deterministic serialization tests for YAML or metadata transformations used by target writers in `test/services/resource-transformer.test.ts`
-- [ ] T057 [P] [US3] Add repository-scope target layout safety tests proving prompts, instructions, agents, and skills obey the shared safety policy for VS Code and Kiro in `test/services/target-repository-safety.test.ts`
+- [x] T052 [P] [US3] Add VS Code layout registry tests for user and repository scopes in `test/services/vscode-target-layout.test.ts`
+- [x] T053 [P] [US3] Add Kiro layout registry tests for user and repository scopes in `test/services/kiro-target-layout.test.ts`
+- [x] T054 [P] [US3] Add VS Code and Kiro golden output fixtures for transformed resources in `test/fixtures/golden/target-layouts/`
+- [x] T055 [P] [US3] Add unsupported capability tests for resources and operations not supported by a target in `test/services/target-capability-registry.test.ts`
+- [x] T056 [P] [US3] Add deterministic serialization tests for YAML or metadata transformations used by target writers in `test/services/resource-transformer.test.ts`
+- [x] T057 [P] [US3] Add repository-scope target layout safety tests proving prompts, instructions, agents, and skills obey the shared safety policy for VS Code and Kiro in `test/services/target-repository-safety.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T058 [US3] Add concrete VS Code target layouts and capabilities in `src/config/targets/vscode.ts`
-- [ ] T059 [US3] Add concrete Kiro target layouts and capabilities in `src/config/targets/kiro.ts`
-- [ ] T060 [US3] Add target layout registration and lookup wiring in `src/config/targets/index.ts`
-- [ ] T061 [US3] Implement default target writer routing for prompts, instructions, agents, and skills in `src/services/default-target-writer.ts`
-- [ ] T062 [US3] Implement Kiro-specific resource transformations without affecting VS Code output in `src/services/kiro-resource-transformer.ts`
-- [ ] T063 [US3] Run golden output tests for VS Code and Kiro plus `npm run test:unit`, `npm run compile`, and `npm run lint`, then record target evidence in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T058 [US3] Add concrete VS Code target layouts and capabilities in `src/config/targets/vscode.ts`
+- [x] T059 [US3] Add concrete Kiro target layouts and capabilities in `src/config/targets/kiro.ts`
+- [x] T060 [US3] Add target layout registration and lookup wiring in `src/config/targets/index.ts`
+- [x] T061 [US3] Implement default target writer routing for prompts, instructions, agents, and skills in `src/services/default-target-writer.ts`
+- [x] T062 [US3] Implement Kiro-specific resource transformations without affecting VS Code output in `src/services/kiro-resource-transformer.ts`
+- [x] T063 [US3] Run golden output tests for VS Code and Kiro plus `npm run test:unit`, `npm run compile`, and `npm run lint`, then record target evidence in `specs/001-extension-cli-migration/validation-log.md`
 
 **Checkpoint**: New target support can be added through layout and capability entries rather than a copied pipeline.
 
