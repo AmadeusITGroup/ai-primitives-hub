@@ -46,15 +46,16 @@ npm run package:production  # Optimized production package
 ```
 src/
 ├── adapters/       # Source adapters (GitHub, Local, APM)
+├── cli/            # CLI entry point, commands, and output formatting
 ├── commands/       # VS Code command handlers
-├── config/         # Configuration defaults
+├── config/         # Configuration defaults and target layouts
 ├── integrations/   # External integrations (Copilot)
 ├── notifications/  # Notification services
-├── services/       # Core business logic
+├── services/       # Core business logic (use cases, transformers, writers)
 ├── storage/        # Persistent state management
-├── types/          # TypeScript definitions
+├── types/          # TypeScript definitions (target, registry, scaffold)
 ├── ui/             # WebView and TreeView providers
-├── utils/          # Shared utilities
+├── utils/          # Shared utilities (proxy-aware fetch, etc.)
 └── extension.ts    # Entry point
 ```
 
@@ -70,8 +71,30 @@ src/
 - **Tests fail "suite is not defined"** → Check mocha setup
 - **Extension not loading** → Check `package.json` activation events
 
+## CLI Development
+
+The CLI lives in `src/cli/` and provides a function-based command dispatch (not clipanion). Key files:
+
+| File | Purpose |
+|------|---------|
+| `src/cli/index.ts` | Main entry point, command dispatch |
+| `src/cli/cli.ts` | Command definitions, argument parsing |
+| `src/cli/output.ts` | Text and JSON output formatting |
+| `src/cli/table.ts` | Shared table renderer for list commands |
+| `src/cli/help-renderer.ts` | Enhanced help with progressive disclosure |
+| `src/cli/completion.ts` | Shell completion script generation |
+| `src/cli/errors.ts` | CLI error mapping and formatting |
+| `src/cli/commands/` | Individual command implementations |
+
+Run the CLI locally:
+
+```bash
+node dist/cli/index.js <command> [options]
+```
+
 ## See Also
 
+- [CLI Usage](../user-guide/cli.md) — CLI command reference
 - [Architecture](./architecture.md)
 - [Testing](./testing.md)
 - [Coding Standards](./coding-standards.md)

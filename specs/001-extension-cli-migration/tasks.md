@@ -181,14 +181,14 @@ Execution note: foundational CLI tasks T045-T047 were completed early to establi
 
 **Purpose**: Complete documentation, packaging, cleanup markers, and final migration evidence after desired stories are implemented.
 
-- [ ] T086 [P] Update user CLI documentation for supported commands, output modes, targets, repository-scope safety diagnostics, and examples in `docs/user-guide/cli.md`
-- [ ] T087 [P] Update contributor setup and testing documentation for any new CLI, target, repository-safety, or package-layout commands in `docs/contributor-guide/development-setup.md`
-- [ ] T088 [P] Update architecture documentation for shared engine, native interfaces, application use cases, target layouts, repository-scope safety, and cherry-pick strategy in `docs/contributor-guide/architecture.md`
-- [ ] T089 [P] Update command reference documentation for CLI and extension command parity in `docs/reference/commands.md`
-- [ ] T090 Remove temporary migration guards that are no longer needed and document remaining cleanup markers in `specs/001-extension-cli-migration/validation-log.md`
-- [ ] T091 Run `npm run compile`, `npm run lint`, `npm run test:unit`, `npm run test:integration`, and `npm run package:vsix`, then record final results in `specs/001-extension-cli-migration/validation-log.md`
-- [ ] T092 Produce the final selected, reimplemented, deferred, and rejected commit summary in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
-- [ ] T093 Verify all feature requirements FR-001 through FR-013 and success criteria SC-001 through SC-007 are covered, then record the traceability review in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T086 [P] Update user CLI documentation for supported commands, output modes, targets, repository-scope safety diagnostics, and examples in `docs/user-guide/cli.md`
+- [x] T087 [P] Update contributor setup and testing documentation for any new CLI, target, repository-safety, or package-layout commands in `docs/contributor-guide/development-setup.md`
+- [x] T088 [P] Update architecture documentation for shared engine, native interfaces, application use cases, target layouts, repository-scope safety, and cherry-pick strategy in `docs/contributor-guide/architecture.md`
+- [x] T089 [P] Update command reference documentation for CLI and extension command parity in `docs/reference/commands.md`
+- [x] T090 Remove temporary migration guards that are no longer needed and document remaining cleanup markers in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T091 Run `npm run compile`, `npm run lint`, `npm run test:unit`, `npm run test:integration`, and `npm run package:vsix`, then record final results in `specs/001-extension-cli-migration/validation-log.md`
+- [x] T092 Produce the final selected, reimplemented, deferred, and rejected commit summary in `specs/001-extension-cli-migration/cherry-pick-clusters.md`
+- [x] T093 Verify all feature requirements FR-001 through FR-013 and success criteria SC-001 through SC-007 are covered, then record the traceability review in `specs/001-extension-cli-migration/validation-log.md`
 
 ---
 

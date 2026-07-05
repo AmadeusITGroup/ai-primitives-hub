@@ -7,9 +7,12 @@ VS Code extension providing a marketplace for GitHub Copilot prompt bundles from
 - Visual Marketplace with search/filter
 - Multi-source support (GitHub, Local, AwesomeCopilot, APM)
 - Bundle management (install, update, uninstall)
+- CLI with table-formatted output, shell completion, and scaffolding
 - Auto-sync with GitHub Copilot
 - Cross-platform (macOS, Linux, Windows)
 - MCP server integration
+- Proxy-aware HTTP requests (HTTP_PROXY/HTTPS_PROXY/NO_PROXY)
+- Plugin and hook resource support
 
 ## Architecture Principles
 
@@ -105,15 +108,71 @@ To add a new skill:
 
 Supports: VS Code Stable, Insiders, Windsurf
 
+## CLI Architecture
+
+The CLI (`src/cli/`) provides a function-based command dispatch system. It is not clipanion-based — commands are dispatched via a switch statement in `index.ts`.
+
+### Key Components
+
+| Component | File | Responsibility |
+|-----------|------|----------------|
+| Command dispatch | `src/cli/index.ts` | Entry point, routes commands |
+| Command definitions | `src/cli/cli.ts` | Supported commands, metadata, argument parsing |
+| Output formatting | `src/cli/output.ts` | Text and JSON output renderers |
+| Table renderer | `src/cli/table.ts` | Aligned column formatting for list commands |
+| Help renderer | `src/cli/help-renderer.ts` | Progressive disclosure help with categories |
+| Shell completion | `src/cli/completion.ts` | bash/zsh completion script generation |
+| Error handling | `src/cli/errors.ts` | Error mapping and user-friendly messages |
+| Scaffold command | `src/cli/commands/scaffold.ts` | Collection and primitive scaffolding |
+
+### Output Modes
+
+All commands support `--output text` (default) and `--output json`. JSON output uses a stable envelope with `command`, `status`, `data`, and `error` fields.
+
+## Target Layout System
+
+Target layouts define where bundle resources are placed for each target type and scope.
+
+| Target | Scope | Config File |
+|--------|-------|-------------|
+| VS Code | user | `src/config/targets/vscode.ts` |
+| VS Code | repository | `src/config/targets/vscode.ts` |
+| Kiro | user | `src/config/targets/kiro.ts` |
+| Kiro | repository | `src/config/targets/kiro.ts` |
+
+Layouts are resolved via `TargetLayoutRegistry.resolveTargetLayout()` and used by `materializeFiles()` in `application-use-cases.ts`.
+
+## Resource Transformers
+
+Resource transformers modify bundle content during installation, applying target-specific transformations.
+
+- `ResourceTransformer` interface in `src/services/resource-transformer.ts`
+- Kiro transformer in `src/services/kiro-resource-transformer.ts` — injects mandatory fields for Kiro targets
+- Transformers are applied in `materializeFiles()` during install
+
+## Repository-Scope Safety
+
+Repository-scoped installations are protected by safety policies:
+
+- `RepositoryInstallPolicy` validates commit mode and resource types
+- `LockfileManager` tracks installed files in `prompt-registry.lock.json`
+- `ScopeConflictResolver` prevents same bundle at both user and repository scope
+
+## Proxy-Aware Fetch
+
+`src/utils/proxy-aware-fetch.ts` provides `createProxyAwareFetch()` which wraps undici's `EnvHttpProxyAgent` to respect standard proxy environment variables.
+
 ## Glossary
 
 | Term | Definition |
 |------|------------|
-| **Bundle** | Package of prompts, instructions, chat modes, agents |
+| **Bundle** | Package of prompts, instructions, chat modes, agents, skills, plugins, hooks |
 | **Source** | Repository/location for fetching bundles |
 | **Adapter** | Implementation for a source type |
 | **Profile** | Collection of bundles grouped by project/team |
 | **Manifest** | YAML file describing bundle contents |
+| **Target** | Destination for bundle installation (type + scope) |
+| **Resource Kind** | Type of bundle content (prompt, instruction, agent, skill, plugin, hook) |
 
 ## Deep Dives
 
@@ -125,3 +184,4 @@ Supports: VS Code Stable, Insiders, Windsurf
 - [MCP Integration](./architecture/mcp-integration.md) — MCP server management
 - [Scaffolding](./architecture/scaffolding.md) — Project templates
 - [Validation](./architecture/validation.md) — Schema validation
+- [CLI Usage](../user-guide/cli.md) — CLI command reference and examples
