@@ -1,6 +1,6 @@
 {
   "name": "@prompt-registry/collection-scripts",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Shared scripts for building, validating, and publishing Copilot prompt collections",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
