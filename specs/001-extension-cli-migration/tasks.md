@@ -89,17 +89,19 @@
 ### Tests for User Story 2
 
 - [x] T039 [P] [US2] Add failing CLI parser and help-output tests for list, validate, install, update, uninstall, and inspect commands in `test/cli/cli-parser.test.ts`
-- [ ] T040 [P] [US2] Add failing CLI local install success tests using fixture bundles in `test/cli/install-command.test.ts`
-- [ ] T041 [P] [US2] Add failing CLI invalid-input, unsupported-target, and stderr exit-code tests in `test/cli/error-output.test.ts`
+- [x] T040 [P] [US2] Add failing CLI local install success tests using fixture bundles in `test/cli/install-command.test.ts`
+- [x] T041 [P] [US2] Add failing CLI invalid-input, unsupported-target, and stderr exit-code tests in `test/cli/error-output.test.ts`
 - [ ] T042 [P] [US2] Add failing CLI JSON output stability tests for list, inspect, validate, and install results in `test/cli/json-output.test.ts`
 - [ ] T043 [P] [US2] Add failing CLI remote install regression tests that prove remote paths use the shared writer factory in `test/cli/remote-install-command.test.ts`
 - [ ] T044 [P] [US2] Add failing CLI repository-scope secret-safe install tests for prompts, instructions, agents, and skills in `test/cli/repository-safety-command.test.ts`
+
+Execution note: foundational CLI tasks T045-T047 were completed early to establish the parser, shared context, and install/update adapter seams. Remaining Phase 4 CLI work resumes in numeric order from T040 onward.
 
 ### Implementation for User Story 2
 
 - [x] T045 [US2] Add the CLI entrypoint and npm bin wiring without changing package manager in `src/cli/index.ts` and `package.json`
 - [x] T046 [US2] Implement CLI command parsing, help text, and shared command context in `src/cli/cli.ts`
-- [ ] T047 [US2] Implement CLI install and update commands over shared application use cases in `src/cli/commands/install.ts`
+- [x] T047 [US2] Implement CLI install and update commands over shared application use cases in `src/cli/commands/install.ts`
 - [ ] T048 [US2] Implement CLI uninstall, validate, list, and inspect commands over shared application use cases in `src/cli/commands/`
 - [ ] T049 [US2] Implement CLI output formatters for human-readable and JSON modes in `src/cli/output.ts`
 - [ ] T050 [US2] Implement CLI error mapping with actionable stderr messages, redacted repository-safety diagnostics, and non-zero exit codes in `src/cli/errors.ts`

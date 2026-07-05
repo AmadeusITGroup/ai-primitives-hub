@@ -203,12 +203,24 @@
 | `npm run test:one -- test/cli/cli-parser.test.ts` | Failed as expected, then passed | New T046 shared-context tests first failed because `createCliContext()` and `getCliCommandDefinition()` did not exist. After introducing shared CLI command metadata plus a reusable execution context, the focused suite passed with 10 passing. |
 | `npx eslint src/cli/cli.ts src/cli/index.ts test/cli/cli-parser.test.ts` | Passed | Focused lint remained clean after adding shared command definitions and context. ESLint printed only the existing multi-project performance warning. |
 | `git diff --check` | Passed | No whitespace errors after the T046 shared-context slice. |
+| `npm run test:one -- test/cli/install-command.test.ts` | Failed as expected, then passed | New T047 command-adapter tests first failed because `src/cli/commands/install.ts` did not exist. After adding minimal install/update command adapters that load a bundle and delegate to the shared application use cases, the focused suite passed with 2 passing. |
+| `npx eslint src/cli/commands/install.ts test/cli/install-command.test.ts` | Passed | Focused lint passed after restoring trailing newlines and removing unnecessary async/type assertions. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check` | Passed | No whitespace errors after the T047 install/update command slice. |
+| `npm run test:one -- test/cli/install-command.test.ts` | Failed as expected, then passed | New T040 fixture-driven local install test first failed because the CLI command layer had no `loadLocalBundle()` path for `deployment-manifest.yml` directories. After adding a local manifest/file loader and executing the fixture through `createApplicationUseCases()`, the focused suite passed with 3 passing. |
+| `npx eslint src/cli/commands/install.ts test/cli/install-command.test.ts` | Passed | Focused lint remained clean after adding the local bundle loader and fixture-backed success case. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check` | Passed | No whitespace errors after the T040 local install slice. |
+| `npm run test:one -- test/cli/error-output.test.ts` | Failed as expected | New T041 error-output tests confirm the current CLI entrypoint still falls back to the generic `Command "install" is not implemented yet.` stderr path. Invalid `--output` handling already returns exit code `1`, while missing-install-target and unsupported-target diagnostics remain unimplemented. |
+| `npx eslint test/cli/error-output.test.ts` | Passed | Focused lint passed for the new T041 error-output test file. ESLint printed only the existing multi-project performance warning. |
+| `git diff --check` | Passed | No whitespace errors after the T041 error-output test slice. |
 
 ### Phase 4 CLI Parser and Entrypoint Defects Found and Fixed
 
 - The migration branch had no CLI parser/help module or root entrypoint, so the first CLI command-contract tests failed on a missing module rather than business behavior.
 - A minimal `src/cli/cli.ts` parser/help contract and `src/cli/index.ts` entrypoint now exist, and `package.json` exposes a provisional `prompt-registry` bin target aligned with the TypeScript `out/` tree while broader packaging validation remains deferred to T051.
 - The first shared-context tests exposed that the CLI layer only returned parsed flags and hardcoded help text; `src/cli/cli.ts` now owns reusable command definitions and a shared CLI execution context that the entrypoint can consume without duplicating stream and cwd setup.
+- The first install/update command tests exposed that no CLI adapter existed between bundle loading and the shared application use cases; `src/cli/commands/install.ts` now shapes a local-source install/update request without duplicating pipeline logic.
+- The first fixture-backed local install test exposed that the CLI command layer still lacked a real loader for local bundle directories; `src/cli/commands/install.ts` now reads `deployment-manifest.yml` plus prompt files and reuses the shared application install use case to produce the repository-scoped outputs.
+- The first error-output tests expose the next missing command-layer behavior: `main()` still treats all install invocations as unimplemented, so actionable `--target` validation and unsupported-target diagnostics need to land before CLI error handling is complete.
 
 ## Notes
 
