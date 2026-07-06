@@ -20,13 +20,6 @@
  * ```
  */
 
-import {
-  exec,
-} from 'node:child_process';
-import * as https from 'node:https';
-import {
-  promisify,
-} from 'node:util';
 import archiver from 'archiver';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
@@ -37,13 +30,8 @@ import {
   ValidationResult,
 } from '../types/registry';
 import {
-  Logger,
-} from '../utils/logger';
-import {
-  RepositoryAdapter,
-} from './repository-adapter';
-
-const execAsync = promisify(exec);
+  GitHubBackedAdapter,
+} from './github-backed-adapter';
 
 /**
  * Awesome Copilot Collection Schema
@@ -106,7 +94,7 @@ export interface AwesomeCopilotConfig {
  * - Automatic collection discovery
  * - Content type mapping (prompt/instruction/chatmode/agent)
  * - Cache for performance
- * - GitHub API integration
+ * - GitHub API integration (via GitHubBackedAdapter)
  *
  * Usage:
  * ```typescript
@@ -118,21 +106,17 @@ export interface AwesomeCopilotConfig {
  *   config: { branch: 'main', collectionsPath: 'collections' }
  * };
  * const adapter = new AwesomeCopilotAdapter(source);
- * const bundles = await adapter.listBundles();
+ * const bundles = await adapter.fetchBundles();
  * ```
  */
-export class AwesomeCopilotAdapter extends RepositoryAdapter {
+export class AwesomeCopilotAdapter extends GitHubBackedAdapter {
   public readonly type = 'awesome-copilot';
   private readonly config: Required<AwesomeCopilotConfig>;
   private readonly collectionsCache: Map<string, { bundles: Bundle[]; timestamp: number }> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-  protected logger: Logger;
-  private authToken: string | undefined;
-  private authMethod: 'vscode' | 'gh-cli' | 'explicit' | 'none' = 'none';
 
   constructor(source: RegistrySource) {
     super(source);
-    this.logger = Logger.getInstance();
 
     // Parse config
     const userConfig = source.config || {};
@@ -148,10 +132,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
    * List all .collection.yml files in collections directory
    */
   private async listCollectionFiles(): Promise<string[]> {
-    const apiUrl = this.buildApiUrl(`${this.config.collectionsPath}`);
-    const content = await this.fetchUrl(apiUrl);
-
-    const files = JSON.parse(content) as GitHubContent[];
+    const files = await this.getJson<GitHubContent[]>(this.buildCollectionsApiUrl());
     return files
       .filter((f) => f.type === 'file' && f.name.endsWith('.collection.yml'))
       .map((f) => f.name);
@@ -163,8 +144,8 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
    */
   private async parseCollection(collectionFile: string): Promise<Bundle | null> {
     try {
-      const collectionUrl = this.buildRawUrl(`${this.config.collectionsPath}/${collectionFile}`);
-      const yamlContent = await this.fetchUrl(collectionUrl);
+      const collectionUrl = this.buildRepoRawUrl(`${this.config.collectionsPath}/${collectionFile}`);
+      const yamlContent = await this.getText(collectionUrl);
       const collection = yaml.load(yamlContent) as CollectionManifest;
 
       this.logger.debug(`[AwesomeCopilot]: Here is the parsed collection ${collection.readme?.path}`);
@@ -175,7 +156,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
       // Count items by kind (including MCP servers)
       const breakdown = this.calculateBreakdown(collection.items, mcpServers);
 
-      const readmeUrl = collection.readme?.path ? this.buildRawUrl(collection.readme.path) : undefined;
+      const readmeUrl = collection.readme?.path ? this.buildRepoRawUrl(collection.readme.path) : undefined;
 
       const bundle: Bundle = {
         id: collection.id,
@@ -187,8 +168,8 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
         tags: collection.tags || [],
         environments: this.inferEnvironments(collection.tags || []),
         sourceId: this.source.id,
-        manifestUrl: this.buildRawUrl(`${this.config.collectionsPath}/${collectionFile}`),
-        downloadUrl: this.buildRawUrl(`${this.config.collectionsPath}/${collectionFile}`),
+        manifestUrl: this.buildRepoRawUrl(`${this.config.collectionsPath}/${collectionFile}`),
+        downloadUrl: this.buildRepoRawUrl(`${this.config.collectionsPath}/${collectionFile}`),
         lastUpdated: new Date().toISOString(),
         size: `${collection.items.length} items`,
         dependencies: [],
@@ -269,15 +250,15 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
             this.logger.debug(`Found ${skillFiles.length} files in skill directory: ${skillFiles.join(', ')}`);
 
             for (const filePath of skillFiles) {
-              const fileUrl = this.buildRawUrl(filePath);
-              const content = await this.fetchUrl(fileUrl);
+              const fileUrl = this.buildRepoRawUrl(filePath);
+              const content = await this.getText(fileUrl);
               archive.append(content, { name: filePath });
               this.logger.debug(`Added ${filePath} (${content.length} bytes)`);
             }
           } else {
             // For other types, fetch single file and put in prompts/ folder
-            const itemUrl = this.buildRawUrl(item.path);
-            const content = await this.fetchUrl(itemUrl);
+            const itemUrl = this.buildRepoRawUrl(item.path);
+            const content = await this.getText(itemUrl);
             const filename = item.path.split('/').pop() || 'unknown';
             archive.append(content, { name: `prompts/${filename}` });
             this.logger.debug(`Added ${filename} (${content.length} bytes)`);
@@ -436,12 +417,20 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Build GitHub API URL
+   * Build GitHub Contents API URL for the collections directory (pinned to branch).
+   */
+  private buildCollectionsApiUrl(): string {
+    const { owner, repo } = this.parseGitHubUrl();
+    return this.buildContentsUrl(owner, repo, this.config.collectionsPath, this.config.branch);
+  }
+
+  /**
+   * Build a raw githubusercontent URL for a repo-relative path at the configured branch.
    * @param path
    */
-  private buildApiUrl(path: string): string {
+  private buildRepoRawUrl(path: string): string {
     const { owner, repo } = this.parseGitHubUrl();
-    return `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${this.config.branch}`;
+    return this.buildRawUrl(owner, repo, this.config.branch, path);
   }
 
   /**
@@ -452,9 +441,8 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
   private async fetchBranchSha(): Promise<string | undefined> {
     try {
       const { owner, repo } = this.parseGitHubUrl();
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/commits/${this.config.branch}`;
-      const content = await this.fetchUrl(apiUrl);
-      const commit = JSON.parse(content) as { sha?: string };
+      const apiUrl = `${this.apiBase}/repos/${owner}/${repo}/commits/${this.config.branch}`;
+      const commit = await this.getJson<{ sha?: string }>(apiUrl);
       return commit.sha;
     } catch (error) {
       this.logger.warn(`Failed to resolve branch sha for readme revision: ${(error as Error).message}`);
@@ -471,9 +459,9 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
     const filePaths: string[] = [];
 
     try {
-      const apiUrl = this.buildApiUrl(dirPath);
-      const response = await this.fetchUrl(apiUrl);
-      const contents = JSON.parse(response) as GitHubContent[];
+      const { owner, repo } = this.parseGitHubUrl();
+      const apiUrl = this.buildContentsUrl(owner, repo, dirPath, this.config.branch);
+      const contents = await this.getJson<GitHubContent[]>(apiUrl);
 
       for (const item of contents) {
         if (item.type === 'file') {
@@ -492,187 +480,11 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Build raw GitHub content URL
-   * @param path
-   */
-  private buildRawUrl(path: string): string {
-    const { owner, repo } = this.parseGitHubUrl();
-    return `https://raw.githubusercontent.com/${owner}/${repo}/${this.config.branch}/${path}`;
-  }
-
-  /**
-   * Parse GitHub URL
-   */
-  private parseGitHubUrl(): { owner: string; repo: string } {
-    const url = this.source.url.replace(/\.git$/, '');
-    const match = url.match(/github\.com[/:]([^/]+)\/([^/]+)/);
-
-    if (!match) {
-      throw new Error(`Invalid GitHub URL: ${this.source.url}`);
-    }
-
-    return { owner: match[1], repo: match[2] };
-  }
-
-  /**
    * Extract repository owner
    */
   private extractRepoOwner(): string {
     const { owner } = this.parseGitHubUrl();
     return owner;
-  }
-
-  /**
-   * Get authentication token using fallback chain:
-   * 1. VSCode GitHub API (if user is logged in)
-   * 2. gh CLI (if installed and authenticated)
-   * 3. Explicit token from source configuration
-   */
-  private async getAuthenticationToken(): Promise<string | undefined> {
-    // Return cached token if already resolved
-    if (this.authToken !== undefined) {
-      this.logger.debug(`[AwesomeCopilotAdapter] Using cached token (method: ${this.authMethod})`);
-      return this.authToken;
-    }
-
-    this.logger.info('[AwesomeCopilotAdapter] Attempting authentication...');
-
-    // Try VSCode GitHub authentication first
-    try {
-      this.logger.debug('[AwesomeCopilotAdapter] Trying VSCode GitHub authentication...');
-      const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
-      if (session) {
-        this.authToken = session.accessToken;
-        this.authMethod = 'vscode';
-        this.logger.info('[AwesomeCopilotAdapter] ✓ Using VSCode GitHub authentication');
-        this.logger.debug(`[AwesomeCopilotAdapter] Token preview: ${this.authToken.substring(0, 8)}...`);
-        return this.authToken;
-      }
-      this.logger.debug('[AwesomeCopilotAdapter] VSCode auth session not found');
-    } catch (error) {
-      this.logger.warn(`[AwesomeCopilotAdapter] VSCode auth failed: ${error}`);
-    }
-
-    // Try gh CLI authentication
-    try {
-      this.logger.debug('[AwesomeCopilotAdapter] Trying gh CLI authentication...');
-      const { stdout } = await execAsync('gh auth token');
-      const token = stdout.trim();
-      if (token && token.length > 0) {
-        this.authToken = token;
-        this.authMethod = 'gh-cli';
-        this.logger.info('[AwesomeCopilotAdapter] ✓ Using gh CLI authentication');
-        this.logger.debug(`[AwesomeCopilotAdapter] Token preview: ${this.authToken.substring(0, 8)}...`);
-        return this.authToken;
-      }
-      this.logger.debug('[AwesomeCopilotAdapter] gh CLI returned empty token');
-    } catch (error) {
-      this.logger.warn(`[AwesomeCopilotAdapter] gh CLI auth failed: ${error}`);
-    }
-
-    // Fall back to explicit token from source configuration
-    const explicitToken = this.getAuthToken();
-    if (explicitToken) {
-      this.authToken = explicitToken;
-      this.authMethod = 'explicit';
-      this.logger.info('[AwesomeCopilotAdapter] ✓ Using explicit token from configuration');
-      this.logger.debug(`[AwesomeCopilotAdapter] Token preview: ${this.authToken.substring(0, 8)}...`);
-      return this.authToken;
-    }
-
-    // No authentication available
-    this.authMethod = 'none';
-    this.logger.warn('[AwesomeCopilotAdapter] ✗ No authentication available - API rate limits will apply and private repos will be inaccessible');
-    return undefined;
-  }
-
-  /**
-   * Fetch URL content with authentication
-   * Handles redirects (301/302) by following the Location header
-   * @param url
-   * @param redirectDepth
-   */
-  private async fetchUrl(url: string, redirectDepth = 0): Promise<string> {
-    /**
-     * Maximum redirect depth to prevent infinite loops.
-     */
-    const MAX_REDIRECTS = 10;
-    if (redirectDepth >= MAX_REDIRECTS) {
-      this.logger.error(`[AwesomeCopilotAdapter] Maximum redirect depth (${MAX_REDIRECTS}) exceeded`);
-      throw new Error(`Maximum redirect depth (${MAX_REDIRECTS}) exceeded`);
-    }
-
-    const token = await this.getAuthenticationToken();
-    const headers: Record<string, string> = {
-      'User-Agent': 'VSCode-Prompt-Registry'
-    };
-
-    if (token) {
-      headers.Authorization = `token ${token}`;
-      this.logger.debug(`[AwesomeCopilotAdapter] Request to ${url} with auth (method: ${this.authMethod})`);
-    } else {
-      this.logger.debug(`[AwesomeCopilotAdapter] Request to ${url} WITHOUT auth`);
-    }
-
-    // Log headers (sanitized)
-    const sanitizedHeaders = { ...headers };
-    if (sanitizedHeaders.Authorization) {
-      sanitizedHeaders.Authorization = sanitizedHeaders.Authorization.substring(0, 15) + '...';
-    }
-    this.logger.debug(`[AwesomeCopilotAdapter] Request headers: ${JSON.stringify(sanitizedHeaders)}`);
-
-    return new Promise((resolve, reject) => {
-      https.get(url, { headers }, (res) => {
-        // Handle redirects (301/302)
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          const redirectUrl = res.headers.location;
-          if (redirectUrl) {
-            this.logger.debug(`[AwesomeCopilotAdapter] Following redirect (depth ${redirectDepth + 1}) to: ${redirectUrl}`);
-            this.fetchUrl(redirectUrl, redirectDepth + 1).then(resolve).catch(reject);
-            return;
-          }
-        }
-
-        let data = '';
-        res.on('data', (chunk) => data += chunk);
-        res.on('end', () => {
-          if (res.statusCode === 200) {
-            this.logger.debug(`[AwesomeCopilotAdapter] Response OK (${res.statusCode}), ${data.length} bytes`);
-            resolve(data);
-          } else {
-            this.logger.error(`[AwesomeCopilotAdapter] HTTP ${res.statusCode}: ${res.statusMessage}`);
-            this.logger.error(`[AwesomeCopilotAdapter] URL: ${url}`);
-            this.logger.error(`[AwesomeCopilotAdapter] Auth method: ${this.authMethod}`);
-            this.logger.error(`[AwesomeCopilotAdapter] Response: ${data.substring(0, 500)}`);
-
-            // Provide helpful error messages
-            let errorMsg = `HTTP ${res.statusCode}: ${res.statusMessage}`;
-            switch (res.statusCode) {
-              case 404: {
-                errorMsg += ' - Repository not found or not accessible. Check authentication.';
-
-                break;
-              }
-              case 401: {
-                errorMsg += ' - Authentication failed. Token may be invalid or expired.';
-
-                break;
-              }
-              case 403: {
-                errorMsg += ' - Access forbidden. Token may lack required scopes (repo).';
-
-                break;
-              }
-                        // No default
-            }
-            reject(new Error(errorMsg));
-          }
-        });
-      }).on('error', (error) => {
-        this.logger.error(`[AwesomeCopilotAdapter] Network error: ${error.message}`);
-        reject(error);
-      });
-    });
   }
 
   /**
@@ -689,11 +501,15 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
   /**
    * Fetch list of available bundles from the source
    * Scans the collections directory for .collection.yml files and creates Bundle objects.
-   * Results are cached for 5 minutes to reduce API calls.
+   * Results are cached for 5 minutes to reduce API calls. Each parse chunk streams a growing
+   * snapshot to the optional callback so the UI can render progressively during large syncs.
+   * @param onPartialBundles Optional callback invoked with a growing snapshot after each chunk
    * @returns Promise resolving to array of Bundle objects from collection files
    * @throws {Error} if GitHub API fails or collection parsing fails
    */
-  public async fetchBundles(): Promise<Bundle[]> {
+  public async fetchBundles(
+    onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>
+  ): Promise<Bundle[]> {
     this.logger.debug('Listing bundles from awesome-copilot repository');
 
     // Check cache
@@ -709,29 +525,16 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
       const collectionFiles = await this.listCollectionFiles();
       this.logger.debug(`Found ${collectionFiles.length} collection files`);
 
-      // Step 2: Parse each collection (with concurrency limit)
-      const bundles: Bundle[] = [];
-      const CONCURRENCY_LIMIT = 5;
-
-      for (let i = 0; i < collectionFiles.length; i += CONCURRENCY_LIMIT) {
-        const chunk = collectionFiles.slice(i, i + CONCURRENCY_LIMIT);
-        this.logger.debug(`Processing chunk ${i / CONCURRENCY_LIMIT + 1}/${Math.ceil(collectionFiles.length / CONCURRENCY_LIMIT)}`);
-
-        const chunkResults = await Promise.all(chunk.map(async (file) => {
-          try {
-            return await this.parseCollection(file);
-          } catch (error) {
-            this.logger.warn(`Failed to parse collection ${file}:`, error);
-            return null;
-          }
-        }));
-
-        for (const bundle of chunkResults) {
-          if (bundle) {
-            bundles.push(bundle);
-          }
-        }
-      }
+      // Step 2: Parse each collection in bounded-size chunks, streaming partial results
+      const bundles = await this.processInChunks(
+        collectionFiles,
+        5,
+        (file) => this.parseCollection(file).catch((error) => {
+          this.logger.warn(`Failed to parse collection ${file}:`, error);
+          return null;
+        }),
+        onPartialBundles
+      );
 
       // Stamp the branch head sha as the readme revision so cached readmes are refreshed
       // when the branch advances (the raw readme URL is stable across commits)
@@ -771,9 +574,9 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
       this.logger.debug(`Collection file: ${collectionFile}`);
 
       // Parse collection
-      const collectionUrl = this.buildRawUrl(`${this.config.collectionsPath}/${collectionFile}`);
+      const collectionUrl = this.buildRepoRawUrl(`${this.config.collectionsPath}/${collectionFile}`);
       this.logger.debug(`Fetching collection from: ${collectionUrl}`);
-      const yamlContent = await this.fetchUrl(collectionUrl);
+      const yamlContent = await this.getText(collectionUrl);
       const collection = yaml.load(yamlContent) as CollectionManifest;
       this.logger.debug(`Collection loaded: ${collection.name}, items: ${collection.items.length}`);
 
@@ -792,7 +595,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
       return null;
     }
     try {
-      return await this.fetchUrl(bundle.readmeUrl);
+      return await this.getText(bundle.readmeUrl);
     } catch (error) {
       this.logger.error('Failed to download readme', error as Error);
       return null;
@@ -831,7 +634,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
    */
   public getManifestUrl(bundleId: string, _version?: string): string {
     const collectionFile = `${bundleId}.collection.yml`;
-    return this.buildRawUrl(`${this.config.collectionsPath}/${collectionFile}`);
+    return this.buildRepoRawUrl(`${this.config.collectionsPath}/${collectionFile}`);
   }
 
   /**
@@ -855,10 +658,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
   public async validate(): Promise<ValidationResult> {
     try {
       // Check if collections directory exists
-      const apiUrl = this.buildApiUrl(`${this.config.collectionsPath}`);
-      const content = await this.fetchUrl(apiUrl);
-
-      const files = JSON.parse(content) as GitHubContent[];
+      const files = await this.getJson<GitHubContent[]>(this.buildCollectionsApiUrl());
       const collectionFiles = files.filter((f) => f.type === 'file' && f.name.endsWith('.collection.yml'));
 
       if (collectionFiles.length === 0) {
@@ -894,8 +694,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
     this.logger.info('[AwesomeCopilotAdapter] Forcing re-authentication...');
 
     // Clear current state
-    this.authToken = undefined;
-    this.authMethod = 'none';
+    this.invalidateAuthCache('force re-authentication');
 
     // Force new session with VS Code
     try {

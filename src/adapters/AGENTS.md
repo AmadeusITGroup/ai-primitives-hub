@@ -4,11 +4,40 @@
 
 Adapters provide a unified interface for prompt bundle sources (GitHub, Local, Awesome Copilot, APM, Skills, and their local variants).
 
+## Adapter Class Hierarchy
+
+```
+RepositoryAdapter (abstract, repository-adapter.ts)
+  └─ GitHubBackedAdapter (abstract, github-backed-adapter.ts)   ← shared GitHub logic
+       ├─ GitHubAdapter            (github-adapter.ts)
+       ├─ AwesomeCopilotAdapter    (awesome-copilot-adapter.ts)
+       └─ SkillsAdapter            (skills-adapter.ts)
+```
+
+`GitHubBackedAdapter` hoists everything the three GitHub-backed adapters share, so they no
+longer re-implement it:
+
+- **URL parsing / validation** — `parseGitHubUrl()`, `isValidGitHubUrl()` (validated in the constructor)
+- **URL builders** — `apiBase`, `buildContentsUrl(owner, repo, path, ref?)`, `buildRawUrl(owner, repo, branch, path)`
+- **Auth chain** — `getAuthenticationToken()` (explicit token → VS Code session → gh CLI), with
+  memoization, retry accounting, and `invalidateAuthCache()`
+- **HTTP transport** — `httpGet()` (redirects, sanitized header logging) plus the `getJson<T>()` /
+  `getText()` / `getBuffer()` wrappers; `getJson` invalidates auth and retries once on 401/403
+- **Progressive fetch** — `processInChunks(items, chunkSize, processItem, onPartial?)` runs each chunk
+  with `Promise.allSettled` (one failure drops only that item) and streams a growing snapshot to
+  `onPartial` after each chunk — this is what drives incremental marketplace refresh during large syncs
+- **Validation** — `validateGitHubRepository()` and a default `validate()` (subclasses override for
+  collection/skill-specific structure)
+
+Local adapters (`local-*`) are filesystem-backed and extend `RepositoryAdapter` directly, not this class.
+
 ## Adding a New Adapter
 
-1. Copy an existing adapter (e.g., `github-adapter.ts`)
-2. Extend `RepositoryAdapter` (see `repository-adapter.ts`) — it implements shared auth/header logic
-3. Register in `RegistryManager` via `RepositoryAdapterFactory.register('type', AdapterClass)`
+1. Copy the closest existing adapter (`github-adapter.ts` for GitHub-backed, `local-adapter.ts` otherwise)
+2. Extend `GitHubBackedAdapter` for GitHub sources (inherits auth/HTTP/URL/chunking) or
+   `RepositoryAdapter` for non-GitHub sources (implement auth/HTTP yourself)
+3. Route `fetchBundles(onPartialBundles?)` through `processInChunks` so the UI renders progressively
+4. Register in `RegistryManager` via `RepositoryAdapterFactory.register('type', AdapterClass)`
 
 ## Interface
 
@@ -58,8 +87,9 @@ Resolved in order:
 
 ## Checklist
 
-- [ ] Extends `RepositoryAdapter`
+- [ ] Extends `GitHubBackedAdapter` (GitHub sources) or `RepositoryAdapter` (non-GitHub sources)
 - [ ] Implements all required `IRepositoryAdapter` methods
+- [ ] `fetchBundles` streams partial results via `processInChunks` (GitHub-backed adapters)
 - [ ] Returns `Buffer` from `downloadBundle`
 - [ ] Returns `ValidationResult` from `validate` with actionable error messages
 - [ ] Handles authentication via inherited helpers where possible

@@ -9,6 +9,7 @@ import {
   GitHubAdapter,
 } from '../../src/adapters/github-adapter';
 import {
+  Bundle,
   RegistrySource,
 } from '../../src/types/registry';
 import {
@@ -1114,6 +1115,91 @@ tags:
       assert.strictEqual(bundles[0].readmeUrl, undefined, 'readmeUrl should be undefined when manifest omits readme');
       const readmeContent = await adapter.downloadReadme(bundles[0]);
       assert.strictEqual(readmeContent, null);
+    });
+  });
+
+  suite('fetchBundles() — progressive streaming', () => {
+    // Use 25 releases so we always exceed MANIFEST_DOWNLOAD_CONCURRENCY (10) and get 3 chunks.
+    const setupReleaseMocks = (count: number): void => {
+      const releases = Array.from({ length: count }, (_, i) => ({
+        tag_name: `v1.0.${i}`,
+        name: `Release 1.0.${i}`,
+        published_at: '2025-01-01T00:00:00Z',
+        assets: [
+          { name: 'deployment-manifest.json', url: `https://api.github.com/repos/test-owner/test-repo/releases/assets/${100 + i}`, size: 1024 },
+          { name: 'bundle.zip', url: `https://api.github.com/repos/test-owner/test-repo/releases/assets/${200 + i}`, size: 2048 }
+        ]
+      }));
+
+      nock('https://api.github.com')
+        .get('/repos/test-owner/test-repo/releases')
+        .reply(200, releases);
+
+      for (let i = 0; i < count; i++) {
+        nock('https://api.github.com')
+          .get(`/repos/test-owner/test-repo/releases/assets/${100 + i}`)
+          .reply(200, JSON.stringify({ id: `bundle-${i}`, name: `Bundle ${i}`, version: `1.0.${i}` }));
+      }
+    };
+
+    test('calls onPartialBundles more than once when releases exceed one chunk', async () => {
+      setupReleaseMocks(25);
+
+      const adapter = new GitHubAdapter(mockSource);
+      const snapshots: number[] = [];
+
+      await adapter.fetchBundles((partial) => {
+        snapshots.push(partial.length);
+      });
+
+      assert.ok(snapshots.length > 1, `Expected >1 callback invocation, got ${snapshots.length}`);
+    });
+
+    test('each partial payload is monotonically non-decreasing and a distinct array', async () => {
+      setupReleaseMocks(25);
+
+      const adapter = new GitHubAdapter(mockSource);
+      const refs: Bundle[][] = [];
+
+      await adapter.fetchBundles((partial) => {
+        refs.push(partial);
+      });
+
+      for (let i = 1; i < refs.length; i++) {
+        assert.ok(refs[i].length >= refs[i - 1].length, `Expected non-decreasing lengths: ${refs.map((r) => r.length).join(', ')}`);
+        assert.notStrictEqual(refs[i], refs[i - 1], 'Each callback invocation should receive a distinct array');
+      }
+    });
+
+    test('final returned bundles equal the last partial payload', async () => {
+      setupReleaseMocks(25);
+
+      const adapter = new GitHubAdapter(mockSource);
+      let lastPartial: Bundle[] = [];
+
+      const finalBundles = await adapter.fetchBundles((partial) => {
+        lastPartial = partial;
+      });
+
+      assert.strictEqual(finalBundles.length, lastPartial.length);
+      for (const bundle of finalBundles) {
+        assert.ok(lastPartial.some((b) => b.id === bundle.id), `Bundle ${bundle.id} missing from last partial`);
+      }
+    });
+
+    test('final bundle set is identical with or without callback', async () => {
+      setupReleaseMocks(25);
+      const withoutCb = await new GitHubAdapter(mockSource).fetchBundles();
+
+      nock.cleanAll();
+      setupReleaseMocks(25);
+      const withCb = await new GitHubAdapter(mockSource).fetchBundles(() => {});
+
+      assert.strictEqual(withCb.length, withoutCb.length, 'Bundle count must be identical with or without callback');
+      const withoutIds = new Set(withoutCb.map((b) => b.id));
+      for (const bundle of withCb) {
+        assert.ok(withoutIds.has(bundle.id), `Bundle ${bundle.id} present with callback but missing without`);
+      }
     });
   });
 });

@@ -1051,11 +1051,10 @@ export class RegistryManager {
    * Bundles whose `readmeRevision` differs (or is not provided by the adapter) are left without a
    * readme so {@link downloadReadmesConcurrently} re-downloads them. This keeps readmes fresh while
    * avoiding redundant downloads on every sync.
-   * @param sourceId - Source ID whose cache should be consulted
+   * @param cached - Snapshot of previously cached bundles, captured before this sync overwrote them
    * @param bundles - Freshly fetched bundles to enrich in place
    */
-  private async reuseCachedReadmes(sourceId: string, bundles: Bundle[]): Promise<void> {
-    const cached = await this.storage.getCachedSourceBundles(sourceId);
+  private reuseCachedReadmes(cached: Bundle[], bundles: Bundle[]): void {
     if (!cached || cached.length === 0) {
       return;
     }
@@ -1304,6 +1303,12 @@ export class RegistryManager {
     }
 
     const adapter = this.getAdapter(source);
+
+    // Snapshot the previously cached bundles BEFORE fetching: the progressive callback below
+    // overwrites the cache mid-fetch with readme-less partials, so reuseCachedReadmes must
+    // consult this pre-fetch snapshot rather than re-reading the (already clobbered) cache.
+    const previouslyCached = await this.storage.getCachedSourceBundles(sourceId);
+
     const bundles = await adapter.fetchBundles(async (partial) => {
       // Progressive update: cache what we have so far and notify the UI.
       await this.storage.cacheSourceBundles(sourceId, partial);
@@ -1311,7 +1316,7 @@ export class RegistryManager {
     });
 
     // Reuse still-valid cached readmes so we only re-download when the source revision changed
-    await this.reuseCachedReadmes(sourceId, bundles);
+    this.reuseCachedReadmes(previouslyCached, bundles);
 
     // Cache bundles
     await this.storage.cacheSourceBundles(sourceId, bundles);

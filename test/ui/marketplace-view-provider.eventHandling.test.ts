@@ -464,6 +464,29 @@ suite('MarketplaceViewProvider - Throttle on source sync burst', () => {
     );
   });
 
+  test('a sustained burst spanning > maxWaitMs produces ≥3 bundlesLoaded messages (leading + periodic + trailing)', async () => {
+    if (!onSourceSyncedCallback) {
+      assert.fail('onSourceSynced callback was not registered');
+    }
+
+    // Simulate a hub-init burst: a source-synced event every 300ms (inside the
+    // 500ms quiet window so the trailing edge never fires mid-burst) for ~3000ms,
+    // which spans several 1000ms max-wait periods. Without the periodic flush this
+    // collapses to leading + trailing only; with it we get intermediate refreshes.
+    for (let elapsed = 0; elapsed < 3000; elapsed += 300) {
+      onSourceSyncedCallback({ sourceId: `source-${elapsed}`, bundleCount: 5 });
+      await clock.tickAsync(300);
+    }
+    // Let the trailing edge settle.
+    await clock.tickAsync(600);
+
+    const renders = postedMessages.filter((m) => m.type === 'bundlesLoaded').length;
+    assert.ok(
+      renders >= 3,
+      `Expected ≥3 bundlesLoaded messages (leading + ≥1 periodic + trailing), got ${renders}`
+    );
+  });
+
   // Gate the FIRST load on a FAKE TIMER (not a hand-resolved promise). This keeps
   // the entire async chain timer-driven so clock.tickAsync fully controls ordering
   // and settling — mixing a manually-resolved promise with tickAsync is flaky under

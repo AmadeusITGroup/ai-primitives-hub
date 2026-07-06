@@ -323,6 +323,76 @@ items:
       // Content types should be inferred from file extensions
     });
   });
+
+  suite('fetchBundles() — progressive streaming', () => {
+    // Use 12 collections so we always exceed the concurrency limit (5) and get 3 chunks.
+    const setupCollectionMocks = (count: number): void => {
+      const files = Array.from({ length: count }, (_, i) => ({
+        name: `col-${i}.collection.yml`,
+        type: 'file',
+        download_url: `https://raw.githubusercontent.com/test-owner/awesome-copilot/main/collections/col-${i}.collection.yml`
+      }));
+
+      nock('https://api.github.com')
+        .get('/repos/test-owner/awesome-copilot/contents/collections?ref=main')
+        .reply(200, files);
+
+      for (let i = 0; i < count; i++) {
+        nock('https://raw.githubusercontent.com')
+          .get(`/test-owner/awesome-copilot/main/collections/col-${i}.collection.yml`)
+          .reply(200, `id: col-${i}\nname: Collection ${i}\ndescription: Desc ${i}\ntags: []\nitems: []\n`);
+      }
+
+      // fetchBundles stamps readmeRevision from the branch head sha after the chunk loop.
+      nock('https://api.github.com')
+        .get('/repos/test-owner/awesome-copilot/commits/main')
+        .reply(200, { sha: 'branch-sha' });
+    };
+
+    test('calls onPartialBundles more than once when collections exceed one chunk', async () => {
+      setupCollectionMocks(12);
+
+      const adapter = new AwesomeCopilotAdapter(mockSource);
+      const snapshots: number[] = [];
+
+      await adapter.fetchBundles((partial) => {
+        snapshots.push(partial.length);
+      });
+
+      assert.ok(snapshots.length > 1, `Expected >1 callback invocation, got ${snapshots.length}`);
+    });
+
+    test('each partial payload is monotonically non-decreasing and a distinct array', async () => {
+      setupCollectionMocks(12);
+
+      const adapter = new AwesomeCopilotAdapter(mockSource);
+      const refs: Bundle[][] = [];
+
+      await adapter.fetchBundles((partial) => {
+        refs.push(partial);
+      });
+
+      for (let i = 1; i < refs.length; i++) {
+        assert.ok(refs[i].length >= refs[i - 1].length, `Expected non-decreasing lengths: ${refs.map((r) => r.length).join(', ')}`);
+        assert.notStrictEqual(refs[i], refs[i - 1], 'Each callback invocation should receive a distinct array');
+      }
+    });
+
+    test('final bundle set is identical with or without callback', async () => {
+      setupCollectionMocks(12);
+      const withoutCb = await new AwesomeCopilotAdapter(mockSource).fetchBundles();
+
+      nock.cleanAll();
+      setupCollectionMocks(12);
+      const withCb = await new AwesomeCopilotAdapter(mockSource).fetchBundles(() => {});
+
+      assert.strictEqual(withCb.length, withoutCb.length, 'Bundle count must be identical with or without callback');
+      const withoutIds = new Set(withoutCb.map((b) => b.id));
+      for (const bundle of withCb) {
+        assert.ok(withoutIds.has(bundle.id), `Bundle ${bundle.id} present with callback but missing without`);
+      }
+    });
+  });
 });
 
 suite('Skill Kind Support', () => {

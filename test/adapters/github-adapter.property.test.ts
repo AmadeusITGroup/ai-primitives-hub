@@ -232,7 +232,7 @@ suite('GitHubAdapter Property-Based Tests', () => {
 
           // Attempt to make a request
           try {
-            await (adapter as any).makeRequest('https://api.github.com/test');
+            await (adapter as any).getJson('https://api.github.com/test');
 
             // Success expected for JSON responses
             if (!config.contentType.includes('application/json') && config.statusCode === 200) {
@@ -276,7 +276,7 @@ suite('GitHubAdapter Property-Based Tests', () => {
 
           // Attempt to make a request
           try {
-            await (adapter as any).makeRequest('https://api.github.com/test');
+            await (adapter as any).getJson('https://api.github.com/test');
             assert.fail('HTML response should be recognized as error');
           } catch (error: unknown) {
             const err = error as Error;
@@ -318,7 +318,7 @@ suite('GitHubAdapter Property-Based Tests', () => {
           stubHttpsWithResponse(sandbox, 401, htmlBody, 'text/html');
 
           try {
-            await (adapter as any).makeRequest('https://api.github.com/test');
+            await (adapter as any).getJson('https://api.github.com/test');
             assert.fail('Should have thrown error for HTML response');
           } catch (error: unknown) {
             const err = error as Error;
@@ -359,7 +359,7 @@ suite('GitHubAdapter Property-Based Tests', () => {
           stubHttpsWithResponse(sandbox, config.statusCode, htmlContent, 'text/html');
 
           try {
-            await (adapter as any).makeRequest('https://api.github.com/test');
+            await (adapter as any).getJson('https://api.github.com/test');
             assert.fail('Should have thrown error for HTML response');
           } catch (error: unknown) {
             const err = error as Error;
@@ -398,7 +398,7 @@ suite('GitHubAdapter Property-Based Tests', () => {
 
           // Attempt to make a request
           try {
-            await (adapter as any).makeRequest('https://api.github.com/test');
+            await (adapter as any).getJson('https://api.github.com/test');
           } catch (error: unknown) {
             const err = error as Error;
 
@@ -439,7 +439,7 @@ suite('GitHubAdapter Property-Based Tests', () => {
           loggerHelpers.resetHistory();
 
           try {
-            await (adapter as any).makeRequest(testUrl);
+            await (adapter as any).getJson(testUrl);
             assert.fail('Should have thrown error');
           } catch {
             const errorCalls = loggerStub.error.getCalls();
@@ -518,7 +518,7 @@ suite('GitHubAdapter Property-Based Tests', () => {
           stubHttpsWithResponse(sandbox, config.statusCode);
 
           try {
-            await (adapter as any).makeRequest('https://api.github.com/test');
+            await (adapter as any).getJson('https://api.github.com/test');
             assert.fail('Should have thrown error');
           } catch (error: unknown) {
             const err = error as Error;
@@ -565,7 +565,7 @@ suite('GitHubAdapter Property-Based Tests', () => {
           stubHttpsWithResponse(sandbox, 401, JSON.stringify({ message: 'Bad credentials' }));
 
           try {
-            await (adapter as any).makeRequest('https://api.github.com/test');
+            await (adapter as any).getJson('https://api.github.com/test');
             assert.fail('Should have thrown error after exhausting methods');
           } catch (error: unknown) {
             const err = error as Error;

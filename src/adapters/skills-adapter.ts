@@ -12,7 +12,6 @@ import * as crypto from 'node:crypto';
 import * as yaml from 'js-yaml';
 import {
   Bundle,
-  RegistrySource,
   SourceMetadata,
   ValidationResult,
 } from '../types/registry';
@@ -23,14 +22,8 @@ import {
   SkillItem,
 } from '../types/skills';
 import {
-  Logger,
-} from '../utils/logger';
-import {
-  GitHubAdapter,
-} from './github-adapter';
-import {
-  RepositoryAdapter,
-} from './repository-adapter';
+  GitHubBackedAdapter,
+} from './github-backed-adapter';
 
 /**
  * A single entry from the GitHub Git Trees API (recursive listing).
@@ -38,56 +31,24 @@ import {
 type GitTreeEntry = { path: string; type: string; sha: string };
 
 /**
+ * A pre-computed work list for building skills: the resolved repo coordinates plus the
+ * discovered skill ids and their tree blobs, ready to fan out through `processInChunks`.
+ */
+interface SkillWorkList {
+  owner: string;
+  repo: string;
+  branch: string;
+  ids: string[];
+  filesBySkill: Map<string, GitTreeEntry[]>;
+}
+
+/**
  * Skills adapter implementation for GitHub repositories
  * Discovers skills from skills/ directory with SKILL.md files
  */
-export class SkillsAdapter extends RepositoryAdapter {
+export class SkillsAdapter extends GitHubBackedAdapter {
   public readonly type = 'skills';
-  private readonly logger: Logger;
-  private readonly githubAdapter: GitHubAdapter;
   private readonly defaultBranch = 'main';
-
-  constructor(source: RegistrySource) {
-    super(source);
-    this.logger = Logger.getInstance();
-
-    if (!this.isValidGitHubUrl(source.url)) {
-      throw new Error(`Invalid GitHub URL for skills source: ${source.url}`);
-    }
-
-    this.githubAdapter = new GitHubAdapter(source);
-  }
-
-  /**
-   * Validate GitHub URL format
-   * @param url
-   */
-  private isValidGitHubUrl(url: string): boolean {
-    if (url.startsWith('https://')) {
-      return url.includes('github.com');
-    }
-    if (url.startsWith('git@')) {
-      return url.includes('github.com:');
-    }
-    return false;
-  }
-
-  /**
-   * Parse GitHub URL to extract owner and repo
-   */
-  private parseGitHubUrl(): { owner: string; repo: string } {
-    const url = this.source.url.replace(/\.git$/, '');
-    const match = url.match(/github\.com[/:]([^/]+)\/([^/]+)/);
-
-    if (!match) {
-      throw new Error(`Invalid GitHub URL format: ${this.source.url}`);
-    }
-
-    return {
-      owner: match[1],
-      repo: match[2]
-    };
-  }
 
   private collectSkillIds(tree: GitTreeEntry[]): Set<string> {
     const skillIds = new Set<string>();
@@ -104,9 +65,9 @@ export class SkillsAdapter extends RepositoryAdapter {
   }
 
   private async fetchRepoTree(owner: string, repo: string, branch: string): Promise<GitTreeEntry[]> {
-    const url = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
+    const url = `${this.apiBase}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
     this.logger.debug(`[SkillsAdapter] Fetching repo tree: ${url}`);
-    const result = await this.makeGitHubRequest(url);
+    const result = await this.getJson<{ tree?: GitTreeEntry[]; truncated?: boolean }>(url);
     if (!Array.isArray(result.tree)) {
       throw new Error(`Unexpected response from Git Trees API for ${owner}/${repo}: missing tree array`);
     }
@@ -132,7 +93,7 @@ export class SkillsAdapter extends RepositoryAdapter {
     entries: GitTreeEntry[]
   ): Promise<SkillItem | null> {
     const skillPath = `skills/${skillId}`;
-    const rawSkillMdUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${skillPath}/SKILL.md`;
+    const rawSkillMdUrl = this.buildRawUrl(owner, repo, branch, `${skillPath}/SKILL.md`);
 
     try {
       const parsedSkillMd = await this.parseSkillMd(rawSkillMdUrl);
@@ -157,63 +118,41 @@ export class SkillsAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Scan skills/ directory via a single Git Trees API call.
-   * @param onChunk Optional callback invoked with each finished chunk of skills
+   * Produce the work list for a skills scan via a single Git Trees API call: resolve the
+   * repo coordinates, group all blobs under skills/<id>/, and collect the valid skill ids.
+   * The actual per-skill building is fanned out by the caller so it can stream partials.
    */
-  private async scanSkillsDirectory(
-    onChunk?: (skills: SkillItem[]) => void | Promise<void>
-  ): Promise<SkillItem[]> {
+  private async collectSkillWorkList(): Promise<SkillWorkList> {
     const { owner, repo } = this.parseGitHubUrl();
     const branch = this.defaultBranch;
 
     this.logger.debug(`[SkillsAdapter] Scanning skills via git tree: ${owner}/${repo}@${branch}`);
 
-    try {
-      const tree = await this.fetchRepoTree(owner, repo, branch);
+    const tree = await this.fetchRepoTree(owner, repo, branch);
 
-      // Single O(tree) pass: group all blobs under skills/<id>/. A skill id
-      // requires a top-level SKILL.md — collectSkillIds is the single source of
-      // truth for that rule (also used by validate()/fetchMetadata()).
-      const filesBySkill = new Map<string, GitTreeEntry[]>();
-      for (const entry of tree) {
-        if (entry.type !== 'blob') {
-          continue;
-        }
-        const segments = entry.path.split('/');
-        if (segments[0] !== 'skills' || segments.length < 3) {
-          continue;
-        }
-        const skillId = segments[1];
-        if (!filesBySkill.has(skillId)) {
-          filesBySkill.set(skillId, []);
-        }
-        filesBySkill.get(skillId)!.push(entry);
+    // Single O(tree) pass: group all blobs under skills/<id>/. A skill id
+    // requires a top-level SKILL.md — collectSkillIds is the single source of
+    // truth for that rule (also used by validate()/fetchMetadata()).
+    const filesBySkill = new Map<string, GitTreeEntry[]>();
+    for (const entry of tree) {
+      if (entry.type !== 'blob') {
+        continue;
       }
-      const skillIds = this.collectSkillIds(tree);
-
-      this.logger.debug(`[SkillsAdapter] Found ${skillIds.size} skills in tree`);
-
-      // Build skills in parallel with a concurrency limit to bound raw
-      // SKILL.md fetches without serializing them.
-      const ids = [...skillIds];
-      const skills: SkillItem[] = [];
-      const CONCURRENCY_LIMIT = 15;
-
-      for (let i = 0; i < ids.length; i += CONCURRENCY_LIMIT) {
-        const chunk = ids.slice(i, i + CONCURRENCY_LIMIT);
-        const chunkResults = await Promise.all(
-          chunk.map((skillId) => this.buildSkillFromTree(owner, repo, branch, skillId, filesBySkill.get(skillId) ?? []))
-        );
-        const built = chunkResults.filter((s): s is SkillItem => s !== null);
-        skills.push(...built);
-        await onChunk?.(built);
+      const segments = entry.path.split('/');
+      if (segments[0] !== 'skills' || segments.length < 3) {
+        continue;
       }
-
-      return skills;
-    } catch (error) {
-      this.logger.error(`[SkillsAdapter] Failed to scan skills directory: ${error}`);
-      throw new Error(`Failed to scan skills directory: ${error}`);
+      const skillId = segments[1];
+      if (!filesBySkill.has(skillId)) {
+        filesBySkill.set(skillId, []);
+      }
+      filesBySkill.get(skillId)!.push(entry);
     }
+    const ids = [...this.collectSkillIds(tree)];
+
+    this.logger.debug(`[SkillsAdapter] Found ${ids.length} skills in tree`);
+
+    return { owner, repo, branch, ids, filesBySkill };
   }
 
   /**
@@ -224,8 +163,7 @@ export class SkillsAdapter extends RepositoryAdapter {
     this.logger.debug(`[SkillsAdapter] Parsing SKILL.md from: ${downloadUrl}`);
 
     try {
-      const content = await this.downloadFileContent(downloadUrl);
-      const raw = content.toString('utf8');
+      const raw = await this.getText(downloadUrl);
 
       const frontmatterMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
 
@@ -319,7 +257,6 @@ export class SkillsAdapter extends RepositoryAdapter {
    * @param initialEntries
    */
   private async collectSkillFiles(owner: string, repo: string, initialEntries: GitHubContentItem[]): Promise<GitHubContentItem[]> {
-    const apiBase = 'https://api.github.com';
     const files: GitHubContentItem[] = [];
     const queue: GitHubContentItem[] = [...initialEntries];
 
@@ -333,7 +270,9 @@ export class SkillsAdapter extends RepositoryAdapter {
 
       if (entry.type === 'dir') {
         try {
-          const nestedEntries: GitHubContentItem[] = await this.makeGitHubRequest(`${apiBase}/repos/${owner}/${repo}/contents/${entry.path}`);
+          const nestedEntries = await this.getJson<GitHubContentItem[]>(
+            this.buildContentsUrl(owner, repo, entry.path)
+          );
           queue.push(...nestedEntries);
         } catch (error) {
           this.logger.warn(`[SkillsAdapter] Failed to read nested directory ${entry.path}: ${error}`);
@@ -384,15 +323,15 @@ export class SkillsAdapter extends RepositoryAdapter {
    */
   private async fetchSingleSkill(skillId: string): Promise<SkillItem | null> {
     const { owner, repo } = this.parseGitHubUrl();
-    const apiBase = 'https://api.github.com';
     const skillPath = `skills/${skillId}`;
 
     this.logger.debug(`[SkillsAdapter] Fetching single skill: ${skillId}`);
 
     try {
       // Get skill directory contents
-      const skillContentsUrl = `${apiBase}/repos/${owner}/${repo}/contents/${skillPath}`;
-      const skillContents: GitHubContentItem[] = await this.makeGitHubRequest(skillContentsUrl);
+      const skillContents = await this.getJson<GitHubContentItem[]>(
+        this.buildContentsUrl(owner, repo, skillPath)
+      );
 
       // Find SKILL.md
       const skillMdFile = skillContents.find((item) =>
@@ -453,15 +392,15 @@ export class SkillsAdapter extends RepositoryAdapter {
       const manifestYaml = yamlLib.dump(deploymentManifest);
       zip.addFile('deployment-manifest.yml', Buffer.from(manifestYaml, 'utf8'));
 
-      const apiBase = 'https://api.github.com';
-      const skillContentsUrl = `${apiBase}/repos/${owner}/${repo}/contents/${skill.path}`;
-      const skillContents: GitHubContentItem[] = await this.makeGitHubRequest(skillContentsUrl);
+      const skillContents = await this.getJson<GitHubContentItem[]>(
+        this.buildContentsUrl(owner, repo, skill.path)
+      );
 
       // Use skills/{skill-id}/ structure to match CopilotSyncService expectations
       for (const item of skillContents) {
         if (item.type === 'file' && item.download_url) {
           try {
-            const fileContent = await this.downloadFileContent(item.download_url);
+            const fileContent = await this.getBuffer(item.download_url);
             const filePath = `skills/${skill.id}/${item.name}`;
             zip.addFile(filePath, fileContent);
 
@@ -493,14 +432,14 @@ export class SkillsAdapter extends RepositoryAdapter {
    */
   private async addDirectoryToZip(zip: any, owner: string, repo: string, dirPath: string, zipPath: string): Promise<void> {
     try {
-      const apiBase = 'https://api.github.com';
-      const dirContentsUrl = `${apiBase}/repos/${owner}/${repo}/contents/${dirPath}`;
-      const dirContents: GitHubContentItem[] = await this.makeGitHubRequest(dirContentsUrl);
+      const dirContents = await this.getJson<GitHubContentItem[]>(
+        this.buildContentsUrl(owner, repo, dirPath)
+      );
 
       for (const item of dirContents) {
         if (item.type === 'file' && item.download_url) {
           try {
-            const fileContent = await this.downloadFileContent(item.download_url);
+            const fileContent = await this.getBuffer(item.download_url);
             const filePath = `${zipPath}/${item.name}`;
             zip.addFile(filePath, fileContent);
           } catch (error) {
@@ -572,126 +511,9 @@ export class SkillsAdapter extends RepositoryAdapter {
   }
 
   /**
-   * Download file content from URL
-   * @param url
-   */
-  private async downloadFileContent(url: string): Promise<Buffer> {
-    const https = await import('node:https');
-
-    return new Promise((resolve, reject) => {
-      const headers: Record<string, string> = {
-        'User-Agent': 'Prompt-Registry-VSCode-Extension'
-      };
-
-      const token = this.getAuthToken();
-      if (token) {
-        headers.Authorization = `token ${token}`;
-      }
-
-      https.get(url, { headers }, (res: any) => {
-        const chunks: Buffer[] = [];
-
-        res.on('data', (chunk: Buffer) => {
-          chunks.push(chunk);
-        });
-
-        res.on('end', () => {
-          if (res.statusCode >= 400) {
-            reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
-            return;
-          }
-          resolve(Buffer.concat(chunks));
-        });
-      }).on('error', (error: any) => {
-        reject(new Error(`Download failed: ${error.message}`));
-      });
-    });
-  }
-
-  /**
-   * Make GitHub API request with authentication
-   * @param url
-   */
-  private async makeGitHubRequest(url: string): Promise<any> {
-    const https = await import('node:https');
-    const vscode = await import('vscode');
-    const { exec } = await import('node:child_process');
-    const { promisify } = await import('node:util');
-    const execAsync = promisify(exec);
-
-    let authToken: string | undefined;
-
-    const explicitToken = this.getAuthToken();
-    if (explicitToken && explicitToken.trim().length > 0) {
-      authToken = explicitToken.trim();
-      this.logger.debug('[SkillsAdapter] Using explicit token from configuration');
-    } else {
-      try {
-        const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false });
-        if (session) {
-          authToken = session.accessToken;
-          this.logger.debug('[SkillsAdapter] Using VSCode GitHub authentication');
-        }
-      } catch (error) {
-        this.logger.debug(`[SkillsAdapter] VSCode auth failed: ${error}`);
-      }
-
-      if (!authToken) {
-        try {
-          const { stdout } = await execAsync('gh auth token');
-          const token = stdout.trim();
-          if (token && token.length > 0) {
-            authToken = token;
-            this.logger.debug('[SkillsAdapter] Using gh CLI authentication');
-          }
-        } catch (error) {
-          this.logger.debug(`[SkillsAdapter] gh CLI auth failed: ${error}`);
-        }
-      }
-    }
-
-    return new Promise((resolve, reject) => {
-      let headers: Record<string, string> = {
-        'User-Agent': 'Prompt-Registry-VSCode-Extension',
-        Accept: 'application/json'
-      };
-
-      if (authToken) {
-        headers = {
-          ...headers,
-          Authorization: `token ${authToken}`
-        };
-        this.logger.debug(`[SkillsAdapter] Request to ${url} with authentication`);
-      } else {
-        this.logger.debug(`[SkillsAdapter] Request to ${url} without authentication`);
-      }
-
-      https.get(url, { headers }, (res: any) => {
-        let data = '';
-        res.on('data', (chunk: any) => data += chunk);
-        res.on('end', () => {
-          if (res.statusCode >= 400) {
-            this.logger.error(`[SkillsAdapter] HTTP ${res.statusCode}: ${res.statusMessage}`);
-            reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(data));
-          } catch (error) {
-            this.logger.error(`[SkillsAdapter] Failed to parse JSON response: ${error}`);
-            reject(new Error(`Failed to parse JSON response: ${error}`));
-          }
-        });
-      }).on('error', (error: any) => {
-        this.logger.error(`[SkillsAdapter] Network error: ${error.message}`);
-        reject(new Error(`Request failed: ${error.message}`));
-      });
-    });
-  }
-
-  /**
    * Fetch all skills from the repository as bundles
-   * Each skill becomes a separate bundle
+   * Each skill becomes a separate bundle. Skills are built in bounded-size chunks; after each
+   * chunk the optional callback receives a growing snapshot so the UI can render progressively.
    * @param onPartialBundles Optional callback invoked with a growing snapshot after each chunk
    */
   public async fetchBundles(
@@ -700,22 +522,19 @@ export class SkillsAdapter extends RepositoryAdapter {
     this.logger.info(`[SkillsAdapter] Fetching skills from repository: ${this.source.url}`);
 
     try {
-      const bundles: Bundle[] = [];
+      const { owner, repo, branch, ids, filesBySkill } = await this.collectSkillWorkList();
 
-      const skills = await this.scanSkillsDirectory(async (chunkSkills) => {
-        for (const skill of chunkSkills) {
-          try {
-            const bundle = this.createBundleFromSkill(skill);
-            bundles.push(bundle);
-            this.logger.debug(`[SkillsAdapter] Created bundle: ${bundle.id}`);
-          } catch (error) {
-            this.logger.warn(`[SkillsAdapter] Failed to create bundle from skill ${skill.id}: ${error}`);
-          }
-        }
-        await onPartialBundles?.([...bundles]);
-      });
+      const bundles = await this.processInChunks(
+        ids,
+        15,
+        async (skillId) => {
+          const skill = await this.buildSkillFromTree(owner, repo, branch, skillId, filesBySkill.get(skillId) ?? []);
+          return skill ? this.createBundleFromSkill(skill) : null;
+        },
+        onPartialBundles
+      );
 
-      this.logger.info(`[SkillsAdapter] Found ${skills.length} skills in repository`);
+      this.logger.info(`[SkillsAdapter] Found ${ids.length} skills in repository`);
       this.logger.info(`[SkillsAdapter] Successfully created ${bundles.length} bundles`);
       return bundles;
     } catch (error) {
@@ -736,17 +555,14 @@ export class SkillsAdapter extends RepositoryAdapter {
     try {
       const { owner, repo } = this.parseGitHubUrl();
 
-      const baseValidation = await this.githubAdapter.validate();
+      const baseValidation = await this.validateGitHubRepository();
       if (!baseValidation.valid) {
         return baseValidation;
       }
 
-      const apiBase = 'https://api.github.com';
-
       let hasSkillsDir = false;
       try {
-        const skillsUrl = `${apiBase}/repos/${owner}/${repo}/contents/skills`;
-        await this.makeGitHubRequest(skillsUrl);
+        await this.getJson(this.buildContentsUrl(owner, repo, 'skills'));
         hasSkillsDir = true;
         this.logger.debug(`[SkillsAdapter] Found skills/ directory`);
       } catch (error) {
@@ -824,7 +640,7 @@ export class SkillsAdapter extends RepositoryAdapter {
   public getManifestUrl(bundleId: string, _version?: string): string {
     const { owner, repo } = this.parseGitHubUrl();
     const skillId = bundleId.replace(`skills-${owner}-${repo}-`, '');
-    return `https://raw.githubusercontent.com/${owner}/${repo}/main/skills/${skillId}/SKILL.md`;
+    return this.buildRawUrl(owner, repo, 'main', `skills/${skillId}/SKILL.md`);
   }
 
   /**
