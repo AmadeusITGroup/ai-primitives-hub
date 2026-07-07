@@ -1343,7 +1343,11 @@ export class RegistryManager {
     }
 
     const adapter = this.getAdapter(source);
-    const bundles = await adapter.fetchBundles();
+    const bundles = await adapter.fetchBundles(async (partial) => {
+      // Progressive update: cache what we have so far and notify the UI.
+      await this.storage.cacheSourceBundles(sourceId, partial);
+      this._onSourceSynced.fire({ sourceId, bundleCount: partial.length });
+    });
 
     // Reuse still-valid cached readmes so we only re-download when the source revision changed
     await this.reuseCachedReadmes(sourceId, bundles);

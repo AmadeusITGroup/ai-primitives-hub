@@ -34,8 +34,22 @@ const REGISTRY_MANAGER_EVENTS = [
   'onSourceUpdated',
   'onSourceSynced',
   'onAutoUpdatePreferenceChanged',
-  'onRepositoryBundlesChanged'
+  'onRepositoryBundlesChanged',
+  'onReadmeDownloaded',
+  'onReadmeDownloadComplete'
 ] as const;
+
+/** Name of a RegistryManager event emitter. */
+export type RegistryManagerEvent = (typeof REGISTRY_MANAGER_EVENTS)[number];
+
+/**
+ * Optional per-event capture callbacks. When provided for an event, the mock
+ * invokes the capture with the subscriber's callback so tests can drive the
+ * event later (e.g. `{ onSourceSynced: (cb) => { captured = cb; } }`).
+ */
+export type RegistryManagerEventCaptures = Partial<
+  Record<RegistryManagerEvent, (callback: any) => void>
+>;
 
 /**
  * All event emitter names that HubManager exposes.
@@ -61,21 +75,35 @@ function createDisposableStub(sandbox: sinon.SinonSandbox): sinon.SinonStub {
  *
  * This ensures that RegistryTreeProvider and other UI components can
  * subscribe to events without throwing errors.
- * @param registryManagerStub - The sinon stub instance of RegistryManager
+ * @param registryManagerStub - The sinon stub instance (or plain mock) of RegistryManager
  * @param sandbox - The sinon sandbox to use for creating stubs
+ * @param captures - Optional per-event capture callbacks; when provided for an
+ *   event, the mock invokes the capture with the subscriber's callback so the
+ *   test can drive the event later
  * @example
  * ```typescript
  * const sandbox = sinon.createSandbox();
  * const registryManagerStub = sandbox.createStubInstance(RegistryManager);
  * setupRegistryManagerEventMocks(registryManagerStub, sandbox);
+ *
+ * // Capturing a callback to fire it manually:
+ * let onSourceSynced;
+ * setupRegistryManagerEventMocks(mock, sandbox, { onSourceSynced: (cb) => { onSourceSynced = cb; } });
  * ```
  */
 export function setupRegistryManagerEventMocks(
-    registryManagerStub: sinon.SinonStubbedInstance<RegistryManager>,
-    sandbox: sinon.SinonSandbox
+    registryManagerStub: sinon.SinonStubbedInstance<RegistryManager> | Record<string, unknown>,
+    sandbox: sinon.SinonSandbox,
+    captures: RegistryManagerEventCaptures = {}
 ): void {
   for (const eventName of REGISTRY_MANAGER_EVENTS) {
-    (registryManagerStub as any)[eventName] = createDisposableStub(sandbox);
+    const capture = captures[eventName];
+    (registryManagerStub as any)[eventName] = capture
+      ? sandbox.stub().callsFake((callback: any) => {
+        capture(callback);
+        return { dispose: () => {} };
+      })
+      : createDisposableStub(sandbox);
   }
 }
 

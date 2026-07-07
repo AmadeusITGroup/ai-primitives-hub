@@ -45,6 +45,7 @@ export class SkillsAdapter extends RepositoryAdapter {
   public readonly type = 'skills';
   private readonly logger: Logger;
   private readonly githubAdapter: GitHubAdapter;
+  private readonly defaultBranch = 'main';
 
   constructor(source: RegistrySource) {
     super(source);
@@ -86,6 +87,20 @@ export class SkillsAdapter extends RepositoryAdapter {
       owner: match[1],
       repo: match[2]
     };
+  }
+
+  private collectSkillIds(tree: GitTreeEntry[]): Set<string> {
+    const skillIds = new Set<string>();
+    for (const entry of tree) {
+      if (entry.type !== 'blob') {
+        continue;
+      }
+      const segments = entry.path.split('/');
+      if (segments[0] === 'skills' && segments.length === 3 && segments[2] === 'SKILL.md') {
+        skillIds.add(segments[1]);
+      }
+    }
+    return skillIds;
   }
 
   private async fetchRepoTree(owner: string, repo: string, branch: string): Promise<GitTreeEntry[]> {
@@ -143,20 +158,23 @@ export class SkillsAdapter extends RepositoryAdapter {
 
   /**
    * Scan skills/ directory via a single Git Trees API call.
+   * @param onChunk Optional callback invoked with each finished chunk of skills
    */
-  private async scanSkillsDirectory(): Promise<SkillItem[]> {
+  private async scanSkillsDirectory(
+    onChunk?: (skills: SkillItem[]) => void | Promise<void>
+  ): Promise<SkillItem[]> {
     const { owner, repo } = this.parseGitHubUrl();
-    const branch = 'main';
+    const branch = this.defaultBranch;
 
     this.logger.debug(`[SkillsAdapter] Scanning skills via git tree: ${owner}/${repo}@${branch}`);
 
     try {
       const tree = await this.fetchRepoTree(owner, repo, branch);
 
-      // Single O(tree) pass: group blobs under skills/<id>/ and note which
-      // skills have a top-level SKILL.md (a skill id requires SKILL.md).
+      // Single O(tree) pass: group all blobs under skills/<id>/. A skill id
+      // requires a top-level SKILL.md — collectSkillIds is the single source of
+      // truth for that rule (also used by validate()/fetchMetadata()).
       const filesBySkill = new Map<string, GitTreeEntry[]>();
-      const skillIds = new Set<string>();
       for (const entry of tree) {
         if (entry.type !== 'blob') {
           continue;
@@ -170,10 +188,8 @@ export class SkillsAdapter extends RepositoryAdapter {
           filesBySkill.set(skillId, []);
         }
         filesBySkill.get(skillId)!.push(entry);
-        if (segments.length === 3 && segments[2] === 'SKILL.md') {
-          skillIds.add(skillId);
-        }
       }
+      const skillIds = this.collectSkillIds(tree);
 
       this.logger.debug(`[SkillsAdapter] Found ${skillIds.size} skills in tree`);
 
@@ -181,14 +197,16 @@ export class SkillsAdapter extends RepositoryAdapter {
       // SKILL.md fetches without serializing them.
       const ids = [...skillIds];
       const skills: SkillItem[] = [];
-      const CONCURRENCY_LIMIT = 5;
+      const CONCURRENCY_LIMIT = 15;
 
       for (let i = 0; i < ids.length; i += CONCURRENCY_LIMIT) {
         const chunk = ids.slice(i, i + CONCURRENCY_LIMIT);
         const chunkResults = await Promise.all(
           chunk.map((skillId) => this.buildSkillFromTree(owner, repo, branch, skillId, filesBySkill.get(skillId) ?? []))
         );
-        skills.push(...chunkResults.filter((s): s is SkillItem => s !== null));
+        const built = chunkResults.filter((s): s is SkillItem => s !== null);
+        skills.push(...built);
+        await onChunk?.(built);
       }
 
       return skills;
@@ -674,25 +692,30 @@ export class SkillsAdapter extends RepositoryAdapter {
   /**
    * Fetch all skills from the repository as bundles
    * Each skill becomes a separate bundle
+   * @param onPartialBundles Optional callback invoked with a growing snapshot after each chunk
    */
-  public async fetchBundles(): Promise<Bundle[]> {
+  public async fetchBundles(
+    onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>
+  ): Promise<Bundle[]> {
     this.logger.info(`[SkillsAdapter] Fetching skills from repository: ${this.source.url}`);
 
     try {
-      const skills = await this.scanSkillsDirectory();
-      this.logger.info(`[SkillsAdapter] Found ${skills.length} skills in repository`);
-
       const bundles: Bundle[] = [];
-      for (const skill of skills) {
-        try {
-          const bundle = this.createBundleFromSkill(skill);
-          bundles.push(bundle);
-          this.logger.debug(`[SkillsAdapter] Created bundle: ${bundle.id}`);
-        } catch (error) {
-          this.logger.warn(`[SkillsAdapter] Failed to create bundle from skill ${skill.id}: ${error}`);
-        }
-      }
 
+      const skills = await this.scanSkillsDirectory(async (chunkSkills) => {
+        for (const skill of chunkSkills) {
+          try {
+            const bundle = this.createBundleFromSkill(skill);
+            bundles.push(bundle);
+            this.logger.debug(`[SkillsAdapter] Created bundle: ${bundle.id}`);
+          } catch (error) {
+            this.logger.warn(`[SkillsAdapter] Failed to create bundle from skill ${skill.id}: ${error}`);
+          }
+        }
+        await onPartialBundles?.([...bundles]);
+      });
+
+      this.logger.info(`[SkillsAdapter] Found ${skills.length} skills in repository`);
       this.logger.info(`[SkillsAdapter] Successfully created ${bundles.length} bundles`);
       return bundles;
     } catch (error) {
@@ -745,8 +768,8 @@ export class SkillsAdapter extends RepositoryAdapter {
 
       let skillCount = 0;
       try {
-        const skills = await this.scanSkillsDirectory();
-        skillCount = skills.length;
+        const tree = await this.fetchRepoTree(owner, repo, this.defaultBranch);
+        skillCount = this.collectSkillIds(tree).size;
 
         if (skillCount === 0) {
           warnings.push('No valid skills found in skills/ directory (skills must have SKILL.md file)');
@@ -778,13 +801,13 @@ export class SkillsAdapter extends RepositoryAdapter {
    */
   public async fetchMetadata(): Promise<SourceMetadata> {
     try {
-      const skills = await this.scanSkillsDirectory();
       const { owner, repo } = this.parseGitHubUrl();
+      const tree = await this.fetchRepoTree(owner, repo, this.defaultBranch);
 
       return {
         name: `${owner}/${repo}`,
         description: 'Skills Repository',
-        bundleCount: skills.length,
+        bundleCount: this.collectSkillIds(tree).size,
         lastUpdated: new Date().toISOString(),
         version: '1.0.0'
       };

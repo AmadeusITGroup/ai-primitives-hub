@@ -26,9 +26,10 @@ export interface IRepositoryAdapter {
 
   /**
    * Fetch list of available bundles from the source
+   * @param onPartialBundles Optional callback invoked with a growing snapshot after each chunk
    * @returns Promise with array of bundles
    */
-  fetchBundles(): Promise<Bundle[]>;
+  fetchBundles(onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>): Promise<Bundle[]>;
 
   /**
    * Download a specific bundle
@@ -155,7 +156,7 @@ export abstract class RepositoryAdapter implements IRepositoryAdapter {
     return Promise.resolve(null);
   }
 
-  public abstract fetchBundles(): Promise<Bundle[]>;
+  public abstract fetchBundles(onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>): Promise<Bundle[]>;
   public abstract downloadBundle(bundle: Bundle): Promise<Buffer>;
   public abstract fetchMetadata(): Promise<SourceMetadata>;
   public abstract validate(): Promise<ValidationResult>;

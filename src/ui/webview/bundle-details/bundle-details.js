@@ -54,10 +54,7 @@
       var readmeContent = document.querySelector('.details-content');
       if (readmeContent) {
         readmeContent.innerHTML = message.readmeHtml;
-        var readmeSection = document.querySelector('#readme-section');
-        if (readmeSection) {
-          readmeSection.style.display = '';
-        }
+        readmeContent.closest('#readme-section')?.removeAttribute('style');
       }
     }
   });

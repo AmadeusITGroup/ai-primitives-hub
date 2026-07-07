@@ -8,7 +8,7 @@ Adapters provide a unified interface for fetching bundles from different source 
 interface IRepositoryAdapter {
     readonly type: string;
     readonly source: RegistrySource;
-    fetchBundles(): Promise<Bundle[]>;
+    fetchBundles(onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>): Promise<Bundle[]>;
     downloadBundle(bundle: Bundle): Promise<Buffer>;
     fetchMetadata(): Promise<SourceMetadata>;
     validate(): Promise<ValidationResult>;

@@ -34,6 +34,9 @@ import {
   extractBundleSources,
 } from '../utils/filter-utils';
 import {
+  LeadingTrailingThrottle,
+} from '../utils/leading-trailing-throttle';
+import {
   Logger,
 } from '../utils/logger';
 import {
@@ -72,10 +75,47 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
   private _view?: vscode.WebviewView;
   private readonly logger: Logger;
-  private sourceSyncDebounceTimer?: NodeJS.Timeout;
+
+  private readonly sourceSyncThrottle = new LeadingTrailingThrottle(
+    () => void this.loadBundles(),
+    UI_CONSTANTS.SOURCE_SYNC_DEBOUNCE_MS
+  );
+
   private isLoadingBundles = false;
+  private loadBundlesPending = false;
   private disposables: vscode.Disposable[] = [];
   private markDownIt: InstanceType<typeof MarkdownIt> | undefined;
+  private readonly sanitizeOptions: sanitizeHtml.IOptions = {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
+    allowedAttributes: {
+      ...sanitizeHtml.defaults.allowedAttributes,
+      a: ['href', 'title', 'data-external-link', 'rel', 'class'],
+      img: ['src', 'alt', 'title', 'width', 'height']
+    },
+    allowedSchemes: ['https', 'http', 'mailto'],
+    allowedSchemesByTag: {
+      img: ['https'],
+      a: ['https', 'http', 'mailto']
+    },
+    transformTags: {
+      a: (tagName, attribs) => {
+        const href = attribs.href;
+        if (href) {
+          const { href: _dropped, ...rest } = attribs;
+          return {
+            tagName,
+            attribs: {
+              ...rest,
+              'data-external-link': href,
+              class: rest.class ? `${rest.class} external-link` : 'external-link',
+              rel: 'noopener noreferrer'
+            }
+          };
+        }
+        return { tagName, attribs };
+      }
+    }
+  };
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -159,24 +199,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    */
   private handleSourceSynced(event: { sourceId: string; bundleCount: number }): void {
     this.logger.debug(`Source synced: ${event.sourceId} (${event.bundleCount} bundles)`);
-
-    const isFirstEvent = !this.sourceSyncDebounceTimer;
-
-    // Clear existing timer if any
-    if (this.sourceSyncDebounceTimer) {
-      clearTimeout(this.sourceSyncDebounceTimer);
-    }
-
-    // Fire immediately on first event (leading edge)
-    if (isFirstEvent) {
-      void this.loadBundles();
-    }
-
-    // Set trailing edge timer
-    this.sourceSyncDebounceTimer = setTimeout(() => {
-      this.sourceSyncDebounceTimer = undefined;
-      void this.loadBundles();
-    }, UI_CONSTANTS.SOURCE_SYNC_DEBOUNCE_MS);
+    this.sourceSyncThrottle.trigger();
   }
 
   /**
@@ -189,27 +212,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     }
     return this.markDownIt;
   }
-
-  // private handleReadmeDownloaded(sourceId: string, bundleIds: string[], panel: vscode.WebviewPanel): void {
-  //   // TODO handle render through the details view
-  //   // Handle messages from the details panel
-  //   panel.webview.onDidReceiveMessage(
-  //     async (message) => {
-  //       if (message.type === 'openPromptFile') {
-  //         await this.openPromptFileInEditor(message.installPath, message.filePath);
-  //       } else if (message.type === 'toggleAutoUpdate') {
-  //         await this.handleToggleAutoUpdate(message.bundleId, message.enabled);
-  //         // Update the panel with new status
-  //         if (installed) {
-  //           const newStatus = await this.registryManager.autoUpdateService?.isAutoUpdateEnabled(installed.bundleId) || false;
-  //           panel.webview.postMessage({ type: 'autoUpdateStatusChanged', enabled: newStatus });
-  //         }
-  //       }
-  //     },
-  //     undefined,
-  //     this.context.subscriptions
-  //   );
-  // }
 
   /**
    * Find installed bundle by marketplace bundle ID using identity matching
@@ -294,9 +296,13 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * Uses cacheOnly mode for fast initial load, then updates progressively via onSourceSynced events
    */
   private async loadBundles(): Promise<void> {
-    // Prevent concurrent loads to avoid UI flicker
+    // Coalesce concurrent loads: if a load is already running, mark that another
+    // is needed and re-run once after it finishes (see finally block). This keeps
+    // the throttle's trailing edge — and any other dropped request — self-healing,
+    // so freshly-cached bundles always render.
     if (this.isLoadingBundles) {
-      this.logger.debug('Skipping loadBundles - already loading');
+      this.loadBundlesPending = true;
+      this.logger.debug('loadBundles already running - scheduling a follow-up load');
       return;
     }
 
@@ -304,9 +310,11 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     try {
       // Search for all bundles using cache only (non-blocking)
       // This ensures fast initial load - network fetches happen via syncSource which fires onSourceSynced
-      const bundles = await this.registryManager.searchBundles({ cacheOnly: true });
-      const installedBundles = await this.registryManager.listInstalledBundles();
-      const sources = await this.registryManager.listSources();
+      const [bundles, installedBundles, sources] = await Promise.all([
+        this.registryManager.searchBundles({ cacheOnly: true }),
+        this.registryManager.listInstalledBundles(),
+        this.registryManager.listSources()
+      ]);
       const autoUpdateService = this.registryManager.autoUpdateService;
 
       // Preload auto-update preferences once per refresh
@@ -383,6 +391,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       this.logger.error('Failed to load marketplace bundles', error as Error);
     } finally {
       this.isLoadingBundles = false;
+      // A load was requested while this one was in flight — run exactly once more
+      // to pick up cache updates that arrived during this render.
+      if (this.loadBundlesPending) {
+        this.loadBundlesPending = false;
+        void this.loadBundles();
+      }
     }
   }
 
@@ -936,45 +950,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   private getMarkdownRender(rawmarkdown: string): string {
     const md = this.getMarkdownItInstance();
     const html = md.render(rawmarkdown);
-    return sanitizeHtml(html, {
-      // 'a' is already part of the defaults; 'img' is added for inline images
-      allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
-      allowedAttributes: {
-        ...sanitizeHtml.defaults.allowedAttributes,
-        a: ['href', 'title', 'data-external-link', 'rel', 'class'],
-        img: ['src', 'alt', 'title', 'width', 'height']
-      },
-      // Allow safe external link/image schemes — still blocks data: and javascript:
-      allowedSchemes: ['https', 'http', 'mailto'],
-      // Keep images HTTPS-only (matches the webview CSP `img-src https:`); links may
-      // additionally use http/mailto since they are opened via vscode.env.openExternal.
-      allowedSchemesByTag: {
-        img: ['https'],
-        a: ['https', 'http', 'mailto']
-      },
-      transformTags: {
-        // Move the link target into a data attribute and DROP the href. Keeping
-        // href would let VS Code's built-in webview link handling open the URL
-        // directly (bypassing our confirmation prompt). The webview JS reads
-        // data-external-link on click and routes through vscode.env.openExternal.
-        a: (tagName, attribs) => {
-          const href = attribs.href;
-          if (href) {
-            const { href: _dropped, ...rest } = attribs;
-            return {
-              tagName,
-              attribs: {
-                ...rest,
-                'data-external-link': href,
-                class: rest.class ? `${rest.class} external-link` : 'external-link',
-                rel: 'noopener noreferrer'
-              }
-            };
-          }
-          return { tagName, attribs };
-        }
-      }
-    });
+    return sanitizeHtml(html, this.sanitizeOptions);
   }
 
   /**
@@ -1100,12 +1076,10 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     // Replace all placeholders
     html = html
       .replace('{{cspSource}}', cspSource)
-      .replace('{{bundleName}}', this.escapeHtml(bundle.name))
-      .replace('{{bundleName}}', this.escapeHtml(bundle.name))
+      .replaceAll('{{bundleName}}', this.escapeHtml(bundle.name))
       .replace('{{cssUri}}', cssUri.toString())
       .replace('{{installedBadge}}', installedBadge)
-      .replace('{{author}}', this.escapeHtml(bundle.author || 'Unknown'))
-      .replace('{{author}}', this.escapeHtml(bundle.author || 'Unknown'))
+      .replaceAll('{{author}}', this.escapeHtml(bundle.author || 'Unknown'))
       .replace('{{version}}', bundle.version)
       .replace('{{autoUpdateSection}}', autoUpdateSection)
       .replace('{{description}}', bundle.description || 'No description available')
@@ -1310,10 +1284,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * Dispose of resources
    */
   public dispose(): void {
-    // Clear debounce timer
-    if (this.sourceSyncDebounceTimer) {
-      clearTimeout(this.sourceSyncDebounceTimer);
-    }
+    this.sourceSyncThrottle.dispose();
 
     // Dispose all event listeners
     this.disposables.forEach((d) => d.dispose());

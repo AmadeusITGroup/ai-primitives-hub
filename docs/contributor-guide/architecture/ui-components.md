@@ -48,6 +48,13 @@ graph TD
 
 Bundle README markdown is rendered to HTML in the details panel via `markdown-it` and sanitized with `sanitize-html` (`getMarkdownRender`). Links (`<a>`) are preserved and tagged with a `data-external-link` attribute. The details webview intercepts clicks on these links and sends an `openExternalLink` message; the host then prompts the user for confirmation before opening the URL with `vscode.env.openExternal`. Images remain HTTPS-only to match the webview CSP; links may use `https`, `http`, or `mailto`.
 
+### Progressive Loading on Source Sync
+
+Sources sync in parallel (`Promise.allSettled`), and each fires `RegistryManager.onSourceSynced` as its bundles are cached — large skills sources stream multiple partial batches as they parse. The marketplace renders bundles as soon as **any** source has cached them, rather than waiting for all sources to finish. Two mechanisms cooperate in `MarketplaceViewProvider`:
+
+- **`handleSourceSynced` throttle (leading + trailing, 500ms)** — the leading edge renders immediately when a burst starts; the trailing edge picks up whatever arrived during the window. This rate-limits renders to avoid flicker when a source streams many partial batches.
+- **`loadBundles` coalescing** — `loadBundles` reads the full cache (`searchBundles({ cacheOnly: true })`) and posts one `bundlesLoaded` message. If it is called while a load is already in flight (e.g. the throttle's trailing edge racing the 100ms bootstrap load or the webview's self-`refresh`), it sets a pending flag and re-runs exactly once when the current load finishes, instead of dropping the request. This guarantees the latest cache always renders — without it, the first source's bundles could stay hidden until a later source re-armed the throttle.
+
 ## Tree View
 
 Hierarchical view displaying profiles, bundles, and sources with two view modes: "All Hubs" and "Favorites".
@@ -144,7 +151,7 @@ Extensive right-click menus defined in `package.json` with context-sensitive act
 - Implements `vscode.TreeDataProvider<RegistryTreeItem>`
 - Registered as `promptRegistryExplorer` in `package.json`
 - Supports collapse/expand states and refresh events
-- Debounced refresh on source sync events (500ms)
+- Throttled refresh on source sync events (leading + trailing, 500ms); `refresh()` fires `onDidChangeTreeData` so VS Code re-queries lazily
 
 #### Event Handling
 Listens to multiple registry and hub manager events:
