@@ -75,7 +75,10 @@ async function createGoldenBundle(root: string): Promise<string> {
     '# Planner Agent\n\nCreate an implementation plan with dependencies, validation, and rollback notes.'
   );
   await fs.writeFile(path.join(bundlePath, 'skills', 'analyzer', 'SKILL.md'), '# Analyzer\n\nAnalyze repository context and return evidence-backed findings.');
-  await fs.writeFile(path.join(bundlePath, 'skills', 'analyzer', 'templates', 'checklist.md'), '# Checklist\n\n- Confirm the target scope.\n- Compare expected and actual files.\n- Record validation evidence.');
+  await fs.writeFile(
+    path.join(bundlePath, 'skills', 'analyzer', 'templates', 'checklist.md'),
+    '# Checklist\n\n- Confirm the target scope.\n- Compare expected and actual files.\n- Record validation evidence.'
+  );
   await fs.writeFile(path.join(bundlePath, 'deployment-manifest.yml'), [
     'id: golden-vscode-bundle',
     'version: "1.0.0"',

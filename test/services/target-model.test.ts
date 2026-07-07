@@ -47,7 +47,7 @@ suite('TargetModel', () => {
 
   suite('resource validation', () => {
     test('recognizes installable primitive resource kinds', () => {
-      assert.deepStrictEqual(RESOURCE_KINDS, ['prompt', 'instruction', 'agent', 'skill']);
+      assert.deepStrictEqual(RESOURCE_KINDS, ['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook']);
 
       for (const resourceKind of RESOURCE_KINDS) {
         assert.strictEqual(isResourceKind(resourceKind), true);
@@ -95,7 +95,11 @@ suite('TargetModel', () => {
       });
 
       assert.strictEqual(result.valid, false);
-      assert.deepStrictEqual(result.errors, ['Missing route for resource kind: skill']);
+      assert.deepStrictEqual(result.errors, [
+        'Missing route for resource kind: skill',
+        'Missing route for resource kind: plugin',
+        'Missing route for resource kind: hook'
+      ]);
     });
 
     test('accepts a complete repository layout', () => {
@@ -107,7 +111,9 @@ suite('TargetModel', () => {
           prompt: '.github/prompts',
           instruction: '.github/instructions',
           agent: '.github/agents',
-          skill: '.github/skills'
+          skill: '.github/skills',
+          plugin: '.github/plugins',
+          hook: '.github/hooks'
         }
       });
 
@@ -145,7 +151,9 @@ suite('TargetModel', () => {
             prompt: '.github/prompts',
             instruction: '.github/instructions',
             agent: '.github/agents',
-            skill: '.github/skills'
+            skill: '.github/skills',
+            plugin: '.github/plugins',
+            hook: '.github/hooks'
           }
         }
       };

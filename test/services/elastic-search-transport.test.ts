@@ -78,13 +78,11 @@ suite('ElasticSearchTransport', () => {
       assert.strictEqual(lastClientOptions.auth, undefined);
     });
 
-    test('should pass system + default CA certificates to the ES client when available', async () => {
-      // Netskope (and other corporate TLS-inspection) CAs live in the OS trust
-      // store, which Node ignores by default. The transport must merge them in
-      // so the proxy's re-signed certificate validates.
-      const getCaStub = sandbox.stub(tlsModule, 'getCACertificates');
-      getCaStub.withArgs('system').returns(['-----SYSTEM CA-----']);
-      getCaStub.withArgs('default').returns(['-----DEFAULT CA-----']);
+    test('should pass resolved CA certificates to the ES client when available', async () => {
+      sandbox.stub(transport as any, 'resolveCACertificates').returns([
+        '-----SYSTEM CA-----',
+        '-----DEFAULT CA-----'
+      ]);
 
       await transport.registerHub('hub-1', baseConfig);
 
@@ -94,9 +92,19 @@ suite('ElasticSearchTransport', () => {
     });
 
     test('should not set tls.ca when the system trust store is empty', async () => {
-      const getCaStub = sandbox.stub(tlsModule, 'getCACertificates');
-      getCaStub.withArgs('system').returns([]);
-      getCaStub.withArgs('default').returns(['-----DEFAULT CA-----']);
+      Object.defineProperty(tlsModule, 'getCACertificates', {
+        value: (store: string) => {
+          if (store === 'system') {
+            return [];
+          }
+          if (store === 'default') {
+            return ['-----DEFAULT CA-----'];
+          }
+          return [];
+        },
+        writable: true,
+        configurable: true
+      });
 
       await transport.registerHub('hub-1', baseConfig);
 
@@ -105,7 +113,11 @@ suite('ElasticSearchTransport', () => {
 
     test('should register successfully when tls.getCACertificates is unavailable', async () => {
       // Older Node runtimes (VS Code < ~1.103) lack tls.getCACertificates.
-      tlsModule.getCACertificates = undefined;
+      Object.defineProperty(tlsModule, 'getCACertificates', {
+        value: undefined,
+        writable: true,
+        configurable: true
+      });
 
       await transport.registerHub('hub-1', baseConfig);
 

@@ -23,7 +23,9 @@ suite('VS Code target layout registry', () => {
         prompt: 'prompts',
         instruction: 'prompts',
         agent: 'prompts',
-        skill: 'skills'
+        skill: 'skills',
+        plugin: 'plugins',
+        hook: 'hooks'
       });
     });
 
@@ -56,7 +58,9 @@ suite('VS Code target layout registry', () => {
         prompt: '.github/prompts',
         instruction: '.github/instructions',
         agent: '.github/agents',
-        skill: '.github/skills'
+        skill: '.github/skills',
+        plugin: '.github/plugins',
+        hook: '.github/hooks'
       });
     });
 
@@ -88,6 +92,8 @@ suite('VS Code target layout registry', () => {
         assert.ok(layout.routes.instruction, `missing instruction route for ${scope}`);
         assert.ok(layout.routes.agent, `missing agent route for ${scope}`);
         assert.ok(layout.routes.skill, `missing skill route for ${scope}`);
+        assert.ok(layout.routes.plugin, `missing plugin route for ${scope}`);
+        assert.ok(layout.routes.hook, `missing hook route for ${scope}`);
       }
     });
   });

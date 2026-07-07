@@ -127,22 +127,17 @@ prompts: []
         '    type: prompt'
       ].join('\n'));
 
-      pathSandbox.stub(TargetLayoutRegistry, 'resolveTargetLayout').returns({
-        targetType: 'vscode',
-        scope: 'user',
-        basePath: 'user',
-        routes: {
-          prompt: 'layout-prompts',
-          instruction: 'layout-prompts',
-          agent: 'layout-prompts',
-          skill: 'layout-skills'
-        }
+      const layout = TargetLayoutRegistry.resolveTargetLayout({
+        type: 'vscode',
+        scope: 'user'
       });
+      const promptRoute = layout.routes.prompt;
+      assert.ok(promptRoute, 'vscode user layout should define a prompt route');
 
       await service.syncBundle(bundleId, bundlePath);
 
       assert.ok(
-        fs.existsSync(path.join(tempDir, 'Code', 'User', 'layout-prompts', 'review.prompt.md')),
+        fs.existsSync(path.join(tempDir, 'Code', 'User', promptRoute, 'review.prompt.md')),
         'user-scope prompt sync should use the shared target layout route'
       );
     });

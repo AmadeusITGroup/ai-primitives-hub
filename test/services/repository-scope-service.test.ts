@@ -227,27 +227,22 @@ suite('RepositoryScopeService', () => {
         { name: 'test.prompt.md', content: '# Test Prompt', type: 'prompt' }
       ]);
 
-      sandbox.stub(TargetLayoutRegistry, 'resolveTargetLayout').returns({
-        targetType: 'vscode',
-        scope: 'repository',
-        basePath: 'repository',
-        routes: {
-          prompt: '.ai-primitives/prompts',
-          instruction: '.ai-primitives/instructions',
-          agent: '.ai-primitives/agents',
-          skill: '.ai-primitives/skills'
-        }
+      const layout = TargetLayoutRegistry.resolveTargetLayout({
+        type: 'vscode',
+        scope: 'repository'
       });
+      const promptRoute = layout.routes.prompt;
+      assert.ok(promptRoute, 'vscode repository layout should define a prompt route');
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
 
       await service.syncBundle(bundleId, bundlePath);
 
-      const routedTargetFile = path.join(workspaceRoot, '.ai-primitives', 'prompts', 'test.prompt.md');
+      const routedTargetFile = path.join(workspaceRoot, promptRoute, 'test.prompt.md');
       assert.ok(fs.existsSync(routedTargetFile), 'Prompt file should be placed using the shared repository layout route');
 
       const excludeContent = readGitExclude();
       assert.ok(
-        excludeContent?.includes('.ai-primitives/prompts/test.prompt.md'),
+        excludeContent?.includes(path.posix.join(promptRoute, 'test.prompt.md')),
         'Git exclude should contain the layout-routed repository path for local-only mode'
       );
     });

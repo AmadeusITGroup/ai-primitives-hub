@@ -424,7 +424,13 @@ suite('BundleInstallationCommands - Property Tests', () => {
       mockRegistryManager.getBundleDetails.withArgs(bundleId).resolves(bundle);
       mockRegistryManager.getStorage.returns(mockStorage);
       mockRegistryManager.installBundle.rejects(
-        new Error('Repository install rejected: secret-like-content token-review: Repository install rejected because prompt token-review contains [REDACTED]. Install to user scope or remove the secret-like content before committing.')
+        new Error(
+          [
+            'Repository install rejected: secret-like-content token-review:',
+            'Repository install rejected because prompt token-review contains [REDACTED].',
+            'Install to user scope or remove the secret-like content before committing.'
+          ].join(' ')
+        )
       );
 
       mockCreateQuickPick.returns(createMockQuickPick('accept', 'repository', 'commit'));

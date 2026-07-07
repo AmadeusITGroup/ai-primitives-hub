@@ -57,8 +57,8 @@ suite('LocalAdapter', () => {
       const adapter = new LocalAdapter(mockSource);
       const metadata = await adapter.fetchMetadata();
 
-      // We have 9 bundles in fixtures
-      assert.strictEqual(metadata.bundleCount, 9);
+      // We have 10 bundles in fixtures, including the unsafe repository-safety fixture
+      assert.strictEqual(metadata.bundleCount, 10);
     });
 
     test('should throw error for non-existent directory', async () => {
@@ -78,7 +78,7 @@ suite('LocalAdapter', () => {
       const bundles = await adapter.fetchBundles();
 
       assert.ok(Array.isArray(bundles));
-      assert.strictEqual(bundles.length, 9);
+      assert.strictEqual(bundles.length, 10);
 
       // Check bundle IDs
       const bundleIds = bundles.map((b) => b.id).toSorted();
@@ -91,6 +91,7 @@ suite('LocalAdapter', () => {
         'security-bundle',
         'testing-bundle',
         'testing-bundle',
+        'unsafe-repository-bundle',
         'web-dev-bundle'
       ]);
     });

@@ -185,6 +185,12 @@ function resourceFileExtension(kind: Resource['kind']): string {
     case 'skill': {
       return 'md';
     }
+    case 'plugin': {
+      return 'plugin.json';
+    }
+    case 'hook': {
+      return 'hook.json';
+    }
   }
 }
 
