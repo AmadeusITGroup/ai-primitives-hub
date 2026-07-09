@@ -102,8 +102,6 @@ This is useful when bundle files have been manually deleted but the lockfile sti
 
 ## Hub Management
 
-Hub management commands are available from the Command Palette and activate the extension on demand when invoked directly.
-
 | Command | Title | Description |
 |---------|-------|-------------|
 | `promptregistry.importHub` | Import Hub | Import a hub configuration |
@@ -148,6 +146,10 @@ Hub management commands are available from the Command Palette and activate the 
 | `promptRegistry.scaffoldProject` | Scaffold Project | Create a new project from a template |
 | `promptRegistry.addResource` | Add Resource | Add a prompt, instruction, agent, or skill |
 
+### Cross-Platform Path Handling
+
+The scaffold command normalizes path separators to forward slashes before checking for the `templates/scaffolds` directory, ensuring correct template resolution on Windows where backslash separators are used.
+
 ## Settings & Configuration
 
 | Command | Title | Description |
@@ -168,16 +170,6 @@ Hub management commands are available from the Command Palette and activate the 
 |---------|-------|-------------|
 | `promptregistry.openItemRepository` | Open Repository | Open an item's repository in a browser |
 | `promptRegistry.resetFirstRun` | Reset First Run | Reset first-run state to re-trigger hub selection dialog |
-
-## Chat Integration
-
-The extension contributes the `@prompts` chat participant for GitHub Copilot Chat.
-
-**Participant:** `@prompts`
-
-**Slash commands:**
-- `/help` — Show available prompt commands
-- `/list` — List installed prompts
 
 ## See Also
 

@@ -30,33 +30,6 @@ suite('Package Configuration - Update Check Settings', () => {
       );
     });
 
-    test('should activate on switchHub command execution', () => {
-      assert.ok(Array.isArray(packageJson.activationEvents), 'package.json should define activationEvents array');
-      assert.ok(
-        packageJson.activationEvents.includes('onCommand:promptregistry.switchHub'),
-        'switchHub should activate the extension when executed directly'
-      );
-    });
-
-    test('should contribute the prompts chat participant', () => {
-      assert.ok(packageJson.contributes, 'package.json should have contributes section');
-      assert.ok(Array.isArray(packageJson.contributes.chatParticipants), 'contributes should define chatParticipants');
-
-      const promptsParticipant = packageJson.contributes.chatParticipants.find((participant: any) => participant.id === 'prompts');
-
-      assert.ok(promptsParticipant, 'package.json should contribute the prompts chat participant');
-      assert.strictEqual(promptsParticipant.name, 'prompts', 'prompts chat participant should use the @prompts mention name');
-      assert.ok(Array.isArray(promptsParticipant.commands), 'prompts chat participant should contribute slash commands');
-      assert.ok(
-        promptsParticipant.commands.some((command: any) => command.name === 'help'),
-        'prompts chat participant should contribute a help slash command'
-      );
-      assert.ok(
-        promptsParticipant.commands.some((command: any) => command.name === 'list'),
-        'prompts chat participant should contribute a list slash command'
-      );
-    });
-
     test('should have configuration section', () => {
       assert.ok(packageJson.contributes, 'package.json should have contributes section');
       assert.ok(packageJson.contributes.configuration, 'contributes should have configuration section');

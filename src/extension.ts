@@ -1554,10 +1554,6 @@ export class PromptRegistryExtension {
     try {
       this.logger.info('Activating AI Primitives Hub extension...');
 
-      // Register commands first so command-triggered activation can still succeed
-      // even if later startup work fails.
-      this.registerCommands();
-
       // Initialize McpConfigLocator for profile support
       McpConfigLocator.initialize(this.context);
 
@@ -1569,6 +1565,9 @@ export class PromptRegistryExtension {
 
       // Run data migrations (idempotent, skips if already completed)
       await this.runMigrations();
+
+      // Register commands
+      this.registerCommands();
 
       // Initialize UI components
       await this.initializeUI();

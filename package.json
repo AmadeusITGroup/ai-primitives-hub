@@ -41,29 +41,9 @@
   "main": "./dist/extension.js",
   "icon": "icon.png",
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:promptregistry.switchHub"
+    "onStartupFinished"
   ],
   "contributes": {
-    "chatParticipants": [
-      {
-        "id": "prompts",
-        "name": "prompts",
-        "fullName": "AI Primitives Hub",
-        "description": "Use installed prompt bundles in chat",
-        "isSticky": true,
-        "commands": [
-          {
-            "name": "help",
-            "description": "Show available prompt commands"
-          },
-          {
-            "name": "list",
-            "description": "List installed prompts"
-          }
-        ]
-      }
-    ],
     "chatSkills": [
       {
         "path": "./resources/skills/prompt-registry-helper/SKILL.md"
