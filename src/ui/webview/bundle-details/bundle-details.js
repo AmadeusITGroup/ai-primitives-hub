@@ -50,12 +50,34 @@
     if (message.type === 'autoUpdateStatusChanged') {
       autoUpdateEnabled = message.enabled;
       updateToggleUI();
+    } else if (message.type === 'readmeUpdated') {
+      var readmeContent = document.querySelector('.details-content');
+      if (readmeContent) {
+        readmeContent.innerHTML = message.readmeHtml;
+        readmeContent.closest('#readme-section')?.removeAttribute('style');
+      }
     }
   });
 
   // Event delegation for all click handlers (CSP compliant)
   document.addEventListener('click', (e) => {
     var target = e.target;
+
+    // Intercept clicks on rendered README links so they open externally
+    // (with a confirmation prompt) instead of navigating the webview.
+    var link = target.closest('a[data-external-link]');
+    if (link) {
+      e.preventDefault();
+      var url = link.dataset.externalLink;
+      if (url) {
+        vscode.postMessage({
+          type: 'openExternalLink',
+          url: url
+        });
+      }
+      return;
+    }
+
     var actionElement = target.closest('[data-action]');
 
     if (actionElement) {

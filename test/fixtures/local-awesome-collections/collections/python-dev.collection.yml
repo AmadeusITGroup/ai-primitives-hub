@@ -5,3 +5,5 @@ tags: ["python", "development", "testing"]
 items:
   - path: prompts/test-prompt.prompt.md
     kind: prompt
+readme:
+  path: docs/python-dev-readme.md

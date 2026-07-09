@@ -26,6 +26,8 @@ items:                              # Required. List of resources (max 50)
 
   - path: agents/runner.agent.md
     kind: agent
+readme:                                   # Optional. Documentation for the collection.
+  path: docs/python-development/readme.md 
 
 mcp:                                # Optional. MCP server configurations
   items:
@@ -63,6 +65,16 @@ display:                            # Optional. UI preferences
 ## MCP Server Duplicate Detection
 
 When multiple collections define the same MCP server, AI Primitives Hub automatically detects and manages duplicates to prevent conflicts in VS Code's `mcp.json`.
+
+## Documentation
+
+Make sure to provide a readme for your collections. This is what gets displayed in the detailed view of the collection in the marketplace.
+
+> **Note :** The current version only supports absolute links for images.
+>
+> **example :**
+> `![alt text](https://somedomain.com/awesomeimage.jpg)` ✅
+> `![alt text](./assets/awesomeimage.jpg)` ❌
 
 ### How It Works
 

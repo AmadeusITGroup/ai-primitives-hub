@@ -14,6 +14,7 @@ export interface ValidationResult {
 export interface ObjectValidationResult {
   ok: boolean;
   errors: string[];
+  warnings?: string[];
 }
 
 export interface FileValidationResult extends ObjectValidationResult {
@@ -21,6 +22,7 @@ export interface FileValidationResult extends ObjectValidationResult {
 }
 
 export interface AllCollectionsResult extends ObjectValidationResult {
+  warnings: string[];
   fileResults: ({ file: string } & FileValidationResult)[];
 }
 
@@ -39,6 +41,9 @@ export interface Collection {
   author?: string;
   tags?: string[];
   items: CollectionItem[];
+  readme?: {
+    path: string;
+  };
 }
 
 export interface ValidationRules {
@@ -71,5 +76,6 @@ export interface BundleInfo {
   outDir: string;
   manifestAsset: string;
   zipAsset: string;
+  readmeAsset?: string;
   bundleId: string;
 }

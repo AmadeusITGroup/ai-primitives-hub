@@ -18,8 +18,10 @@ interface IRepositoryAdapter {
     // The source configuration
     readonly source: RegistrySource;
     
-    // Fetch all bundles from this source
-    fetchBundles(): Promise<Bundle[]>;
+    // Fetch all bundles from this source. The optional onPartialBundles
+    // callback is invoked with a growing snapshot after each parse chunk so
+    // the UI can render progressively during large syncs.
+    fetchBundles(onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>): Promise<Bundle[]>;
     
     // Download a specific bundle (returns zip Buffer)
     downloadBundle(bundle: Bundle): Promise<Buffer>;

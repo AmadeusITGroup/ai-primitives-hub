@@ -232,6 +232,24 @@ export function validateCollectionObject(
     }
   }
 
+  // Validate readme if present (optional field)
+  if (col.readme !== undefined) {
+    if (!col.readme || typeof col.readme !== 'object') {
+      errors.push(`${sourceLabel}: readme must be an object with a "path" property`);
+    } else {
+      const readme = col.readme as Record<string, unknown>;
+      if (!readme.path || typeof readme.path !== 'string' || readme.path.trim() === '') {
+        errors.push(`${sourceLabel}: readme.path must be a non-empty string`);
+      } else {
+        try {
+          normalizeRepoRelativePath(readme.path);
+        } catch {
+          errors.push(`${sourceLabel}: readme.path has an invalid path (must be repo-root relative): ${readme.path}`);
+        }
+      }
+    }
+  }
+
   if (!Array.isArray(col.items)) {
     errors.push(`${sourceLabel}: Missing required field: items (array)`);
   }
@@ -285,6 +303,7 @@ export function validateCollectionFile(
     : path.join(repoRoot, collectionFile);
 
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   if (!fs.existsSync(abs)) {
     return { ok: false, errors: [`${rel}: Collection file not found`] };
@@ -320,7 +339,22 @@ export function validateCollectionFile(
     });
   }
 
-  return { ok: errors.length === 0, errors, collection };
+  if (collection?.readme?.path) {
+    let relPath: string;
+    try {
+      relPath = normalizeRepoRelativePath(collection.readme.path);
+    } catch {
+      return { ok: false, errors: [...errors, `${rel}: readme path is invalid: ${collection.readme.path}`] };
+    }
+    const readmeAbs = path.join(repoRoot, relPath);
+    if (!fs.existsSync(readmeAbs)) {
+      errors.push(`${rel}: readme referenced file not found: ${relPath}`);
+    }
+  } else {
+    warnings.push(`${rel}: Collection has no readme. Consider adding a readme to help users understand this collection.`);
+  }
+
+  return { ok: errors.length === 0, errors, warnings, collection };
 }
 
 /**
@@ -334,6 +368,7 @@ export function validateAllCollections(
   collectionFiles: string[]
 ): AllCollectionsResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const fileResults: ({ file: string } & FileValidationResult)[] = [];
   const seenIds = new Map<string, string>(); // id -> file path
   const seenNames = new Map<string, string>(); // name -> file path
@@ -342,6 +377,9 @@ export function validateAllCollections(
     const result = validateCollectionFile(repoRoot, file);
     fileResults.push({ file, ...result });
     errors.push(...result.errors);
+    if (result.warnings) {
+      warnings.push(...result.warnings);
+    }
 
     // Check for duplicate IDs and names
     if (result.collection) {
@@ -361,7 +399,7 @@ export function validateAllCollections(
     }
   }
 
-  return { ok: errors.length === 0, errors, fileResults };
+  return { ok: errors.length === 0, errors, warnings, fileResults };
 }
 
 /**
@@ -380,6 +418,13 @@ export function generateMarkdown(result: AllCollectionsResult, totalFiles: numbe
     md += '### Errors\n\n';
     result.errors.forEach((err) => {
       md += `- ${err}\n`;
+    });
+  }
+
+  if (result.warnings && result.warnings.length > 0) {
+    md += '\n### Warnings\n\n';
+    result.warnings.forEach((warn) => {
+      md += `- ⚠️ ${warn}\n`;
     });
   }
 

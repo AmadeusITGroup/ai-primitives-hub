@@ -9,9 +9,20 @@ import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  RegistryManager,
+} from '../../src/services/registry-manager';
+import {
+  RegistryStorage,
+} from '../../src/storage/registry-storage';
+import {
+  Bundle,
   DeploymentManifest,
   InstalledBundle,
+  RegistrySource,
 } from '../../src/types/registry';
+import {
+  BundleBuilder,
+} from '../helpers/bundle-test-helpers';
 
 // Helper to create mock manifest
 function createMockManifest(): DeploymentManifest {
@@ -245,5 +256,132 @@ suite('RegistryManager - Event Handling', () => {
       assert.strictEqual(eventData?.sourceId, 'empty-source', 'Event should contain correct source ID');
       assert.strictEqual(eventData?.bundleCount, 0, 'Event should contain zero bundle count');
     });
+  });
+});
+
+suite('RegistryManager - Progressive syncSource', () => {
+  let sandbox: sinon.SinonSandbox;
+  let manager: RegistryManager;
+  let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
+
+  const testSource: RegistrySource = {
+    id: 'progressive-source',
+    name: 'Progressive Source',
+    type: 'skills',
+    url: 'https://github.com/owner/skills-repo',
+    enabled: true,
+    priority: 1
+  };
+
+  const makeBundles = (count: number): Bundle[] =>
+    Array.from({ length: count }, () =>
+      BundleBuilder.github('owner', 'skills-repo').withVersion('1.0.0').build()
+    );
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+
+    const mockContext: any = {
+      globalState: {
+        get: sandbox.stub().returns(undefined),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      },
+      workspaceState: {
+        get: sandbox.stub().returns(undefined),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      },
+      subscriptions: [],
+      extensionPath: '/mock/path',
+      extensionUri: vscode.Uri.file('/mock/path'),
+      storageUri: vscode.Uri.file('/mock/storage'),
+      globalStorageUri: vscode.Uri.file('/mock/global'),
+      asAbsolutePath: (p: string) => `/mock/path/${p}`
+    };
+
+    manager = RegistryManager.getInstance(mockContext);
+
+    mockStorage = sandbox.createStubInstance(RegistryStorage);
+    mockStorage.getSources.resolves([testSource]);
+    mockStorage.getInstalledBundles.resolves([]);
+    mockStorage.getProfiles.resolves([]);
+    mockStorage.cacheSourceBundles.resolves();
+    (manager as any).storage = mockStorage;
+  });
+
+  teardown(() => {
+    sandbox.restore();
+  });
+
+  test('onSourceSynced fires per batch when adapter invokes callback multiple times', async () => {
+    const batch1 = makeBundles(15);
+    const batch2 = [...batch1, ...makeBundles(5)];
+
+    // Stub adapter that calls onPartialBundles twice then returns full list
+    const fakeAdapter = {
+      fetchBundles: async (onPartial?: (b: Bundle[]) => void | Promise<void>) => {
+        if (onPartial) {
+          await onPartial(batch1);
+          await onPartial(batch2);
+        }
+        return batch2;
+      }
+    };
+    (manager as any).adapters.set(testSource.id, fakeAdapter);
+
+    const firedCounts: number[] = [];
+    const disposable = manager.onSourceSynced((event) => {
+      if (event.sourceId === testSource.id) {
+        firedCounts.push(event.bundleCount);
+      }
+    });
+
+    try {
+      await manager.syncSource(testSource.id);
+    } finally {
+      disposable.dispose();
+    }
+
+    // Should fire at least once for each batch callback invocation (plus the final fire)
+    assert.ok(
+      firedCounts.length >= 2,
+      `Expected ≥2 onSourceSynced fires, got ${firedCounts.length}: [${firedCounts.join(', ')}]`
+    );
+  });
+
+  test('cacheSourceBundles is called incrementally with growing arrays', async () => {
+    const batch1 = makeBundles(15);
+    const batch2 = [...batch1, ...makeBundles(5)];
+
+    const fakeAdapter = {
+      fetchBundles: async (onPartial?: (b: Bundle[]) => void | Promise<void>) => {
+        if (onPartial) {
+          await onPartial(batch1);
+          await onPartial(batch2);
+        }
+        return batch2;
+      }
+    };
+    (manager as any).adapters.set(testSource.id, fakeAdapter);
+
+    await manager.syncSource(testSource.id);
+
+    // cacheSourceBundles should have been called multiple times (per batch + final)
+    assert.ok(
+      mockStorage.cacheSourceBundles.callCount >= 2,
+      `Expected ≥2 cacheSourceBundles calls, got ${mockStorage.cacheSourceBundles.callCount}`
+    );
+
+    // Each call should have non-decreasing bundle counts
+    const callArgs = mockStorage.cacheSourceBundles.args.map(([, bundles]) => bundles.length);
+    for (let i = 1; i < callArgs.length; i++) {
+      assert.ok(
+        callArgs[i] >= callArgs[i - 1],
+        `cacheSourceBundles call counts should be non-decreasing: ${callArgs.join(', ')}`
+      );
+    }
   });
 });

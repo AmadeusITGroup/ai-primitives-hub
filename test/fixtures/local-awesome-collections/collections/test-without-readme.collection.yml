@@ -1,0 +1,7 @@
+id: test-without-readme
+name: Test Collection Without Readme
+description: Explicit fixture collection without readme metadata
+tags: ["test", "fixture", "no-readme"]
+items:
+  - path: prompts/test-prompt.prompt.md
+    kind: prompt

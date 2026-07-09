@@ -235,3 +235,16 @@ code {
     background: var(--vscode-descriptionForeground);
     color: var(--vscode-editor-background);
 }
+
+/* README external links (href is stripped during sanitization; clicks are
+   intercepted and routed through vscode.env.openExternal with a prompt) */
+.details-content a.external-link {
+    color: var(--vscode-textLink-foreground);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.details-content a.external-link:hover {
+    color: var(--vscode-textLink-activeForeground);
+    text-decoration: underline;
+}

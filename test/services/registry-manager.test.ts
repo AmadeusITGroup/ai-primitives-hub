@@ -1057,6 +1057,121 @@ suite('RegistryManager - Cache-Only Search Behavior', () => {
   });
 });
 
+suite('RegistryManager - Readme Revision Reuse', () => {
+  let sandbox: sinon.SinonSandbox;
+  let mockContext: vscode.ExtensionContext;
+  let manager: RegistryManager;
+  let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
+
+  const sourceId = 'readme-revision-test-source';
+  const mockSource: RegistrySource = {
+    id: sourceId,
+    type: 'github',
+    name: 'Readme Revision Source',
+    url: 'https://github.com/test/repo',
+    enabled: true,
+    priority: 1
+  };
+
+  const waitForReadmeComplete = () => new Promise<{ succeeded: string[]; failed: string[] }>((resolve) => {
+    const disposable = manager.onReadmeDownloadComplete((e) => {
+      if (e.sourceId === sourceId) {
+        disposable.dispose();
+        resolve(e);
+      }
+    });
+  });
+
+  const buildFreshBundle = (readmeRevision: string): Bundle => {
+    const bundle = BundleBuilder.github('test', 'repo').withVersion('1.0.0').build();
+    bundle.sourceId = sourceId;
+    bundle.readmeUrl = 'https://example.com/readme.md';
+    bundle.readmeRevision = readmeRevision;
+    bundle.readme = undefined;
+    return bundle;
+  };
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+
+    mockContext = {
+      globalState: {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      } as any,
+      workspaceState: {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      } as any,
+      subscriptions: [],
+      extensionPath: '/mock/path',
+      extensionUri: vscode.Uri.file('/mock/path'),
+      storageUri: vscode.Uri.file('/mock/storage'),
+      globalStorageUri: vscode.Uri.file('/mock/global'),
+      asAbsolutePath: (p: string) => `/mock/path/${p}`
+    } as any;
+
+    manager = RegistryManager.getInstance(mockContext);
+    // Ensure syncSource builds the adapter via the stubbed factory rather than a cached instance
+    (manager as any).adapters.delete(sourceId);
+
+    mockStorage = sandbox.createStubInstance(RegistryStorage);
+    mockStorage.getSources.resolves([mockSource]);
+    mockStorage.getInstalledBundles.resolves([]);
+    (manager as any).storage = mockStorage;
+  });
+
+  teardown(() => {
+    sandbox.restore();
+  });
+
+  test('reuses cached readme when the revision is unchanged', async () => {
+    const fresh = buildFreshBundle('rev-1');
+    const cached: Bundle = { ...buildFreshBundle('rev-1'), readme: 'CACHED CONTENT' };
+    mockStorage.getCachedSourceBundles.resolves([cached]);
+
+    const downloadReadme = sandbox.stub().resolves('FRESH CONTENT');
+    sandbox.stub(RepositoryAdapterFactory, 'create').returns({
+      type: 'github',
+      fetchBundles: sandbox.stub().resolves([fresh]),
+      downloadReadme
+    } as any);
+
+    const complete = waitForReadmeComplete();
+    await manager.syncSource(sourceId);
+    const result = await complete;
+
+    assert.strictEqual(downloadReadme.callCount, 0, 'should not re-download an unchanged readme');
+    assert.strictEqual(fresh.readme, 'CACHED CONTENT', 'should reuse the cached readme content');
+    assert.deepStrictEqual(result.succeeded, [], 'no readme should be reported as freshly downloaded');
+  });
+
+  test('re-downloads readme when the revision changed', async () => {
+    const fresh = buildFreshBundle('rev-2');
+    const cached: Bundle = { ...buildFreshBundle('rev-1'), readme: 'STALE CONTENT' };
+    mockStorage.getCachedSourceBundles.resolves([cached]);
+
+    const downloadReadme = sandbox.stub().resolves('FRESH CONTENT');
+    sandbox.stub(RepositoryAdapterFactory, 'create').returns({
+      type: 'github',
+      fetchBundles: sandbox.stub().resolves([fresh]),
+      downloadReadme
+    } as any);
+
+    const complete = waitForReadmeComplete();
+    await manager.syncSource(sourceId);
+    const result = await complete;
+
+    assert.strictEqual(downloadReadme.callCount, 1, 'should re-download when the revision changed');
+    assert.strictEqual(fresh.readme, 'FRESH CONTENT', 'should replace the stale readme with fresh content');
+    assert.deepStrictEqual(result.succeeded, [fresh.id], 'the refreshed readme should be reported as downloaded');
+  });
+});
+
 suite('RegistryManager - Adapter Cache Clearing', () => {
   let sandbox: sinon.SinonSandbox;
   let mockContext: vscode.ExtensionContext;

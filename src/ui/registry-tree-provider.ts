@@ -23,6 +23,9 @@ import {
   UI_CONSTANTS,
 } from '../utils/constants';
 import {
+  LeadingTrailingThrottle,
+} from '../utils/leading-trailing-throttle';
+import {
   Logger,
 } from '../utils/logger';
 
@@ -274,7 +277,12 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
 
   private readonly logger: Logger;
   private readonly availableUpdates: Map<string, UpdateCheckResult> = new Map();
-  private sourceSyncDebounceTimer?: NodeJS.Timeout;
+
+  private readonly sourceSyncThrottle = new LeadingTrailingThrottle(
+    () => this.refresh(),
+    UI_CONSTANTS.SOURCE_SYNC_DEBOUNCE_MS
+  );
+
   private disposables: vscode.Disposable[] = [];
 
   private viewMode: 'all' | 'favorites' = 'all';
@@ -329,17 +337,7 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
    */
   private handleSourceSynced(event: { sourceId: string; bundleCount: number }): void {
     this.logger.debug(`Source synced: ${event.sourceId} (${event.bundleCount} bundles)`);
-
-    // Clear existing timer
-    if (this.sourceSyncDebounceTimer) {
-      clearTimeout(this.sourceSyncDebounceTimer);
-    }
-
-    // Set new timer with shared debounce delay
-    this.sourceSyncDebounceTimer = setTimeout(() => {
-      this.logger.debug('Refreshing tree view after source sync');
-      this.refresh();
-    }, UI_CONSTANTS.SOURCE_SYNC_DEBOUNCE_MS);
+    this.sourceSyncThrottle.trigger();
   }
 
   /**
@@ -1021,10 +1019,7 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
    * Dispose of resources
    */
   public dispose(): void {
-    // Clear debounce timer
-    if (this.sourceSyncDebounceTimer) {
-      clearTimeout(this.sourceSyncDebounceTimer);
-    }
+    this.sourceSyncThrottle.dispose();
 
     // Dispose all event listeners
     this.disposables.forEach((d) => d.dispose());

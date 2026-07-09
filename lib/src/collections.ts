@@ -102,3 +102,15 @@ export function resolveCollectionItemPaths(repoRoot: string, collection: Collect
 
   return allPaths;
 }
+
+/**
+ * Resolve the README path for a collection.
+ * @param collection - Parsed collection object
+ * @returns Normalized repo-relative path or null if not available
+ */
+export function resolveCollectionReadmePath(collection: Collection): string | null {
+  if (!collection.readme || !collection.readme.path) {
+    return null;
+  }
+  return normalizeRepoRelativePath(collection.readme.path);
+}

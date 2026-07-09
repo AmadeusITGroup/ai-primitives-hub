@@ -239,6 +239,18 @@
       },
       "additionalProperties": false
     },
+    "readme": {
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to a README file for the collection",
+          "examples": [
+            "README.md",
+            "docs/collection-overview.md"
+          ]
+        }
+      }
+    },
     "version": {
       "type": "string",
       "description": "Version of the collection",

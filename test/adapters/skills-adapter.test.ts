@@ -322,8 +322,14 @@ suite('SkillsAdapter Tests', () => {
       nock('https://api.github.com')
         .get('/repos/test-owner/test-skills-repo/contents/skills')
         .reply(200, []);
-      // Tree scan returns one skill
-      setupSkillsTreeMocks([{ id: 'test-skill', name: 'test-skill', description: 'Test skill' }]);
+      // Tree scan returns one skill (no raw SKILL.md interceptor registered — validate must not fetch it)
+      nock('https://api.github.com')
+        .get('/repos/test-owner/test-skills-repo/git/trees/main?recursive=1')
+        .reply(200, { tree: [{ path: 'skills/test-skill/SKILL.md', type: 'blob', sha: 'sha-test' }], truncated: false });
+      // Register a raw SKILL.md scope; assert it is NOT consumed (validate must not download SKILL.md)
+      const rawScope = nock('https://raw.githubusercontent.com')
+        .get('/test-owner/test-skills-repo/main/skills/test-skill/SKILL.md')
+        .reply(200, '---\nname: test-skill\ndescription: Test skill\n---\n\nInstructions');
 
       const adapter = new SkillsAdapter(mockSource);
       const result = await adapter.validate();
@@ -331,6 +337,7 @@ suite('SkillsAdapter Tests', () => {
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.errors.length, 0);
       assert.strictEqual(result.bundlesFound, 1);
+      assert.ok(!rawScope.isDone(), 'validate() must not download SKILL.md files');
     });
 
     test('should fail validation when skills/ directory is missing', async () => {
@@ -383,6 +390,101 @@ suite('SkillsAdapter Tests', () => {
       const url = adapter.getDownloadUrl('skills-test-owner-test-skills-repo-algorithmic-art');
 
       assert.strictEqual(url, 'https://github.com/test-owner/test-skills-repo/archive/refs/heads/main.zip');
+    });
+  });
+
+  suite('fetchBundles() — progressive streaming', () => {
+    // Use 20 skills so we always exceed the current CONCURRENCY_LIMIT (15) and get 2+ chunks.
+    const makeSkills = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `skill-${i}`,
+        name: `Skill ${i}`,
+        description: `Description ${i}`
+      }));
+
+    test('calls onPartialBundles more than once when skills exceed one chunk', async () => {
+      setupSkillsTreeMocks(makeSkills(20));
+
+      const adapter = new SkillsAdapter(mockSource);
+      const snapshots: number[] = [];
+
+      await adapter.fetchBundles((partial) => {
+        snapshots.push(partial.length);
+      });
+
+      assert.ok(snapshots.length > 1, `Expected >1 callback invocation, got ${snapshots.length}`);
+    });
+
+    test('each partial payload is monotonically non-decreasing in length', async () => {
+      setupSkillsTreeMocks(makeSkills(20));
+
+      const adapter = new SkillsAdapter(mockSource);
+      const snapshots: number[] = [];
+
+      await adapter.fetchBundles((partial) => {
+        snapshots.push(partial.length);
+      });
+
+      for (let i = 1; i < snapshots.length; i++) {
+        assert.ok(
+          snapshots[i] >= snapshots[i - 1],
+          `Expected non-decreasing lengths: ${snapshots.join(', ')}`
+        );
+      }
+    });
+
+    test('each partial payload is a distinct array (snapshot, not shared mutable ref)', async () => {
+      setupSkillsTreeMocks(makeSkills(20));
+
+      const adapter = new SkillsAdapter(mockSource);
+      const refs: unknown[][] = [];
+
+      await adapter.fetchBundles((partial) => {
+        refs.push(partial);
+      });
+
+      // All collected refs must be distinct array instances
+      for (let i = 0; i < refs.length; i++) {
+        for (let j = i + 1; j < refs.length; j++) {
+          assert.notStrictEqual(refs[i], refs[j], 'Each callback invocation should receive a distinct array');
+        }
+      }
+    });
+
+    test('final returned bundles equal the last partial payload', async () => {
+      setupSkillsTreeMocks(makeSkills(20));
+
+      const adapter = new SkillsAdapter(mockSource);
+      let lastPartial: unknown[] = [];
+
+      const finalBundles = await adapter.fetchBundles((partial) => {
+        lastPartial = partial;
+      });
+
+      assert.strictEqual(finalBundles.length, lastPartial.length);
+      for (const bundle of finalBundles) {
+        assert.ok(lastPartial.some((b: any) => b.id === bundle.id), `Bundle ${bundle.id} missing from last partial`);
+      }
+    });
+
+    test('final bundle set is identical with or without callback (regression for concurrency change)', async () => {
+      const skills = makeSkills(20);
+
+      // Without callback
+      setupSkillsTreeMocks(skills);
+      const withoutCb = await new SkillsAdapter(mockSource).fetchBundles();
+
+      // With callback
+      nock.cleanAll();
+      setupSkillsTreeMocks(skills);
+      const withCb = await new SkillsAdapter(mockSource).fetchBundles(() => {});
+
+      assert.strictEqual(withCb.length, withoutCb.length, 'Bundle count must be identical with or without callback');
+
+      const withoutIds = new Set(withoutCb.map((b) => b.id));
+      for (const bundle of withCb) {
+        assert.ok(withoutIds.has(bundle.id), `Bundle ${bundle.id} present with callback but missing without`);
+      }
     });
   });
 });

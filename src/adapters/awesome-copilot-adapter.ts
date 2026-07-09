@@ -65,6 +65,9 @@ interface CollectionManifest {
     items?: Record<string, any>;
   };
   mcpServers?: Record<string, any>;
+  readme?: {
+    path: string;
+  };
 }
 
 interface CollectionItem {
@@ -132,7 +135,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
     this.logger = Logger.getInstance();
 
     // Parse config
-    const userConfig = (source as any).config || {};
+    const userConfig = source.config || {};
     this.config = {
       branch: userConfig.branch || 'main',
       collectionsPath: userConfig.collectionsPath || 'collections'
@@ -164,11 +167,15 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
       const yamlContent = await this.fetchUrl(collectionUrl);
       const collection = yaml.load(yamlContent) as CollectionManifest;
 
+      this.logger.debug(`[AwesomeCopilot]: Here is the parsed collection ${collection.readme?.path}`);
+
       // Extract MCP servers from either 'mcp.items' or 'mcpServers' field
       const mcpServers = collection.mcpServers || collection.mcp?.items;
 
       // Count items by kind (including MCP servers)
       const breakdown = this.calculateBreakdown(collection.items, mcpServers);
+
+      const readmeUrl = collection.readme?.path ? this.buildRawUrl(collection.readme.path) : undefined;
 
       const bundle: Bundle = {
         id: collection.id,
@@ -185,7 +192,8 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
         lastUpdated: new Date().toISOString(),
         size: `${collection.items.length} items`,
         dependencies: [],
-        license: 'MIT'
+        license: 'MIT',
+        readmeUrl: readmeUrl
       };
 
       // Store collection file name for download
@@ -212,79 +220,78 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
   private async createBundleArchive(collection: CollectionManifest, _collectionFile: string): Promise<Buffer> {
     this.logger.debug(`Creating archive for collection: ${collection.name}`);
 
-    return new Promise<Buffer>((resolve, reject) => {
-      // Use IIFE to handle async operations within Promise executor
-      void (async () => {
-        try {
-          const archive = archiver('zip', { zlib: { level: 9 } });
-          const chunks: Buffer[] = [];
+    //  errors after await are manually routed to reject via try/catch. Should be refactored to separate the event-based stream promise from the async fetch loop.
+    // eslint-disable-next-line no-async-promise-executor -- async executor is intentional;
+    return new Promise<Buffer>(async (resolve, reject) => {
+      try {
+        const archive = archiver('zip', { zlib: { level: 9 } });
+        const chunks: Buffer[] = [];
 
-          // Collect data chunks
-          archive.on('data', (chunk: Buffer) => {
-            chunks.push(chunk);
-          });
+        // Collect data chunks
+        archive.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
 
-          // Resolve when archive is finalized
-          archive.on('finish', () => {
-            const buffer = Buffer.concat(chunks);
-            this.logger.debug(`Archive finalized: ${buffer.length} bytes (${chunks.length} chunks)`);
-            resolve(buffer);
-          });
+        // Resolve when archive is finalized
+        archive.on('finish', () => {
+          const buffer = Buffer.concat(chunks);
+          this.logger.debug(`Archive finalized: ${buffer.length} bytes (${chunks.length} chunks)`);
+          resolve(buffer);
+        });
 
-          // Handle errors
-          archive.on('error', (err: Error) => {
-            this.logger.error('Archive error', err);
-            reject(err);
-          });
+        // Handle errors
+        archive.on('error', (err: Error) => {
+          this.logger.error('Archive error', err);
+          reject(err);
+        });
 
-          // Log warnings
-          archive.on('warning', (warning: Error) => {
-            this.logger.warn('Archive warning', warning);
-          });
+        // Log warnings
+        archive.on('warning', (warning: Error) => {
+          this.logger.warn('Archive warning', warning);
+        });
 
-          // Add deployment-manifest.yml
-          const manifest = this.createDeploymentManifest(collection);
-          const manifestYaml = yaml.dump(manifest);
-          archive.append(manifestYaml, { name: 'deployment-manifest.yml' });
-          this.logger.debug(`Added manifest (${manifestYaml.length} bytes)`);
+        // Add deployment-manifest.yml
+        const manifest = this.createDeploymentManifest(collection);
+        const manifestYaml = yaml.dump(manifest);
+        archive.append(manifestYaml, { name: 'deployment-manifest.yml' });
+        this.logger.debug(`Added manifest (${manifestYaml.length} bytes)`);
 
-          // Add each item file
-          for (const item of collection.items) {
-            // For skills, preserve directory structure and fetch ALL files in the skill directory
-            if (item.kind === 'skill') {
-              // item.path is like skills/my-skill/SKILL.md
-              // We need to fetch the entire skill directory, not just SKILL.md
-              const skillDirPath = item.path.substring(0, item.path.lastIndexOf('/'));
-              this.logger.debug(`Fetching all files in skill directory: ${skillDirPath}`);
+        // Add each item file
+        for (const item of collection.items) {
+          // For skills, preserve directory structure and fetch ALL files in the skill directory
+          if (item.kind === 'skill') {
+            // item.path is like skills/my-skill/SKILL.md
+            // We need to fetch the entire skill directory, not just SKILL.md
+            const skillDirPath = item.path.substring(0, item.path.lastIndexOf('/'));
+            this.logger.debug(`Fetching all files in skill directory: ${skillDirPath}`);
 
-              const skillFiles = await this.listDirectoryContentsRecursively(skillDirPath);
-              this.logger.debug(`Found ${skillFiles.length} files in skill directory: ${skillFiles.join(', ')}`);
+            const skillFiles = await this.listDirectoryContentsRecursively(skillDirPath);
+            this.logger.debug(`Found ${skillFiles.length} files in skill directory: ${skillFiles.join(', ')}`);
 
-              for (const filePath of skillFiles) {
-                const fileUrl = this.buildRawUrl(filePath);
-                const content = await this.fetchUrl(fileUrl);
-                archive.append(content, { name: filePath });
-                this.logger.debug(`Added ${filePath} (${content.length} bytes)`);
-              }
-            } else {
-              // For other types, fetch single file and put in prompts/ folder
-              const itemUrl = this.buildRawUrl(item.path);
-              const content = await this.fetchUrl(itemUrl);
-              const filename = item.path.split('/').pop() || 'unknown';
-              archive.append(content, { name: `prompts/${filename}` });
-              this.logger.debug(`Added ${filename} (${content.length} bytes)`);
+            for (const filePath of skillFiles) {
+              const fileUrl = this.buildRawUrl(filePath);
+              const content = await this.fetchUrl(fileUrl);
+              archive.append(content, { name: filePath });
+              this.logger.debug(`Added ${filePath} (${content.length} bytes)`);
             }
+          } else {
+            // For other types, fetch single file and put in prompts/ folder
+            const itemUrl = this.buildRawUrl(item.path);
+            const content = await this.fetchUrl(itemUrl);
+            const filename = item.path.split('/').pop() || 'unknown';
+            archive.append(content, { name: `prompts/${filename}` });
+            this.logger.debug(`Added ${filename} (${content.length} bytes)`);
           }
-
-          // Finalize the archive (this triggers 'finish' event when complete)
-          this.logger.debug('Finalizing archive...');
-          void archive.finalize();
-        } catch (error) {
-          this.logger.error('Failed to create archive', error as Error);
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- rejection value is handled by caller
-          reject(error);
         }
-      })();
+
+        // Finalize the archive (this triggers 'finish' event when complete)
+        this.logger.debug('Finalizing archive...');
+        void archive.finalize();
+      } catch (error) {
+        this.logger.error('Failed to create archive', error as Error);
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- rejection value is handled by caller
+        reject(error);
+      }
     });
   }
 
@@ -435,6 +442,24 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
   private buildApiUrl(path: string): string {
     const { owner, repo } = this.parseGitHubUrl();
     return `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${this.config.branch}`;
+  }
+
+  /**
+   * Fetch the head commit sha of the configured branch.
+   * Used as the readme revision so cached readmes are re-downloaded when the branch advances.
+   * @returns The commit sha, or undefined if it cannot be resolved (callers fall back to always-download)
+   */
+  private async fetchBranchSha(): Promise<string | undefined> {
+    try {
+      const { owner, repo } = this.parseGitHubUrl();
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/commits/${this.config.branch}`;
+      const content = await this.fetchUrl(apiUrl);
+      const commit = JSON.parse(content) as { sha?: string };
+      return commit.sha;
+    } catch (error) {
+      this.logger.warn(`Failed to resolve branch sha for readme revision: ${(error as Error).message}`);
+      return undefined;
+    }
   }
 
   /**
@@ -708,6 +733,17 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
         }
       }
 
+      // Stamp the branch head sha as the readme revision so cached readmes are refreshed
+      // when the branch advances (the raw readme URL is stable across commits)
+      const branchSha = await this.fetchBranchSha();
+      if (branchSha) {
+        for (const bundle of bundles) {
+          if (bundle.readmeUrl) {
+            bundle.readmeRevision = branchSha;
+          }
+        }
+      }
+
       // Cache results
       this.collectionsCache.set(cacheKey, { bundles, timestamp: Date.now() });
 
@@ -748,6 +784,18 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
     } catch (error) {
       this.logger.error('Failed to download bundle', error as Error);
       throw new Error(`Failed to download bundle: ${(error as Error).message}`);
+    }
+  }
+
+  public async downloadReadme(bundle: Bundle): Promise<string | null> {
+    if (!bundle.readmeUrl) {
+      return null;
+    }
+    try {
+      return await this.fetchUrl(bundle.readmeUrl);
+    } catch (error) {
+      this.logger.error('Failed to download readme', error as Error);
+      return null;
     }
   }
 

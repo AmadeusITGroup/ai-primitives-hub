@@ -26,9 +26,10 @@ export interface IRepositoryAdapter {
 
   /**
    * Fetch list of available bundles from the source
+   * @param onPartialBundles Optional callback invoked with a growing snapshot after each chunk
    * @returns Promise with array of bundles
    */
-  fetchBundles(): Promise<Bundle[]>;
+  fetchBundles(onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>): Promise<Bundle[]>;
 
   /**
    * Download a specific bundle
@@ -36,6 +37,13 @@ export interface IRepositoryAdapter {
    * @returns Promise with buffer containing bundle data
    */
   downloadBundle(bundle: Bundle): Promise<Buffer>;
+
+  /**
+   * Download readme file for a specific bundle
+   * @param bundle Bundle to download readme for
+   * @returns Promise with buffer containing readme data, or null if not available
+   */
+  downloadReadme(bundle: Bundle): Promise<string | null>;
 
   /**
    * Fetch metadata about the source
@@ -140,7 +148,15 @@ export abstract class RepositoryAdapter implements IRepositoryAdapter {
     }
   }
 
-  public abstract fetchBundles(): Promise<Bundle[]>;
+  /**
+   * Default implementation returns undefined
+   * @param _ the bundle to install
+   */
+  public downloadReadme(_: Bundle): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+
+  public abstract fetchBundles(onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>): Promise<Bundle[]>;
   public abstract downloadBundle(bundle: Bundle): Promise<Buffer>;
   public abstract fetchMetadata(): Promise<SourceMetadata>;
   public abstract validate(): Promise<ValidationResult>;

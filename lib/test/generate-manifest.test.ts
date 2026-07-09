@@ -234,4 +234,66 @@ items:
       assert.strictEqual(manifest.prompts.length, 1);
     });
   });
+
+  describe('README asset', () => {
+    it('should record the README basename when the collection declares a readme', () => {
+      const collectionYaml = `
+id: readme-collection
+name: Readme Collection
+description: A collection with a readme
+version: "1.0.0"
+readme:
+  path: docs/collection-overview.md
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+`;
+
+      writeFile(tempDir, 'collections/readme.collection.yml', collectionYaml);
+      writeFile(tempDir, 'prompts/test.prompt.md', '# Test Prompt\n\nTest content');
+      writeFile(tempDir, 'docs/collection-overview.md', '# Overview');
+
+      const outFile = path.join(tempDir, 'deployment-manifest.yml');
+
+      const result = spawnSync('node', [scriptPath, '1.0.0', '--collection-file', 'collections/readme.collection.yml', '--out', outFile], {
+        cwd: tempDir,
+        encoding: 'utf8'
+      });
+
+      assert.strictEqual(result.status, 0, `Script failed: ${result.stderr}`);
+
+      const manifest = yaml.load(fs.readFileSync(outFile, 'utf8')) as any;
+
+      // GitHub names the release asset after the file basename, so the manifest
+      // records the basename rather than the full declared path.
+      assert.strictEqual(manifest.readme, 'collection-overview.md');
+    });
+
+    it('should not include a readme field when the collection has none', () => {
+      const collectionYaml = `
+id: no-readme-collection
+name: No Readme Collection
+description: A collection without a readme
+version: "1.0.0"
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+`;
+
+      writeFile(tempDir, 'collections/no-readme.collection.yml', collectionYaml);
+      writeFile(tempDir, 'prompts/test.prompt.md', '# Test Prompt\n\nTest content');
+
+      const outFile = path.join(tempDir, 'deployment-manifest.yml');
+
+      const result = spawnSync('node', [scriptPath, '1.0.0', '--collection-file', 'collections/no-readme.collection.yml', '--out', outFile], {
+        cwd: tempDir,
+        encoding: 'utf8'
+      });
+
+      assert.strictEqual(result.status, 0, `Script failed: ${result.stderr}`);
+
+      const manifest = yaml.load(fs.readFileSync(outFile, 'utf8')) as any;
+      assert.strictEqual(manifest.readme, undefined);
+    });
+  });
 });

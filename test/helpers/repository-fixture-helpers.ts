@@ -82,6 +82,10 @@ export interface ReleaseConfig {
   version: string;
   /** Content identifier for test differentiation */
   content: string;
+  /** Optional README field */
+  readme?: string;
+  /** Optional HTTP status for README asset download (default: 200) */
+  readmeStatus?: number;
 }
 
 /**
@@ -97,11 +101,13 @@ export interface DeploymentManifestData {
   environments: string[];
   dependencies: string[];
   license: string;
+  readme?: string;
 }
 
 // Constants for asset ID generation
 const MANIFEST_ASSET_BASE_ID = 1000;
 const BUNDLE_ASSET_BASE_ID = 2000;
+const README_ASSET_BASE_ID = 3000;
 const MS_PER_DAY = 86_400_000;
 
 /**
@@ -206,6 +212,7 @@ prompts:
  * - GET /repos/{owner}/{repo}/releases/assets/{id} (manifest)
  * - GET /repos/{owner}/{repo}/releases/assets/{id} (bundle zip)
  * - Redirect to objects.githubusercontent.com for bundle download
+ * - GET /repos/{owner}/{repo}/releases/assets/{id} (readme)
  * @param config - Repository test configuration
  * @param releases - Array of release configurations to mock
  * @example
@@ -241,7 +248,15 @@ export function setupReleaseMocks(
         url: `https://api.github.com/repos/${config.owner}/${config.repo}/releases/assets/${BUNDLE_ASSET_BASE_ID + index}`,
         browser_download_url: `https://github.com/${config.owner}/${config.repo}/releases/download/${r.tag}/bundle.zip`,
         size: 2048
-      }
+      },
+      ...(r.readme
+        ? [{
+          name: 'README.md',
+          url: `https://api.github.com/repos/${config.owner}/${config.repo}/releases/assets/${README_ASSET_BASE_ID + index}`,
+          browser_download_url: `https://github.com/${config.owner}/${config.repo}/releases/download/${r.tag}/README.md`,
+          size: 512
+        }]
+        : [])
     ]
   }));
 
@@ -264,6 +279,10 @@ export function setupReleaseMocks(
   // Mock individual release assets
   releases.forEach((r, index) => {
     const manifest = createDeploymentManifest(config, r.version, r.content);
+    // Record the readme asset name in the manifest so the adapter can locate it.
+    if (r.readme) {
+      manifest.readme = 'README.md';
+    }
     const bundleZip = createBundleZip(config, r.version, r.content);
 
     // Mock manifest asset download
@@ -280,6 +299,14 @@ export function setupReleaseMocks(
         location: `https://objects.githubusercontent.com/${config.owner}/${config.repo}/${r.tag}/bundle.zip`
       });
 
+    if (r.readme) {
+    // Mock readme asset download
+      const readmeStatus = r.readmeStatus ?? 200;
+      nock('https://api.github.com')
+        .persist()
+        .get(`/repos/${config.owner}/${config.repo}/releases/assets/${README_ASSET_BASE_ID + index}`)
+        .reply(readmeStatus, readmeStatus === 200 ? r.readme : { message: 'Not Found' });
+    }
     // Mock actual bundle download from githubusercontent
     nock('https://objects.githubusercontent.com')
       .persist()

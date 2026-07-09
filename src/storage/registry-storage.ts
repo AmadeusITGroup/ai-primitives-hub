@@ -21,6 +21,7 @@ import {
 
 const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
+const rename = promisify(fs.rename);
 const mkdir = promisify(fs.mkdir);
 const readdir = promisify(fs.readdir);
 const unlink = promisify(fs.unlink);
@@ -365,7 +366,14 @@ export class RegistryStorage {
     const sanitizedId = this.sanitizeFilename(sourceId);
     const filepath = path.join(this.paths.sourcesCache, `${sanitizedId}.json`);
     const data = JSON.stringify(bundles, null, 2);
-    await writeFile(filepath, data, 'utf8');
+    // Write atomically: progressive sync calls this repeatedly while the UI reads
+    // the same file (see getCachedSourceBundles). A plain writeFile truncates then
+    // streams, so a concurrent read could see partial JSON and fail to parse,
+    // flickering the source to empty. Writing to a temp file then renaming makes
+    // every read observe either the old or the new content, never a partial one.
+    const tempPath = `${filepath}.${process.pid}.tmp`;
+    await writeFile(tempPath, data, 'utf8');
+    await rename(tempPath, filepath);
   }
 
   /**

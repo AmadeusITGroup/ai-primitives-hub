@@ -175,6 +175,12 @@
             "description": "GitHub Pull Request template",
             "required": true,
             "variables": []
+        },
+        "docs-template": {
+            "path": "docs/example-collection/README.md",
+            "description": "GitHub Documentation template for new docs",
+            "required": true,
+            "variables": []
         }
     }
 }

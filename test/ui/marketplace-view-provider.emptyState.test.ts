@@ -71,6 +71,8 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
       onSourceSynced: sandbox.stub().returns({ dispose: () => {} }),
       onAutoUpdatePreferenceChanged: sandbox.stub().returns({ dispose: () => {} }),
       onRepositoryBundlesChanged: sandbox.stub().returns({ dispose: () => {} }),
+      onReadmeDownloaded: sandbox.stub().returns({ dispose: () => {} }),
+      onReadmeDownloadComplete: sandbox.stub().returns({ dispose: () => {} }),
       searchBundles: sandbox.stub().resolves([]),
       listInstalledBundles: sandbox.stub().resolves([]),
       listSources: sandbox.stub().resolves([]),

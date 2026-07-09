@@ -563,6 +563,13 @@ export class GitHubAdapter extends RepositoryAdapter {
       // Continue without manifest data - use fallback values
     }
 
+    // Locate the README release asset by the filename recorded in the manifest.
+    // GitHub names each release asset after its file basename, and collections
+    // can declare any README path, so we cannot guess a fixed filename.
+    const readmeAsset = manifest?.readme
+      ? release.assets.find((a) => a.name === manifest.readme)
+      : undefined;
+
     // Create bundle metadata
     const bundleId = generateGitHubBundleId(
       owner,
@@ -587,7 +594,10 @@ export class GitHubAdapter extends RepositoryAdapter {
       license: manifest?.license || 'Unknown',
       manifestUrl: manifestAsset.url,
       downloadUrl: bundleAsset.url,
-      repository: this.source.url
+      repository: this.source.url,
+      readmeUrl: readmeAsset ? readmeAsset.url : undefined,
+      // Readme assets are scoped to a release, so the tag identifies the cached readme's revision
+      readmeRevision: readmeAsset ? release.tag_name : undefined
     };
 
     // Attach prompts array from manifest for content breakdown display
@@ -785,6 +795,25 @@ export class GitHubAdapter extends RepositoryAdapter {
       return await this.downloadFile(bundle.downloadUrl);
     } catch (error) {
       throw new Error(`Failed to download bundle: ${error}`);
+    }
+  }
+
+  /**
+   * Download readme file from GitHub release assets
+   * @param bundle - Bundle object containing readmeUrl
+   * @returns Promise resolving to string content of README file
+   * @throws {Error} if download fails or network issues occur
+   */
+  public async downloadReadme(bundle: Bundle): Promise<string | null> {
+    if (!bundle.readmeUrl) {
+      return null;
+    }
+    try {
+      const data = await this.downloadFile(bundle.readmeUrl);
+      return data.toString('utf8');
+    } catch (error) {
+      this.logger.warn(`Failed to download README for ${bundle.id}: ${error}`);
+      return null;
     }
   }
 

@@ -61,6 +61,13 @@ export const CONCURRENCY_CONSTANTS = {
   MANIFEST_DOWNLOAD_CONCURRENCY: 10,
 
   /**
+   * Concurrency limit for parallel README downloads in GitHub adapter
+   * - Controls how many README files are downloaded simultaneously
+   * - GitHub API rate limit is 5000 requests/hour for authenticated users
+   */
+  README_DOWNLOAD_CONCURRENCY: 5,
+
+  /**
    * Maximum number of popular bundles to display in quick pick
    * - Prevents UI overflow in bundle selection dialogs
    * - Maintains reasonable response times for bundle loading

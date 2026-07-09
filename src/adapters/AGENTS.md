@@ -19,7 +19,7 @@ interface IRepositoryAdapter {
   readonly type: string;
   readonly source: RegistrySource;
 
-  fetchBundles(): Promise<Bundle[]>;
+  fetchBundles(onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>): Promise<Bundle[]>;
   downloadBundle(bundle: Bundle): Promise<Buffer>;
   fetchMetadata(): Promise<SourceMetadata>;
   validate(): Promise<ValidationResult>;
@@ -33,6 +33,7 @@ interface IRepositoryAdapter {
 - `downloadBundle` always returns a `Buffer` — whether the source provides pre-packaged ZIPs (GitHub) or builds them dynamically (Awesome Copilot, Local).
 - `getDownloadUrl` / `getManifestUrl` return `string` URLs — used for UI display and debug links, not for the actual download (which goes through `downloadBundle`).
 - `validate` returns a `ValidationResult` (not a boolean) — contains error details for user-facing diagnostics.
+- `fetchBundles` accepts an optional `onPartialBundles` callback — invoked with a growing snapshot after each parse chunk so the UI can render progressively during large syncs. Implementing it is optional; adapters that omit it simply resolve once with the full list. `SkillsAdapter` uses it to stream 360+ skills as they parse.
 
 ## Authentication Chain (GitHub)
 

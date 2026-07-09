@@ -4,6 +4,13 @@
  */
 
 import * as assert from 'node:assert';
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import AdmZip from 'adm-zip';
 import {
@@ -75,8 +82,8 @@ suite('LocalAwesomeCopilotAdapter', () => {
       const adapter = new LocalAwesomeCopilotAdapter(mockSource);
       const metadata = await adapter.fetchMetadata();
 
-      // We have 3 collections in fixtures
-      assert.strictEqual(metadata.bundleCount, 3);
+      // We have 5 collections in fixtures
+      assert.strictEqual(metadata.bundleCount, 5);
     });
 
     test('should throw error for non-existent directory', async () => {
@@ -96,11 +103,11 @@ suite('LocalAwesomeCopilotAdapter', () => {
       const bundles = await adapter.fetchBundles();
 
       assert.ok(Array.isArray(bundles));
-      assert.strictEqual(bundles.length, 3);
+      assert.strictEqual(bundles.length, 5);
 
       // Check collection IDs
       const bundleIds = bundles.map((b) => b.id).toSorted();
-      assert.deepStrictEqual(bundleIds, ['python-dev', 'skills-collection', 'test-collection']);
+      assert.deepStrictEqual(bundleIds, ['python-dev', 'skills-collection', 'test-collection', 'test-with-readme', 'test-without-readme']);
     });
 
     test('should parse YAML collections correctly', async () => {
@@ -173,20 +180,40 @@ suite('LocalAwesomeCopilotAdapter', () => {
       assert.strictEqual(breakdown.instructions, 1);
     });
 
-    test('should cache results for performance', async () => {
-      const adapter = new LocalAwesomeCopilotAdapter(mockSource);
+    test('reflects on-disk changes immediately without caching', async () => {
+      const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'local-ac-nocache-'));
+      try {
+        const collectionsDir = path.join(tmpRoot, 'collections');
+        await mkdir(collectionsDir, { recursive: true });
+        const collectionFile = path.join(collectionsDir, 'mutable.collection.yml');
 
-      const start1 = Date.now();
-      const bundles1 = await adapter.fetchBundles();
-      const time1 = Date.now() - start1;
+        const writeCollection = (version: string) => writeFile(
+          collectionFile,
+          [
+            'id: mutable',
+            'name: Mutable Collection',
+            `version: ${version}`,
+            'description: A collection that changes on disk',
+            'tags: [test]',
+            'items: []'
+          ].join('\n'),
+          'utf8'
+        );
 
-      const start2 = Date.now();
-      const bundles2 = await adapter.fetchBundles();
-      const time2 = Date.now() - start2;
+        await writeCollection('1.0.0');
 
-      // Second call should be faster (cached)
-      assert.ok(time2 < time1 || time2 < 10, 'Second call should use cache');
-      assert.deepStrictEqual(bundles1, bundles2);
+        const adapter = new LocalAwesomeCopilotAdapter({ ...mockSource, url: tmpRoot });
+
+        const first = await adapter.fetchBundles();
+        assert.strictEqual(first.find((b) => b.id === 'mutable')?.version, '1.0.0');
+
+        // Mutate the collection on disk and fetch again
+        await writeCollection('2.0.0');
+        const second = await adapter.fetchBundles();
+        assert.strictEqual(second.find((b) => b.id === 'mutable')?.version, '2.0.0');
+      } finally {
+        await rm(tmpRoot, { recursive: true, force: true });
+      }
     });
 
     test('should skip non-collection files', async () => {
@@ -205,7 +232,7 @@ suite('LocalAwesomeCopilotAdapter', () => {
 
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.errors.length, 0);
-      assert.strictEqual(result.bundlesFound, 3);
+      assert.strictEqual(result.bundlesFound, 5);
     });
 
     test('should fail validation for non-existent directory', async () => {

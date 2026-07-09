@@ -38,6 +38,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  fileURLToPath,
+} from 'node:url';
+import {
   promisify,
 } from 'node:util';
 import archiver from 'archiver';
@@ -81,6 +84,9 @@ interface CollectionManifest {
     items?: Record<string, any>;
   };
   mcpServers?: Record<string, any>;
+  readme?: {
+    path: string;
+  };
 }
 
 interface CollectionItem {
@@ -124,8 +130,6 @@ export interface LocalAwesomeCopilotConfig {
 export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
   public readonly type = 'local-awesome-copilot';
   private readonly config: Required<LocalAwesomeCopilotConfig>;
-  private readonly collectionsCache: Map<string, { bundles: Bundle[]; timestamp: number }> = new Map();
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   protected logger: Logger;
 
   constructor(source: RegistrySource) {
@@ -217,6 +221,8 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
       // Count items by kind (including MCP servers)
       const breakdown = this.calculateBreakdown(collection.items, mcpServers);
 
+      const readmeUrl = collection.readme?.path ? `file://${path.join(this.getLocalPath(), collection.readme.path)}` : undefined;
+
       // Get file stats for timestamp
       const stats = await stat(collectionFilePath);
 
@@ -235,7 +241,8 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
         lastUpdated: stats.mtime.toISOString(),
         size: `${collection.items.length} items`,
         dependencies: [],
-        license: 'MIT'
+        license: 'MIT',
+        readmeUrl: readmeUrl
       };
 
       // Store collection file name for download
@@ -497,20 +504,12 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
   /**
    * Fetch list of available bundles from the local filesystem
    * Scans the collections directory for .collection.yml files and creates Bundle objects.
-   * Results are cached for 5 minutes to reduce filesystem operations.
+   * Always reads fresh from disk so local edits are reflected immediately.
    * @returns Promise resolving to array of Bundle objects from collection files
    * @throws {Error} if directory access fails or collection parsing fails
    */
   public async fetchBundles(): Promise<Bundle[]> {
     this.logger.debug('Listing bundles from local awesome-copilot repository');
-
-    // Check cache
-    const cacheKey = `${this.source.url}-${this.config.collectionsPath}`;
-    const cached = this.collectionsCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      this.logger.debug('Using cached collections');
-      return cached.bundles;
-    }
 
     try {
       // Step 1: List .collection.yml files
@@ -529,9 +528,6 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
           this.logger.warn(`Failed to parse collection ${file}:`, error);
         }
       }
-
-      // Cache results
-      this.collectionsCache.set(cacheKey, { bundles, timestamp: Date.now() });
 
       return bundles;
     } catch (error) {
@@ -572,6 +568,21 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
     } catch (error) {
       this.logger.error('Failed to download bundle', error as Error);
       throw new Error(`Failed to download bundle: ${(error as Error).message}`);
+    }
+  }
+
+  public async downloadReadme(bundle: Bundle): Promise<string | null> {
+    if (!bundle.readmeUrl) {
+      return null;
+    }
+    try {
+      const readmePath = bundle.readmeUrl.startsWith('file://')
+        ? fileURLToPath(bundle.readmeUrl)
+        : bundle.readmeUrl;
+      return await readFile(readmePath, 'utf8');
+    } catch (error) {
+      this.logger.error('Failed to download readme', error as Error);
+      return null;
     }
   }
 

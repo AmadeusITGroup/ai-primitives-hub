@@ -412,6 +412,7 @@ items: []
       const result = {
         ok: true,
         errors: [],
+        warnings: [],
         fileResults: []
       };
       const md = generateMarkdown(result, 2);
@@ -423,6 +424,7 @@ items: []
       const result = {
         ok: false,
         errors: ['Error 1', 'Error 2'],
+        warnings: [],
         fileResults: []
       };
       const md = generateMarkdown(result, 2);
@@ -430,6 +432,18 @@ items: []
       assert.ok(md.includes('2 error(s)'));
       assert.ok(md.includes('Error 1'));
       assert.ok(md.includes('Error 2'));
+    });
+
+    it('should include warnings in markdown', () => {
+      const result = {
+        ok: true,
+        errors: [],
+        warnings: ['test.yml: Collection has no readme. Consider adding a readme to help users understand this collection.'],
+        fileResults: []
+      };
+      const md = generateMarkdown(result, 1);
+      assert.ok(md.includes('⚠️'));
+      assert.ok(md.includes('no readme'));
     });
   });
 });

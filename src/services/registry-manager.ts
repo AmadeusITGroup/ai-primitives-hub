@@ -2,7 +2,6 @@
  * Main Registry Manager
  * Orchestrates all registry operations including sources, bundles, profiles, and installations
  */
-
 import * as vscode from 'vscode';
 import {
   ApmAdapter,
@@ -152,6 +151,8 @@ export class RegistryManager {
   private readonly _onSourceSynced = new vscode.EventEmitter<SourceSyncedEvent>();
   private readonly _onAutoUpdatePreferenceChanged = new vscode.EventEmitter<AutoUpdatePreferenceChangedEvent>();
   private readonly _onRepositoryBundlesChanged = new vscode.EventEmitter<void>();
+  private readonly _onReadmeDownloaded = new vscode.EventEmitter<{ sourceId: string; bundleIds: string[] }>();
+  private readonly _onReadmeDownloadComplete = new vscode.EventEmitter<{ sourceId: string; succeeded: string[]; failed: string[] }>();
 
   // Public event accessors
   public readonly onBundleInstalled = this._onBundleInstalled.event;
@@ -170,6 +171,8 @@ export class RegistryManager {
   public readonly onSourceSynced = this._onSourceSynced.event;
   public readonly onAutoUpdatePreferenceChanged = this._onAutoUpdatePreferenceChanged.event;
   public readonly onRepositoryBundlesChanged = this._onRepositoryBundlesChanged.event;
+  public readonly onReadmeDownloaded = this._onReadmeDownloaded.event;
+  public readonly onReadmeDownloadComplete = this._onReadmeDownloadComplete.event; // Useful for debugging and testing to know when all downloads are finished
 
   private constructor(private readonly context: vscode.ExtensionContext) {
     this.storage = new RegistryStorage(context);
@@ -1044,6 +1047,68 @@ export class RegistryManager {
   }
 
   /**
+   * Carry over cached readmes into freshly fetched bundles when the source revision is unchanged.
+   * Bundles whose `readmeRevision` differs (or is not provided by the adapter) are left without a
+   * readme so {@link downloadReadmesConcurrently} re-downloads them. This keeps readmes fresh while
+   * avoiding redundant downloads on every sync.
+   * @param sourceId - Source ID whose cache should be consulted
+   * @param bundles - Freshly fetched bundles to enrich in place
+   */
+  private async reuseCachedReadmes(sourceId: string, bundles: Bundle[]): Promise<void> {
+    const cached = await this.storage.getCachedSourceBundles(sourceId);
+    if (!cached || cached.length === 0) {
+      return;
+    }
+    const cachedById = new Map(cached.map((b) => [b.id, b]));
+    for (const bundle of bundles) {
+      const previous = cachedById.get(bundle.id);
+      if (
+        previous?.readme
+        && previous.readmeRevision !== undefined
+        && previous.readmeRevision === bundle.readmeRevision
+      ) {
+        bundle.readme = previous.readme;
+      }
+    }
+  }
+
+  /**
+   * Download readme files concurrently
+   * @param bundles - Bundles to download readmes for
+   * @param sourceId - Source ID for caching purposes
+   * @param adapter - Adapter to use for downloading readmes
+   */
+  private async downloadReadmesConcurrently(bundles: Bundle[], sourceId: string, adapter: IRepositoryAdapter): Promise<void> {
+    const concurrency = CONCURRENCY_CONSTANTS.README_DOWNLOAD_CONCURRENCY;
+    const filteredBundles = bundles.filter((b) => b.readmeUrl && !b.readme);
+    const succeeded: string[] = [];
+    const failed: string[] = [];
+    for (let i = 0; i < filteredBundles.length; i += concurrency) {
+      const batch = filteredBundles.slice(i, i + concurrency);
+      const newlyDownloaded = new Set<string>();
+      await Promise.allSettled(
+        batch.map(async (bundle) => {
+          const readme = await adapter.downloadReadme(bundle);
+          if (readme) {
+            bundle.readme = readme;
+            newlyDownloaded.add(bundle.id);
+          } else {
+            failed.push(bundle.id);
+          }
+        })
+      );
+      succeeded.push(...newlyDownloaded);
+      if (newlyDownloaded.size > 0) {
+        const bundleIdsWithReadmes = [...newlyDownloaded];
+        // Cache all bundles (including previously downloaded) so consumers get full state
+        await this.storage.cacheSourceBundles(sourceId, bundles);
+        this._onReadmeDownloaded.fire({ sourceId, bundleIds: bundleIdsWithReadmes });
+      }
+    }
+    this._onReadmeDownloadComplete.fire({ sourceId, succeeded, failed });
+  }
+
+  /**
    * Set HubManager instance for hub integration
    * @param hubManager
    */
@@ -1239,7 +1304,14 @@ export class RegistryManager {
     }
 
     const adapter = this.getAdapter(source);
-    const bundles = await adapter.fetchBundles();
+    const bundles = await adapter.fetchBundles(async (partial) => {
+      // Progressive update: cache what we have so far and notify the UI.
+      await this.storage.cacheSourceBundles(sourceId, partial);
+      this._onSourceSynced.fire({ sourceId, bundleCount: partial.length });
+    });
+
+    // Reuse still-valid cached readmes so we only re-download when the source revision changed
+    await this.reuseCachedReadmes(sourceId, bundles);
 
     // Cache bundles
     await this.storage.cacheSourceBundles(sourceId, bundles);
@@ -1276,6 +1348,11 @@ export class RegistryManager {
 
     // Fire source synced event
     this._onSourceSynced.fire({ sourceId, bundleCount: bundles.length });
+
+    // Download the readme files in concurrent, non blocking way
+    this.downloadReadmesConcurrently(bundles, sourceId, adapter).catch((err) => {
+      this.logger.error(`Failed to download readmes for source '${sourceId}'`, err as Error);
+    });
   }
 
   /**
@@ -2352,5 +2429,7 @@ export class RegistryManager {
     this._onSourceSynced.dispose();
     this._onAutoUpdatePreferenceChanged.dispose();
     this._onRepositoryBundlesChanged.dispose();
+    this._onReadmeDownloaded.dispose();
+    this._onReadmeDownloadComplete.dispose();
   }
 }
