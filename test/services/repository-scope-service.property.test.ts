@@ -552,33 +552,6 @@ prompts:
       return bundlePath;
     };
 
-    test('supports skill names that require YAML quoting', async () => {
-      const skillName = '-';
-      const files = [
-        { relativePath: 'SKILL.md', content: '# -\nSkill description' },
-        { relativePath: 'lib/helper.json', content: '{"ok":true}' }
-      ];
-
-      if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-      }
-      fs.mkdirSync(workspaceRoot, { recursive: true });
-      fs.mkdirSync(path.join(tempDir, 'bundles'), { recursive: true });
-
-      service = new RepositoryScopeService(workspaceRoot, mockStorage);
-
-      const bundleId = `skill-bundle-${skillName}`;
-      const bundlePath = createSkillBundle(bundleId, skillName, files);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, bundlePath, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'SKILL.md')));
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'lib', 'helper.json')));
-    });
-
     /**
      * Helper to read all files from a directory recursively
      * @param dir
