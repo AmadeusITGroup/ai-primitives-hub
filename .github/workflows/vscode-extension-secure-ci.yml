@@ -8,6 +8,7 @@ on:
       - "*.json"
       - "*.js"
       - "*.ts"
+      - ".github/workflows/**"
       - "!lib/**"
   pull_request:
     branches: [main, develop]
@@ -16,6 +17,7 @@ on:
       - "*.json"
       - "*.js"
       - "*.ts"
+      - ".github/workflows/**"
       - "!lib/**"
   workflow_dispatch:
 
@@ -161,7 +163,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [24]
 
     steps:
@@ -220,13 +222,21 @@ jobs:
             ./post_compile_fixes.sh
           fi
 
+      - name: Compile tests
+        shell: bash
+        run: npm run compile-tests
+
+      - name: Apply essential post-compilation fixes (all platforms)
+        shell: bash
+        run: node .github/workflows/scripts/post-compile-fixes-essential.js
+
       - name: Run unit tests
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
-            xvfb-run -a npm test
+            xvfb-run -a npm run test:unit
           else
-            npm test
+            npm run test:unit
           fi
 
       - name: Switch to production .vscodeignore for packaging

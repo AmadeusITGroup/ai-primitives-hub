@@ -133,7 +133,7 @@ suite('UserScopeService - WSL Support', () => {
       const service = new UserScopeService(mockContext);
       const promptsDir = await getResolvedPromptsDir(service, globalStorage);
 
-      assert.ok(promptsDir.includes('/Code/'), `Expected path to include '/Code/' but got: ${promptsDir}`);
+      assert.ok(promptsDir.includes(path.join('Code', '')), `Expected path to include Code directory but got: ${promptsDir}`);
       assert.ok(!promptsDir.includes('Insiders'), `Expected path to NOT include 'Insiders' but got: ${promptsDir}`);
     });
 

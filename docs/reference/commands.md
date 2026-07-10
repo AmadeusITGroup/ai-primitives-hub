@@ -146,6 +146,10 @@ This is useful when bundle files have been manually deleted but the lockfile sti
 | `promptRegistry.scaffoldProject` | Scaffold Project | Create a new project from a template |
 | `promptRegistry.addResource` | Add Resource | Add a prompt, instruction, agent, or skill |
 
+### Cross-Platform Path Handling
+
+The scaffold command normalizes path separators to forward slashes before checking for the `templates/scaffolds` directory, ensuring correct template resolution on Windows where backslash separators are used.
+
 ## Settings & Configuration
 
 | Command | Title | Description |

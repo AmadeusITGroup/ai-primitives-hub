@@ -157,7 +157,7 @@ suite('RepositoryScopeService Property Tests', () => {
 
           // Path must include .github/
           assert.ok(
-            targetPath.includes('.github/'),
+            targetPath.includes(path.join('.github', '')),
             `Target path should include .github/, got: ${targetPath}`
           );
 
@@ -539,12 +539,12 @@ suite('RepositoryScopeService Property Tests', () => {
       }
 
       // Create deployment manifest
-      const manifest = `id: ${bundleId}
+      const manifest = `id: ${JSON.stringify(bundleId)}
 version: "1.0.0"
 prompts:
-  - id: ${skillName}
-    name: ${skillName}
-    file: skills/${skillName}/SKILL.md
+  - id: ${JSON.stringify(skillName)}
+    name: ${JSON.stringify(skillName)}
+    file: ${JSON.stringify(`skills/${skillName}/SKILL.md`)}
     type: skill`;
 
       fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), manifest);
