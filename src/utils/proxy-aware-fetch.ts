@@ -6,8 +6,7 @@
  * all versions. This module wraps undici's `EnvHttpProxyAgent` so the same
  * fetch path respects those variables.
  *
- * Ported from feat/cli-backup (commit 8a2f199, author: Waldek Herka).
- * Adapted from monorepo packages/infra to single-package src/utils.
+ * Author: Waldek Herka
  */
 
 export type FetchLike = (req: Request) => Promise<Response>;

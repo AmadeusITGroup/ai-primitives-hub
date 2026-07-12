@@ -1,8 +1,7 @@
 /**
  * Scaffold command for creating collections and primitives.
  *
- * Ported from feat/cli-backup (commits 7dcf722, 2b31fe0, author: Waldek Herka).
- * Adapted from clipanion-based to our function-based CLI structure.
+ * Author: Waldek Herka
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';

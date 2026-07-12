@@ -2,8 +2,7 @@
  * Shell completion command for prompt-registry CLI.
  * Generates bash and zsh completion scripts that can be sourced.
  *
- * Ported from feat/cli-backup (commit 10ccdc2, author: Waldek Herka).
- * Adapted from clipanion-based to our function-based CLI structure.
+ * Author: Waldek Herka
  */
 import {
   SUPPORTED_CLI_COMMANDS,

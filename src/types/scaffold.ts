@@ -1,8 +1,7 @@
 /**
  * Domain types for scaffolding collections and primitives.
  *
- * Ported from feat/cli-backup (commit 7dcf722, author: Waldek Herka).
- * Adapted from monorepo packages/core to single-package src/types.
+ * Author: Waldek Herka
  */
 
 /**

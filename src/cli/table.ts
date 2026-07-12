@@ -4,7 +4,7 @@
  * Produces fixed-width aligned text tables from header + row data.
  * Used by any command that emits a list of records in text mode.
  *
- * Ported from feat/cli-backup (commit 44c5678, author: Waldek Herka).
+ * Author: Waldek Herka
  */
 
 export interface TableColumn<T = unknown> {

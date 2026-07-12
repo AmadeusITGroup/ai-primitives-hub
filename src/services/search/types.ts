@@ -1,8 +1,7 @@
 /**
  * Search types for the BM25-based primitive index.
  *
- * Ported from feat/cli-backup (packages/infra/src/search/types.ts).
- * Adapted from monorepo `@prompt-registry/core` to single-package types.
+ * Author: Waldek Herka
  */
 
 import type {

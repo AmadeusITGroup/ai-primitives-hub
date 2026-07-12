@@ -5,8 +5,7 @@
  * with no arguments or with `--help`. Shows a Quick Start section
  * followed by commands grouped into categories.
  *
- * Ported from feat/cli-backup (commit 44c5678, author: Waldek Herka).
- * Adapted from clipanion-based to our function-based CLI structure.
+ * Author: Waldek Herka
  */
 import {
   type CliCommand,
