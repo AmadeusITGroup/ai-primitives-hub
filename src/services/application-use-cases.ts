@@ -11,9 +11,6 @@ import {
   TargetType,
 } from '../types/target';
 import {
-  validateRepositoryInstallPolicy,
-} from './repository-install-policy';
-import {
   resolveTargetLayout,
 } from './target-layout-registry';
 import {
@@ -203,21 +200,6 @@ export const createApplicationUseCases = (options: ApplicationUseCasesOptions): 
     }
 
     const commitMode = request.commitMode ?? 'commit';
-    if (request.target.scope === 'repository') {
-      const policy = validateRepositoryInstallPolicy({
-        commitMode,
-        resources: request.bundle.resources
-      });
-      if (!policy.allowed) {
-        return {
-          success: false,
-          bundleId: request.bundle.id,
-          version: request.bundle.version,
-          writtenFiles: [],
-          diagnostics: policy.diagnostics
-        };
-      }
-    }
 
     const files = await materializeFiles(request.target, request.bundle);
     const targetRoot = path.join(options.root, request.target.scope === 'user' ? 'user' : 'repository');

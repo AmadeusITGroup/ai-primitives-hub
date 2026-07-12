@@ -35,7 +35,6 @@ import {
   RepositoryCommitMode,
 } from '../types/registry';
 import {
-  Resource,
   ResourceKind,
 } from '../types/target';
 import {
@@ -61,20 +60,11 @@ import {
   checkPathExists,
 } from '../utils/symlink-utils';
 import {
-  ApplicationBundle,
-  ApplicationResource,
-  createApplicationUseCases,
-  InstallUseCaseRequest,
-} from './application-use-cases';
-import {
   LockfileManager,
 } from './lockfile-manager';
 import {
   McpServerManager,
 } from './mcp-server-manager';
-import {
-  validateRepositoryInstallPolicy,
-} from './repository-install-policy';
 import {
   RepositoryScopeService,
 } from './repository-scope-service';
@@ -424,224 +414,6 @@ export class BundleInstaller {
     return manifest as DeploymentManifest;
   }
 
-  /**
-   * Validate repository-scope content before writing files into the workspace.
-   * @param extractDir
-   * @param manifest
-   * @param commitMode
-   */
-  private async validateRepositorySafety(
-    extractDir: string,
-    manifest: DeploymentManifest,
-    commitMode: RepositoryCommitMode
-  ): Promise<void> {
-    const resources = await this.collectRepositoryPolicyResources(extractDir, manifest);
-    const result = validateRepositoryInstallPolicy({ commitMode, resources });
-
-    if (result.allowed) {
-      return;
-    }
-
-    const diagnostics = result.diagnostics
-      .map((diagnostic) => `${diagnostic.code} ${diagnostic.resourceId}: ${diagnostic.message} ${diagnostic.remediation}`)
-      .join('; ');
-
-    throw new Error(`Repository install rejected: ${diagnostics}`);
-  }
-
-  /**
-   * Collect manifest resources and their content for repository install policy checks.
-   * @param extractDir
-   * @param manifest
-   */
-  private async collectRepositoryPolicyResources(
-    extractDir: string,
-    manifest: DeploymentManifest
-  ): Promise<Resource[]> {
-    const resources: Resource[] = [];
-
-    for (const prompt of manifest.prompts ?? []) {
-      const kind = this.toPolicyResourceKind(prompt.type);
-      if (!kind) {
-        continue;
-      }
-
-      const sourcePath = prompt.file;
-      resources.push({
-        kind,
-        id: prompt.id,
-        sourcePath,
-        content: await this.readRepositoryPolicyResourceContent(extractDir, sourcePath)
-      });
-    }
-
-    return resources;
-  }
-
-  /**
-   * Map manifest prompt types to repository policy resource kinds.
-   * @param promptType
-   */
-  private toPolicyResourceKind(promptType: NonNullable<DeploymentManifest['prompts']>[number]['type']): ResourceKind | undefined {
-    switch (promptType) {
-      case 'prompt': {
-        return 'prompt';
-      }
-      case 'instructions': {
-        return 'instruction';
-      }
-      case 'agent': {
-        return 'agent';
-      }
-      case 'skill': {
-        return 'skill';
-      }
-      default: {
-        return undefined;
-      }
-    }
-  }
-
-  /**
-   * Read resource content for policy validation. Missing files are handled by existing sync validation.
-   * @param extractDir
-   * @param sourcePath
-   */
-  private async readRepositoryPolicyResourceContent(extractDir: string, sourcePath: string): Promise<string> {
-    try {
-      return await readFile(path.join(extractDir, sourcePath), 'utf8');
-    } catch {
-      return '';
-    }
-  }
-
-  /**
-   * Validate the legacy installer input through the shared application contract.
-   * @param extractDir
-   * @param bundle
-   * @param manifest
-   * @param options
-   */
-  private async validateSharedInstallRequest(
-    extractDir: string,
-    bundle: Bundle,
-    manifest: DeploymentManifest,
-    options: InstallOptions
-  ): Promise<void> {
-    const request = await this.createSharedInstallUseCaseRequest(extractDir, bundle, manifest, options);
-    if (!request) {
-      return;
-    }
-
-    const useCases = createApplicationUseCases({
-      root: this.context.globalStorageUri.fsPath,
-      now: () => new Date().toISOString()
-    });
-    const result = await useCases.validate(request);
-
-    if (result.valid) {
-      return;
-    }
-
-    const diagnostics = result.diagnostics
-      .map((diagnostic) => `${diagnostic.code} ${diagnostic.resourceId ?? bundle.id}: ${diagnostic.message}`)
-      .join('; ');
-
-    throw new Error(`Bundle target validation failed: ${diagnostics}`);
-  }
-
-  /**
-   * Build the shared install use-case request while preserving BundleInstaller's public API.
-   * @param extractDir
-   * @param bundle
-   * @param manifest
-   * @param options
-   */
-  private async createSharedInstallUseCaseRequest(
-    extractDir: string,
-    bundle: Bundle,
-    manifest: DeploymentManifest,
-    options: InstallOptions
-  ): Promise<InstallUseCaseRequest | undefined> {
-    if (options.scope === 'workspace') {
-      return undefined;
-    }
-
-    return {
-      target: {
-        type: 'vscode',
-        scope: options.scope
-      },
-      bundle: await this.createApplicationBundle(extractDir, bundle, manifest),
-      source: {
-        id: bundle.sourceId,
-        type: bundle.sourceId,
-        url: bundle.repository ?? bundle.homepage ?? bundle.manifestUrl
-      },
-      commitMode: options.scope === 'repository' ? (options.commitMode ?? 'commit') : undefined
-    };
-  }
-
-  /**
-   * Convert bundle metadata and manifest entries into the shared application bundle shape.
-   * @param extractDir
-   * @param bundle
-   * @param manifest
-   */
-  private async createApplicationBundle(
-    extractDir: string,
-    bundle: Bundle,
-    manifest: DeploymentManifest
-  ): Promise<ApplicationBundle> {
-    const resources: ApplicationResource[] = [];
-
-    for (const prompt of manifest.prompts ?? []) {
-      const sourcePath = prompt.file;
-      resources.push({
-        kind: this.toApplicationResourceKind(prompt.type, sourcePath),
-        id: prompt.id,
-        sourcePath,
-        content: await this.readRepositoryPolicyResourceContent(extractDir, sourcePath)
-      });
-    }
-
-    return {
-      id: bundle.id,
-      version: bundle.version,
-      resources
-    };
-  }
-
-  /**
-   * Map manifest prompt types into shared resource kinds without rejecting legacy chatmode files.
-   * @param promptType
-   * @param sourcePath
-   */
-  private toApplicationResourceKind(
-    promptType: string | undefined,
-    sourcePath: string
-  ): ResourceKind {
-    const fileType = promptType ?? determineFileType(sourcePath);
-
-    switch (fileType) {
-      case 'prompt':
-      case 'chatmode': {
-        return 'prompt';
-      }
-      case 'instructions': {
-        return 'instruction';
-      }
-      case 'agent': {
-        return 'agent';
-      }
-      case 'skill': {
-        return 'skill';
-      }
-      default: {
-        return fileType as ResourceKind;
-      }
-    }
-  }
 
   /**
    * Get installation directory for bundle
@@ -999,11 +771,6 @@ export class BundleInstaller {
       const manifest = await this.validateBundle(extractDir, bundle);
       this.logger.debug('Bundle validation passed');
 
-      await this.validateSharedInstallRequest(extractDir, bundle, manifest, options);
-
-      if (options.scope === 'repository') {
-        await this.validateRepositorySafety(extractDir, manifest, options.commitMode ?? 'commit');
-      }
 
       // Check if this is a skills bundle (Anthropic-style skills source)
       const isSkillsBundle = sourceType === 'skills' || sourceType === 'local-skills';
