@@ -1,0 +1,69 @@
+id: web-dev-bundle
+name: Web Development Essentials
+version: 1.0.0
+description: Comprehensive prompts for modern web development with React, TypeScript, and CSS
+author: Amadeus IT Group
+repository: https://github.com/AmadeusITGroup/prompt-bundles
+license: MIT
+environments:
+  - web
+  - javascript
+  - typescript
+tags:
+  - web
+  - react
+  - typescript
+  - css
+  - frontend
+  - ui
+  - responsive
+prompts:
+  - id: create-component
+    name: Create React Component
+    description: Generate modern React components with TypeScript and best practices
+    file: prompts/create-component.prompt.md
+    type: prompt
+    tags:
+      - react
+      - component
+      - typescript
+  
+  - id: optimize-css
+    name: Optimize CSS
+    description: Refactor and optimize CSS for performance and maintainability
+    file: prompts/optimize-css.prompt.md
+    type: prompt
+    tags:
+      - css
+      - performance
+      - styling
+  
+  - id: add-accessibility
+    name: Add Accessibility Features
+    description: Enhance components with ARIA labels and accessibility best practices
+    file: prompts/add-accessibility.prompt.md
+    type: prompt
+    tags:
+      - accessibility
+      - a11y
+      - aria
+  
+  - id: responsive-design
+    name: Make Responsive
+    description: Convert fixed layouts to responsive designs with mobile-first approach
+    file: prompts/responsive-design.prompt.md
+    type: prompt
+    tags:
+      - responsive
+      - mobile
+      - css
+  
+  - id: typescript-standards
+    name: TypeScript Best Practices
+    description: Apply TypeScript coding standards and type safety guidelines
+    file: prompts/typescript-standards.instructions.md
+    type: instructions
+    tags:
+      - typescript
+      - standards
+      - types

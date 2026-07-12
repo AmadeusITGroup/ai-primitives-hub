@@ -1,0 +1,15 @@
+metadata:
+  name: "Invalid Hub"
+  # Missing description, maintainer, updatedAt
+
+sources:
+  - id: "test-source"
+    # Missing type field
+    repository: "test/repo"
+
+profiles:
+  - id: "test-profile"
+    # Missing name, description, icon
+    bundles:
+      - id: "bundle1"
+        # Missing version and source

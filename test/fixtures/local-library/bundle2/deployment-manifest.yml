@@ -1,0 +1,13 @@
+id: testing-bundle
+name: Testing Prompt Bundle
+version: 1.1.0
+description: A bundle for testing purposes
+author: Prompt Registry Team
+environments:
+  - vscode
+tags:
+  - testing
+  - demo
+size: 2KB
+dependencies: []
+license: MIT

@@ -1,0 +1,70 @@
+version: "1.0.0"
+metadata:
+  name: "Official Prompt Registry Hub"
+  description: "Curated collection of prompt bundles for developers"
+  maintainer: "Prompt Registry Team"
+  updatedAt: "2025-11-17T00:00:00Z"
+  checksum: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+sources:
+  - id: "official-prompts"
+    name: "Official Prompts"
+    type: "github"
+    url: "https://github.com/promptregistry/official-bundles"
+    enabled: true
+    priority: 100
+    config:
+      branch: "main"
+    
+  - id: "community-prompts"
+    name: "Community Prompts"
+    type: "github"
+    url: "https://github.com/promptregistry/community-bundles"
+    enabled: true
+    priority: 50
+    config:
+      branch: "main"
+
+profiles:
+  - id: "fullstack-developer"
+    name: "Full-Stack Developer"
+    description: "Complete toolkit for full-stack development"
+    icon: "🚀"
+    bundles:
+      - id: "typescript-essentials"
+        version: "2.1.0"
+        source: "official-prompts"
+        required: true
+      - id: "react-patterns"
+        version: "2.0.0"
+        source: "official-prompts"
+        required: true
+      - id: "node-backend"
+        version: "1.5.0"
+        source: "official-prompts"
+        required: false
+    active: false
+    createdAt: "2025-11-17T00:00:00Z"
+    updatedAt: "2025-11-17T00:00:00Z"
+    
+  - id: "frontend-specialist"
+    name: "Frontend Specialist"
+    description: "Focused on frontend development"
+    icon: "💻"
+    bundles:
+      - id: "react-patterns"
+        version: "latest"
+        source: "official-prompts"
+        required: true
+      - id: "css-mastery"
+        version: "1.0.0"
+        source: "community-prompts"
+        required: false
+    active: false
+    createdAt: "2025-11-17T00:00:00Z"
+    updatedAt: "2025-11-17T00:00:00Z"
+
+configuration:
+  autoSync: true
+  syncInterval: 3600
+  strictMode: true

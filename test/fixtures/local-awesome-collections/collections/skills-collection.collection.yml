@@ -1,0 +1,13 @@
+id: skills-collection
+name: Skills Collection
+description: A test collection with skills that have nested resource subdirectories
+version: 1.0.0
+author: Test Author
+tags: ["testing", "skills"]
+items:
+  - path: prompts/test-prompt.prompt.md
+    kind: prompt
+  - path: skills/analyzer/SKILL.md
+    kind: skill
+  - path: skills/reporter/SKILL.md
+    kind: skill

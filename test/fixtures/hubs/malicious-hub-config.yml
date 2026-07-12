@@ -1,0 +1,28 @@
+version: "1.0.0"
+metadata:
+  name: "Malicious Hub"
+  description: "Attempt to break security"
+  maintainer: "Attacker"
+  updatedAt: "2025-11-17T00:00:00Z"
+
+sources:
+  - id: "../../../etc/passwd"
+    type: "local"
+    location: "../../../../etc/passwd"
+    enabled: true
+    
+  - id: "malicious-url"
+    type: "url"
+    repository: "ftp://malicious.com/exploit.yml"
+    enabled: true
+
+profiles:
+  - id: "test-profile"
+    name: "Test Profile"
+    description: "Test"
+    icon: "🔥"
+    bundles:
+      - id: "../../malicious-bundle"
+        version: "1.0.0"
+        source: "../../../etc/passwd"
+        required: true

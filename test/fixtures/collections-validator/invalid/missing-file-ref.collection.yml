@@ -1,0 +1,6 @@
+id: missing-file-ref
+name: Missing File Reference Collection
+description: This collection references a file that doesn't exist
+items:
+  - path: prompts/nonexistent.prompt.md
+    kind: prompt

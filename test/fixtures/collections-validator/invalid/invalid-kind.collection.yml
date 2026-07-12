@@ -1,0 +1,6 @@
+id: invalid-kind
+name: Invalid Kind Collection
+description: This collection has an invalid kind value
+items:
+  - path: prompts/test.prompt.md
+    kind: unknown-type

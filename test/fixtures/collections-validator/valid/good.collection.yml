@@ -1,0 +1,16 @@
+id: test-collection
+name: Test Collection
+description: A valid test collection for unit tests
+tags:
+  - testing
+  - validation
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+  - path: instructions/test.instructions.md
+    kind: instruction
+  - path: chatmodes/test.chatmode.md
+    kind: chat-mode
+display:
+  ordering: manual
+  show_badge: true

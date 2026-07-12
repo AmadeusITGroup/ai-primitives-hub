@@ -1,0 +1,9 @@
+id: test-collection
+name: Test Collection
+description: A test collection for unit testing
+tags: ["test", "example", "azure"]
+items:
+  - path: prompts/test-prompt.prompt.md
+    kind: prompt
+  - path: instructions/test-instructions.instructions.md
+    kind: instruction

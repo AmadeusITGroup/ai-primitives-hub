@@ -1,0 +1,56 @@
+[
+  {
+    "tag_name": "v1.0.0",
+    "name": "Example Bundle v1.0.0",
+    "body": "Initial release of the example prompt bundle.\n\nFeatures:\n- Code review assistant\n- Bug analyzer\n- Refactoring guide\n\nThis bundle provides comprehensive prompts for code quality improvements.",
+    "published_at": "2025-01-15T10:00:00Z",
+    "assets": [
+      {
+        "name": "deployment-manifest.yml",
+        "browser_download_url": "https://github.com/example/example-bundle/releases/download/v1.0.0/deployment-manifest.yml",
+        "size": 1024
+      },
+      {
+        "name": "bundle.zip",
+        "browser_download_url": "https://github.com/example/example-bundle/releases/download/v1.0.0/bundle.zip",
+        "size": 51200
+      }
+    ]
+  },
+  {
+    "tag_name": "v2.1.0",
+    "name": "Testing Bundle v2.1.0",
+    "body": "Major update with new testing capabilities.\n\nWhat's New:\n- Unit test generator with edge case coverage\n- Test coverage analyzer\n- E2E scenario designer\n- Improved test templates\n\nBreaking Changes: None",
+    "published_at": "2025-02-20T14:30:00Z",
+    "assets": [
+      {
+        "name": "deployment-manifest.yml",
+        "browser_download_url": "https://github.com/example/testing-bundle/releases/download/v2.1.0/deployment-manifest.yml",
+        "size": 1536
+      },
+      {
+        "name": "bundle.zip",
+        "browser_download_url": "https://github.com/example/testing-bundle/releases/download/v2.1.0/bundle.zip",
+        "size": 76800
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.5.0-beta",
+    "name": "Documentation Bundle (Beta)",
+    "body": "Beta release for documentation prompts.\n\nIncludes:\n- API documentation generator\n- README template creator\n- Comment improver\n\nNote: This is a beta release and may have issues.",
+    "published_at": "2025-03-01T09:15:00Z",
+    "assets": [
+      {
+        "name": "deployment-manifest.yml",
+        "browser_download_url": "https://github.com/example/docs-bundle/releases/download/v0.5.0-beta/deployment-manifest.yml",
+        "size": 896
+      },
+      {
+        "name": "bundle.zip",
+        "browser_download_url": "https://github.com/example/docs-bundle/releases/download/v0.5.0-beta/bundle.zip",
+        "size": 42000
+      }
+    ]
+  }
+]

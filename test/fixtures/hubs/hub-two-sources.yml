@@ -1,0 +1,28 @@
+version: "1.0.0"
+metadata:
+  name: "Test Hub - Two Sources"
+  description: "Hub with two enabled sources"
+  maintainer: "Test"
+  updatedAt: "2025-12-12T00:00:00Z"
+
+sources:
+  - id: "source-1"
+    name: "Source 1"
+    type: "awesome-copilot"
+    url: "https://github.com/github/awesome-copilot"
+    enabled: true
+    priority: 1
+    config:
+      branch: "main"
+      collectionsPath: "collections"
+  - id: "source-2"
+    name: "Source 2"
+    type: "awesome-copilot"
+    url: "https://github.com/org/other-repo"
+    enabled: true
+    priority: 2
+    config:
+      branch: "main"
+      collectionsPath: "collections"
+
+profiles: []

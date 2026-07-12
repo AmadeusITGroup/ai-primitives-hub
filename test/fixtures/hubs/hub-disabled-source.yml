@@ -1,0 +1,28 @@
+version: "1.0.0"
+metadata:
+  name: "Test Hub - Disabled Source"
+  description: "Hub with one enabled and one disabled source"
+  maintainer: "Test"
+  updatedAt: "2025-12-12T00:00:00Z"
+
+sources:
+  - id: "enabled-source"
+    name: "Enabled Source"
+    type: "awesome-copilot"
+    url: "https://github.com/github/awesome-copilot"
+    enabled: true
+    priority: 1
+    config:
+      branch: "main"
+      collectionsPath: "collections"
+  - id: "disabled-source"
+    name: "Disabled Source"
+    type: "awesome-copilot"
+    url: "https://github.com/disabled/repo"
+    enabled: false
+    priority: 2
+    config:
+      branch: "main"
+      collectionsPath: "collections"
+
+profiles: []

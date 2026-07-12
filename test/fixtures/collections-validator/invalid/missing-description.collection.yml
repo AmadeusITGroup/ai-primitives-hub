@@ -1,0 +1,5 @@
+id: missing-description
+name: Missing Description Collection
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

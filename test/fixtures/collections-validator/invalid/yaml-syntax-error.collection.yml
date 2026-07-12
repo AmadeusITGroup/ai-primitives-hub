@@ -1,0 +1,6 @@
+id: yaml-syntax-error
+name: YAML Syntax Error Collection
+description: This file has invalid YAML syntax
+items: [
+  - path: prompts/test.prompt.md
+    kind: prompt

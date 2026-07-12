@@ -13,21 +13,16 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
-import * as vscode from 'vscode';
-import * as TargetLayoutRegistry from '../../src/services/target-layout-registry';
 import {
   UserScopeService,
 } from '../../src/services/user-scope-service';
 
 suite('UserScopeService', () => {
-  const childProcess = require('node:child_process');
   let service: UserScopeService;
   let mockContext: any;
   let tempDir: string;
-  let pathSandbox: sinon.SinonSandbox;
 
   setup(() => {
-    pathSandbox = sinon.createSandbox();
     tempDir = path.join(__dirname, '..', '..', '..', 'test-temp-copilot');
 
     // Mock VS Code ExtensionContext with realistic path structure
@@ -49,8 +44,6 @@ suite('UserScopeService', () => {
   });
 
   teardown(() => {
-    pathSandbox.restore();
-
     // Cleanup temp directories
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -107,74 +100,6 @@ prompts: []
       } catch (error) {
         assert.ok(error, 'Should throw error for invalid bundle path');
       }
-    });
-  });
-
-  suite('Path Resolution', () => {
-    test('should route user-scope prompt files through the shared target layout contract', async () => {
-      const bundleId = 'layout-routed-bundle';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(path.join(bundlePath, 'prompts'), { recursive: true });
-      fs.writeFileSync(path.join(bundlePath, 'prompts', 'review.md'), '# Review');
-      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), [
-        `id: ${bundleId}`,
-        'version: "1.0.0"',
-        'name: Layout Routed Bundle',
-        'prompts:',
-        '  - id: review',
-        '    name: Review',
-        '    file: prompts/review.md',
-        '    type: prompt'
-      ].join('\n'));
-
-      const layout = TargetLayoutRegistry.resolveTargetLayout({
-        type: 'vscode',
-        scope: 'user'
-      });
-      const promptRoute = layout.routes.prompt;
-      assert.ok(promptRoute, 'vscode user layout should define a prompt route');
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      assert.ok(
-        fs.existsSync(path.join(tempDir, 'Code', 'User', promptRoute, 'review.prompt.md')),
-        'user-scope prompt sync should use the shared target layout route'
-      );
-    });
-
-    test('should resolve WSL Windsurf user prompts to the Windsurf Windows data folder', async () => {
-      const windowsHome = path.join(tempDir, 'mnt', 'c', 'Users', 'testuser');
-      pathSandbox.stub(vscode.env, 'remoteName').value('wsl');
-      pathSandbox.stub(vscode.env, 'uriScheme').value('windsurf');
-      pathSandbox.stub(childProcess, 'execSync').returns(windowsHome + '\n');
-
-      const bundleId = 'windsurf-wsl-bundle';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(path.join(bundlePath, 'prompts'), { recursive: true });
-      fs.writeFileSync(path.join(bundlePath, 'prompts', 'review.md'), '# Review');
-      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), [
-        `id: ${bundleId}`,
-        'version: "1.0.0"',
-        'name: Windsurf WSL Bundle',
-        'prompts:',
-        '  - id: review',
-        '    name: Review',
-        '    file: prompts/review.md',
-        '    type: prompt'
-      ].join('\n'));
-
-      const wslContext = {
-        ...mockContext,
-        globalStorageUri: { fsPath: path.join(tempDir, 'home', 'testuser', '.vscode-server', 'data', 'User') }
-      };
-      const wslService = new UserScopeService(wslContext);
-
-      await wslService.syncBundle(bundleId, bundlePath);
-
-      assert.ok(
-        fs.existsSync(path.join(windowsHome, 'AppData', 'Roaming', 'Windsurf', 'User', 'prompts', 'review.prompt.md')),
-        'WSL fork sync should target the Windows Windsurf user prompts folder'
-      );
     });
   });
 

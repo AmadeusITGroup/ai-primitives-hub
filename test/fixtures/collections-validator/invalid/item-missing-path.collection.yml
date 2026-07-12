@@ -1,0 +1,5 @@
+id: item-missing-path
+name: Item Missing Path Collection
+description: This collection has an item without a path field
+items:
+  - kind: prompt

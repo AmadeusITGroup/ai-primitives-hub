@@ -1,0 +1,7 @@
+name: package-beta
+version: 1.0.0
+description: Package Beta for monorepo testing
+author: Monorepo Author
+tags:
+  - backend
+  - testing

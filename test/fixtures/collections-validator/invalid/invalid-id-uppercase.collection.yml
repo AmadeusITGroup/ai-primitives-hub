@@ -1,0 +1,6 @@
+id: Invalid-ID-With-Uppercase
+name: Invalid ID Collection
+description: This collection has uppercase letters in the ID
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

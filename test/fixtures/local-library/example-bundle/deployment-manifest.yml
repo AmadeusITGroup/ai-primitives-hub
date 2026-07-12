@@ -1,0 +1,42 @@
+id: example-bundle
+version: 1.0.0
+name: Example Prompt Bundle
+description: A sample prompt bundle for testing and demonstration
+author: Prompt Registry Team
+tags:
+  - example
+  - testing
+  - demo
+environments:
+  - vscode
+  - windsurf
+  - cursor
+license: MIT
+repository: https://github.com/example/example-bundle
+
+prompts:
+  - id: code-review
+    name: Code Review Assistant
+    description: Helps review code changes and provide constructive feedback
+    file: prompts/code-review.md
+    tags:
+      - review
+      - quality
+    
+  - id: bug-analyzer
+    name: Bug Analyzer
+    description: Analyzes code to identify potential bugs and issues
+    file: prompts/bug-analyzer.md
+    tags:
+      - debugging
+      - analysis
+    
+  - id: refactoring-guide
+    name: Refactoring Guide
+    description: Provides guidance on refactoring code for better maintainability
+    file: prompts/refactoring-guide.md
+    tags:
+      - refactoring
+      - clean-code
+
+dependencies: []

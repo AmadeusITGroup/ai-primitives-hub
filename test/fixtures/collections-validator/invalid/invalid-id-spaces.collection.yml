@@ -1,0 +1,6 @@
+id: invalid id with spaces
+name: Invalid ID Collection
+description: This collection has spaces in the ID
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

@@ -1,0 +1,5 @@
+id: item-missing-kind
+name: Item Missing Kind Collection
+description: This collection has an item without a kind field
+items:
+  - path: prompts/test.prompt.md

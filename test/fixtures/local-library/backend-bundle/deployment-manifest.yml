@@ -1,0 +1,68 @@
+id: backend-bundle
+name: Backend Development Pro
+version: 1.2.0
+description: Backend development prompts for APIs, databases, and server-side logic
+author: Amadeus IT Group
+repository: https://github.com/AmadeusITGroup/prompt-bundles
+license: MIT
+environments:
+  - backend
+  - api
+  - server
+tags:
+  - backend
+  - api
+  - database
+  - rest
+  - graphql
+  - nodejs
+prompts:
+  - id: create-api-endpoint
+    name: Create REST API Endpoint
+    description: Generate RESTful API endpoints with proper error handling
+    file: prompts/create-api-endpoint.prompt.md
+    type: prompt
+    tags:
+      - api
+      - rest
+      - endpoint
+  
+  - id: database-schema
+    name: Design Database Schema
+    description: Design efficient database schemas with proper relationships
+    file: prompts/database-schema.prompt.md
+    type: prompt
+    tags:
+      - database
+      - schema
+      - sql
+  
+  - id: add-validation
+    name: Add Input Validation
+    description: Implement comprehensive input validation and sanitization
+    file: prompts/add-validation.prompt.md
+    type: prompt
+    tags:
+      - validation
+      - security
+      - input
+  
+  - id: nodejs-standards
+    name: Node.js Standards
+    description: Node.js coding standards and best practices
+    file: prompts/nodejs-standards.instructions.md
+    type: instructions
+    tags:
+      - nodejs
+      - standards
+      - backend
+  
+  - id: api-architect
+    name: API Architect Mode
+    description: Expert API design and architecture guidance
+    file: prompts/api-architect.chatmode.md
+    type: chatmode
+    tags:
+      - api
+      - architecture
+      - design

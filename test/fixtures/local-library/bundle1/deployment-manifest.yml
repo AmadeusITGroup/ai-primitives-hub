@@ -1,0 +1,14 @@
+id: example-bundle
+name: Example Prompt Bundle
+version: 1.0.0
+description: An example bundle for testing
+author: Prompt Registry Team
+environments:
+  - vscode
+  - cursor
+tags:
+  - example
+  - test
+size: 1KB
+dependencies: []
+license: MIT

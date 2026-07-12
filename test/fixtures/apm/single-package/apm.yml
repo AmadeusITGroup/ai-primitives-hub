@@ -1,0 +1,14 @@
+name: test-apm-package
+version: 1.2.0
+description: A test APM package for unit testing
+author: Test Author
+tags:
+  - testing
+  - azure
+  - devops
+license: MIT
+dependencies:
+  apm: []
+  mcp: []
+scripts:
+  test: echo "test"

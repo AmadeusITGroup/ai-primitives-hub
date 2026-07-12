@@ -1,0 +1,38 @@
+id: security-bundle
+name: Security Essentials
+version: 1.1.0
+description: Security best practices, vulnerability detection, and secure coding prompts
+author: Amadeus IT Group
+tags:
+  - security
+  - vulnerability
+  - owasp
+  - penetration-testing
+prompts:
+  - id: security-review
+    name: Security Code Review
+    description: Perform comprehensive security review of code
+    file: prompts/security-review.prompt.md
+    type: prompt
+    tags: [security, review, vulnerabilities]
+  
+  - id: fix-vulnerability
+    name: Fix Security Vulnerability
+    description: Remediate common security vulnerabilities (OWASP Top 10)
+    file: prompts/fix-vulnerability.prompt.md
+    type: prompt
+    tags: [security, fix, owasp]
+  
+  - id: security-standards
+    name: Secure Coding Standards
+    description: Apply secure coding practices automatically
+    file: prompts/security-standards.instructions.md
+    type: instructions
+    tags: [security, standards, owasp]
+  
+  - id: security-expert
+    name: Security Expert Mode
+    description: Expert security consultant for threat modeling and remediation
+    file: prompts/security-expert.chatmode.md
+    type: chatmode
+    tags: [security, expert, consulting]

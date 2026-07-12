@@ -1,0 +1,5 @@
+name: Missing ID Collection
+description: This collection is missing the required id field
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

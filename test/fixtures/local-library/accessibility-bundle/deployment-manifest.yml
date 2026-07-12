@@ -1,0 +1,46 @@
+id: accessibility-bundle
+name: Accessibility Champions
+version: 1.0.0
+description: Make web applications accessible to everyone with WCAG 2.1 compliance
+author: Amadeus IT Group
+tags:
+  - accessibility
+  - a11y
+  - wcag
+  - inclusive
+  - aria
+prompts:
+  - id: audit-accessibility
+    name: Accessibility Audit
+    description: Comprehensive accessibility audit following WCAG 2.1 AA/AAA
+    file: prompts/audit-accessibility.prompt.md
+    type: prompt
+    tags: [accessibility, audit, wcag]
+  
+  - id: fix-a11y-issues
+    name: Fix Accessibility Issues
+    description: Remediate common accessibility problems
+    file: prompts/fix-a11y-issues.prompt.md
+    type: prompt
+    tags: [accessibility, fix, remediation]
+  
+  - id: wcag-standards
+    name: WCAG Compliance Standards
+    description: Ensure WCAG 2.1 AA compliance automatically
+    file: prompts/wcag-standards.instructions.md
+    type: instructions
+    tags: [accessibility, wcag, standards]
+  
+  - id: a11y-expert
+    name: Accessibility Expert Mode
+    description: Expert accessibility consultant for inclusive design
+    file: prompts/a11y-expert.chatmode.md
+    type: chatmode
+    tags: [accessibility, expert, consulting]
+  
+  - id: screen-reader-tester
+    name: Screen Reader Testing Agent
+    description: Specialized agent for screen reader compatibility testing
+    file: prompts/screen-reader-tester.agent.md
+    type: agent
+    tags: [accessibility, screen-reader, testing]
