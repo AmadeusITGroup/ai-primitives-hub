@@ -171,25 +171,7 @@ The scaffold command normalizes path separators to forward slashes before checki
 | `promptregistry.openItemRepository` | Open Repository | Open an item's repository in a browser |
 | `promptRegistry.resetFirstRun` | Reset First Run | Reset first-run state to re-trigger hub selection dialog |
 
-## CLI Commands
-
-The `prompt-registry` CLI provides command-line access to bundle management. See [CLI Usage](../user-guide/cli.md) for full details.
-
-| Command | Description |
-|---------|-------------|
-| `prompt-registry list` | List installed bundles |
-| `prompt-registry install <ref>` | Install a bundle to a target |
-| `prompt-registry update <ref>` | Update an installed bundle |
-| `prompt-registry uninstall <id>` | Remove an installed bundle |
-| `prompt-registry validate <path>` | Validate a local bundle |
-| `prompt-registry inspect <id>` | Show bundle details |
-| `prompt-registry scaffold <type>` | Scaffold a collection or primitive |
-| `prompt-registry completion <shell>` | Generate bash/zsh completion script |
-
-All commands support `--output json` for structured output and `--help` for usage details.
-
 ## See Also
 
-- [CLI Usage](../user-guide/cli.md) — Full CLI command reference and examples
 - [Settings Reference](./settings.md) — Extension configuration options
 - [Getting Started](../user-guide/getting-started.md) — Installation and first steps

@@ -7,7 +7,6 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 ## 📖 For Users
 
 - **[Getting Started](user-guide/getting-started.md)** — Installation and first steps
-- **[CLI Usage](user-guide/cli.md)** — Command-line interface for bundle management
 - **[Marketplace](user-guide/marketplace.md)** — Browsing and installing bundles
 - **[Repository Installation](user-guide/repository-installation.md)** — Team-shared configurations via Git
 - **[Sources](user-guide/sources.md)** — Managing bundle sources
