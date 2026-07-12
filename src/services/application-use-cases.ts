@@ -5,24 +5,54 @@ import {
 } from '../types/registry';
 import {
   Resource,
+  ResourceKind,
   Target,
+  TargetScope,
+  TargetType,
 } from '../types/target';
-import {
-  kiroResourceTransformer,
-} from './kiro-resource-transformer';
 import {
   validateRepositoryInstallPolicy,
 } from './repository-install-policy';
 import {
-  supportsTargetResource,
-} from './target-capability-registry';
-import {
   resolveTargetLayout,
 } from './target-layout-registry';
 import {
-  FileSystemTargetWriter,
-  TargetWriteFile,
-} from './target-writer';
+  getTargetCapability,
+} from '../config/targets';
+
+interface TargetWriteFile {
+  relativePath: string;
+  content: string;
+}
+
+class FileSystemTargetWriter {
+  public constructor(private readonly root: string) {}
+
+  public async writeFiles(files: TargetWriteFile[]): Promise<{ writtenFiles: string[] }> {
+    const writtenFiles: string[] = [];
+    for (const file of files) {
+      const absolutePath = path.join(this.root, file.relativePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, file.content);
+      writtenFiles.push(file.relativePath.split(path.sep).join('/'));
+    }
+    return { writtenFiles };
+  }
+
+  public async removeFiles(relativePaths: string[]): Promise<{ removedFiles: string[] }> {
+    const removedFiles: string[] = [];
+    for (const relativePath of relativePaths) {
+      await fs.rm(path.join(this.root, relativePath), { force: true, recursive: true });
+      removedFiles.push(relativePath.split(path.sep).join('/'));
+    }
+    return { removedFiles };
+  }
+}
+
+function supportsTargetResource(targetType: TargetType, scope: TargetScope, resourceKind: ResourceKind): boolean {
+  const capability = getTargetCapability(targetType);
+  return Boolean(capability?.supportedScopes.includes(scope) && capability.supportedResources.includes(resourceKind));
+}
 
 export interface ApplicationUseCasesOptions {
   root: string;
@@ -340,13 +370,7 @@ async function materializeFiles(target: Target, bundle: ApplicationBundle): Prom
       continue;
     }
 
-    const transformed = await kiroResourceTransformer.transform(resource, target);
-    const getContent = (): string => {
-      if (transformed.resource.content !== undefined) {
-        return transformed.resource.content;
-      }
-      return resource.content ?? '';
-    };
+    const getContent = (): string => resource.content ?? '';
 
     if (resource.kind === 'skill') {
       for (const file of resource.files ?? [{ path: 'SKILL.md', content: getContent() }]) {
