@@ -6,7 +6,7 @@ import type {
 export const KIRO_CAPABILITY: TargetCapability = {
   targetType: 'kiro',
   supportedScopes: ['user', 'repository'],
-  supportedResources: ['prompt', 'skill']
+  supportedResources: ['prompt', 'instruction', 'agent', 'skill']
 };
 
 export const KIRO_USER_LAYOUT: TargetLayout = {
@@ -15,6 +15,8 @@ export const KIRO_USER_LAYOUT: TargetLayout = {
   basePath: 'user',
   routes: {
     prompt: 'prompts',
+    instruction: 'steering',
+    agent: 'agents',
     skill: 'skills'
   }
 };
@@ -24,7 +26,9 @@ export const KIRO_REPOSITORY_LAYOUT: TargetLayout = {
   scope: 'repository',
   basePath: 'repository',
   routes: {
-    prompt: '.github/prompts',
-    skill: '.github/skills'
+    prompt: '.kiro/prompts',
+    instruction: '.kiro/steering',
+    agent: '.kiro/agents',
+    skill: '.kiro/skills'
   }
 };

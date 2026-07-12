@@ -68,7 +68,7 @@ export interface CopilotFile {
   targetPath: string;
 }
 
-type CodeFlavourFolder = 'Code' | 'Code - Insiders' | 'Windsurf';
+type CodeFlavourFolder = 'Code' | 'Code - Insiders' | 'Windsurf' | 'Kiro';
 
 /**
  * Service to sync bundle prompts to GitHub Copilot's native directories at user level.
@@ -79,7 +79,8 @@ export class UserScopeService implements IScopeService {
   private readonly appNameMap: Map<string, CodeFlavourFolder> = new Map([
     ['vscode', 'Code'],
     ['vscode-insiders', 'Code - Insiders'],
-    ['windsurf', 'Windsurf']
+    ['windsurf', 'Windsurf'],
+    ['kiro', 'Kiro']
   ]);
 
   private windowsHomeInWSL: string | undefined;
@@ -164,9 +165,8 @@ export class UserScopeService implements IScopeService {
 
     const resolved = this.resolveCopilotPromptsDirectory(resourceKind);
 
-    // Sanity check: the resolved path should end with 'prompts' and not be a filesystem root
-    const basename = path.basename(resolved);
-    if ((resourceKind !== 'skill' && !basename.includes('prompts')) || resolved === path.dirname(resolved)) {
+    // Sanity check: the resolved path should not be a filesystem root
+    if (resolved === path.dirname(resolved)) {
       this.logger.warn(`[UserScopeService] Resolved ${resourceKind} directory looks suspicious: ${resolved}`);
     }
 
@@ -175,6 +175,13 @@ export class UserScopeService implements IScopeService {
   }
 
   private resolveCopilotPromptsDirectory(resourceKind: ResourceKind): string {
+    const targetType = this.getCurrentTargetType();
+
+    // Kiro uses ~/.kiro/ as base directory, not the VS Code User/ structure
+    if (targetType === 'kiro') {
+      return this.resolveResourceDirFromBaseUserDir(path.join(os.homedir(), '.kiro'), resourceKind);
+    }
+
     const globalStoragePath = this.context.globalStorageUri.fsPath;
     this.logger.debug(`[UserScopeService] Original globalStorage path: ${globalStoragePath}`);
 
@@ -247,14 +254,21 @@ export class UserScopeService implements IScopeService {
   }
 
   private getCurrentTargetType(): TargetType {
-    switch (vscode.env.uriScheme) {
+    const uriScheme = vscode.env.uriScheme;
+    const appName = vscode.env.appName;
+    this.logger.info(`[UserScopeService] IDE runtime detection — uriScheme: '${uriScheme}', appName: '${appName}'`);
+    switch (uriScheme) {
       case 'vscode-insiders': {
         return 'vscode-insiders';
       }
       case 'windsurf': {
         return 'windsurf';
       }
+      case 'kiro': {
+        return 'kiro';
+      }
       default: {
+        this.logger.info(`[UserScopeService] Unrecognized uriScheme '${uriScheme}', defaulting to 'vscode'`);
         return 'vscode';
       }
     }
@@ -759,15 +773,24 @@ export class UserScopeService implements IScopeService {
    * @returns Path to the skills directory
    */
   public getCopilotSkillsDirectory(scope: 'user' | 'workspace' = 'user'): string {
+    const targetType = this.getCurrentTargetType();
+
     if (scope === 'workspace') {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) {
         throw new Error('No workspace folder open. Skills require an open workspace for workspace scope.');
       }
-      return path.join(workspaceFolders[0].uri.fsPath, '.copilot', 'skills');
+      const wsRoot = workspaceFolders[0].uri.fsPath;
+      if (targetType === 'kiro') {
+        return path.join(wsRoot, '.kiro', 'skills');
+      }
+      return path.join(wsRoot, '.copilot', 'skills');
     }
 
-    // User-level skills go to ~/.copilot/skills
+    // User-level skills
+    if (targetType === 'kiro') {
+      return path.join(os.homedir(), '.kiro', 'skills');
+    }
     return path.join(os.homedir(), '.copilot', 'skills');
   }
 

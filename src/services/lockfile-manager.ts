@@ -140,6 +140,11 @@ export class LockfileManager {
     this.setupFileWatcher();
   }
 
+  private getManagedBaseDirName(): string {
+    const uriScheme = vscode.env.uriScheme;
+    return uriScheme === 'kiro' ? '.kiro' : '.github';
+  }
+
   /**
    * Set up file watcher for external lockfile changes
    */
@@ -971,7 +976,7 @@ export class LockfileManager {
         // The .github directory is where files are synced, not where the bundle is installed.
         // This is a workaround - BundleInstaller.uninstall() handles this case specially.
         const installedBundle = createInstalledBundleFromLockfile(bundleId, entry, {
-          installPath: path.join(this.repositoryPath, '.github'),
+          installPath: path.join(this.repositoryPath, this.getManagedBaseDirName()),
           filesMissing,
           commitModeOverride: 'commit'
         });
@@ -994,7 +999,7 @@ export class LockfileManager {
         const filesMissing = await this.checkFilesMissing(entry);
         // Create bundle with commitMode: 'local-only' (from local lockfile)
         const installedBundle = createInstalledBundleFromLockfile(bundleId, entry, {
-          installPath: path.join(this.repositoryPath, '.github'),
+          installPath: path.join(this.repositoryPath, this.getManagedBaseDirName()),
           filesMissing,
           commitModeOverride: 'local-only'
         });

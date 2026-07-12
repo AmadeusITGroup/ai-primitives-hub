@@ -1553,6 +1553,7 @@ export class PromptRegistryExtension {
   public async activate(): Promise<void> {
     try {
       this.logger.info('Activating AI Primitives Hub extension...');
+      this.logger.info(`[Extension] IDE runtime — uriScheme: '${vscode.env.uriScheme}', appName: '${vscode.env.appName}', appHost: '${vscode.env.appHost}'`);
 
       // Initialize McpConfigLocator for profile support
       McpConfigLocator.initialize(this.context);

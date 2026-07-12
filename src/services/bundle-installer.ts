@@ -43,10 +43,10 @@ import {
 } from '../utils/bundle-name-utils';
 import {
   determineFileType,
-  getRepositoryTargetDirectory,
   getTargetFileName,
   normalizePromptId,
 } from '../utils/copilot-file-type-utils';
+import * as TargetLayoutRegistry from './target-layout-registry';
 import {
   calculateFileChecksum,
   ensureDirectory,
@@ -234,22 +234,34 @@ export class BundleInstaller {
         return entries;
       }
 
-      // Collect files from .github/ directories based on manifest
+      // Collect files from managed directories based on manifest
+      const targetType = this.getCurrentTargetType();
+      const layout = TargetLayoutRegistry.resolveTargetLayout({
+        type: targetType,
+        scope: 'repository'
+      });
+
       for (const promptDef of manifest.prompts) {
         const promptId = normalizePromptId(promptDef.id);
         const fileType = determineFileType(promptDef.file, promptDef.tags);
-        const targetDir = getRepositoryTargetDirectory(fileType);
+        const resourceKind = fileType === 'instructions' ? 'instruction' : fileType === 'chatmode' ? 'prompt' : fileType;
+        const route = layout.routes[resourceKind as ResourceKind];
+
+        if (!route) {
+          this.logger.warn(`No repository route for ${fileType} in target ${targetType}`);
+          continue;
+        }
 
         if (fileType === 'skill') {
           // For skills, collect all files in the skill directory
-          const skillDir = path.join(workspaceRoot, targetDir, promptId);
+          const skillDir = path.join(workspaceRoot, route, promptId);
           if (fs.existsSync(skillDir)) {
             await this.collectFromDirectory(skillDir, workspaceRoot, entries);
           }
         } else {
           // For other file types, collect the single file
           const targetFileName = getTargetFileName(promptId, fileType);
-          const targetPath = path.join(workspaceRoot, targetDir, targetFileName);
+          const targetPath = path.join(workspaceRoot, route, targetFileName);
 
           if (fs.existsSync(targetPath)) {
             const relativePath = path.relative(workspaceRoot, targetPath);
@@ -693,20 +705,32 @@ export class BundleInstaller {
     }
   }
 
+  private getCurrentTargetType(): 'vscode' | 'vscode-insiders' | 'windsurf' | 'kiro' {
+    const uriScheme = vscode.env.uriScheme;
+    switch (uriScheme) {
+      case 'vscode-insiders':
+        return 'vscode-insiders';
+      case 'windsurf':
+        return 'windsurf';
+      case 'kiro':
+        return 'kiro';
+      default:
+        return 'vscode';
+    }
+  }
+
   /**
-   * Check if a path is the .github directory or a subdirectory of it.
-   * Used to prevent accidental removal of the .github folder which may contain
+   * Check if a path is a managed base directory (.github or .kiro).
+   * Used to prevent accidental removal of directories which may contain
    * unrelated files like workflows, CODEOWNERS, etc.
    * @param dirPath - The directory path to check
-   * @returns true if the path is .github or ends with /.github
+   * @returns true if the path is a managed base directory
    */
-  private isGitHubDirectory(dirPath: string): boolean {
+  private isManagedBaseDirectory(dirPath: string): boolean {
     const normalizedPath = path.normalize(dirPath);
     const baseName = path.basename(normalizedPath);
 
-    // Check if the directory itself is named .github
-    // This handles both "/path/to/.github" and ".github"
-    return baseName === '.github';
+    return baseName === '.github' || baseName === '.kiro';
   }
 
   /**
@@ -1119,10 +1143,10 @@ export class BundleInstaller {
       // The actual bundle cache is in extension global storage under bundles/{bundleId}.
       // We should only remove the bundle cache directory, not the .github directory.
       if (installed.installPath && fs.existsSync(installed.installPath)) {
-        if (installed.scope === 'repository' && this.isGitHubDirectory(installed.installPath)) {
-          // Skip removal of .github directory - unsyncBundle already handled removing synced files
+        if (installed.scope === 'repository' && this.isManagedBaseDirectory(installed.installPath)) {
+          // Skip removal of managed base directory - unsyncBundle already handled removing synced files
           // and we don't want to remove unrelated files (workflows, CODEOWNERS, etc.)
-          this.logger.debug(`Skipping removal of .github directory: ${installed.installPath}`);
+          this.logger.debug(`Skipping removal of managed base directory: ${installed.installPath}`);
 
           // Remove the actual bundle cache from global storage instead
           const bundleCachePath = this.getInstallDirectory(installed.bundleId, 'repository');

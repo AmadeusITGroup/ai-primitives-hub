@@ -2,6 +2,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import {
+  Logger,
+} from './logger';
 
 export class McpConfigLocator {
   private static readonly MCP_FILENAME = 'mcp.json';
@@ -21,7 +24,10 @@ export class McpConfigLocator {
       return 'Cursor';
     } else if (productName.includes('Windsurf')) {
       return 'Windsurf';
+    } else if (productName.includes('Kiro')) {
+      return 'Kiro';
     } else {
+      Logger.getInstance().info(`[McpConfigLocator] Unrecognized appName '${productName}', defaulting to 'Code'`);
       return 'Code';
     }
   }
