@@ -415,7 +415,7 @@
         {
           "id": "promptRegistry",
           "title": "AI Primitives Hub",
-          "icon": "$(package)"
+          "icon": "resources/activity-bar-icon.png"
         }
       ]
     },
