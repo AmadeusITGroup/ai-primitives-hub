@@ -32,7 +32,7 @@ flowchart TD
 |-----------|---------|------------|-------------|-------------|--------------|
 | **Prompt** | Single-task instructions | Low | Quick, specific tasks | `.prompt.md` | Simple, focused, reusable |
 | **Instruction** | Team standards & guidelines | Medium | Sharing best practices | `.instructions.md` | Contextual, educational |
-| **Agent** | AI persona with behavior | Medium-High | Specialized AI roles | `.agent.md` | Personality, expertise areas |
+| **Agent** | AI persona with behavior | Medium-High | Specialized AI roles | `.agent.md` or `.md` in `agents/` | Personality, expertise areas |
 | **Skill** | Complex capabilities with assets | High | Multi-file functionality | `SKILL.md` + assets | Bundled resources, tools |
 | **Collection** | Organized groups of primitives | Variable | Curating related content | `.collection.yml` | Metadata-driven grouping |
 
@@ -91,7 +91,7 @@ Guidelines for creating React components in our projects.
 [Code examples and patterns]
 ```
 
-### 🤖 Agents (.agent.md)
+### 🤖 Agents (.agent.md or agents/ directory)
 
 **Use when you need:**
 - Specialized AI personas
@@ -240,7 +240,7 @@ category: Development
 - Follow consistent patterns:
   - `task-name.prompt.md`
   - `standard-name.instructions.md`
-  - `role-name.agent.md`
+  - `role-name.agent.md` (or any `.md` file in an `agents/` directory)
   - `capability-name/` (for skills)
 
 ### 3. Content Quality

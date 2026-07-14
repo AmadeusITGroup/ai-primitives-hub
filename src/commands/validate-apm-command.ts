@@ -74,6 +74,9 @@ export class ValidateApmCommand {
         } else {
           if (PROMPT_EXTENSIONS.some((ext) => name.endsWith(ext))) {
             fileList.push(entryUri.fsPath);
+          } else if (name.endsWith('.md') && /(?:^|[/])agents[/]/i.test(entryUri.fsPath.replace(/\\/g, '/'))) {
+            // VS Code no longer requires .agent.md suffix — any .md in agents/ is an agent
+            fileList.push(entryUri.fsPath);
           }
         }
       }

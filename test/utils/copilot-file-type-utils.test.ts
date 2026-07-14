@@ -77,6 +77,17 @@ suite('copilotFileTypeUtils', () => {
         assert.strictEqual(determineFileType('test.agent.md'), 'agent');
       });
 
+      test('should detect agent type from agents/ directory (no .agent.md suffix needed)', () => {
+        assert.strictEqual(determineFileType('agents/code-reviewer.md'), 'agent');
+        assert.strictEqual(determineFileType('agents/my-agent.md'), 'agent');
+        assert.strictEqual(determineFileType('path/to/agents/my-agent.md'), 'agent');
+      });
+
+      test('should not detect agent type for .md files outside agents/ directory', () => {
+        assert.strictEqual(determineFileType('prompts/my-agent.md'), 'prompt');
+        assert.strictEqual(determineFileType('instructions/my-agent.md'), 'prompt');
+      });
+
       test('should detect skill type from SKILL.md file', () => {
         assert.strictEqual(determineFileType('SKILL.md'), 'skill');
       });
@@ -121,6 +132,11 @@ suite('copilotFileTypeUtils', () => {
         assert.strictEqual(determineFileType('generic.md', ['agent']), 'agent');
         assert.strictEqual(determineFileType('generic.md', ['chatmode']), 'chatmode');
       });
+
+      test('should prioritize agents/ directory over tags for .md files', () => {
+        assert.strictEqual(determineFileType('agents/generic.md', ['instructions']), 'agent');
+        assert.strictEqual(determineFileType('agents/generic.md', ['chatmode']), 'agent');
+      });
     });
 
     suite('edge cases', () => {
@@ -140,6 +156,11 @@ suite('copilotFileTypeUtils', () => {
       test('should handle paths with directories', () => {
         assert.strictEqual(determineFileType('prompts/my-prompt.prompt.md'), 'prompt');
         assert.strictEqual(determineFileType('agents/code-reviewer.agent.md'), 'agent');
+      });
+
+      test('should handle Windows-style backslash paths in agents/ directory', () => {
+        assert.strictEqual(determineFileType('agents\\code-reviewer.md'), 'agent');
+        assert.strictEqual(determineFileType('path\\to\\agents\\my-agent.md'), 'agent');
       });
     });
   });

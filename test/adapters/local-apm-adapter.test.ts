@@ -5,6 +5,8 @@
 
 import * as assert from 'node:assert';
 import * as path from 'node:path';
+import AdmZip from 'adm-zip';
+import * as yaml from 'js-yaml';
 import {
   LocalApmAdapter,
 } from '../../src/adapters/local-apm-adapter';
@@ -263,6 +265,28 @@ suite('LocalApmAdapter', () => {
 
       // Archive should be non-trivial size (manifest + files)
       assert.ok(buffer.length > 100);
+    });
+
+    test('should detect agent type for .md files in agents/ directory (no .agent.md suffix)', async () => {
+      const adapter = new LocalApmAdapter(mockSource);
+      const bundles = await adapter.fetchBundles();
+      const bundle = bundles[0];
+
+      assert.ok(bundle);
+      const buffer = await adapter.downloadBundle(bundle);
+
+      // Parse the zip to extract deployment-manifest.yml
+      const zip = new AdmZip(buffer);
+      const manifestEntry = zip.getEntry('deployment-manifest.yml');
+      assert.ok(manifestEntry, 'deployment-manifest.yml should be in archive');
+      const manifestContent = manifestEntry.getData().toString('utf8');
+      const manifest = yaml.load(manifestContent) as any;
+
+      // Find the agent prompt entry
+      const agentPrompt = manifest.prompts.find((p: any) => p.type === 'agent');
+      assert.ok(agentPrompt, 'Manifest should contain an agent type prompt');
+      assert.strictEqual(agentPrompt.id, 'code-reviewer');
+      assert.ok(agentPrompt.file.includes('code-reviewer.md'));
     });
   });
 

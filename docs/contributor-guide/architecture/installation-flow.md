@@ -126,7 +126,7 @@ Files are placed in `.github/` subdirectories based on type:
 |-----------|------------------|
 | Prompts (`.prompt.md`) | `.github/prompts/` |
 | Instructions (`.instructions.md`) | `.github/instructions/` |
-| Agents (`.agent.md`) | `.github/agents/` |
+| Agents (`.agent.md` or `.md` in `agents/`) | `.github/agents/` |
 | Skills | `.github/skills/<skill-name>/` |
 | MCP Servers | `.vscode/mcp.json` |
 

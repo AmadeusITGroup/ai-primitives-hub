@@ -326,7 +326,7 @@ export class AwesomeCopilotAdapter extends RepositoryAdapter {
 
       // For other types, use prompts/ folder
       const filename = itemPath.split('/').pop() || 'unknown';
-      const id = filename.replace(/\.(prompt|instructions|chatmode|agent)\.md$/, '');
+      const id = filename.replace(/\.(prompt|instructions|chatmode|agent)\.md$/, '').replace(/\.md$/, '');
 
       return {
         id,

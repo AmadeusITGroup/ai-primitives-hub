@@ -200,7 +200,7 @@ If you've modified bundle files locally, you'll see a warning before updating wi
 |-----------|---------------------|
 | Prompts (`.prompt.md`) | `.github/prompts/` |
 | Instructions (`.instructions.md`) | `.github/instructions/` |
-| Agents (`.agent.md`) | `.github/agents/` |
+| Agents (`.agent.md` or `.md` in `agents/`) | `.github/agents/` |
 | Skills | `.github/skills/<skill-name>/` |
 | MCP Servers | `.vscode/mcp.json` |
 

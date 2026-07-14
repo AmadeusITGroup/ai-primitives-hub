@@ -17,7 +17,7 @@ my-collection/
 ├── instructions/
 │   └── *.instructions.md
 ├── agents/
-│   └── *.agent.md
+│   └── *.md (any markdown file)
 └── README.md
 ```
 
@@ -43,7 +43,7 @@ See [Collection Schema](./collection-schema.md) for full reference.
 |------|-----------|---------|
 | Prompt | `.prompt.md` | Reusable prompt templates |
 | Instruction | `.instructions.md` | System guidelines |
-| Agent | `.agent.md` | Autonomous task patterns |
+| Agent | `.agent.md` or `.md` in `agents/` | Autonomous task patterns |
 
 ## Scaffolding a Project
 

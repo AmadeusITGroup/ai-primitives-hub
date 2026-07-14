@@ -325,14 +325,14 @@ export class LocalApmAdapter extends RepositoryAdapter {
 
     const prompts = promptFiles.map((file) => {
       const filename = path.basename(file);
-      const id = filename.replace(/\.(prompt|instructions|agent|chatmode)\.md$/, '');
+      const id = filename.replace(/\.(prompt|instructions|agent|chatmode)\.md$/, '').replace(/\.md$/, '');
 
       return {
         id,
         name: this.titleCase(id.replace(/-/g, ' ')),
         description: `From ${bundle.name}`,
         file: `prompts/${filename}`,
-        type: this.detectFileType(filename),
+        type: this.detectFileType(file),
         tags: apmManifest.tags || []
       };
     });
@@ -392,6 +392,9 @@ export class LocalApmAdapter extends RepositoryAdapter {
             }
           } else if (PROMPT_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) {
             files.push(fullPath);
+          } else if (entry.name.endsWith('.md') && /(?:^|[/])agents[/]/i.test(fullPath.replace(/\\/g, '/'))) {
+            // VS Code no longer requires .agent.md suffix — any .md in agents/ is an agent
+            files.push(fullPath);
           }
         }
       } catch {
@@ -405,9 +408,10 @@ export class LocalApmAdapter extends RepositoryAdapter {
 
   /**
    * Detect file type from filename
-   * @param filename
+   * @param filePath
    */
-  private detectFileType(filename: string): 'prompt' | 'instructions' | 'chatmode' | 'agent' {
+  private detectFileType(filePath: string): 'prompt' | 'instructions' | 'chatmode' | 'agent' {
+    const filename = path.basename(filePath);
     if (filename.endsWith('.instructions.md')) {
       return 'instructions';
     }
@@ -415,6 +419,11 @@ export class LocalApmAdapter extends RepositoryAdapter {
       return 'chatmode';
     }
     if (filename.endsWith('.agent.md')) {
+      return 'agent';
+    }
+    // VS Code no longer requires .agent.md suffix — any .md in agents/ is an agent
+    const normalized = filePath.replace(/\\/g, '/');
+    if (/(?:^|[/])agents[/]/i.test(normalized) && filename.endsWith('.md')) {
       return 'agent';
     }
     return 'prompt';

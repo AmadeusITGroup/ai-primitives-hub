@@ -102,10 +102,11 @@ export function getSkillName(skillPath: string): string | null {
  *
  * Detection priority:
  * 1. File extension patterns (e.g., .prompt.md, .agent.md)
- * 2. Special file names (e.g., SKILL.md)
- * 3. Tags from manifest
- * 4. Filename patterns (e.g., contains "instructions")
- * 5. Default to 'prompt'
+ * 2. Directory-based detection (e.g., any .md file in an agents/ directory)
+ * 3. Special file names (e.g., SKILL.md)
+ * 4. Tags from manifest
+ * 5. Filename patterns (e.g., contains "instructions")
+ * 6. Default to 'prompt'
  * @param fileName - The file name or path to analyze
  * @param tags - Optional tags from the manifest
  * @returns The detected CopilotFileType
@@ -129,12 +130,19 @@ export function determineFileType(fileName: string, tags?: string[]): CopilotFil
     return 'agent';
   }
 
-  // 2. Check for special file names
+  // 2. Check if file is in an agents/ directory
+  // VS Code no longer requires .agent.md suffix — any .md in agents/ is an agent
+  const normalizedPath = fileName.replace(/\\/g, '/');
+  if (lowerBaseName.endsWith('.md') && /(?:^|[/])agents[/]/i.test(normalizedPath)) {
+    return 'agent';
+  }
+
+  // 3. Check for special file names
   if (lowerBaseName === 'skill.md') {
     return 'skill';
   }
 
-  // 3. Check tags if provided
+  // 4. Check tags if provided
   if (tags && tags.length > 0) {
     const lowerTags = tags.map((t) => t.toLowerCase());
 
@@ -152,12 +160,12 @@ export function determineFileType(fileName: string, tags?: string[]): CopilotFil
     }
   }
 
-  // 4. Check filename patterns
+  // 5. Check filename patterns
   if (lowerBaseName.includes('instructions')) {
     return 'instructions';
   }
 
-  // 5. Default to prompt
+  // 6. Default to prompt
   return 'prompt';
 }
 
