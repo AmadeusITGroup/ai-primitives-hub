@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "description": "Collection template for creating new prompt collections",
+  "templates": {
+    "collection": {
+      "path": "collection.yml.template",
+      "description": "Main collection file",
+      "required": true,
+      "variables": ["collectionId", "name", "description", "author", "tags"]
+    }
+  }
+}

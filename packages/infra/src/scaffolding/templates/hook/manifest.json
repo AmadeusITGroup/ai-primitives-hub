@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "description": "Hook template for creating new hook configuration files",
+  "templates": {
+    "hook-json": {
+      "path": "hook.json.template",
+      "description": "Hook configuration file",
+      "required": true,
+      "variables": ["name", "type", "description"]
+    }
+  }
+}

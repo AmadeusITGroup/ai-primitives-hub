@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "description": "Instruction template for creating new instruction files",
+  "templates": {
+    "instruction": {
+      "path": "instruction.md.template",
+      "description": "Instruction file",
+      "required": true,
+      "variables": ["name", "description"]
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "@ai-primitives-hub/core",
+  "version": "0.0.1-alpha.1",
+  "description": "Core domain types and port interfaces for AI Primitives Hub. No dependency on other @ai-primitives-hub packages.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AmadeusITGroup/ai-primitives-hub.git",
+    "directory": "packages/core"
+  },
+  "keywords": ["ai-primitives-hub", "core", "domain", "ports"],
+  "author": {
+    "name": "Amadeus IT Group",
+    "email": "opensource@amadeus.com"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.1",
+    "semver": "^7.5.4"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@types/semver": "^7.5.6",
+    "@vitest/coverage-v8": "^4.1.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

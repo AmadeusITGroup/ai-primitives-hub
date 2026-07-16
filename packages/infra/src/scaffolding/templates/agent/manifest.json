@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "description": "Agent template for creating new agent files",
+  "templates": {
+    "agent": {
+      "path": "agent.md.template",
+      "description": "Agent file",
+      "required": true,
+      "variables": ["name", "description"]
+    }
+  }
+}

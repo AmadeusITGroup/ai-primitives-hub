@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "description": "Prompt template for creating new prompt files",
+  "templates": {
+    "prompt": {
+      "path": "prompt.md.template",
+      "description": "Prompt file",
+      "required": true,
+      "variables": ["name", "description"]
+    }
+  }
+}

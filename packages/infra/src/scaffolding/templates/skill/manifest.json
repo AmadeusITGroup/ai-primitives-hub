@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "description": "Skill template for creating new skill directories",
+  "templates": {
+    "skill-md": {
+      "path": "SKILL.md.template",
+      "description": "Skill manifest file",
+      "required": true,
+      "variables": ["name", "description", "author"]
+    }
+  }
+}

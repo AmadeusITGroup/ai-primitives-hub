@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "description": "Plugin template for creating new plugin directories",
+  "templates": {
+    "plugin-md": {
+      "path": "plugin.json.template",
+      "description": "Plugin manifest file",
+      "required": true,
+      "variables": ["name", "description", "version", "author"]
+    }
+  }
+}

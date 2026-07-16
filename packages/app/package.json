@@ -1,0 +1,44 @@
+{
+  "name": "@ai-primitives-hub/app",
+  "version": "0.0.1-alpha.1",
+  "description": "Use-case orchestration for AI Primitives Hub: install/uninstall pipelines, registry (hub/profile), discovery and search, multi-target content transforms. Also the public SDK surface until a standalone sdk package has a real consumer.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AmadeusITGroup/ai-primitives-hub.git",
+    "directory": "packages/app"
+  },
+  "keywords": ["ai-primitives-hub", "app", "use-cases", "orchestration"],
+  "author": {
+    "name": "Amadeus IT Group",
+    "email": "opensource@amadeus.com"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@ai-primitives-hub/core": "workspace:*",
+    "@ai-primitives-hub/infra": "workspace:*",
+    "js-yaml": "^4.1.1"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

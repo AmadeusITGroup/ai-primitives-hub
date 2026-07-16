@@ -1,0 +1,160 @@
+{
+  "layouts": {
+    "vscode": {
+      "user": {
+        "baseDir": "${HOME}/.copilot",
+        "kindRoutes": {
+          "prompts/": "prompts/",
+          "chatmodes/": "agents/",
+          "instructions/": "instructions/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".github/prompts/",
+          "chatmodes/": ".github/agents/",
+          "instructions/": ".github/instructions/",
+          "agents/": ".github/agents/",
+          "skills/": ".github/skills/",
+          "hooks/": ".github/hooks/",
+          "plugins/": ".github/plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    },
+    "vscode-insiders": {
+      "user": {
+        "baseDir": "${HOME}/.copilot",
+        "kindRoutes": {
+          "prompts/": "prompts/",
+          "chatmodes/": "agents/",
+          "instructions/": "instructions/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".github/prompts/",
+          "chatmodes/": ".github/agents/",
+          "instructions/": ".github/instructions/",
+          "agents/": ".github/agents/",
+          "skills/": ".github/skills/",
+          "hooks/": ".github/hooks/",
+          "plugins/": ".github/plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    },
+    "copilot-cli": {
+      "user": {
+        "baseDir": "${HOME}/.copilot",
+        "kindRoutes": {
+          "prompts/": "prompts/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "instructions/": "instructions/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".github/prompts/",
+          "agents/": ".github/agents/",
+          "skills/": ".github/skills/",
+          "instructions/": ".github/instructions/",
+          "hooks/": ".github/hooks/",
+          "plugins/": ".github/plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
+      }
+    },
+    "kiro": {
+      "user": {
+        "baseDir": "${HOME}/.kiro",
+        "kindRoutes": {
+          "prompts/": "steering/",
+          "agents/": "agents/",
+          "instructions/": "steering/",
+          "skills/": "skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".kiro/steering/",
+          "agents/": ".kiro/agents/",
+          "instructions/": ".kiro/steering/",
+          "skills/": ".kiro/skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    },
+    "windsurf": {
+      "user": {
+        "baseDir": "${HOME}/.codeium/windsurf",
+        "kindRoutes": {
+          "prompts/": "rules/",
+          "instructions/": "rules/",
+          "chatmodes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".windsurf/rules/",
+          "instructions/": ".windsurf/rules/",
+          "chatmodes/": ".windsurf/agents/",
+          "agents/": ".windsurf/agents/",
+          "skills/": ".windsurf/skills/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    },
+    "claude-code": {
+      "user": {
+        "baseDir": "${HOME}/.claude",
+        "kindRoutes": {
+          "prompts/": "commands/",
+          "agents/": "agents/",
+          "instructions/": "instructions/",
+          "chatmodes/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "prompts/": ".claude/commands/",
+          "agents/": ".claude/agents/",
+          "instructions/": ".claude/instructions/",
+          "chatmodes/": ".claude/agents/",
+          "skills/": ".claude/skills/",
+          "hooks/": ".claude/hooks/",
+          "plugins/": ".claude/plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"]
+      }
+    }
+  }
+}

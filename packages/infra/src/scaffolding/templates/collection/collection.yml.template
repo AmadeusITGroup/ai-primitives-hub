@@ -1,0 +1,7 @@
+id: {{collectionId}}
+name: {{name}}
+description: {{description}}
+author: {{author}}
+{{tags_section}}
+items:
+  # Add items here
