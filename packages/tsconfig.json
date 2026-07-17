@@ -4,6 +4,6 @@
     { "path": "./core" },
     { "path": "./infra" },
     { "path": "./app" },
-    // { "path": "./cli" }
+    { "path": "./cli" }
   ]
 }

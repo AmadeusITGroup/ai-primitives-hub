@@ -1,0 +1,5 @@
+{
+  "main": "dist/ai-primitives-hub-bundle.js",
+  "output": "sea-prep.blob",
+  "disableExperimentalSEAWarning": true
+}
