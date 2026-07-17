@@ -219,7 +219,24 @@ prompts:
     type: "prompt"
     file: "prompts/my-prompt.prompt.md"
     tags: ["custom", "example"]
+# Optional: MCP servers with user-configurable inputs
+mcp:
+  inputs:
+    - id: myToken
+      type: promptString
+      description: "API token"
+      password: true
+  items:
+    my-server:
+      type: stdio
+      command: node
+      args:
+        - "${bundlePath}/server.js"
+        - "--token"
+        - "${input:myToken}"
 ```
+
+> **Legacy format:** The top-level `mcpServers` key (without `mcp.inputs`) is still accepted for backward compatibility. Use `mcp.items` + `mcp.inputs` for new bundles.
 
 ## Error Handling
 

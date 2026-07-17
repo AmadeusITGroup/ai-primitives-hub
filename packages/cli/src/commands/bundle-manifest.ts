@@ -68,7 +68,7 @@ interface RawCollection {
   tags?: string[];
   items?: { path?: string; kind?: string }[];
   mcpServers?: Record<string, unknown>;
-  mcp?: { items?: Record<string, unknown> };
+  mcp?: { items?: Record<string, unknown>; inputs?: unknown[] };
 }
 
 interface PromptEntry {
@@ -283,6 +283,7 @@ function buildManifest(
 ): unknown {
   const manifestId = collection.id ?? 'unknown';
   const mcpServers = collection.mcpServers ?? collection.mcp?.items;
+  const mcpInputs = collection.mcp?.inputs;
   return {
     id: manifestId,
     version,
@@ -295,7 +296,8 @@ function buildManifest(
     repository: '',
     prompts,
     dependencies: [],
-    ...(mcpServers !== undefined && Object.keys(mcpServers).length > 0 ? { mcpServers } : {})
+    ...(mcpServers !== undefined && Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+    ...(mcpInputs !== undefined && mcpInputs.length > 0 ? { mcpInputs } : {})
   };
 }
 

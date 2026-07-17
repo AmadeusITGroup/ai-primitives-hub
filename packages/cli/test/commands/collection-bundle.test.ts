@@ -10,6 +10,9 @@
  * `Context.fs`.
  */
 import {
+  execFileSync,
+} from 'node:child_process';
+import {
   mkdir,
   mkdtemp,
   readFile,
@@ -22,6 +25,7 @@ import * as path from 'node:path';
 import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
+import * as yaml from 'js-yaml';
 import {
   afterEach,
   beforeEach,
@@ -212,6 +216,104 @@ items:
       expect(envelope.data).toMatchObject({ id: 'foo', totalItems: 1 });
       const content = await readFile(outFile, 'utf8');
       expect(content).toContain('id: foo');
+    });
+
+    it('generates the expected MCP fields and matches the legacy generator', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+description: Test collection
+author: Test Author
+tags: [test]
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+mcp:
+  inputs:
+    - id: serviceUrl
+      type: promptString
+      description: "Service URL"
+      default: "https://service.example.test"
+    - id: accessToken
+      type: promptString
+      description: "Service access token"
+      password: true
+    - id: proxyUrl
+      type: promptString
+      description: "HTTPS proxy URL"
+      default: "https://proxy.example.test"
+  items:
+    example-server:
+      type: stdio
+      command: node
+      args:
+        - server.js
+        - "--service-url=\${input:serviceUrl}"
+        - "--access-token=\${input:accessToken}"
+        - "--proxy-url=\${input:proxyUrl}"
+`
+      );
+
+      const legacyManifestPath = path.join(workspace, 'legacy-manifest.yml');
+      const cliManifestPath = path.join(workspace, 'cli-manifest.yml');
+      const legacyGeneratorPath = path.resolve(process.cwd(), '../../lib/bin/generate-manifest.js');
+
+      execFileSync(process.execPath, [
+        legacyGeneratorPath,
+        '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out', legacyManifestPath
+      ], { cwd: workspace, encoding: 'utf8' });
+
+      const result = await run([
+        'bundle', 'manifest',
+        '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out-file', cliManifestPath,
+        '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+
+      const legacyManifest = yaml.load(await readFile(legacyManifestPath, 'utf8'));
+      const cliManifest = yaml.load(await readFile(cliManifestPath, 'utf8'));
+
+      expect(cliManifest).toMatchObject({
+        mcpServers: {
+          'example-server': {
+            type: 'stdio',
+            command: 'node',
+            args: [
+              'server.js',
+              '--service-url=${input:serviceUrl}',
+              '--access-token=${input:accessToken}',
+              '--proxy-url=${input:proxyUrl}'
+            ]
+          }
+        },
+        mcpInputs: [
+          {
+            id: 'serviceUrl',
+            type: 'promptString',
+            description: 'Service URL',
+            default: 'https://service.example.test'
+          },
+          {
+            id: 'accessToken',
+            type: 'promptString',
+            description: 'Service access token',
+            password: true
+          },
+          {
+            id: 'proxyUrl',
+            type: 'promptString',
+            description: 'HTTPS proxy URL',
+            default: 'https://proxy.example.test'
+          }
+        ]
+      });
+      expect(cliManifest).toEqual(legacyManifest);
     });
 
     it('fails with exit 1 when collections/ does not exist and no --collection-file is given', async () => {
