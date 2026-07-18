@@ -1,11 +1,17 @@
 #!/bin/bash
 echo "Applying post-compilation fixes..."
 
+# Get the directory of the script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Fix test runner path
 sed -i 's|test-dist/src/test/index.js|test-dist/test/index.js|' test/runExtensionTests.js
 
 # Update repository references in test files
 find test-dist/test/suite -name "*.js" -exec sed -i 's/test-owner/AmadeusITGroup/g; s/test-repo/prompt-registry/g' {} \; 2>/dev/null || true
+
+# Create test-dist/utils directory if it doesn't exist
+mkdir -p test-dist/utils
 
 # Create complete logger.js file with all required methods
 cat > test-dist/utils/logger.js << 'LOGGER_EOF'
@@ -105,9 +111,9 @@ exports.Logger = Logger;
 LOGGER_EOF
 
 # Ensure test index exists
-./ensure-test-index.sh
+"$SCRIPT_DIR/ensure-test-index.sh"
 
 # Create VS Code mock
-./create-vscode-mock.sh
+"$SCRIPT_DIR/create-vscode-mock.sh"
 
 echo "Post-compilation fixes applied"

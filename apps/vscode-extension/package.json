@@ -1,0 +1,849 @@
+{
+  "name": "prompt-registry",
+  "displayName": "AI Primitives Hub",
+  "description": "AI Primitives Hub - AI prompt management framework for VSCode and its forks",
+  "version": "0.0.2",
+  "publisher": "AmadeusITGroup",
+  "author": {
+    "name": "Amadeus IT Group",
+    "email": "opensource@amadeus.com"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AmadeusITGroup/ai-primitives-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AmadeusITGroup/ai-primitives-hub/issues"
+  },
+  "homepage": "https://github.com/AmadeusITGroup/ai-primitives-hub#readme",
+  "keywords": [
+    "ai",
+    "assistant",
+    "framework",
+    "llm",
+    "productivity",
+    "coding",
+    "automation"
+  ],
+  "categories": [
+    "Other",
+    "Machine Learning",
+    "Education"
+  ],
+  "engines": {
+    "vscode": "^1.99.3"
+  },
+  "extensionKind": [
+    "workspace",
+    "ui"
+  ],
+  "main": "./dist/extension.js",
+  "icon": "icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "chatSkills": [
+      {
+        "path": "./resources/skills/prompt-registry-helper/SKILL.md"
+      }
+    ],
+    "commands": [
+      {
+        "command": "promptRegistry.resetFirstRun",
+        "title": "Reset First Run (for Testing)",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptregistry.forceGitHubAuth",
+        "title": "Force GitHub Authentication",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.scaffoldProject",
+        "title": "Scaffold Project",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.addResource",
+        "title": "Add Resource (Prompt/Instruction/Agent/Skill)",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.validateCollections",
+        "title": "Validate Collections",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.validateApm",
+        "title": "Validate APM Package",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.listCollections",
+        "title": "List All Collections",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.createProfile",
+        "title": "Create New Profile",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.editProfile",
+        "title": "Edit Profile",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.activateProfile",
+        "title": "Activate Profile",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.deactivateProfile",
+        "title": "Deactivate Profile",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.deleteProfile",
+        "title": "Delete Profile",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.exportProfile",
+        "title": "Export Profile",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.importProfile",
+        "title": "Import Profile",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.exportSettings",
+        "title": "Export Settings",
+        "category": "AI Primitives Hub",
+        "icon": "$(save-as)"
+      },
+      {
+        "command": "promptRegistry.importSettings",
+        "title": "Import Settings",
+        "category": "AI Primitives Hub",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "promptRegistry.openSettings",
+        "title": "Open Settings",
+        "category": "AI Primitives Hub",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "promptRegistry.listProfiles",
+        "title": "List All Profiles",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.createCollection",
+        "title": "Create New Collection",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.updateBundle",
+        "title": "Update Bundle",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.checkBundleUpdates",
+        "title": "Check for Bundle Updates",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.manualCheckForUpdates",
+        "title": "Check for Updates (Manual)",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.enableAutoUpdate",
+        "title": "Enable Auto-Update",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.disableAutoUpdate",
+        "title": "Disable Auto-Update",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.updateAllBundles",
+        "title": "Update All Bundles",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.uninstallBundle",
+        "title": "Uninstall Bundle",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.viewBundle",
+        "title": "View Bundle Details",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptRegistry.addSource",
+        "title": "Add Source",
+        "category": "AI Primitives Hub",
+        "icon": "$(add)"
+      },
+      {
+        "command": "promptRegistry.editSource",
+        "title": "Edit Source",
+        "category": "AI Primitives Hub",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "promptRegistry.removeSource",
+        "title": "Remove Source",
+        "category": "AI Primitives Hub",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "promptRegistry.syncSource",
+        "title": "Sync Source",
+        "category": "AI Primitives Hub",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "promptRegistry.syncAllSources",
+        "title": "Sync All Sources",
+        "category": "AI Primitives Hub",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "promptRegistry.toggleSource",
+        "title": "Toggle Source Enabled/Disabled",
+        "category": "AI Primitives Hub",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "promptregistry.importHub",
+        "title": "Import Hub",
+        "category": "AI Primitives Hub",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "promptregistry.listHubs",
+        "title": "List Hubs",
+        "category": "AI Primitives Hub",
+        "icon": "$(server)"
+      },
+      {
+        "command": "promptregistry.syncHub",
+        "title": "Sync Hub",
+        "category": "AI Primitives Hub",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "promptregistry.deleteHub",
+        "title": "Delete Hub",
+        "category": "AI Primitives Hub",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "promptregistry.listHubProfiles",
+        "title": "List Hub Profiles",
+        "category": "AI Primitives Hub",
+        "icon": "$(package)"
+      },
+      {
+        "command": "promptregistry.browseHubProfiles",
+        "title": "Browse Hub Profiles",
+        "category": "AI Primitives Hub",
+        "icon": "$(search)"
+      },
+      {
+        "command": "promptregistry.viewHubProfile",
+        "title": "View Hub Profile",
+        "category": "AI Primitives Hub"
+      },
+      {
+        "command": "promptregistry.activateHubProfile",
+        "title": "Activate Hub Profile",
+        "category": "AI Primitives Hub",
+        "icon": "$(check)"
+      },
+      {
+        "command": "promptregistry.deactivateHubProfile",
+        "title": "Deactivate Hub Profile",
+        "category": "AI Primitives Hub",
+        "icon": "$(close)"
+      },
+      {
+        "command": "promptregistry.showActiveProfiles",
+        "title": "Show Active Hub Profiles",
+        "category": "AI Primitives Hub",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "promptregistry.checkForUpdates",
+        "title": "Check Hub Profile for Updates",
+        "category": "AI Primitives Hub",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "promptregistry.viewProfileChanges",
+        "title": "View Hub Profile Changes",
+        "category": "AI Primitives Hub",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "promptregistry.syncProfileNow",
+        "title": "Sync Hub Profile Now",
+        "category": "AI Primitives Hub",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "promptregistry.reviewAndSyncProfile",
+        "title": "Review and Sync Hub Profile",
+        "category": "AI Primitives Hub",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "promptregistry.viewSyncHistory",
+        "title": "View Hub Profile Sync History",
+        "category": "AI Primitives Hub",
+        "icon": "$(history)"
+      },
+      {
+        "command": "promptregistry.rollbackProfile",
+        "title": "Rollback Hub Profile",
+        "category": "AI Primitives Hub",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "promptregistry.clearSyncHistory",
+        "title": "Clear Hub Profile Sync History",
+        "category": "AI Primitives Hub",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "promptregistry.switchHub",
+        "title": "Switch Hub",
+        "category": "AI Primitives Hub",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "promptregistry.exportHubConfig",
+        "title": "Export Hub Configuration",
+        "category": "AI Primitives Hub",
+        "icon": "$(export)"
+      },
+      {
+        "command": "promptregistry.openHubRepository",
+        "title": "Open Hub Repository",
+        "category": "AI Primitives Hub",
+        "icon": "$(repo)"
+      },
+      {
+        "command": "promptregistry.openItemRepository",
+        "title": "Open Repository",
+        "category": "AI Primitives Hub",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "promptRegistry.toggleProfileView",
+        "title": "Toggle Favorites View",
+        "category": "AI Primitives Hub",
+        "icon": "$(star)"
+      },
+      {
+        "command": "promptRegistry.showFavoritesView",
+        "title": "Show Favorites",
+        "category": "AI Primitives Hub",
+        "icon": "$(star)"
+      },
+      {
+        "command": "promptRegistry.hideFavoritesView",
+        "title": "Show All Profiles",
+        "category": "AI Primitives Hub",
+        "icon": "$(star-full)"
+      },
+      {
+        "command": "promptRegistry.toggleProfileFavorite",
+        "title": "Toggle Favorite",
+        "category": "AI Primitives Hub",
+        "icon": "$(star)"
+      },
+      {
+        "command": "promptRegistry.moveToRepositoryCommit",
+        "title": "Move to Repository (Commit)",
+        "category": "AI Primitives Hub",
+        "icon": "$(repo)"
+      },
+      {
+        "command": "promptRegistry.moveToRepositoryLocalOnly",
+        "title": "Move to Repository (Local Only)",
+        "category": "AI Primitives Hub",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "promptRegistry.moveToUser",
+        "title": "Move to User",
+        "category": "AI Primitives Hub",
+        "icon": "$(account)"
+      },
+      {
+        "command": "promptRegistry.switchToLocalOnly",
+        "title": "Switch to Local Only",
+        "category": "AI Primitives Hub",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "promptRegistry.switchToCommit",
+        "title": "Switch to Commit",
+        "category": "AI Primitives Hub",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "promptRegistry.cleanupStaleLockfileEntries",
+        "title": "Clean Up Stale Repository Bundles",
+        "category": "AI Primitives Hub",
+        "icon": "$(trash)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "promptRegistry",
+          "title": "AI Primitives Hub",
+          "icon": "resources/activity-bar-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "promptRegistry": [
+        {
+          "id": "promptregistry.marketplace",
+          "name": "Marketplace",
+          "type": "webview",
+          "icon": "$(extensions)",
+          "contextualTitle": "Prompt Marketplace"
+        },
+        {
+          "id": "promptRegistryExplorer",
+          "name": "Registry Explorer",
+          "icon": "$(list-tree)",
+          "contextualTitle": "AI Primitives Hub"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "promptregistry.forceGitHubAuth"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "promptRegistry.showFavoritesView",
+          "when": "view == promptRegistryExplorer && !promptRegistry.favoritesViewActive",
+          "group": "navigation@0"
+        },
+        {
+          "command": "promptRegistry.hideFavoritesView",
+          "when": "view == promptRegistryExplorer && promptRegistry.favoritesViewActive",
+          "group": "navigation@0"
+        },
+        {
+          "command": "promptRegistry.exportSettings",
+          "when": "view == promptRegistryExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "promptRegistry.importSettings",
+          "when": "view == promptRegistryExplorer",
+          "group": "navigation@2"
+        },
+        {
+          "command": "promptRegistry.openSettings",
+          "when": "view == promptRegistryExplorer",
+          "group": "navigation@3"
+        },
+        {
+          "command": "promptregistry.switchHub",
+          "when": "view == promptRegistryExplorer",
+          "group": "navigation@4"
+        },
+        {
+          "command": "promptregistry.exportHubConfig",
+          "when": "view == promptRegistryExplorer",
+          "group": "navigation@5"
+        },
+        {
+          "command": "promptregistry.openHubRepository",
+          "when": "view == promptRegistryExplorer",
+          "group": "navigation@6"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "promptRegistry.activateProfile",
+          "when": "view == promptRegistryExplorer && (viewItem == profile || viewItem == hub_profile)",
+          "group": "promptRegistry@1"
+        },
+        {
+          "command": "promptRegistry.deactivateProfile",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^profile(-active)?$/ || viewItem == hub_profile)",
+          "group": "promptRegistry@2"
+        },
+        {
+          "command": "promptRegistry.editProfile",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^profile(-active)?$/ || viewItem == hub_profile)",
+          "group": "promptRegistry@3"
+        },
+        {
+          "command": "promptRegistry.exportProfile",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^profile(-active)?$/ || viewItem == hub_profile)",
+          "group": "promptRegistry@4"
+        },
+        {
+          "command": "promptRegistry.deleteProfile",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^profile(-active)?$/ || viewItem == hub_profile)",
+          "group": "promptRegistry@5"
+        },
+        {
+          "command": "promptRegistry.toggleProfileFavorite",
+          "when": "view == promptRegistryExplorer && viewItem == hub_profile",
+          "group": "promptRegistry@6"
+        },
+        {
+          "command": "promptRegistry.viewBundle",
+          "when": "view == promptRegistryExplorer && viewItem == installed_bundle",
+          "group": "bundleActions@1"
+        },
+        {
+          "command": "promptRegistry.updateBundle",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^installed_bundle_auto_disabled/ || viewItem =~ /^installed_bundle_auto_enabled/)",
+          "group": "bundleActions@2"
+        },
+        {
+          "command": "promptRegistry.updateBundle",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^installed_bundle_updatable_auto_disabled/ || viewItem =~ /^installed_bundle_updatable_auto_enabled/)",
+          "group": "bundleActions@1"
+        },
+        {
+          "command": "promptRegistry.checkBundleUpdates",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^installed_bundle_auto_disabled/ || viewItem =~ /^installed_bundle_auto_enabled/)",
+          "group": "bundleActions@3"
+        },
+        {
+          "command": "promptRegistry.enableAutoUpdate",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^installed_bundle_auto_disabled/ || viewItem =~ /^installed_bundle_updatable_auto_disabled/)",
+          "group": "autoUpdate@1"
+        },
+        {
+          "command": "promptRegistry.disableAutoUpdate",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^installed_bundle_auto_enabled/ || viewItem =~ /^installed_bundle_updatable_auto_enabled/)",
+          "group": "autoUpdate@1"
+        },
+        {
+          "command": "promptRegistry.uninstallBundle",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^installed_bundle_auto_disabled/ || viewItem =~ /^installed_bundle_auto_enabled/)",
+          "group": "bundleActions@4"
+        },
+        {
+          "command": "promptRegistry.uninstallBundle",
+          "when": "view == promptRegistryExplorer && (viewItem =~ /^installed_bundle_updatable_auto_disabled/ || viewItem =~ /^installed_bundle_updatable_auto_enabled/)",
+          "group": "bundleActions@4"
+        },
+        {
+          "command": "promptRegistry.editSource",
+          "when": "view == promptRegistryExplorer && viewItem == source",
+          "group": "sourceActions@1"
+        },
+        {
+          "command": "promptRegistry.syncSource",
+          "when": "view == promptRegistryExplorer && viewItem == source",
+          "group": "sourceActions@2"
+        },
+        {
+          "command": "promptRegistry.removeSource",
+          "when": "view == promptRegistryExplorer && viewItem == source",
+          "group": "sourceActions@3"
+        },
+        {
+          "command": "promptRegistry.toggleSource",
+          "when": "view == promptRegistryExplorer && viewItem == source",
+          "group": "sourceActions@4"
+        },
+        {
+          "command": "promptregistry.syncHub",
+          "when": "view == promptRegistryExplorer && viewItem == hub",
+          "group": "hubActions@1"
+        },
+        {
+          "command": "promptregistry.deleteHub",
+          "when": "view == promptRegistryExplorer && viewItem == hub",
+          "group": "hubActions@2"
+        },
+        {
+          "command": "promptregistry.openItemRepository",
+          "when": "view == promptRegistryExplorer && viewItem == hub",
+          "group": "hubActions@3"
+        },
+        {
+          "command": "promptregistry.openItemRepository",
+          "when": "view == promptRegistryExplorer && viewItem == hub_profile",
+          "group": "promptRegistry@7"
+        },
+        {
+          "command": "promptregistry.openItemRepository",
+          "when": "view == promptRegistryExplorer && viewItem == source",
+          "group": "sourceActions@5"
+        },
+        {
+          "command": "promptregistry.openItemRepository",
+          "when": "view == promptRegistryExplorer && viewItem == installed_bundle",
+          "group": "bundleActions@5"
+        },
+        {
+          "command": "promptRegistry.moveToRepositoryCommit",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^installed_bundle.*_user$/",
+          "group": "scopeActions@1"
+        },
+        {
+          "command": "promptRegistry.moveToRepositoryLocalOnly",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^installed_bundle.*_user$/",
+          "group": "scopeActions@2"
+        },
+        {
+          "command": "promptRegistry.moveToUser",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^installed_bundle.*_repository_(commit|local_only)$/",
+          "group": "scopeActions@1"
+        },
+        {
+          "command": "promptRegistry.switchToLocalOnly",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^installed_bundle.*_repository_commit$/",
+          "group": "scopeActions@2"
+        },
+        {
+          "command": "promptRegistry.switchToCommit",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^installed_bundle.*_repository_local_only$/",
+          "group": "scopeActions@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Primitives Hub",
+      "properties": {
+        "promptregistry.autoCheckUpdates": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically check for updates on extension activation"
+        },
+        "promptregistry.installationScope": {
+          "type": "string",
+          "enum": [
+            "user",
+            "workspace",
+            "project"
+          ],
+          "default": "user",
+          "description": "Default installation scope for AI Primitives Hub components"
+        },
+        "promptregistry.enableLogging": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable detailed logging for debugging purposes"
+        },
+        "promptregistry.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub personal access token for private repositories (generate with 'gh auth token')"
+        },
+        "promptregistry.updateCheck.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic update checks for installed bundles"
+        },
+        "promptregistry.updateCheck.frequency": {
+          "type": "string",
+          "enum": [
+            "daily",
+            "weekly",
+            "manual"
+          ],
+          "default": "daily",
+          "description": "How often to check for bundle updates"
+        },
+        "promptregistry.updateCheck.notificationPreference": {
+          "type": "string",
+          "enum": [
+            "all",
+            "critical",
+            "none"
+          ],
+          "default": "all",
+          "description": "Which updates to show notifications for"
+        },
+        "promptregistry.updateCheck.autoUpdate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically install updates in the background"
+        },
+        "promptregistry.updateCheck.cacheTTL": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 60000,
+          "maximum": 3600000,
+          "description": "Cache time-to-live for update check results in milliseconds (default: 5 minutes, min: 1 minute, max: 1 hour)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "pnpm run compile",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "vscode:prepublish": "pnpm run compile",
+    "copy-webview": "cpy \"src/ui/webview/marketplace/*\" dist/webview/marketplace && cpy \"src/ui/webview/bundle-details/*\" dist/webview/bundle-details",
+    "copy-skill-references": "cd ../.. && cpy docs/README.md apps/vscode-extension/resources/skills/prompt-registry-helper/references/docs-index.md && cpy \"docs/**\" \"!docs/README.md\" \"!docs/contributor-guide\" \"!docs/contributor-guide/**\" \"!docs/reference/adapter-api.md\" \"!docs/AGENTS.md\" apps/vscode-extension/resources/skills/prompt-registry-helper/references",
+    "compile": "webpack --mode production && pnpm run copy-webview && pnpm run copy-skill-references",
+    "watch": "webpack --mode development --watch",
+    "package": "webpack --mode production --devtool hidden-source-map && pnpm run copy-webview",
+    "package:vsix": "vsce package --no-dependencies",
+    "compile-tests": "tsc -p tsconfig.test.json && node scripts/copy-test-fixtures.js",
+    "watch-tests": "tsc -p tsconfig.test.json -w",
+    "pretest": "rimraf test-dist && pnpm run compile-tests && pnpm run compile && pnpm run lint",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix",
+    "test": "pnpm run test:all",
+    "test:one": "node scripts/run-single-test.js",
+    "test:unit": "npx mocha --ui tdd --require ./test/mocha.setup.js --require ./test/unit.setup.js \"test-dist/test/**/*.test.js\" --ignore \"test-dist/test/suite/**/*.test.js\" --timeout 5000",
+    "test:integration": "pnpm run compile-tests && node ./test/runExtensionTests.js",
+    "test:all": "pnpm run compile-tests && pnpm run test:unit && pnpm run test:integration",
+    "test:coverage": "pnpm run compile-tests && c8 pnpm run test:all",
+    "test:coverage:report": "c8 report --reporter=html --reporter=text --reporter=json",
+    "test:coverage:unit": "pnpm run compile-tests && c8 --reporter=html --reporter=text mocha --ui tdd --require ./test/mocha.setup.js --require ./test/unit.setup.js \"test-dist/test/**/*.test.js\" --ignore \"test-dist/test/suite/**/*.test.js\" --timeout 5000",
+    "test:coverage:integration": "pnpm run compile-tests && c8 --reporter=html --reporter=text pnpm run test:integration",
+    "coverage:clean": "rimraf coverage .nyc_output .c8_output",
+    "ignore:status": "node scripts/package-helpers.js status",
+    "ignore:dev": "node scripts/package-helpers.js dev",
+    "ignore:prod": "node scripts/package-helpers.js prod",
+    "ignore:restore": "node scripts/package-helpers.js restore",
+    "package:prepare": "node scripts/package-helpers.js prod && pnpm run compile",
+    "package:cleanup": "node scripts/package-helpers.js dev",
+    "package:full": "pnpm run package:prepare && pnpm run package:vsix && pnpm run package:cleanup",
+    "package:production": "pnpm run package:prepare && pnpm run package:vsix && pnpm run package:cleanup && echo \"📦 Production package created with optimized size\"",
+    "dev:setup": "pnpm run ignore:dev && echo \"🔧 Development mode activated - Copilot friendly\"",
+    "dev:package-test": "pnpm run package:prepare && echo \"📋 Switched to production mode - check file exclusions\" && pnpm run ignore:status",
+    "version:update": "./scripts/update-version.sh",
+    "version:bump:major": "npm version major --no-git-tag-version && pnpm run version:update",
+    "version:bump:minor": "npm version minor --no-git-tag-version && pnpm run version:update",
+    "version:bump:patch": "npm version patch --no-git-tag-version && pnpm run version:update"
+  },
+  "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
+    "@eslint/js": "^9.39.2",
+    "@istanbuljs/nyc-config-typescript": "^1.0.0",
+    "@o3r/eslint-config": "^14.0.4",
+    "@o3r/eslint-plugin": "^14.0.4",
+    "@playwright/test": "^1.56.1",
+    "@stylistic/eslint-plugin": "^5.6.1",
+    "@types/adm-zip": "^0.5.7",
+    "@types/archiver": "^7.0.0",
+    "@types/fs-extra": "^11.0.4",
+    "@types/glob": "^8.1.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/markdown-it": "^14.1.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.0.0",
+    "@types/sanitize-html": "^2.16.1",
+    "@types/semver": "^7.5.6",
+    "@types/sinon": "^17.0.4",
+    "@types/vscode": "^1.99.3",
+    "@types/yauzl": "^2.10.3",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.2",
+    "angular-eslint": "^21.3.1",
+    "c8": "^10.1.3",
+    "cpy-cli": "^7.0.0",
+    "eslint": "^9.0.0",
+    "eslint-import-resolver-node": "^0.3.9",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-import-newlines": "^1.4.1",
+    "eslint-plugin-jsdoc": "^61.5.0",
+    "eslint-plugin-prefer-arrow": "^1.2.3",
+    "eslint-plugin-unicorn": "^62.0.0",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "fast-check": "^3.23.2",
+    "globals": "^16.5.0",
+    "jsonc-eslint-parser": "^2.4.2",
+    "mocha": "^11.7.5",
+    "nock": "^14.0.10",
+    "nyc": "^18.0.0",
+    "playwright": "^1.56.1",
+    "prettier": "^3.8.0",
+    "rimraf": "^6.0.1",
+    "sinon": "^21.0.0",
+    "ts-loader": "^9.4.1",
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.56.0",
+    "webpack": "^5.76.0",
+    "webpack-cli": "^5.0.1"
+  },
+  "dependencies": {
+    "@ai-primitives-hub/app": "workspace:*",
+    "@ai-primitives-hub/core": "workspace:*",
+    "@ai-primitives-hub/infra": "workspace:*",
+    "@elastic/elasticsearch": "^9.3.4",
+    "@prompt-registry/collection-scripts": "workspace:^",
+    "adm-zip": "^0.6.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "archiver": "^7.0.1",
+    "axios": "^1.16.1",
+    "fs-extra": "^11.3.2",
+    "glob": "^11.1.0",
+    "js-yaml": "^4.1.1",
+    "jsonc-parser": "^3.2.0",
+    "markdown-it": "^14.1.1",
+    "sanitize-html": "^2.17.4",
+    "semver": "^7.5.4",
+    "yauzl": "^2.10.0"
+  },
+  "extensionDependencies": [],
+  "overrides": {
+    "mocha": {
+      "chokidar": "^5.0.0",
+      "diff": "^8.0.3",
+      "serialize-javascript": "^7.0.5"
+    },
+    "js-yaml": "^4.1.1"
+  },
+  "nyc": {
+    "extends": "@istanbuljs/nyc-config-typescript",
+    "all": true,
+    "include": [
+      "src/**/*.ts"
+    ],
+    "exclude": [
+      "src/**/*.d.ts",
+      "src/**/*.test.ts",
+      "**/*.d.ts",
+      "test/**/*",
+      "coverage/**/*",
+      "dist/**/*",
+      "out/**/*",
+      "node_modules/**/*"
+    ],
+    "reporter": [
+      "text",
+      "html",
+      "json",
+      "lcov"
+    ],
+    "report-dir": "coverage",
+    "temp-dir": ".nyc_output"
+  }
+}

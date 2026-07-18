@@ -8,19 +8,19 @@ echo "🚀 Quick validation check..."
 
 # 1. Lint
 echo "▶ Linting..."
-npm run lint
+pnpm run lint
 
 # 2. Compile
 echo "▶ Compiling..."
-npm run compile
+pnpm run compile
 
 # 3. Compile Tests
 echo "▶ Compiling tests..."
-npm run compile-tests
+pnpm run compile-tests
 
 # 4. Unit tests only
 echo "▶ Unit tests..."
-npm run test:unit
+pnpm run test:unit
 
 echo ""
 echo "✅ Quick check passed! Safe to continue development."

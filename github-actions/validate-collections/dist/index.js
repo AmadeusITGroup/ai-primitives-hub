@@ -529,7 +529,7 @@ function resolveYamlInteger (data) {
         if (ch !== '0' && ch !== '1') return false
         hasDigits = true;
       }
-      return hasDigits && Number.isFinite(parseYamlInteger(data))
+      return hasDigits && isFinite(parseYamlInteger(data))
     }
 
     if (ch === 'x') {
@@ -540,7 +540,7 @@ function resolveYamlInteger (data) {
         if (!isHexCode(data.charCodeAt(index))) return false
         hasDigits = true;
       }
-      return hasDigits && Number.isFinite(parseYamlInteger(data))
+      return hasDigits && isFinite(parseYamlInteger(data))
     }
 
     if (ch === 'o') {
@@ -551,7 +551,7 @@ function resolveYamlInteger (data) {
         if (!isOctCode(data.charCodeAt(index))) return false
         hasDigits = true;
       }
-      return hasDigits && Number.isFinite(parseYamlInteger(data))
+      return hasDigits && isFinite(parseYamlInteger(data))
     }
   }
 
@@ -566,7 +566,7 @@ function resolveYamlInteger (data) {
 
   if (!hasDigits) return false
 
-  return Number.isFinite(parseYamlInteger(data))
+  return isFinite(parseYamlInteger(data))
 }
 
 function parseYamlInteger (data) {
@@ -649,7 +649,7 @@ function resolveYamlFloat (data) {
     return false
   }
 
-  if (Number.isFinite(parseFloat(data, 10))) {
+  if (isFinite(parseFloat(data, 10))) {
     return true
   }
 
@@ -1235,7 +1235,7 @@ function State$1 (input, options) {
   this.json = options['json'] || false;
   this.listener = options['listener'] || null;
   this.maxDepth = typeof options['maxDepth'] === 'number' ? options['maxDepth'] : 100;
-  this.maxMergeSeqLength = typeof options['maxMergeSeqLength'] === 'number' ? options['maxMergeSeqLength'] : 20;
+  this.maxTotalMergeKeys = typeof options['maxTotalMergeKeys'] === 'number' ? options['maxTotalMergeKeys'] : 10000;
 
   this.implicitTypes = this.schema.compiledImplicit;
   this.typeMap = this.schema.compiledTypeMap;
@@ -1246,6 +1246,7 @@ function State$1 (input, options) {
   this.lineStart = 0;
   this.lineIndent = 0;
   this.depth = 0;
+  this.totalMergeKeys = 0;
 
   // position of first leading tab in the current line,
   // used to make sure there are no tabs in the indentation
@@ -1463,6 +1464,10 @@ function mergeMappings (state, destination, source, overridableKeys) {
   for (let index = 0, quantity = sourceKeys.length; index < quantity; index += 1) {
     const key = sourceKeys[index];
 
+    if (state.maxTotalMergeKeys !== -1 && ++state.totalMergeKeys > state.maxTotalMergeKeys) {
+      throwError(state, 'merge keys exceeded maxTotalMergeKeys (' + state.maxTotalMergeKeys + ')');
+    }
+
     if (!_hasOwnProperty$1.call(destination, key)) {
       setProperty(destination, key, source[key]);
       overridableKeys[key] = true;
@@ -1504,17 +1509,8 @@ function storeMappingPair (state, _result, overridableKeys, keyTag, keyNode, val
 
   if (keyTag === 'tag:yaml.org,2002:merge') {
     if (Array.isArray(valueNode)) {
-      if (valueNode.length > state.maxMergeSeqLength) {
-        throwError(state, 'merge sequence length exceeded maxMergeSeqLength (' + state.maxMergeSeqLength + ')');
-      }
-      const seen = new Set();
       for (let index = 0, quantity = valueNode.length; index < quantity; index += 1) {
-        const src = valueNode[index];
-        // Existing keys are not overridden on merge, so dedupe sources to
-        // avoid redundant work on repeated aliases.
-        if (seen.has(src)) continue
-        seen.add(src);
-        mergeMappings(state, _result, src, overridableKeys);
+        mergeMappings(state, _result, valueNode[index], overridableKeys);
       }
     } else {
       mergeMappings(state, _result, valueNode, overridableKeys);
@@ -4103,6 +4099,26 @@ jsYaml.safeDump = renamed('safeDump', 'dump');
 	            errors.push(`${sourceLabel}: ${versionResult.error}`);
 	        }
 	    }
+	    // Validate readme if present (optional field)
+	    if (col.readme !== undefined) {
+	        if (!col.readme || typeof col.readme !== 'object') {
+	            errors.push(`${sourceLabel}: readme must be an object with a "path" property`);
+	        }
+	        else {
+	            const readme = col.readme;
+	            if (!readme.path || typeof readme.path !== 'string' || readme.path.trim() === '') {
+	                errors.push(`${sourceLabel}: readme.path must be a non-empty string`);
+	            }
+	            else {
+	                try {
+	                    normalizeRepoRelativePath(readme.path);
+	                }
+	                catch {
+	                    errors.push(`${sourceLabel}: readme.path has an invalid path (must be repo-root relative): ${readme.path}`);
+	                }
+	            }
+	        }
+	    }
 	    if (!Array.isArray(col.items)) {
 	        errors.push(`${sourceLabel}: Missing required field: items (array)`);
 	    }
@@ -4152,6 +4168,7 @@ jsYaml.safeDump = renamed('safeDump', 'dump');
 	        ? collectionFile
 	        : path.join(repoRoot, collectionFile);
 	    const errors = [];
+	    const warnings = [];
 	    if (!fs.existsSync(abs)) {
 	        return { ok: false, errors: [`${rel}: Collection file not found`] };
 	    }
@@ -4183,7 +4200,23 @@ jsYaml.safeDump = renamed('safeDump', 'dump');
 	            }
 	        });
 	    }
-	    return { ok: errors.length === 0, errors, collection };
+	    if (collection?.readme?.path) {
+	        let relPath;
+	        try {
+	            relPath = normalizeRepoRelativePath(collection.readme.path);
+	        }
+	        catch {
+	            return { ok: false, errors: [...errors, `${rel}: readme path is invalid: ${collection.readme.path}`] };
+	        }
+	        const readmeAbs = path.join(repoRoot, relPath);
+	        if (!fs.existsSync(readmeAbs)) {
+	            errors.push(`${rel}: readme referenced file not found: ${relPath}`);
+	        }
+	    }
+	    else {
+	        warnings.push(`${rel}: Collection has no readme. Consider adding a readme to help users understand this collection.`);
+	    }
+	    return { ok: errors.length === 0, errors, warnings, collection };
 	}
 	/**
 	 * Validate all collections in a repository, including duplicate detection.
@@ -4193,6 +4226,7 @@ jsYaml.safeDump = renamed('safeDump', 'dump');
 	 */
 	function validateAllCollections(repoRoot, collectionFiles) {
 	    const errors = [];
+	    const warnings = [];
 	    const fileResults = [];
 	    const seenIds = new Map(); // id -> file path
 	    const seenNames = new Map(); // name -> file path
@@ -4200,6 +4234,9 @@ jsYaml.safeDump = renamed('safeDump', 'dump');
 	        const result = validateCollectionFile(repoRoot, file);
 	        fileResults.push({ file, ...result });
 	        errors.push(...result.errors);
+	        if (result.warnings) {
+	            warnings.push(...result.warnings);
+	        }
 	        // Check for duplicate IDs and names
 	        if (result.collection) {
 	            const { id, name } = result.collection;
@@ -4217,7 +4254,7 @@ jsYaml.safeDump = renamed('safeDump', 'dump');
 	            }
 	        }
 	    }
-	    return { ok: errors.length === 0, errors, fileResults };
+	    return { ok: errors.length === 0, errors, warnings, fileResults };
 	}
 	/**
 	 * Generate markdown content for PR comment from validation result.
@@ -4235,6 +4272,12 @@ jsYaml.safeDump = renamed('safeDump', 'dump');
 	        md += '### Errors\n\n';
 	        result.errors.forEach((err) => {
 	            md += `- ${err}\n`;
+	        });
+	    }
+	    if (result.warnings && result.warnings.length > 0) {
+	        md += '\n### Warnings\n\n';
+	        result.warnings.forEach((warn) => {
+	            md += `- ⚠️ ${warn}\n`;
 	        });
 	    }
 	    return md;
@@ -4281,6 +4324,7 @@ Object.defineProperty(collections, "__esModule", { value: true });
 collections.listCollectionFiles = listCollectionFiles;
 collections.readCollection = readCollection;
 collections.resolveCollectionItemPaths = resolveCollectionItemPaths;
+collections.resolveCollectionReadmePath = resolveCollectionReadmePath;
 /**
  * Collection file utilities.
  * @module collections
@@ -4372,6 +4416,17 @@ function resolveCollectionItemPaths(repoRoot, collection) {
         }
     }
     return allPaths;
+}
+/**
+ * Resolve the README path for a collection.
+ * @param collection - Parsed collection object
+ * @returns Normalized repo-relative path or null if not available
+ */
+function resolveCollectionReadmePath(collection) {
+    if (!collection.readme || !collection.readme.path) {
+        return null;
+    }
+    return (0, validate_1.normalizeRepoRelativePath)(collection.readme.path);
 }
 
 var bundleId = {};
@@ -4788,7 +4843,7 @@ Provide example interactions or use cases.
 	 * @module @prompt-registry/collection-scripts
 	 */
 	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.createSkill = exports.generateSkillContent = exports.validateAllSkills = exports.validateSkillFolder = exports.validateSkillDescription = exports.validateSkillName = exports.parseFrontmatter = exports.MAX_ASSET_SIZE = exports.SKILL_DESCRIPTION_MAX_LENGTH = exports.SKILL_DESCRIPTION_MIN_LENGTH = exports.SKILL_NAME_MAX_LENGTH = exports.getPositionalArg = exports.hasFlag = exports.parseMultiArg = exports.parseSingleArg = exports.generateBundleId = exports.resolveCollectionItemPaths = exports.readCollection = exports.listCollectionFiles = exports.generateMarkdown = exports.validateAllCollections = exports.validateCollectionFile = exports.validateCollectionObject = exports.isSafeRepoRelativePath = exports.normalizeRepoRelativePath = exports.validateItemKind = exports.validateVersion = exports.validateCollectionId = exports.loadItemKindsFromSchema = exports.VALIDATION_RULES = void 0;
+	exports.createSkill = exports.generateSkillContent = exports.validateAllSkills = exports.validateSkillFolder = exports.validateSkillDescription = exports.validateSkillName = exports.parseFrontmatter = exports.MAX_ASSET_SIZE = exports.SKILL_DESCRIPTION_MAX_LENGTH = exports.SKILL_DESCRIPTION_MIN_LENGTH = exports.SKILL_NAME_MAX_LENGTH = exports.getPositionalArg = exports.hasFlag = exports.parseMultiArg = exports.parseSingleArg = exports.generateBundleId = exports.resolveCollectionReadmePath = exports.resolveCollectionItemPaths = exports.readCollection = exports.listCollectionFiles = exports.generateMarkdown = exports.validateAllCollections = exports.validateCollectionFile = exports.validateCollectionObject = exports.isSafeRepoRelativePath = exports.normalizeRepoRelativePath = exports.validateItemKind = exports.validateVersion = exports.validateCollectionId = exports.loadItemKindsFromSchema = exports.VALIDATION_RULES = void 0;
 	// Validation exports
 	var validate_1 = validate;
 	Object.defineProperty(exports, "VALIDATION_RULES", { enumerable: true, get: function () { return validate_1.VALIDATION_RULES; } });
@@ -4807,6 +4862,7 @@ Provide example interactions or use cases.
 	Object.defineProperty(exports, "listCollectionFiles", { enumerable: true, get: function () { return collections_1.listCollectionFiles; } });
 	Object.defineProperty(exports, "readCollection", { enumerable: true, get: function () { return collections_1.readCollection; } });
 	Object.defineProperty(exports, "resolveCollectionItemPaths", { enumerable: true, get: function () { return collections_1.resolveCollectionItemPaths; } });
+	Object.defineProperty(exports, "resolveCollectionReadmePath", { enumerable: true, get: function () { return collections_1.resolveCollectionReadmePath; } });
 	// Bundle ID exports
 	var bundle_id_1 = bundleId;
 	Object.defineProperty(exports, "generateBundleId", { enumerable: true, get: function () { return bundle_id_1.generateBundleId; } });

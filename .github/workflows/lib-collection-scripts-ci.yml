@@ -7,7 +7,8 @@ on:
       - "lib/**"
       - ".github/workflows/lib-collection-scripts-ci.yml"
       - "package.json"
-      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - "eslint.shared.mjs"
   pull_request:
     branches: [main]
@@ -15,7 +16,8 @@ on:
       - "lib/**"
       - ".github/workflows/lib-collection-scripts-ci.yml"
       - "package.json"
-      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - "eslint.shared.mjs"
   workflow_dispatch:
 
@@ -25,7 +27,6 @@ concurrency:
 
 env:
   NODE_VERSION: "24"
-  EXTENSION_DIR: "."
 
 jobs:
   lint-and-test:
@@ -54,27 +55,29 @@ jobs:
           sarif_file: "trivy-lib-results.sarif"
           category: lib
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: "${{ env.EXTENSION_DIR }}/package-lock.json"
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build TypeScript
-        working-directory: lib
-        run: npm run build
+        run: pnpm -C lib run build
 
       - name: Run linting
-        working-directory: lib
-        run: npm run lint
+        run: pnpm -C lib run lint
 
       - name: Run tests
-        working-directory: lib
-        run: npm test
+        run: pnpm -C lib run test
 
   publish:
     name: Publish to npmjs
@@ -92,20 +95,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: "${{ env.EXTENSION_DIR }}/package-lock.json"
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build TypeScript
-        working-directory: lib
-        run: npm run build
+        run: pnpm -C lib run build
 
       - name: Check if version changed
         working-directory: lib

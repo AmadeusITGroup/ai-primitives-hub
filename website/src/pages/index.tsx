@@ -1,7 +1,7 @@
 import React from "react";
 import Layout from "@theme/Layout";
 import MDXContent from "@theme/MDXContent";
-import Readme from "@site/../README.md";
+import Readme from "@site/../docs/README.md";
 
 export default function HomePage(): React.JSX.Element {
   return (

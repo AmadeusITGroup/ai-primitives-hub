@@ -5,7 +5,7 @@ const path = require('path');
 console.log('Applying essential post-compilation fixes...');
 
 // Fix test runner path - this is essential for tests to work
-const runTestsPath = path.join(__dirname, 'test', 'runExtensionTests.js');
+const runTestsPath = path.join('test', 'runExtensionTests.js');
 if (fs.existsSync(runTestsPath)) {
     console.log('Fixing test runner path...');
     let content = fs.readFileSync(runTestsPath, 'utf8');
@@ -14,7 +14,7 @@ if (fs.existsSync(runTestsPath)) {
 }
 
 // Ensure test-dist/test directory exists
-const testDir = path.join(__dirname, 'test-dist', 'test');
+const testDir = path.join('test-dist', 'test');
 fs.mkdirSync(testDir, { recursive: true });
 
 // Create basic test index.js if it doesn't exist

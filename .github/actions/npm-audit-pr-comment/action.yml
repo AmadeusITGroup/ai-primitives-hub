@@ -10,9 +10,13 @@ inputs:
     description: Directory containing package.json / package-lock.json
     required: true
   audit-flags:
-    description: Extra flags forwarded to npm audit (e.g. --omit=dev)
+    description: Extra flags forwarded to npm/pnpm audit (e.g. --omit=dev for npm, --prod for pnpm)
     required: false
     default: ''
+  package-manager:
+    description: Package manager to use (npm or pnpm)
+    required: false
+    default: 'npm'
   min-severity:
     description: Minimum severity to include in the report (info, low, moderate, high, critical)
     required: false
@@ -31,15 +35,19 @@ runs:
         MIN_SEVERITY: ${{ inputs.min-severity }}
         WORK_DIR: ${{ inputs.working-directory }}
         LABEL: ${{ inputs.label }}
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
       with:
         script: |
           const { execSync } = require('child_process')
           const fs = require('fs')
 
+          const packageManager = (process.env.PACKAGE_MANAGER || 'npm').toLowerCase()
+          const auditCmd = packageManager === 'pnpm' ? 'pnpm audit --json' : 'npm audit --json'
+
           let auditOutput
           try {
             auditOutput = execSync(
-              `npm audit --json ${process.env.AUDIT_FLAGS}`,
+              `${auditCmd} ${process.env.AUDIT_FLAGS}`,
               { cwd: process.env.WORK_DIR, stdio: ['pipe', 'pipe', 'pipe'] }
             ).toString()
           } catch (e) {
@@ -53,9 +61,17 @@ runs:
           let report
           try {
             const json = JSON.parse(auditOutput)
+
+            let rawAdvisories = []
+            if (json.advisories) {
+              rawAdvisories = Object.values(json.advisories)
+            } else if (json.vulnerabilities) {
+              rawAdvisories = Object.values(json.vulnerabilities)
+                .flatMap(v => (Array.isArray(v.via) ? v.via : v.via ? [v.via] : []))
+            }
+
             const advisories = new Map(
-              Object.values(json.vulnerabilities ?? {})
-                .flatMap(v => (Array.isArray(v.via) ? v.via : [v.via]))
+              rawAdvisories
                 .filter(v => v && typeof v === 'object' && v.url && SEVERITY_RANK.indexOf(v.severity) >= minRank)
                 .map(v => [v.url, v])
             )

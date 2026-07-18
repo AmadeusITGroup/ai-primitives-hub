@@ -1,0 +1,160 @@
+# Production VS Code ignore - minimal package size
+# This file is used during packaging to create small VSIX files
+
+# Source files and build artifacts (exclude everything except final bundle)
+src/
+out/
+test/
+test-dist/
+**/*.ts
+**/*.map
+**/*.d.ts
+**/*.d.ts.map
+
+# Node modules and dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Development and configuration files
+.vscode/
+.vscode-test/
+.vscode-test-web/
+.github/
+.eslintrc.json
+.eslintignore
+.prettierrc*
+tsconfig*.json
+webpack.config.js
+rollup.config.js
+babel.config.js
+jest.config.js
+
+# Coverage and test reports (EXCLUDE FROM DISTRIBUTION)
+coverage/
+.nyc_output/
+test-reports/
+*.lcov
+
+# Development scripts and tools (EXCLUDE FROM DISTRIBUTION)
+scripts/
+build/
+tools/
+*.sh
+apply_*.sh
+create-*.sh
+ensure-*.sh
+post_*.sh
+
+# Backup and temporary files (EXCLUDE FROM DISTRIBUTION)  
+*.log
+*.tmp
+*.cache
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.bak
+*_backup.*
+*_broken.*
+package_broken.json
+package_fixed.json
+.vscodeignore.backup
+.vscodeignore.production
+.vscodeignore.development
+*.backup
+temp_*.patch
+temp_*.txt
+
+# Documentation (keep only essential)
+docs/
+presentation/
+!docs/assets/
+!docs/assets/*.png
+!docs/assets/*.jpg
+!docs/assets/*.gif
+*.md
+!README.md
+!CHANGELOG.md
+!LICENSE.md
+
+# Icon source files (keep only PNG)
+icon.svg
+icon.ico
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+azure-pipelines.yml
+
+# IDE files
+.idea/
+*.sublime-*
+*.code-workspace
+
+# OS files
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Environment and security
+.env*
+*.pem
+*.key
+secrets.json
+
+# Archives
+*.zip
+*.tar.gz
+*.7z
+*.rar
+*.vsix
+
+# Version control
+.gitignore
+.gitattributes
+.git/
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Integration test files
+INTEGRATION_TEST_*.md
+
+# Explicitly include only these files:
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE.txt
+!icon.png
+!dist/extension.js
+!dist/extension.js.LICENSE.txt
+!dist/webview/
+!dist/webview/**
+
+
+# IMPORTANT: Include templates, config, and resources directories with all its contents
+!templates/
+!templates/**
+!config/
+!config/**
+!resources/
+!resources/**
+
+# Cache directories
+.cache/
+
+# Project-specific exclusions
+.specification/
+.tmp/
+lib/
+website/
+
+# Test results
+test-results/

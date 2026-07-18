@@ -1,0 +1,128 @@
+# Collection Schema Reference
+
+Collection manifests (`.collection.yml`) define the structure and contents of a prompt collection.
+
+## Annotated Example
+
+```yaml
+id: python-development              # Required. Lowercase, numbers, hyphens only
+name: Python Development Suite      # Required. Human-readable display name (max 100 chars)
+description: Prompts for Python dev # Required. What this collection does (max 500 chars)
+version: 2.1.0                      # Optional. Semantic version
+author: Python Team                 # Optional. Creator name
+tags:                               # Optional. For discoverability
+  - python
+  - testing
+
+items:                              # Required. List of resources (max 50)
+  - path: prompts/write-tests.prompt.md   # Required. Relative path to file
+    kind: prompt                          # Required. One of: prompt, instruction, chat-mode, agent
+    title: Test Writer                    # Optional. Display title
+    description: Generates unit tests     # Optional. Item description
+    tags: [testing, pytest]               # Optional. Item-level tags
+
+  - path: instructions/standards.instructions.md
+    kind: instruction
+
+  - path: agents/runner.agent.md
+    kind: agent
+readme:                                   # Optional. Documentation for the collection.
+  path: docs/python-development/readme.md 
+
+mcp:                                # Optional. MCP server configurations
+  inputs:                           # Optional. Input definitions for secrets/configurable values
+    - id: apiToken                  # Required. Referenced as ${input:apiToken} in server config
+      type: promptString            # Required. One of: promptString, pickString, command
+      description: API access token # Optional. Label shown to the user
+      password: true                # Optional. Mask the value (for secrets)
+    - id: environment
+      type: pickString
+      description: Target environment
+      options: [staging, production]
+      default: staging
+  items:
+    # Stdio server (local process)
+    python-analyzer:                # Server name
+      type: stdio                   # Optional. Default: stdio
+      command: python               # Required for stdio. Command to start server
+      args:                         # Optional. Command arguments
+        - "${bundlePath}/server.py" # ${bundlePath} = installed bundle path
+      env:                          # Optional. Environment variables
+        LOG_LEVEL: info
+        TOKEN: "${input:apiToken}"  # Reference an input
+      envFile: "${bundlePath}/.env" # Optional. Path to env file
+      disabled: false               # Optional. Default: false
+      description: Python analyzer  # Optional. Human-readable description
+
+    # Remote HTTP server
+    api-server:
+      type: http                    # Required for remote. One of: http, sse
+      url: "https://api.example.com/mcp"  # Required for remote
+      headers:                      # Optional. Authentication headers
+        Authorization: "Bearer ${input:apiToken}"  # Use an input for secrets
+
+    # Remote SSE server
+    streaming-server:
+      type: sse
+      url: "https://stream.example.com/mcp/events"
+
+display:                            # Optional. UI preferences
+  color: "#3776AB"                  # Color theme
+  icon: python                      # Icon identifier
+  ordering: manual                  # manual or alphabetical
+  show_badge: true                  # Show badge in UI
+```
+
+## MCP Input Definitions
+
+Use `mcp.inputs` to declare secrets or user-configurable values. VS Code will prompt the user when the server starts. Inputs are referenced in server configuration using `${input:id}`.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | ✅ | Unique identifier (alphanumeric, `-`, `_`) |
+| `type` | ✅ | `promptString`, `pickString`, or `command` |
+| `description` | — | Label shown to the user |
+| `password` | — | Mask the input (use for secrets) |
+| `default` | — | Pre-filled value |
+| `options` | — | List of choices for `pickString` |
+
+**Install behaviour**: inputs from `mcp.inputs` are merged into `.vscode/mcp.json`. Existing inputs with the same `id` are preserved — they are never overwritten.
+
+**Uninstall behaviour**: when a bundle is uninstalled, inputs that are no longer referenced by any remaining MCP server are automatically removed from `mcp.json`.
+
+## MCP Server Duplicate Detection
+
+When multiple collections define the same MCP server, AI Primitives Hub automatically detects and manages duplicates to prevent conflicts in VS Code's `mcp.json`.
+
+## Documentation
+
+Make sure to provide a readme for your collections. This is what gets displayed in the detailed view of the collection in the marketplace.
+
+> **Note :** The current version only supports absolute links for images.
+>
+> **example :**
+> `![alt text](https://somedomain.com/awesomeimage.jpg)` ✅
+> `![alt text](./assets/awesomeimage.jpg)` ❌
+
+### How It Works
+
+**Server Identity** is computed based on server type:
+- **Stdio servers**: `command` + `args` (e.g., `node server.js --port 3000`)
+- **Remote servers**: `url` (e.g., `https://api.example.com/mcp`)
+
+**Behavior**:
+1. First installed server with a given identity remains **enabled**
+2. Subsequent duplicates are **disabled** with a description noting the original
+3. When the active server's bundle is uninstalled, a disabled duplicate is **re-enabled**
+4. At least one instance stays active until all bundles with that server are removed
+
+This allows multiple collections to safely share common MCP servers without conflicts.
+
+## Validation
+
+Run `Ctrl+Shift+P` → "AI Primitives Hub: Validate Collections"
+
+## See Also
+
+- [Creating Collections](./creating-source-bundle.md)
+- [Publishing Guide](./publishing.md)

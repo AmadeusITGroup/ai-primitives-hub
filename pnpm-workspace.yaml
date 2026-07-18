@@ -1,19 +1,22 @@
 packages:
   - 'packages/*'
-  # - 'apps/*'
-  # - 'github-actions/*'
+  - 'apps/*'
+  - 'github-actions/*'
   - 'lib'
+  - 'website'
 
 overrides:
   js-yaml: ^4.1.1
   mocha>chokidar: ^5.0.0
   mocha>diff: ^8.0.3
-  mocha>serialize-javascript: ^7.0.5
+  serialize-javascript: ^7.0.7
+  uuid: ^11.1.1
+
+engineStrict: true
 
 allowBuilds:
   '@vscode/vsce-sign': true
+  'core-js': false
   esbuild: true
   keytar: true
   unrs-resolver: true
-
-engineStrict: true

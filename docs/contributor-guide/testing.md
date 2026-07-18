@@ -2,7 +2,7 @@
 
 How to run tests in the AI Primitives Hub extension.
 
-> **For test writing patterns** (style, helpers, anti-patterns, deduplication rules), see [`test/AGENTS.md`](../../test/AGENTS.md). This file covers commands and tooling only.
+> **For test writing patterns** (style, helpers, anti-patterns, deduplication rules), see [`test/AGENTS.md`](../../apps/vscode-extension/test/AGENTS.md). This file covers commands and tooling only.
 
 ## Testing Architecture
 
@@ -85,6 +85,6 @@ Coverage reports are written to the `coverage/` directory.
 
 ## See Also
 
-- [`test/AGENTS.md`](../../test/AGENTS.md) — Test writing patterns, helpers, anti-patterns
-- [`test/e2e/AGENTS.md`](../../test/e2e/AGENTS.md) — E2E-specific guidance
+- [`test/AGENTS.md`](../../apps/vscode-extension/test/AGENTS.md) — Test writing patterns, helpers, anti-patterns
+- [`test/e2e/AGENTS.md`](../../apps/vscode-extension/test/e2e/AGENTS.md) — E2E-specific guidance
 - [Development Setup](./development-setup.md) — Environment setup

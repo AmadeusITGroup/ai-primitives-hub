@@ -7,7 +7,7 @@
  */
 
 const REPO_BLOB_BASE =
-  "https://github.com/AmadeusITGroup/prompt-registry/blob/main";
+  "https://github.com/AmadeusITGroup/ai-primitives-hub/blob/main";
 
 /** Paths that should resolve to the docs home page. */
 export const HOME_PATHS = new Set(["README.md", "docs/README.md", ""]);

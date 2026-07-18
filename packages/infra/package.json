@@ -30,7 +30,7 @@
   "dependencies": {
     "@ai-primitives-hub/core": "workspace:*",
     "@elastic/elasticsearch": "^9.3.4",
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.0",
     "archiver": "^7.0.1",
     "js-yaml": "^4.1.1"
   },
