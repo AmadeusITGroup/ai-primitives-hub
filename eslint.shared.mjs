@@ -1,5 +1,10 @@
-import o3rConfig from '@o3r/eslint-config';
+import { createRequire } from 'module';
 import globals from 'globals';
+
+// Load CommonJS `@o3r/eslint-config` via createRequire so this ESM
+// shared config works even when the package exposes only CJS entrypoints.
+const require = createRequire(import.meta.url);
+const o3rConfig = require('@o3r/eslint-config');
 
 /**
  * Shared ESLint configuration blocks used by both root and lib packages.
