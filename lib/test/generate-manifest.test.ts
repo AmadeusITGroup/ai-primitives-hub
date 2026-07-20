@@ -235,6 +235,48 @@ items:
     });
   });
 
+  describe('Item IDs', () => {
+    it('should strip the full compound type suffix from item ids', () => {
+      // Regression for #184: ids kept only ".md" stripped, leaving ".agent"/".prompt"
+      // which install then re-appended -> "code-reviewer.agent.agent.md".
+      const collectionYaml = `
+id: suffix-collection
+name: Suffix Collection
+description: A collection exercising compound type suffixes
+version: "1.0.0"
+items:
+  - path: agents/code-reviewer.agent.md
+    kind: agent
+  - path: prompts/summarize.prompt.md
+    kind: prompt
+`;
+
+      writeFile(tempDir, 'collections/suffix.collection.yml', collectionYaml);
+      writeFile(tempDir, 'agents/code-reviewer.agent.md', '# Code Reviewer\n\nAgent content');
+      writeFile(tempDir, 'prompts/summarize.prompt.md', '# Summarize\n\nPrompt content');
+
+      const outFile = path.join(tempDir, 'deployment-manifest.yml');
+
+      const result = spawnSync('node', [scriptPath, '1.0.0', '--collection-file', 'collections/suffix.collection.yml', '--out', outFile], {
+        cwd: tempDir,
+        encoding: 'utf8'
+      });
+
+      assert.strictEqual(result.status, 0, `Script failed: ${result.stderr}`);
+
+      const manifest = yaml.load(fs.readFileSync(outFile, 'utf8')) as any;
+
+      const agent = manifest.prompts.find((p: any) => p.type === 'agent');
+      const prompt = manifest.prompts.find((p: any) => p.type === 'prompt');
+
+      assert.ok(agent, 'Manifest should include the agent item');
+      assert.strictEqual(agent.id, 'code-reviewer', 'Agent id should not retain the .agent suffix');
+
+      assert.ok(prompt, 'Manifest should include the prompt item');
+      assert.strictEqual(prompt.id, 'summarize', 'Prompt id should not retain the .prompt suffix');
+    });
+  });
+
   describe('README asset', () => {
     it('should record the README basename when the collection declares a readme', () => {
       const collectionYaml = `
