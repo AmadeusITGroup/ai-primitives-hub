@@ -173,7 +173,18 @@ export function getTargetFileName(id: string, type: CopilotFileType): string {
     return 'SKILL.md';
   }
 
-  return `${id}${FILE_EXTENSIONS[type]}`;
+  // Defensively strip a type suffix the id may already carry (e.g. an id of
+  // "foo.prompt" from a manifest that didn't strip the compound extension), so we
+  // don't produce "foo.prompt.prompt.md". The suffix is derived from FILE_EXTENSIONS
+  // rather than hardcoded, so new file types are handled automatically.
+  const extension = FILE_EXTENSIONS[type];
+  const bareSuffix = extension.replace(/\.md$/, ''); // e.g. ".prompt"
+  let baseId = id;
+  if (bareSuffix && baseId.toLowerCase().endsWith(bareSuffix.toLowerCase())) {
+    baseId = baseId.slice(0, -bareSuffix.length);
+  }
+
+  return `${baseId}${extension}`;
 }
 
 /**

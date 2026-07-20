@@ -169,6 +169,23 @@ suite('copilotFileTypeUtils', () => {
     test('should handle IDs with special characters', () => {
       assert.strictEqual(getTargetFileName('my_prompt-v1', 'prompt'), 'my_prompt-v1.prompt.md');
     });
+
+    // Regression for #184: an id that already carries the type suffix (from a manifest
+    // that didn't strip the compound extension) must not produce a doubled extension.
+    test('should not double the extension when the id already ends in the type suffix', () => {
+      assert.strictEqual(getTargetFileName('summarize.prompt', 'prompt'), 'summarize.prompt.md');
+      assert.strictEqual(getTargetFileName('code-reviewer.agent', 'agent'), 'code-reviewer.agent.md');
+      assert.strictEqual(getTargetFileName('coding-standards.instructions', 'instructions'), 'coding-standards.instructions.md');
+    });
+
+    test('should strip the type suffix case-insensitively', () => {
+      assert.strictEqual(getTargetFileName('Summarize.PROMPT', 'prompt'), 'Summarize.prompt.md');
+    });
+
+    test('should only strip the exact type suffix, leaving other dotted segments intact', () => {
+      // "bundle.v1" is a legitimate id; ".v1" is not a type suffix and must survive.
+      assert.strictEqual(getTargetFileName('bundle.v1', 'prompt'), 'bundle.v1.prompt.md');
+    });
   });
 
   suite('getRepositoryTargetDirectory', () => {
