@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1480" viewBox="0 0 1800 1480">
+<style>.title{font:700 34px Arial,sans-serif;fill:#14213D}.subtitle{font:18px Arial,sans-serif;fill:#52616B}.bundle{font:700 20px Arial,sans-serif;fill:#14213D}.metric{font:16px Arial,sans-serif;fill:#52616B}.axis{font:15px Arial,sans-serif;fill:#52616B}.release{font:12px Arial,sans-serif;fill:#293241}.note{font:14px Arial,sans-serif;fill:#52616B}.value{font:700 16px Arial,sans-serif;fill:#14213D}</style>
+<rect width="1800" height="1480" fill="#F7F9FC"/>
+<text x="330" y="62" class="title">Clean Code in the Cloud: bundle evolution</text>
+<text x="330" y="94" class="subtitle">Each bundle line starts at its ★ first-release date (0 downloads); cumulative downloads and every published version are then plotted over time</text>
+<text x="330" y="124" class="note">Snapshots: Mar 20, Apr 23, May 21, Jun 12, Jul 20.</text>
+<line x1="362.6" y1="178" x2="362.6" y2="1385" stroke="#D9E2EC" stroke-width="1"/>
+<text x="362.6" y="1425" text-anchor="middle" class="axis">Mar 20</text>
+<line x1="741.4" y1="178" x2="741.4" y2="1385" stroke="#D9E2EC" stroke-width="1"/>
+<text x="741.4" y="1425" text-anchor="middle" class="axis">Apr 23</text>
+<line x1="1053.4" y1="178" x2="1053.4" y2="1385" stroke="#D9E2EC" stroke-width="1"/>
+<text x="1053.4" y="1425" text-anchor="middle" class="axis">May 21</text>
+<line x1="1296.5" y1="178" x2="1296.5" y2="1385" stroke="#D9E2EC" stroke-width="1"/>
+<text x="1296.5" y="1425" text-anchor="middle" class="axis">Jun 12</text>
+<line x1="1720.0" y1="178" x2="1720.0" y2="1385" stroke="#D9E2EC" stroke-width="1"/>
+<text x="1720.0" y="1425" text-anchor="middle" class="axis">Jul 20</text>
+<rect x="330" y="190" width="1390" height="205" rx="5" fill="#FFFFFF" stroke="#D9E2EC"/>
+<text x="310" y="233" text-anchor="end" class="bundle">Skube docs</text>
+<text x="310" y="258" text-anchor="end" class="metric">7 versions</text>
+<text x="310" y="282" text-anchor="end" class="metric">269 downloads</text>
+<line x1="330" y1="232.0" x2="1720" y2="232.0" stroke="#E9EFF5"/>
+<text x="338" y="225.0" class="axis">269</text>
+<polyline points="330.0,377.0 362.6,371.6 741.4,316.1 1053.4,285.4 1296.5,264.3 1720.0,232.0" fill="none" stroke="#4056A1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="330.0" cy="377.0" r="6" fill="#4056A1" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="362.6" cy="371.6" r="6" fill="#4056A1" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="741.4" cy="316.1" r="6" fill="#4056A1" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1053.4" cy="285.4" r="6" fill="#4056A1" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1296.5" cy="264.3" r="6" fill="#4056A1" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1720.0" cy="232.0" r="6" fill="#4056A1" stroke="#FFFFFF" stroke-width="2"/>
+<polygon points="330.0,366.0 327.4,373.4 319.5,373.6 325.7,378.4 323.5,385.9 330.0,381.5 336.5,385.9 334.3,378.4 340.5,373.6 332.6,373.4" fill="#FFFFFF" stroke="#4056A1" stroke-width="2.5"/>
+<text x="340.0" y="216" text-anchor="start" class="metric" fill="#4056A1">&#9733; Launched Mar 17</text>
+<line x1="330.0" y1="294" x2="330.0" y2="385" stroke="#4056A1" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="334.0" y="379" class="release" fill="#4056A1">v1.0.0</text>
+<line x1="333.8" y1="294" x2="333.8" y2="385" stroke="#4056A1" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="337.8" y="361" class="release" fill="#4056A1">v1.0.1</text>
+<line x1="432.4" y1="294" x2="432.4" y2="385" stroke="#4056A1" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="436.4" y="343" class="release" fill="#4056A1">v1.0.2</text>
+<line x1="486.1" y1="294" x2="486.1" y2="385" stroke="#4056A1" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="490.1" y="379" class="release" fill="#4056A1">v1.0.3</text>
+<line x1="498.9" y1="294" x2="498.9" y2="385" stroke="#4056A1" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="502.9" y="361" class="release" fill="#4056A1">v1.0.4</text>
+<line x1="718.2" y1="294" x2="718.2" y2="385" stroke="#4056A1" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="722.2" y="343" class="release" fill="#4056A1">v1.0.5</text>
+<line x1="1283.3" y1="294" x2="1283.3" y2="385" stroke="#4056A1" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="1287.3" y="379" class="release" fill="#4056A1">v1.0.6</text>
+<rect x="330" y="423" width="1390" height="205" rx="5" fill="#FFFFFF" stroke="#D9E2EC"/>
+<text x="310" y="466" text-anchor="end" class="bundle">CNA docs</text>
+<text x="310" y="491" text-anchor="end" class="metric">5 versions</text>
+<text x="310" y="515" text-anchor="end" class="metric">124 downloads</text>
+<line x1="330" y1="465.0" x2="1720" y2="465.0" stroke="#E9EFF5"/>
+<text x="338" y="458.0" class="axis">124</text>
+<polyline points="333.8,610.0 362.6,606.5 741.4,570.2 1053.4,522.3 1296.5,494.2 1720.0,465.0" fill="none" stroke="#007C91" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="333.8" cy="610.0" r="6" fill="#007C91" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="362.6" cy="606.5" r="6" fill="#007C91" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="741.4" cy="570.2" r="6" fill="#007C91" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1053.4" cy="522.3" r="6" fill="#007C91" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1296.5" cy="494.2" r="6" fill="#007C91" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1720.0" cy="465.0" r="6" fill="#007C91" stroke="#FFFFFF" stroke-width="2"/>
+<polygon points="333.8,599.0 331.2,606.4 323.4,606.6 329.6,611.4 327.4,618.9 333.8,614.5 340.3,618.9 338.1,611.4 344.3,606.6 336.5,606.4" fill="#FFFFFF" stroke="#007C91" stroke-width="2.5"/>
+<text x="343.8" y="449" text-anchor="start" class="metric" fill="#007C91">&#9733; Launched Mar 17</text>
+<line x1="333.8" y1="527" x2="333.8" y2="618" stroke="#007C91" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="337.8" y="612" class="release" fill="#007C91">v1.0.0</text>
+<line x1="333.9" y1="527" x2="333.9" y2="618" stroke="#007C91" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="337.9" y="594" class="release" fill="#007C91">v1.0.1</text>
+<line x1="518.3" y1="527" x2="518.3" y2="618" stroke="#007C91" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="522.3" y="576" class="release" fill="#007C91">v1.0.2</text>
+<line x1="718.2" y1="527" x2="718.2" y2="618" stroke="#007C91" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="722.2" y="612" class="release" fill="#007C91">v1.0.3</text>
+<line x1="1407.0" y1="527" x2="1407.0" y2="618" stroke="#007C91" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="1411.0" y="594" class="release" fill="#007C91">v1.0.4</text>
+<rect x="330" y="656" width="1390" height="205" rx="5" fill="#FFFFFF" stroke="#D9E2EC"/>
+<text x="310" y="699" text-anchor="end" class="bundle">Architecture review</text>
+<text x="310" y="724" text-anchor="end" class="metric">4 versions</text>
+<text x="310" y="748" text-anchor="end" class="metric">137 downloads</text>
+<line x1="330" y1="698.0" x2="1720" y2="698.0" stroke="#E9EFF5"/>
+<text x="338" y="691.0" class="axis">137</text>
+<polyline points="518.3,843.0 741.4,828.2 1053.4,776.3 1296.5,731.9 1720.0,698.0" fill="none" stroke="#548235" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="518.3" cy="843.0" r="6" fill="#548235" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="741.4" cy="828.2" r="6" fill="#548235" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1053.4" cy="776.3" r="6" fill="#548235" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1296.5" cy="731.9" r="6" fill="#548235" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1720.0" cy="698.0" r="6" fill="#548235" stroke="#FFFFFF" stroke-width="2"/>
+<polygon points="518.3,832.0 515.6,839.4 507.8,839.6 514.0,844.4 511.8,851.9 518.3,847.5 524.7,851.9 522.6,844.4 528.7,839.6 520.9,839.4" fill="#FFFFFF" stroke="#548235" stroke-width="2.5"/>
+<text x="518.3" y="682" text-anchor="middle" class="metric" fill="#548235">&#9733; Launched Apr 3</text>
+<line x1="518.3" y1="760" x2="518.3" y2="851" stroke="#548235" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="522.3" y="845" class="release" fill="#548235">v1.0.0</text>
+<line x1="718.2" y1="760" x2="718.2" y2="851" stroke="#548235" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="722.2" y="827" class="release" fill="#548235">v1.0.1</text>
+<line x1="1142.8" y1="760" x2="1142.8" y2="851" stroke="#548235" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="1146.8" y="809" class="release" fill="#548235">v1.0.2</text>
+<line x1="1142.9" y1="760" x2="1142.9" y2="851" stroke="#548235" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="1146.9" y="845" class="release" fill="#548235">v1.0.3</text>
+<rect x="330" y="889" width="1390" height="205" rx="5" fill="#FFFFFF" stroke="#D9E2EC"/>
+<text x="310" y="932" text-anchor="end" class="bundle">Microservice coding guidebook</text>
+<text x="310" y="957" text-anchor="end" class="metric">3 versions</text>
+<text x="310" y="981" text-anchor="end" class="metric">259 downloads</text>
+<line x1="330" y1="931.0" x2="1720" y2="931.0" stroke="#E9EFF5"/>
+<text x="338" y="924.0" class="axis">259</text>
+<polyline points="718.2,1076.0 741.4,1074.3 1053.4,976.3 1296.5,948.9 1720.0,931.0" fill="none" stroke="#E06C2F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="718.2" cy="1076.0" r="6" fill="#E06C2F" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="741.4" cy="1074.3" r="6" fill="#E06C2F" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1053.4" cy="976.3" r="6" fill="#E06C2F" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1296.5" cy="948.9" r="6" fill="#E06C2F" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1720.0" cy="931.0" r="6" fill="#E06C2F" stroke="#FFFFFF" stroke-width="2"/>
+<polygon points="718.2,1065.0 715.6,1072.4 707.7,1072.6 713.9,1077.4 711.7,1084.9 718.2,1080.5 724.7,1084.9 722.5,1077.4 728.7,1072.6 720.8,1072.4" fill="#FFFFFF" stroke="#E06C2F" stroke-width="2.5"/>
+<text x="718.2" y="915" text-anchor="middle" class="metric" fill="#E06C2F">&#9733; Launched Apr 21</text>
+<line x1="718.2" y1="993" x2="718.2" y2="1084" stroke="#E06C2F" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="722.2" y="1078" class="release" fill="#E06C2F">v1.0.0</text>
+<line x1="874.1" y1="993" x2="874.1" y2="1084" stroke="#E06C2F" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="878.1" y="1060" class="release" fill="#E06C2F">v1.0.1</text>
+<line x1="1285.7" y1="993" x2="1285.7" y2="1084" stroke="#E06C2F" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="1289.7" y="1042" class="release" fill="#E06C2F">v1.0.2</text>
+<rect x="330" y="1122" width="1390" height="205" rx="5" fill="#FFFFFF" stroke="#D9E2EC"/>
+<text x="310" y="1165" text-anchor="end" class="bundle">CNA starter app</text>
+<text x="310" y="1190" text-anchor="end" class="metric">2 versions</text>
+<text x="310" y="1214" text-anchor="end" class="metric">18 downloads</text>
+<line x1="330" y1="1164.0" x2="1720" y2="1164.0" stroke="#E9EFF5"/>
+<text x="338" y="1157.0" class="axis">18</text>
+<polyline points="1407.0,1309.0 1720.0,1164.0" fill="none" stroke="#D1495B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="1407.0" cy="1309.0" r="6" fill="#D1495B" stroke="#FFFFFF" stroke-width="2"/>
+<circle cx="1720.0" cy="1164.0" r="6" fill="#D1495B" stroke="#FFFFFF" stroke-width="2"/>
+<polygon points="1407.0,1298.0 1404.3,1305.4 1396.5,1305.6 1402.7,1310.4 1400.5,1317.9 1407.0,1313.5 1413.4,1317.9 1411.3,1310.4 1417.4,1305.6 1409.6,1305.4" fill="#FFFFFF" stroke="#D1495B" stroke-width="2.5"/>
+<text x="1407.0" y="1148" text-anchor="middle" class="metric" fill="#D1495B">&#9733; Launched Jun 22</text>
+<line x1="1407.0" y1="1226" x2="1407.0" y2="1317" stroke="#D1495B" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="1411.0" y="1311" class="release" fill="#D1495B">v0.0.1</text>
+<line x1="1497.7" y1="1226" x2="1497.7" y2="1317" stroke="#D1495B" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.78"/>
+<text x="1501.7" y="1293" class="release" fill="#D1495B">v0.0.2</text>
+<line x1="330" y1="1442" x2="362" y2="1442" stroke="#4056A1" stroke-width="3"/>
+<text x="372" y="1447" class="note">Download trend</text>
+<line x1="520" y1="1442" x2="552" y2="1442" stroke="#4056A1" stroke-width="2" stroke-dasharray="4 3"/>
+<text x="562" y="1447" class="note">Version release</text>
+<polygon points="735.0,1430.0 732.8,1436.0 726.4,1436.2 731.5,1440.1 729.7,1446.3 735.0,1442.7 740.3,1446.3 738.5,1440.1 743.6,1436.2 737.2,1436.0" fill="#FFFFFF" stroke="#4056A1" stroke-width="2"/>
+<text x="755" y="1447" class="note">First release (0 downloads)</text>
+</svg>

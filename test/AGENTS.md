@@ -3,6 +3,10 @@
 Efficient test writing patterns for this repository.
 
 ---
+## TO RUN THE ANALYSIS OF DOWNLOAD YOU HAVE TO USE:
+```bash
+npx --package @prompt-registry/collection-scripts hub-release-analyzer https://github.com/Amadeus-xDLC/genai.prompt-registry-config --output-dir lib/analytics-output
+```
 
 ## 🚨 MANDATORY: Test Behavior, Not Implementation 🚨
 

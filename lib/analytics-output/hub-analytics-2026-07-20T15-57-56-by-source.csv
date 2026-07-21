@@ -1,0 +1,42 @@
+Source ID,Source Name,Repository,Total Downloads,Bundle Count,Version Count,Latest Release
+utopy-lib-migration,Utopy Lib Migration,Amadeus-xDLC/utopy.migration-skills,6,1,1,2026-07-09T08:27:10Z
+dsre-git-skillset,Git Skillset,amadeus-digital/dsre-git-skillset,33,1,1,2026-03-13T14:41:17Z
+spec-driven-instructions,Task driven workflow,amadeus-airlines-solutions/workflow-instructions,1380,5,31,2026-05-13T12:10:49Z
+ospo-skills,OSPO Skills Collection,Amadeus-xDLC/ospo-skills-collection,109,1,2,2026-01-19T17:16:13Z
+aude-skills,AUDE Skills Collection,amadeus-cloud-platform/aud.aude-skills-collection,86,1,2,2026-02-06T16:45:46Z
+slidev-skills,Slidev Skills Collection,Amadeus-xDLC/devops.slidev-skills-collection,94,1,3,2026-06-24T09:26:31Z
+ai-engineering-primitives,AI Engineering Primitives,amadeus-airlines-solutions/ai-engineering-primitives,207,2,16,2026-06-26T15:00:10Z
+code-reviewer-generator-skills,PR Reviewer Generator,Amadeus-xDLC/gen.code-reviewer-generator-skills-collection,135,1,6,2026-05-19T07:29:16Z
+offer-agent-skills,Offer Skills Collection,amadeus-altea-offer/agent-skills,389,8,39,2026-07-20T12:25:18Z
+etk-workflow-instructions,ETK Workflow Instructions,amadeus-order/ticketing.etk-workflow-instructions,82,1,1,2026-03-02T13:20:44Z
+refx-nre-qa,RefX NRE QA Agents,amadeus-digital/refx-nre-qa-agents,57,1,11,2026-06-01T11:21:14Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,amadeus-digital/travel-companion-copilot-collections,26,5,10,2026-06-18T06:01:58Z
+clean-code-in-the-cloud,Clean Code in the Cloud,Amadeus-xDLC/genai.clean-code-in-the-cloud-skills-collection,807,5,21,2026-06-30T15:42:51Z
+opentelemetry-tracing-toolkit,OpenTelemetry Tracing Toolkit,amadeus-airlines-solutions/nevio.opentelemetry-tracing-toolkit,42,1,4,2026-06-22T16:17:10Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,amadeus-airlines-solutions/nevio.solution-architecture-runway,45,1,14,2026-07-13T05:50:54Z
+orms-qa-robot-helper,OrMS Robot test generator,amadeus-airlines-solutions/orms.qa-ai-helper,8,1,1,2026-06-09T09:22:48Z
+rail-context,Amadeus Rail Context,amadeus-travel-distribution/rail.ai.context,33,3,12,2026-04-15T08:15:53Z
+airline-solutions-architecture,Airline Solutions Architecture,amadeus-airlines-solutions/air.airline-solutions-architecture-as-code,135,1,5,2026-07-07T11:53:08Z
+design-factory,Design Factory AI Skills,Amadeus-xDLC/design-factory.ai-skills,74,1,4,2026-07-10T14:05:38Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),amadeus-airlines-solutions/air.ai-assisted-delivery-pipeline,38,7,44,2026-07-20T13:50:20Z
+specs-as-code-collection,Specifications as Code Collection,amadeus-airlines-solutions/specs-as-code-collection,43,1,6,2026-07-17T13:56:57Z
+orms-agentic-primitives,Agentic primitives for OrMS,amadeus-airlines-solutions/orms.tool-prompt-registry-primitives,3,2,2,2026-06-24T16:10:23Z
+orms-incident-investigator,OrMS Incident Investigator,amadeus-airlines-solutions/orms.orms-tool-investigation-orchestrator,4,2,3,2026-07-15T09:23:30Z
+uis-ui-blueprint,UI Blueprint AI Skills and Instructions,Amadeus-xDLC/uis.ui-blueprint,20,1,1,2026-05-20T12:31:01Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,Amadeus-xDLC/eed.genai.agentic-toolkit,380,11,22,2026-07-10T07:42:56Z
+ide-project-template-generator-skills,IDE VS Code Project Template Generator Skills Collection,Amadeus-xDLC/ide.vscode-project-template-generator-skills-collection,10,1,1,2026-05-31T13:30:31Z
+opo-engineering-agent-guides,OPO Engineering Agent Guides,outpayce-orion/opo-engineering-agent-guides,20,2,5,2026-07-08T11:56:27Z
+docgen,DocGen - Expert Documentation Analyst,amadeus-search-shopping-pricing/docgen,3,1,1,2026-06-08T17:51:08Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,amadeus-airlines-solutions/nevio.sre-ai-toolkit,51,4,21,2026-07-20T15:17:26Z
+EMEA-digital-services-workflow,EMEA Digital Services Workflow,amadeus-airlines-solutions/EMEA-digital-services-workflow,1,1,1,2026-06-12T07:19:41Z
+airops-common-ai-assets,AirOps common AI Assets,amadeus-aao/aao-ai-common-assets,2,1,1,2026-06-23T08:17:15Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,amadeus-aao/itedex-ai-config,6,1,8,2026-07-17T13:05:00Z
+asr-agentic-framework,ASR Agentic Framework,amadeus-aao/asr-agentic-framework,0,1,1,2026-07-08T04:47:17Z
+ofc-genai-initiatives,OFfer Creation (OFC) GenAI initiatives,amadeus-airlines-solutions/ofc-genai-initiatives,22,2,5,2026-07-17T08:45:29Z
+agentic-engineering-playbook,Agentic Engineering Playbook,Amadeus-xDLC/coe.agentic-engineering-playbook,39,3,10,2026-07-15T05:26:22Z
+beekeeper,BeeKeeper 🐝,amadeus-altea-offer/ai.beekeeper,8,1,4,2026-07-09T13:05:43Z
+pay-fast-data-agentic-collections,Pay Fast Data Agentic Collections,amadeus-outpayce/pay-fast-data-agentic-collections,11,2,6,2026-06-30T13:31:18Z
+udofm-ai-skills-collections,UD OfMS AI Skills Collections,amadeus-search-shopping-pricing/udofm-ai-skills,8,1,4,2026-07-20T12:58:45Z
+genai-ai-dlc-collections,Axiom - Governed AI-assisted SDLC framework for Amadeus development teams,Amadeus-xDLC/genai.axiom,2,1,2,2026-07-17T12:38:38Z
+servicenow-agentic-collections,ServiceNow Agentic Collections,amadeus-cloud-platform/snow-explorer,33,1,3,2026-07-20T09:07:13Z
+archify-architecture-docs,Archify Architecture Docs,amadeus-creation-platform/ai-assisted-arch-docs,7,1,1,2026-07-15T11:06:21Z

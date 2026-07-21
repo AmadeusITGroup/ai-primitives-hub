@@ -1,0 +1,337 @@
+Source ID,Source Name,Bundle ID,Version,Asset Name,Downloads,Asset Size,Release Tag,Release Date
+utopy-lib-migration,Utopy Lib Migration,utopy-migration,utopy-migration-v1.0.0,utopy-migration.bundle.zip,6,12850,utopy-migration-v1.0.0,2026-07-09T08:27:10Z
+dsre-git-skillset,Git Skillset,dsre-git-skillset,dsre-git-skillset-v0.1.0,dsre-git-skillset.bundle.zip,33,7795,dsre-git-skillset-v0.1.0,2026-03-13T14:41:17Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,workflow-nevio-v2.0.7,workflow-nevio.bundle.zip,183,22622,workflow-nevio-v2.0.7,2026-05-13T12:09:45Z
+spec-driven-instructions,Task driven workflow,pr-review,pr-review-v1.0.2,pr-review.bundle.zip,143,27363,pr-review-v1.0.2,2026-05-13T12:10:49Z
+spec-driven-instructions,Task driven workflow,foursight-code-assessment,foursight-code-assessment-v1.0.1,foursight-code-assessment.bundle.zip,64,20549,foursight-code-assessment-v1.0.1,2026-05-13T12:10:45Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,workflow-nevio-v2.0.6,workflow-nevio.bundle.zip,136,22562,workflow-nevio-v2.0.6,2026-04-07T15:03:03Z
+spec-driven-instructions,Task driven workflow,pr-review,pr-review-v1.0.1,pr-review.bundle.zip,75,26744,pr-review-v1.0.1,2026-04-07T14:53:16Z
+spec-driven-instructions,Task driven workflow,foursight-code-assessment,foursight-code-assessment-v1.0.0,foursight-code-assessment.bundle.zip,17,19924,foursight-code-assessment-v1.0.0,2026-04-07T14:53:13Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,workflow-nevio-v2.0.5,workflow-nevio.bundle.zip,22,22534,workflow-nevio-v2.0.5,2026-04-02T14:18:23Z
+spec-driven-instructions,Task driven workflow,task-driven-agents,task-driven-agents-v1.0.5,task-driven-agents.bundle.zip,23,26918,task-driven-agents-v1.0.5,2026-04-02T14:18:19Z
+spec-driven-instructions,Task driven workflow,pr-review,pr-review-v1.0.0,pr-review.bundle.zip,26,16721,pr-review-v1.0.0,2026-03-23T16:36:38Z
+spec-driven-instructions,Task driven workflow,agents-md-creator,agents-md-creator-v1.0.0,agents-md-creator.bundle.zip,25,14560,agents-md-creator-v1.0.0,2026-03-05T10:29:13Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,workflow-nevio-v2.0.4,workflow-nevio.bundle.zip,242,22132,workflow-nevio-v2.0.4,2026-02-03T17:14:13Z
+spec-driven-instructions,Task driven workflow,task-driven-agents,task-driven-agents-v1.0.4,task-driven-agents.bundle.zip,55,34288,task-driven-agents-v1.0.4,2026-01-26T12:47:58Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,workflow-nevio-v2.0.3,workflow-nevio.bundle.zip,83,22137,workflow-nevio-v2.0.3,2026-01-21T16:32:15Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,workflow-nevio-v2.0.1,workflow-nevio.bundle.zip,3,22065,workflow-nevio-v2.0.1,2026-01-12T09:03:44Z
+spec-driven-instructions,Task driven workflow,task-driven-agents,task-driven-agents-v1.0.3,task-driven-agents.bundle.zip,5,34244,task-driven-agents-v1.0.3,2026-01-12T09:03:41Z
+spec-driven-instructions,Task driven workflow,task-driven-agents,task-driven-agents-v1.0.2,task-driven-agents.bundle.zip,4,33435,task-driven-agents-v1.0.2,2026-01-06T14:26:57Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.21,workflow-nevio-1.0.21.zip,21,18447,1.0.21,2025-12-19T10:05:50Z
+spec-driven-instructions,Task driven workflow,task-driven-agents,task-driven-agents-v1.0.1,task-driven-agents.bundle.zip,3,32091,task-driven-agents-v1.0.1,2025-12-19T21:06:09Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.20,workflow-nevio-1.0.20.zip,38,17887,1.0.20,2025-12-12T14:26:26Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.19,workflow-nevio-1.0.19.zip,41,15654,1.0.19,2025-12-05T10:09:15Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.18,workflow-nevio-1.0.18.zip,51,15067,1.0.18,2025-12-03T12:17:09Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.17,workflow-nevio-1.0.17.zip,61,14706,1.0.17,2025-12-02T09:32:32Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.16,workflow-nevio-1.0.16.zip,19,15836,1.0.16,2025-11-28T11:48:38Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.15,workflow-nevio-1.0.15.zip,9,15835,1.0.15,2025-11-28T11:40:07Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.14,workflow-nevio-1.0.14.zip,4,15688,1.0.14,2025-11-28T11:26:03Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.13,workflow-nevio-1.0.13.zip,8,15678,1.0.13,2025-11-28T11:22:34Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.12,workflow-nevio-1.0.12.zip,6,15670,1.0.12,2025-11-27T16:42:35Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.5,workflow-nevio-1.0.5.zip,5,10267,1.0.5,2025-11-24T11:20:24Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.4,workflow-nevio-1.0.4.zip,3,10860,1.0.4,2025-11-18T17:27:47Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.3,workflow-nevio-1.0.3.zip,4,4468,1.0.3,2025-11-14T13:49:17Z
+spec-driven-instructions,Task driven workflow,workflow-nevio,1.0.2,workflow-nevio-1.0.2.zip,1,4468,1.0.2,2025-11-14T13:47:13Z
+ospo-skills,OSPO Skills Collection,amadeus-ospo,amadeus-ospo-v1.0.1,amadeus-ospo.bundle.zip,104,73824,amadeus-ospo-v1.0.1,2026-01-19T17:16:13Z
+ospo-skills,OSPO Skills Collection,amadeus-ospo,amadeus-ospo-v1.0.0,amadeus-ospo.bundle.zip,5,68569,amadeus-ospo-v1.0.0,2026-01-14T22:11:22Z
+aude-skills,AUDE Skills Collection,aude,aude-v0.1.5,aude.bundle.zip,82,9373,aude-v0.1.5,2026-02-06T16:45:46Z
+aude-skills,AUDE Skills Collection,aude,aude-v0.1.4,aude.bundle.zip,4,9356,aude-v0.1.4,2026-02-06T13:11:16Z
+slidev-skills,Slidev Skills Collection,slidev,slidev-v1.0.2,slidev.bundle.zip,12,31209,slidev-v1.0.2,2026-06-24T09:26:31Z
+slidev-skills,Slidev Skills Collection,slidev,slidev-v1.0.1,slidev.bundle.zip,60,28304,slidev-v1.0.1,2026-03-31T12:37:26Z
+slidev-skills,Slidev Skills Collection,slidev,slidev-v1.0.0,slidev.bundle.zip,22,28584,slidev-v1.0.0,2026-02-06T17:30:46Z
+ai-engineering-primitives,AI Engineering Primitives,rtl-engineering,rtl-engineering-v1.1.0,rtl-engineering.bundle.zip,4,41182,rtl-engineering-v1.1.0,2026-06-26T15:00:10Z
+ai-engineering-primitives,AI Engineering Primitives,rtl-engineering,rtl-engineering-v1.0.0,rtl-engineering.bundle.zip,12,13562,rtl-engineering-v1.0.0,2026-05-21T09:20:15Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.13,java-engineering.bundle.zip,72,187983,java-engineering-v1.0.13,2026-05-21T09:20:10Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.12,java-engineering.bundle.zip,13,151988,java-engineering-v1.0.12,2026-05-19T06:24:34Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.11,java-engineering.bundle.zip,44,143700,java-engineering-v1.0.11,2026-04-23T09:30:32Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.10,java-engineering.bundle.zip,5,90472,java-engineering-v1.0.10,2026-04-22T16:10:12Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.9,java-engineering.bundle.zip,10,76783,java-engineering-v1.0.9,2026-04-17T11:27:43Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.8,java-engineering.bundle.zip,7,68247,java-engineering-v1.0.8,2026-04-14T09:32:16Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.7,java-engineering.bundle.zip,3,66807,java-engineering-v1.0.7,2026-04-13T16:02:27Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.6,java-engineering.bundle.zip,2,60889,java-engineering-v1.0.6,2026-04-10T15:06:20Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.5,java-engineering.bundle.zip,3,42842,java-engineering-v1.0.5,2026-04-10T09:32:22Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.4,java-engineering.bundle.zip,11,14563,java-engineering-v1.0.4,2026-03-27T11:39:05Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.3,java-engineering.bundle.zip,3,14062,java-engineering-v1.0.3,2026-03-27T09:26:23Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.2,java-engineering.bundle.zip,16,10369,java-engineering-v1.0.2,2026-03-19T14:41:41Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.1,java-engineering.bundle.zip,1,10452,java-engineering-v1.0.1,2026-03-19T14:38:37Z
+ai-engineering-primitives,AI Engineering Primitives,java-engineering,java-engineering-v1.0.0,java-engineering.bundle.zip,1,10455,java-engineering-v1.0.0,2026-03-19T10:46:07Z
+code-reviewer-generator-skills,PR Reviewer Generator,pr-reviewer-generator,pr-reviewer-generator-v1.0.5,pr-reviewer-generator.bundle.zip,38,47585,pr-reviewer-generator-v1.0.5,2026-05-19T07:29:16Z
+code-reviewer-generator-skills,PR Reviewer Generator,pr-reviewer-generator,pr-reviewer-generator-v1.0.4,pr-reviewer-generator.bundle.zip,53,46385,pr-reviewer-generator-v1.0.4,2026-03-19T12:48:28Z
+code-reviewer-generator-skills,PR Reviewer Generator,pr-reviewer-generator,pr-reviewer-generator-v1.0.3,pr-reviewer-generator.bundle.zip,2,45863,pr-reviewer-generator-v1.0.3,2026-03-19T11:43:56Z
+code-reviewer-generator-skills,PR Reviewer Generator,pr-reviewer-generator,pr-reviewer-generator-v1.0.2,pr-reviewer-generator.bundle.zip,18,34483,pr-reviewer-generator-v1.0.2,2026-03-10T12:44:33Z
+code-reviewer-generator-skills,PR Reviewer Generator,pr-reviewer-generator,pr-reviewer-generator-v1.0.1,pr-reviewer-generator.bundle.zip,2,29191,pr-reviewer-generator-v1.0.1,2026-03-09T16:25:40Z
+code-reviewer-generator-skills,PR Reviewer Generator,pr-reviewer-generator,pr-reviewer-generator-v1.0.0,pr-reviewer-generator.bundle.zip,22,25908,pr-reviewer-generator-v1.0.0,2026-02-17T09:33:30Z
+offer-agent-skills,Offer Skills Collection,ut-writer,ut-writer-v1.0.0,ut-writer.bundle.zip,0,5052,ut-writer-v1.0.0,2026-07-20T12:25:18Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.9,reflex.bundle.zip,6,367312,reflex-v1.1.9,2026-07-13T13:06:28Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.1.7,log-verbosity-reduction.bundle.zip,13,146551,log-verbosity-reduction-v1.1.7,2026-07-03T16:49:39Z
+offer-agent-skills,Offer Skills Collection,raav-workflow,raav-workflow-v1.1.0,raav-workflow.bundle.zip,9,16551,raav-workflow-v1.1.0,2026-07-01T09:32:32Z
+offer-agent-skills,Offer Skills Collection,prompt-builder,prompt-builder-v1.0.0,prompt-builder.bundle.zip,6,6459,prompt-builder-v1.0.0,2026-07-01T09:32:29Z
+offer-agent-skills,Offer Skills Collection,skill-evaluation,skill-evaluation-v1.0.3,skill-evaluation.bundle.zip,8,187997,skill-evaluation-v1.0.3,2026-06-02T15:14:49Z
+offer-agent-skills,Offer Skills Collection,raav-workflow,raav-workflow-v1.0.0,raav-workflow.bundle.zip,20,14642,raav-workflow-v1.0.0,2026-06-02T12:43:48Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.1.6,log-verbosity-reduction.bundle.zip,25,138151,log-verbosity-reduction-v1.1.6,2026-06-02T15:14:43Z
+offer-agent-skills,Offer Skills Collection,redteam-agent-fleet,redteam-agent-fleet-v1.0.0,redteam-agent-fleet.bundle.zip,3,41823,redteam-agent-fleet-v1.0.0,2026-05-28T14:38:12Z
+offer-agent-skills,Offer Skills Collection,skill-evaluation,skill-evaluation-v1.0.2,skill-evaluation.bundle.zip,26,187501,skill-evaluation-v1.0.2,2026-05-23T16:31:08Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.8,reflex.bundle.zip,46,364663,reflex-v1.1.8,2026-05-23T16:31:04Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.1.5,log-verbosity-reduction.bundle.zip,9,134789,log-verbosity-reduction-v1.1.5,2026-05-23T16:31:01Z
+offer-agent-skills,Offer Skills Collection,batch-elasticity,batch-elasticity-v1.0.4,batch-elasticity.bundle.zip,2,6723,batch-elasticity-v1.0.4,2026-05-23T16:30:58Z
+offer-agent-skills,Offer Skills Collection,batch-elasticity,batch-elasticity-v1.0.3,batch-elasticity.bundle.zip,0,6723,batch-elasticity-v1.0.3,2026-05-23T16:29:27Z
+offer-agent-skills,Offer Skills Collection,skill-evaluation,skill-evaluation-v1.0.1,skill-evaluation.bundle.zip,2,187460,skill-evaluation-v1.0.1,2026-05-22T22:45:01Z
+offer-agent-skills,Offer Skills Collection,skill-evaluation,skill-evaluation-v1.0.0,skill-evaluation.bundle.zip,2,186887,skill-evaluation-v1.0.0,2026-05-22T14:29:55Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.7,reflex.bundle.zip,2,364595,reflex-v1.1.7,2026-05-22T22:44:58Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.6,reflex.bundle.zip,2,363808,reflex-v1.1.6,2026-05-22T14:29:51Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.1.4,log-verbosity-reduction.bundle.zip,1,134796,log-verbosity-reduction-v1.1.4,2026-05-22T22:44:54Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.1.3,log-verbosity-reduction.bundle.zip,1,134721,log-verbosity-reduction-v1.1.3,2026-05-22T14:29:47Z
+offer-agent-skills,Offer Skills Collection,batch-elasticity,batch-elasticity-v1.0.2,batch-elasticity.bundle.zip,0,6726,batch-elasticity-v1.0.2,2026-05-22T22:44:50Z
+offer-agent-skills,Offer Skills Collection,batch-elasticity,batch-elasticity-v1.0.1,batch-elasticity.bundle.zip,0,6698,batch-elasticity-v1.0.1,2026-05-22T14:29:43Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.5,reflex.bundle.zip,8,359324,reflex-v1.1.5,2026-05-20T09:35:32Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.4,reflex.bundle.zip,0,359200,reflex-v1.1.4,2026-05-20T08:35:06Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.3,reflex.bundle.zip,1,350376,reflex-v1.1.3,2026-05-19T15:01:47Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.2,reflex.bundle.zip,0,348722,reflex-v1.1.2,2026-05-19T12:22:44Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.1,reflex.bundle.zip,26,337236,reflex-v1.1.1,2026-04-15T12:36:02Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.1.2,log-verbosity-reduction.bundle.zip,37,134689,log-verbosity-reduction-v1.1.2,2026-04-15T16:16:17Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.1.0,reflex.bundle.zip,1,314797,reflex-v1.1.0,2026-04-14T17:15:04Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.1.1,log-verbosity-reduction.bundle.zip,5,130740,log-verbosity-reduction-v1.1.1,2026-04-14T17:15:01Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.1.0,log-verbosity-reduction.bundle.zip,2,128684,log-verbosity-reduction-v1.1.0,2026-04-13T13:58:04Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.0.5,reflex.bundle.zip,19,284443,reflex-v1.0.5,2026-04-01T13:12:37Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.0.4,reflex.bundle.zip,18,274311,reflex-v1.0.4,2026-03-26T14:34:16Z
+offer-agent-skills,Offer Skills Collection,batch-elasticity,batch-elasticity-v1.0.0,batch-elasticity.bundle.zip,6,6656,batch-elasticity-v1.0.0,2026-03-26T12:40:28Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.0.3,reflex.bundle.zip,16,251758,reflex-v1.0.3,2026-03-20T15:25:10Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.0.2,reflex.bundle.zip,10,250887,reflex-v1.0.2,2026-03-12T22:44:11Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.0.1,reflex.bundle.zip,11,250796,reflex-v1.0.1,2026-03-02T13:59:51Z
+offer-agent-skills,Offer Skills Collection,reflex,reflex-v1.0.0,reflex.bundle.zip,10,237009,reflex-v1.0.0,2026-02-25T10:58:00Z
+offer-agent-skills,Offer Skills Collection,log-verbosity-reduction,log-verbosity-reduction-v1.0.0,log-verbosity-reduction.bundle.zip,36,48868,log-verbosity-reduction-v1.0.0,2026-02-25T11:11:03Z
+etk-workflow-instructions,ETK Workflow Instructions,etk-workflow,etk-workflow-v1.0.0,etk-workflow.bundle.zip,82,30340,etk-workflow-v1.0.0,2026-03-02T13:20:44Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v2.0.7,refx-nre-qa-agents.bundle.zip,19,173624,refx-nre-qa-agents-v2.0.7,2026-06-01T11:21:14Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v2.0.6,refx-nre-qa-agents.bundle.zip,0,173363,refx-nre-qa-agents-v2.0.6,2026-06-01T06:40:42Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v2.0.5,refx-nre-qa-agents.bundle.zip,5,171251,refx-nre-qa-agents-v2.0.5,2026-05-27T09:32:49Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v2.0.4,refx-nre-qa-agents.bundle.zip,7,166208,refx-nre-qa-agents-v2.0.4,2026-05-15T09:23:40Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v2.0.3,refx-nre-qa-agents.bundle.zip,3,157350,refx-nre-qa-agents-v2.0.3,2026-05-11T07:10:58Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v2.0.2,refx-nre-qa-agents.bundle.zip,4,156235,refx-nre-qa-agents-v2.0.2,2026-05-04T11:23:19Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v2.0.1,refx-nre-qa-agents.bundle.zip,2,149579,refx-nre-qa-agents-v2.0.1,2026-04-29T12:45:10Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v2.0.0,refx-nre-qa-agents.bundle.zip,3,149610,refx-nre-qa-agents-v2.0.0,2026-04-29T06:13:39Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v1.0.2,refx-nre-qa-agents.bundle.zip,12,6448,refx-nre-qa-agents-v1.0.2,2026-03-05T05:20:27Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v1.0.1,refx-nre-qa-agents.bundle.zip,1,6439,refx-nre-qa-agents-v1.0.1,2026-03-04T04:23:10Z
+refx-nre-qa,RefX NRE QA Agents,refx-nre-qa-agents,refx-nre-qa-agents-v1.0.0,refx-nre-qa-agents.bundle.zip,1,4777,refx-nre-qa-agents-v1.0.0,2026-03-03T08:41:49Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,visual-docs,isual-docs-v1.0.2,visual-docs.bundle.zip,4,8571,visual-docs-v1.0.2,2026-06-18T06:01:58Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,visual-docs,isual-docs-v1.0.1,visual-docs.bundle.zip,0,8458,visual-docs-v1.0.1,2026-06-18T05:41:44Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,visual-docs,isual-docs-v1.0.0,visual-docs.bundle.zip,1,8122,visual-docs-v1.0.0,2026-06-17T16:23:56Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,planview,planview-v1.0.0,planview.bundle.zip,1,25621,planview-v1.0.0,2026-06-17T11:41:46Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,illustrations,illustrations-v1.0.1,illustrations.bundle.zip,14,13407185,illustrations-v1.0.1,2026-06-12T10:37:22Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,illustrations,illustrations-v1.0.0,illustrations.bundle.zip,0,13407182,illustrations-v1.0.0,2026-06-12T10:32:57Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,travel-companion,travel-companion-v1.0.1,travel-companion.bundle.zip,2,9315,travel-companion-v1.0.1,2026-06-02T05:52:36Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,stay-in-the-loop,stay-in-the-loop-v1.0.1,stay-in-the-loop.bundle.zip,2,1604,stay-in-the-loop-v1.0.1,2026-06-02T05:52:32Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,stay-in-the-loop,stay-in-the-loop-v1.0.0,stay-in-the-loop.bundle.zip,0,1595,stay-in-the-loop-v1.0.0,2026-06-02T05:45:49Z
+travel-companion-copilot-collections,Travel Companion Copilot Collections,travel-companion,travel-companion-v1.0.0,travel-companion.bundle.zip,2,9307,travel-companion-v1.0.0,2026-04-06T11:12:42Z
+clean-code-in-the-cloud,Clean Code in the Cloud,cna-starter-app-bundle,cna-starter-app-bundle-v0.0.2,cna-starter-app-bundle.bundle.zip,13,54141,cna-starter-app-bundle-v0.0.2,2026-06-30T15:42:51Z
+clean-code-in-the-cloud,Clean Code in the Cloud,cnadocs,cnadocs-v1.0.4,cnadocs.bundle.zip,20,389336,cnadocs-v1.0.4,2026-06-22T11:43:06Z
+clean-code-in-the-cloud,Clean Code in the Cloud,cna-starter-app-bundle,cna-starter-app-bundle-v0.0.1,cna-starter-app-bundle.bundle.zip,5,57698,cna-starter-app-bundle-v0.0.1,2026-06-22T11:41:45Z
+clean-code-in-the-cloud,Clean Code in the Cloud,skubedocs,skubedocs-v1.0.6,skubedocs.bundle.zip,65,2431645,skubedocs-v1.0.6,2026-06-11T08:29:12Z
+clean-code-in-the-cloud,Clean Code in the Cloud,amadeus-microservice-coding-guidebook,amadeus-microservice-coding-guidebook-v1.0.2,amadeus-microservice-coding-guidebook.bundle.zip,35,190228,amadeus-microservice-coding-guidebook-v1.0.2,2026-06-11T13:43:45Z
+clean-code-in-the-cloud,Clean Code in the Cloud,archreview,archreview-v1.0.3,archreview.bundle.zip,61,30939,archreview-v1.0.3,2026-05-29T17:08:57Z
+clean-code-in-the-cloud,Clean Code in the Cloud,archreview,archreview-v1.0.2,archreview.bundle.zip,1,30937,archreview-v1.0.2,2026-05-29T16:55:56Z
+clean-code-in-the-cloud,Clean Code in the Cloud,amadeus-microservice-coding-guidebook,amadeus-microservice-coding-guidebook-v1.0.1,amadeus-microservice-coding-guidebook.bundle.zip,215,171206,amadeus-microservice-coding-guidebook-v1.0.1,2026-05-05T12:23:55Z
+clean-code-in-the-cloud,Clean Code in the Cloud,skubedocs,skubedocs-v1.0.5,skubedocs.bundle.zip,108,1960611,skubedocs-v1.0.5,2026-04-21T11:37:48Z
+clean-code-in-the-cloud,Clean Code in the Cloud,cnadocs,cnadocs-v1.0.3,cnadocs.bundle.zip,77,360089,cnadocs-v1.0.3,2026-04-21T11:37:41Z
+clean-code-in-the-cloud,Clean Code in the Cloud,archreview,archreview-v1.0.1,archreview.bundle.zip,66,35637,archreview-v1.0.1,2026-04-21T11:37:37Z
+clean-code-in-the-cloud,Clean Code in the Cloud,amadeus-microservice-coding-guidebook,amadeus-microservice-coding-guidebook-v1.0.0,amadeus-microservice-coding-guidebook.bundle.zip,9,171607,amadeus-microservice-coding-guidebook-v1.0.0,2026-04-21T11:37:44Z
+clean-code-in-the-cloud,Clean Code in the Cloud,cnadocs,cnadocs-v1.0.2,cnadocs.bundle.zip,9,359821,cnadocs-v1.0.2,2026-04-03T11:41:59Z
+clean-code-in-the-cloud,Clean Code in the Cloud,archreview,archreview-v1.0.0,archreview.bundle.zip,9,29524,archreview-v1.0.0,2026-04-03T11:41:56Z
+clean-code-in-the-cloud,Clean Code in the Cloud,skubedocs,skubedocs-v1.0.4,skubedocs.bundle.zip,31,1960342,skubedocs-v1.0.4,2026-04-01T17:49:02Z
+clean-code-in-the-cloud,Clean Code in the Cloud,skubedocs,skubedocs-v1.0.3,skubedocs.bundle.zip,24,1960329,skubedocs-v1.0.3,2026-03-31T14:18:05Z
+clean-code-in-the-cloud,Clean Code in the Cloud,skubedocs,skubedocs-v1.0.2,skubedocs.bundle.zip,12,1540315,skubedocs-v1.0.2,2026-03-26T17:12:51Z
+clean-code-in-the-cloud,Clean Code in the Cloud,skubedocs,skubedocs-v1.0.1,skubedocs.bundle.zip,25,432293,skubedocs-v1.0.1,2026-03-17T20:14:56Z
+clean-code-in-the-cloud,Clean Code in the Cloud,skubedocs,skubedocs-v1.0.0,skubedocs.bundle.zip,4,426604,skubedocs-v1.0.0,2026-03-17T11:56:53Z
+clean-code-in-the-cloud,Clean Code in the Cloud,cnadocs,cnadocs-v1.0.1,cnadocs.bundle.zip,18,367483,cnadocs-v1.0.1,2026-03-17T20:21:17Z
+clean-code-in-the-cloud,Clean Code in the Cloud,cnadocs,cnadocs-v1.0.0,cnadocs.bundle.zip,0,367483,cnadocs-v1.0.0,2026-03-17T20:14:53Z
+opentelemetry-tracing-toolkit,OpenTelemetry Tracing Toolkit,opentelemetry-tracing-toolkit,opentelemetry-tracing-toolkit-v1.1.0,opentelemetry-tracing-toolkit.bundle.zip,10,42977,opentelemetry-tracing-toolkit-v1.1.0,2026-06-22T16:17:10Z
+opentelemetry-tracing-toolkit,OpenTelemetry Tracing Toolkit,opentelemetry-tracing-toolkit,opentelemetry-tracing-toolkit-v1.0.2,opentelemetry-tracing-toolkit.bundle.zip,17,57722,opentelemetry-tracing-toolkit-v1.0.2,2026-05-19T08:19:18Z
+opentelemetry-tracing-toolkit,OpenTelemetry Tracing Toolkit,opentelemetry-tracing-toolkit,opentelemetry-tracing-toolkit-v1.0.1,opentelemetry-tracing-toolkit.bundle.zip,4,44353,opentelemetry-tracing-toolkit-v1.0.1,2026-04-27T13:44:54Z
+opentelemetry-tracing-toolkit,OpenTelemetry Tracing Toolkit,opentelemetry-tracing-toolkit,opentelemetry-tracing-toolkit-v1.0.0,opentelemetry-tracing-toolkit.bundle.zip,11,26353,opentelemetry-tracing-toolkit-v1.0.0,2026-03-13T18:21:35Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.13,nevio-solution-architecture-runway.bundle.zip,3,319033,nevio-solution-architecture-runway-v1.0.13,2026-07-13T05:50:54Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.12,nevio-solution-architecture-runway.bundle.zip,6,388706,nevio-solution-architecture-runway-v1.0.12,2026-07-08T17:44:48Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.11,nevio-solution-architecture-runway.bundle.zip,0,388555,nevio-solution-architecture-runway-v1.0.11,2026-07-08T14:48:22Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.10,nevio-solution-architecture-runway.bundle.zip,3,385707,nevio-solution-architecture-runway-v1.0.10,2026-07-08T09:29:42Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.9,nevio-solution-architecture-runway.bundle.zip,5,385707,nevio-solution-architecture-runway-v1.0.9,2026-07-07T11:01:57Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.8,nevio-solution-architecture-runway.bundle.zip,12,382611,nevio-solution-architecture-runway-v1.0.8,2026-06-12T15:26:49Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.7,nevio-solution-architecture-runway.bundle.zip,2,382607,nevio-solution-architecture-runway-v1.0.7,2026-06-04T12:07:00Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.6,nevio-solution-architecture-runway.bundle.zip,9,382653,nevio-solution-architecture-runway-v1.0.6,2026-05-18T05:00:26Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.5,nevio-solution-architecture-runway.bundle.zip,2,339434,nevio-solution-architecture-runway-v1.0.5,2026-05-12T14:22:33Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.4,nevio-solution-architecture-runway.bundle.zip,1,338211,nevio-solution-architecture-runway-v1.0.4,2026-05-12T13:57:45Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.3,nevio-solution-architecture-runway.bundle.zip,1,14037,nevio-solution-architecture-runway-v1.0.3,2026-05-12T09:59:47Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.2,nevio-solution-architecture-runway.bundle.zip,0,23311,nevio-solution-architecture-runway-v1.0.2,2026-05-12T09:31:13Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.1,nevio-solution-architecture-runway.bundle.zip,0,26723,nevio-solution-architecture-runway-v1.0.1,2026-05-11T17:48:15Z
+nevio-solution-architecture-runway,Nevio Solution Architecture Runway,nevio-solution-architecture-runway,nevio-solution-architecture-runway-v1.0.0,nevio-solution-architecture-runway.bundle.zip,1,26567,nevio-solution-architecture-runway-v1.0.0,2026-05-11T15:55:17Z
+orms-qa-robot-helper,OrMS Robot test generator,orms-qa-automation-agent,orms-qa-automation-agent-v1.0.0,orms-qa-automation-agent.bundle.zip,8,22694,orms-qa-automation-agent-v1.0.0,2026-06-09T09:22:48Z
+rail-context,Amadeus Rail Context,rail-ui-context,rail-ui-context-v1.0.2,rail-ui-context.bundle.zip,8,29568,rail-ui-context-v1.0.2,2026-04-15T08:15:53Z
+rail-context,Amadeus Rail Context,rail-obe-context,rail-obe-context-v1.0.5,rail-obe-context.bundle.zip,18,36986,rail-obe-context-v1.0.5,2026-04-15T08:15:50Z
+rail-context,Amadeus Rail Context,rail-devopstoolchain-context,rail-devopstoolchain-context-v1.0.2,rail-devopstoolchain-context.bundle.zip,2,10632,rail-devopstoolchain-context-v1.0.2,2026-04-15T08:15:47Z
+rail-context,Amadeus Rail Context,rail-ui-context,rail-ui-context-v1.0.1,rail-ui-context.bundle.zip,0,70789,rail-ui-context-v1.0.1,2026-04-01T14:48:22Z
+rail-context,Amadeus Rail Context,rail-obe-context,rail-obe-context-v1.0.4,rail-obe-context.bundle.zip,1,58801,rail-obe-context-v1.0.4,2026-04-01T14:48:18Z
+rail-context,Amadeus Rail Context,rail-devopstoolchain-context,rail-devopstoolchain-context-v1.0.1,rail-devopstoolchain-context.bundle.zip,0,10668,rail-devopstoolchain-context-v1.0.1,2026-04-01T14:48:15Z
+rail-context,Amadeus Rail Context,rail-ui-context,rail-ui-context-v1.0.0,rail-ui-context.bundle.zip,0,87427,rail-ui-context-v1.0.0,2026-03-31T09:40:40Z
+rail-context,Amadeus Rail Context,rail-obe-context,rail-obe-context-v1.0.3,rail-obe-context.bundle.zip,1,136117,rail-obe-context-v1.0.3,2026-03-31T09:40:37Z
+rail-context,Amadeus Rail Context,rail-devopstoolchain-context,rail-devopstoolchain-context-v1.0.0,rail-devopstoolchain-context.bundle.zip,0,6547,rail-devopstoolchain-context-v1.0.0,2026-03-26T15:05:37Z
+rail-context,Amadeus Rail Context,rail-obe-context,rail-obe-context-v1.0.2,rail-obe-context.bundle.zip,1,136117,rail-obe-context-v1.0.2,2026-01-16T14:19:31Z
+rail-context,Amadeus Rail Context,rail-obe-context,rail-obe-context-v1.0.1,rail-obe-context.bundle.zip,1,132855,rail-obe-context-v1.0.1,2026-01-15T09:41:08Z
+rail-context,Amadeus Rail Context,rail-obe-context,rail-obe-context-v1.0.0,rail-obe-context.bundle.zip,1,131289,rail-obe-context-v1.0.0,2026-01-14T14:40:57Z
+airline-solutions-architecture,Airline Solutions Architecture,airline-solutions-architecture,airline-solutions-architecture-v1.0.4,airline-solutions-architecture.bundle.zip,10,91530,airline-solutions-architecture-v1.0.4,2026-07-07T11:53:08Z
+airline-solutions-architecture,Airline Solutions Architecture,airline-solutions-architecture,airline-solutions-architecture-v1.0.3,airline-solutions-architecture.bundle.zip,1,93243,airline-solutions-architecture-v1.0.3,2026-07-07T10:40:02Z
+airline-solutions-architecture,Airline Solutions Architecture,airline-solutions-architecture,airline-solutions-architecture-v1.0.2,airline-solutions-architecture.bundle.zip,102,79460,airline-solutions-architecture-v1.0.2,2026-05-12T12:44:10Z
+airline-solutions-architecture,Airline Solutions Architecture,airline-solutions-architecture,airline-solutions-architecture-v1.0.1,airline-solutions-architecture.bundle.zip,2,164315,airline-solutions-architecture-v1.0.1,2026-05-12T07:38:29Z
+airline-solutions-architecture,Airline Solutions Architecture,airline-solutions-architecture,airline-solutions-architecture-v1.0.0,airline-solutions-architecture.bundle.zip,20,169475,airline-solutions-architecture-v1.0.0,2026-04-10T15:42:07Z
+design-factory,Design Factory AI Skills,design-factory,design-factory-v1.3.1,design-factory.bundle.zip,9,258486,design-factory-v1.3.1,2026-07-10T14:05:38Z
+design-factory,Design Factory AI Skills,design-factory,design-factory-v1.3.0,design-factory.bundle.zip,21,250736,design-factory-v1.3.0,2026-06-30T13:28:46Z
+design-factory,Design Factory AI Skills,design-factory,design-factory-v1.0.2,design-factory.bundle.zip,5,195026,design-factory-v1.0.2,2026-06-24T15:29:35Z
+design-factory,Design Factory AI Skills,design-factory,design-factory-v1.0.1,design-factory.bundle.zip,39,189290,design-factory-v1.0.1,2026-04-28T08:13:02Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),workspace-setup,workspace-setup-v1.0.7,workspace-setup.bundle.zip,2,26932,workspace-setup-v1.0.7,2026-07-20T10:02:33Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),workspace-setup,workspace-setup-v1.0.6,workspace-setup.bundle.zip,0,26932,workspace-setup-v1.0.6,2026-07-20T10:01:06Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),workspace-setup,workspace-setup-v1.0.5,workspace-setup.bundle.zip,0,26920,workspace-setup-v1.0.5,2026-07-20T09:31:04Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),workspace-setup,workspace-setup-v1.0.4,workspace-setup.bundle.zip,0,26920,workspace-setup-v1.0.4,2026-07-20T09:10:31Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-hld-design,unit-hld-design-v1.0.7,unit-hld-design.bundle.zip,0,215698,unit-hld-design-v1.0.7,2026-07-20T13:50:20Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-hld-design,unit-hld-design-v1.0.6,unit-hld-design.bundle.zip,2,211280,unit-hld-design-v1.0.6,2026-07-20T10:02:28Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-hld-design,unit-hld-design-v1.0.5,unit-hld-design.bundle.zip,0,211279,unit-hld-design-v1.0.5,2026-07-20T10:01:01Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-hld-design,unit-hld-design-v1.0.4,unit-hld-design.bundle.zip,0,211268,unit-hld-design-v1.0.4,2026-07-20T09:30:59Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-hld-design,unit-hld-design-v1.0.3,unit-hld-design.bundle.zip,0,211268,unit-hld-design-v1.0.3,2026-07-20T09:10:26Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-build,unit-build-v1.0.7,unit-build.bundle.zip,0,192340,unit-build-v1.0.7,2026-07-20T13:50:15Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-build,unit-build-v1.0.6,unit-build.bundle.zip,2,187922,unit-build-v1.0.6,2026-07-20T10:02:24Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-build,unit-build-v1.0.5,unit-build.bundle.zip,0,187921,unit-build-v1.0.5,2026-07-20T10:00:56Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-build,unit-build-v1.0.4,unit-build.bundle.zip,0,187910,unit-build-v1.0.4,2026-07-20T09:30:54Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-build,unit-build-v1.0.3,unit-build.bundle.zip,0,187910,unit-build-v1.0.3,2026-07-20T09:10:21Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-hls-design,solution-hls-design-v1.0.6,solution-hls-design.bundle.zip,2,220041,solution-hls-design-v1.0.6,2026-07-20T10:02:19Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-hls-design,solution-hls-design-v1.0.5,solution-hls-design.bundle.zip,0,220042,solution-hls-design-v1.0.5,2026-07-20T10:00:52Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-hls-design,solution-hls-design-v1.0.4,solution-hls-design.bundle.zip,0,220029,solution-hls-design-v1.0.4,2026-07-20T09:30:49Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-hls-design,solution-hls-design-v1.0.3,solution-hls-design.bundle.zip,0,220029,solution-hls-design-v1.0.3,2026-07-20T09:10:17Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-discover,solution-discover-v1.0.6,solution-discover.bundle.zip,2,188171,solution-discover-v1.0.6,2026-07-20T10:02:14Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-discover,solution-discover-v1.0.5,solution-discover.bundle.zip,0,188171,solution-discover-v1.0.5,2026-07-20T10:00:47Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-discover,solution-discover-v1.0.4,solution-discover.bundle.zip,0,188160,solution-discover-v1.0.4,2026-07-20T09:30:45Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-discover,solution-discover-v1.0.3,solution-discover.bundle.zip,0,188160,solution-discover-v1.0.3,2026-07-20T09:10:12Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),convert-primitives,convert-primitives-v1.0.4,convert-primitives.bundle.zip,2,21342,convert-primitives-v1.0.4,2026-07-20T10:02:10Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),convert-primitives,convert-primitives-v1.0.3,convert-primitives.bundle.zip,0,21341,convert-primitives-v1.0.3,2026-07-20T10:00:43Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),convert-primitives,convert-primitives-v1.0.2,convert-primitives.bundle.zip,0,21329,convert-primitives-v1.0.2,2026-07-20T09:30:40Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),convert-primitives,convert-primitives-v1.0.1,convert-primitives.bundle.zip,0,21328,convert-primitives-v1.0.1,2026-07-20T09:10:07Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),workspace-setup,workspace-setup-v1.0.3,workspace-setup.bundle.zip,1,26919,workspace-setup-v1.0.3,2026-07-17T12:25:45Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),workspace-setup,workspace-setup-v1.0.2,workspace-setup.bundle.zip,1,24810,workspace-setup-v1.0.2,2026-07-10T07:32:01Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),workspace-setup,workspace-setup-v1.0.1,workspace-setup.bundle.zip,1,24810,workspace-setup-v1.0.1,2026-07-08T11:34:34Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),workspace-setup,workspace-setup-v1.0.0,workspace-setup.bundle.zip,1,24810,workspace-setup-v1.0.0,2026-07-08T10:20:27Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-hld-design,unit-hld-design-v1.0.2,unit-hld-design.bundle.zip,3,217353,unit-hld-design-v1.0.2,2026-07-10T07:31:56Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-hld-design,unit-hld-design-v1.0.1,unit-hld-design.bundle.zip,1,217316,unit-hld-design-v1.0.1,2026-07-08T11:34:30Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-hld-design,unit-hld-design-v1.0.0,unit-hld-design.bundle.zip,1,217316,unit-hld-design-v1.0.0,2026-07-08T10:20:22Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-build,unit-build-v1.0.2,unit-build.bundle.zip,1,188064,unit-build-v1.0.2,2026-07-10T07:31:52Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-build,unit-build-v1.0.1,unit-build.bundle.zip,1,188026,unit-build-v1.0.1,2026-07-08T11:34:26Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),unit-build,unit-build-v1.0.0,unit-build.bundle.zip,0,188026,unit-build-v1.0.0,2026-07-08T10:20:18Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-hls-design,solution-hls-design-v1.0.2,solution-hls-design.bundle.zip,2,220185,solution-hls-design-v1.0.2,2026-07-10T07:31:47Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-hls-design,solution-hls-design-v1.0.1,solution-hls-design.bundle.zip,1,220148,solution-hls-design-v1.0.1,2026-07-08T11:34:21Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-hls-design,solution-hls-design-v1.0.0,solution-hls-design.bundle.zip,1,220150,solution-hls-design-v1.0.0,2026-07-08T10:20:14Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-discover,solution-discover-v1.0.2,solution-discover.bundle.zip,2,176400,solution-discover-v1.0.2,2026-07-10T07:31:42Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-discover,solution-discover-v1.0.1,solution-discover.bundle.zip,1,188252,solution-discover-v1.0.1,2026-07-08T11:34:17Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),solution-discover,solution-discover-v1.0.0,solution-discover.bundle.zip,0,188252,solution-discover-v1.0.0,2026-07-08T10:20:09Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),convert-primitives,convert-primitives-v1.0.0,convert-primitives.bundle.zip,3,17407,convert-primitives-v1.0.0,2026-07-17T12:25:39Z
+air-aidlc-pipeline,AIR AI-Assisted Delivery Pipeline (AIDLC),air-ai-dlc,air-ai-dlc-v1.0.1,air-ai-dlc.bundle.zip,5,437381,air-ai-dlc-v1.0.1,2026-05-20T11:50:46Z
+specs-as-code-collection,Specifications as Code Collection,specifications-as-code-collection,specifications-as-code-collection-v1.0.5,specifications-as-code-collection.bundle.zip,1,56407,specifications-as-code-collection-v1.0.5,2026-07-17T13:56:57Z
+specs-as-code-collection,Specifications as Code Collection,specifications-as-code-collection,specifications-as-code-collection-v1.0.4,specifications-as-code-collection.bundle.zip,36,37824,specifications-as-code-collection-v1.0.4,2026-06-02T09:17:33Z
+specs-as-code-collection,Specifications as Code Collection,specifications-as-code-collection,specifications-as-code-collection-v1.0.3,specifications-as-code-collection.bundle.zip,5,35905,specifications-as-code-collection-v1.0.3,2026-05-31T13:52:10Z
+specs-as-code-collection,Specifications as Code Collection,specifications-as-code-collection,specifications-as-code-collection-v1.0.2,specifications-as-code-collection.bundle.zip,1,35905,specifications-as-code-collection-v1.0.2,2026-05-19T09:32:44Z
+specs-as-code-collection,Specifications as Code Collection,specifications-as-code-collection,specifications-as-code-collection-v1.0.1,specifications-as-code-collection.bundle.zip,0,5912,specifications-as-code-collection-v1.0.1,2026-05-19T08:58:37Z
+specs-as-code-collection,Specifications as Code Collection,specifications-as-code-collection,specifications-as-code-collection-v1.0.0,specifications-as-code-collection.bundle.zip,0,5785,specifications-as-code-collection-v1.0.0,2026-05-19T07:53:49Z
+orms-agentic-primitives,Agentic primitives for OrMS,orms-pipeline-pr,orms-pipeline-pr-v1.0.0,orms-pipeline-pr.bundle.zip,3,3967,orms-pipeline-pr-v1.0.0,2026-06-24T16:10:23Z
+orms-agentic-primitives,Agentic primitives for OrMS,orms-common,orms-common-v1.0.0,orms-common.bundle.zip,0,3868,orms-common-v1.0.0,2026-06-24T16:10:19Z
+orms-incident-investigator,OrMS Incident Investigator,orms-investigation-skills,orms-investigation-skills-v2.1.0,orms-investigation-skills.bundle.zip,3,613634,orms-investigation-skills-v2.1.0,2026-07-15T09:23:30Z
+orms-incident-investigator,OrMS Incident Investigator,orms-investigator-skills-legacy,orms-investigator-skills-legacy-v1.0.0,orms-investigator-skills-legacy.bundle.zip,1,33751,orms-investigator-skills-legacy-v1.0.0,2026-07-13T07:55:19Z
+orms-incident-investigator,OrMS Incident Investigator,orms-investigation-skills,orms-investigation-skills-v2.0.0,orms-investigation-skills.bundle.zip,0,79396,orms-investigation-skills-v2.0.0,2026-07-13T07:55:22Z
+uis-ui-blueprint,UI Blueprint AI Skills and Instructions,uiblueprint-collection,uiblueprint-collection-v1.0.2,uiblueprint-collection.bundle.zip,20,8270,uiblueprint-collection-v1.0.2,2026-05-20T12:31:01Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,javaswing-angular,javaswing-angular-v1.0.2,javaswing-angular.bundle.zip,2,28432,javaswing-angular-v1.0.2,2026-07-10T07:42:56Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,javaswing-angular,javaswing-angular-v1.0.1,javaswing-angular.bundle.zip,8,28432,javaswing-angular-v1.0.1,2026-06-09T08:00:25Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,javaswing-angular,javaswing-angular-v1.0.0,javaswing-angular.bundle.zip,1,28433,javaswing-angular-v1.0.0,2026-06-09T06:59:03Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,migration-planning,migration-planning-v1.0.2,migration-planning.bundle.zip,34,26671,migration-planning-v1.0.2,2026-06-08T08:35:37Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,migration-planning,migration-planning-v1.0.1,migration-planning.bundle.zip,4,26689,migration-planning-v1.0.1,2026-06-08T06:36:54Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,design-factory-angular,design-factory-angular-v1.0.1,design-factory-angular.bundle.zip,54,11456,design-factory-angular-v1.0.1,2026-06-08T08:45:30Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,coach-developers-to-prompt,coach-developers-to-prompt-v1.0.0,coach-developers-to-prompt.bundle.zip,2,15473,coach-developers-to-prompt-v1.0.0,2026-06-08T06:00:37Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,migration-planning,migration-planning-v1.0.0,migration-planning.bundle.zip,12,2883,migration-planning-v1.0.0,2026-05-20T09:26:52Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,context-generation-collection,context-generation-collection-v1.0.0,context-generation-collection.bundle.zip,42,7901,context-generation-collection-v1.0.0,2026-05-18T05:55:49Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,design-factory-angular,design-factory-angular-v1.0.0,design-factory-angular.bundle.zip,14,11480,design-factory-angular-v1.0.0,2026-04-23T08:35:49Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,webapp-parity,webapp-parity-v1.0.1,webapp-parity.bundle.zip,33,12435,webapp-parity-v1.0.1,2026-04-11T09:27:04Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,testing,testing-v1.0.1,testing.bundle.zip,53,8962,testing-v1.0.1,2026-04-11T09:27:01Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,skill-best-practices,skill-best-practices-v1.0.1,skill-best-practices.bundle.zip,3,2025,skill-best-practices-v1.0.1,2026-04-11T09:26:58Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,search-and-learn,search-and-learn-v1.0.1,search-and-learn.bundle.zip,44,2811,search-and-learn-v1.0.1,2026-04-11T09:26:55Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,angular-migration,angular-migration-v1.0.1,angular-migration.bundle.zip,60,20655,angular-migration-v1.0.1,2026-04-11T09:26:53Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,amadeus-pptx,amadeus-pptx-v1.0.1,amadeus-pptx.bundle.zip,14,20875,amadeus-pptx-v1.0.1,2026-04-11T09:26:50Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,webapp-parity,webapp-parity-v1.0.0,webapp-parity.bundle.zip,0,12427,webapp-parity-v1.0.0,2026-04-10T12:24:31Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,testing,testing-v1.0.0,testing.bundle.zip,0,8955,testing-v1.0.0,2026-04-10T12:24:29Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,skill-best-practices,skill-best-practices-v1.0.0,skill-best-practices.bundle.zip,0,2031,skill-best-practices-v1.0.0,2026-04-10T12:24:27Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,search-and-learn,search-and-learn-v1.0.0,search-and-learn.bundle.zip,0,2782,search-and-learn-v1.0.0,2026-04-10T12:24:25Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,angular-migration,angular-migration-v1.0.0,angular-migration.bundle.zip,0,20643,angular-migration-v1.0.0,2026-04-10T12:24:23Z
+eed-genai-agentic-toolkit,EED GenAI Agentic Toolkit,amadeus-pptx,amadeus-pptx-v1.0.0,amadeus-pptx.bundle.zip,0,20888,amadeus-pptx-v1.0.0,2026-04-10T12:24:20Z
+ide-project-template-generator-skills,IDE VS Code Project Template Generator Skills Collection,vscode-project-template-generator,scode-project-template-generator-v1.0.0,vscode-project-template-generator.bundle.zip,10,57858,vscode-project-template-generator-v1.0.0,2026-05-31T13:30:31Z
+opo-engineering-agent-guides,OPO Engineering Agent Guides,orion-skube-version-upgrade,orion-skube-version-upgrade-v1.0.1,orion-skube-version-upgrade.bundle.zip,8,32953,orion-skube-version-upgrade-v1.0.1,2026-07-08T11:30:26Z
+opo-engineering-agent-guides,OPO Engineering Agent Guides,orion-msvc-component-tests,orion-msvc-component-tests-v1.0.2,orion-msvc-component-tests.bundle.zip,3,40210,orion-msvc-component-tests-v1.0.2,2026-07-08T11:56:27Z
+opo-engineering-agent-guides,OPO Engineering Agent Guides,orion-msvc-component-tests,orion-msvc-component-tests-v1.0.1,orion-msvc-component-tests.bundle.zip,1,40205,orion-msvc-component-tests-v1.0.1,2026-06-18T10:05:13Z
+opo-engineering-agent-guides,OPO Engineering Agent Guides,orion-msvc-component-tests,orion-msvc-component-tests-v1.0.0,orion-msvc-component-tests.bundle.zip,3,38788,orion-msvc-component-tests-v1.0.0,2026-06-17T08:01:21Z
+opo-engineering-agent-guides,OPO Engineering Agent Guides,orion-skube-version-upgrade,orion-skube-version-upgrade-v1.0.0,orion-skube-version-upgrade.bundle.zip,5,21173,orion-skube-version-upgrade-v1.0.0,2026-05-21T07:22:53Z
+docgen,DocGen - Expert Documentation Analyst,expert-documentation-analyst,expert-documentation-analyst-v1.0.0,expert-documentation-analyst.bundle.zip,3,7129,expert-documentation-analyst-v1.0.0,2026-06-08T17:51:08Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.8,nevio-deployment-automation.bundle.zip,1,44057,nevio-deployment-automation-v1.0.8,2026-07-20T15:17:26Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.6,nevio-deployment-automation.bundle.zip,0,46287,nevio-deployment-automation-v1.0.6,2026-07-20T08:56:52Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.7,nevio-deployment-automation.bundle.zip,3,36166,nevio-deployment-automation-v1.0.7,2026-07-20T09:05:25Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-gitops-diagnostics,nevio-gitops-diagnostics-v2.1.0,nevio-gitops-diagnostics.bundle.zip,7,25065,nevio-gitops-diagnostics-v2.1.0,2026-07-15T14:55:06Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-renovate-automation,nevio-renovate-automation-v1.0.1,nevio-renovate-automation.bundle.zip,4,4363,nevio-renovate-automation-v1.0.1,2026-07-08T13:10:28Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-finops-reporting,nevio-finops-reporting-v1.0.5,nevio-finops-reporting.bundle.zip,0,1634,nevio-finops-reporting-v1.0.5,2026-07-08T12:03:36Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.5,nevio-deployment-automation.bundle.zip,8,36165,nevio-deployment-automation-v1.0.5,2026-07-08T12:03:32Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.4,nevio-deployment-automation.bundle.zip,0,34075,nevio-deployment-automation-v1.0.4,2026-07-08T09:21:07Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-finops-reporting,nevio-finops-reporting-v1.0.4,nevio-finops-reporting.bundle.zip,0,9869,nevio-finops-reporting-v1.0.4,2026-07-07T07:24:58Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.3,nevio-deployment-automation.bundle.zip,1,41570,nevio-deployment-automation-v1.0.3,2026-07-07T14:31:06Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.2,nevio-deployment-automation.bundle.zip,0,41303,nevio-deployment-automation-v1.0.2,2026-07-07T07:24:55Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-finops-reporting,nevio-finops-reporting-v1.0.3,nevio-finops-reporting.bundle.zip,4,7106,nevio-finops-reporting-v1.0.3,2026-07-01T14:56:57Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.1,nevio-deployment-automation.bundle.zip,8,41088,nevio-deployment-automation-v1.0.1,2026-07-01T14:56:53Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-gitops-diagnostics,nevio-gitops-diagnostics-v1.0.2,nevio-gitops-diagnostics.bundle.zip,8,15273,nevio-gitops-diagnostics-v1.0.2,2026-06-09T08:18:56Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-finops-reporting,nevio-finops-reporting-v1.0.2,nevio-finops-reporting.bundle.zip,0,5508,nevio-finops-reporting-v1.0.2,2026-05-26T09:57:30Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-finops-reporting,nevio-finops-reporting-v1.0.1,nevio-finops-reporting.bundle.zip,0,4954,nevio-finops-reporting-v1.0.1,2026-05-22T15:00:35Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-gitops-diagnostics,nevio-gitops-diagnostics-v1.0.1,nevio-gitops-diagnostics.bundle.zip,0,15268,nevio-gitops-diagnostics-v1.0.1,2026-05-04T15:35:30Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-renovate-automation,nevio-renovate-automation-v1.0.0,nevio-renovate-automation.bundle.zip,5,4320,nevio-renovate-automation-v1.0.0,2026-04-30T13:52:52Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-gitops-diagnostics,nevio-gitops-diagnostics-v1.0.0,nevio-gitops-diagnostics.bundle.zip,0,15265,nevio-gitops-diagnostics-v1.0.0,2026-04-30T13:52:48Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-finops-reporting,nevio-finops-reporting-v1.0.0,nevio-finops-reporting.bundle.zip,0,1615,nevio-finops-reporting-v1.0.0,2026-04-30T13:52:45Z
+nevio-sre-ai-toolkit,Nevio SRE AI Toolkit,nevio-deployment-automation,nevio-deployment-automation-v1.0.0,nevio-deployment-automation.bundle.zip,2,41842,nevio-deployment-automation-v1.0.0,2026-04-30T13:52:41Z
+EMEA-digital-services-workflow,EMEA Digital Services Workflow,emea-digital-services-workflow,emea-digital-services-workflow-v1.0.0,emea-digital-services-workflow.bundle.zip,1,12611,emea-digital-services-workflow-v1.0.0,2026-06-12T07:19:41Z
+airops-common-ai-assets,AirOps common AI Assets,aao-ai-common-assets,aao-ai-common-assets-v1.0.0,aao-ai-common-assets.bundle.zip,2,3626,aao-ai-common-assets-v1.0.0,2026-06-23T08:17:15Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,airops-itedex-ai-assets,airops-itedex-ai-assets-v1.0.7,airops-itedex-ai-assets.bundle.zip,0,115777,airops-itedex-ai-assets-v1.0.7,2026-07-17T13:05:00Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,airops-itedex-ai-assets,airops-itedex-ai-assets-v1.0.6,airops-itedex-ai-assets.bundle.zip,1,115764,airops-itedex-ai-assets-v1.0.6,2026-07-07T21:37:43Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,airops-itedex-ai-assets,airops-itedex-ai-assets-v1.0.5,airops-itedex-ai-assets.bundle.zip,0,115493,airops-itedex-ai-assets-v1.0.5,2026-07-07T20:31:01Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,airops-itedex-ai-assets,airops-itedex-ai-assets-v1.0.4,airops-itedex-ai-assets.bundle.zip,0,114788,airops-itedex-ai-assets-v1.0.4,2026-07-07T17:26:35Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,airops-itedex-ai-assets,airops-itedex-ai-assets-v1.0.3,airops-itedex-ai-assets.bundle.zip,0,113388,airops-itedex-ai-assets-v1.0.3,2026-07-07T16:11:51Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,airops-itedex-ai-assets,airops-itedex-ai-assets-v1.0.2,airops-itedex-ai-assets.bundle.zip,0,112611,airops-itedex-ai-assets-v1.0.2,2026-07-07T16:09:01Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,airops-itedex-ai-assets,airops-itedex-ai-assets-v1.0.1,airops-itedex-ai-assets.bundle.zip,1,111705,airops-itedex-ai-assets-v1.0.1,2026-06-26T15:27:47Z
+airops-itedex-ai-assets,AirOps-ITEDEX AI Assets,airops-itedex-ai-assets,airops-itedex-ai-assets-v1.0.0,airops-itedex-ai-assets.bundle.zip,4,111519,airops-itedex-ai-assets-v1.0.0,2026-06-24T11:58:10Z
+asr-agentic-framework,ASR Agentic Framework,asr-full-catalog,asr-full-catalog-v1.0.0,asr-full-catalog.bundle.zip,0,1272982,asr-full-catalog-v1.0.0,2026-07-08T04:47:17Z
+ofc-genai-initiatives,OFfer Creation (OFC) GenAI initiatives,ofms-enhanced-code-reviewer,ofms-enhanced-code-reviewer-v1.0.2,ofms-enhanced-code-reviewer.bundle.zip,0,14115,ofms-enhanced-code-reviewer-v1.0.2,2026-07-17T08:45:29Z
+ofc-genai-initiatives,OFfer Creation (OFC) GenAI initiatives,ofms-feature-toggle-cleaner,ofms-feature-toggle-cleaner-v1.0.1,ofms-feature-toggle-cleaner.bundle.zip,7,10742,ofms-feature-toggle-cleaner-v1.0.1,2026-06-22T07:49:40Z
+ofc-genai-initiatives,OFfer Creation (OFC) GenAI initiatives,ofms-enhanced-code-reviewer,ofms-enhanced-code-reviewer-v1.0.1,ofms-enhanced-code-reviewer.bundle.zip,5,14026,ofms-enhanced-code-reviewer-v1.0.1,2026-06-22T07:49:36Z
+ofc-genai-initiatives,OFfer Creation (OFC) GenAI initiatives,ofms-feature-toggle-cleaner,ofms-feature-toggle-cleaner-v1.0.0,ofms-feature-toggle-cleaner.bundle.zip,7,10975,ofms-feature-toggle-cleaner-v1.0.0,2026-06-12T14:15:52Z
+ofc-genai-initiatives,OFfer Creation (OFC) GenAI initiatives,ofms-enhanced-code-reviewer,ofms-enhanced-code-reviewer-v1.0.0,ofms-enhanced-code-reviewer.bundle.zip,3,14059,ofms-enhanced-code-reviewer-v1.0.0,2026-06-12T14:15:48Z
+agentic-engineering-playbook,Agentic Engineering Playbook,skills-creator-toolbox,skills-creator-toolbox-v1.0.6,skills-creator-toolbox.bundle.zip,4,402756,skills-creator-toolbox-v1.0.6,2026-07-15T05:26:22Z
+agentic-engineering-playbook,Agentic Engineering Playbook,skills-creator-toolbox,skills-creator-toolbox-v1.0.5,skills-creator-toolbox.bundle.zip,0,366610,skills-creator-toolbox-v1.0.5,2026-07-15T05:21:22Z
+agentic-engineering-playbook,Agentic Engineering Playbook,ai-usage-analysis,ai-usage-analysis-v1.0.0,ai-usage-analysis.bundle.zip,2,19763,ai-usage-analysis-v1.0.0,2026-07-15T05:17:58Z
+agentic-engineering-playbook,Agentic Engineering Playbook,skills-creator-toolbox,skills-creator-toolbox-v1.0.4,skills-creator-toolbox.bundle.zip,15,363486,skills-creator-toolbox-v1.0.4,2026-06-26T16:21:17Z
+agentic-engineering-playbook,Agentic Engineering Playbook,getting-ready-for-agents,getting-ready-for-agents-v1.0.1,getting-ready-for-agents.bundle.zip,1,23965,getting-ready-for-agents-v1.0.1,2026-06-26T16:21:13Z
+agentic-engineering-playbook,Agentic Engineering Playbook,getting-ready-for-agents,getting-ready-for-agents-v1.0.0,getting-ready-for-agents.bundle.zip,2,24348,getting-ready-for-agents-v1.0.0,2026-06-19T08:51:57Z
+agentic-engineering-playbook,Agentic Engineering Playbook,skills-creator-toolbox,skills-creator-toolbox-v1.0.3,skills-creator-toolbox.bundle.zip,6,363139,skills-creator-toolbox-v1.0.3,2026-06-18T06:39:47Z
+agentic-engineering-playbook,Agentic Engineering Playbook,skills-creator-toolbox,skills-creator-toolbox-v1.0.2,skills-creator-toolbox.bundle.zip,1,352429,skills-creator-toolbox-v1.0.2,2026-06-12T07:23:14Z
+agentic-engineering-playbook,Agentic Engineering Playbook,skills-creator-toolbox,skills-creator-toolbox-v1.0.1,skills-creator-toolbox.bundle.zip,4,115195,skills-creator-toolbox-v1.0.1,2026-06-09T22:01:12Z
+agentic-engineering-playbook,Agentic Engineering Playbook,skills-creator-toolbox,skills-creator-toolbox-v1.0.0,skills-creator-toolbox.bundle.zip,4,21728,skills-creator-toolbox-v1.0.0,2026-06-03T15:43:29Z
+beekeeper,BeeKeeper 🐝,beekeeper-skills,beekeeper-skills-v0.0.4,beekeeper-skills.bundle.zip,2,46159,beekeeper-skills-v0.0.4,2026-07-09T13:05:43Z
+beekeeper,BeeKeeper 🐝,beekeeper-skills,beekeeper-skills-v0.0.3,beekeeper-skills.bundle.zip,1,38854,beekeeper-skills-v0.0.3,2026-07-08T14:49:11Z
+beekeeper,BeeKeeper 🐝,beekeeper-skills,beekeeper-skills-v0.0.2,beekeeper-skills.bundle.zip,1,33849,beekeeper-skills-v0.0.2,2026-07-02T12:27:45Z
+beekeeper,BeeKeeper 🐝,beekeeper-skills,beekeeper-skills-v0.0.1,beekeeper-skills.bundle.zip,4,33841,beekeeper-skills-v0.0.1,2026-06-23T15:05:17Z
+pay-fast-data-agentic-collections,Pay Fast Data Agentic Collections,pay-fast-data-agentic-feature-owner,pay-fast-data-agentic-feature-owner-v0.1.3,pay-fast-data-agentic-feature-owner.bundle.zip,1,18295,pay-fast-data-agentic-feature-owner-v0.1.3,2026-06-30T13:31:18Z
+pay-fast-data-agentic-collections,Pay Fast Data Agentic Collections,pay-fast-data-agentic-devops,pay-fast-data-agentic-devops-v0.1.3,pay-fast-data-agentic-devops.bundle.zip,9,7972,pay-fast-data-agentic-devops-v0.1.3,2026-06-30T11:44:23Z
+pay-fast-data-agentic-collections,Pay Fast Data Agentic Collections,pay-fast-data-agentic-feature-owner,pay-fast-data-agentic-feature-owner-v0.1.2,pay-fast-data-agentic-feature-owner.bundle.zip,0,7991,pay-fast-data-agentic-feature-owner-v0.1.2,2026-06-29T13:39:31Z
+pay-fast-data-agentic-collections,Pay Fast Data Agentic Collections,pay-fast-data-agentic-devops,pay-fast-data-agentic-devops-v0.1.2,pay-fast-data-agentic-devops.bundle.zip,1,7099,pay-fast-data-agentic-devops-v0.1.2,2026-06-29T13:39:28Z
+pay-fast-data-agentic-collections,Pay Fast Data Agentic Collections,pay-fast-data-agentic-feature-owner,pay-fast-data-agentic-feature-owner-v0.1.1,pay-fast-data-agentic-feature-owner.bundle.zip,0,7974,pay-fast-data-agentic-feature-owner-v0.1.1,2026-06-24T07:44:45Z
+pay-fast-data-agentic-collections,Pay Fast Data Agentic Collections,pay-fast-data-agentic-devops,pay-fast-data-agentic-devops-v0.1.1,pay-fast-data-agentic-devops.bundle.zip,0,6286,pay-fast-data-agentic-devops-v0.1.1,2026-06-24T07:44:42Z
+udofm-ai-skills-collections,UD OfMS AI Skills Collections,udofm-ai-skills,udofm-ai-skills-v1.0.3,udofm-ai-skills.bundle.zip,1,85430,udofm-ai-skills-v1.0.3,2026-07-20T12:58:45Z
+udofm-ai-skills-collections,UD OfMS AI Skills Collections,udofm-ai-skills,udofm-ai-skills-v1.0.2,udofm-ai-skills.bundle.zip,2,79309,udofm-ai-skills-v1.0.2,2026-07-16T14:45:41Z
+udofm-ai-skills-collections,UD OfMS AI Skills Collections,udofm-ai-skills,udofm-ai-skills-v1.0.1,udofm-ai-skills.bundle.zip,0,78021,udofm-ai-skills-v1.0.1,2026-07-16T13:33:00Z
+udofm-ai-skills-collections,UD OfMS AI Skills Collections,udofm-ai-skills,udofm-ai-skills-v1.0.0,udofm-ai-skills.bundle.zip,5,18240,udofm-ai-skills-v1.0.0,2026-06-25T08:47:56Z
+genai-ai-dlc-collections,Axiom - Governed AI-assisted SDLC framework for Amadeus development teams,axiom-prompt-registry,axiom-prompt-registry-v1.0.1,axiom-prompt-registry.bundle.zip,2,127636,axiom-prompt-registry-v1.0.1,2026-07-17T12:38:38Z
+genai-ai-dlc-collections,Axiom - Governed AI-assisted SDLC framework for Amadeus development teams,axiom-prompt-registry,axiom-prompt-registry-v1.0.0,axiom-prompt-registry.bundle.zip,0,127645,axiom-prompt-registry-v1.0.0,2026-07-17T08:59:30Z
+servicenow-agentic-collections,ServiceNow Agentic Collections,snow-explorer,snow-explorer-v1.2.3,snow-explorer.bundle.zip,3,123161,snow-explorer-v1.2.3,2026-07-20T09:07:13Z
+servicenow-agentic-collections,ServiceNow Agentic Collections,snow-explorer,snow-explorer-v1.2.2,snow-explorer.bundle.zip,7,119344,snow-explorer-v1.2.2,2026-07-17T11:46:19Z
+servicenow-agentic-collections,ServiceNow Agentic Collections,snow-explorer,snow-explorer-v1.0.0,snow-explorer.bundle.zip,23,119238,snow-explorer-v1.0.0,2026-07-10T14:13:40Z
+archify-architecture-docs,Archify Architecture Docs,archify,archify-v1.0.0,archify.bundle.zip,7,14965,archify-v1.0.0,2026-07-15T11:06:21Z
