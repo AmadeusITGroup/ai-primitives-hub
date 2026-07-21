@@ -56,6 +56,7 @@ import {
 } from '../types/settings';
 import {
   BundleIdentityMatcher,
+  extractGitHubMetadata,
 } from '../utils/bundle-identity-matcher';
 import {
   CONCURRENCY_CONSTANTS,
@@ -457,10 +458,35 @@ export class RegistryManager {
     }
 
     const sourceType: SourceType = (installed.sourceType as SourceType) ?? 'local';
-    return BundleIdentityMatcher.matches(
+    const primaryMatch = BundleIdentityMatcher.matches(
       installed.bundleId,
       latest.id,
       sourceType
+    );
+
+    if (primaryMatch) {
+      return true;
+    }
+
+    // @migration-cleanup(source-type-migration): Remove this fallback
+    if (sourceType === 'awesome-copilot') {
+      return this.matchesCrossTypeFallback(installed.bundleId, latest);
+    }
+
+    return false;
+  }
+
+  // @migration-cleanup(source-type-migration): Remove with the fallback call sites
+  private matchesCrossTypeFallback(installedBundleId: string, candidate: Bundle): boolean {
+    const source = this.sourcesCache.find((s) => s.id === candidate.sourceId);
+    if (source?.type !== 'github') {
+      return false;
+    }
+    const metadata = source.url ? extractGitHubMetadata(source.url) : undefined;
+    return BundleIdentityMatcher.matchesAwesomeCopilotToGithub(
+      installedBundleId,
+      candidate.id,
+      metadata
     );
   }
 
@@ -470,7 +496,8 @@ export class RegistryManager {
    * @param latestBundles
    */
   private findMatchingLatestBundle(installedBundle: InstalledBundle, latestBundles: Bundle[]): Bundle | undefined {
-    return latestBundles.find((lb) => {
+    // Primary match: same source type
+    const primaryMatch = latestBundles.find((lb) => {
       if (installedBundle.sourceType === 'github') {
         return BundleIdentityMatcher.matches(
           installedBundle.bundleId,
@@ -484,6 +511,17 @@ export class RegistryManager {
         return installedBaseId === latestBaseId;
       }
     });
+
+    if (primaryMatch) {
+      return primaryMatch;
+    }
+
+    // @migration-cleanup(source-type-migration): Remove this fallback
+    if (installedBundle.sourceType === 'awesome-copilot') {
+      return latestBundles.find((lb) => this.matchesCrossTypeFallback(installedBundle.bundleId, lb));
+    }
+
+    return undefined;
   }
 
   /**

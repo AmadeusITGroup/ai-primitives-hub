@@ -47,6 +47,9 @@ import {
   SchemaValidator,
   ValidationResult,
 } from './schema-validator';
+import {
+  SourceTypeReconciler,
+} from './source-type-reconciler';
 
 const execAsync = promisify(exec);
 
@@ -904,7 +907,7 @@ export class HubManager {
       this.logger.info(`Found ${hubSources.length} sources in hub ${hubId}`);
 
       // Get existing sources to avoid duplicates
-      const existingSources = await this.registryManager.listSources();
+      let existingSources = await this.registryManager.listSources();
 
       let addedCount = 0;
       let skippedCount = 0;
@@ -960,6 +963,42 @@ export class HubManager {
             + `CollectionsPath: ${hubSource.config?.collectionsPath || 'collections'}`
           );
           skippedCount++;
+          continue;
+        }
+
+        // @migration-cleanup(source-type-migration): Remove this block once all sources have migrated
+        // Detect awesome-copilot → github type change by URL match
+        const typeChangedSource = SourceTypeReconciler.detectTypeChange(hubSource, existingSources);
+        if (typeChangedSource) {
+          this.logger.info(
+            `Detected source type change: ${typeChangedSource.id} (${typeChangedSource.type}) → ${hubSource.type} for URL ${hubSource.url}`
+          );
+
+          try {
+            const reconciler = new SourceTypeReconciler(
+              this.registryManager,
+              this.registryManager.getStorage(),
+              this.storage
+            );
+
+            const reconcileResult = await reconciler.reconcile(
+              typeChangedSource,
+              hubSource,
+              hubId,
+              sourceId
+            );
+
+            existingSources = await this.registryManager.listSources();
+            if (reconcileResult.bundleResults.some((r) => r.success)) {
+              updatedCount++;
+            }
+          } catch (error) {
+            this.logger.error(
+              `Failed to reconcile source type change for ${hubSource.url}`,
+              error as Error
+            );
+          }
+
           continue;
         }
 

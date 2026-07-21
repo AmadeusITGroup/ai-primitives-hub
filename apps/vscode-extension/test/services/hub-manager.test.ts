@@ -636,9 +636,32 @@ suite('Hub Source Loading - SourceId Format', () => {
     private sources: RegistrySource[] = [];
     public addSourceCalls: RegistrySource[] = [];
     public updateSourceCalls: { id: string; updates: Partial<RegistrySource> }[] = [];
+    public removeSourceCalls: string[] = [];
+
+    // Minimal storage stub for SourceTypeReconciler
+    private readonly storageStub = {
+      getInstalledBundles: () => Promise.resolve([]),
+      getCachedSourceBundles: () => Promise.resolve([])
+    };
+
+    public getStorage(): typeof this.storageStub {
+      return this.storageStub;
+    }
+
+    public listInstalledBundles(): Promise<any[]> {
+      return Promise.resolve([]);
+    }
 
     public listSources(): Promise<RegistrySource[]> {
       return Promise.resolve([...this.sources]);
+    }
+
+    public syncSource(_sourceId: string): Promise<void> {
+      return Promise.resolve();
+    }
+
+    public getBundleDetails(_bundleId: string): Promise<any> {
+      return Promise.resolve({});
     }
 
     public addSource(source: RegistrySource): Promise<void> {
@@ -656,10 +679,20 @@ suite('Hub Source Loading - SourceId Format', () => {
       return Promise.resolve();
     }
 
+    public removeSource(id: string): Promise<void> {
+      const index = this.sources.findIndex((s) => s.id === id);
+      if (index !== -1) {
+        this.sources.splice(index, 1);
+      }
+      this.removeSourceCalls.push(id);
+      return Promise.resolve();
+    }
+
     public reset(): void {
       this.sources = [];
       this.addSourceCalls = [];
       this.updateSourceCalls = [];
+      this.removeSourceCalls = [];
     }
 
     public getSourceCount(): number {
@@ -897,6 +930,92 @@ suite('Hub Source Loading - SourceId Format', () => {
       assert.strictEqual(sourcesAfterReload.length, 2, 'Should still have only 2 sources (no duplicates)');
       assert.strictEqual(mockRegistry.updateSourceCalls.length, 2, 'Should have 2 update calls');
       assert.strictEqual(mockRegistry.addSourceCalls.length, 0, 'Should have 0 add calls on reload');
+    });
+  });
+
+  suite('Source Type Change Detection (awesome-copilot → github)', () => {
+    test('should detect type change and attempt reconciliation without duplicating source', async () => {
+      // Pre-seed an awesome-copilot source for the same URL used in hub-two-sources.yml (source-1)
+      const sourceUrl = 'https://github.com/github/awesome-copilot';
+      const oldSourceId = generateHubSourceId('awesome-copilot', sourceUrl, {
+        branch: 'main',
+        collectionsPath: 'collections'
+      });
+
+      const existingSource: RegistrySource = {
+        id: oldSourceId,
+        name: 'Legacy Awesome Copilot Source',
+        type: 'awesome-copilot',
+        url: sourceUrl,
+        enabled: true,
+        priority: 1,
+        config: {
+          branch: 'main',
+          collectionsPath: 'collections'
+        }
+      };
+      await mockRegistry.addSource(existingSource);
+
+      // Create a hub config where that source is now type 'github'
+      const tempHubPath = path.join(tempDir, 'hub-type-change.yml');
+      const hubConfig = {
+        version: '1.0.0',
+        metadata: {
+          name: 'Type Change Test Hub',
+          description: 'Test',
+          maintainer: 'Test',
+          updatedAt: new Date().toISOString()
+        },
+        sources: [{
+          id: 'source-migrated',
+          name: 'Migrated Source',
+          type: 'github',
+          url: sourceUrl,
+          enabled: true,
+          priority: 1,
+          config: {
+            branch: 'main',
+            collectionsPath: 'collections'
+          }
+        }],
+        profiles: []
+      };
+      fs.writeFileSync(tempHubPath, yaml.dump(hubConfig));
+
+      const ref: HubReference = { type: 'local', location: tempHubPath };
+
+      // Reset tracking
+      mockRegistry.addSourceCalls = [];
+      mockRegistry.updateSourceCalls = [];
+
+      // Import hub — the reconciler runs the happy path: no installed bundles
+      // and an empty bundle cache, so no bundle migration happens. The old
+      // awesome-copilot source is then removed (cleanupIfUnreferenced), and the
+      // new github source takes its place without duplication.
+      await hubManager.importHub(ref, 'test-type-change');
+
+      const sources = await mockRegistry.listSources();
+
+      // Key assertion: We should NOT have two sources for the same URL.
+      // The reconciler adds the new github source and removes the old awesome-copilot one.
+      const sourcesForUrl = sources.filter(
+        (s) => s.url === sourceUrl
+      );
+      assert.strictEqual(
+        sourcesForUrl.length,
+        1,
+        `Should have exactly 1 source for ${sourceUrl}, not ${sourcesForUrl.length} (no duplication on type change)`
+      );
+
+      // The source should now be the new github one (reconciliation succeeded)
+      assert.strictEqual(sourcesForUrl[0].type, 'github',
+        'Source type should be github after reconciliation');
+
+      // Verify the old source was removed
+      assert.strictEqual(mockRegistry.removeSourceCalls.length, 1,
+        'Should have called removeSource once for the old awesome-copilot source');
+      assert.strictEqual(mockRegistry.removeSourceCalls[0], oldSourceId,
+        'Should have removed the old awesome-copilot source');
     });
   });
 });

@@ -162,9 +162,7 @@ export class VersionManager {
     const match = bundleId.match(versionPattern);
 
     if (match && match.index !== undefined) {
-      const identity = bundleId.slice(0, match.index);
-      this.logger.debug(`Extracted bundle identity: "${bundleId}" -> "${identity}"`);
-      return identity;
+      return bundleId.slice(0, match.index);
     }
 
     // No version suffix found, return as-is

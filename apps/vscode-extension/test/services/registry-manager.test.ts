@@ -24,6 +24,7 @@ import {
 } from '../../src/types/registry';
 import {
   BundleBuilder,
+  createMockInstalledBundle,
   TEST_SOURCE_IDS,
 } from '../helpers/bundle-test-helpers';
 
@@ -1215,5 +1216,141 @@ suite('RegistryManager - Adapter Cache Clearing', () => {
       registryManager.clearAdapterCache('source-1');
       registryManager.clearAdapterCache('');
     });
+  });
+});
+
+suite('RegistryManager - Cross-Type Fallback Matching', () => {
+  let sandbox: sinon.SinonSandbox;
+  let mockContext: vscode.ExtensionContext;
+  let manager: RegistryManager;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+
+    mockContext = {
+      globalState: {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      } as any,
+      workspaceState: {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      } as any,
+      subscriptions: [],
+      extensionPath: '/mock/path',
+      extensionUri: vscode.Uri.file('/mock/path'),
+      storageUri: vscode.Uri.file('/mock/storage'),
+      globalStorageUri: vscode.Uri.file('/mock/global'),
+      asAbsolutePath: (p: string) => `/mock/path/${p}`
+    } as any;
+
+    manager = RegistryManager.getInstance(mockContext);
+  });
+
+  teardown(() => {
+    sandbox.restore();
+    (manager as any).sourcesCache = [];
+  });
+
+  test('bundlesMatch() falls back to cross-type match for awesome-copilot', () => {
+    const installed = createMockInstalledBundle('azure-development', '1.0.0', {
+      sourceId: 'my-source',
+      sourceType: 'awesome-copilot'
+    });
+    const latest = BundleBuilder.github('owner', 'repo')
+      .withVersion('1.0.0')
+      .build();
+    latest.sourceId = 'my-source';
+    // github ID: owner-repo-azure-development-1.0.0 → collection: azure-development
+    // awesome-copilot ID: azure-development → exact match required
+    latest.id = 'owner-repo-azure-development-1.0.0';
+
+    // Populate sourcesCache with URL so owner/repo can be extracted for matching
+    (manager as any).sourcesCache = [{
+      id: 'my-source',
+      type: 'github',
+      url: 'https://github.com/owner/repo'
+    }];
+
+    const result = (manager as any).bundlesMatch(installed, latest, 'my-source');
+    assert.strictEqual(result, true);
+  });
+
+  test('bundlesMatch() does not fall back for github type', () => {
+    const installed = createMockInstalledBundle('owner-repo-1.0.0', '1.0.0', {
+      sourceId: 'my-source',
+      sourceType: 'github'
+    });
+    const latest = BundleBuilder.fromSource('azure-development', 'AWESOME_COPILOT')
+      .withVersion('1.0.0')
+      .build();
+    latest.sourceId = 'my-source';
+
+    const result = (manager as any).bundlesMatch(installed, latest, 'my-source');
+    assert.strictEqual(result, false);
+  });
+
+  test('bundlesMatch() rejects partial suffix match', () => {
+    // 'development' must NOT match 'azure-development' even with source metadata
+    const installed = createMockInstalledBundle('development', '1.0.0', {
+      sourceId: 'my-source',
+      sourceType: 'awesome-copilot'
+    });
+    const latest = BundleBuilder.github('owner', 'repo').withVersion('1.0.0').build();
+    latest.sourceId = 'my-source';
+    latest.id = 'owner-repo-azure-development-1.0.0';
+
+    (manager as any).sourcesCache = [{
+      id: 'my-source',
+      type: 'github',
+      url: 'https://github.com/owner/repo'
+    }];
+
+    const result = (manager as any).bundlesMatch(installed, latest, 'my-source');
+    assert.strictEqual(result, false);
+  });
+
+  test('findMatchingLatestBundle() falls back to cross-type match for awesome-copilot', () => {
+    const installed = createMockInstalledBundle('azure-development', '1.0.0', {
+      sourceType: 'awesome-copilot'
+    });
+    const githubBundle = BundleBuilder.github('owner', 'repo')
+      .withVersion('2.0.0')
+      .build();
+    githubBundle.id = 'owner-repo-azure-development-2.0.0';
+
+    // Populate sourcesCache with URL so cross-type guard + matcher can work
+    (manager as any).sourcesCache = [{
+      id: githubBundle.sourceId,
+      type: 'github',
+      url: 'https://github.com/owner/repo'
+    }];
+
+    const result = (manager as any).findMatchingLatestBundle(installed, [githubBundle]);
+    assert.strictEqual(result, githubBundle);
+  });
+
+  test('findMatchingLatestBundle() returns undefined when no cross-type match', () => {
+    const installed = createMockInstalledBundle('azure-development', '1.0.0', {
+      sourceType: 'awesome-copilot'
+    });
+    const githubBundle = BundleBuilder.github('owner', 'repo')
+      .withVersion('2.0.0')
+      .build();
+    // ID doesn't contain 'azure-development' as collection
+    githubBundle.id = 'owner-repo-other-bundle-2.0.0';
+
+    (manager as any).sourcesCache = [{
+      id: githubBundle.sourceId,
+      type: 'github',
+      url: 'https://github.com/owner/repo'
+    }];
+
+    const result = (manager as any).findMatchingLatestBundle(installed, [githubBundle]);
+    assert.strictEqual(result, undefined);
   });
 });

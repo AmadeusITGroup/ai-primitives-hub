@@ -272,6 +272,8 @@ This ensures:
 
 **Case normalization (v2)**: Source IDs generated after this version use fully case-insensitive URL normalization (host + path lowercased). Older source IDs preserved path case. The extension uses dual-read: when matching source IDs, it checks both current and legacy formats. Lockfile entries with old-format IDs continue to work and migrate organically when bundles are updated. Local data (config.json, cache) is migrated automatically on activation via `MigrationRegistry`. All migration-related code is tagged with `@migration-cleanup(sourceId-normalization-v2)` for future removal.
 
+**Source type migration (awesome-copilot → github)**: When a hub source changes type from `awesome-copilot` to `github`, the extension automatically detects and reconciles the change during hub sync. Detection uses URL matching (normalized, case-insensitive). `SourceTypeReconciler` maps old bundle IDs to new ones by **exact collection ID match**: the owner/repo prefix is stripped from the github bundle base ID using the new source's URL, and the remaining collection segment must equal the awesome-copilot bundle ID exactly (no suffix or partial matches). The reconciler verifies availability from the new source before uninstalling old bundles, then reinstalls from the github release source across all scopes — skipping reinstall when the target bundle is already present. Cross-type fallback matching in `RegistryManager.bundlesMatch()` and `findMatchingLatestBundle()` handles the gap period for shared lockfiles using the same exact-match rule. All migration-related code is tagged with `@migration-cleanup(source-type-migration)` for future removal.
+
 ### Hub Key Generation
 
 Hub entries in the lockfile use URL-based keys instead of user-defined hub IDs:

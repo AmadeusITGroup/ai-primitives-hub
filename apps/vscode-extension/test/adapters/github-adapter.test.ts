@@ -215,7 +215,7 @@ tags:
       assert.deepStrictEqual(bundles[0].tags, ['airlines', 'travel', 'booking']);
     });
 
-    test('should fallback to GitHub release name when manifest fetch fails', async () => {
+    test('should skip releases when manifest fetch fails', async () => {
       nock('https://api.github.com')
         .get('/repos/test-owner/test-repo/releases')
         .reply(200, [
@@ -249,9 +249,8 @@ tags:
       const adapter = new GitHubAdapter(mockSource);
       const bundles = await adapter.fetchBundles();
 
-      assert.strictEqual(bundles.length, 1);
-      // Should fallback to GitHub release name when manifest fetch fails
-      assert.strictEqual(bundles[0].name, 'Fallback Release Name');
+      // Release should be skipped when manifest fetch fails
+      assert.strictEqual(bundles.length, 0);
     });
 
     test('should skip releases without manifest', async () => {

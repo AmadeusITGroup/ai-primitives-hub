@@ -560,7 +560,7 @@ export class GitHubAdapter extends RepositoryAdapter {
       manifest = await this.fetchManifestWithCache(manifestAsset.url, manifestAsset.name);
     } catch (manifestError) {
       this.logger.warn(`Failed to fetch manifest for ${release.tag_name}: ${manifestError}`);
-      // Continue without manifest data - use fallback values
+      return null;
     }
 
     // Locate the README release asset by the filename recorded in the manifest.

@@ -282,8 +282,6 @@ export class VersionConsolidator {
       // Cache versions for this identity (with size management)
       this.addToCache(identity, allVersions);
 
-      this.logger.debug(`Consolidated ${itemBundles.length} versions for "${identity}", latest: ${latest.version}`);
-
       consolidated.push({
         ...latest,
         availableVersions: allVersions,
