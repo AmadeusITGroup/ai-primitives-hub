@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Services contain business logic, separated from UI and commands.
+Services orchestrate VS Code workflows, separated from UI and commands. Under [ADR-0001](../../../../docs/contributor-guide/architecture/adr/0001-ports-and-adapters-for-cli-and-extension.md) they are migrating (strangler fig) into thin delegators over `@ai-primitives-hub/app` — the shared home for domain logic. New business rules go in `app`; a service wires it to VS Code (context, events, notifications).
 
 ## Key Services
 
@@ -41,16 +41,17 @@ private _onBundleInstalled = new vscode.EventEmitter<InstalledBundle>();
 readonly onBundleInstalled = this._onBundleInstalled.event;
 ```
 
-## Adding a New Service
+## Adding Behavior
 
-1. Create class in `src/services/`
-2. Follow singleton pattern if needed
-3. Use `Logger.getInstance()` for logging
-4. Emit events for state changes
-5. Create test file in `test/services/`
+1. Put the domain logic in `@ai-primitives-hub/app` (or reuse what's there); keep it free of `vscode`.
+2. In `src/services/`, add or extend a service that delegates to `app` and adapts it to VS Code — context, events, notifications.
+3. Follow the singleton pattern if the service needs `ExtensionContext`.
+4. Use `Logger.getInstance()` for logging and emit events for state changes.
+5. Create a test file in `test/services/`.
 
 ## Checklist
 
+- [ ] Domain logic lives in `app`, not the service (service is a thin delegator)
 - [ ] Single responsibility
 - [ ] Uses Logger, not console.log
 - [ ] Proper error handling with clear messages

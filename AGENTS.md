@@ -1,233 +1,85 @@
-# Copilot Instructions for Contributors and AI Agents
+# AI Primitives Hub
 
-These are short, actionable notes to help an AI coding assistant be productive in this repository.
+AI Primitives Hub is a pnpm monorepo built on a ports-and-adapters (Clean Architecture) core: one shared domain in `packages/`, delivered through two thin layers — the `ai-primitives-hub` CLI and the VS Code extension.
 
-**🚨 MANDATORY FIRST STEP: Read Folder-Specific Guidance BEFORE Writing Code 🚨**
+## Workspace
 
-Before working in any folder, **MUST READ** the corresponding AGENTS.md file:
-
-| Working in... | Read first |
-|---------------|------------|
-| `docs/` | `docs/AGENTS.md` — Documentation structure, placement, and discovery |
-| `test/` | `test/AGENTS.md` — Test writing patterns and helpers |
-| `test/e2e/` | `test/e2e/AGENTS.md` — E2E test patterns |
-| `src/adapters/` | `src/adapters/AGENTS.md` — Adapter interface and implementation |
-| `src/services/` | `src/services/AGENTS.md` — Service layer patterns |
-
-**Before writing or modifying ANY file:**
-1. Identify which folder the file is in (e.g., `test/services/foo.test.ts` → `test/`)
-2. Read that folder's `AGENTS.md` first
-3. Apply its guidance
-
-Skipping these guides leads to broken VS Code mocks, duplicated utilities, and deviation from established patterns.
-
----
-
-## Development Methodology
-
-### Bug Fixes: Test First
-
-1. **Reproduce first**: Create a failing test that demonstrates the bug
-2. **Confirm failure**: Run the test, verify it fails as expected
-3. **Fix the code**: Make the minimal change to fix the issue
-4. **Confirm fix**: Run the test, verify it passes
-5. **No regression**: Run related tests to ensure nothing broke
-
-### Debugging: Isolate the Fault Location
-
-When tests fail, determine whether the bug is in **test code** or **production code** BEFORE iterating:
-
-1. **Read error messages carefully**: `expected X, got Y` tells you what the code produced vs what was expected
-2. **Add debug logging to production code first**: If the test setup looks correct, the bug is likely in production code
-3. **Trace data transformations**: When IDs or values change unexpectedly, log at each transformation point
-4. **Check for inconsistent code paths**: Different entry points (e.g., `installBundle` vs `updateBundle`) may use different logic
-5. **Validate assumptions with real-world testing**: If possible, reproduce the issue in the actual extension before fixing
-
-**Red flags that the bug is in production code:**
-- Test fixtures match documented formats but validation fails
-- Multiple test approaches fail with the same error pattern
-- Error shows data transformation (e.g., `v1.0.0` → `1.0.0`) not present in test code
-
-**Anti-pattern**: Repeatedly modifying test fixtures when the error message shows production code is transforming data incorrectly.
-
-### Test-Driven Development (TDD)
-
-Use TDD when it makes sense (most new functionality):
-1. Write a failing test for the expected behavior
-2. Write the minimum code to make it pass
-3. Refactor if needed, keeping tests green
-
-### E2E Testing
-
-E2E tests must invoke actual code paths, never reimplement production code. See `test/e2e/AGENTS.md` for detailed patterns and examples.
-
-### Test Completion Criteria
-
-See `test/AGENTS.md` for the full test completion checklist. Key rule: if tests won't run due to setup issues **you** introduced, the task is incomplete.
-
-### Minimal Code Principle
-
-- Write the **absolute minimum** code to solve the requirement
-- No extras, no abstractions, no "nice-to-haves"
-- Every line must directly contribute to the solution—if it doesn't, delete it
-- Prefer simple, direct implementations over clever ones
-
-### Backward Compatibility
-
-- **Do NOT** try to be backward compatible with changes just introduced in the same session or in the current changed files
-- **For new features**: Ask the user if backward compatibility is required before proposing a design
-- If backward compatibility is needed, document the migration path
-
-### Discovery Before Design
-
-Before implementing anything new:
-1. Search for existing similar functionality (`grep -r "class.*Manager" src/`)
-2. Check if utilities already exist in `src/utils/` or `test/helpers/`
-3. Review tests for established patterns
-4. Reuse before rewriting, consolidate before duplicating
-
----
-
-## Big Picture
-
-This is a VS Code extension (AI Primitives Hub) that provides a marketplace and registry for Copilot prompt bundles.
-
-### Architecture Overview
-
-```
-src/
-├── adapters/     → Source-specific implementations (GitHub, Local, etc.)
-├── commands/     → VS Code command handlers
-├── services/     → Core business logic (RegistryManager, BundleInstaller, etc.)
-├── storage/      → Persistent state management
-├── types/        → TypeScript type definitions
-├── ui/           → UI providers (Marketplace WebView, Tree View)
-├── utils/        → Shared utilities
-└── extension.ts  → Entry point
+```text
+packages/               Domain: core, infra, app, cli (the shared implementation)
+apps/vscode-extension/  VS Code extension and its Mocha tests (delivery layer)
+lib/                    Collection build, validation, and publishing scripts
+github-actions/         Collection-validation action
+docs/ and website/      Markdown source and Docusaurus site
 ```
 
-### Key Components
+The extension lives in `apps/vscode-extension/src/`: adapters fetch sources, services orchestrate VS Code workflows, commands wire actions, storage persists state, and UI provides marketplace/tree views. Repository scope uses `prompt-registry.lock.json` as its source of truth.
 
-- **UI surface**: `src/ui/*` (Marketplace and `RegistryTreeProvider`)
-- **Orchestration**: `src/services/RegistryManager.ts` (singleton) coordinates adapters, storage, and installer
-- **Installation flow**: adapters produce bundle metadata/URLs → `BundleInstaller` downloads/extracts/validates → scope services sync to target directories
-- **Scope services**: `UserScopeService` (user/workspace) and `RepositoryScopeService` (repository) handle scope-specific file placement
-- **Lockfile management**: `LockfileManager` manages `prompt-registry.lock.json` for repository-scoped bundles
+## Commands
 
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `src/services/registry-manager.ts` | Main entrypoint, event emitters |
-| `src/services/bundle-installer.ts` | Download/extract/validate/install logic |
-| `src/services/lockfile-manager.ts` | Lockfile CRUD for repository-scoped bundles |
-| `src/services/user-scope-service.ts` | User/workspace scope file placement |
-| `src/services/repository-scope-service.ts` | Repository scope file placement |
-| `src/adapters/*` | Source implementations (github, awesome-copilot, apm, skills, and local variants) |
-| `src/storage/registry-storage.ts` | Persistent paths and JSON layout |
-| `src/services/migration-registry.ts` | globalState-based migration tracker |
-| `src/migrations/` | Migration scripts (one file per migration) |
-| `src/commands/*` | Command handlers wiring UI to services |
-
----
-
-## Development Workflows
-
-### Commands
+Use Node 22+ and pnpm 11+.
 
 ```bash
-npm install                    # Install dependencies
-npm run compile                # Production webpack bundle
-npm run watch                  # Dev watch mode
-npm run lint                   # ESLint (v9 flat config: eslint.config.mjs)
-npm run package:vsix           # Create .vsix package
+pnpm install
+pnpm run compile
+pnpm run test:unit
+pnpm run lint
+pnpm run package:vsix
 ```
 
-For test commands and debugging strategies, see `test/AGENTS.md`.
+`lib/` has its own test cycle: `cd lib && npm test`. For package work, run `pnpm -C packages -r build`, `pnpm -C packages -r lint`, or `pnpm -C packages -r test`.
 
-### Log Management
+## Architecture
 
-- Minimize context pollution: pipe long output through `tee <name>.log | tail -20`
-- Analyze existing logs with `grep` before re-running tests
-- When a command fails, summarize from tail output, refer to stored log for details
-- **For checkpoint tasks**: If full test suite passes, analyze the log - do NOT re-run individual tests
+Dependencies point inward only — `CLI` and `Extension` → `app` → `infra` → `core`:
 
----
+- `packages/core` — domain types, business rules, and port interfaces. No dependency on infra, delivery frameworks, `vscode`, or direct `fs`.
+- `packages/infra` — adapters implementing core's ports (GitHub, HTTP, filesystem, ZIP, search, XDG `AppStorage`). Depends only on `core`.
+- `packages/app` — use-case orchestration and the public SDK surface (install, registry, discovery, transforms). No business rules.
+- `packages/cli` — thin Clipanion delivery adapter; commands stay logic-free (delegate to `app`).
+- `apps/vscode-extension` — the second delivery layer, being migrated onto `app`/`core`/`infra`.
 
-## Project Conventions
+New domain or use-case logic belongs in `packages/`, not in a delivery layer. See [ADRs](docs/contributor-guide/architecture/adr/adr-index.md) and [library-centric architecture](docs/contributor-guide/architecture/library-centric-architecture/clean-architecture.md).
 
-### Singletons
-`RegistryManager.getInstance(context?)` requires ExtensionContext on first call. Pass `context` from `extension.ts`.
+### Migration & naming rules
 
-### Storage
-Persistent data lives under `context.globalStorageUri.fsPath`. Use `RegistryStorage.getPaths()`.
+- **Strangler-fig migration (ADR-0001):** the extension's `src/services/*` are becoming thin delegators to `app`. Extract logic into `app` and delegate; don't add new business rules to a service, and don't duplicate what `app` already does.
+- **Dual naming is deliberate, not a bug (ADR-0004):** new artifacts use `ai-primitives-hub` / `@ai-primitives-hub/*`; existing machine identifiers stay as-is — the repo lockfile (`prompt-registry.lock.json`), the extension `package.json` name/publisher (`AmadeusITGroup.prompt-registry`), and command IDs (`promptregistry.*`). Do not "unify" these.
+- **Storage (ADR-0005):** resolve on-disk roots through the injected `AppStorage` port (XDG default in `infra`), never `vscode.ExtensionContext.globalStorageUri` directly in new `app` code.
 
-### Bundles
-Valid bundles require `deployment-manifest.yml` at root. `BundleInstaller.validateBundle` enforces id/version/name.
+## Working Rules
 
-### Adapters
-Register via `RepositoryAdapterFactory.register('type', AdapterClass)`. Implement `IRepositoryAdapter`.
+- For bug fixes and feature integrations, start with a focused failing test, implement the minimal change, rerun it, then run related coverage.
+- Search existing implementation, helpers, and neighboring tests before adding code. Reuse instead of duplicating.
+- Tests must verify observable behavior through public entry points; mock external boundaries, not the unit under test.
+- Treat transformed values in failures as a production-path lead before rewriting fixtures.
+- Use `Logger.getInstance()` rather than `console.log`; errors should be actionable.
+- Update user-facing or contributor documentation with behavior, command, setting, schema, or workflow changes.
 
-### Scopes
-Installs support `user`, `workspace`, and `repository` scopes. Repository scope uses the lockfile (`prompt-registry.lock.json`) as the single source of truth.
+## Extension Conventions
 
-### Linting
-ESLint v9 with flat config (`eslint.config.mjs`). The `lib/` directory is excluded from root linting (it has its own ESLint setup). The `@typescript-eslint/semi` rule was removed in v8 — formatting is handled by Prettier (`eslint-config-prettier`).
+- First `RegistryManager.getInstance()` call needs an `ExtensionContext`.
+- Valid bundles have a root `deployment-manifest.yml`; validation checks id, version, and name.
+- Add new source adapters in `packages/infra/src/adapters/` (implement `core`'s `SourceAdapter`), not in the extension — `src/adapters/` is post-cutover dead code (see its guide).
+- Add migrations in `src/migrations/`, run them from activation, and tag temporary compatibility code with `@migration-cleanup(name)`.
 
-### lib/ workspace
-`lib/` is a separate npm workspace (`@prompt-registry/collection-scripts`). Tests compile to `lib/dist-test/` via `lib/tsconfig.test.json` before running with mocha. Run `cd lib && npm test` to build and test.
+## References
 
-### Error Handling
-Use `Logger.getInstance()`. Throw errors with clear messages. Commands catch and show via VS Code notifications.
+- [README](README.md) for project entry points
+- [Contributing guide](CONTRIBUTING.md)
+- [Contributor architecture](docs/contributor-guide/architecture.md)
+- [Testing guide](docs/contributor-guide/testing.md)
+- [Documentation index](docs/README.md)
 
-### Migrations
-Use `MigrationRegistry` (globalState-backed) for tracking data migrations. Each migration is a named entry with `pending`/`completed`/`skipped` status. Define migration logic in `src/migrations/`. Wire migrations into `extension.ts` activation via `runMigrations()`. Lockfile migrations use dual-read (try new + legacy ID) since lockfiles are Git-shared. Mark all migration-related code with `@migration-cleanup(migration-name)` comments so cleanup sites can be found with `grep -r "@migration-cleanup"`.
+## Subfolder Instructions
 
-### Migration Cleanup
-When a migration is no longer needed, search for all related code with:
-```bash
-grep -r "@migration-cleanup(migration-name)" src/ test/
-```
-This finds every file with dual-read fallback, legacy functions, and migration logic that can be removed.
+Read the closest applicable guide before editing files there; it overrides this file.
 
----
-
-## Integration Points
-
-- **Network**: Adapters use `axios`. Unit tests use `nock` for HTTP mocking.
-- **File I/O**: Bundle extraction uses `adm-zip`. Clean temp directories in tests.
-- **VS Code API**: Activation lifecycle, `ExtensionContext` storage URIs, event emitters.
-
----
-
-## Quick Examples
-
-### Add a new adapter
-Copy `src/adapters/github-adapter.ts` (or the closest existing adapter), implement `IRepositoryAdapter` (see `src/adapters/AGENTS.md`), and register via `RepositoryAdapterFactory.register('type', AdapterClass)` in `RegistryManager`.
-
-### Fix bundle validation
-Update `BundleInstaller.validateBundle()` — manifest version must match bundle.version unless `'latest'`.
-
-### Inspect installed bundles
-Open extension global storage path (see `RegistryStorage.getPaths().installed`) or enable `promptregistry.enableLogging`.
-
----
-
-## What to Avoid
-
-- Don't assume OS-specific Copilot paths—use `UserScopeService`
-- Don't change activation events without updating `package.json` and tests
-- Don't duplicate utilities—check `src/utils/` and `test/helpers/` first
-- Don't over-engineer—solve the immediate problem only
-
----
-
-## **MANDATORY** Documentation Updates
-
-**After implementing features or fixing bugs, you MUST update documentation.** See [docs/AGENTS.md](docs/AGENTS.md) for file placement guidance, documentation discovery, and standards.
-
----
-
-## **MANDATORY** Folder-Specific Guidance
-
-See the [FIRST STEP table at the top of this file](#-first-step-read-folder-specific-guidance-) for the complete list of folder-specific AGENTS.md files you **MUST** read before working in those areas.
+| Folder | Guide |
+|---|---|
+| `packages/` | [layered packages](packages/AGENTS.md) |
+| `apps/vscode-extension/` | [extension workflow](apps/vscode-extension/AGENTS.md) |
+| `apps/vscode-extension/src/adapters/` | [adapter implementation](apps/vscode-extension/src/adapters/AGENTS.md) |
+| `apps/vscode-extension/src/services/` | [service patterns](apps/vscode-extension/src/services/AGENTS.md) |
+| `apps/vscode-extension/test/` | [test conventions](apps/vscode-extension/test/AGENTS.md) |
+| `apps/vscode-extension/test/e2e/` | [E2E conventions](apps/vscode-extension/test/e2e/AGENTS.md) |
+| `docs/` | [documentation workflow](docs/AGENTS.md) |
