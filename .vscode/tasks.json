@@ -1,11 +1,26 @@
 // See https://go.microsoft.com/fwlink/?LinkId=733558
 // for the documentation about the tasks.json format
+//
+// All tasks below use "shell" + an explicit "pnpm" command (this repo's
+// package manager, see root package.json "packageManager"). Do not switch
+// back to "type": "npm" tasks (they invoke npm, not pnpm) and do not set
+// NPM_CONFIG_USERCONFIG=/dev/null (it strips the Artifactory registry
+// override configured in the user's ~/.npmrc). See .github/copilot-instructions.md.
 {
   "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "testFile",
+      "type": "promptString",
+      "description": "Test file path relative to apps/vscode-extension (e.g. test/services/telemetry-service.test.ts)"
+    }
+  ],
   "tasks": [
     {
-      "type": "npm",
-      "script": "watch",
+      "type": "shell",
+      "label": "pnpm: watch",
+      "command": "pnpm",
+      "args": ["-C", "apps/vscode-extension", "run", "watch"],
       "problemMatcher": {
         "base": "$tsc-watch",
         "background": {
@@ -25,8 +40,10 @@
       }
     },
     {
-      "type": "npm",
-      "script": "watch-tests",
+      "type": "shell",
+      "label": "pnpm: watch-tests",
+      "command": "pnpm",
+      "args": ["-C", "apps/vscode-extension", "run", "watch-tests"],
       "problemMatcher": "$tsc-watch",
       "isBackground": true,
       "presentation": {
@@ -37,13 +54,173 @@
     },
     {
       "label": "tasks: watch-tests",
-      "dependsOn": ["npm: watch", "npm: watch-tests"],
+      "dependsOn": ["pnpm: watch", "pnpm: watch-tests"],
       "problemMatcher": []
     },
     {
-      "type": "npm",
-      "script": "compile",
-      "label": "npm: compile",
+      "type": "shell",
+      "label": "pnpm: compile",
+      "command": "pnpm",
+      "args": ["run", "compile"],
+      "problemMatcher": "$tsc",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: compile-tests",
+      "command": "pnpm",
+      "args": ["-C", "apps/vscode-extension", "run", "compile-tests"],
+      "problemMatcher": "$tsc",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: lint",
+      "command": "pnpm",
+      "args": ["run", "lint"],
+      "problemMatcher": ["$eslint-stylish"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: test:unit",
+      "command": "pnpm",
+      "args": ["run", "test:unit"],
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: test:integration",
+      "command": "pnpm",
+      "args": ["-C", "apps/vscode-extension", "run", "test:integration"],
+      "problemMatcher": [],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: test:coverage:unit",
+      "command": "pnpm",
+      "args": ["-C", "apps/vscode-extension", "run", "test:coverage:unit"],
+      "problemMatcher": [],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: test:one",
+      "command": "pnpm",
+      "args": ["-C", "apps/vscode-extension", "run", "test:one", "--", "${input:testFile}"],
+      "problemMatcher": [],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: package:vsix",
+      "command": "pnpm",
+      "args": ["run", "package:vsix"],
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: lib test",
+      "command": "pnpm",
+      "args": ["-C", "lib", "run", "test"],
+      "problemMatcher": [],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: packages build",
+      "command": "pnpm",
+      "args": ["-C", "packages", "-r", "build"],
+      "problemMatcher": "$tsc",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: packages lint",
+      "command": "pnpm",
+      "args": ["-C", "packages", "-r", "lint"],
+      "problemMatcher": ["$eslint-stylish"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: packages test",
+      "command": "pnpm",
+      "args": ["-C", "packages", "-r", "test"],
+      "problemMatcher": [],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: website build",
+      "command": "pnpm",
+      "args": ["-C", "website", "run", "build"],
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "pnpm: install",
+      "command": "pnpm",
+      "args": ["install"],
       "problemMatcher": [],
       "group": "build",
       "presentation": {
