@@ -31,6 +31,8 @@ import {
 } from '../../src/types/registry';
 import {
   BundleBuilder,
+  createTempTestPath,
+  createUniqueTempPath,
 } from '../helpers/bundle-test-helpers';
 import {
   determineButtonState,
@@ -679,7 +681,7 @@ suite('Bundle State Management - Integration Tests', () => {
       // This happens because the old version file isn't deleted
 
       const bundleIdBase = 'amadeus-airlines-solutions-workflow-instructions';
-      const uniqueStoragePath = `/tmp/test-downgrade-bug-${Date.now()}`;
+      const uniqueStoragePath = createUniqueTempPath('test-downgrade-bug');
 
       const context = {
         globalStorageUri: { fsPath: uniqueStoragePath },
@@ -697,7 +699,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.18',
+        installPath: createTempTestPath('install-1.0.18'),
         manifest: createMockManifest()
       };
 
@@ -715,7 +717,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.17',
+        installPath: createTempTestPath('install-1.0.17'),
         manifest: createMockManifest()
       };
 
@@ -733,7 +735,7 @@ suite('Bundle State Management - Integration Tests', () => {
       // This test verifies that the fix properly removes old versions during downgrade
 
       const bundleIdBase = 'amadeus-airlines-solutions-workflow-instructions';
-      const uniqueStoragePath = `/tmp/test-downgrade-fix-${Date.now()}`;
+      const uniqueStoragePath = createUniqueTempPath('test-downgrade-fix');
 
       const context = {
         globalStorageUri: { fsPath: uniqueStoragePath },
@@ -751,7 +753,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.18',
+        installPath: createTempTestPath('install-1.0.18'),
         manifest: createMockManifest()
       };
 
@@ -786,7 +788,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.17',
+        installPath: createTempTestPath('install-1.0.17'),
         manifest: createMockManifest()
       };
 
@@ -869,7 +871,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.18',
+        installPath: createTempTestPath('install-1.0.18'),
         manifest: createMockManifest()
       });
 
@@ -881,7 +883,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.17',
+        installPath: createTempTestPath('install-1.0.17'),
         manifest: createMockManifest()
       };
       installedBundles.set(oldBundle.bundleId, oldBundle);
@@ -910,7 +912,7 @@ suite('Bundle State Management - Integration Tests', () => {
       // 5. Old version should STILL be available (not cleaned up)
 
       const bundleIdBase = 'amadeus-airlines-solutions-workflow-instructions';
-      const uniqueStoragePath = `/tmp/test-rollback-${Date.now()}`;
+      const uniqueStoragePath = createUniqueTempPath('test-rollback');
 
       const context = {
         globalStorageUri: { fsPath: uniqueStoragePath },
@@ -928,7 +930,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.17',
+        installPath: createTempTestPath('install-1.0.17'),
         manifest: createMockManifest()
       };
 
@@ -948,7 +950,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.18',
+        installPath: createTempTestPath('install-1.0.18'),
         manifest: createMockManifest()
       };
 
@@ -1006,7 +1008,7 @@ suite('Bundle State Management - Integration Tests', () => {
       // 4. User can retry the update
 
       const bundleIdBase = 'test-bundle-retry';
-      const uniqueStoragePath = `/tmp/test-retry-${Date.now()}`;
+      const uniqueStoragePath = createUniqueTempPath('test-retry');
 
       const context = {
         globalStorageUri: { fsPath: uniqueStoragePath },
@@ -1024,7 +1026,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.17',
+        installPath: createTempTestPath('install-1.0.17'),
         manifest: createMockManifest()
       };
 
@@ -1038,7 +1040,7 @@ suite('Bundle State Management - Integration Tests', () => {
         scope: 'user',
         sourceId: 'test-source',
         sourceType: 'github',
-        installPath: '/tmp/install-1.0.18',
+        installPath: createTempTestPath('install-1.0.18'),
         manifest: createMockManifest()
       };
 

@@ -8,6 +8,7 @@
 // ===== Filesystem Bundle Helpers =====
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   UpdateCheckResult,
@@ -34,6 +35,33 @@ export const TEST_DEFAULTS = {
   SIZE: '1MB',
   LICENSE: 'MIT'
 } as const;
+
+/**
+ * Create a cross-platform temporary path for use in tests.
+ * Uses os.tmpdir() so it works on Windows, macOS, and Linux.
+ * @param name - Sub-directory or file name(s) to append to the temp dir
+ * @returns Absolute path under the OS temp directory
+ * @example
+ * const storagePath = createTempTestPath('my-test', Date.now().toString());
+ * // macOS/Linux: /var/folders/.../my-test-123456
+ * // Windows:     C:\Users\...\AppData\Local\Temp\my-test-123456
+ */
+export function createTempTestPath(...name: string[]): string {
+  return path.join(os.tmpdir(), ...name);
+}
+
+/**
+ * Create a unique temporary directory path for test storage.
+ * Appends Date.now() for uniqueness across test runs.
+ * @param prefix - Prefix for the directory name
+ * @returns Absolute path under the OS temp directory
+ * @example
+ * const storagePath = createUniqueTempPath('test-downgrade-bug');
+ * // /var/folders/.../test-downgrade-bug-1719000000000
+ */
+export function createUniqueTempPath(prefix: string): string {
+  return path.join(os.tmpdir(), `${prefix}-${Date.now()}`);
+}
 
 /**
  * Builder pattern for creating test bundles with fluent API
@@ -163,7 +191,7 @@ export function createMockInstalledBundle(
     version,
     installedAt: new Date().toISOString(),
     scope: 'user',
-    installPath: `/mock/path/${bundleId}`,
+    installPath: createTempTestPath('mock-install', bundleId),
     manifest: {} as any,
     ...overrides
   };

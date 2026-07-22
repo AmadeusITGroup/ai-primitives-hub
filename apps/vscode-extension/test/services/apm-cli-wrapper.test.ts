@@ -4,6 +4,8 @@
  */
 
 import * as assert from 'node:assert';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as sinon from 'sinon';
 import {
   ApmCliWrapper,
@@ -11,6 +13,9 @@ import {
 import {
   ApmRuntimeManager,
 } from '../../src/services/apm-runtime-manager';
+import {
+  createTempTestPath,
+} from '../helpers/bundle-test-helpers';
 
 suite('ApmCliWrapper', () => {
   let sandbox: sinon.SinonSandbox;
@@ -110,21 +115,22 @@ suite('ApmCliWrapper', () => {
     test('should return error when runtime not available', async () => {
       mockRuntime.getStatus.resolves({ installed: false, uvxAvailable: false });
 
-      const result = await wrapper.install('owner/repo', '/tmp/target');
+      const result = await wrapper.install('owner/repo', createTempTestPath('target'));
 
       assert.strictEqual(result.success, false);
       assert.ok(result.error?.includes('not installed'));
     });
 
     test('should reject invalid package reference', async () => {
-      const result = await wrapper.install('invalid', '/tmp/target');
+      const result = await wrapper.install('invalid', createTempTestPath('target'));
 
       assert.strictEqual(result.success, false);
       assert.ok(result.error?.includes('Invalid package reference'));
     });
 
     test('should reject path traversal in target directory', async () => {
-      const result = await wrapper.install('owner/repo', '/tmp/../etc/target');
+      const targetPath = `${os.tmpdir()}${path.sep}..${path.sep}etc${path.sep}target`;
+      const result = await wrapper.install('owner/repo', targetPath);
 
       assert.strictEqual(result.success, false);
       assert.ok(result.error?.includes('Invalid') || result.error?.includes('path'));
@@ -167,7 +173,7 @@ suite('ApmCliWrapper', () => {
     test('should handle runtime errors gracefully', async () => {
       mockRuntime.getStatus.rejects(new Error('Runtime error'));
 
-      const result = await wrapper.install('owner/repo', '/tmp/target');
+      const result = await wrapper.install('owner/repo', createTempTestPath('target'));
 
       assert.strictEqual(result.success, false);
       assert.ok(result.error);
@@ -176,7 +182,7 @@ suite('ApmCliWrapper', () => {
     test('should provide meaningful error messages', async () => {
       mockRuntime.getStatus.resolves({ installed: false, uvxAvailable: false });
 
-      const result = await wrapper.install('owner/repo', '/tmp/target');
+      const result = await wrapper.install('owner/repo', createTempTestPath('target'));
 
       assert.ok(result.error);
       assert.ok(result.error.length > 10); // Not just "error"
