@@ -5,6 +5,7 @@
 
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
 import {
@@ -119,20 +120,37 @@ suite('HubStorage - TDD', () => {
     });
 
     test('should handle save errors gracefully', async () => {
-      // Create a read-only directory
-      const readOnlyDir = path.join(tempDir, 'readonly');
-      fs.mkdirSync(readOnlyDir, { recursive: true });
-      fs.chmodSync(readOnlyDir, 0o444);
+      const readOnlyStorage = new HubStorage(tempDir);
 
-      const readOnlyStorage = new HubStorage(readOnlyDir);
+      if (os.platform() === 'win32') {
+        // Windows does not enforce chmod 0o444 on directories for write prevention.
+        // Pre-create a read-only file at the exact config path instead —
+        // Windows honors the read-only attribute on files.
+        const configFilePath = path.join(tempDir, 'test.yml');
+        fs.writeFileSync(configFilePath, 'blocked');
+        fs.chmodSync(configFilePath, 0o444);
 
-      await assert.rejects(
-        async () => await readOnlyStorage.saveHub('test', testHubConfig, testHubReference),
-        /Failed to save hub/
-      );
+        await assert.rejects(
+          async () => await readOnlyStorage.saveHub('test', testHubConfig, testHubReference),
+          /Failed to save hub/
+        );
 
-      // Restore permissions for cleanup
-      fs.chmodSync(readOnlyDir, 0o755);
+        fs.chmodSync(configFilePath, 0o644);
+      } else {
+        // Unix/macOS: chmod 0o444 on the directory prevents writes
+        const readOnlyDir = path.join(tempDir, 'readonly');
+        fs.mkdirSync(readOnlyDir, { recursive: true });
+        fs.chmodSync(readOnlyDir, 0o444);
+
+        const dirReadOnlyStorage = new HubStorage(readOnlyDir);
+
+        await assert.rejects(
+          async () => await dirReadOnlyStorage.saveHub('test', testHubConfig, testHubReference),
+          /Failed to save hub/
+        );
+
+        fs.chmodSync(readOnlyDir, 0o755);
+      }
     });
 
     test('should overwrite existing hub config', async () => {
