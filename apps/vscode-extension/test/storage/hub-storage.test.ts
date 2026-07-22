@@ -120,8 +120,6 @@ suite('HubStorage - TDD', () => {
     });
 
     test('should handle save errors gracefully', async () => {
-      const readOnlyStorage = new HubStorage(tempDir);
-
       if (os.platform() === 'win32') {
         // Windows does not enforce chmod 0o444 on directories for write prevention.
         // Pre-create a read-only file at the exact config path instead —
@@ -130,26 +128,30 @@ suite('HubStorage - TDD', () => {
         fs.writeFileSync(configFilePath, 'blocked');
         fs.chmodSync(configFilePath, 0o444);
 
-        await assert.rejects(
-          async () => await readOnlyStorage.saveHub('test', testHubConfig, testHubReference),
-          /Failed to save hub/
-        );
-
-        fs.chmodSync(configFilePath, 0o644);
+        const winStorage = new HubStorage(tempDir);
+        try {
+          await assert.rejects(
+            async () => await winStorage.saveHub('test', testHubConfig, testHubReference),
+            /Failed to save hub/
+          );
+        } finally {
+          fs.chmodSync(configFilePath, 0o644);
+        }
       } else {
         // Unix/macOS: chmod 0o444 on the directory prevents writes
         const readOnlyDir = path.join(tempDir, 'readonly');
         fs.mkdirSync(readOnlyDir, { recursive: true });
         fs.chmodSync(readOnlyDir, 0o444);
 
-        const dirReadOnlyStorage = new HubStorage(readOnlyDir);
-
-        await assert.rejects(
-          async () => await dirReadOnlyStorage.saveHub('test', testHubConfig, testHubReference),
-          /Failed to save hub/
-        );
-
-        fs.chmodSync(readOnlyDir, 0o755);
+        const unixStorage = new HubStorage(readOnlyDir);
+        try {
+          await assert.rejects(
+            async () => await unixStorage.saveHub('test', testHubConfig, testHubReference),
+            /Failed to save hub/
+          );
+        } finally {
+          fs.chmodSync(readOnlyDir, 0o755);
+        }
       }
     });
 

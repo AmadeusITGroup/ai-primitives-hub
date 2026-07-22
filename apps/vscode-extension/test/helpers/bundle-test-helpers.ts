@@ -42,9 +42,10 @@ export const TEST_DEFAULTS = {
  * @param name - Sub-directory or file name(s) to append to the temp dir
  * @returns Absolute path under the OS temp directory
  * @example
- * const storagePath = createTempTestPath('my-test', Date.now().toString());
- * // macOS/Linux: /var/folders/.../my-test-123456
- * // Windows:     C:\Users\...\AppData\Local\Temp\my-test-123456
+ * const storagePath = createTempTestPath('my-test', 'sub-dir');
+ * // macOS:  /var/folders/xx/MyUser/T/my-test/sub-dir
+ * // Linux:  /tmp/my-test/sub-dir
+ * // Windows: C:\Users\MyUser\AppData\Local\Temp\my-test\sub-dir
  */
 export function createTempTestPath(...name: string[]): string {
   return path.join(os.tmpdir(), ...name);
@@ -57,7 +58,9 @@ export function createTempTestPath(...name: string[]): string {
  * @returns Absolute path under the OS temp directory
  * @example
  * const storagePath = createUniqueTempPath('test-downgrade-bug');
- * // /var/folders/.../test-downgrade-bug-1719000000000
+ * // macOS:  /var/folders/xx/MyUser/T/test-downgrade-bug-1719000000000
+ * // Linux:  /tmp/test-downgrade-bug-1719000000000
+ * // Windows: C:\Users\MyUser\AppData\Local\Temp\test-downgrade-bug-1719000000000
  */
 export function createUniqueTempPath(prefix: string): string {
   return path.join(os.tmpdir(), `${prefix}-${Date.now()}`);
