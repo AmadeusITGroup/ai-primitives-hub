@@ -32,6 +32,10 @@ private async performAuthentication(): Promise<string | undefined> {
 }
 ```
 
+## GitHub CLI Timeout
+
+The GitHub CLI step (step 3) includes a **3-second timeout** to prevent indefinite hangs when `gh` is unresponsive, missing, or misconfigured. If the timeout is exceeded, the authentication chain falls through to "No auth" and the request proceeds with rate-limited anonymous access. This timeout ensures the extension remains responsive during authentication edge cases.
+
 ## Token Format
 
 Uses GitHub token format:

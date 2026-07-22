@@ -32,8 +32,12 @@ import {
 
 export type ExecFn = (command: string) => Promise<{ stdout: string }>;
 
+const GH_CLI_TIMEOUT_MS = 3000;
+
 export class GhCliTokenProvider implements TokenProvider {
-  public constructor(private readonly execFn: ExecFn = promisify(exec)) {}
+  public constructor(
+    private readonly execFn: ExecFn = (cmd) => promisify(exec)(cmd, { timeout: GH_CLI_TIMEOUT_MS })
+  ) {}
 
   public async getToken(host: string): Promise<string | undefined> {
     if (!isGitHubHost(host)) {
