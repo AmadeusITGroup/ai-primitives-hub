@@ -271,9 +271,12 @@ export function loadHubSourcesProgressively(
   return {
     onFirstSettled: () => Promise.race([
       queue.onFirstSettled(),
-      // If registration finishes before any sync settles (zero syncs enqueued),
-      // resolve so callers don't hang.
-      registrationPromise.then(() => undefined).catch(() => undefined)
+      // If registration finishes without any enabled, new sources, resolve so
+      // callers do not hang. Otherwise keep waiting for an actual sync to
+      // settle; registration can complete while background syncs are running.
+      registrationPromise.then(() => (
+        queue.hasEnqueued() ? queue.onFirstSettled() : undefined
+      )).catch(() => undefined)
     ]),
     onComplete: () => registrationPromise
       .catch(() => undefined)

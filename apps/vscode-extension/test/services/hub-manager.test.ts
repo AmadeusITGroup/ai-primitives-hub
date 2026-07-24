@@ -435,12 +435,19 @@ suite('HubManager', () => {
 
     test('importHubProgressively resolves onFirstSettled before all syncs complete', async () => {
       const releases: (() => void)[] = [];
+      let allSyncsStarted!: () => void;
+      const allSyncsStartedPromise = new Promise<void>((resolve) => {
+        allSyncsStarted = resolve;
+      });
 
       class BlockingRegistryManager extends RecordingRegistryManager {
         public override syncSource(sourceId: string): Promise<void> {
           this.synced.push(sourceId);
           return new Promise<void>((r) => {
             releases.push(r);
+            if (releases.length === 2) {
+              allSyncsStarted();
+            }
           });
         }
       }
@@ -458,12 +465,14 @@ suite('HubManager', () => {
         localRef, 'test-first-settled'
       );
 
+      await allSyncsStartedPromise;
+
       // Release first sync — onFirstSettled should resolve without waiting for the second
-      releases[0]?.();
+      releases[0]();
       await onFirstSettled();
 
       // Complete the second sync
-      releases[1]?.();
+      releases[1]();
       await onComplete();
     });
   });

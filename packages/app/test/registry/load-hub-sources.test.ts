@@ -340,6 +340,37 @@ describe('loadHubSourcesProgressively', () => {
     await onComplete();
   });
 
+  it('does not resolve onFirstSettled while a registered source is still syncing', async () => {
+    let release!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const { onFirstSettled, onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [makeHubSource()],
+      ports,
+      undefined,
+      {
+        syncSource: async () => blocker
+      }
+    );
+
+    let firstSettled = false;
+    const firstSettledPromise = onFirstSettled().then(() => {
+      firstSettled = true;
+    });
+
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+    }
+    expect(firstSettled).toBe(false);
+
+    release();
+    await firstSettledPromise;
+    await onComplete();
+  });
+
   it('onComplete resolves only after all registrations and syncs finish', async () => {
     const releases: (() => void)[] = [];
     let allSyncsStarted!: () => void;

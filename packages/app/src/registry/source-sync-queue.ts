@@ -1,5 +1,6 @@
 export interface SourceSyncQueue {
   enqueue: (sourceId: string) => void;
+  hasEnqueued: () => boolean;
   onIdle: () => Promise<void>;
   onFirstSettled: () => Promise<void>;
 }
@@ -26,6 +27,7 @@ export function createSourceSyncQueue(
   const idleResolvers: (() => void)[] = [];
   const firstSettledResolvers: (() => void)[] = [];
   let activeSyncs = 0;
+  let enqueuedCount = 0;
   let hasSettledOne = false;
 
   const flush = (resolvers: (() => void)[]): void => resolvers.splice(0).forEach((r) => r());
@@ -63,9 +65,11 @@ export function createSourceSyncQueue(
 
   return {
     enqueue: (sourceId) => {
+      enqueuedCount++;
       pending.push(sourceId);
       startAvailableSyncs();
     },
+    hasEnqueued: () => enqueuedCount > 0,
     onIdle: () => new Promise<void>((resolve) => {
       idleResolvers.push(resolve);
       resolveIdle();

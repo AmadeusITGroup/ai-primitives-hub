@@ -372,14 +372,21 @@ export class HubManager {
    * Delegates to `importHubProgressively` and fires background sync.
    * @param reference Hub reference (GitHub, URL, or local path)
    * @param hubId Optional hub identifier (auto-generated if not provided)
-   * @param _sourceLoadingOptions Kept for API compatibility; no longer used.
+   * @param sourceLoadingOptions Optional registration settings for callers that
+   * need to await source registration or receive per-source notifications.
    * @returns Hub identifier
    */
   public async importHub(
     reference: HubReference,
     hubId?: string,
-    _sourceLoadingOptions?: LoadHubSourcesOptions
+    sourceLoadingOptions?: LoadHubSourcesOptions
   ): Promise<string> {
+    if (sourceLoadingOptions) {
+      const importedHubId = await this.importHubConfig(reference, hubId);
+      await this.loadHubSources(importedHubId, sourceLoadingOptions);
+      return importedHubId;
+    }
+
     const { hubId: resolvedHubId, onComplete } = await this.importHubProgressively(reference, hubId);
     void onComplete();
     return resolvedHubId;
