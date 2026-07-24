@@ -88,7 +88,7 @@ export interface ManifestPlacementItem {
  * deliberately routed through the agents key because they are associated
  * with agents at runtime.
  */
-const KIND_TO_ROUTE_KEY: Record<CopilotFileType, string> = {
+export const KIND_TO_ROUTE_KEY: Record<CopilotFileType, string> = {
   prompt: 'prompts/',
   instructions: 'instructions/',
   chatmode: 'agents/',

@@ -30,6 +30,7 @@ import type {
   ExtractedFiles,
   Installable,
   Target,
+  TargetType,
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
@@ -56,7 +57,6 @@ import {
 import {
   CopilotFileType,
   determineFileType,
-  getRepositoryTargetDirectory,
   getSkillName,
   getTargetFileName,
   normalizePromptId,
@@ -65,6 +65,9 @@ import {
   calculateFileChecksum,
   ensureDirectory,
 } from '../utils/file-integrity-service';
+import {
+  detectHostTargetType,
+} from '../utils/host-editor';
 import {
   Logger,
 } from '../utils/logger';
@@ -110,12 +113,21 @@ export class BundleInstaller {
   private readonly copilotSync: UserScopeService;
   private readonly mcpManager: McpServerManager;
   private readonly storage: RegistryStorage;
+  private readonly targetType: TargetType;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  /**
+   * Create a new BundleInstaller.
+   * @param context - VS Code extension context.
+   * @param targetType - Host editor target type; detected from the running
+   *   editor by default, injectable for tests. Used to resolve host-aware
+   *   repository-scope destinations when collecting lockfile entries.
+   */
+  constructor(private readonly context: vscode.ExtensionContext, targetType: TargetType = detectHostTargetType()) {
     this.logger = Logger.getInstance();
     this.copilotSync = new UserScopeService(context);
     this.mcpManager = new McpServerManager();
     this.storage = new RegistryStorage(context);
+    this.targetType = targetType;
   }
 
   /**
@@ -128,7 +140,7 @@ export class BundleInstaller {
       if (!workspaceRoot) {
         throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
       }
-      return ScopeServiceFactory.create(scope, this.context, workspaceRoot, this.storage);
+      return ScopeServiceFactory.create(scope, this.context, workspaceRoot, this.storage, this.targetType);
     }
     return ScopeServiceFactory.create(scope, this.context);
   }
@@ -238,11 +250,16 @@ export class BundleInstaller {
         return entries;
       }
 
-      // Collect files from .github/ directories based on manifest
+      // Resolve host-aware destinations via the repository scope service —
+      // the same service (and layout resolution) that wrote the files — so the
+      // lockfile is collected from the actual install location.
+      const repoService = new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
+
+      // Collect files from the host-appropriate directories based on manifest
       for (const promptDef of manifest.prompts) {
         const promptId = normalizePromptId(promptDef.id);
         const fileType = (promptDef.type as CopilotFileType) || determineFileType(promptDef.file, promptDef.tags);
-        const targetDir = getRepositoryTargetDirectory(fileType);
+        const targetDir = repoService.getTargetDirectory(fileType);
 
         if (fileType === 'skill') {
           // For skills, collect all files in the skill directory
@@ -591,7 +608,7 @@ export class BundleInstaller {
     if (!workspaceRoot) {
       return undefined;
     }
-    return new RepositoryScopeService(workspaceRoot, this.storage);
+    return new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
   }
 
   /**

@@ -1187,4 +1187,210 @@ prompts:
       );
     });
   });
+
+  /**
+   * Host-Aware Destination Tests
+   *
+   * Regression coverage for the workspace-install host-awareness bug: the
+   * host editor target type (injected here for testability) must route
+   * repository-scope installs to the host-appropriate directory tree —
+   * `.kiro/` for Kiro, `.github/` for VS Code — with no `.github/`
+   * writes under a Kiro host and tracker/written-path parity.
+   *
+   * Requirements: FR-2, FR-3, FR-4, FR-8; AC-1, AC-2, AC-6.
+   */
+  suite('Host-Aware Destinations', () => {
+    /**
+     * Recursively collect every file path under a directory, relative to
+     * the workspace root, using forward slashes.
+     * @param dir - Absolute directory to walk.
+     */
+    const listFilesRelative = (dir: string): string[] => {
+      if (!fs.existsSync(dir)) {
+        return [];
+      }
+      const out: string[] = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const abs = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          out.push(...listFilesRelative(abs));
+        } else {
+          out.push(path.relative(workspaceRoot, abs).replace(/\\/g, '/'));
+        }
+      }
+      return out;
+    };
+
+    test('Kiro host routes files under .kiro/ and never under .github/', async () => {
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      const bundleId = 'kiro-bundle';
+      const bundlePath = createMockBundle(bundleId, [
+        { name: 'test.prompt.md', content: '# Prompt', type: 'prompt' },
+        { name: 'coding.instructions.md', content: '# Instructions', type: 'instructions' },
+        { name: 'reviewer.agent.md', content: '# Agent', type: 'agent' }
+      ]);
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await kiroService.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        fs.existsSync(path.join(workspaceRoot, '.kiro', 'steering', 'test.prompt.md')),
+        'Prompt should land in .kiro/steering/'
+      );
+      assert.ok(
+        fs.existsSync(path.join(workspaceRoot, '.kiro', 'steering', 'coding.instructions.md')),
+        'Instructions should land in .kiro/steering/'
+      );
+      assert.ok(
+        fs.existsSync(path.join(workspaceRoot, '.kiro', 'agents', 'reviewer.agent.md')),
+        'Agent should land in .kiro/agents/'
+      );
+      assert.ok(
+        !fs.existsSync(path.join(workspaceRoot, '.github')),
+        'Nothing should be written under .github/ for a Kiro host'
+      );
+    });
+
+    test('Kiro host routes skill directories under .kiro/skills/', async () => {
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      const bundleId = 'kiro-skill-bundle';
+      const skillName = 'my-skill';
+      const bundlePath = path.join(tempDir, 'bundles', bundleId);
+      fs.mkdirSync(path.join(bundlePath, 'skills', skillName), { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'skills', skillName, 'SKILL.md'), '# Skill');
+      fs.writeFileSync(
+        path.join(bundlePath, 'deployment-manifest.yml'),
+        `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n  - id: ${skillName}\n    name: ${skillName}\n    file: skills/${skillName}/SKILL.md\n    type: skill`
+      );
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await kiroService.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        fs.existsSync(path.join(workspaceRoot, '.kiro', 'skills', skillName, 'SKILL.md')),
+        'Skill should land in .kiro/skills/<id>/'
+      );
+      assert.ok(
+        !fs.existsSync(path.join(workspaceRoot, '.github')),
+        'Nothing should be written under .github/ for a Kiro host'
+      );
+    });
+
+    test('VS Code host preserves .github/ destinations (no regression)', async () => {
+      const vscodeService = new RepositoryScopeService(workspaceRoot, mockStorage, 'vscode');
+      const bundleId = 'vscode-bundle';
+      const bundlePath = createMockBundle(bundleId, [
+        { name: 'test.prompt.md', content: '# Prompt', type: 'prompt' }
+      ]);
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await vscodeService.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        fs.existsSync(path.join(workspaceRoot, '.github', 'prompts', 'test.prompt.md')),
+        'Prompt should land in .github/prompts/ for a VS Code host'
+      );
+      assert.ok(
+        !fs.existsSync(path.join(workspaceRoot, '.kiro')),
+        'Nothing should be written under .kiro/ for a VS Code host'
+      );
+    });
+
+    test('getTargetPath is host-aware for Kiro', () => {
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      assert.strictEqual(
+        kiroService.getTargetPath('prompt', 'demo'),
+        path.join(workspaceRoot, '.kiro', 'steering', 'demo.prompt.md')
+      );
+      assert.strictEqual(
+        kiroService.getTargetPath('skill', 'demo'),
+        path.join(workspaceRoot, '.kiro', 'skills', 'SKILL.md')
+      );
+    });
+
+    test('getTargetDirectory resolves host-appropriate dirs per file type', () => {
+      const cases: { targetType: string; type: string; expected: string }[] = [
+        { targetType: 'kiro', type: 'prompt', expected: '.kiro/steering/' },
+        { targetType: 'kiro', type: 'instructions', expected: '.kiro/steering/' },
+        { targetType: 'kiro', type: 'agent', expected: '.kiro/agents/' },
+        { targetType: 'kiro', type: 'chatmode', expected: '.kiro/agents/' },
+        { targetType: 'kiro', type: 'skill', expected: '.kiro/skills/' },
+        { targetType: 'vscode', type: 'prompt', expected: '.github/prompts/' },
+        { targetType: 'vscode', type: 'agent', expected: '.github/agents/' },
+        { targetType: 'vscode-insiders', type: 'prompt', expected: '.github/prompts/' },
+        { targetType: 'windsurf', type: 'prompt', expected: '.windsurf/rules/' },
+        { targetType: 'windsurf', type: 'agent', expected: '.windsurf/agents/' },
+        { targetType: 'claude-code', type: 'prompt', expected: '.claude/commands/' },
+        { targetType: 'claude-code', type: 'skill', expected: '.claude/skills/' }
+      ];
+      for (const { targetType, type, expected } of cases) {
+        const svc = new RepositoryScopeService(workspaceRoot, mockStorage, targetType as never);
+        assert.strictEqual(
+          svc.getTargetDirectory(type as never),
+          expected,
+          `${targetType} + ${type} should resolve to ${expected}`
+        );
+      }
+    });
+
+    test('switchCommitMode scans host-aware dirs (.kiro) on a Kiro host', async () => {
+      createGitDirectory();
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      const bundleId = 'kiro-switch-bundle';
+
+      // Simulate a Kiro install: a prompt already synced under .kiro/steering/.
+      const steeringDir = path.join(workspaceRoot, '.kiro', 'steering');
+      fs.mkdirSync(steeringDir, { recursive: true });
+      fs.writeFileSync(path.join(steeringDir, 'test.prompt.md'), '# Prompt');
+
+      createLockfile(bundleId, 'commit');
+
+      await kiroService.switchCommitMode(bundleId, 'local-only');
+
+      const excludeContent = readGitExclude();
+      assert.ok(excludeContent, 'Git exclude file should exist');
+      assert.ok(
+        excludeContent.includes('.kiro/steering/test.prompt.md'),
+        'switchCommitMode should add the host-aware .kiro path to git exclude'
+      );
+      assert.ok(
+        !excludeContent.includes('.github/'),
+        'switchCommitMode should not reference .github on a Kiro host'
+      );
+    });
+
+    test('tracked git-exclude paths equal the host-aware written paths', async () => {
+      createGitDirectory();
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      const bundleId = 'kiro-local-bundle';
+      const bundlePath = createMockBundle(bundleId, [
+        { name: 'test.prompt.md', content: '# Prompt', type: 'prompt' }
+      ]);
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
+
+      await kiroService.syncBundle(bundleId, bundlePath);
+
+      // In local-only mode the git-exclude entries are the tracker's relative
+      // paths, which are derived from the writer's actual written paths — so a
+      // .kiro entry here proves tracker/written parity for the detected host.
+      const excludeContent = readGitExclude();
+      assert.ok(excludeContent, 'Git exclude file should exist');
+      assert.ok(
+        excludeContent.includes('.kiro/steering/test.prompt.md'),
+        'Tracked (git-exclude) path should match the host-aware written path'
+      );
+      assert.ok(
+        !excludeContent.includes('.github/'),
+        'No .github/ path should be tracked for a Kiro host'
+      );
+
+      // Sanity: the tracked path is exactly the file that was written.
+      const written = listFilesRelative(path.join(workspaceRoot, '.kiro'));
+      assert.deepStrictEqual(written, ['.kiro/steering/test.prompt.md']);
+    });
+  });
 });

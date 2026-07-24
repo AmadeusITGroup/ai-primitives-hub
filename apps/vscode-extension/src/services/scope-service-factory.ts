@@ -7,6 +7,9 @@
  * Requirements: 1.1, 1.8, 2.5
  */
 
+import type {
+  TargetType,
+} from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
   RegistryStorage,
@@ -39,6 +42,10 @@ export const ScopeServiceFactory = {
    * @param context - VS Code extension context (required for user/workspace scopes)
    * @param workspaceRoot - The workspace root path (required for repository scope)
    * @param storage - Registry storage instance (required for repository scope)
+   * @param targetType - Host editor target type for repository scope; threaded
+   *   through so the writer and lockfile collection resolve the same host-aware
+   *   destinations (single source of truth). Detected from the running editor
+   *   by `RepositoryScopeService` when omitted.
    * @returns An IScopeService implementation appropriate for the scope
    * @throws {Error} if scope is unknown or required parameters are missing
    */
@@ -46,7 +53,8 @@ export const ScopeServiceFactory = {
     scope: InstallationScope,
     context: vscode.ExtensionContext,
     workspaceRoot?: string,
-    storage?: RegistryStorage
+    storage?: RegistryStorage,
+    targetType?: TargetType
   ): IScopeService => {
     switch (scope) {
       case 'user':
@@ -64,7 +72,9 @@ export const ScopeServiceFactory = {
         if (!storage) {
           throw new Error('storage is required for repository scope');
         }
-        return new RepositoryScopeService(workspaceRoot, storage);
+        return targetType === undefined
+          ? new RepositoryScopeService(workspaceRoot, storage)
+          : new RepositoryScopeService(workspaceRoot, storage, targetType);
       }
 
       default: {

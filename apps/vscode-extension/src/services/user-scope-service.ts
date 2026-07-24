@@ -45,6 +45,9 @@ import {
   DeploymentManifest,
 } from '../types/registry';
 import {
+  detectHostTargetType,
+} from '../utils/host-editor';
+import {
   Logger,
 } from '../utils/logger';
 import {
@@ -91,26 +94,11 @@ export class UserScopeService implements IScopeService {
   }
 
   private detectTargetType(): TargetType {
-    const appName = (vscode.env.appName ?? '').toLowerCase();
-    const uriScheme = (vscode.env.uriScheme ?? '').toLowerCase();
-
-    this.logger.debug(`[UserScopeService] detectTargetType: appName=${vscode.env.appName}, uriScheme=${vscode.env.uriScheme}`);
-
-    if (appName.includes('kiro') || uriScheme.includes('kiro')) {
-      this.logger.debug('[UserScopeService] Detected kiro target');
-      return 'kiro';
-    }
-
-    // Devin is the current rebrand of Windsurf; both use the same paths.
-    const windsurfId = appName.includes('windsurf') || appName.includes('devin')
-      || uriScheme.includes('windsurf') || uriScheme.includes('devin');
-    if (windsurfId) {
-      this.logger.debug('[UserScopeService] Detected windsurf target');
-      return 'windsurf';
-    }
-
-    const target = appName.includes('insiders') || uriScheme.includes('insiders') ? 'vscode-insiders' : 'vscode';
-    this.logger.debug(`[UserScopeService] Detected ${target} target`);
+    // Delegate to the single shared host detector (host-editor.ts) so the
+    // user-scope and repository-scope install paths resolve the host
+    // identically. It reads both vscode.env.appName and vscode.env.uriScheme.
+    const target = detectHostTargetType();
+    this.logger.debug(`[UserScopeService] detectTargetType: appName=${vscode.env.appName}, uriScheme=${vscode.env.uriScheme} -> ${target}`);
     return target;
   }
 
