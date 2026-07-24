@@ -33,11 +33,19 @@ import type {
   LogEvent,
   OnLogEvent,
 } from '../update/log-event';
+import {
+  createSourceSyncQueue,
+} from './source-sync-queue';
 
 export interface LoadHubSourcesResult {
   added: number;
   updated: number;
   skipped: number;
+}
+
+export interface LoadHubSourcesOptions {
+  concurrency?: number;
+  onSourceAdded?: (source: RegistrySource) => void;
 }
 
 /**
@@ -89,13 +97,15 @@ export function findDuplicateSource(
  * @param hubSources Sources declared in the hub's config.
  * @param ports Registry read/write access.
  * @param onLog Optional sink for diagnostic log events.
+ * @param options Optional orchestration settings.
  * @returns Counts of added/updated/skipped sources.
  */
 export async function loadHubSources(
   hubId: string,
   hubSources: HubSource[],
   ports: HubSourceSync,
-  onLog?: OnLogEvent
+  onLog?: OnLogEvent,
+  options?: LoadHubSourcesOptions
 ): Promise<LoadHubSourcesResult> {
   const log = (level: LogEvent['level'], message: string, error?: Error): void => {
     onLog?.({ level, message, error });
@@ -109,11 +119,11 @@ export async function loadHubSources(
   let updated = 0;
   let skipped = 0;
 
-  for (const hubSource of hubSources) {
+  const processSource = async (hubSource: HubSource): Promise<void> => {
     if (!hubSource.enabled) {
       log('debug', `Skipping disabled source: ${hubSource.id}`);
       skipped++;
-      continue;
+      return;
     }
 
     const sourceId = generateSourceId(hubSource.type, hubSource.url, {
@@ -138,7 +148,7 @@ export async function loadHubSources(
         hubId
       });
       updated++;
-      continue;
+      return;
     }
 
     const duplicateSource = findDuplicateSource(hubSource, existingSources);
@@ -156,7 +166,7 @@ export async function loadHubSources(
         + `CollectionsPath: ${hubSource.config?.collectionsPath ?? 'collections'}`
       );
       skipped++;
-      continue;
+      return;
     }
 
     log('info', `Adding new hub source: ${sourceId} (${hubSource.name})`);
@@ -178,14 +188,95 @@ export async function loadHubSources(
     try {
       await ports.addSource(registrySource);
       added++;
+      try {
+        options?.onSourceAdded?.(registrySource);
+      } catch (hookError) {
+        const err = hookError instanceof Error ? hookError : new Error(String(hookError));
+        log('warn', `Source-added notification failed for ${sourceId} (${hubSource.name}): ${err.message}`, err);
+      }
     } catch (sourceError) {
       const err = sourceError instanceof Error ? sourceError : new Error(String(sourceError));
       log('warn', `Failed to add hub source ${sourceId} (${hubSource.name}): ${err.message}`, err);
       skipped++;
     }
-  }
+  };
+
+  const raw = options?.concurrency ?? 1;
+  const concurrency = Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1;
+  let nextIndex = 0;
+
+  const worker = async (): Promise<void> => {
+    while (nextIndex < hubSources.length) {
+      const index = nextIndex++;
+      await processSource(hubSources[index]);
+    }
+  };
+
+  await Promise.all(Array.from({ length: concurrency }, worker));
 
   log('info', `Hub source loading complete for ${hubId}: ${added} added, ${updated} updated, ${skipped} skipped`);
 
   return { added, updated, skipped };
+}
+
+export interface ProgressiveLoadResult {
+  /** Resolves when the first source sync settles, OR all registrations complete with zero syncs. */
+  onFirstSettled: () => Promise<void>;
+  /** Resolves when all source registrations AND all background syncs finish. */
+  onComplete: () => Promise<void>;
+}
+
+export interface ProgressiveLoadOptions extends LoadHubSourcesOptions {
+  /** Concurrency cap for background syncs (defaults to `concurrency`). */
+  syncConcurrency?: number;
+  /** Called for each source after it is registered, to trigger a background sync. */
+  syncSource: (sourceId: string) => Promise<void>;
+}
+
+/**
+ * Like `loadHubSources`, but also schedules a background sync for each newly
+ * registered source via `options.syncSource`, and returns handles to wait for
+ * the first sync or for the full batch to complete.
+ *
+ * - `onFirstSettled()` — resolves when the first sync settles, OR when
+ *   registration finishes with zero syncs enqueued (so callers never hang on
+ *   hubs whose sources are all disabled or duplicates).
+ * - `onComplete()` — resolves after both registration and all sync tasks finish.
+ * @param hubId Hub identifier the sources belong to.
+ * @param hubSources Sources declared in the hub's config.
+ * @param ports Registry read/write access.
+ * @param onLog Optional sink for diagnostic log events.
+ * @param options Progressive-load orchestration settings.
+ */
+export function loadHubSourcesProgressively(
+  hubId: string,
+  hubSources: HubSource[],
+  ports: HubSourceSync,
+  onLog: OnLogEvent | undefined,
+  options: ProgressiveLoadOptions
+): ProgressiveLoadResult {
+  const queue = createSourceSyncQueue(
+    options.syncSource,
+    options.syncConcurrency ?? options.concurrency ?? 1
+  );
+
+  const registrationPromise = loadHubSources(hubId, hubSources, ports, onLog, {
+    ...options,
+    onSourceAdded: (source) => {
+      queue.enqueue(source.id);
+      options.onSourceAdded?.(source);
+    }
+  });
+
+  return {
+    onFirstSettled: () => Promise.race([
+      queue.onFirstSettled(),
+      // If registration finishes before any sync settles (zero syncs enqueued),
+      // resolve so callers don't hang.
+      registrationPromise.then(() => undefined).catch(() => undefined)
+    ]),
+    onComplete: () => registrationPromise
+      .catch(() => undefined)
+      .then(() => queue.onIdle())
+  };
 }

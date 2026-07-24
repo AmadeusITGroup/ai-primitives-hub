@@ -352,6 +352,122 @@ suite('HubManager', () => {
     });
   });
 
+  suite('Progressive source loading', () => {
+    // Minimal RegistryManager stub recording the source workflow that
+    // importHub drives: sources are registered via addSource and then
+    // synced in the background via syncSource (the progressive-loading path).
+    class RecordingRegistryManager {
+      public readonly added: RegistrySource[] = [];
+      public readonly synced: string[] = [];
+
+      public listSources(): Promise<RegistrySource[]> {
+        return Promise.resolve([...this.added]);
+      }
+
+      public addSource(source: RegistrySource): Promise<void> {
+        this.added.push(source);
+        return Promise.resolve();
+      }
+
+      public updateSource(): Promise<void> {
+        return Promise.resolve();
+      }
+
+      public syncSource(sourceId: string): Promise<void> {
+        this.synced.push(sourceId);
+        return Promise.resolve();
+      }
+
+      public listProfiles(): Promise<unknown[]> {
+        return Promise.resolve([]);
+      }
+    }
+
+    test('syncs each registered source in the background after import', async () => {
+      const registryManager = new RecordingRegistryManager();
+      const managerWithRegistry = new HubManager(
+        storage,
+        mockValidator as any,
+        process.cwd(),
+        undefined,
+        registryManager as any
+      );
+
+      await managerWithRegistry.importHub(localRef, 'test-progressive');
+
+      // The fixture declares two enabled sources; both must be registered
+      // AND scheduled for a background sync so bundles populate progressively
+      // (this is what makes the marketplace/tree fill in for a custom hub).
+      assert.strictEqual(registryManager.added.length, 2, 'both hub sources should be registered');
+      assert.deepStrictEqual(
+        registryManager.synced.toSorted(),
+        registryManager.added.map((s) => s.id).toSorted(),
+        'every registered source should be synced in the background'
+      );
+    });
+
+    test('importHubProgressively returns onFirstSettled and onComplete handles', async () => {
+      const registryManager = new RecordingRegistryManager();
+      const managerWithRegistry = new HubManager(
+        storage,
+        mockValidator as any,
+        process.cwd(),
+        undefined,
+        registryManager as any
+      );
+
+      const result = await managerWithRegistry.importHubProgressively(localRef, 'test-progressive-handles');
+
+      assert.ok(result.hubId, 'should return a hubId');
+      assert.strictEqual(typeof result.onFirstSettled, 'function', 'should return onFirstSettled function');
+      assert.strictEqual(typeof result.onComplete, 'function', 'should return onComplete function');
+
+      // Awaiting onComplete must resolve and not hang
+      await result.onComplete();
+
+      assert.strictEqual(registryManager.added.length, 2, 'both sources should be registered');
+      assert.deepStrictEqual(
+        registryManager.synced.toSorted(),
+        registryManager.added.map((s) => s.id).toSorted(),
+        'every registered source should be synced'
+      );
+    });
+
+    test('importHubProgressively resolves onFirstSettled before all syncs complete', async () => {
+      const releases: (() => void)[] = [];
+
+      class BlockingRegistryManager extends RecordingRegistryManager {
+        public override syncSource(sourceId: string): Promise<void> {
+          this.synced.push(sourceId);
+          return new Promise<void>((r) => {
+            releases.push(r);
+          });
+        }
+      }
+
+      const blockingRegistry = new BlockingRegistryManager();
+      const managerWithRegistry = new HubManager(
+        storage,
+        mockValidator as any,
+        process.cwd(),
+        undefined,
+        blockingRegistry as any
+      );
+
+      const { onFirstSettled, onComplete } = await managerWithRegistry.importHubProgressively(
+        localRef, 'test-first-settled'
+      );
+
+      // Release first sync — onFirstSettled should resolve without waiting for the second
+      releases[0]?.();
+      await onFirstSettled();
+
+      // Complete the second sync
+      releases[1]?.();
+      await onComplete();
+    });
+  });
+
   suite('Reference Validation', () => {
     test('should fail with missing type', async () => {
       const badRef: any = {
@@ -636,6 +752,7 @@ suite('Hub Source Loading - SourceId Format', () => {
     private sources: RegistrySource[] = [];
     public addSourceCalls: RegistrySource[] = [];
     public updateSourceCalls: { id: string; updates: Partial<RegistrySource> }[] = [];
+    public syncSourceCalls: string[] = [];
 
     public listSources(): Promise<RegistrySource[]> {
       return Promise.resolve([...this.sources]);
@@ -656,10 +773,16 @@ suite('Hub Source Loading - SourceId Format', () => {
       return Promise.resolve();
     }
 
+    public syncSource(sourceId: string): Promise<void> {
+      this.syncSourceCalls.push(sourceId);
+      return Promise.resolve();
+    }
+
     public reset(): void {
       this.sources = [];
       this.addSourceCalls = [];
       this.updateSourceCalls = [];
+      this.syncSourceCalls = [];
     }
 
     public getSourceCount(): number {
@@ -709,6 +832,32 @@ suite('Hub Source Loading - SourceId Format', () => {
   });
 
   suite('New SourceId Format Generation', () => {
+    test('should activate an imported hub without reloading its sources when requested', async () => {
+      await hubManager.importHub(localRef, 'test-activate-without-reload');
+      mockRegistry.addSourceCalls = [];
+      mockRegistry.updateSourceCalls = [];
+
+      await hubManager.setActiveHub('test-activate-without-reload', { loadSources: false });
+
+      assert.strictEqual(mockRegistry.addSourceCalls.length, 0);
+      assert.strictEqual(mockRegistry.updateSourceCalls.length, 0);
+    });
+
+    test('should forward source-added notifications during an import', async () => {
+      const addedSourceIds: string[] = [];
+
+      await hubManager.importHub(localRef, 'test-progressive-import', {
+        concurrency: 2,
+        onSourceAdded: (source) => addedSourceIds.push(source.id)
+      });
+
+      assert.strictEqual(addedSourceIds.length, 2);
+      assert.deepStrictEqual(
+        addedSourceIds.toSorted(),
+        mockRegistry.addSourceCalls.map((source) => source.id).toSorted()
+      );
+    });
+
     test('loadHubSources() should generate sourceId via generateHubSourceId', async () => {
       // Import hub with sources
       await hubManager.importHub(localRef, 'test-new-format');

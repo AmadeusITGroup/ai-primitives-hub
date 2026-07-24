@@ -131,12 +131,5 @@ export const UI_CONSTANTS = {
    * Debounce delay for reacting to source sync events (in milliseconds)
    * - Used by tree and marketplace views to avoid excessive refreshes
    */
-  SOURCE_SYNC_DEBOUNCE_MS: 500,
-
-  /**
-   * Delay before loading bundles after webview resolves (in milliseconds)
-   * - Ensures webview JavaScript is ready to receive messages
-   * - The webview also sends a refresh request as a backup
-   */
-  WEBVIEW_READY_DELAY_MS: 100
+  SOURCE_SYNC_DEBOUNCE_MS: 500
 } as const;

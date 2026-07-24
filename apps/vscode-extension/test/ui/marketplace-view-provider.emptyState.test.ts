@@ -100,6 +100,8 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
     (marketplaceProvider as any)._view = {
       webview: mockWebview
     };
+    // The webview only receives bundlesLoaded messages after signaling readiness.
+    (marketplaceProvider as any).webviewReady = true;
   });
 
   teardown(() => {

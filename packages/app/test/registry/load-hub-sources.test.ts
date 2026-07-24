@@ -18,6 +18,7 @@ import {
 import {
   findDuplicateSource,
   loadHubSources,
+  loadHubSourcesProgressively,
 } from '../../src/registry/load-hub-sources';
 
 function makeHubSource(overrides: Partial<HubSource> = {}): HubSource {
@@ -183,6 +184,78 @@ describe('loadHubSources', () => {
     expect(result).toEqual({ added: 2, updated: 0, skipped: 1 });
   });
 
+  it('adds sources concurrently without exceeding the configured limit', async () => {
+    let activeAdds = 0;
+    let maxActiveAdds = 0;
+    let startedAdds = 0;
+    let releaseAdds: (() => void) | undefined;
+    const addsReleased = new Promise<void>((resolve) => {
+      releaseAdds = resolve;
+    });
+    let firstBatchStarted: (() => void) | undefined;
+    const firstBatchReady = new Promise<void>((resolve) => {
+      firstBatchStarted = resolve;
+    });
+
+    ports.addSource = vi.fn(async () => {
+      activeAdds++;
+      startedAdds++;
+      maxActiveAdds = Math.max(maxActiveAdds, activeAdds);
+      if (startedAdds === 2) {
+        firstBatchStarted?.();
+      }
+      await addsReleased;
+      activeAdds--;
+    });
+
+    const sources = [
+      makeHubSource({ id: 's1', url: 'https://github.com/org/one' }),
+      makeHubSource({ id: 's2', url: 'https://github.com/org/two' }),
+      makeHubSource({ id: 's3', url: 'https://github.com/org/three' })
+    ];
+
+    const loading = loadHubSources('hub-a', sources, ports, undefined, { concurrency: 2 });
+    await firstBatchReady;
+
+    expect(startedAdds).toBe(2);
+    expect(maxActiveAdds).toBe(2);
+
+    releaseAdds?.();
+    await loading;
+
+    expect(startedAdds).toBe(3);
+    expect(maxActiveAdds).toBe(2);
+  });
+
+  it('notifies only after a source is added successfully', async () => {
+    const addedSources: string[] = [];
+    ports.addSource = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('Source validation failed'));
+
+    const result = await loadHubSources(
+      'hub-a',
+      [
+        makeHubSource({ id: 's1', url: 'https://github.com/org/one' }),
+        makeHubSource({ id: 's2', url: 'https://github.com/org/two' })
+      ],
+      ports,
+      undefined,
+      {
+        concurrency: 2,
+        onSourceAdded: (source) => addedSources.push(source.id)
+      }
+    );
+
+    expect(result).toEqual({ added: 1, updated: 0, skipped: 1 });
+    expect(addedSources).toEqual([
+      generateSourceId('awesome-copilot', 'https://github.com/org/one', {
+        branch: 'main',
+        collectionsPath: 'collections'
+      })
+    ]);
+  });
+
   it('propagates a listSources failure', async () => {
     ports.listSources = vi.fn().mockRejectedValue(new Error('storage unavailable'));
 
@@ -196,5 +269,185 @@ describe('loadHubSources', () => {
     expect(events.some((m) => m.includes('Found 1 sources in hub hub-a'))).toBe(true);
     expect(events.some((m) => m.includes('Adding new hub source'))).toBe(true);
     expect(events.some((m) => m.includes('Hub source loading complete for hub-a: 1 added, 0 updated, 0 skipped'))).toBe(true);
+  });
+});
+
+describe('loadHubSourcesProgressively', () => {
+  let ports: ReturnType<typeof makePorts>;
+
+  beforeEach(() => {
+    ports = makePorts();
+  });
+
+  it('enqueues each newly added source for syncSource', async () => {
+    const synced: string[] = [];
+    const { onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [
+        makeHubSource({ id: 's1', url: 'https://github.com/org/one' }),
+        makeHubSource({ id: 's2', url: 'https://github.com/org/two' })
+      ],
+      ports,
+      undefined,
+      {
+        concurrency: 2,
+        syncSource: async (id) => {
+          synced.push(id);
+        }
+      }
+    );
+
+    await onComplete();
+
+    expect(synced).toHaveLength(2);
+    const addedIds = ports.sources.map((s) => s.id);
+    expect(synced.toSorted()).toEqual(addedIds.toSorted());
+  });
+
+  it('onFirstSettled resolves after the first sync settles', async () => {
+    let releaseFirst!: () => void;
+    const firstBlocker = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+
+    const syncCalls: string[] = [];
+
+    const { onFirstSettled, onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [makeHubSource({ id: 's1', url: 'https://github.com/org/one' })],
+      ports,
+      undefined,
+      {
+        syncSource: async (id) => {
+          syncCalls.push(id);
+          await firstBlocker;
+        }
+      }
+    );
+
+    let firstSettled = false;
+    const firstSettledPromise = onFirstSettled().then(() => {
+      firstSettled = true;
+    });
+
+    await Promise.resolve();
+    expect(firstSettled).toBe(false);
+
+    releaseFirst();
+    await firstSettledPromise;
+    expect(firstSettled).toBe(true);
+
+    await onComplete();
+  });
+
+  it('onComplete resolves only after all registrations and syncs finish', async () => {
+    const releases: (() => void)[] = [];
+    let allSyncsStarted!: () => void;
+    const allSyncsStartedPromise = new Promise<void>((r) => {
+      allSyncsStarted = r;
+    });
+
+    const { onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [
+        makeHubSource({ id: 's1', url: 'https://github.com/org/one' }),
+        makeHubSource({ id: 's2', url: 'https://github.com/org/two' })
+      ],
+      ports,
+      undefined,
+      {
+        concurrency: 2,
+        syncSource: () => new Promise<void>((r) => {
+          releases.push(r);
+          if (releases.length === 2) {
+            allSyncsStarted();
+          }
+        })
+      }
+    );
+
+    // Wait until both background syncs have started (i.e. registration is done)
+    await allSyncsStartedPromise;
+
+    let completed = false;
+    const completedPromise = onComplete().then(() => {
+      completed = true;
+    });
+
+    await Promise.resolve();
+    expect(completed).toBe(false);
+
+    releases[0]();
+    await Promise.resolve();
+    expect(completed).toBe(false);
+
+    releases[1]();
+    await completedPromise;
+    expect(completed).toBe(true);
+  });
+
+  it('onFirstSettled resolves when registration finishes with no enabled sources', async () => {
+    // Zero sources means no syncs are ever enqueued; onFirstSettled must not hang.
+    const { onFirstSettled, onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [makeHubSource({ enabled: false })],
+      ports,
+      undefined,
+      {
+        syncSource: async () => {
+          // never called
+        }
+      }
+    );
+
+    // Should resolve without hanging (registration finishes, zero syncs)
+    await onFirstSettled();
+    await onComplete();
+  });
+
+  it('passes through a caller-supplied onSourceAdded hook alongside the sync enqueue', async () => {
+    const notified: string[] = [];
+    const synced: string[] = [];
+
+    const { onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [makeHubSource()],
+      ports,
+      undefined,
+      {
+        onSourceAdded: (source) => {
+          notified.push(source.id);
+        },
+        syncSource: async (id) => {
+          synced.push(id);
+        }
+      }
+    );
+
+    await onComplete();
+
+    expect(notified).toHaveLength(1);
+    expect(synced).toHaveLength(1);
+    expect(notified[0]).toBe(synced[0]);
+  });
+
+  it('does not enqueue disabled sources for sync', async () => {
+    const synced: string[] = [];
+
+    const { onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [makeHubSource({ enabled: false })],
+      ports,
+      undefined,
+      {
+        syncSource: async (id) => {
+          synced.push(id);
+        }
+      }
+    );
+
+    await onComplete();
+
+    expect(synced).toHaveLength(0);
   });
 });

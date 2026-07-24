@@ -19,11 +19,14 @@ import {
   loadHubSources as appLoadHubSources,
   resolveProfileBundles as appResolveProfileBundles,
   syncProfile as appSyncProfile,
+  loadHubSourcesProgressively,
 } from '@ai-primitives-hub/app';
 import type {
   HubConfigStore,
+  LoadHubSourcesOptions,
   LogEvent,
   ProfileLifecycleDeps,
+  ProgressiveLoadResult,
 } from '@ai-primitives-hub/app';
 import type {
   HubConfig as CoreHubConfig,
@@ -61,6 +64,9 @@ import {
   ProfileDeactivationResult,
   validateHubConfig,
 } from '../types/hub';
+import {
+  CONCURRENCY_CONSTANTS,
+} from '../utils/constants';
 import {
   Logger,
 } from '../utils/logger';
@@ -108,6 +114,10 @@ export interface HubListItem {
   name: string;
   description: string;
   reference: HubReference;
+}
+
+export interface SetActiveHubOptions {
+  loadSources?: boolean;
 }
 
 /**
@@ -290,12 +300,16 @@ export class HubManager {
   }
 
   /**
-   * Import hub from remote or local source
+   * Resolve, validate, and persist a hub's configuration — without loading
+   * its sources. Returns as soon as the hub config itself is saved, so
+   * callers that don't want to block on registering every declared source
+   * (e.g. first-run activation) can await this and then call
+   * `loadHubSources()` separately without awaiting it to completion.
    * @param reference Hub reference (GitHub, URL, or local path)
    * @param hubId Optional hub identifier (auto-generated if not provided)
    * @returns Hub identifier
    */
-  public async importHub(reference: HubReference, hubId?: string): Promise<string> {
+  public async importHubConfig(reference: HubReference, hubId?: string): Promise<string> {
     const resolvedHubId = await this.appHubManager.importHub(reference, hubId);
 
     // appHubManager writes through the raw HubStore, bypassing HubStorage's
@@ -304,13 +318,70 @@ export class HubManager {
     // any other caller reading via `this.storage`) see the imported config.
     await this.storage.loadHub(resolvedHubId, true);
 
-    // Load hub sources into RegistryManager
-    if (this.registryManager) {
-      await this.loadHubSources(resolvedHubId);
-    }
-
     this._onHubImported.fire(resolvedHubId);
 
+    return resolvedHubId;
+  }
+
+  /**
+   * Import a hub and immediately start progressive source loading/syncing.
+   * Returns handles so callers can unblock early (`onFirstSettled`) or wait
+   * for the full batch (`onComplete`).
+   * @param reference Hub reference (GitHub, URL, or local path)
+   * @param hubId Optional hub identifier (auto-generated if not provided)
+   * @returns Hub identifier and progressive-load handles
+   */
+  public async importHubProgressively(
+    reference: HubReference,
+    hubId?: string
+  ): Promise<{ hubId: string } & ProgressiveLoadResult> {
+    const resolvedHubId = await this.importHubConfig(reference, hubId);
+
+    if (!this.registryManager) {
+      return {
+        hubId: resolvedHubId,
+        onFirstSettled: () => Promise.resolve(),
+        onComplete: () => Promise.resolve()
+      };
+    }
+
+    const hubData = await this.storage.loadHub(resolvedHubId);
+    const result = loadHubSourcesProgressively(
+      resolvedHubId,
+      hubData.config.sources ?? [],
+      {
+        listSources: () => this.registryManager.listSources(),
+        addSource: (s) => this.registryManager.addSource(s),
+        updateSource: (id, u) => this.registryManager.updateSource(id, u)
+      },
+      this.translateLogEvent,
+      {
+        concurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
+        syncConcurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
+        syncSource: (id) => this.registryManager.syncSource(id).catch((e: unknown) => {
+          this.logger.warn(`Failed to sync hub source ${id}`, e);
+        })
+      }
+    );
+
+    return { hubId: resolvedHubId, ...result };
+  }
+
+  /**
+   * Import hub from remote or local source.
+   * Delegates to `importHubProgressively` and fires background sync.
+   * @param reference Hub reference (GitHub, URL, or local path)
+   * @param hubId Optional hub identifier (auto-generated if not provided)
+   * @param _sourceLoadingOptions Kept for API compatibility; no longer used.
+   * @returns Hub identifier
+   */
+  public async importHub(
+    reference: HubReference,
+    hubId?: string,
+    _sourceLoadingOptions?: LoadHubSourcesOptions
+  ): Promise<string> {
+    const { hubId: resolvedHubId, onComplete } = await this.importHubProgressively(reference, hubId);
+    void onComplete();
     return resolvedHubId;
   }
 
@@ -497,8 +568,9 @@ export class HubManager {
   /**
    * Set the currently active hub
    * @param hubId Hub identifier to set as active
+   * @param options Activation settings.
    */
-  public async setActiveHub(hubId: string | null): Promise<void> {
+  public async setActiveHub(hubId: string | null, options?: SetActiveHubOptions): Promise<void> {
     // Get current active hub to check if we're switching
     const currentActiveHubId = await this.appHubManager.getActiveHubId();
 
@@ -514,9 +586,29 @@ export class HubManager {
         throw new Error(`Hub not found: ${hubId}`);
       }
 
-      // Load hub sources into RegistryManager when activating
-      if (this.registryManager) {
-        await this.loadHubSources(hubId);
+      // Load hub sources into RegistryManager when activating, syncing each in
+      // the background so the marketplace/tree fill in progressively.
+      if (this.registryManager && options?.loadSources !== false) {
+        const hubData = await this.storage.loadHub(hubId);
+        const sources = hubData.config.sources ?? [];
+        const { onComplete } = loadHubSourcesProgressively(
+          hubId,
+          sources,
+          {
+            listSources: () => this.registryManager.listSources(),
+            addSource: (s) => this.registryManager.addSource(s),
+            updateSource: (id, u) => this.registryManager.updateSource(id, u)
+          },
+          this.translateLogEvent,
+          {
+            concurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
+            syncConcurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
+            syncSource: (id) => this.registryManager.syncSource(id).catch((e: unknown) => {
+              this.logger.warn(`Failed to sync hub source ${id}`, e);
+            })
+          }
+        );
+        void onComplete();
       }
     }
 
@@ -544,8 +636,9 @@ export class HubManager {
    * (`hub-{hubId}-{sourceId}`) continue to work. Duplicate detection uses URL
    * matching, not ID matching, to handle both formats.
    * @param hubId Hub identifier
+   * @param options Optional source loading orchestration settings.
    */
-  public async loadHubSources(hubId: string): Promise<void> {
+  public async loadHubSources(hubId: string, options?: LoadHubSourcesOptions): Promise<void> {
     if (!this.registryManager) {
       this.logger.warn('RegistryManager not available, skipping source loading');
       return;
@@ -565,7 +658,8 @@ export class HubManager {
           addSource: (source) => this.registryManager.addSource(source),
           updateSource: (sourceId, updates) => this.registryManager.updateSource(sourceId, updates)
         },
-        this.translateLogEvent
+        this.translateLogEvent,
+        options
       );
     } catch (error) {
       this.logger.error(`Failed to load sources from hub ${hubId}`, error as Error);

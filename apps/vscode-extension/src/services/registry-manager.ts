@@ -641,15 +641,14 @@ export class RegistryManager {
    * Bundles whose `readmeRevision` differs (or is not provided by the adapter) are left without a
    * readme so {@link downloadReadmesConcurrently} re-downloads them. This keeps readmes fresh while
    * avoiding redundant downloads on every sync.
-   * @param sourceId - Source ID whose cache should be consulted
+   * @param previouslyCached - Snapshot of cached bundles taken before the current sync started
    * @param bundles - Freshly fetched bundles to enrich in place
    */
-  private async reuseCachedReadmes(sourceId: string, bundles: Bundle[]): Promise<void> {
-    const cached = await this.storage.getCachedSourceBundles(sourceId);
-    if (!cached || cached.length === 0) {
+  private async reuseCachedReadmes(previouslyCached: Bundle[], bundles: Bundle[]): Promise<void> {
+    if (!previouslyCached || previouslyCached.length === 0) {
       return;
     }
-    const cachedById = new Map(cached.map((b) => [b.id, b]));
+    const cachedById = new Map(previouslyCached.map((b) => [b.id, b]));
     for (const bundle of bundles) {
       const previous = cachedById.get(bundle.id);
       if (
@@ -894,6 +893,11 @@ export class RegistryManager {
     }
 
     const adapter = this.getAdapter(source);
+
+    // Snapshot the cache before fetchBundles starts overwriting it with partial results,
+    // so readme reuse can compare against the last fully-synced state.
+    const preSyncCache = await this.storage.getCachedSourceBundles(sourceId);
+
     const bundles = await adapter.fetchBundles(async (partial) => {
       // Progressive update: cache what we have so far and notify the UI.
       await this.storage.cacheSourceBundles(sourceId, partial);
@@ -901,7 +905,7 @@ export class RegistryManager {
     });
 
     // Reuse still-valid cached readmes so we only re-download when the source revision changed
-    await this.reuseCachedReadmes(sourceId, bundles);
+    await this.reuseCachedReadmes(preSyncCache, bundles);
 
     // Cache bundles
     await this.storage.cacheSourceBundles(sourceId, bundles);
