@@ -17,6 +17,7 @@ import {
 } from 'node:util';
 import {
   FileTreeTargetWriter,
+  KIND_TO_ROUTE_KEY,
   resolveLayout,
 } from '@ai-primitives-hub/app';
 import type {
@@ -47,8 +48,8 @@ import {
   ensureDirectory,
 } from '../utils/file-integrity-service';
 import {
-  detectHostTargetType,
-} from '../utils/host-editor';
+  detectHostApp,
+} from '../utils/host-app';
 import {
   Logger,
 } from '../utils/logger';
@@ -135,12 +136,12 @@ export class RepositoryScopeService implements IScopeService {
    *   editor by default, injectable for tests. Determines the host-appropriate
    *   destination layout (VS Code -> .github, Kiro -> .kiro, etc.).
    */
-  constructor(workspaceRoot: string, storage: RegistryStorage, targetType: TargetType = detectHostTargetType()) {
+  constructor(workspaceRoot: string, storage: RegistryStorage, targetType: TargetType = detectHostApp()) {
     this.workspaceRoot = workspaceRoot;
     this.storage = storage;
     this.logger = Logger.getInstance();
     this.targetType = targetType;
-    this.logger.debug(`[RepositoryScopeService] Detected host target type: ${this.targetType}`);
+    this.logger.debug(`[RepositoryScopeService] Detected host app target type: ${this.targetType}`);
   }
 
   /**
@@ -155,29 +156,6 @@ export class RepositoryScopeService implements IScopeService {
       scope: 'repository',
       rootPath: this.workspaceRoot
     };
-  }
-
-  /**
-   * Map a Copilot file type to its `default-layouts.json` route key.
-   * Mirrors the switch in `UserScopeService.getTargetPrimitiveDirectory`.
-   * @param type - The Copilot file type.
-   */
-  private routeKeyFor(type: CopilotFileType): string {
-    switch (type) {
-      case 'prompt': {
-        return 'prompts/';
-      }
-      case 'chatmode':
-      case 'agent': {
-        return 'agents/';
-      }
-      case 'skill': {
-        return 'skills/';
-      }
-      default: {
-        return 'instructions/';
-      }
-    }
   }
 
   /**
@@ -781,7 +759,7 @@ export class RepositoryScopeService implements IScopeService {
    * @returns The workspace-relative directory (e.g. `.kiro/agents/`).
    */
   public getTargetDirectory(type: CopilotFileType): string {
-    const routeKey = this.routeKeyFor(type);
+    const routeKey = KIND_TO_ROUTE_KEY[type];
     const route = resolveLayout(this.getTarget()).kindRoutes[routeKey];
     if (route === undefined) {
       throw new Error(

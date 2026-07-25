@@ -66,8 +66,8 @@ import {
   ensureDirectory,
 } from '../utils/file-integrity-service';
 import {
-  detectHostTargetType,
-} from '../utils/host-editor';
+  detectHostApp,
+} from '../utils/host-app';
 import {
   Logger,
 } from '../utils/logger';
@@ -122,7 +122,7 @@ export class BundleInstaller {
    *   editor by default, injectable for tests. Used to resolve host-aware
    *   repository-scope destinations when collecting lockfile entries.
    */
-  constructor(private readonly context: vscode.ExtensionContext, targetType: TargetType = detectHostTargetType()) {
+  constructor(private readonly context: vscode.ExtensionContext, targetType: TargetType = detectHostApp()) {
     this.logger = Logger.getInstance();
     this.copilotSync = new UserScopeService(context);
     this.mcpManager = new McpServerManager();
