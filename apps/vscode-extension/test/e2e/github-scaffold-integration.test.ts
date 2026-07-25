@@ -20,6 +20,9 @@ import {
   ScaffoldCommand,
   ScaffoldType,
 } from '../../src/commands/scaffold-command';
+import {
+  rmrfSync,
+} from '../helpers/e2e-test-helpers';
 
 suite('E2E: GitHub Scaffold Integration Tests', () => {
   const templateRoot = path.join(process.cwd(), 'templates/scaffolds/github');
@@ -32,9 +35,7 @@ suite('E2E: GitHub Scaffold Integration Tests', () => {
 
   teardown(() => {
     // Clean up test directory
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-    }
+    rmrfSync(testDir);
   });
 
   suite('Complete Scaffolding Flow', () => {
@@ -386,10 +387,13 @@ suite('E2E: Script Execution Tests', () => {
     }
   });
 
-  suiteTeardown(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+  suiteTeardown(function () {
+    // The script-execution suite runs `npm install`, leaving a node_modules/
+    // tree. rmrfSync removes everything except node_modules/ (which may be
+    // locked by orphaned processes on Windows CI) — the CI runner is an
+    // ephemeral VM, so a leftover node_modules/ is harmless.
+    this.timeout(60_000);
+    rmrfSync(testDir);
   });
 
   setup(function () {
@@ -398,9 +402,7 @@ suite('E2E: Script Execution Tests', () => {
     }
     // Clean artifacts from previous tests to maintain isolation
     const distDir = path.join(testDir, 'dist');
-    if (fs.existsSync(distDir)) {
-      fs.rmSync(distDir, { recursive: true, force: true });
-    }
+    rmrfSync(distDir);
   });
 
   /**
