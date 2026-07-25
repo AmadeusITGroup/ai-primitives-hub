@@ -1197,7 +1197,6 @@ prompts:
    * `.kiro/` for Kiro, `.github/` for VS Code — with no `.github/`
    * writes under a Kiro host and tracker/written-path parity.
    *
-   * Requirements: FR-2, FR-3, FR-4, FR-8; AC-1, AC-2, AC-6.
    */
   suite('Host-Aware Destinations', () => {
     /**
