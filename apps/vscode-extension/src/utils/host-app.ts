@@ -24,6 +24,9 @@ import {
   resolveHostApp,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
+import {
+  Logger,
+} from './logger';
 
 /**
  * Detect the host application's target type from the running VS Code
@@ -41,5 +44,12 @@ export function detectHostApp(
   appName: string = vscode.env.appName,
   uriScheme: string = vscode.env.uriScheme
 ): TargetType {
-  return resolveHostApp(appName, uriScheme);
+  const target = resolveHostApp(appName, uriScheme);
+  // Diagnostic: surface the raw host signals and the resolved target so that
+  // an unexpected `.github` fallback in a fork (e.g. Kiro) can be diagnosed
+  // from the logs without a debugger.
+  Logger.getInstance().info(
+    `[host-app] detectHostApp: appName="${appName}", uriScheme="${uriScheme}" -> ${target}`
+  );
+  return target;
 }

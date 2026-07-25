@@ -759,14 +759,21 @@ export class RepositoryScopeService implements IScopeService {
    * @returns The workspace-relative directory (e.g. `.kiro/agents/`).
    */
   public getTargetDirectory(type: CopilotFileType): string {
+    const layout = resolveLayout(this.getTarget());
     const routeKey = KIND_TO_ROUTE_KEY[type];
-    const route = resolveLayout(this.getTarget()).kindRoutes[routeKey];
+    const route = layout.kindRoutes[routeKey];
     if (route === undefined) {
       throw new Error(
         `No repository route defined for file type "${type}" (route key "${routeKey}") in layout "${this.targetType}". Add it to default-layouts.json.`
       );
     }
-    return route;
+    // baseDir is the resolved workspace folder (e.g. `<workspaceRoot>/.github`)
+    // and routes are relative to it, mirroring user scope. Return the
+    // workspace-relative directory (e.g. `.github/prompts/`) so callers can
+    // join it onto the workspace root exactly as before.
+    const absolute = path.join(layout.baseDir, route);
+    const relative = path.relative(this.workspaceRoot, absolute).split(path.sep).join('/');
+    return relative.endsWith('/') ? relative : `${relative}/`;
   }
 
   /**

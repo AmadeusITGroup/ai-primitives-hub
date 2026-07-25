@@ -56,10 +56,13 @@ describe('BuiltInOnlyLayoutConfigLoader', () => {
     }
   });
 
-  it('built-in kiro repository scope routes prompts to .kiro/steering/', async () => {
+  it('built-in kiro repository scope installs prompts under ${workspaceRoot}/.kiro/steering/', async () => {
     const loader = new BuiltInOnlyLayoutConfigLoader();
     const [builtIn] = await loader.load();
-    expect(builtIn.layouts.kiro.repository?.kindRoutes['prompts/']).toBe('.kiro/steering/');
+    const repo = builtIn.layouts.kiro.repository;
+    // The folder lives in baseDir; routes are relative (mirrors user scope).
+    expect(repo?.baseDir).toBe('${workspaceRoot}/.kiro');
+    expect(repo?.kindRoutes['prompts/']).toBe('steering/');
   });
 });
 

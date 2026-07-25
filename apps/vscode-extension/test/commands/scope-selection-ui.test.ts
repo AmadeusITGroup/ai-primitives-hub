@@ -10,6 +10,7 @@ import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
   createScopeQuickPickItems,
+  getRepositoryRootFolder,
   hasOpenWorkspace,
   ScopeQuickPickItem,
   showScopeSelectionDialog,
@@ -247,8 +248,8 @@ suite('ScopeSelectionUI', () => {
       const items = mockQuickPick.items;
       assert.strictEqual(
         items[0].description,
-        'Install in .github/, tracked in version control',
-        'First option should have correct description'
+        `Install in ${getRepositoryRootFolder()}, tracked in version control`,
+        'First option should have correct host-aware description'
       );
     });
 
@@ -266,8 +267,8 @@ suite('ScopeSelectionUI', () => {
       const items = mockQuickPick.items;
       assert.strictEqual(
         items[1].description,
-        'Install in .github/, excluded via .git/info/exclude',
-        'Second option should have correct description'
+        `Install in ${getRepositoryRootFolder()}, excluded via .git/info/exclude`,
+        'Second option should have correct host-aware description'
       );
     });
 
