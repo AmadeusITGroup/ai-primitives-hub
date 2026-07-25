@@ -339,14 +339,16 @@ export function rmrfSync(dir: string): void {
   try {
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   } catch (err) {
-    // Log instead of throw — on Windows, orphaned node processes from
-    // `npm run` can hold node_modules/ handles open via memory-mapped
-    // native addons. The CI runner is ephemeral, so a leftover temp dir
-    // is harmless. Observing for now to confirm this is the only failure mode.
-    // eslint-disable-next-line no-console -- intentional: log cleanup failure for observation
+    if (process.platform !== 'win32') {
+      throw new Error(`[rmrfSync] Could not remove ${dir}: ${(err as NodeJS.ErrnoException).message}`);
+    }
+    // Windows: orphaned node processes from `npm run` can hold node_modules/
+    // handles open via memory-mapped native addons. The CI runner is
+    // ephemeral, so a leftover temp dir is harmless — just log it.
+    // eslint-disable-next-line no-console -- known Windows issue: orphaned processes hold temp dir handles
     console.warn(
       `[rmrfSync] Could not remove ${dir}: ${(err as NodeJS.ErrnoException).message}.`
-      + ' On Windows this is a known issue: orphaned node processes from `npm run`'
+      + ' This is a known Windows issue: orphaned node processes from `npm run`'
       + ' can hold node_modules/ handles open. The CI runner is ephemeral,'
       + ' so a leftover temp dir is harmless.'
     );
