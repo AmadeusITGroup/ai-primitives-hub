@@ -1,6 +1,6 @@
 {
   "name": "@ai-primitives-hub/core",
-  "version": "0.0.1-alpha.1",
+  "version": "0.0.1-alpha.2",
   "description": "Core domain types and port interfaces for AI Primitives Hub. No dependency on other @ai-primitives-hub packages.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,12 +10,19 @@
     "url": "git+https://github.com/AmadeusITGroup/ai-primitives-hub.git",
     "directory": "packages/core"
   },
-  "keywords": ["ai-primitives-hub", "core", "domain", "ports"],
+  "keywords": [
+    "ai-primitives-hub",
+    "core",
+    "domain",
+    "ports"
+  ],
   "author": {
     "name": "Amadeus IT Group",
     "email": "opensource@amadeus.com"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",

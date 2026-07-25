@@ -306,7 +306,7 @@ function buildManifest(
  * @param explicit Explicit collection file path.
  * @returns Resolved collection file path.
  */
-const resolveCollectionFile = async (
+export const resolveCollectionFile = async (
   ctx: Context,
   cwd: string,
   explicit: string | undefined

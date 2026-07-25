@@ -1,6 +1,6 @@
 {
   "name": "@ai-primitives-hub/cli",
-  "version": "0.0.1-alpha.1",
+  "version": "0.0.1-alpha.2",
   "description": "ai-primitives-hub CLI. Thin Clipanion delivery adapter over @ai-primitives-hub/app — argument parsing and output formatting only, never business logic.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

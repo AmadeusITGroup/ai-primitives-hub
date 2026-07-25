@@ -1,6 +1,6 @@
 {
   "name": "@ai-primitives-hub/app",
-  "version": "0.0.1-alpha.1",
+  "version": "0.0.1-alpha.2",
   "description": "Use-case orchestration for AI Primitives Hub: install/uninstall pipelines, registry (hub/profile), discovery and search, multi-target content transforms. Also the public SDK surface until a standalone sdk package has a real consumer.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,12 +10,19 @@
     "url": "git+https://github.com/AmadeusITGroup/ai-primitives-hub.git",
     "directory": "packages/app"
   },
-  "keywords": ["ai-primitives-hub", "app", "use-cases", "orchestration"],
+  "keywords": [
+    "ai-primitives-hub",
+    "app",
+    "use-cases",
+    "orchestration"
+  ],
   "author": {
     "name": "Amadeus IT Group",
     "email": "opensource@amadeus.com"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",

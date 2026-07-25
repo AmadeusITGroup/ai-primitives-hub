@@ -1,6 +1,6 @@
 {
   "name": "@ai-primitives-hub/infra",
-  "version": "0.0.1-alpha.1",
+  "version": "0.0.1-alpha.2",
   "description": "Adapters implementing @ai-primitives-hub/core ports: source adapters, harvest, search, per-target writers, stores, scaffolding.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,12 +10,18 @@
     "url": "git+https://github.com/AmadeusITGroup/ai-primitives-hub.git",
     "directory": "packages/infra"
   },
-  "keywords": ["ai-primitives-hub", "infra", "adapters"],
+  "keywords": [
+    "ai-primitives-hub",
+    "infra",
+    "adapters"
+  ],
   "author": {
     "name": "Amadeus IT Group",
     "email": "opensource@amadeus.com"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc && npm run copy-templates",
     "watch": "tsc --watch",

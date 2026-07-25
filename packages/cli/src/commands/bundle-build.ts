@@ -44,6 +44,7 @@ import {
 } from '../framework';
 import {
   generateBundleManifest,
+  resolveCollectionFile,
 } from './bundle-manifest';
 
 /**
@@ -177,11 +178,11 @@ export class BundleBuildCommand extends Command {
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
     const fmt = (this.output ?? 'text');
-    const collectionFile = this.collectionFile ?? '';
     const version = this.version ?? '';
 
     try {
       const cwd = ctx.cwd();
+      const collectionFile = await resolveCollectionFile(ctx, cwd, this.collectionFile);
       const repoSlug = (this.repoSlug
         ?? (ctx.env.GITHUB_REPOSITORY ?? '').replaceAll('/', '-'))
       || path.basename(cwd);

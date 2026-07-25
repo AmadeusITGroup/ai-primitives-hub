@@ -248,6 +248,18 @@ items:
       const zipStat = await stat(envelope.data.zipAsset);
       expect(zipStat.size).toBeGreaterThan(0);
     });
+
+    it('defaults to the first collection file under collections/ when --collection-file is omitted', async () => {
+      const result = await run([
+        'bundle', 'build', '--version', '1.0.0', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ zipAsset: string; manifestAsset: string }>(result.stdout);
+      expect(envelope.data.manifestAsset).toContain('deployment-manifest.yml');
+      expect(envelope.data.zipAsset).toContain('foo.bundle.zip');
+      const zipStat = await stat(envelope.data.zipAsset);
+      expect(zipStat.size).toBeGreaterThan(0);
+    });
   });
 
   describe('version compute', () => {
