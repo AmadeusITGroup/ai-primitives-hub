@@ -97,17 +97,12 @@ class NodeWriterFs implements WriterFs {
 const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
 
 /**
- * Directories in .github/ that are managed by AI Primitives Hub.
- * Only these directories should be cleaned up during uninstallation.
- * Other directories (workflows, ISSUE_TEMPLATE, etc.) are not managed by AI Primitives Hub.
+ * Primitive kinds AI Primitives Hub manages at repository scope. Their on-disk
+ * directories are resolved per host from the layout (e.g. `.github/prompts` on
+ * VS Code, `.kiro/steering` on Kiro), so cleanup only ever touches folders this
+ * tool created — never the host root (`.github`/`.kiro`) itself.
  */
-const PROMPT_REGISTRY_MANAGED_DIRS = ['prompts', 'agents', 'instructions', 'skills'] as const;
-
-/**
- * Regex pattern to extract skill directory path from a file path.
- * Matches paths like ".github/skills/my-skill/SKILL.md" and captures ".github/skills/my-skill"
- */
-const SKILL_DIR_PATTERN = /^(\.github\/skills\/[^/]+)/;
+const MANAGED_KINDS: readonly CopilotFileType[] = ['prompt', 'instructions', 'agent', 'skill'];
 
 /**
  * Tracks installed files during bundle installation for rollback support
@@ -119,7 +114,8 @@ interface InstallationTracker {
 }
 
 /**
- * Service to sync bundle files to repository .github/ directories.
+ * Service to sync bundle files to the host-appropriate repository directories
+ * (`.github/` for VS Code, `.kiro/` for Kiro, `.windsurf/` for Windsurf, …).
  * Implements IScopeService for consistent scope handling.
  */
 export class RepositoryScopeService implements IScopeService {
@@ -136,11 +132,11 @@ export class RepositoryScopeService implements IScopeService {
    *   editor by default, injectable for tests. Determines the host-appropriate
    *   destination layout (VS Code -> .github, Kiro -> .kiro, etc.).
    */
-  constructor(workspaceRoot: string, storage: RegistryStorage, targetType: TargetType = detectHostApp()) {
+  constructor(workspaceRoot: string, storage: RegistryStorage, targetType?: TargetType) {
     this.workspaceRoot = workspaceRoot;
     this.storage = storage;
     this.logger = Logger.getInstance();
-    this.targetType = targetType;
+    this.targetType = targetType ?? detectHostApp();
     this.logger.debug(`[RepositoryScopeService] Detected host app target type: ${this.targetType}`);
   }
 
@@ -156,13 +152,6 @@ export class RepositoryScopeService implements IScopeService {
       scope: 'repository',
       rootPath: this.workspaceRoot
     };
-  }
-
-  /**
-   * Get the .github base directory path
-   */
-  private getGitHubDirectory(): string {
-    return path.join(this.workspaceRoot, '.github');
   }
 
   /**
@@ -441,16 +430,23 @@ export class RepositoryScopeService implements IScopeService {
    * @param paths
    */
   private consolidateSkillPathsForGitExclude(paths: string[]): string[] {
+    // Host-aware skills dir (e.g. ".github/skills" or ".kiro/skills"), no
+    // trailing slash — derived from the layout, not hardcoded to .github.
+    const skillsDir = this.getTargetDirectory('skill').replace(/\/+$/, '');
+    const skillPrefix = `${skillsDir}/`;
     const result: string[] = [];
     const skillDirs = new Set<string>();
 
     for (const p of paths) {
-      if (p.includes('.github/skills/')) {
-        // Extract skill directory path instead of individual files
-        const match = p.match(SKILL_DIR_PATTERN);
-        if (match && !skillDirs.has(match[1])) {
-          skillDirs.add(match[1]);
-          result.push(match[1]);
+      const normalized = p.replace(/\\/g, '/');
+      if (normalized.startsWith(skillPrefix)) {
+        // Collapse a skill's files (e.g. ".kiro/skills/my-skill/SKILL.md") to
+        // the skill directory (".kiro/skills/my-skill") for one exclude entry.
+        const skillName = normalized.slice(skillPrefix.length).split('/')[0];
+        const skillDir = `${skillsDir}/${skillName}`;
+        if (skillName && !skillDirs.has(skillDir)) {
+          skillDirs.add(skillDir);
+          result.push(skillDir);
         }
       } else {
         result.push(p);
@@ -500,54 +496,55 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Clean up empty AI Primitives Hub subdirectories in .github/
+   * Clean up empty AI Primitives Hub subdirectories for the current host.
    *
-   * Only removes directories that AI Primitives Hub manages:
-   * - .github/prompts
-   * - .github/agents
-   * - .github/instructions
-   * - .github/skills
+   * Removes only the directories this tool manages, resolved per host from the
+   * layout — e.g. `.github/prompts|agents|instructions|skills` on VS Code, or
+   * `.kiro/steering|agents|skills` on Kiro — and only when they are empty.
    *
-   * Does NOT remove:
-   * - .github folder itself (may contain unrelated files like workflows, CODEOWNERS)
-   * - Any other directories in .github (workflows, ISSUE_TEMPLATE, etc.)
+   * Never removes the host root folder itself (`.github`/`.kiro`), which may
+   * hold unrelated files (workflows, CODEOWNERS, other steering docs, etc.).
    */
   private async cleanupEmptyPromptRegistryDirectories(): Promise<void> {
-    const githubDir = this.getGitHubDirectory();
+    const seen = new Set<string>();
 
-    if (!fs.existsSync(githubDir)) {
-      return;
-    }
+    for (const kind of MANAGED_KINDS) {
+      // Host-appropriate managed dir (deduped: e.g. prompt+instructions both
+      // resolve to .kiro/steering on Kiro).
+      const relativeDir = this.getTargetDirectory(kind).replace(/\/+$/, '');
+      if (seen.has(relativeDir)) {
+        continue;
+      }
+      seen.add(relativeDir);
 
-    for (const subdir of PROMPT_REGISTRY_MANAGED_DIRS) {
-      const subdirPath = path.join(githubDir, subdir);
-
-      if (!fs.existsSync(subdirPath)) {
+      const dirPath = path.join(this.workspaceRoot, relativeDir);
+      if (!fs.existsSync(dirPath)) {
         continue;
       }
 
       try {
-        // For skills directory, also clean up empty skill subdirectories
-        if (subdir === 'skills') {
-          await this.cleanupEmptySkillDirectories(subdirPath);
+        // Skills are nested directories; clean their empty subdirs first.
+        if (kind === 'skill') {
+          await this.cleanupEmptySkillDirectories(dirPath);
         }
 
-        const files = await readdir(subdirPath);
+        const files = await readdir(dirPath);
 
         // Only remove if directory is empty
         if (files.length === 0) {
-          await rm(subdirPath, { recursive: true, force: true });
-          this.logger.debug(`[RepositoryScopeService] Removed empty directory: ${this.getRelativePath(subdirPath)}`);
+          await rm(dirPath, { recursive: true, force: true });
+          this.logger.debug(`[RepositoryScopeService] Removed empty directory: ${this.getRelativePath(dirPath)}`);
         }
       } catch {
-        this.logger.warn(`[RepositoryScopeService] Failed to check/remove directory: ${subdirPath}`);
+        this.logger.warn(`[RepositoryScopeService] Failed to check/remove directory: ${dirPath}`);
       }
     }
   }
 
   /**
-   * Clean up empty skill directories within .github/skills/
-   * Skills are directories, so we need to recursively check and remove empty ones.
+   * Clean up empty skill directories within the host's skills folder
+   * (e.g. `.github/skills/` or `.kiro/skills/`). Skills are directories, so we
+   * recursively check and remove empty ones.
    * @param skillsDir
    */
   private async cleanupEmptySkillDirectories(skillsDir: string): Promise<void> {

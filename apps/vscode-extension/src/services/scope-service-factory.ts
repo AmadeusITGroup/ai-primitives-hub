@@ -72,9 +72,7 @@ export const ScopeServiceFactory = {
         if (!storage) {
           throw new Error('storage is required for repository scope');
         }
-        return targetType === undefined
-          ? new RepositoryScopeService(workspaceRoot, storage)
-          : new RepositoryScopeService(workspaceRoot, storage, targetType);
+        return new RepositoryScopeService(workspaceRoot, storage, targetType);
       }
 
       default: {

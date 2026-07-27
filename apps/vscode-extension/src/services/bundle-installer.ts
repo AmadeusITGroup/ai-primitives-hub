@@ -122,12 +122,12 @@ export class BundleInstaller {
    *   editor by default, injectable for tests. Used to resolve host-aware
    *   repository-scope destinations when collecting lockfile entries.
    */
-  constructor(private readonly context: vscode.ExtensionContext, targetType: TargetType = detectHostApp()) {
+  constructor(private readonly context: vscode.ExtensionContext, targetType?: TargetType) {
     this.logger = Logger.getInstance();
     this.copilotSync = new UserScopeService(context);
     this.mcpManager = new McpServerManager();
     this.storage = new RegistryStorage(context);
-    this.targetType = targetType;
+    this.targetType = targetType ?? detectHostApp();
   }
 
   /**

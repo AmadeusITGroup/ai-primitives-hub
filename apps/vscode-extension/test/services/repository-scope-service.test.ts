@@ -1391,5 +1391,60 @@ prompts:
       const written = listFilesRelative(path.join(workspaceRoot, '.kiro'));
       assert.deepStrictEqual(written, ['.kiro/steering/test.prompt.md']);
     });
+
+    test('Kiro skill install (local-only) consolidates git-exclude under .kiro/skills', async () => {
+      createGitDirectory();
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      const bundleId = 'kiro-skill-local';
+      const skillName = 'my-skill';
+      const bundlePath = path.join(tempDir, 'bundles', bundleId);
+      fs.mkdirSync(path.join(bundlePath, 'skills', skillName), { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'skills', skillName, 'SKILL.md'), '# Skill');
+      fs.writeFileSync(path.join(bundlePath, 'skills', skillName, 'run.sh'), 'echo hi');
+      fs.writeFileSync(
+        path.join(bundlePath, 'deployment-manifest.yml'),
+        `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n  - id: ${skillName}\n    name: ${skillName}\n    file: skills/${skillName}/SKILL.md\n    type: skill`
+      );
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
+
+      await kiroService.syncBundle(bundleId, bundlePath);
+
+      const excludeContent = readGitExclude();
+      assert.ok(excludeContent, 'Git exclude file should exist');
+      assert.ok(
+        excludeContent.includes(`.kiro/skills/${skillName}`),
+        'Skill should be consolidated to the host-aware .kiro/skills/<name> dir'
+      );
+      assert.ok(
+        !excludeContent.includes(`.kiro/skills/${skillName}/SKILL.md`),
+        'Individual skill files should be consolidated, not listed separately'
+      );
+      assert.ok(!excludeContent.includes('.github'), 'Should not reference .github on a Kiro host');
+    });
+
+    test('Kiro unsync removes files and empty .kiro managed dirs, preserving the .kiro root', async () => {
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      const bundleId = 'kiro-unsync-bundle';
+
+      // Simulate an installed prompt under .kiro/steering (host-aware path).
+      const steeringDir = path.join(workspaceRoot, '.kiro', 'steering');
+      fs.mkdirSync(steeringDir, { recursive: true });
+      const promptFile = path.join(steeringDir, 'test.prompt.md');
+      fs.writeFileSync(promptFile, '# Prompt');
+      const checksum = calculateChecksumSync(promptFile);
+
+      createLockfile(bundleId, 'commit', [{ path: '.kiro/steering/test.prompt.md', checksum }]);
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await kiroService.unsyncBundle(bundleId);
+
+      assert.ok(!fs.existsSync(promptFile), 'Tracked file should be removed');
+      assert.ok(!fs.existsSync(steeringDir), 'Emptied .kiro/steering should be cleaned up');
+      assert.ok(
+        fs.existsSync(path.join(workspaceRoot, '.kiro')),
+        'The .kiro root itself must be preserved (may hold unrelated files)'
+      );
+    });
   });
 });
