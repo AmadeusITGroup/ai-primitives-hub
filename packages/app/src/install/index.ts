@@ -44,4 +44,5 @@ export type {
 
 export {
   resolveLayoutFromLayers,
+  WORKSPACE_ROOT_TOKEN,
 } from './layout-resolver';

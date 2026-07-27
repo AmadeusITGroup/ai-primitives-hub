@@ -52,11 +52,12 @@ describe('resolveLayout', () => {
     }
   });
 
-  it('resolves kiro repository scope routes to .kiro/steering/', () => {
+  it('resolves kiro repository scope to baseDir ${workspaceRoot}/.kiro with relative routes', () => {
     const target: Target = { name: 'test', type: 'kiro', scope: 'repository', rootPath: '/ws' };
     const layout = resolveLayout(target);
-    expect(layout.baseDir).toBe('/ws');
-    expect(layout.kindRoutes['prompts/']).toBe('.kiro/steering/');
+    // Folder now lives in baseDir; routes are relative (mirrors user scope).
+    expect(layout.baseDir).toBe('/ws/.kiro');
+    expect(layout.kindRoutes['prompts/']).toBe('steering/');
   });
 
   it('throws for an unknown target type', () => {

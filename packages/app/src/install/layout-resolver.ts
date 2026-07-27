@@ -19,8 +19,13 @@ import type {
   TargetLayoutsConfig,
 } from '@ai-primitives-hub/core';
 
-/** Workspace-root token resolved from target at install time. */
-const WORKSPACE_ROOT_TOKEN = '${workspaceRoot}';
+/**
+ * Workspace-root token used in layout `baseDir` values (e.g.
+ * `"${workspaceRoot}/.github"`). Resolved from the target at install time.
+ * Exported so callers can resolve a layout against the token itself and read
+ * the workspace-relative portion of `baseDir` (e.g. the host's top folder).
+ */
+export const WORKSPACE_ROOT_TOKEN = '${workspaceRoot}';
 
 /**
  * Merge an ordered array of layout config layers into a single
@@ -62,9 +67,12 @@ export function resolveLayoutFromLayers(
 
   let baseDir: string;
   if (scope === 'repository') {
-    // Repository scope: ${workspaceRoot} resolved from target fields.
+    // Repository scope: substitute the ${workspaceRoot} token wherever it
+    // appears in baseDir (e.g. "${workspaceRoot}/.github"), so a layout can
+    // fold its top-level folder into baseDir and keep kindRoutes relative —
+    // matching how user scope already models baseDir.
     const workspaceRoot = target.rootPath ?? target.path ?? '.';
-    baseDir = merged.baseDir === WORKSPACE_ROOT_TOKEN ? workspaceRoot : merged.baseDir;
+    baseDir = merged.baseDir.split(WORKSPACE_ROOT_TOKEN).join(workspaceRoot);
   } else {
     // User scope: target.path overrides the config's baseDir if set.
     baseDir = target.path ?? merged.baseDir;

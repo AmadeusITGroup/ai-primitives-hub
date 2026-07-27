@@ -223,4 +223,30 @@ describe('resolveLayoutFromLayers', () => {
     const result = resolveLayoutFromLayers(target, [cfg]);
     expect(result!.baseDir).toBe('/absolute/path');
   });
+
+  it('substitutes ${workspaceRoot} inside a longer baseDir (e.g. "${workspaceRoot}/.github")', () => {
+    const target: Target = { name: 't', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const cfg = minimalConfig('vscode', '${HOME}/.vscode', '${workspaceRoot}/.github');
+    const result = resolveLayoutFromLayers(target, [cfg]);
+    expect(result!.baseDir).toBe('/ws/.github');
+  });
+
+  it('substitutes ${workspaceRoot} for a .kiro repository baseDir', () => {
+    const target: Target = { name: 't', type: 'kiro', scope: 'repository', rootPath: '/ws' };
+    const cfg = minimalConfig('kiro', '${HOME}/.kiro', '${workspaceRoot}/.kiro');
+    const result = resolveLayoutFromLayers(target, [cfg]);
+    expect(result!.baseDir).toBe('/ws/.kiro');
+  });
+
+  it('does not recurse when the resolved workspaceRoot itself contains the token text', () => {
+    // Defensive: split/join substitutes once and never re-scans the inserted
+    // value, so a workspaceRoot that literally contains "${workspaceRoot}"
+    // stays intact rather than being re-substituted.
+    const target: Target = {
+      name: 't', type: 'vscode', scope: 'repository', rootPath: '/home/${workspaceRoot}/proj'
+    };
+    const cfg = minimalConfig('vscode', '${HOME}/.vscode', '${workspaceRoot}/.github');
+    const result = resolveLayoutFromLayers(target, [cfg]);
+    expect(result!.baseDir).toBe('/home/${workspaceRoot}/proj/.github');
+  });
 });

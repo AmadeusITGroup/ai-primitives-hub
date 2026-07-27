@@ -26,6 +26,7 @@ import {
 } from 'node:util';
 import {
   expandPath,
+  KIND_TO_ROUTE_KEY,
   resolveLayout,
   TransformerRegistry,
 } from '@ai-primitives-hub/app';
@@ -44,6 +45,9 @@ import * as vscode from 'vscode';
 import {
   DeploymentManifest,
 } from '../types/registry';
+import {
+  detectHostApp,
+} from '../utils/host-app';
 import {
   Logger,
 } from '../utils/logger';
@@ -91,26 +95,11 @@ export class UserScopeService implements IScopeService {
   }
 
   private detectTargetType(): TargetType {
-    const appName = (vscode.env.appName ?? '').toLowerCase();
-    const uriScheme = (vscode.env.uriScheme ?? '').toLowerCase();
-
-    this.logger.debug(`[UserScopeService] detectTargetType: appName=${vscode.env.appName}, uriScheme=${vscode.env.uriScheme}`);
-
-    if (appName.includes('kiro') || uriScheme.includes('kiro')) {
-      this.logger.debug('[UserScopeService] Detected kiro target');
-      return 'kiro';
-    }
-
-    // Devin is the current rebrand of Windsurf; both use the same paths.
-    const windsurfId = appName.includes('windsurf') || appName.includes('devin')
-      || uriScheme.includes('windsurf') || uriScheme.includes('devin');
-    if (windsurfId) {
-      this.logger.debug('[UserScopeService] Detected windsurf target');
-      return 'windsurf';
-    }
-
-    const target = appName.includes('insiders') || uriScheme.includes('insiders') ? 'vscode-insiders' : 'vscode';
-    this.logger.debug(`[UserScopeService] Detected ${target} target`);
+    // Delegate to the single shared host-app detector (utils/host-app.ts) so
+    // the user-scope and repository-scope install paths resolve the host app
+    // identically. It reads both vscode.env.appName and vscode.env.uriScheme.
+    const target = detectHostApp();
+    this.logger.debug(`[UserScopeService] detectTargetType: appName=${vscode.env.appName}, uriScheme=${vscode.env.uriScheme} -> ${target}`);
     return target;
   }
 
@@ -134,25 +123,7 @@ export class UserScopeService implements IScopeService {
   }
 
   private getTargetPrimitiveDirectory(type: CopilotFileType): string {
-    let routeKey: string;
-    switch (type) {
-      case 'prompt': {
-        routeKey = 'prompts/';
-        break;
-      }
-      case 'chatmode':
-      case 'agent': {
-        routeKey = 'agents/';
-        break;
-      }
-      case 'skill': {
-        routeKey = 'skills/';
-        break;
-      }
-      default: {
-        routeKey = 'instructions/';
-      }
-    }
+    const routeKey = KIND_TO_ROUTE_KEY[type];
     const route = resolveLayout(this.getTarget()).kindRoutes[routeKey];
     if (route === undefined) {
       throw new Error(`No ${type} route defined for target ${this.targetType}`);
