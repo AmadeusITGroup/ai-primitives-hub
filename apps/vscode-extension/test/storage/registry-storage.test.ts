@@ -3,6 +3,8 @@
  */
 
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
 import {
@@ -316,6 +318,44 @@ suite('RegistryStorage', () => {
   });
 
   suite('Concurrent Access', () => {
+    test('should persist every concurrently added source', async () => {
+      const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'registry-storage-'));
+      const context = {
+        globalState: {
+          get: sandbox.stub().returns({}),
+          update: sandbox.stub().resolves()
+        },
+        globalStorageUri: { fsPath: storageRoot }
+      } as any;
+      const storage = new RegistryStorage(context);
+
+      try {
+        await storage.initialize();
+        await Promise.all(
+          Array.from({ length: 10 }, (_, index) => storage.addSource({
+            id: `source-${index}`,
+            name: `Source ${index}`,
+            type: 'github',
+            url: `https://github.com/example/source-${index}`,
+            enabled: true,
+            priority: index
+          }))
+        );
+
+        const persisted = JSON.parse(
+          fs.readFileSync(path.join(storageRoot, 'config.json'), 'utf8')
+        ) as { sources: { id: string }[] };
+
+        assert.strictEqual(persisted.sources.length, 10);
+        assert.deepStrictEqual(
+          persisted.sources.map((source) => source.id).toSorted(),
+          Array.from({ length: 10 }, (_, index) => `source-${index}`)
+        );
+      } finally {
+        fs.rmSync(storageRoot, { recursive: true, force: true });
+      }
+    });
+
     test('should handle concurrent read operations', async () => {
       const data = { sources: [], profiles: [] };
 

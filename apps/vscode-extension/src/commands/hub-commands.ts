@@ -385,8 +385,8 @@ export class HubCommands {
             // HubManager.listProfilesFromHub() and displayed in "Shared Profiles" view.
             // Local profiles are only created when the user explicitly creates them.
 
-            // Auto-activate the imported hub
-            await this.hubManager.setActiveHub(importedHubId);
+            // Auto-activate the imported hub (sources already registered by importHub)
+            await this.hubManager.setActiveHub(importedHubId, { loadSources: false });
             this.logger.info(`Auto-activated imported hub: ${importedHubId}`);
 
             vscode.window.showInformationMessage(
