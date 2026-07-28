@@ -219,7 +219,23 @@ prompts:
     type: "prompt"
     file: "prompts/my-prompt.prompt.md"
     tags: ["custom", "example"]
+# Optional: MCP servers with user-configurable inputs
+mcpInputs:
+    - id: myToken
+        type: promptString
+        description: "API token"
+        password: true
+mcpServers:
+    my-server:
+        type: stdio
+        command: node
+        args:
+            - "${bundlePath}/server.js"
+            - "--token"
+            - "${input:myToken}"
 ```
+
+The nested `mcp.items` and `mcp.inputs` shape is used in source collection files and is converted to these top-level deployment-manifest fields during bundle generation. Older deployment manifests may contain `mcpServers` without `mcpInputs`.
 
 ## Error Handling
 

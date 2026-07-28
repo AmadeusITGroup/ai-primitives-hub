@@ -123,6 +123,29 @@ When a collection is installed, its `mcp.inputs` are **merged** into the existin
 - This allows multiple collections to share the same input without conflict
 - Inputs are added to the top-level `inputs` array of `mcp.json`
 
+## Deployment Manifest Format
+
+When a collection is published as a GitHub release, `lib/bin/generate-manifest.js` converts the nested MCP section from `.collection.yml` into the deployment manifest. The generated deployment-manifest format uses top-level `mcpServers` and `mcpInputs` fields:
+
+```yaml
+mcpInputs:
+  - id: serviceToken
+    type: promptString
+    description: "Service access token (not stored)"
+    password: true
+mcpServers:
+  server-a:
+    type: stdio
+    command: podman
+    args:
+      - run
+      - -e
+      - "TOKEN=${input:serviceToken}"
+      - my-mcp-server-a:latest
+```
+
+The nested `mcp.inputs` and `mcp.items` fields belong to the source collection format. Older deployment manifests may omit `mcpInputs` and contain only the top-level `mcpServers` field. The GitHub adapter reads the top-level deployment-manifest fields.
+
 ## Example
 
 ```yaml
