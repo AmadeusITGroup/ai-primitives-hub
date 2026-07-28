@@ -43,6 +43,33 @@ export interface TargetLayoutDef {
   readonly user: ScopedLayoutDef;
   /** Layout for repository-scoped targets. Falls back to `user` if absent. */
   readonly repository?: ScopedLayoutDef;
+  /** MCP configuration metadata for this target type. Optional. */
+  readonly mcpConfig?: McpLayoutConfig;
+}
+
+/**
+ * MCP configuration metadata for a specific IDE/target type.
+ * Stored in default-layouts.json alongside the primitive layout definitions
+ * so that all IDE-specific path decisions live in one place.
+ */
+export interface McpLayoutConfig {
+  /**
+   * Absolute user-level MCP config file path template.
+   * May contain the `${HOME}` token.
+   * `null` means the path is not HOME-relative and must be resolved
+   * by other means (e.g. VS Code resolves it from globalStorageUri).
+   */
+  readonly userFile: string | null;
+  /**
+   * Workspace-relative MCP config file path (e.g. `.kiro/settings/mcp.json`).
+   * `null` means the IDE has no official workspace-level MCP config file.
+   */
+  readonly workspaceFile: string | null;
+  /**
+   * JSON root key used for MCP server entries.
+   * VS Code Copilot uses `"servers"`; all other known IDEs use `"mcpServers"`.
+   */
+  readonly serversKey: string;
 }
 
 /**

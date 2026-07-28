@@ -13,6 +13,9 @@ import {
   McpVariableContext,
 } from '../types/mcp';
 import {
+  detectHostApp,
+} from '../utils/host-app';
+import {
   Logger,
 } from '../utils/logger';
 import {
@@ -100,6 +103,24 @@ export class McpConfigService {
     }
   }
 
+  /**
+   * Serialize McpConfiguration using the IDE-appropriate top-level key.
+   * 'servers' → VS Code format; 'mcpServers' → Kiro / Claude Desktop format.
+   * @param config
+   * @param serversKey
+   */
+  private serializeMcpConfig(config: McpConfiguration, serversKey: 'mcpServers'): Record<string, unknown> {
+    const { servers, tasks, inputs, ...rest } = config;
+    const result: Record<string, unknown> = { ...rest, [serversKey]: servers };
+    if (tasks) {
+      result.tasks = tasks;
+    }
+    if (inputs) {
+      result.inputs = inputs;
+    }
+    return result;
+  }
+
   public async readMcpConfig(scope: 'user' | 'workspace'): Promise<McpConfiguration> {
     const location = McpConfigLocator.getMcpConfigLocation(scope);
     if (!location) {
@@ -114,12 +135,16 @@ export class McpConfigService {
       const content = await fs.readFile(location.configPath, 'utf8');
       // Use JSONC parser to handle trailing commas and comments (VS Code mcp.json format)
       const errors: jsonc.ParseError[] = [];
-      const config = jsonc.parse(content, errors) as McpConfiguration;
+      const raw = jsonc.parse(content, errors) as Record<string, unknown>;
       if (errors.length > 0) {
         const errorMessages = errors.map((e) => `${jsonc.printParseErrorCode(e.error)} at offset ${e.offset}`).join(', ');
         this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${errorMessages}`);
       }
-      return config || { servers: {} };
+      // Kiro uses 'mcpServers' key; normalize to internal 'servers' key
+      if (raw && 'mcpServers' in raw && !('servers' in raw)) {
+        return { ...(raw as object), servers: raw.mcpServers } as unknown as McpConfiguration;
+      }
+      return (raw as unknown as McpConfiguration) || { servers: {} };
     } catch (error) {
       this.logger.error(`Failed to read mcp.json from ${location.configPath}`, error as Error);
       throw new Error(`Failed to read MCP configuration: ${(error as Error).message}`);
@@ -139,7 +164,13 @@ export class McpConfigService {
     }
 
     try {
-      const content = JSON.stringify(config, null, 2);
+      // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
+      // To add Windsurf/Claude/Devin support, just extend McpConfigLocator.MCP_SERVERS_KEY.
+      const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
+      const serialized = serversKey === 'servers'
+        ? config
+        : this.serializeMcpConfig(config, serversKey);
+      const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(location.configPath, content, 'utf8');
       this.logger.info(`MCP configuration written to ${location.configPath}`);
     } catch (error) {

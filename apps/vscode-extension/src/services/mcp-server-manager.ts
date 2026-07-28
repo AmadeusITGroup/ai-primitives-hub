@@ -11,8 +11,14 @@ import {
   McpWorkspaceInstallOptions,
 } from '../types/mcp';
 import {
+  detectHostApp,
+} from '../utils/host-app';
+import {
   Logger,
 } from '../utils/logger';
+import {
+  McpConfigLocator,
+} from '../utils/mcp-config-locator';
 import {
   McpConfigService,
 } from './mcp-config-service';
@@ -75,11 +81,20 @@ export class McpServerManager {
   }
 
   /**
-   * Get the path to .vscode/mcp.json in a workspace
+   * Returns the IDE-specific config folder path (relative to workspace root).
+   * Delegates to McpConfigLocator.getMcpWorkspaceConfigFolder() which uses a lookup map,
+   * so adding Windsurf/Claude/Devin support is a one-line change in that map.
+   */
+  private getWorkspaceConfigFolder(): string {
+    return McpConfigLocator.getMcpWorkspaceConfigFolder(detectHostApp());
+  }
+
+  /**
+   * Get the path to mcp.json in a workspace
    * @param workspaceRoot
    */
   private getWorkspaceMcpConfigPath(workspaceRoot: string): string {
-    return path.join(workspaceRoot, '.vscode', 'mcp.json');
+    return path.join(workspaceRoot, this.getWorkspaceConfigFolder(), 'mcp.json');
   }
 
   /**
@@ -87,7 +102,7 @@ export class McpServerManager {
    * @param workspaceRoot
    */
   private getWorkspaceTrackingPath(workspaceRoot: string): string {
-    return path.join(workspaceRoot, '.vscode', 'prompt-registry-mcp-tracking.json');
+    return path.join(workspaceRoot, this.getWorkspaceConfigFolder(), 'prompt-registry-mcp-tracking.json');
   }
 
   /**
@@ -107,7 +122,7 @@ export class McpServerManager {
   }
 
   /**
-   * Read MCP configuration from workspace .vscode/mcp.json
+   * Read MCP configuration from workspace mcp.json (handles both VS Code 'servers' and Kiro 'mcpServers' formats)
    * @param workspaceRoot
    */
   private async readWorkspaceMcpConfig(workspaceRoot: string): Promise<McpConfiguration> {
@@ -119,7 +134,12 @@ export class McpServerManager {
 
     try {
       const content = await fs.readFile(configPath, 'utf8');
-      return JSON.parse(content) as McpConfiguration;
+      const raw = JSON.parse(content) as Record<string, unknown>;
+      // Kiro uses 'mcpServers'; normalize to internal 'servers' key
+      if (raw && 'mcpServers' in raw && !('servers' in raw)) {
+        return { ...(raw as object), servers: raw.mcpServers } as unknown as McpConfiguration;
+      }
+      return raw as unknown as McpConfiguration;
     } catch (error) {
       this.logger.error(`Failed to read workspace mcp.json from ${configPath}`, error as Error);
       throw new Error(`Failed to read workspace MCP configuration: ${(error as Error).message}`);
@@ -151,13 +171,38 @@ export class McpServerManager {
     }
 
     try {
-      const content = JSON.stringify(config, null, 2);
+      // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
+      // Extend McpConfigLocator.MCP_SERVERS_KEY to add new IDEs without touching this code.
+      const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
+      const serialized = this.serializeMcpConfig(config, serversKey);
+      const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(configPath, content, 'utf8');
       this.logger.info(`Workspace MCP configuration written to ${configPath}`);
     } catch (error) {
       this.logger.error(`Failed to write workspace mcp.json to ${configPath}`, error as Error);
       throw new Error(`Failed to write workspace MCP configuration: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Serialize McpConfiguration using the IDE-appropriate top-level key.
+   * 'servers' → VS Code format; 'mcpServers' → Kiro / Claude Desktop format.
+   * @param config
+   * @param serversKey
+   */
+  private serializeMcpConfig(config: McpConfiguration, serversKey: 'servers' | 'mcpServers'): Record<string, unknown> {
+    if (serversKey === 'servers') {
+      return config as unknown as Record<string, unknown>;
+    }
+    const { servers, tasks, inputs, ...rest } = config;
+    const result: Record<string, unknown> = { ...rest, [serversKey]: servers };
+    if (tasks) {
+      result.tasks = tasks;
+    }
+    if (inputs) {
+      result.inputs = inputs;
+    }
+    return result;
   }
 
   /**
@@ -581,7 +626,7 @@ export class McpServerManager {
 
       // Handle git exclude for local-only mode
       if (options.commitMode === 'local-only') {
-        await this.addToGitExclude(workspaceRoot, '.vscode/mcp.json');
+        await this.addToGitExclude(workspaceRoot, `${this.getWorkspaceConfigFolder()}/mcp.json`);
       }
 
       result.serversInstalled = Object.keys(serversToInstall).length;
@@ -645,7 +690,7 @@ export class McpServerManager {
       // Only remove from git exclude if no more managed servers exist
       const hasRemainingManagedServers = Object.keys(tracking.managedServers).length > 0;
       if (!hasRemainingManagedServers) {
-        await this.removeFromGitExclude(workspaceRoot, '.vscode/mcp.json');
+        await this.removeFromGitExclude(workspaceRoot, `${this.getWorkspaceConfigFolder()}/mcp.json`);
       }
 
       result.serversRemoved = removedServers.length;

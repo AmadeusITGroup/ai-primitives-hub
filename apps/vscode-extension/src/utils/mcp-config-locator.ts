@@ -1,12 +1,73 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type {
+  McpLayoutConfig,
+  TargetType,
+} from '@ai-primitives-hub/core';
+import {
+  defaultLayouts,
+} from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
+import {
+  detectHostApp,
+} from './host-app';
+
+/** Token used in default-layouts.json for the user home directory. */
+const HOME_TOKEN = '${HOME}';
 
 export class McpConfigLocator {
   private static readonly MCP_FILENAME = 'mcp.json';
   private static readonly TRACKING_FILENAME = 'prompt-registry-mcp-tracking.json';
   private static context: vscode.ExtensionContext | undefined;
+
+  /**
+   * Returns the MCP layout config for a given TargetType from default-layouts.json,
+   * or `undefined` if the IDE has no mcpConfig entry.
+   * This is the single source of truth for IDE-specific MCP path and format metadata.
+   * To add or change MCP paths for any IDE, edit default-layouts.json.
+   * @param host - TargetType (e.g. 'kiro', 'windsurf', 'vscode').
+   */
+  public static getMcpLayoutConfig(host: TargetType): McpLayoutConfig | undefined {
+    return (defaultLayouts.layouts as Record<string, { mcpConfig?: McpLayoutConfig }>)[host]?.mcpConfig;
+  }
+
+  /**
+   * Returns the workspace-relative MCP config file path for a given host,
+   * or null if the IDE has no official workspace-level MCP config.
+   * Derived from the `mcpConfig.workspaceFile` entry in default-layouts.json.
+   * @param host - Optional TargetType override (defaults to detectHostApp()).
+   */
+  public static getWorkspaceMcpRelativePath(host?: TargetType): string | null {
+    const h = host ?? detectHostApp();
+    const mc = this.getMcpLayoutConfig(h);
+    return mc ? (mc.workspaceFile ?? null) : '.vscode/mcp.json';
+  }
+
+  /**
+   * Returns the workspace MCP config subfolder (for backward compat with McpServerManager).
+   * @param host - Optional TargetType override.
+   */
+  public static getMcpWorkspaceConfigFolder(host?: TargetType): string {
+    const rel = this.getWorkspaceMcpRelativePath(host);
+    if (!rel) {
+      return '.vscode';
+    }
+    const dir = path.dirname(path.normalize(rel));
+    return dir === '.' ? '.' : dir;
+  }
+
+  /**
+   * Returns the JSON key used for MCP server entries for a given host.
+   * Derived from `mcpConfig.serversKey` in default-layouts.json.
+   * Default (VS Code): 'servers'. All other known IDEs use 'mcpServers'.
+   * @param host - Optional TargetType override (defaults to detectHostApp()).
+   */
+  public static getMcpServersKey(host?: TargetType): 'servers' | 'mcpServers' {
+    const h = host ?? detectHostApp();
+    const key = this.getMcpLayoutConfig(h)?.serversKey ?? 'servers';
+    return key === 'mcpServers' ? 'mcpServers' : 'servers';
+  }
 
   public static initialize(context: vscode.ExtensionContext) {
     this.context = context;
@@ -21,6 +82,8 @@ export class McpConfigLocator {
       return 'Cursor';
     } else if (productName.includes('Windsurf')) {
       return 'Windsurf';
+    } else if (productName.toLowerCase().includes('kiro')) {
+      return 'Kiro';
     } else {
       return 'Code';
     }
@@ -50,30 +113,45 @@ export class McpConfigLocator {
     }
   }
 
-  private static getWorkspaceConfigDirectory(): string | undefined {
+  private static getWorkspaceConfigDirectory(host?: TargetType): string | undefined {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return undefined;
     }
-    return path.join(workspaceFolders[0].uri.fsPath, '.vscode');
+    const rel = this.getWorkspaceMcpRelativePath(host);
+    if (!rel) {
+      return undefined; // IDE has no workspace-level MCP support
+    }
+    return path.dirname(path.join(workspaceFolders[0].uri.fsPath, rel));
   }
 
-  public static getUserMcpConfigPath(): string {
-    const userDir = this.getUserConfigDirectory();
-    return path.join(userDir, this.MCP_FILENAME);
+  /**
+   * User-level MCP config path.
+   * Derived from `mcpConfig.userFile` in default-layouts.json (resolves `${HOME}` token).
+   * Falls back to the VS Code appData path for VS Code / Insiders (userFile = null).
+   * @param host - Optional TargetType override for testing.
+   */
+  public static getUserMcpConfigPath(host?: TargetType): string {
+    const h = host ?? detectHostApp();
+    const mc = this.getMcpLayoutConfig(h);
+    if (mc?.userFile) {
+      // Expand ${HOME} token and normalise to OS path separators
+      return path.normalize(mc.userFile.replace(HOME_TOKEN, os.homedir()));
+    }
+    // No mcpConfig or userFile is null → use VS Code globalStorageUri-derived path
+    return path.join(this.getUserConfigDirectory(), this.MCP_FILENAME);
   }
 
-  public static getWorkspaceMcpConfigPath(): string | undefined {
-    const workspaceDir = this.getWorkspaceConfigDirectory();
-    if (!workspaceDir) {
+  public static getWorkspaceMcpConfigPath(host?: TargetType): string | undefined {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
       return undefined;
     }
-    return path.join(workspaceDir, this.MCP_FILENAME);
-  }
-
-  public static getUserTrackingPath(): string {
-    const userDir = this.getUserConfigDirectory();
-    return path.join(userDir, this.TRACKING_FILENAME);
+    const rel = this.getWorkspaceMcpRelativePath(host);
+    if (!rel) {
+      return undefined; // IDE has no workspace-level MCP support
+    }
+    return path.join(workspaceFolders[0].uri.fsPath, rel);
   }
 
   public static getWorkspaceTrackingPath(): string | undefined {
@@ -82,6 +160,16 @@ export class McpConfigLocator {
       return undefined;
     }
     return path.join(workspaceDir, this.TRACKING_FILENAME);
+  }
+
+  /**
+   * User-level tracking metadata path.
+   * Derives from the user MCP config path (same directory, different filename).
+   * @param host - Optional TargetType override for testing.
+   */
+  public static getUserTrackingPath(host?: TargetType): string {
+    const configPath = this.getUserMcpConfigPath(host);
+    return path.join(path.dirname(configPath), this.TRACKING_FILENAME);
   }
 
   public static getMcpConfigLocation(scope: 'user' | 'workspace'): { configPath: string; trackingPath: string; exists: boolean } | undefined {
