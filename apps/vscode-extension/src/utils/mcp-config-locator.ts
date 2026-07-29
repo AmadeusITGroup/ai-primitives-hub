@@ -1,6 +1,9 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  resolveMcpLayoutConfig,
+} from '@ai-primitives-hub/app';
 import type {
   McpLayoutConfig,
   TargetLayoutsConfig,
@@ -10,9 +13,6 @@ import {
   expandMcpUserFilePath,
 } from '@ai-primitives-hub/core';
 import {
-  resolveMcpLayoutConfig,
-} from '@ai-primitives-hub/app';
-import {
   defaultLayouts,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
@@ -21,7 +21,7 @@ import {
 } from './host-app';
 
 /** Built-in layout layers used for MCP config resolution. Treated as a single-layer array. */
-const BUILT_IN_LAYERS: TargetLayoutsConfig[] = [defaultLayouts as unknown as TargetLayoutsConfig];
+const BUILT_IN_LAYERS: TargetLayoutsConfig[] = [defaultLayouts];
 
 export class McpConfigLocator {
   private static readonly MCP_FILENAME = 'mcp.json';
