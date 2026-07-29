@@ -69,7 +69,7 @@ flowchart TD
     APP --> CORE[packages/core]
     APP --> INF[packages/infra]
     INF --> CORE
-    INF --> AD[Adapters<br/>GitHub / Local / APM / Skills / Awesome Copilot]
+    INF --> AD[Adapters<br/>GitHub / Local / APM / Skills / Awesome Copilot / Azure DevOps]
 ```
 
 For extension details, see the [Contributor Architecture Guide](./docs/contributor-guide/architecture.md).
