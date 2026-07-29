@@ -99,7 +99,7 @@ The `sources` array defines bundle sources available in the hub.
 | `local-apm` | Local APM packages |
 | `skills` | GitHub repository with skills |
 | `local-skills` | Local filesystem skills directory |
-| `azure-devops` | Azure DevOps Git repository (cloud or on-premises) |
+| `azure-devops` | Azure DevOps Git repository (cloud) |
 
 ### Optional Fields per Source
 

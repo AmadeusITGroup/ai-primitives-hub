@@ -346,7 +346,7 @@ export class SourceCommands {
           },
           {
             label: '$(azure) Azure DevOps',
-            description: 'Azure DevOps Git repository (cloud or on-premises) with .collection.yml bundles',
+            description: 'Azure DevOps Git repository (cloud) with .collection.yml bundles',
             value: 'azure-devops'
           }
         ],
