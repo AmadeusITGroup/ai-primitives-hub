@@ -7,6 +7,7 @@ export * from './create-source-adapter';
 export * from './deactivate-registry-profile';
 export * from './detect-updates';
 export * from './hub-manager';
+export * from './hydrate-source-readmes';
 export * from './install-registry-bundle';
 export * from './list-all-profiles';
 export * from './list-installed-bundles';

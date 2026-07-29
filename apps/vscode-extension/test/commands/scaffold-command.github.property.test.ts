@@ -439,7 +439,6 @@ suite('GitHub Scaffold Property-Based Tests', () => {
             || publishCommonContent.includes('npm run validate'),
             'publish-common action should include validation step'
           );
-
           // Verify validation runs before publishing
           // The publish-common action should run before the publish step
           const publishCommonIndex = publishWorkflowContent.indexOf('publish-common');
@@ -448,6 +447,19 @@ suite('GitHub Scaffold Property-Based Tests', () => {
           assert.ok(
             publishCommonIndex < publishCollectionsIndex,
             'publish-common (with validation) should run before publishing collections'
+          );
+
+          assert.ok(
+            publishWorkflowContent.includes('bundle build --collection-file "$file" --version "$version" --out-dir "dist" -o json'),
+            'publish.yml should consume JSON output from bundle build'
+          );
+          assert.ok(
+            publishWorkflowContent.includes('.data.readmeAsset'),
+            'publish.yml should include the optional README in the release asset list'
+          );
+          assert.ok(
+            publishWorkflowContent.includes('"${assets[@]}"'),
+            'publish.yml should pass all computed assets to gh release create'
           );
 
           // Verify both jobs (publish-collections and publish-preview) use validation

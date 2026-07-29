@@ -75,6 +75,7 @@ const COMMAND_CLASSES = [
 interface JsonEnvelope<T> {
   status: string;
   data: T;
+  warnings: string[];
 }
 
 describe('collection/bundle/version/skill commands', () => {
@@ -167,8 +168,18 @@ items:
     it('passes for the seeded valid collection', async () => {
       const result = await run(['collection', 'validate', '-o', 'json']);
       expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{ ok: boolean }>(result.stdout);
+      const envelope = parseJson<{ ok: boolean; warnings: string[] }>(result.stdout);
       expect(envelope.data.ok).toBe(true);
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toContain('collections/foo.collection.yml: Collection has no readme. Consider adding a readme to help users understand this collection.');
+    });
+
+    it('emits text warnings only once through stderr', async () => {
+      const result = await run(['collection', 'validate']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain('Warnings:');
+      expect(result.stderr).toContain('warning: collections/foo.collection.yml: Collection has no readme. Consider adding a readme to help users understand this collection.');
     });
 
     it('fails for a collection missing the required id field', async () => {
@@ -195,6 +206,30 @@ items:
       expect(envelope.data.affected.map((a) => a.id)).toContain('foo');
     });
 
+    it('reports the collection as affected when its README changed', async () => {
+      await mkdir(path.join(workspace, 'docs'), { recursive: true });
+      await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+readme:
+  path: docs/collection-overview.md
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+
+      const result = await run([
+        'collection', 'affected', '--changed-path', 'docs/collection-overview.md', '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ affected: { id: string }[] }>(result.stdout);
+      expect(envelope.data.affected.map((a) => a.id)).toContain('foo');
+    });
+
     it('reports no affected collections for an unrelated path', async () => {
       const result = await run([
         'collection', 'affected', '--changed-path', 'unrelated/file.md', '-o', 'json'
@@ -216,6 +251,7 @@ items:
       expect(envelope.data).toMatchObject({ id: 'foo', totalItems: 1 });
       const content = await readFile(outFile, 'utf8');
       expect(content).toContain('id: foo');
+      expect(content).not.toContain('readme:');
     });
 
     it('generates the expected MCP fields and matches the legacy generator', async () => {
@@ -316,6 +352,46 @@ mcp:
       expect(cliManifest).toEqual(legacyManifest);
     });
 
+    it('records the declared README basename and matches the legacy generator', async () => {
+      await mkdir(path.join(workspace, 'docs'), { recursive: true });
+      await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+description: Test collection
+readme:
+  path: docs/collection-overview.md
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+
+      const legacyManifestPath = path.join(workspace, 'legacy-manifest.yml');
+      const cliManifestPath = path.join(workspace, 'cli-manifest.yml');
+      const legacyGeneratorPath = path.resolve(process.cwd(), '../../lib/bin/generate-manifest.js');
+      execFileSync(process.execPath, [
+        legacyGeneratorPath,
+        '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out', legacyManifestPath
+      ], { cwd: workspace, encoding: 'utf8' });
+
+      const result = await run([
+        'bundle', 'manifest',
+        '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out-file', cliManifestPath,
+        '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      const cliManifest = yaml.load(await readFile(cliManifestPath, 'utf8'));
+      expect(cliManifest).toEqual(yaml.load(await readFile(legacyManifestPath, 'utf8')));
+      expect(cliManifest).toMatchObject({ readme: 'collection-overview.md' });
+    });
+
     it('fails with exit 1 when collections/ does not exist and no --collection-file is given', async () => {
       const freshDir = await mkdtemp(path.join(os.tmpdir(), 'cli-collection-test-nocol-'));
       try {
@@ -346,9 +422,37 @@ mcp:
         'bundle', 'build', '--version', '1.0.0', '--collection-file', 'collections/foo.collection.yml', '-o', 'json'
       ]);
       expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{ zipAsset: string; manifestAsset: string }>(result.stdout);
+      const envelope = parseJson<{ zipAsset: string; manifestAsset: string; readmeAsset?: string }>(result.stdout);
       const zipStat = await stat(envelope.data.zipAsset);
       expect(zipStat.size).toBeGreaterThan(0);
+      expect(envelope.data.readmeAsset).toBeUndefined();
+    });
+
+    it('returns the declared README as a release asset', async () => {
+      await mkdir(path.join(workspace, 'docs'), { recursive: true });
+      await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+readme:
+  path: docs/collection-overview.md
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+
+      const result = await run([
+        'bundle', 'build', '--version', '1.0.0', '--collection-file', 'collections/foo.collection.yml', '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ readmeAsset?: string }>(result.stdout);
+      expect(envelope.data.readmeAsset).toBe('docs/collection-overview.md');
+      expect(await readFile(path.join(workspace, envelope.data.readmeAsset!), 'utf8')).toBe('# Overview\n');
+      const manifest = yaml.load(await readFile(path.join(workspace, 'dist', 'foo', 'deployment-manifest.yml'), 'utf8')) as { readme: string };
+      expect(manifest.readme).toBe(path.basename(envelope.data.readmeAsset!));
     });
 
     it('defaults to the first collection file under collections/ when --collection-file is omitted', async () => {

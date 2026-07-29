@@ -66,13 +66,18 @@ jobs:
             tag=$(echo "$version_data" | jq -r '.data.tag')
 
             echo "Publishing $collection_id @ $version (tag: $tag)"
-            npx ai-primitives-hub bundle build --collection-file "$file" --version "$version" --out-dir "dist/$collection_id"
+            bundle_data=$(npx ai-primitives-hub bundle build --collection-file "$file" --version "$version" --out-dir "dist" -o json)
+            assets=()
+            # Bash 3.2 (default on macOS runners) lacks mapfile/readarray, so
+            # build the array with a portable read loop instead.
+            while IFS= read -r asset; do
+              assets+=("$asset")
+            done < <(echo "$bundle_data" | jq -r '[.data.zipAsset, .data.manifestAsset, .data.readmeAsset] | map(select(. != null)) | .[]')
 
             gh release create "$tag" \
               --title "$collection_id $version" \
               --notes "Release $tag" \
-              "dist/$collection_id/$collection_id.bundle.zip" \
-              "dist/$collection_id/deployment-manifest.yml"
+              "${assets[@]}"
           done
 
   publish-preview:
@@ -131,7 +136,7 @@ jobs:
             collection_id=$(basename "$file" .collection.yml)
             version=$(npx ai-primitives-hub version compute --collection-file "$file" -o json | jq -r '.data.nextVersion')
             echo "Previewing $collection_id @ $version"
-            npx ai-primitives-hub bundle build --collection-file "$file" --version "$version" --out-dir "dist/$collection_id"
+            npx ai-primitives-hub bundle build --collection-file "$file" --version "$version" --out-dir "dist"
           done
 
       - name: Upload preview artifacts
