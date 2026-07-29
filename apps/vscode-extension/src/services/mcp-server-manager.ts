@@ -192,7 +192,9 @@ export class McpServerManager {
    */
   private serializeMcpConfig(config: McpConfiguration, serversKey: 'servers' | 'mcpServers'): Record<string, unknown> {
     if (serversKey === 'servers') {
-      return config as unknown as Record<string, unknown>;
+      // McpConfiguration carries an index signature, so it is already a
+      // Record<string, unknown> — no assertion needed.
+      return config;
     }
     const { servers, tasks, inputs, ...rest } = config;
     const result: Record<string, unknown> = { ...rest, [serversKey]: servers };
