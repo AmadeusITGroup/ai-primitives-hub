@@ -52,6 +52,12 @@ export interface TargetLayoutDef {
  * Stored in default-layouts.json alongside the primitive layout definitions
  * so that all IDE-specific path decisions live in one place.
  */
+/**
+ * The JSON key used for MCP server entries in an IDE config file.
+ * VS Code Copilot uses `'servers'`; all other known IDEs use `'mcpServers'`.
+ */
+export type McpServersKey = 'servers' | 'mcpServers';
+
 export interface McpLayoutConfig {
   /**
    * Absolute user-level MCP config file path template.
@@ -67,9 +73,9 @@ export interface McpLayoutConfig {
   readonly workspaceFile: string | null;
   /**
    * JSON root key used for MCP server entries.
-   * VS Code Copilot uses `"servers"`; all other known IDEs use `"mcpServers"`.
+   * VS Code Copilot uses `'servers'`; all other known IDEs use `'mcpServers'`.
    */
-  readonly serversKey: string;
+  readonly serversKey: McpServersKey;
 }
 
 /**
@@ -79,9 +85,28 @@ export interface McpLayoutConfig {
 export const HOME_TOKEN = '${HOME}';
 
 /**
+ * Expand `${VAR}` tokens and leading `~` in a path template.
+ * Pure: no IO. Converged from `expandPath` in `file-tree-writer` so both
+ * MCP path resolution and primitive layout resolution use the same logic.
+ *
+ * @param template - Path string possibly containing `${VAR}` or `~`.
+ * @param env - Environment variable map (e.g. `process.env`).
+ * @returns Expanded path with all tokens replaced.
+ */
+export function expandPath(template: string, env: Record<string, string | undefined>): string {
+  let out = template.replaceAll(/\$\{([A-Z0-9_]+)\}/g, (_m, name: string) => env[name] ?? '');
+  if (out.startsWith('~')) {
+    const home = env.HOME ?? env.USERPROFILE ?? '';
+    out = home + out.slice(1);
+  }
+  return out;
+}
+
+/**
  * Expand the `${HOME}` token in a `McpLayoutConfig.userFile` template.
  * Returns the resolved absolute path, or `null` when `userFile` is `null`
  * (meaning the IDE resolves its user path by other means).
+ * Delegates to `expandPath` so both MCP and primitive layout paths use the same logic.
  * Pure: no IO.
  * @param config - MCP layout config for the target IDE.
  * @param homeDir - The user home directory (e.g. from `os.homedir()`).
@@ -90,7 +115,7 @@ export function expandMcpUserFilePath(config: McpLayoutConfig, homeDir: string):
   if (!config.userFile) {
     return null;
   }
-  return config.userFile.replace(HOME_TOKEN, homeDir);
+  return expandPath(config.userFile, { HOME: homeDir, USERPROFILE: homeDir });
 }
 
 /**

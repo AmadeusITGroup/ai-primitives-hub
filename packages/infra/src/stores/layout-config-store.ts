@@ -126,7 +126,10 @@ export class FileSystemLayoutConfigLoader implements LayoutConfigLoader {
 
   public async load(): Promise<TargetLayoutsConfig[]> {
     const layers: TargetLayoutsConfig[] = [
-      builtInLayouts
+      // TypeScript widens JSON string values to `string` rather than literals, so
+      // `serversKey: string` is not directly assignable to `McpServersKey`. The assertion
+      // is safe: the JSON values are validated against the McpServersKey union at edit time.
+      builtInLayouts as unknown as TargetLayoutsConfig
     ];
 
     // Layer 2: user config (~/.config/ai-primitives-hub/layouts.yml)

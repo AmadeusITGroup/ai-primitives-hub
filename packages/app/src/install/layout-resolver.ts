@@ -125,6 +125,7 @@ export function resolveMcpLayoutConfig(
   for (const layer of layers) {
     const config = layer.layouts[targetType]?.mcpConfig;
     if (config !== undefined) {
+      // McpLayoutConfig is fully readonly — no need to copy; later layers overwrite entirely.
       result = config;
     }
   }

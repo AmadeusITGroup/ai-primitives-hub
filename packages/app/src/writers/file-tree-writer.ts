@@ -30,6 +30,7 @@ import type {
   ResourceTransformer,
   Target,
   TargetLayout,
+  TargetLayoutsConfig,
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
@@ -122,7 +123,9 @@ export type { KindRoutes, TargetLayout } from '@ai-primitives-hub/core';
  * @returns Resolved TargetLayout.
  */
 export const resolveLayout = (target: Target): TargetLayout => {
-  const result = resolveLayoutFromLayers(target, [builtInLayouts]);
+  // Cast needed: TypeScript widens JSON string values to `string`, making
+  // serversKey: string incompatible with McpServersKey. Values are correct at runtime.
+  const result = resolveLayoutFromLayers(target, [builtInLayouts as unknown as TargetLayoutsConfig]);
   if (result === null) {
     throw new Error(`No layout defined for target type "${target.type}"`);
   }
@@ -154,15 +157,13 @@ export const resolveLayoutAsync = async (
  * @param p - Path with possible ${VAR} or ~ tokens.
  * @param env - Process env map.
  * @returns Expanded path.
+ * @deprecated Import `expandPath` from `@ai-primitives-hub/core` directly. This re-export
+ * is kept for backward compatibility and will be removed in a future version.
  */
-export const expandPath = (p: string, env: Record<string, string | undefined>): string => {
-  let out = p.replaceAll(/\$\{([A-Z0-9_]+)\}/g, (_m, name: string) => env[name] ?? '');
-  if (out.startsWith('~')) {
-    const home = env.HOME ?? env.USERPROFILE ?? '';
-    out = home + out.slice(1);
-  }
-  return out;
-};
+import {
+  expandPath,
+} from '@ai-primitives-hub/core';
+export { expandPath } from '@ai-primitives-hub/core';
 
 /**
  * Options for FileTreeTargetWriter.

@@ -5,9 +5,11 @@ import {
   McpConfiguration,
   McpInputDefinition,
   McpInstallOptions,
+  McpRawConfig,
   McpRemoteServerConfig,
   McpServerConfig,
   McpServerDefinition,
+  McpServersKey,
   McpStdioServerConfig,
   McpTrackingMetadata,
   McpVariableContext,
@@ -106,17 +108,19 @@ export class McpConfigService {
   /**
    * Serialize McpConfiguration using the IDE-appropriate top-level key.
    * 'servers' → VS Code format; 'mcpServers' → Kiro / Claude Desktop format.
+   * All fields not explicitly destructured (e.g. Claude's API key, theme…) are
+   * preserved via the `...rest` spread so a write cycle never destroys other IDE state.
    * @param config
    * @param serversKey
    */
-  private serializeMcpConfig(config: McpConfiguration, serversKey: 'mcpServers'): Record<string, unknown> {
+  private serializeMcpConfig(config: McpConfiguration, serversKey: McpServersKey): McpRawConfig {
     const { servers, tasks, inputs, ...rest } = config;
-    const result: Record<string, unknown> = { ...rest, [serversKey]: servers };
+    const result: McpRawConfig = { ...rest, [serversKey]: servers };
     if (tasks) {
-      result.tasks = tasks;
+      return { ...result, tasks };
     }
     if (inputs) {
-      result.inputs = inputs;
+      return { ...result, inputs };
     }
     return result;
   }
@@ -135,16 +139,18 @@ export class McpConfigService {
       const content = await fs.readFile(location.configPath, 'utf8');
       // Use JSONC parser to handle trailing commas and comments (VS Code mcp.json format)
       const errors: jsonc.ParseError[] = [];
-      const raw = jsonc.parse(content, errors) as Record<string, unknown>;
+      const raw = jsonc.parse(content, errors) as McpRawConfig;
       if (errors.length > 0) {
         const errorMessages = errors.map((e) => `${jsonc.printParseErrorCode(e.error)} at offset ${e.offset}`).join(', ');
         this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${errorMessages}`);
       }
-      // Kiro uses 'mcpServers' key; normalize to internal 'servers' key
+      // Kiro / Claude Code use 'mcpServers'; normalize to the internal 'servers' key.
+      // The spread preserves all other IDE-specific state (API keys, theme …) so
+      // a read → modify → write cycle never destroys unrelated configuration.
       if (raw && 'mcpServers' in raw && !('servers' in raw)) {
-        return { ...(raw as object), servers: raw.mcpServers } as unknown as McpConfiguration;
+        return { ...raw, servers: raw.mcpServers ?? {} };
       }
-      return (raw as unknown as McpConfiguration) || { servers: {} };
+      return { servers: {}, ...raw };
     } catch (error) {
       this.logger.error(`Failed to read mcp.json from ${location.configPath}`, error as Error);
       throw new Error(`Failed to read MCP configuration: ${(error as Error).message}`);

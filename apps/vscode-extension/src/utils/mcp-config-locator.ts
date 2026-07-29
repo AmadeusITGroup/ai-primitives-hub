@@ -6,6 +6,7 @@ import {
 } from '@ai-primitives-hub/app';
 import type {
   McpLayoutConfig,
+  McpServersKey,
   TargetLayoutsConfig,
   TargetType,
 } from '@ai-primitives-hub/core';
@@ -21,7 +22,9 @@ import {
 } from './host-app';
 
 /** Built-in layout layers used for MCP config resolution. Treated as a single-layer array. */
-const BUILT_IN_LAYERS: TargetLayoutsConfig[] = [defaultLayouts];
+// TypeScript widens JSON string values to `string`, making serversKey: string incompatible
+// with McpServersKey. The assertion is safe: JSON values are validated at authoring time.
+const BUILT_IN_LAYERS: TargetLayoutsConfig[] = [defaultLayouts as unknown as TargetLayoutsConfig];
 
 export class McpConfigLocator {
   private static readonly MCP_FILENAME = 'mcp.json';
@@ -68,12 +71,10 @@ export class McpConfigLocator {
    * Returns the JSON key used for MCP server entries for a given host.
    * Derived from `mcpConfig.serversKey` in default-layouts.json.
    * Default (VS Code): 'servers'. All other known IDEs use 'mcpServers'.
-   * @param host - Optional TargetType override (defaults to detectHostApp()).
+   * @param host - TargetType (required — use detectHostApp() at call site if needed).
    */
-  public static getMcpServersKey(host?: TargetType): 'servers' | 'mcpServers' {
-    const targetHost = host ?? detectHostApp();
-    const serversKey = this.getMcpLayoutConfig(targetHost)?.serversKey ?? 'servers';
-    return serversKey === 'mcpServers' ? 'mcpServers' : 'servers';
+  public static getMcpServersKey(host: TargetType): McpServersKey {
+    return this.getMcpLayoutConfig(host)?.serversKey ?? 'servers';
   }
 
   public static initialize(context: vscode.ExtensionContext) {
@@ -137,6 +138,10 @@ export class McpConfigLocator {
    * Derived from `mcpConfig.userFile` in default-layouts.json (resolves `${HOME}` token).
    * Falls back to the VS Code appData path for VS Code / Insiders (userFile = null).
    * @param host - Optional TargetType override for testing.
+   *
+   * TODO: User-level path resolution is tightly coupled to McpConfigLocator.
+   *       Consider moving to user-scope-service.ts in a future refactor so that
+   *       all user-scope config paths live in one place.
    */
   public static getUserMcpConfigPath(host?: TargetType): string {
     const targetHost = host ?? detectHostApp();

@@ -2,6 +2,9 @@
  * MCP (Model Context Protocol) Configuration Types
  */
 
+// McpServersKey is defined in @ai-primitives-hub/core alongside McpLayoutConfig.
+export type { McpServersKey } from '@ai-primitives-hub/core';
+
 /**
  * Base MCP server configuration
  */
@@ -88,10 +91,41 @@ export interface McpInputDefinition {
   options?: string[];
 }
 
+/**
+ * The JSON key used for the MCP server map in the IDE's config file.
+ * VS Code Copilot uses `"servers"`; all other known IDEs use `"mcpServers"`.
+ * @deprecated Imported and re-exported from `@ai-primitives-hub/core`. Use that import.
+ */
+// (type is re-exported at the top of this file)
+
+/**
+ * On-disk JSON representation of an IDE's MCP config file.
+ * The server map key varies by IDE (`servers` or `mcpServers`).
+ * The index signature preserves IDE-specific state (e.g. Claude's API key, theme settings…)
+ * so that a read → modify → write cycle never destroys unrelated configuration.
+ */
+export interface McpRawConfig {
+  readonly servers?: Record<string, McpServerConfig>;
+  readonly mcpServers?: Record<string, McpServerConfig>;
+  readonly tasks?: Record<string, McpTaskDefinition>;
+  readonly inputs?: McpInputDefinition[];
+  readonly [key: string]: unknown;
+}
+
+/**
+ * In-memory representation of an MCP configuration file.
+ *
+ * The index signature (`[key: string]: unknown`) is intentional:
+ * IDEs such as Claude Code store additional state (API keys, preferences, …)
+ * alongside the MCP server map in the same file (e.g. `~/.claude.json`).
+ * Preserving unknown keys ensures that a read → modify → write cycle
+ * never destroys other IDE state.
+ */
 export interface McpConfiguration {
   servers: Record<string, McpServerConfig>;
   tasks?: Record<string, McpTaskDefinition>;
   inputs?: McpInputDefinition[];
+  [key: string]: unknown;
 }
 
 /**
