@@ -48,16 +48,16 @@ export interface TargetLayoutDef {
 }
 
 /**
- * MCP configuration metadata for a specific IDE/target type.
- * Stored in default-layouts.json alongside the primitive layout definitions
- * so that all IDE-specific path decisions live in one place.
- */
-/**
  * The JSON key used for MCP server entries in an IDE config file.
  * VS Code Copilot uses `'servers'`; all other known IDEs use `'mcpServers'`.
  */
 export type McpServersKey = 'servers' | 'mcpServers';
 
+/**
+ * MCP configuration metadata for a specific IDE/target type.
+ * Stored in default-layouts.json alongside the primitive layout definitions
+ * so that all IDE-specific path decisions live in one place.
+ */
 export interface McpLayoutConfig {
   /**
    * Absolute user-level MCP config file path template.
@@ -88,7 +88,6 @@ export const HOME_TOKEN = '${HOME}';
  * Expand `${VAR}` tokens and leading `~` in a path template.
  * Pure: no IO. Converged from `expandPath` in `file-tree-writer` so both
  * MCP path resolution and primitive layout resolution use the same logic.
- *
  * @param template - Path string possibly containing `${VAR}` or `~`.
  * @param env - Environment variable map (e.g. `process.env`).
  * @returns Expanded path with all tokens replaced.

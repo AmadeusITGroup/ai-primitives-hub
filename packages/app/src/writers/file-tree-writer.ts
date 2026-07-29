@@ -36,6 +36,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   determineFileType,
+  expandPath,
   getSkillName,
   getTargetFileName,
   normalizePromptId,
@@ -152,17 +153,10 @@ export const resolveLayoutAsync = async (
 };
 
 /**
- * Expand `${VAR}` and leading `~` in a path. Pure; HOME comes from the
- * injected env map.
- * @param p - Path with possible ${VAR} or ~ tokens.
- * @param env - Process env map.
- * @returns Expanded path.
+ * Re-export of `expandPath` (expands `${VAR}` and a leading `~` in a path).
  * @deprecated Import `expandPath` from `@ai-primitives-hub/core` directly. This re-export
  * is kept for backward compatibility and will be removed in a future version.
  */
-import {
-  expandPath,
-} from '@ai-primitives-hub/core';
 export { expandPath } from '@ai-primitives-hub/core';
 
 /**

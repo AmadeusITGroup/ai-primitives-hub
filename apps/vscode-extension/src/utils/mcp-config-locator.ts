@@ -137,11 +137,10 @@ export class McpConfigLocator {
    * User-level MCP config path.
    * Derived from `mcpConfig.userFile` in default-layouts.json (resolves `${HOME}` token).
    * Falls back to the VS Code appData path for VS Code / Insiders (userFile = null).
-   * @param host - Optional TargetType override for testing.
-   *
    * TODO: User-level path resolution is tightly coupled to McpConfigLocator.
-   *       Consider moving to user-scope-service.ts in a future refactor so that
-   *       all user-scope config paths live in one place.
+   * Consider moving to user-scope-service.ts in a future refactor so that
+   * all user-scope config paths live in one place.
+   * @param host - Optional TargetType override for testing.
    */
   public static getUserMcpConfigPath(host?: TargetType): string {
     const targetHost = host ?? detectHostApp();
