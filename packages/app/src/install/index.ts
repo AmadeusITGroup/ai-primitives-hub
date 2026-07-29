@@ -44,5 +44,6 @@ export type {
 
 export {
   resolveLayoutFromLayers,
+  resolveMcpLayoutConfig,
   WORKSPACE_ROOT_TOKEN,
 } from './layout-resolver';

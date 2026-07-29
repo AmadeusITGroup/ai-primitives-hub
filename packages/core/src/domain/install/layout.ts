@@ -73,6 +73,27 @@ export interface McpLayoutConfig {
 }
 
 /**
+ * Token used in `McpLayoutConfig.userFile` templates for the user home directory.
+ * Callers must replace this token with `os.homedir()` before using the path.
+ */
+export const HOME_TOKEN = '${HOME}';
+
+/**
+ * Expand the `${HOME}` token in a `McpLayoutConfig.userFile` template.
+ * Returns the resolved absolute path, or `null` when `userFile` is `null`
+ * (meaning the IDE resolves its user path by other means).
+ * Pure: no IO.
+ * @param config - MCP layout config for the target IDE.
+ * @param homeDir - The user home directory (e.g. from `os.homedir()`).
+ */
+export function expandMcpUserFilePath(config: McpLayoutConfig, homeDir: string): string | null {
+  if (!config.userFile) {
+    return null;
+  }
+  return config.userFile.replace(HOME_TOKEN, homeDir);
+}
+
+/**
  * Root shape of an `ai-primitives-hub-layouts.yml` (or `.json`) config file.
  * Keyed by target type identifier (e.g. `"vscode"`, `"kiro"`).
  *

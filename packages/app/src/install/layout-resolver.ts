@@ -13,6 +13,7 @@
  * @module install/layout-resolver
  */
 import type {
+  McpLayoutConfig,
   ScopedLayoutDef,
   Target,
   TargetLayout,
@@ -104,4 +105,28 @@ function mergeScoped(
     kindRoutes: { ...base.kindRoutes, ...next.kindRoutes },
     skipPaths: next.skipPaths ?? base.skipPaths
   };
+}
+
+/**
+ * Resolve the MCP layout config for a given target type from an ordered set
+ * of layout config layers (same merge model as `resolveLayoutFromLayers`).
+ * Later layers override earlier ones; the first layer to define an `mcpConfig`
+ * is used as the base, with subsequent layers replacing it entirely.
+ * Returns `undefined` if no layer defines an `mcpConfig` for the target type.
+ * Pure; no IO.
+ * @param targetType - IDE target type identifier (e.g. `'kiro'`, `'vscode'`).
+ * @param layers - Ordered layers from least- to most-specific.
+ */
+export function resolveMcpLayoutConfig(
+  targetType: string,
+  layers: TargetLayoutsConfig[]
+): McpLayoutConfig | undefined {
+  let result: McpLayoutConfig | undefined;
+  for (const layer of layers) {
+    const config = layer.layouts[targetType]?.mcpConfig;
+    if (config !== undefined) {
+      result = config;
+    }
+  }
+  return result;
 }

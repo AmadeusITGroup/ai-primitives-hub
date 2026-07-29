@@ -3,8 +3,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   McpLayoutConfig,
+  TargetLayoutsConfig,
   TargetType,
 } from '@ai-primitives-hub/core';
+import {
+  expandMcpUserFilePath,
+} from '@ai-primitives-hub/core';
+import {
+  resolveMcpLayoutConfig,
+} from '@ai-primitives-hub/app';
 import {
   defaultLayouts,
 } from '@ai-primitives-hub/infra';
@@ -13,8 +20,8 @@ import {
   detectHostApp,
 } from './host-app';
 
-/** Token used in default-layouts.json for the user home directory. */
-const HOME_TOKEN = '${HOME}';
+/** Built-in layout layers used for MCP config resolution. Treated as a single-layer array. */
+const BUILT_IN_LAYERS: TargetLayoutsConfig[] = [defaultLayouts as unknown as TargetLayoutsConfig];
 
 export class McpConfigLocator {
   private static readonly MCP_FILENAME = 'mcp.json';
@@ -29,7 +36,7 @@ export class McpConfigLocator {
    * @param host - TargetType (e.g. 'kiro', 'windsurf', 'vscode').
    */
   public static getMcpLayoutConfig(host: TargetType): McpLayoutConfig | undefined {
-    return (defaultLayouts.layouts as Record<string, { mcpConfig?: McpLayoutConfig }>)[host]?.mcpConfig;
+    return resolveMcpLayoutConfig(host, BUILT_IN_LAYERS);
   }
 
   /**
@@ -39,9 +46,9 @@ export class McpConfigLocator {
    * @param host - Optional TargetType override (defaults to detectHostApp()).
    */
   public static getWorkspaceMcpRelativePath(host?: TargetType): string | null {
-    const h = host ?? detectHostApp();
-    const mc = this.getMcpLayoutConfig(h);
-    return mc ? (mc.workspaceFile ?? null) : '.vscode/mcp.json';
+    const targetHost = host ?? detectHostApp();
+    const mcpLayout = this.getMcpLayoutConfig(targetHost);
+    return mcpLayout ? (mcpLayout.workspaceFile ?? null) : '.vscode/mcp.json';
   }
 
   /**
@@ -49,12 +56,12 @@ export class McpConfigLocator {
    * @param host - Optional TargetType override.
    */
   public static getMcpWorkspaceConfigFolder(host?: TargetType): string {
-    const rel = this.getWorkspaceMcpRelativePath(host);
-    if (!rel) {
+    const workspaceRelativePath = this.getWorkspaceMcpRelativePath(host);
+    if (!workspaceRelativePath) {
       return '.vscode';
     }
-    const dir = path.dirname(path.normalize(rel));
-    return dir === '.' ? '.' : dir;
+    const configFolder = path.dirname(path.normalize(workspaceRelativePath));
+    return configFolder === '.' ? '.' : configFolder;
   }
 
   /**
@@ -64,9 +71,9 @@ export class McpConfigLocator {
    * @param host - Optional TargetType override (defaults to detectHostApp()).
    */
   public static getMcpServersKey(host?: TargetType): 'servers' | 'mcpServers' {
-    const h = host ?? detectHostApp();
-    const key = this.getMcpLayoutConfig(h)?.serversKey ?? 'servers';
-    return key === 'mcpServers' ? 'mcpServers' : 'servers';
+    const targetHost = host ?? detectHostApp();
+    const serversKey = this.getMcpLayoutConfig(targetHost)?.serversKey ?? 'servers';
+    return serversKey === 'mcpServers' ? 'mcpServers' : 'servers';
   }
 
   public static initialize(context: vscode.ExtensionContext) {
@@ -118,11 +125,11 @@ export class McpConfigLocator {
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return undefined;
     }
-    const rel = this.getWorkspaceMcpRelativePath(host);
-    if (!rel) {
+    const workspaceRelativePath = this.getWorkspaceMcpRelativePath(host);
+    if (!workspaceRelativePath) {
       return undefined; // IDE has no workspace-level MCP support
     }
-    return path.dirname(path.join(workspaceFolders[0].uri.fsPath, rel));
+    return path.dirname(path.join(workspaceFolders[0].uri.fsPath, workspaceRelativePath));
   }
 
   /**
@@ -132,11 +139,11 @@ export class McpConfigLocator {
    * @param host - Optional TargetType override for testing.
    */
   public static getUserMcpConfigPath(host?: TargetType): string {
-    const h = host ?? detectHostApp();
-    const mc = this.getMcpLayoutConfig(h);
-    if (mc?.userFile) {
+    const targetHost = host ?? detectHostApp();
+    const mcpLayout = this.getMcpLayoutConfig(targetHost);
+    if (mcpLayout?.userFile) {
       // Expand ${HOME} token and normalise to OS path separators
-      return path.normalize(mc.userFile.replace(HOME_TOKEN, os.homedir()));
+      return path.normalize(expandMcpUserFilePath(mcpLayout, os.homedir()) as string);
     }
     // No mcpConfig or userFile is null → use VS Code globalStorageUri-derived path
     return path.join(this.getUserConfigDirectory(), this.MCP_FILENAME);
@@ -147,11 +154,11 @@ export class McpConfigLocator {
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return undefined;
     }
-    const rel = this.getWorkspaceMcpRelativePath(host);
-    if (!rel) {
+    const workspaceRelativePath = this.getWorkspaceMcpRelativePath(host);
+    if (!workspaceRelativePath) {
       return undefined; // IDE has no workspace-level MCP support
     }
-    return path.join(workspaceFolders[0].uri.fsPath, rel);
+    return path.join(workspaceFolders[0].uri.fsPath, workspaceRelativePath);
   }
 
   public static getWorkspaceTrackingPath(): string | undefined {
