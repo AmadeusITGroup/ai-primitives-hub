@@ -33,6 +33,13 @@ View logs: `View → Output → AI Primitives Hub`
 4. Run: `AI Primitives Hub: Validate Repository Access`
 5. Force refresh authentication: `AI Primitives Hub: Force GitHub Authentication`
 
+### Azure DevOps Authentication Fails (401/403)
+
+1. Verify the PAT was entered correctly when adding the source
+2. Ensure the PAT has **Code (Read)** permission for the target repository
+3. Check the PAT has not expired (Azure DevOps → User Settings → Personal Access Tokens)
+4. Re-add the source with a fresh PAT via `AI Primitives Hub: Add Source`
+
 ### Source Connection Failed
 
 - Verify repository URL
