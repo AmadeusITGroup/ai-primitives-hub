@@ -17,6 +17,9 @@
 import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import { 
+  isAzureDevOpsHost 
+} from '../http/azure-devops-host';
 import {
   isGitHubHost,
 } from '../http/github-host';
@@ -28,6 +31,9 @@ export class StaticTokenProvider implements TokenProvider {
     if (this.token.length === 0) {
       return Promise.resolve(undefined);
     }
-    return Promise.resolve(isGitHubHost(host) ? this.token : undefined);
+    return Promise.resolve(
+      isGitHubHost(host) || isAzureDevOpsHost(host) ? 
+        this.token : 
+        undefined);
   }
 }

@@ -142,6 +142,20 @@ export class SourceCommands {
         return uris && uris.length > 0 ? uris[0].fsPath : undefined;
       }
 
+      case 'azure-devops': {
+        return await vscode.window.showInputBox({
+          prompt: 'Enter Azure DevOps repository URL',
+          placeHolder: 'https://dev.azure.com/org/project/_git/repo',
+          validateInput: (value) => {
+            if (!value || !value.startsWith('https://dev.azure.com') || !value.includes('/_git/')) {
+              return 'Please enter a valid Azure DevOps HTTPS URL containing /_git/';
+            }
+            return undefined;
+          },
+          ignoreFocusOut: true
+        });
+      }
+
       default: {
         return undefined;
       }
@@ -329,6 +343,11 @@ export class SourceCommands {
             label: '$(folder-library) Local Skills',
             description: 'Local filesystem directory with skills in skills/ folder (SKILL.md files)',
             value: 'local-skills'
+          },
+          {
+            label: '$(azure) Azure DevOps',
+            description: 'Azure DevOps Git repository (cloud or on-premises) with .collection.yml bundles',
+            value: 'azure-devops'
           }
         ],
         {
@@ -364,7 +383,10 @@ export class SourceCommands {
       if (!url) {
         return;
       }
-
+      
+      // For Step 4 later
+      let token: string | undefined;
+      let isPrivate: { label: string; description: string; value: boolean } | undefined;
       // Step 3.5: Get additional config for awesome-copilot and local-awesome-copilot
       let config: any;
       switch (sourceType.value) {
@@ -418,15 +440,54 @@ export class SourceCommands {
 
           break;
         }
+        case 'azure-devops': {
+          const branch = await vscode.window.showInputBox({
+            prompt: 'Enter branch name (or press Enter for "main")',
+            placeHolder: 'main',
+            value: 'main',
+            ignoreFocusOut: true
+          });
+
+          const collectionsPath = await vscode.window.showInputBox({
+            prompt: 'Enter bundles root path within the repository (or press Enter for "/")',
+            placeHolder: 'collections',
+            value: 'collections',
+            ignoreFocusOut: true
+          });
+
+          config = {
+            branch: branch || 'main',
+            collectionsPath: collectionsPath || '/'
+          };
+
+          //  'azure-devops' requires PAT by default
+          token = await vscode.window.showInputBox({
+            prompt: 'Enter personal access token (PAT)',
+            password: true,
+            ignoreFocusOut: true
+          });
+
+          isPrivate = { 
+            label: 'Private', 
+            description: 'Requires authentication', 
+            value: true 
+          };
+
+          break;
+        }
             // No default
       }
 
-      // Step 4: Check if private/authentication needed (skip for local sources)
-      let token: string | undefined;
-      let isPrivate: { label: string; description: string; value: boolean } | undefined;
-      const isLocalSource = sourceType.value === 'local' || sourceType.value === 'local-awesome-copilot' || sourceType.value === 'local-apm';
+      // Step 4: Check if private/authentication needed 
+      const isTokenSkipped = 
+        // skip token prompt for local sources and Azure DevOps 
+        sourceType.value === 'local' || 
+        sourceType.value === 'local-awesome-copilot' || 
+        sourceType.value === 'local-apm' ||
+        sourceType.value === 'local-skills' || 
+        sourceType.value === 'azure-devops';
 
-      if (!isLocalSource) {
+      if (!isTokenSkipped) {
         isPrivate = await vscode.window.showQuickPick(
           [
             { label: 'Public', description: 'No authentication required', value: false },
