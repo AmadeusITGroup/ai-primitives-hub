@@ -5,6 +5,7 @@
  * over different target/layer configurations.
  */
 import type {
+  McpLayoutConfig,
   Target,
   TargetLayoutsConfig,
 } from '@ai-primitives-hub/core';
@@ -15,6 +16,7 @@ import {
 } from 'vitest';
 import {
   resolveLayoutFromLayers,
+  resolveMcpLayoutConfig,
 } from '../../src/install/layout-resolver';
 
 const minimalConfig = (
@@ -248,5 +250,73 @@ describe('resolveLayoutFromLayers', () => {
     const cfg = minimalConfig('vscode', '${HOME}/.vscode', '${workspaceRoot}/.github');
     const result = resolveLayoutFromLayers(target, [cfg]);
     expect(result!.baseDir).toBe('/home/${workspaceRoot}/proj/.github');
+  });
+});
+
+describe('resolveMcpLayoutConfig', () => {
+  const mcpLayer = (
+    type: string,
+    mcpConfig?: McpLayoutConfig
+  ): TargetLayoutsConfig => ({
+    layouts: {
+      [type]: {
+        user: {
+          baseDir: `\${HOME}/.${type}`,
+          kindRoutes: { 'prompts/': 'prompts/' },
+          skipPaths: []
+        },
+        ...(mcpConfig === undefined ? {} : { mcpConfig })
+      }
+    }
+  });
+
+  const kiroMcp: McpLayoutConfig = {
+    userFile: '${HOME}/.kiro/settings/mcp.json',
+    workspaceFile: '.kiro/settings/mcp.json',
+    serversKey: 'mcpServers'
+  };
+
+  const vscodeMcp: McpLayoutConfig = {
+    userFile: null,
+    workspaceFile: '.vscode/mcp.json',
+    serversKey: 'servers'
+  };
+
+  it('returns undefined when there are no layers', () => {
+    expect(resolveMcpLayoutConfig('kiro', [])).toBeUndefined();
+  });
+
+  it('returns undefined for a target type no layer defines', () => {
+    expect(resolveMcpLayoutConfig('emacs', [mcpLayer('kiro', kiroMcp)])).toBeUndefined();
+  });
+
+  it('returns undefined when the target exists but defines no mcpConfig', () => {
+    expect(resolveMcpLayoutConfig('kiro', [mcpLayer('kiro')])).toBeUndefined();
+  });
+
+  it('returns the mcpConfig for a known target type', () => {
+    expect(resolveMcpLayoutConfig('kiro', [mcpLayer('kiro', kiroMcp)])).toEqual(kiroMcp);
+  });
+
+  it('lets a later layer override an earlier one entirely', () => {
+    const result = resolveMcpLayoutConfig('kiro', [
+      mcpLayer('kiro', kiroMcp),
+      mcpLayer('kiro', vscodeMcp)
+    ]);
+    expect(result).toEqual(vscodeMcp);
+  });
+
+  it('keeps the earlier layer when a later layer omits mcpConfig', () => {
+    const result = resolveMcpLayoutConfig('kiro', [
+      mcpLayer('kiro', kiroMcp),
+      mcpLayer('kiro')
+    ]);
+    expect(result).toEqual(kiroMcp);
+  });
+
+  it('resolves each target type independently', () => {
+    const layers = [mcpLayer('kiro', kiroMcp), mcpLayer('vscode', vscodeMcp)];
+    expect(resolveMcpLayoutConfig('kiro', layers)).toEqual(kiroMcp);
+    expect(resolveMcpLayoutConfig('vscode', layers)).toEqual(vscodeMcp);
   });
 });

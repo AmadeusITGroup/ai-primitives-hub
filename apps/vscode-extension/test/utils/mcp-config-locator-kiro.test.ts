@@ -4,16 +4,33 @@
  * Tests that:
  * 1. McpConfigLocator resolves the correct paths for Kiro (user + workspace)
  * 2. McpConfigLocator resolves VS Code paths unchanged (no regression)
- * 3. McpConfigService reads mcpServers key correctly from Kiro format
- * 4. McpConfigService writes mcpServers key for Kiro, servers key for VS Code
- * 5. getMcpLayoutConfig reads directly from default-layouts.json (single source of truth)
+ * 3. getMcpLayoutConfig reads directly from default-layouts.json (single source of truth)
+ * 4. The real shared format helpers map between the internal `servers` key and
+ *    each IDE's on-disk key, without losing `inputs`/`tasks` or leaving a stale
+ *    second server map behind
+ * 5. The real McpConfigService read → modify → write cycle round-trips a
+ *    Kiro-format file on disk
+ *
+ * Items 4 and 5 deliberately call production code. An earlier version of this
+ * file re-implemented the transformation inline, so it passed regardless of what
+ * the extension actually did and missed a serialization bug that dropped `inputs`.
  */
 
 import * as assert from 'node:assert';
-import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fsExtra from 'fs-extra';
+import {
+  McpConfigService,
+} from '../../src/services/mcp-config-service';
+import type {
+  McpConfiguration,
+} from '../../src/types/mcp';
+import {
+  normalizeMcpConfig,
+  parseMcpConfig,
+  serializeMcpConfig,
+} from '../../src/utils/mcp-config-format';
 import {
   McpConfigLocator,
 } from '../../src/utils/mcp-config-locator';
@@ -81,6 +98,17 @@ suite('McpConfigLocator — Kiro path resolution', () => {
       // Should NOT be the Kiro path
       assert.ok(!result.includes(path.join('.kiro', 'settings')),
         'VS Code path should not include .kiro/settings');
+    });
+
+    test('VS Code: resolves the default profile, not a per-profile path (known limitation)', () => {
+      // Documents a known limitation rather than desired behaviour: globalStorageUri is
+      // not profile-scoped, so a non-default profile's
+      // <userDataDir>/User/profiles/<id>/mcp.json is never targeted. There is no API to
+      // resolve the active profile (microsoft/vscode#160466 and #211890, both not planned).
+      // See docs/contributor-guide/architecture/mcp-integration.md.
+      const result = McpConfigLocator.getUserMcpConfigPath('vscode');
+      assert.ok(!result.includes(`${path.sep}profiles${path.sep}`),
+        'user path is default-profile only; update the docs if this ever changes');
     });
 
     test('Windsurf: returns ~/.codeium/windsurf/mcp_config.json', () => {
@@ -160,89 +188,266 @@ suite('McpConfigLocator — Kiro path resolution', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MCP format read/write (McpConfigService format transformation logic)
+// MCP format translation — calls the real serialize/normalize/parse helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-suite('MCP Kiro config format', () => {
-  const tmpDir = path.join(os.tmpdir(), `mcp-kiro-test-${Date.now()}`);
-  const kinoMcpPath = path.join(tmpDir, 'mcp.json');
+suite('MCP config format — serializeMcpConfig', () => {
+  test('Kiro: writes the server map under mcpServers only', () => {
+    const config: McpConfiguration = {
+      servers: { 'my-server': { command: 'npx', args: ['-y', 'my-mcp-server'] } }
+    };
+
+    const result = serializeMcpConfig(config, 'mcpServers');
+
+    assert.ok('mcpServers' in result, 'Kiro output should use the mcpServers key');
+    assert.ok(!('servers' in result), 'Kiro output should not carry the servers key');
+    assert.deepStrictEqual(result.mcpServers, config.servers);
+  });
+
+  test('VS Code: writes the server map under servers only', () => {
+    const config: McpConfiguration = {
+      servers: { 'my-server': { command: 'node' } }
+    };
+
+    const result = serializeMcpConfig(config, 'servers');
+
+    assert.ok('servers' in result, 'VS Code output should use the servers key');
+    assert.ok(!('mcpServers' in result), 'VS Code output should not carry the mcpServers key');
+    assert.deepStrictEqual(result.servers, config.servers);
+  });
+
+  test('keeps inputs when tasks is also present', () => {
+    // Regression: an early-return chain returned as soon as `tasks` was found,
+    // so `inputs` (which holds the prompts for API keys) was silently dropped.
+    const config: McpConfiguration = {
+      servers: { 'my-server': { command: 'node' } },
+      tasks: { build: { command: 'echo hi' } },
+      inputs: [{ id: 'api-key', type: 'promptString', description: 'API key', password: true }]
+    };
+
+    const result = serializeMcpConfig(config, 'mcpServers');
+
+    assert.ok(result.tasks, 'tasks should survive serialization');
+    assert.ok(result.inputs, 'inputs should survive serialization alongside tasks');
+    assert.deepStrictEqual(result.inputs, config.inputs);
+    assert.deepStrictEqual(result.tasks, config.tasks);
+  });
+
+  test('keeps inputs when tasks is absent', () => {
+    const config: McpConfiguration = {
+      servers: {},
+      inputs: [{ id: 'token', type: 'promptString' }]
+    };
+
+    const result = serializeMcpConfig(config, 'mcpServers');
+
+    assert.deepStrictEqual(result.inputs, config.inputs);
+  });
+
+  test('omits tasks and inputs when neither is present', () => {
+    const result = serializeMcpConfig({ servers: {} }, 'mcpServers');
+
+    assert.ok(!('tasks' in result), 'tasks should be omitted when absent');
+    assert.ok(!('inputs' in result), 'inputs should be omitted when absent');
+  });
+
+  test('drops a stale server map so the file never carries two', () => {
+    // A config that still holds a residual `mcpServers` (e.g. read from a file
+    // that had both keys) must not be written back out with both maps.
+    const config = {
+      servers: { current: { command: 'node' } },
+      mcpServers: { stale: { command: 'old' } }
+    } as unknown as McpConfiguration;
+
+    const result = serializeMcpConfig(config, 'servers');
+
+    assert.ok(!('mcpServers' in result), 'stale mcpServers key should be removed');
+    assert.deepStrictEqual(result.servers, { current: { command: 'node' } });
+  });
+
+  test('preserves unrelated IDE state such as an API key', () => {
+    const config = {
+      servers: {},
+      primaryApiKey: 'secret-value',
+      theme: 'dark'
+    } as unknown as McpConfiguration;
+
+    const result = serializeMcpConfig(config, 'mcpServers');
+
+    assert.strictEqual(result.primaryApiKey, 'secret-value');
+    assert.strictEqual(result.theme, 'dark');
+  });
+});
+
+suite('MCP config format — normalizeMcpConfig', () => {
+  test('maps a Kiro file onto the internal servers key', () => {
+    const raw = { mcpServers: { 'my-server': { command: 'npx' } } };
+
+    const config = normalizeMcpConfig(raw, 'mcpServers');
+
+    assert.deepStrictEqual(config.servers, raw.mcpServers);
+    assert.ok(!('mcpServers' in config), 'the on-disk key should not survive normalization');
+  });
+
+  test('leaves a VS Code file on the servers key', () => {
+    const raw = { servers: { 'my-server': { command: 'node' } } };
+
+    const config = normalizeMcpConfig(raw, 'servers');
+
+    assert.deepStrictEqual(config.servers, raw.servers);
+    assert.ok(!('mcpServers' in config));
+  });
+
+  test('host key wins when a file contains both server maps', () => {
+    const raw = {
+      servers: { fromVsCode: { command: 'a' } },
+      mcpServers: { fromKiro: { command: 'b' } }
+    };
+
+    const asKiro = normalizeMcpConfig(raw, 'mcpServers');
+    const asVsCode = normalizeMcpConfig(raw, 'servers');
+
+    assert.deepStrictEqual(asKiro.servers, raw.mcpServers, 'Kiro should read its own key');
+    assert.deepStrictEqual(asVsCode.servers, raw.servers, 'VS Code should read its own key');
+    assert.ok(!('mcpServers' in asKiro), 'the duplicate map must be dropped, not carried');
+    assert.ok(!('mcpServers' in asVsCode), 'the duplicate map must be dropped, not carried');
+  });
+
+  test('falls back to the other key when the host key is missing', () => {
+    const raw = { mcpServers: { 'my-server': { command: 'npx' } } };
+
+    const config = normalizeMcpConfig(raw, 'servers');
+
+    assert.deepStrictEqual(config.servers, raw.mcpServers);
+  });
+
+  test('returns an empty server map for a missing file', () => {
+    assert.deepStrictEqual(normalizeMcpConfig(undefined, 'servers'), { servers: {} });
+    assert.deepStrictEqual(normalizeMcpConfig(null, 'mcpServers'), { servers: {} });
+  });
+
+  test('returns an empty server map when no server key is present', () => {
+    const config = normalizeMcpConfig({ inputs: [] }, 'servers');
+    assert.deepStrictEqual(config.servers, {});
+  });
+});
+
+suite('MCP config format — parseMcpConfig', () => {
+  test('parses JSONC with comments and a trailing comma', () => {
+    // Comments and trailing commas are valid in a VS Code mcp.json; a strict
+    // JSON.parse throws on them.
+    const content = `{
+      // the server map
+      "mcpServers": {
+        "my-server": { "command": "npx" },
+      },
+    }`;
+
+    const { config, warnings } = parseMcpConfig(content, 'mcpServers');
+
+    assert.deepStrictEqual(config.servers, { 'my-server': { command: 'npx' } });
+    assert.strictEqual(warnings.length, 0, 'JSONC input should not produce warnings');
+  });
+
+  test('returns an empty config for blank content', () => {
+    const { config } = parseMcpConfig('', 'servers');
+    assert.deepStrictEqual(config, { servers: {} });
+  });
+
+  test('reports warnings for malformed content without throwing', () => {
+    const { warnings } = parseMcpConfig('{ "servers": { ', 'servers');
+    assert.ok(warnings.length > 0, 'malformed JSON should surface warnings');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// McpConfigService — real read → modify → write cycle against a temp workspace
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Global the vscode test mock reads `workspace.workspaceFolders` from. */
+const WORKSPACE_FOLDERS_GLOBAL = '__mockWorkspaceFolders';
+
+suite('McpConfigService — Kiro workspace round-trip', () => {
+  const tmpRoot = path.join(os.tmpdir(), `mcp-kiro-e2e-${Date.now()}`);
+  const kiroMcpPath = path.join(tmpRoot, '.kiro', 'settings', 'mcp.json');
+  let savedWorkspaceFolders: unknown;
+  let savedAppName: string;
+  let savedUriScheme: string;
 
   setup(async () => {
-    await fsExtra.ensureDir(tmpDir);
+    await fsExtra.ensureDir(path.dirname(kiroMcpPath));
+
+    const globals = global as unknown as Record<string, unknown>;
+    savedWorkspaceFolders = globals[WORKSPACE_FOLDERS_GLOBAL];
+    globals[WORKSPACE_FOLDERS_GLOBAL] = [
+      { uri: { fsPath: tmpRoot }, name: 'workspace', index: 0 }
+    ];
+
+    // Point host detection at Kiro so the service resolves the Kiro key/paths.
+    const env = (await import('vscode')).env as unknown as { appName: string; uriScheme: string };
+    savedAppName = env.appName;
+    savedUriScheme = env.uriScheme;
+    env.appName = 'Kiro';
+    env.uriScheme = 'kiro';
   });
 
   teardown(async () => {
-    await fsExtra.remove(tmpDir);
+    const globals = global as unknown as Record<string, unknown>;
+    globals[WORKSPACE_FOLDERS_GLOBAL] = savedWorkspaceFolders;
+
+    const env = (await import('vscode')).env as unknown as { appName: string; uriScheme: string };
+    env.appName = savedAppName;
+    env.uriScheme = savedUriScheme;
+
+    await fsExtra.remove(tmpRoot);
   });
 
-  test('reads mcpServers key from Kiro-format file', async () => {
-    // Write a Kiro-format file (mcpServers key)
-    const kiroConfig = {
-      mcpServers: {
-        'my-server': {
-          command: 'npx',
-          args: ['-y', 'my-mcp-server']
-        }
-      }
-    };
-    await fsExtra.writeJson(kinoMcpPath, kiroConfig);
+  test('reads a Kiro-format file written on disk', async () => {
+    await fsExtra.writeJson(kiroMcpPath, {
+      mcpServers: { 'my-server': { command: 'npx', args: ['-y', 'my-mcp-server'] } }
+    });
 
-    // Manually verify the reading logic: mcpServers -> servers normalization
-    const content = await fs.promises.readFile(kinoMcpPath, 'utf8');
-    const raw = JSON.parse(content) as Record<string, unknown>;
-    assert.ok('mcpServers' in raw, 'Raw file should have mcpServers key');
-    assert.ok(!('servers' in raw), 'Raw file should NOT have servers key');
+    const config = await new McpConfigService().readMcpConfig('workspace');
 
-    // After normalization (as McpConfigService does it):
-    const normalized = 'mcpServers' in raw && !('servers' in raw)
-      ? { ...raw, servers: raw.mcpServers }
-      : raw;
-    assert.ok('servers' in normalized, 'Normalized config should have servers key');
-    assert.deepStrictEqual(normalized.servers, kiroConfig.mcpServers,
-      'servers should equal the original mcpServers value');
+    assert.deepStrictEqual(config.servers, {
+      'my-server': { command: 'npx', args: ['-y', 'my-mcp-server'] }
+    });
   });
 
-  test('serializes to mcpServers key for Kiro format', () => {
-    // Simulate what toKiroFormat does
-    const internalConfig = {
-      servers: {
-        'my-server': { command: 'npx', args: ['-y', 'my-mcp-server'] }
-      }
-    };
+  test('writes the Kiro key and keeps both tasks and inputs on disk', async () => {
+    const service = new McpConfigService();
 
-    const { servers, ...rest } = internalConfig;
-    const kiroFormatted = { ...rest, mcpServers: servers };
+    await service.writeMcpConfig({
+      servers: { 'my-server': { command: 'node' } },
+      tasks: { build: { command: 'echo hi' } },
+      inputs: [{ id: 'api-key', type: 'promptString', password: true }]
+    }, 'workspace', false);
 
-    assert.ok('mcpServers' in kiroFormatted, 'Should use mcpServers key for Kiro');
-    assert.ok(!('servers' in kiroFormatted), 'Should NOT have servers key in Kiro format');
-    assert.deepStrictEqual(kiroFormatted.mcpServers, internalConfig.servers,
-      'mcpServers should equal the original servers value');
+    const onDisk = await fsExtra.readJson(kiroMcpPath) as Record<string, unknown>;
+
+    assert.ok('mcpServers' in onDisk, 'Kiro file should use the mcpServers key');
+    assert.ok(!('servers' in onDisk), 'Kiro file should not carry the servers key');
+    assert.ok(onDisk.tasks, 'tasks should be written');
+    assert.ok(onDisk.inputs, 'inputs should be written alongside tasks');
   });
 
-  test('VS Code format preserves servers key (no mcpServers)', () => {
-    const vsCodeConfig = { servers: { 'my-server': { command: 'node' } } };
-    const serialized = JSON.stringify(vsCodeConfig);
-    const parsed = JSON.parse(serialized) as Record<string, unknown>;
-    assert.ok('servers' in parsed, 'VS Code format should use servers key');
-    assert.ok(!('mcpServers' in parsed), 'VS Code format should NOT use mcpServers key');
-  });
+  test('a read → write cycle leaves exactly one server map', async () => {
+    // Seed a file that already carries both keys (manual edit / migration).
+    await fsExtra.writeJson(kiroMcpPath, {
+      servers: { stale: { command: 'old' } },
+      mcpServers: { current: { command: 'node' } },
+      primaryApiKey: 'secret-value'
+    });
 
-  test('Kiro path: workspace MCP under .kiro/settings/', () => {
-    // MCP workspace path for Kiro is .kiro/settings/mcp.json
-    const workspaceRoot = path.join(os.tmpdir(), 'test-workspace');
-    const expectedPath = path.join(workspaceRoot, '.kiro', 'settings', 'mcp.json');
-    // Simulate getWorkspaceConfigFolder() -> '.kiro/settings' for Kiro
-    const configFolder = path.join('.kiro', 'settings');
-    const result = path.join(workspaceRoot, configFolder, 'mcp.json');
-    assert.strictEqual(result, expectedPath,
-      'Workspace MCP path for Kiro should be .kiro/settings/mcp.json');
-  });
+    const service = new McpConfigService();
+    const config = await service.readMcpConfig('workspace');
+    await service.writeMcpConfig(config, 'workspace', false);
 
-  test('VS Code path: workspace MCP under .vscode/', () => {
-    const workspaceRoot = path.join(os.tmpdir(), 'test-workspace');
-    const expectedPath = path.join(workspaceRoot, '.vscode', 'mcp.json');
-    const result = path.join(workspaceRoot, '.vscode', 'mcp.json');
-    assert.strictEqual(result, expectedPath,
-      'Workspace MCP path for VS Code should be .vscode/mcp.json');
+    const onDisk = await fsExtra.readJson(kiroMcpPath) as Record<string, unknown>;
+
+    assert.ok('mcpServers' in onDisk, 'the host key should remain');
+    assert.ok(!('servers' in onDisk), 'the stale key should be gone after a write');
+    assert.deepStrictEqual(onDisk.mcpServers, { current: { command: 'node' } });
+    assert.strictEqual(onDisk.primaryApiKey, 'secret-value', 'unrelated IDE state should survive');
   });
 });
