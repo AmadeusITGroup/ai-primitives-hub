@@ -40,6 +40,9 @@ export interface Collection {
   version?: string;
   author?: string;
   tags?: string[];
+  readme?: {
+    path: string;
+  };
   items: CollectionItem[];
 }
 
@@ -72,6 +75,7 @@ export interface ObjectValidationResult {
  * Result of validating a collection file on disk (parse + structure).
  */
 export interface FileValidationResult extends ObjectValidationResult {
+  warnings?: string[];
   collection?: Collection;
 }
 
@@ -79,6 +83,7 @@ export interface FileValidationResult extends ObjectValidationResult {
  * Aggregate result of validating every collection file in a repository.
  */
 export interface AllCollectionsResult extends ObjectValidationResult {
+  warnings: string[];
   fileResults: ({ file: string } & FileValidationResult)[];
 }
 

@@ -7,6 +7,9 @@
  */
 import * as path from 'node:path';
 import {
+  resolveCollectionReadmePath,
+} from '@ai-primitives-hub/app';
+import {
   normalizeRepoRelativePath,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
@@ -66,6 +69,7 @@ interface RawCollection {
   description?: string;
   author?: string;
   tags?: string[];
+  readme?: { path?: string };
   items?: { path?: string; kind?: string }[];
   mcpServers?: Record<string, unknown>;
   mcp?: { items?: Record<string, unknown>; inputs?: unknown[] };
@@ -284,6 +288,7 @@ function buildManifest(
   const manifestId = collection.id ?? 'unknown';
   const mcpServers = collection.mcpServers ?? collection.mcp?.items;
   const mcpInputs = collection.mcp?.inputs;
+  const readmePath = resolveCollectionReadmePath(collection);
   return {
     id: manifestId,
     version,
@@ -296,6 +301,7 @@ function buildManifest(
     repository: '',
     prompts,
     dependencies: [],
+    ...(readmePath ? { readme: path.basename(readmePath) } : {}),
     ...(mcpServers !== undefined && Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     ...(mcpInputs !== undefined && mcpInputs.length > 0 ? { mcpInputs } : {})
   };

@@ -40,6 +40,7 @@ interface ValidateData {
   totalFiles: number;
   fileResults: AllCollectionsResult['fileResults'];
   errors: string[];
+  warnings: string[];
 }
 
 /**
@@ -142,11 +143,13 @@ export class CollectionValidateCommand extends Command {
       ? this.collectionFile
       : listCollectionFiles(cwd);
     const result = validateAllCollections(cwd, files);
+    const warnings = result.warnings;
     const data: ValidateData = {
       ok: result.ok,
       totalFiles: files.length,
       fileResults: result.fileResults,
-      errors: result.errors
+      errors: result.errors,
+      warnings
     };
 
     if (this.markdownPath !== undefined) {
@@ -158,8 +161,9 @@ export class CollectionValidateCommand extends Command {
       ctx,
       command: 'collection.validate',
       output: fmt,
-      status: result.ok ? 'ok' : 'error',
+      status: result.ok ? (warnings.length > 0 ? 'warning' : 'ok') : 'error',
       data,
+      warnings,
       textRenderer: (d) => renderText(d, this.verbose)
     });
     return result.ok ? 0 : 1;

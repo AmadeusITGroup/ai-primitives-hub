@@ -214,6 +214,19 @@ export function validateCollectionObject(
     }
   }
 
+  if (col.readme !== undefined) {
+    if (!col.readme || typeof col.readme !== 'object') {
+      errors.push(`${sourceLabel}: readme must be an object with a "path" property`);
+    } else {
+      const readme = col.readme as Record<string, unknown>;
+      if (!readme.path || typeof readme.path !== 'string' || readme.path.trim() === '') {
+        errors.push(`${sourceLabel}: readme.path must be a non-empty string`);
+      } else if (!isSafeRepoRelativePath(readme.path)) {
+        errors.push(`${sourceLabel}: readme.path has an invalid path (must be repo-root relative): ${readme.path}`);
+      }
+    }
+  }
+
   if (!Array.isArray(col.items)) {
     errors.push(`${sourceLabel}: Missing required field: items (array)`);
   }

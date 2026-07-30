@@ -16,6 +16,7 @@ export {
   loadItemKindsFromSchema,
   readCollection,
   resolveCollectionItemPaths,
+  resolveCollectionReadmePath,
   validateAllCollections,
   validateCollectionFile,
   writeCollection,

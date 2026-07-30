@@ -143,6 +143,19 @@ describe('LocalAwesomeCopilotAdapter', () => {
       expect((bundle as unknown as { breakdown: Record<string, number> }).breakdown.mcpServers).toBe(0);
     });
 
+    it('does not cache local README content by revision', async () => {
+      const fs = new InMemoryFileSystem();
+      fs.seed(
+        '/collections-root/collections/my-collection.collection.yml',
+        `${collectionYaml()}\nreadme:\n  path: docs/collection-overview.md`
+      );
+      fs.seed('/collections-root/docs/collection-overview.md', '# Overview');
+
+      const [bundle] = await new LocalAwesomeCopilotAdapter(makeSource(), fs).fetchBundles();
+
+      expect(bundle.readmeRevision).toBeUndefined();
+    });
+
     it('ignores files in the collections directory that are not .collection.yml', async () => {
       const fs = new InMemoryFileSystem();
       fs.seed('/collections-root/collections/my-collection.collection.yml', collectionYaml());

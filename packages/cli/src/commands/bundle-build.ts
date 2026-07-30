@@ -27,6 +27,7 @@ import * as path from 'node:path';
 import {
   readCollection,
   resolveCollectionItemPaths,
+  resolveCollectionReadmePath,
 } from '@ai-primitives-hub/app';
 import {
   generateBundleId,
@@ -56,6 +57,7 @@ interface BundleBuildData {
   outDir: string;
   manifestAsset: string;
   zipAsset: string;
+  readmeAsset?: string;
   bundleId: string;
 }
 
@@ -222,6 +224,7 @@ export class BundleBuildCommand extends Command {
       );
 
       const itemPaths = resolveCollectionItemPaths(cwd, collection);
+      const readmeAsset = resolveCollectionReadmePath(collection);
       const zipPath = path.join(collectionOutDir, `${collectionId}.bundle.zip`);
       await createDeterministicZip({
         repoRoot: cwd,
@@ -236,6 +239,7 @@ export class BundleBuildCommand extends Command {
         outDir: collectionOutDir.replaceAll('\\', '/'),
         manifestAsset: standaloneManifestPath.replaceAll('\\', '/'),
         zipAsset: zipPath.replaceAll('\\', '/'),
+        ...(readmeAsset ? { readmeAsset: readmeAsset.replaceAll('\\', '/') } : {}),
         bundleId
       };
       formatOutput({
