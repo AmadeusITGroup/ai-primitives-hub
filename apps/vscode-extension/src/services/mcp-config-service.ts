@@ -1,15 +1,12 @@
 import * as fs from 'fs-extra';
-import * as jsonc from 'jsonc-parser';
 import {
   isRemoteServerConfig,
   McpConfiguration,
   McpInputDefinition,
   McpInstallOptions,
-  McpRawConfig,
   McpRemoteServerConfig,
   McpServerConfig,
   McpServerDefinition,
-  McpServersKey,
   McpStdioServerConfig,
   McpTrackingMetadata,
   McpVariableContext,
@@ -20,6 +17,10 @@ import {
 import {
   Logger,
 } from '../utils/logger';
+import {
+  parseMcpConfig,
+  serializeMcpConfig,
+} from '../utils/mcp-config-format';
 import {
   McpConfigLocator,
 } from '../utils/mcp-config-locator';
@@ -105,26 +106,6 @@ export class McpConfigService {
     }
   }
 
-  /**
-   * Serialize McpConfiguration using the IDE-appropriate top-level key.
-   * 'servers' → VS Code format; 'mcpServers' → Kiro / Claude Desktop format.
-   * All fields not explicitly destructured (e.g. Claude's API key, theme…) are
-   * preserved via the `...rest` spread so a write cycle never destroys other IDE state.
-   * @param config
-   * @param serversKey
-   */
-  private serializeMcpConfig(config: McpConfiguration, serversKey: McpServersKey): McpRawConfig {
-    const { servers, tasks, inputs, ...rest } = config;
-    const result: McpRawConfig = { ...rest, [serversKey]: servers };
-    if (tasks) {
-      return { ...result, tasks };
-    }
-    if (inputs) {
-      return { ...result, inputs };
-    }
-    return result;
-  }
-
   public async readMcpConfig(scope: 'user' | 'workspace'): Promise<McpConfiguration> {
     const location = McpConfigLocator.getMcpConfigLocation(scope);
     if (!location) {
@@ -137,20 +118,15 @@ export class McpConfigService {
 
     try {
       const content = await fs.readFile(location.configPath, 'utf8');
-      // Use JSONC parser to handle trailing commas and comments (VS Code mcp.json format)
-      const errors: jsonc.ParseError[] = [];
-      const raw = jsonc.parse(content, errors) as McpRawConfig;
-      if (errors.length > 0) {
-        const errorMessages = errors.map((e) => `${jsonc.printParseErrorCode(e.error)} at offset ${e.offset}`).join(', ');
-        this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${errorMessages}`);
+      // Shared parse + normalize: tolerates JSONC (comments, trailing commas),
+      // maps the IDE's server key onto the internal 'servers' key and drops the
+      // non-canonical one. See utils/mcp-config-format.
+      const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
+      const { config, warnings } = parseMcpConfig(content, serversKey);
+      if (warnings.length > 0) {
+        this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${warnings.join(', ')}`);
       }
-      // Kiro / Claude Code use 'mcpServers'; normalize to the internal 'servers' key.
-      // The spread preserves all other IDE-specific state (API keys, theme …) so
-      // a read → modify → write cycle never destroys unrelated configuration.
-      if (raw && 'mcpServers' in raw && !('servers' in raw)) {
-        return { ...raw, servers: raw.mcpServers ?? {} };
-      }
-      return { servers: {}, ...raw };
+      return config;
     } catch (error) {
       this.logger.error(`Failed to read mcp.json from ${location.configPath}`, error as Error);
       throw new Error(`Failed to read MCP configuration: ${(error as Error).message}`);
@@ -171,11 +147,10 @@ export class McpConfigService {
 
     try {
       // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
-      // To add Windsurf/Claude/Devin support, just extend McpConfigLocator.MCP_SERVERS_KEY.
+      // The mapping itself comes from default-layouts.json via McpConfigLocator,
+      // so adding an IDE needs no change here.
       const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
-      const serialized = serversKey === 'servers'
-        ? config
-        : this.serializeMcpConfig(config, serversKey);
+      const serialized = serializeMcpConfig(config, serversKey);
       const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(location.configPath, content, 'utf8');
       this.logger.info(`MCP configuration written to ${location.configPath}`);

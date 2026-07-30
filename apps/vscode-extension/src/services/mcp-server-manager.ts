@@ -17,6 +17,10 @@ import {
   Logger,
 } from '../utils/logger';
 import {
+  parseMcpConfig,
+  serializeMcpConfig,
+} from '../utils/mcp-config-format';
+import {
   McpConfigLocator,
 } from '../utils/mcp-config-locator';
 import {
@@ -134,12 +138,15 @@ export class McpServerManager {
 
     try {
       const content = await fs.readFile(configPath, 'utf8');
-      const raw = JSON.parse(content) as Record<string, unknown>;
-      // Kiro uses 'mcpServers'; normalize to internal 'servers' key
-      if (raw && 'mcpServers' in raw && !('servers' in raw)) {
-        return { ...(raw as object), servers: raw.mcpServers } as unknown as McpConfiguration;
+      // Shared parse + normalize (see utils/mcp-config-format). Uses the JSONC
+      // parser: workspace mcp.json files may legitimately contain comments and
+      // trailing commas, which plain JSON.parse rejects.
+      const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
+      const { config, warnings } = parseMcpConfig(content, serversKey);
+      if (warnings.length > 0) {
+        this.logger.warn(`JSONC parse warnings in ${configPath}: ${warnings.join(', ')}`);
       }
-      return raw as unknown as McpConfiguration;
+      return config;
     } catch (error) {
       this.logger.error(`Failed to read workspace mcp.json from ${configPath}`, error as Error);
       throw new Error(`Failed to read workspace MCP configuration: ${(error as Error).message}`);
@@ -174,7 +181,7 @@ export class McpServerManager {
       // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
       // Extend McpConfigLocator.MCP_SERVERS_KEY to add new IDEs without touching this code.
       const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
-      const serialized = this.serializeMcpConfig(config, serversKey);
+      const serialized = serializeMcpConfig(config, serversKey);
       const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(configPath, content, 'utf8');
       this.logger.info(`Workspace MCP configuration written to ${configPath}`);
@@ -182,29 +189,6 @@ export class McpServerManager {
       this.logger.error(`Failed to write workspace mcp.json to ${configPath}`, error as Error);
       throw new Error(`Failed to write workspace MCP configuration: ${(error as Error).message}`);
     }
-  }
-
-  /**
-   * Serialize McpConfiguration using the IDE-appropriate top-level key.
-   * 'servers' → VS Code format; 'mcpServers' → Kiro / Claude Desktop format.
-   * @param config
-   * @param serversKey
-   */
-  private serializeMcpConfig(config: McpConfiguration, serversKey: 'servers' | 'mcpServers'): Record<string, unknown> {
-    if (serversKey === 'servers') {
-      // McpConfiguration carries an index signature, so it is already a
-      // Record<string, unknown> — no assertion needed.
-      return config;
-    }
-    const { servers, tasks, inputs, ...rest } = config;
-    const result: Record<string, unknown> = { ...rest, [serversKey]: servers };
-    if (tasks) {
-      result.tasks = tasks;
-    }
-    if (inputs) {
-      result.inputs = inputs;
-    }
-    return result;
   }
 
   /**
