@@ -5,7 +5,9 @@
  * methods, and any unseeded path throws a 404-style error so tests fail
  * fast on unexpected calls rather than silently returning `undefined`.
  */
-import type { AzureDevOpsApi } from '@ai-primitives-hub/core';
+import type {
+  AzureDevOpsApi,
+} from '@ai-primitives-hub/core';
 
 export class FakeAzureDevOpsApi implements AzureDevOpsApi {
   private readonly jsonByPath = new Map<string, unknown>();

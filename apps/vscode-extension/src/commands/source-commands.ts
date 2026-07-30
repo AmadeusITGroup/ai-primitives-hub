@@ -383,7 +383,7 @@ export class SourceCommands {
       if (!url) {
         return;
       }
-      
+
       // For Step 4 later
       let token: string | undefined;
       let isPrivate: { label: string; description: string; value: boolean } | undefined;
@@ -467,10 +467,10 @@ export class SourceCommands {
             ignoreFocusOut: true
           });
 
-          isPrivate = { 
-            label: 'Private', 
-            description: 'Requires authentication', 
-            value: true 
+          isPrivate = {
+            label: 'Private',
+            description: 'Requires authentication',
+            value: true
           };
 
           break;
@@ -478,14 +478,14 @@ export class SourceCommands {
             // No default
       }
 
-      // Step 4: Check if private/authentication needed 
-      const isTokenSkipped = 
-        // skip token prompt for local sources and Azure DevOps 
-        sourceType.value === 'local' || 
-        sourceType.value === 'local-awesome-copilot' || 
-        sourceType.value === 'local-apm' ||
-        sourceType.value === 'local-skills' || 
-        sourceType.value === 'azure-devops';
+      // Step 4: Check if private/authentication needed
+      const isTokenSkipped =
+        // skip token prompt for local sources and Azure DevOps
+        sourceType.value === 'local'
+        || sourceType.value === 'local-awesome-copilot'
+        || sourceType.value === 'local-apm'
+        || sourceType.value === 'local-skills'
+        || sourceType.value === 'azure-devops';
 
       if (!isTokenSkipped) {
         isPrivate = await vscode.window.showQuickPick(

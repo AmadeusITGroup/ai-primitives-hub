@@ -8,7 +8,11 @@
  * secure storage, VS Code session) out of this layer.
  * @module http/azure-devops-api-client
  */
-import type { AzureDevOpsApi, HttpClient, TokenProvider } from '@ai-primitives-hub/core';
+import type {
+  AzureDevOpsApi,
+  HttpClient,
+  TokenProvider,
+} from '@ai-primitives-hub/core';
 
 export interface AzureDevOpsApiClientOptions {
   /** Resolves a PAT for each request. Required for private repositories. */
@@ -50,14 +54,14 @@ export class AzureDevOpsApiClient implements AzureDevOpsApi {
 
   private describeError(statusCode: number, url: string): string {
     switch (statusCode) {
-      case 401: { 
+      case 401: {
         return `Azure DevOps: unauthorized (401) — check that a valid PAT is configured for ${url}`;
       }
-      case 403: { 
+      case 403: {
         return `Azure DevOps: forbidden (403) — PAT may lack the required scope for ${url}`;
       }
       case 404: {
-        return `Azure DevOps: not found (404) — ${url}`; 
+        return `Azure DevOps: not found (404) — ${url}`;
       }
       default: {
         return `Azure DevOps: unexpected status ${String(statusCode)} from ${url}`;

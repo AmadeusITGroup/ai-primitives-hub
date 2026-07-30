@@ -1,6 +1,5 @@
 /**
  * Host predicate for Azure DevOps-owned hosts.
- * 
  * @module http/azure-devops-host
  */
 
@@ -15,7 +14,7 @@ export function isAzureDevOpsHost(host: string): boolean {
   if (host.length === 0) {
     return false;
   }
-  if (host === 'dev.azure.com' ) {
+  if (host === 'dev.azure.com') {
     return true;
   }
   return false;

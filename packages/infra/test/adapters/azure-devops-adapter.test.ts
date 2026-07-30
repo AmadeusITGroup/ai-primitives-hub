@@ -1,10 +1,22 @@
+import type {
+  RegistrySource,
+} from '@ai-primitives-hub/core';
 import AdmZip from 'adm-zip';
-import type { RegistrySource } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
-import { describe, expect, it } from 'vitest';
-import { AzureDevOpsAdapter } from '../../src/adapters/azure-devops-adapter';
-import { FakeAzureDevOpsApi } from '../helpers/fake-azure-devops-api';
-import { FixedClock } from '../helpers/fixed-clock';
+import {
+  describe,
+  expect,
+  it,
+} from 'vitest';
+import {
+  AzureDevOpsAdapter,
+} from '../../src/adapters/azure-devops-adapter';
+import {
+  FakeAzureDevOpsApi,
+} from '../helpers/fake-azure-devops-api';
+import {
+  FixedClock,
+} from '../helpers/fixed-clock';
 
 // ---------------------------------------------------------------------------
 // URL constants matching the adapter's construction for myorg/myproject/myrepo
@@ -14,12 +26,12 @@ const ITEMS_BASE =
   'https://dev.azure.com/myorg/myproject/_apis/git/repositories/myrepo/items';
 
 const COLLECTIONS_LIST_URL =
-  `${ITEMS_BASE}?scopePath=/collections&recursionLevel=oneLevel` +
-  `&versionDescriptor.version=main&api-version=7.1`;
+  `${ITEMS_BASE}?scopePath=/collections&recursionLevel=oneLevel`
+  + `&versionDescriptor.version=main&api-version=7.1`;
 
 const COMMITS_URL =
-  'https://dev.azure.com/myorg/myproject/_apis/git/repositories/myrepo/commits' +
-  '?searchCriteria.itemVersion.version=main&$top=1&api-version=7.1';
+  'https://dev.azure.com/myorg/myproject/_apis/git/repositories/myrepo/commits'
+  + '?searchCriteria.itemVersion.version=main&$top=1&api-version=7.1';
 
 const REPO_URL =
   'https://dev.azure.com/myorg/myproject/_apis/git/repositories/myrepo?api-version=7.1';
@@ -36,14 +48,14 @@ function makeSource(overrides: Partial<RegistrySource> = {}): RegistrySource {
     url: 'https://dev.azure.com/myorg/myproject/_git/myrepo',
     enabled: true,
     priority: 0,
-    ...overrides,
+    ...overrides
   };
 }
 
 function makeAdapter(
   api: FakeAzureDevOpsApi = new FakeAzureDevOpsApi(),
   source: RegistrySource = makeSource(),
-  clock: FixedClock = new FixedClock(0),
+  clock: FixedClock = new FixedClock(0)
 ): AzureDevOpsAdapter {
   return new AzureDevOpsAdapter(source, api, clock);
 }
@@ -61,8 +73,8 @@ function makeItemsResponse(paths: string[]): { value: AdoItemStub[] } {
       path,
       isFolder: false,
       objectId: `sha${i}`,
-      url: `${ITEMS_BASE}?path=${encodeURIComponent(path)}&api-version=7.1`,
-    })),
+      url: `${ITEMS_BASE}?path=${encodeURIComponent(path)}&api-version=7.1`
+    }))
   };
 }
 
@@ -74,17 +86,25 @@ function collectionYaml(overrides: Record<string, unknown> = {}): string {
     version: '1.0.0',
     tags: ['azure', 'testing'],
     items: [{ path: 'prompts/foo.prompt.md', kind: 'prompt' }],
-    ...overrides,
+    ...overrides
   };
   return yaml.dump(c);
 }
 
-/** URL the adapter uses to getText a collection YAML for the given path. */
+/**
+ * URL the adapter uses to getText a collection YAML for the given path.
+ * @param path
+ * @param branch
+ */
 function collectionTextUrl(path: string, branch = 'main'): string {
   return `${ITEMS_BASE}?path=${path}&versionDescriptor.version=${branch}&api-version=7.1`;
 }
 
-/** URL the adapter uses to download a single file by its repo path. */
+/**
+ * URL the adapter uses to download a single file by its repo path.
+ * @param path
+ * @param branch
+ */
 function fileDownloadUrl(path: string, branch = 'main'): string {
   return `${ITEMS_BASE}?path=/${path}&versionDescriptor.version=${branch}&api-version=7.1`;
 }
@@ -110,8 +130,8 @@ describe('AzureDevOpsAdapter', () => {
     it('builds the ADO Items API URL with the default branch and collectionsPath', () => {
       const adapter = makeAdapter();
       const expected =
-        `${ITEMS_BASE}?path=/collections/my-bundle.collection.yml` +
-        `&versionDescriptor.version=main&api-version=7.1`;
+        `${ITEMS_BASE}?path=/collections/my-bundle.collection.yml`
+        + `&versionDescriptor.version=main&api-version=7.1`;
       expect(adapter.getManifestUrl('my-bundle')).toBe(expected);
       expect(adapter.getDownloadUrl('my-bundle')).toBe(expected);
     });
@@ -165,7 +185,7 @@ describe('AzureDevOpsAdapter', () => {
         license: 'MIT',
         size: '1 items',
         manifestUrl: `${ITEMS_BASE}?path=/collections/my-bundle.collection.yml&versionDescriptor.version=main&api-version=7.1`,
-        downloadUrl: `${ITEMS_BASE}?path=/collections/my-bundle.collection.yml&versionDescriptor.version=main&api-version=7.1`,
+        downloadUrl: `${ITEMS_BASE}?path=/collections/my-bundle.collection.yml&versionDescriptor.version=main&api-version=7.1`
       });
       expect(bundle.lastUpdated).toBe(new Date(1_700_000_000_000).toISOString());
       expect(bundle.readmeRevision).toBe('abc123');
@@ -179,9 +199,9 @@ describe('AzureDevOpsAdapter', () => {
         description: 'desc',
         items: [
           { path: 'prompts/x.prompt.md', kind: 'prompt' },
-          { path: 'agents/y.agent.md', kind: 'agent' },
+          { path: 'agents/y.agent.md', kind: 'agent' }
         ],
-        mcpServers: { 'my-server': { command: 'node' } },
+        mcpServers: { 'my-server': { command: 'node' } }
       });
       const api = new FakeAzureDevOpsApi()
         .seedJson(COLLECTIONS_LIST_URL, makeItemsResponse([collPath]))
@@ -196,7 +216,7 @@ describe('AzureDevOpsAdapter', () => {
         chatmodes: 0,
         agents: 1,
         skills: 0,
-        mcpServers: 1,
+        mcpServers: 1
       });
       expect((bundle as unknown as { mcpServers: unknown }).mcpServers).toEqual({ 'my-server': { command: 'node' } });
     });
@@ -205,7 +225,7 @@ describe('AzureDevOpsAdapter', () => {
       const api = new FakeAzureDevOpsApi()
         .seedJson(COLLECTIONS_LIST_URL, makeItemsResponse([
           '/collections/good.collection.yml',
-          '/collections/bad.collection.yml',
+          '/collections/bad.collection.yml'
         ]))
         .seedText(collectionTextUrl('/collections/good.collection.yml'), collectionYaml({ id: 'good' }))
         // bad.collection.yml intentionally left unseeded — getText will throw
@@ -227,7 +247,7 @@ describe('AzureDevOpsAdapter', () => {
       const api = new FakeAzureDevOpsApi()
         .seedJson(COLLECTIONS_LIST_URL, makeItemsResponse([
           '/collections/my-bundle.collection.yml',
-          '/collections/README.md',
+          '/collections/README.md'
         ]))
         .seedText(collectionTextUrl('/collections/my-bundle.collection.yml'), collectionYaml())
         .seedJson(COMMITS_URL, { value: [{ commitId: 'head' }] });
@@ -249,6 +269,9 @@ describe('AzureDevOpsAdapter', () => {
 
       // Second call with empty API (no URLs seeded) — must hit the cache
       const emptyApi = new FakeAzureDevOpsApi();
+      // `adapterWithEmptyApi` is intentionally created for testing constructor;
+      // the cache behavior is asserted through the original `adapter`.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- see comments above and below
       const adapterWithEmptyApi = new AzureDevOpsAdapter(makeSource(), emptyApi, clock);
       // Use the same adapter instance for the cache test
       const second = await adapter.fetchBundles();
@@ -290,7 +313,7 @@ describe('AzureDevOpsAdapter', () => {
       const zip = await adapter.downloadBundle({ downloadUrl: adapter.getManifestUrl('my-bundle') } as never);
 
       // ZIP local-file-header magic: "PK\x03\x04"
-      expect(zip.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+      expect(zip.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4B, 0x03, 0x04]));
       expect(zip.length).toBeGreaterThan(0);
     });
 
@@ -309,13 +332,14 @@ describe('AzureDevOpsAdapter', () => {
       const admZip = new AdmZip(zip);
       const manifestEntry = admZip.getEntry('deployment-manifest.yml');
       expect(manifestEntry).not.toBeNull();
+      // eslint-disable-next-line unicorn/prefer-blob-reading-methods -- TODO: romeguarin
       const manifest = yaml.load(admZip.readAsText(manifestEntry!)) as Record<string, unknown>;
 
-      expect(manifest['id']).toBe('my-bundle');
-      expect(manifest['name']).toBe('My Bundle');
-      expect(manifest['version']).toBe('1.0.0');
-      expect(manifest['license']).toBe('MIT');
-      expect((manifest['prompts'] as { type: string }[])[0].type).toBe('prompt');
+      expect(manifest.id).toBe('my-bundle');
+      expect(manifest.name).toBe('My Bundle');
+      expect(manifest.version).toBe('1.0.0');
+      expect(manifest.license).toBe('MIT');
+      expect((manifest.prompts as { type: string }[])[0].type).toBe('prompt');
       expect(manifest).not.toHaveProperty('metadata');
       expect(manifest).not.toHaveProperty('common');
       expect(manifest).not.toHaveProperty('bundle_settings');
@@ -324,8 +348,8 @@ describe('AzureDevOpsAdapter', () => {
     it('fetches all files in a skill item directory, stripping the leading slash', async () => {
       const collPath = '/collections/skills-bundle.collection.yml';
       const skillDirUrl =
-        `${ITEMS_BASE}?scopePath=/skills/my-skill&recursionLevel=full` +
-        `&versionDescriptor.version=main&api-version=7.1`;
+        `${ITEMS_BASE}?scopePath=/skills/my-skill&recursionLevel=full`
+        + `&versionDescriptor.version=main&api-version=7.1`;
       const skillItemUrl = `${ITEMS_BASE}?path=%2Fskills%2Fmy-skill%2FSKILL.md&api-version=7.1`;
       const api = new FakeAzureDevOpsApi()
         .seedText(
@@ -334,7 +358,7 @@ describe('AzureDevOpsAdapter', () => {
             id: 'skills-bundle',
             name: 'Skills Bundle',
             description: 'desc',
-            items: [{ path: 'skills/my-skill/SKILL.md', kind: 'skill' }],
+            items: [{ path: 'skills/my-skill/SKILL.md', kind: 'skill' }]
           })
         )
         .seedJson(skillDirUrl, makeItemsResponse(['/skills/my-skill/SKILL.md']))
@@ -342,7 +366,7 @@ describe('AzureDevOpsAdapter', () => {
 
       const adapter = makeAdapter(api);
       const zip = await adapter.downloadBundle({
-        downloadUrl: adapter.getManifestUrl('skills-bundle'),
+        downloadUrl: adapter.getManifestUrl('skills-bundle')
       } as never);
 
       const admZip = new AdmZip(zip);
@@ -364,7 +388,7 @@ describe('AzureDevOpsAdapter', () => {
       const api = new FakeAzureDevOpsApi()
         .seedJson(COLLECTIONS_LIST_URL, makeItemsResponse([
           '/collections/a.collection.yml',
-          '/collections/b.collection.yml',
+          '/collections/b.collection.yml'
         ]));
 
       const metadata = await makeAdapter(api, makeSource(), new FixedClock(1_700_000_000_000)).fetchMetadata();
@@ -373,7 +397,7 @@ describe('AzureDevOpsAdapter', () => {
         description: 'Azure DevOps Collections Repository',
         bundleCount: 2,
         lastUpdated: new Date(1_700_000_000_000).toISOString(),
-        version: '1.0.0',
+        version: '1.0.0'
       });
     });
   });
@@ -388,7 +412,7 @@ describe('AzureDevOpsAdapter', () => {
         valid: true,
         errors: [],
         warnings: [],
-        bundlesFound: 1,
+        bundlesFound: 1
       });
     });
 
@@ -408,7 +432,7 @@ describe('AzureDevOpsAdapter', () => {
         valid: false,
         errors: [`No collections directory found at 'collections'`],
         warnings: [],
-        bundlesFound: 0,
+        bundlesFound: 0
       });
     });
 
@@ -422,7 +446,7 @@ describe('AzureDevOpsAdapter', () => {
         valid: false,
         errors: [`No .collection.yml files found in collections/ directory`],
         warnings: [],
-        bundlesFound: 0,
+        bundlesFound: 0
       });
     });
 

@@ -21,8 +21,8 @@ import type {
 } from '@ai-primitives-hub/core';
 import archiver from 'archiver';
 import * as yaml from 'js-yaml';
-import { 
-  BaseSourceAdapter 
+import {
+  BaseSourceAdapter,
 } from './base-source-adapter';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -77,7 +77,7 @@ const KIND_TO_MANIFEST_TYPE: Record<ItemKind, ManifestPromptType> = {
   instruction: 'instructions',
   'chat-mode': 'chatmode',
   agent: 'agent',
-  skill: 'skill',
+  skill: 'skill'
 };
 
 const TAG_TO_ENVIRONMENT: Record<string, string> = {
@@ -88,7 +88,7 @@ const TAG_TO_ENVIRONMENT: Record<string, string> = {
   backend: 'server',
   database: 'data',
   devops: 'infrastructure',
-  testing: 'testing',
+  testing: 'testing'
 };
 
 function inferEnvironments(tags: string[]): string[] {
@@ -116,7 +116,7 @@ function calculateBreakdown(items: CollectionItem[], mcpServers?: Record<string,
     chatmodes: 0,
     agents: 0,
     skills: 0,
-    mcpServers: mcpServers ? Object.keys(mcpServers).length : 0,
+    mcpServers: mcpServers ? Object.keys(mcpServers).length : 0
   };
   for (const item of items) {
     switch (item.kind) {
@@ -154,7 +154,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
   public constructor(
     source: RegistrySource,
     private readonly adoApi: AzureDevOpsApi,
-    private readonly clock: Clock,
+    private readonly clock: Clock
   ) {
     super(source);
     if (!AzureDevOpsAdapter.isValidAdoUrl(source.url)) {
@@ -237,7 +237,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
     const manifestUrl = this.getManifestUrl(collection.id);
     const readmeUrl = collection.readme?.path
       ? `${this.itemsBase(parts)}?path=${collection.readme.path}`
-        + `&versionDescriptor.version=${this.branch}&api-version=${ADO_API_VERSION}`
+      + `&versionDescriptor.version=${this.branch}&api-version=${ADO_API_VERSION}`
       : undefined;
 
     const bundle: Bundle = {
@@ -257,7 +257,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
       dependencies: [],
       license: 'MIT',
       readmeUrl,
-      readmeRevision,
+      readmeRevision
     };
 
     const mcpServers = collection.mcpServers ?? collection.mcp?.items;
@@ -280,7 +280,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
           description: `Skill from ${collection.name}`,
           file: item.path,
           type: 'skill' as const,
-          tags: collection.tags ?? [],
+          tags: collection.tags ?? []
         };
       }
       const filename = item.path.split('/').pop() ?? 'unknown';
@@ -291,7 +291,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
         description: `From ${collection.name}`,
         file: `prompts/${filename}`,
         type: KIND_TO_MANIFEST_TYPE[item.kind],
-        tags: collection.tags ?? [],
+        tags: collection.tags ?? []
       };
     });
 
@@ -306,7 +306,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
       license: 'MIT',
       tags: collection.tags ?? [],
       prompts,
-      ...(mcpServers && Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+      ...(mcpServers && Object.keys(mcpServers).length > 0 ? { mcpServers } : {})
     };
   }
 
@@ -321,7 +321,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
     });
 
     archive.append(yaml.dump(this.createDeploymentManifest(collection)), {
-      name: 'deployment-manifest.yml',
+      name: 'deployment-manifest.yml'
     });
 
     const parts = this.parseAdoUrl();
@@ -405,7 +405,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
         description: 'Azure DevOps Collections Repository',
         bundleCount: collectionItems.length,
         lastUpdated: this.clock.nowIso(),
-        version: '1.0.0',
+        version: '1.0.0'
       };
     } catch (error) {
       throw new Error(`Failed to fetch metadata: ${error instanceof Error ? error.message : error}`);
@@ -427,7 +427,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
           `Repository URL: ${this.source.url}` // TODO. remove from PR
         ],
         warnings: [],
-        bundlesFound: 0,
+        bundlesFound: 0
       };
     }
 
@@ -440,7 +440,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
         valid: false,
         errors: [msg.includes('404') ? `No collections directory found at '${this.collectionsPath}'` : `Failed to access collections directory: ${msg}`],
         warnings: [],
-        bundlesFound: 0,
+        bundlesFound: 0
       };
     }
 
@@ -449,7 +449,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
         valid: false,
         errors: [`No .collection.yml files found in ${this.collectionsPath}/ directory`],
         warnings: [],
-        bundlesFound: 0,
+        bundlesFound: 0
       };
     }
 

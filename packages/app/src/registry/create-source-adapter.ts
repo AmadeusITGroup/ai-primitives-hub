@@ -33,9 +33,9 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   ApmAdapter,
+  AwesomeCopilotAdapter,
   AzureDevOpsAdapter,
   AzureDevOpsApiClient,
-  AwesomeCopilotAdapter,
   CompositeTokenProvider,
   GitHubAdapter,
   GitHubApiClient,
@@ -114,7 +114,7 @@ export function createSourceAdapter(source: RegistrySource, deps: SourceAdapterF
       return new AzureDevOpsAdapter(
         source,
         buildAzureDevOpsApi(buildSourceTokenProvider(source, deps), deps),
-        deps.clock,
+        deps.clock
       );
     }
     default: {
