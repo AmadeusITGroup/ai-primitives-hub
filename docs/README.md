@@ -41,10 +41,11 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
   - [Validation](contributor-guide/architecture/validation.md)
 - **[Core Flows](contributor-guide/core-flows.md)** — Key system flows
 - **[Testing](contributor-guide/testing.md)** — Testing strategy
-- **[Testing SSH Remote](contributor-guide/testing-ssh-remote.md)** — SSH testing
+- **[Testing SSH Remote](contributor-guide/testing/ssh-remote.md)** — SSH testing
 - **[Validation](contributor-guide/validation.md)** — Local validation commands
 - **[Coding Standards](contributor-guide/coding-standards.md)** — Style guide
 - **[Releasing](contributor-guide/releasing.md)** — Release process
+- **[Manual Test Plan](contributor-guide/testing/test-plan.md)** — Manual verification plans, and the gate for a major release
 
 ---
 

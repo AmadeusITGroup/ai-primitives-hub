@@ -83,8 +83,14 @@ npm run test:coverage:unit    # c8 html output in coverage/
 
 Coverage reports are written to the `coverage/` directory.
 
+## What These Suites Do Not Cover
+
+Everything above is automated. The paths a person still has to walk by hand — installing the published extension on a clean machine, authenticating against real GitHub, the marketplace and tree UI, publishing and distribution, upgrading from the previous major — live in the [Manual Test Plan](./testing/test-plan.md). That page is also the sign-off gate for a **MAJOR** release.
+
 ## See Also
 
 - [`test/AGENTS.md`](../../apps/vscode-extension/test/AGENTS.md) — Test writing patterns, helpers, anti-patterns
 - [`test/e2e/AGENTS.md`](../../apps/vscode-extension/test/e2e/AGENTS.md) — E2E-specific guidance
 - [Development Setup](./development-setup.md) — Environment setup
+- [Manual Test Plan](./testing/test-plan.md) — Manual verification plans, and the gate for a major release
+- [Testing SSH Remote](./testing/ssh-remote.md) — Testing in a VS Code remote SSH scenario
