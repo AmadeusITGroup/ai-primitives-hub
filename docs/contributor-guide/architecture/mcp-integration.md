@@ -228,6 +228,47 @@ isStdioServerConfig(config)  // true if has 'command', no 'url'
 isRemoteServerConfig(config) // true if has 'url' and type is 'http'|'sse'
 ```
 
+## Config File Locations
+
+IDE-specific MCP paths and the JSON root key live in `packages/infra/src/writers/default-layouts.json`
+under each target's `mcpConfig` entry, resolved by `McpConfigLocator`. To add or change
+an IDE, edit that file rather than the locator.
+
+| Field | Meaning |
+|-------|---------|
+| `userFile` | Absolute user-level path template; may contain `${HOME}`. `null` means the path is not HOME-relative and is resolved another way. |
+| `workspaceFile` | Workspace-relative path. `null` means the IDE has no workspace-level MCP config. |
+| `serversKey` | JSON root key for the server map: `servers` (VS Code) or `mcpServers` (all other known IDEs). |
+
+### Known Limitation: VS Code Profiles
+
+VS Code and VS Code Insiders set `userFile: null`, so the user-level path is derived from
+`context.globalStorageUri` (`<userDataDir>/User/mcp.json`).
+
+**This always resolves to the default profile.** VS Code supports per-profile MCP
+configuration, where a non-default profile's file lives at
+`<userDataDir>/User/profiles/<profileId>/mcp.json`. A user-scope install performed while a
+non-default profile is active therefore writes to a file the active profile does not read —
+the server is written successfully but never appears. Workspace-scope installs are
+unaffected, since `.vscode/mcp.json` is profile-independent.
+
+This is not fixable with the current extension API. There is no supported way to obtain the
+active profile's directory:
+
+- [microsoft/vscode#160466](https://github.com/microsoft/vscode/issues/160466) — requests a
+  profile-aware `globalStorageUri`; closed as not planned.
+- [microsoft/vscode#211890](https://github.com/microsoft/vscode/issues/211890) — requests a
+  Profiles API; closed as not planned.
+
+The profile ID cannot be expressed as a `userFile` template either, since it is neither
+HOME-relative nor knowable at authoring time.
+
+The long-term fix is [`vscode.lm.registerMcpServerDefinitionProvider`](https://code.visualstudio.com/docs/copilot/guides/mcp-developer-guide),
+which lets the extension contribute MCP servers programmatically and hands storage and
+profile scoping to VS Code, removing the need to write `mcp.json` for VS Code at all. That
+only covers VS Code, so file-based writing remains for Kiro, Windsurf, Claude Code and
+Copilot CLI.
+
 ## See Also
 
 - [Installation Flow](./installation-flow.md) — Bundle installation

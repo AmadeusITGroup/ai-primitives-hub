@@ -97,8 +97,28 @@ export class McpConfigLocator {
     }
   }
 
+  /**
+   * VS Code user data `User` directory, used for IDEs whose `mcpConfig.userFile`
+   * is `null` (VS Code / Insiders).
+   *
+   * KNOWN LIMITATION — this always resolves to the **default profile**.
+   * `globalStorageUri` is `<userDataDir>/User/globalStorage/<extensionId>` and is not
+   * profile-scoped, so a non-default profile's MCP file
+   * (`<userDataDir>/User/profiles/<profileId>/mcp.json`) is never reached: a user-scope
+   * install made while a non-default profile is active writes a file the active profile
+   * does not read. Workspace scope is unaffected (`.vscode/mcp.json` is profile-independent).
+   *
+   * Not fixable with the current API — there is no supported way to obtain the active
+   * profile directory. Both requests were closed as not planned:
+   * - https://github.com/microsoft/vscode/issues/160466 (profile-aware globalStorageUri)
+   * - https://github.com/microsoft/vscode/issues/211890 (Profiles API)
+   *
+   * The profile ID also cannot be expressed as a `userFile` template, being neither
+   * HOME-relative nor known at authoring time. The long-term fix is
+   * `vscode.lm.registerMcpServerDefinitionProvider`, which hands storage and profile
+   * scoping to VS Code. See docs/contributor-guide/architecture/mcp-integration.md.
+   */
   private static getUserConfigDirectory(): string {
-    // If context is initialized, use globalStorageUri to find profile-specific User directory
     if (this.context?.globalStorageUri) {
       // globalStorageUri points to .../User/globalStorage/publisher.name
       // We want .../User which is 2 levels up
@@ -137,6 +157,8 @@ export class McpConfigLocator {
    * User-level MCP config path.
    * Derived from `mcpConfig.userFile` in default-layouts.json (resolves `${HOME}` token).
    * Falls back to the VS Code appData path for VS Code / Insiders (userFile = null).
+   * For those hosts the result targets the default profile only — see
+   * `getUserConfigDirectory` for why per-profile paths cannot be resolved.
    * TODO: User-level path resolution is tightly coupled to McpConfigLocator.
    * Consider moving to user-scope-service.ts in a future refactor so that
    * all user-scope config paths live in one place.
