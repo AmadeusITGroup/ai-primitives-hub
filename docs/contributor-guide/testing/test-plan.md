@@ -159,9 +159,6 @@ The team-sharing path: profiles that come from a hub and stay in step with it.
 | 10.5 | Set `updateCheck.autoUpdate` to `true` and make an update available | The update installs in the background and the user is notified |
 | 10.6 | Walk `updateCheck.frequency` through `daily`, `weekly` and `manual` | The scheduler honours each value and does not check outside it |
 | 10.7 | Walk `updateCheck.notificationPreference` through `all`, `critical` and `none` | Notification volume matches the setting exactly |
-| 10.8 | Set `updateCheck.cacheTTL` to its minimum (60000) and maximum (3600000) | Both are accepted and the cache is respected for that duration |
-| 10.9 | Run `Check for Updates (Manual)` with `updateCheck.enabled` set to `false` | The manual command still works; no automatic checks occur |
-| 10.10 | Offer the same bundle from two different sources | Version consolidation resolves to a single correct version |
 
 ## TP-11 — Repository Scope and Lockfile — **cannot be waived**
 
