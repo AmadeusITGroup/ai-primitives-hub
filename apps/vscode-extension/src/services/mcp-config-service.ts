@@ -1,3 +1,6 @@
+import type {
+  McpConfigScope,
+} from '@ai-primitives-hub/app';
 import * as fs from 'fs-extra';
 import {
   isRemoteServerConfig,
@@ -11,9 +14,6 @@ import {
   McpTrackingMetadata,
   McpVariableContext,
 } from '../types/mcp';
-import {
-  detectHostApp,
-} from '../utils/host-app';
 import {
   Logger,
 } from '../utils/logger';
@@ -106,8 +106,17 @@ export class McpConfigService {
     }
   }
 
+  /**
+   * Map this service's scope vocabulary onto the layout config's scopes.
+   * The layout file uses `repository` for what this service calls `workspace`.
+   * @param scope - Service-level scope.
+   */
+  private static toLayoutScope(scope: 'user' | 'workspace'): McpConfigScope {
+    return scope === 'workspace' ? 'repository' : 'user';
+  }
+
   public async readMcpConfig(scope: 'user' | 'workspace'): Promise<McpConfiguration> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(McpConfigService.toLayoutScope(scope));
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
@@ -121,8 +130,7 @@ export class McpConfigService {
       // Shared parse + normalize: tolerates JSONC (comments, trailing commas),
       // maps the IDE's server key onto the internal 'servers' key and drops the
       // non-canonical one. See utils/mcp-config-format.
-      const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
-      const { config, warnings } = parseMcpConfig(content, serversKey);
+      const { config, warnings } = parseMcpConfig(content, location.serversKey);
       if (warnings.length > 0) {
         this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${warnings.join(', ')}`);
       }
@@ -134,12 +142,13 @@ export class McpConfigService {
   }
 
   public async writeMcpConfig(config: McpConfiguration, scope: 'user' | 'workspace', createBackup = true): Promise<void> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const layoutScope = McpConfigService.toLayoutScope(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
 
-    await McpConfigLocator.ensureConfigDirectory(scope);
+    await McpConfigLocator.ensureConfigDirectory(layoutScope);
 
     if (createBackup && location.exists) {
       await this.createBackup(location.configPath);
@@ -149,8 +158,7 @@ export class McpConfigService {
       // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
       // The mapping itself comes from default-layouts.json via McpConfigLocator,
       // so adding an IDE needs no change here.
-      const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
-      const serialized = serializeMcpConfig(config, serversKey);
+      const serialized = serializeMcpConfig(config, location.serversKey);
       const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(location.configPath, content, 'utf8');
       this.logger.info(`MCP configuration written to ${location.configPath}`);
@@ -161,7 +169,7 @@ export class McpConfigService {
   }
 
   public async readTrackingMetadata(scope: 'user' | 'workspace'): Promise<McpTrackingMetadata> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(McpConfigService.toLayoutScope(scope));
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
@@ -184,12 +192,13 @@ export class McpConfigService {
   }
 
   public async writeTrackingMetadata(metadata: McpTrackingMetadata, scope: 'user' | 'workspace'): Promise<void> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const layoutScope = McpConfigService.toLayoutScope(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
 
-    await McpConfigLocator.ensureConfigDirectory(scope);
+    await McpConfigLocator.ensureConfigDirectory(layoutScope);
 
     metadata.lastUpdated = new Date().toISOString();
 

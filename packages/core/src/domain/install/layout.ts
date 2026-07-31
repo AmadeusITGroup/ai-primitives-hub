@@ -31,6 +31,15 @@ export interface ScopedLayoutDef {
    * Defaults to `["deployment-manifest.yml", "README.md"]` if absent.
    */
   readonly skipPaths?: readonly string[];
+  /**
+   * MCP config file for this target type **at this scope**.
+   *
+   * Absent means the IDE has no MCP config file at this scope — it is NOT
+   * inherited from the `user` scope. Inheriting would make a repository-scope
+   * install write into the user's home config (Windsurf and Copilot CLI have no
+   * workspace-level MCP file), so absence must stay meaningful.
+   */
+  readonly mcpConfig?: McpLayoutConfig;
 }
 
 /**
@@ -43,8 +52,6 @@ export interface TargetLayoutDef {
   readonly user: ScopedLayoutDef;
   /** Layout for repository-scoped targets. Falls back to `user` if absent. */
   readonly repository?: ScopedLayoutDef;
-  /** MCP configuration metadata for this target type. Optional. */
-  readonly mcpConfig?: McpLayoutConfig;
 }
 
 /**
@@ -54,35 +61,72 @@ export interface TargetLayoutDef {
 export type McpServersKey = 'servers' | 'mcpServers';
 
 /**
- * MCP configuration metadata for a specific IDE/target type.
+ * On-disk syntax of an MCP config file.
+ * `jsonc` files may contain comments and trailing commas.
+ */
+export type McpConfigFormat = 'json' | 'jsonc';
+
+/**
+ * MCP config file description for one IDE at one scope.
  * Stored in default-layouts.json alongside the primitive layout definitions
- * so that all IDE-specific path decisions live in one place.
+ * so that all IDE-specific path and format decisions live in one place.
  */
 export interface McpLayoutConfig {
   /**
-   * Absolute user-level MCP config file path template.
-   * May contain the `${HOME}` token.
-   * `null` means the path is not HOME-relative and must be resolved
-   * by other means (e.g. VS Code resolves it from globalStorageUri).
+   * Full path template to the MCP config file, e.g.
+   * `"${HOME}/.kiro/settings/mcp.json"` or `"${workspaceRoot}/.vscode/mcp.json"`.
+   * Tokens are resolved by `resolvePathTokens`.
    */
-  readonly userFile: string | null;
-  /**
-   * Workspace-relative MCP config file path (e.g. `.kiro/settings/mcp.json`).
-   * `null` means the IDE has no official workspace-level MCP config file.
-   */
-  readonly workspaceFile: string | null;
+  readonly path: string;
   /**
    * JSON root key used for MCP server entries.
    * VS Code Copilot uses `'servers'`; all other known IDEs use `'mcpServers'`.
    */
   readonly serversKey: McpServersKey;
+  /** On-disk syntax, which determines whether comments must be preserved on write. */
+  readonly format: McpConfigFormat;
 }
 
 /**
- * Token used in `McpLayoutConfig.userFile` templates for the user home directory.
- * Callers must replace this token with `os.homedir()` before using the path.
+ * Token used in path templates for the user home directory.
  */
 export const HOME_TOKEN = '${HOME}';
+
+/**
+ * Token used in path templates for the workspace root.
+ * Resolved from `target.rootPath ?? target.path` at install time.
+ */
+export const WORKSPACE_ROOT_TOKEN = '${workspaceRoot}';
+
+/**
+ * Token used in path templates for the VS Code user data `User` directory.
+ *
+ * VS Code is the only supported host whose config directory is neither
+ * HOME-relative nor identical across platforms: it follows each OS's app-data
+ * convention (`%APPDATA%\Code\User`, `~/Library/Application Support/Code/User`,
+ * `~/.config/Code/User`), the `Code` segment varies by variant (Insiders,
+ * Cursor, Windsurf, Kiro), and portable installs, `--user-data-dir` and remote
+ * sessions move it entirely. The delivery layer therefore resolves this token
+ * from the running host rather than from a static template.
+ */
+export const VSCODE_USER_DIR_TOKEN = '${vscodeUserDir}';
+
+/**
+ * Thrown when a path template contains a token that no caller supplied.
+ * Failing loudly prevents an unresolved token reaching the filesystem, where it
+ * would silently create a directory literally named `${...}`.
+ */
+export class UnresolvedPathTokenError extends Error {
+  public constructor(
+    /** The token that could not be resolved, including delimiters. */
+    public readonly token: string,
+    /** The template the token appeared in. */
+    public readonly template: string
+  ) {
+    super(`Unresolved token "${token}" in path template "${template}"`);
+    this.name = 'UnresolvedPathTokenError';
+  }
+}
 
 /**
  * Expand `${VAR}` tokens and leading `~` in a path template.
@@ -102,19 +146,50 @@ export function expandPath(template: string, env: Record<string, string | undefi
 }
 
 /**
- * Expand the `${HOME}` token in a `McpLayoutConfig.userFile` template.
- * Returns the resolved absolute path, or `null` when `userFile` is `null`
- * (meaning the IDE resolves its user path by other means).
- * Delegates to `expandPath` so both MCP and primitive layout paths use the same logic.
+ * Resolve every `${token}` in a path template against an explicit token map.
+ *
+ * Unlike `expandPath`, this accepts tokens of any casing (so `${HOME}`,
+ * `${workspaceRoot}` and `${vscodeUserDir}` all work through one code path) and
+ * throws `UnresolvedPathTokenError` on a token the caller did not supply,
+ * rather than substituting an empty string or leaving the token in place.
+ *
+ * A token whose value is an empty string is treated as unresolved: an empty
+ * `${HOME}` would silently turn `${HOME}/.kiro/mcp.json` into an absolute
+ * `/.kiro/mcp.json`, writing outside the user's home directory.
+ *
  * Pure: no IO.
- * @param config - MCP layout config for the target IDE.
- * @param homeDir - The user home directory (e.g. from `os.homedir()`).
+ * @param template - Path template, e.g. `"${HOME}/.kiro/settings/mcp.json"`.
+ * @param tokens - Token name (without delimiters) to replacement value.
+ * @returns The template with every token replaced.
+ * @throws {UnresolvedPathTokenError} When a token is missing or empty.
  */
-export function expandMcpUserFilePath(config: McpLayoutConfig, homeDir: string): string | null {
-  if (!config.userFile) {
-    return null;
-  }
-  return expandPath(config.userFile, { HOME: homeDir, USERPROFILE: homeDir });
+export function resolvePathTokens(
+  template: string,
+  tokens: Readonly<Record<string, string | undefined>>
+): string {
+  return template.replaceAll(/\$\{([^}]+)\}/g, (_match, name: string) => {
+    const value = tokens[name];
+    if (value === undefined || value === '') {
+      throw new UnresolvedPathTokenError(`\${${name}}`, template);
+    }
+    return value;
+  });
+}
+
+/**
+ * Resolve the path of an MCP config file for one scope.
+ * Thin wrapper over `resolvePathTokens` that names the intent at call sites.
+ * Pure: no IO.
+ * @param config - MCP layout config for the target IDE at one scope.
+ * @param tokens - Token name to replacement value.
+ * @returns Fully resolved MCP config file path.
+ * @throws {UnresolvedPathTokenError} When the template needs a token that was not supplied.
+ */
+export function resolveMcpConfigPath(
+  config: McpLayoutConfig,
+  tokens: Readonly<Record<string, string | undefined>>
+): string {
+  return resolvePathTokens(config.path, tokens);
 }
 
 /**
@@ -205,5 +280,31 @@ function validateScopedLayoutDef(raw: unknown, path: string): void {
         throw new TypeError(`layout config: "${path}.skipPaths" entries must be strings`);
       }
     }
+  }
+  if (obj.mcpConfig !== undefined) {
+    validateMcpLayoutConfig(obj.mcpConfig, `${path}.mcpConfig`);
+  }
+}
+
+const MCP_SERVERS_KEYS = new Set(['servers', 'mcpServers']);
+const MCP_FORMATS = new Set(['json', 'jsonc']);
+
+function validateMcpLayoutConfig(raw: unknown, path: string): void {
+  if (raw === null || typeof raw !== 'object') {
+    throw new TypeError(`layout config: "${path}" must be an object`);
+  }
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.path !== 'string' || obj.path.length === 0) {
+    throw new TypeError(`layout config: "${path}.path" must be a non-empty string`);
+  }
+  if (typeof obj.serversKey !== 'string' || !MCP_SERVERS_KEYS.has(obj.serversKey)) {
+    throw new TypeError(
+      `layout config: "${path}.serversKey" must be one of ${[...MCP_SERVERS_KEYS].join(', ')}`
+    );
+  }
+  if (typeof obj.format !== 'string' || !MCP_FORMATS.has(obj.format)) {
+    throw new TypeError(
+      `layout config: "${path}.format" must be one of ${[...MCP_FORMATS].join(', ')}`
+    );
   }
 }

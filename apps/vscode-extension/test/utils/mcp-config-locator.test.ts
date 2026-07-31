@@ -6,10 +6,13 @@ import {
 } from '../../src/utils/mcp-config-locator';
 
 suite('McpConfigLocator Test Suite', () => {
-  test('getUserMcpConfigPath returns correct path for current platform', () => {
-    const configPath = McpConfigLocator.getUserMcpConfigPath();
+  test('user-scope path for VS Code resolves per platform', () => {
+    // Host detection defaults to VS Code under the test mock, whose user path is
+    // derived from the ${vscodeUserDir} token rather than a HOME-relative template.
+    const configPath = McpConfigLocator.getMcpConfigPath('user', 'vscode');
     assert.ok(configPath, 'Config path should not be empty');
     assert.ok(configPath.includes('mcp.json'), 'Path should contain mcp.json');
+    assert.ok(!configPath.includes('${'), 'All tokens should be resolved');
 
     const platform = os.platform();
     switch (platform) {
@@ -19,7 +22,8 @@ suite('McpConfigLocator Test Suite', () => {
         break;
       }
       case 'darwin': {
-        assert.ok(configPath.includes('Library/Application Support'), 'macOS path should contain Library/Application Support');
+        assert.ok(configPath.includes(path.join('Library', 'Application Support')),
+          'macOS path should contain Library/Application Support');
 
         break;
       }
@@ -32,16 +36,15 @@ suite('McpConfigLocator Test Suite', () => {
     }
   });
 
-  test('getUserTrackingPath returns correct path parallel to mcp.json', () => {
-    const trackingPath = McpConfigLocator.getUserTrackingPath();
-    const configPath = McpConfigLocator.getUserMcpConfigPath();
+  test('tracking path sits parallel to the config file', () => {
+    const location = McpConfigLocator.getMcpConfigLocation('user', 'vscode');
 
-    assert.ok(trackingPath, 'Tracking path should not be empty');
-    assert.ok(trackingPath.includes('prompt-registry-mcp-tracking.json'),
+    assert.ok(location, 'Should resolve a user-scope location');
+    assert.ok(location.trackingPath.includes('prompt-registry-mcp-tracking.json'),
       'Path should contain tracking filename');
     assert.strictEqual(
-      path.dirname(trackingPath),
-      path.dirname(configPath),
+      path.dirname(location.trackingPath),
+      path.dirname(location.configPath),
       'Tracking file should be in same directory as mcp.json'
     );
   });
@@ -53,5 +56,7 @@ suite('McpConfigLocator Test Suite', () => {
     assert.ok(location.configPath, 'Should have config path');
     assert.ok(location.trackingPath, 'Should have tracking path');
     assert.strictEqual(typeof location.exists, 'boolean', 'Should have exists flag');
+    assert.ok(location.serversKey, 'Should carry the serversKey for the scope');
+    assert.ok(location.format, 'Should carry the on-disk format for the scope');
   });
 });

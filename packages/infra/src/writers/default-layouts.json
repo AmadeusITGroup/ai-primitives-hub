@@ -12,7 +12,12 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${vscodeUserDir}/mcp.json",
+          "serversKey": "servers",
+          "format": "jsonc"
+        }
       },
       "repository": {
         "baseDir": "${workspaceRoot}/.github",
@@ -25,12 +30,12 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
-      },
-      "mcpConfig": {
-        "userFile": null,
-        "workspaceFile": ".vscode/mcp.json",
-        "serversKey": "servers"
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.vscode/mcp.json",
+          "serversKey": "servers",
+          "format": "jsonc"
+        }
       }
     },
     "vscode-insiders": {
@@ -45,7 +50,12 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${vscodeUserDir}/mcp.json",
+          "serversKey": "servers",
+          "format": "jsonc"
+        }
       },
       "repository": {
         "baseDir": "${workspaceRoot}/.github",
@@ -58,12 +68,12 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
-      },
-      "mcpConfig": {
-        "userFile": null,
-        "workspaceFile": ".vscode/mcp.json",
-        "serversKey": "servers"
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.vscode/mcp.json",
+          "serversKey": "servers",
+          "format": "jsonc"
+        }
       }
     },
     "copilot-cli": {
@@ -77,7 +87,12 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
+        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"],
+        "mcpConfig": {
+          "path": "${HOME}/.copilot/mcp-config.json",
+          "serversKey": "mcpServers",
+          "format": "json"
+        }
       },
       "repository": {
         "baseDir": "${workspaceRoot}/.github",
@@ -90,11 +105,6 @@
           "plugins/": "plugins/"
         },
         "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
-      },
-      "mcpConfig": {
-        "userFile": "${HOME}/.copilot/mcp-config.json",
-        "workspaceFile": null,
-        "serversKey": "mcpServers"
       }
     },
     "kiro": {
@@ -106,7 +116,12 @@
           "instructions/": "steering/",
           "skills/": "skills/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.kiro/settings/mcp.json",
+          "serversKey": "mcpServers",
+          "format": "json"
+        }
       },
       "repository": {
         "baseDir": "${workspaceRoot}/.kiro",
@@ -116,12 +131,12 @@
           "instructions/": "steering/",
           "skills/": "skills/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
-      },
-      "mcpConfig": {
-        "userFile": "${HOME}/.kiro/settings/mcp.json",
-        "workspaceFile": ".kiro/settings/mcp.json",
-        "serversKey": "mcpServers"
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.kiro/settings/mcp.json",
+          "serversKey": "mcpServers",
+          "format": "json"
+        }
       }
     },
     "windsurf": {
@@ -134,7 +149,12 @@
           "agents/": "agents/",
           "skills/": "skills/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.codeium/windsurf/mcp_config.json",
+          "serversKey": "mcpServers",
+          "format": "json"
+        }
       },
       "repository": {
         "baseDir": "${workspaceRoot}/.windsurf",
@@ -146,11 +166,6 @@
           "skills/": "skills/"
         },
         "skipPaths": ["deployment-manifest.yml", "README.md"]
-      },
-      "mcpConfig": {
-        "userFile": "${HOME}/.codeium/windsurf/mcp_config.json",
-        "workspaceFile": null,
-        "serversKey": "mcpServers"
       }
     },
     "claude-code": {
@@ -165,7 +180,12 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.claude.json",
+          "serversKey": "mcpServers",
+          "format": "json"
+        }
       },
       "repository": {
         "baseDir": "${workspaceRoot}/.claude",
@@ -178,12 +198,12 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
-      },
-      "mcpConfig": {
-        "userFile": "${HOME}/.claude.json",
-        "workspaceFile": ".mcp.json",
-        "serversKey": "mcpServers"
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.mcp.json",
+          "serversKey": "mcpServers",
+          "format": "json"
+        }
       }
     }
   }

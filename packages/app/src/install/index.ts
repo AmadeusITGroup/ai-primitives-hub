@@ -42,6 +42,10 @@ export type {
   UninstallResult,
 } from './uninstall-pipeline';
 
+export type {
+  McpConfigScope,
+} from './layout-resolver';
+
 export {
   resolveLayoutFromLayers,
   resolveMcpLayoutConfig,

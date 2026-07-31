@@ -1,19 +1,19 @@
 /**
- * MCP Kiro-specific path and format tests.
+ * MCP path, scope and format tests.
  *
  * Tests that:
- * 1. McpConfigLocator resolves the correct paths for Kiro (user + workspace)
- * 2. McpConfigLocator resolves VS Code paths unchanged (no regression)
- * 3. getMcpLayoutConfig reads directly from default-layouts.json (single source of truth)
- * 4. The real shared format helpers map between the internal `servers` key and
- *    each IDE's on-disk key, without losing `inputs`/`tasks` or leaving a stale
- *    second server map behind
- * 5. The real McpConfigService read → modify → write cycle round-trips a
- *    Kiro-format file on disk
+ * 1. `mcpConfig` is read per scope from default-layouts.json (single source of truth)
+ * 2. Absence of a scope's `mcpConfig` means "unsupported at this scope" and is never
+ *    inherited from the other scope
+ * 3. Path templates resolve for Kiro, VS Code and Windsurf, including the filename
+ *    (so hosts whose file is not `mcp.json` work)
+ * 4. The real shared format helpers map between the internal `servers` key and each
+ *    IDE's on-disk key without losing `inputs`/`tasks` or leaving a stale second map
+ * 5. The real McpConfigService read -> modify -> write cycle round-trips on disk
  *
- * Items 4 and 5 deliberately call production code. An earlier version of this
- * file re-implemented the transformation inline, so it passed regardless of what
- * the extension actually did and missed a serialization bug that dropped `inputs`.
+ * Items 4 and 5 deliberately call production code. An earlier version of this file
+ * re-implemented the transformation inline, so it passed regardless of what the
+ * extension did and missed a serialization bug that dropped `inputs`.
  */
 
 import * as assert from 'node:assert';
@@ -35,155 +35,173 @@ import {
   McpConfigLocator,
 } from '../../src/utils/mcp-config-locator';
 
+/** Global the vscode test mock reads `workspace.workspaceFolders` from. */
+const WORKSPACE_FOLDERS_GLOBAL = '__mockWorkspaceFolders';
+
 // ─────────────────────────────────────────────────────────────────────────────
-// getMcpLayoutConfig — direct access to default-layouts.json
+// getMcpLayoutConfig — per-scope access to default-layouts.json
 // ─────────────────────────────────────────────────────────────────────────────
 
-suite('McpConfigLocator.getMcpLayoutConfig — reads from default-layouts.json', () => {
-  test('Kiro: has correct paths and mcpServers key', () => {
-    const mc = McpConfigLocator.getMcpLayoutConfig('kiro');
-    assert.ok(mc, 'Kiro should have mcpConfig defined');
+suite('McpConfigLocator.getMcpLayoutConfig — reads per scope from default-layouts.json', () => {
+  test('Kiro user: mcpServers key, json format, HOME-relative path', () => {
+    const mc = McpConfigLocator.getMcpLayoutConfig('kiro', 'user');
+    assert.ok(mc, 'Kiro should define a user-scope mcpConfig');
     assert.strictEqual(mc.serversKey, 'mcpServers');
-    assert.ok(mc.userFile?.includes('.kiro/settings/mcp.json'), 'userFile should include .kiro/settings/mcp.json');
-    assert.strictEqual(mc.workspaceFile, '.kiro/settings/mcp.json');
+    assert.strictEqual(mc.format, 'json');
+    assert.strictEqual(mc.path, '${HOME}/.kiro/settings/mcp.json');
   });
 
-  test('VS Code: has .vscode workspace file and servers key', () => {
-    const mc = McpConfigLocator.getMcpLayoutConfig('vscode');
-    assert.ok(mc, 'VS Code should have mcpConfig defined');
+  test('Kiro repository: workspaceRoot-relative path', () => {
+    const mc = McpConfigLocator.getMcpLayoutConfig('kiro', 'repository');
+    assert.ok(mc, 'Kiro should define a repository-scope mcpConfig');
+    assert.strictEqual(mc.serversKey, 'mcpServers');
+    assert.strictEqual(mc.path, '${workspaceRoot}/.kiro/settings/mcp.json');
+  });
+
+  test('VS Code user: servers key, jsonc format, vscodeUserDir token', () => {
+    const mc = McpConfigLocator.getMcpLayoutConfig('vscode', 'user');
+    assert.ok(mc, 'VS Code should define a user-scope mcpConfig');
     assert.strictEqual(mc.serversKey, 'servers');
-    assert.strictEqual(mc.userFile, null, 'VS Code userFile should be null (resolved from globalStorageUri)');
-    assert.strictEqual(mc.workspaceFile, '.vscode/mcp.json');
+    assert.strictEqual(mc.format, 'jsonc');
+    assert.strictEqual(mc.path, '${vscodeUserDir}/mcp.json');
   });
 
-  test('Windsurf: has correct user path and mcpServers key', () => {
-    const mc = McpConfigLocator.getMcpLayoutConfig('windsurf');
-    assert.ok(mc, 'Windsurf should have mcpConfig defined');
-    assert.strictEqual(mc.serversKey, 'mcpServers');
-    assert.ok(mc.userFile?.includes('mcp_config.json'), 'Windsurf userFile should use mcp_config.json');
-    assert.strictEqual(mc.workspaceFile, null, 'Windsurf has no workspace-level MCP');
+  test('VS Code repository: .vscode/mcp.json', () => {
+    const mc = McpConfigLocator.getMcpLayoutConfig('vscode', 'repository');
+    assert.ok(mc);
+    assert.strictEqual(mc.path, '${workspaceRoot}/.vscode/mcp.json');
+    assert.strictEqual(mc.format, 'jsonc');
   });
 
-  test('Claude Code: has root-level .mcp.json workspace file', () => {
-    const mc = McpConfigLocator.getMcpLayoutConfig('claude-code');
-    assert.ok(mc, 'Claude Code should have mcpConfig defined');
-    assert.strictEqual(mc.serversKey, 'mcpServers');
-    assert.strictEqual(mc.workspaceFile, '.mcp.json');
+  test('Claude Code repository: root-level .mcp.json, not mcp.json', () => {
+    const mc = McpConfigLocator.getMcpLayoutConfig('claude-code', 'repository');
+    assert.ok(mc);
+    assert.strictEqual(mc.path, '${workspaceRoot}/.mcp.json');
   });
 
-  test('Copilot CLI: has user file, no workspace file', () => {
-    const mc = McpConfigLocator.getMcpLayoutConfig('copilot-cli');
-    assert.ok(mc, 'Copilot CLI should have mcpConfig defined');
+  test('Windsurf user: mcp_config.json filename', () => {
+    const mc = McpConfigLocator.getMcpLayoutConfig('windsurf', 'user');
+    assert.ok(mc);
     assert.strictEqual(mc.serversKey, 'mcpServers');
-    assert.strictEqual(mc.workspaceFile, null);
+    assert.ok(mc.path.endsWith('mcp_config.json'));
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// McpConfigLocator — path resolution
+// Scope independence — absence must not be inherited
 // ─────────────────────────────────────────────────────────────────────────────
 
-suite('McpConfigLocator — Kiro path resolution', () => {
-  suite('getUserMcpConfigPath', () => {
-    test('Kiro: returns ~/.kiro/settings/mcp.json', () => {
-      const result = McpConfigLocator.getUserMcpConfigPath('kiro');
-      const expected = path.join(os.homedir(), '.kiro', 'settings', 'mcp.json');
-      assert.strictEqual(result, expected,
-        'Kiro user MCP config should be in ~/.kiro/settings/mcp.json');
-    });
-
-    test('VS Code: returns path under AppData/Code (unchanged)', () => {
-      const result = McpConfigLocator.getUserMcpConfigPath('vscode');
-      assert.ok(result.endsWith('mcp.json'), 'Should end with mcp.json');
-      // Should NOT be the Kiro path
-      assert.ok(!result.includes(path.join('.kiro', 'settings')),
-        'VS Code path should not include .kiro/settings');
-    });
-
-    test('VS Code: resolves the default profile, not a per-profile path (known limitation)', () => {
-      // Documents a known limitation rather than desired behaviour: globalStorageUri is
-      // not profile-scoped, so a non-default profile's
-      // <userDataDir>/User/profiles/<id>/mcp.json is never targeted. There is no API to
-      // resolve the active profile (microsoft/vscode#160466 and #211890, both not planned).
-      // See docs/contributor-guide/architecture/mcp-integration.md.
-      const result = McpConfigLocator.getUserMcpConfigPath('vscode');
-      assert.ok(!result.includes(`${path.sep}profiles${path.sep}`),
-        'user path is default-profile only; update the docs if this ever changes');
-    });
-
-    test('Windsurf: returns ~/.codeium/windsurf/mcp_config.json', () => {
-      const result = McpConfigLocator.getUserMcpConfigPath('windsurf');
-      assert.ok(result.includes(path.join('.codeium', 'windsurf')),
-        'Windsurf path should be ~/.codeium/windsurf/');
-      assert.ok(result.endsWith('mcp_config.json'),
-        'Windsurf config filename should be mcp_config.json');
-    });
+suite('McpConfigLocator — scope independence', () => {
+  test('Windsurf has no repository-scope MCP config', () => {
+    // Windsurf documents no workspace-level MCP file. Inheriting the user entry
+    // would make a repository-scope install write into the user's home config.
+    assert.strictEqual(
+      McpConfigLocator.getMcpLayoutConfig('windsurf', 'repository'),
+      undefined,
+      'windsurf repository mcpConfig must not fall back to the user entry'
+    );
   });
 
-  suite('getUserTrackingPath', () => {
-    test('Kiro: tracking file is in ~/.kiro/settings/ (same dir as mcp.json)', () => {
-      const trackingPath = McpConfigLocator.getUserTrackingPath('kiro');
-      const configPath = McpConfigLocator.getUserMcpConfigPath('kiro');
-      assert.strictEqual(
-        path.dirname(trackingPath),
-        path.dirname(configPath),
-        'Kiro tracking file should be in the same directory as mcp.json'
-      );
-      assert.ok(trackingPath.includes('.kiro'),
-        'Kiro tracking path should contain .kiro');
-    });
-
-    test('VS Code: tracking file is parallel to VS Code mcp.json', () => {
-      const trackingPath = McpConfigLocator.getUserTrackingPath('vscode');
-      const configPath = McpConfigLocator.getUserMcpConfigPath('vscode');
-      assert.strictEqual(
-        path.dirname(trackingPath),
-        path.dirname(configPath),
-        'VS Code tracking file should be in the same directory as mcp.json'
-      );
-    });
+  test('Copilot CLI has no repository-scope MCP config', () => {
+    assert.strictEqual(
+      McpConfigLocator.getMcpLayoutConfig('copilot-cli', 'repository'),
+      undefined
+    );
   });
 
-  suite('getMcpWorkspaceConfigFolder', () => {
-    test('returns .kiro/settings for kiro target', () => {
-      assert.strictEqual(McpConfigLocator.getMcpWorkspaceConfigFolder('kiro'), path.join('.kiro', 'settings'));
-    });
-
-    test('returns .vscode for vscode target', () => {
-      assert.strictEqual(McpConfigLocator.getMcpWorkspaceConfigFolder('vscode'), '.vscode');
-    });
-
-    test('returns .vscode for windsurf target (no official workspace-level MCP — falls back to .vscode)', () => {
-      // Windsurf has no official workspace-level MCP config documented;
-      // getMcpWorkspaceConfigFolder falls back to .vscode for null-mapped IDEs.
-      assert.strictEqual(McpConfigLocator.getMcpWorkspaceConfigFolder('windsurf'), '.vscode');
-    });
-
-    test('returns .vscode for vscode-insiders target', () => {
-      assert.strictEqual(McpConfigLocator.getMcpWorkspaceConfigFolder('vscode-insiders'), '.vscode');
-    });
+  test('Copilot CLI still has a user-scope MCP config', () => {
+    const mc = McpConfigLocator.getMcpLayoutConfig('copilot-cli', 'user');
+    assert.ok(mc, 'user scope should be unaffected by the missing repository entry');
+    assert.strictEqual(mc.serversKey, 'mcpServers');
   });
 
-  suite('getMcpServersKey', () => {
-    test('returns mcpServers for kiro target', () => {
-      assert.strictEqual(McpConfigLocator.getMcpServersKey('kiro'), 'mcpServers');
-    });
+  test('an unknown target type has no MCP config at either scope', () => {
+    assert.strictEqual(McpConfigLocator.getMcpLayoutConfig('emacs' as never, 'user'), undefined);
+    assert.strictEqual(McpConfigLocator.getMcpLayoutConfig('emacs' as never, 'repository'), undefined);
+  });
+});
 
-    test('returns servers for vscode target', () => {
-      assert.strictEqual(McpConfigLocator.getMcpServersKey('vscode'), 'servers');
-    });
+// ─────────────────────────────────────────────────────────────────────────────
+// Path resolution
+// ─────────────────────────────────────────────────────────────────────────────
 
-    test('returns mcpServers for windsurf target', () => {
-      assert.strictEqual(McpConfigLocator.getMcpServersKey('windsurf'), 'mcpServers');
-    });
+suite('McpConfigLocator — path resolution', () => {
+  test('Kiro user: resolves ${HOME} to the home directory', () => {
+    const result = McpConfigLocator.getMcpConfigPath('user', 'kiro');
+    assert.strictEqual(result, path.join(os.homedir(), '.kiro', 'settings', 'mcp.json'));
+  });
 
-    test('returns mcpServers for claude-code target', () => {
-      assert.strictEqual(McpConfigLocator.getMcpServersKey('claude-code'), 'mcpServers');
-    });
+  test('Windsurf user: resolves to ~/.codeium/windsurf/mcp_config.json', () => {
+    const result = McpConfigLocator.getMcpConfigPath('user', 'windsurf');
+    assert.strictEqual(result, path.join(os.homedir(), '.codeium', 'windsurf', 'mcp_config.json'));
+  });
 
-    test('returns mcpServers for copilot-cli target', () => {
-      assert.strictEqual(McpConfigLocator.getMcpServersKey('copilot-cli'), 'mcpServers');
-    });
+  test('Claude Code user: resolves to ~/.claude.json', () => {
+    const result = McpConfigLocator.getMcpConfigPath('user', 'claude-code');
+    assert.strictEqual(result, path.join(os.homedir(), '.claude.json'));
+  });
+
+  test('VS Code user: resolves the vscodeUserDir token, leaving no literal token', () => {
+    const result = McpConfigLocator.getMcpConfigPath('user', 'vscode');
+    assert.ok(result, 'VS Code user path should resolve');
+    assert.ok(!result.includes('${'), `token left unresolved in ${result}`);
+    assert.ok(result.endsWith('mcp.json'));
+    assert.ok(!result.includes(path.join('.kiro', 'settings')), 'must not be the Kiro path');
+  });
+
+  test('VS Code user: resolves the default profile, not a per-profile path (known limitation)', () => {
+    // Documents a known limitation rather than desired behaviour: globalStorageUri is
+    // not profile-scoped, so <userDataDir>/User/profiles/<id>/mcp.json is never
+    // targeted. No API resolves the active profile (microsoft/vscode#160466 and
+    // #211890, both closed as not planned).
+    // See docs/contributor-guide/architecture/mcp-integration.md.
+    const result = McpConfigLocator.getMcpConfigPath('user', 'vscode');
+    assert.ok(result);
+    assert.ok(!result.includes(`${path.sep}profiles${path.sep}`),
+      'user path is default-profile only; update the docs if this ever changes');
+  });
+
+  test('repository scope: resolves ${workspaceRoot} from the supplied root', () => {
+    const root = path.join(os.tmpdir(), 'some-workspace');
+    const result = McpConfigLocator.getMcpConfigPath('repository', 'kiro', root);
+    assert.strictEqual(result, path.join(root, '.kiro', 'settings', 'mcp.json'));
+  });
+
+  test('repository scope: Claude Code keeps its root-level .mcp.json filename', () => {
+    const root = path.join(os.tmpdir(), 'some-workspace');
+    const result = McpConfigLocator.getMcpConfigPath('repository', 'claude-code', root);
+    assert.strictEqual(result, path.join(root, '.mcp.json'));
+  });
+
+  test('repository scope: undefined when the IDE has no workspace-level file', () => {
+    const root = path.join(os.tmpdir(), 'some-workspace');
+    assert.strictEqual(McpConfigLocator.getMcpConfigPath('repository', 'windsurf', root), undefined);
+  });
+
+  test('tracking file sits beside the config file', () => {
+    const location = McpConfigLocator.getMcpConfigLocation('user', 'kiro');
+    assert.ok(location);
+    assert.strictEqual(path.dirname(location.trackingPath), path.dirname(location.configPath));
+  });
+
+  test('location carries the serversKey and format for the scope', () => {
+    const location = McpConfigLocator.getMcpConfigLocation('user', 'kiro');
+    assert.ok(location);
+    assert.strictEqual(location.serversKey, 'mcpServers');
+    assert.strictEqual(location.format, 'json');
+  });
+
+  test('getMcpWorkspaceConfigFolder returns the folder relative to the workspace root', () => {
+    assert.strictEqual(McpConfigLocator.getMcpWorkspaceConfigFolder('kiro'), path.join('.kiro', 'settings'));
+    assert.strictEqual(McpConfigLocator.getMcpWorkspaceConfigFolder('vscode'), '.vscode');
+  });
+
+  test('getMcpWorkspaceConfigFolder returns "." for a root-level config file', () => {
+    assert.strictEqual(McpConfigLocator.getMcpWorkspaceConfigFolder('claude-code'), '.');
+  });
+
+  test('getMcpWorkspaceConfigFolder is undefined when there is no repository-scope file', () => {
+    assert.strictEqual(McpConfigLocator.getMcpWorkspaceConfigFolder('windsurf'), undefined);
   });
 });
 
@@ -252,8 +270,6 @@ suite('MCP config format — serializeMcpConfig', () => {
   });
 
   test('drops a stale server map so the file never carries two', () => {
-    // A config that still holds a residual `mcpServers` (e.g. read from a file
-    // that had both keys) must not be written back out with both maps.
     const config = {
       servers: { current: { command: 'node' } },
       mcpServers: { stale: { command: 'old' } }
@@ -334,8 +350,6 @@ suite('MCP config format — normalizeMcpConfig', () => {
 
 suite('MCP config format — parseMcpConfig', () => {
   test('parses JSONC with comments and a trailing comma', () => {
-    // Comments and trailing commas are valid in a VS Code mcp.json; a strict
-    // JSON.parse throws on them.
     const content = `{
       // the server map
       "mcpServers": {
@@ -363,9 +377,6 @@ suite('MCP config format — parseMcpConfig', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // McpConfigService — real read → modify → write cycle against a temp workspace
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Global the vscode test mock reads `workspace.workspaceFolders` from. */
-const WORKSPACE_FOLDERS_GLOBAL = '__mockWorkspaceFolders';
 
 suite('McpConfigService — Kiro workspace round-trip', () => {
   const tmpRoot = path.join(os.tmpdir(), `mcp-kiro-e2e-${Date.now()}`);
@@ -432,7 +443,6 @@ suite('McpConfigService — Kiro workspace round-trip', () => {
   });
 
   test('a read → write cycle leaves exactly one server map', async () => {
-    // Seed a file that already carries both keys (manual edit / migration).
     await fsExtra.writeJson(kiroMcpPath, {
       servers: { stale: { command: 'old' } },
       mcpServers: { current: { command: 'node' } },

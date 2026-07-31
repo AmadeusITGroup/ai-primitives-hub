@@ -1,17 +1,21 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type {
+  McpConfigScope,
+} from '@ai-primitives-hub/app';
 import {
   resolveMcpLayoutConfig,
 } from '@ai-primitives-hub/app';
 import type {
+  McpConfigFormat,
   McpLayoutConfig,
   McpServersKey,
   TargetLayoutsConfig,
   TargetType,
 } from '@ai-primitives-hub/core';
 import {
-  expandMcpUserFilePath,
+  resolveMcpConfigPath,
 } from '@ai-primitives-hub/core';
 import {
   defaultLayouts,
@@ -26,55 +30,49 @@ import {
 // with McpServersKey. The assertion is safe: JSON values are validated at authoring time.
 const BUILT_IN_LAYERS: TargetLayoutsConfig[] = [defaultLayouts as unknown as TargetLayoutsConfig];
 
+/**
+ * Location and format of a resolved MCP config file.
+ */
+export interface McpConfigLocation {
+  /** Absolute path to the MCP config file. */
+  configPath: string;
+  /** Absolute path to the sibling tracking metadata file. */
+  trackingPath: string;
+  /** Whether the config file currently exists. */
+  exists: boolean;
+  /** JSON root key holding the server map for this IDE and scope. */
+  serversKey: McpServersKey;
+  /** On-disk syntax, which determines whether comments must be preserved on write. */
+  format: McpConfigFormat;
+}
+
 export class McpConfigLocator {
-  private static readonly MCP_FILENAME = 'mcp.json';
   private static readonly TRACKING_FILENAME = 'prompt-registry-mcp-tracking.json';
   private static context: vscode.ExtensionContext | undefined;
 
   /**
-   * Returns the MCP layout config for a given TargetType from default-layouts.json,
-   * or `undefined` if the IDE has no mcpConfig entry.
-   * This is the single source of truth for IDE-specific MCP path and format metadata.
-   * To add or change MCP paths for any IDE, edit default-layouts.json.
+   * MCP config description for a target type at a given scope, straight from
+   * default-layouts.json. `undefined` means the IDE has no MCP config file at
+   * that scope (e.g. Windsurf has no workspace-level MCP).
+   *
+   * This is the single source of truth for IDE-specific MCP path and format
+   * metadata: to add or change an IDE, edit default-layouts.json.
    * @param host - TargetType (e.g. 'kiro', 'windsurf', 'vscode').
+   * @param scope - Which scope's MCP file to describe.
    */
-  public static getMcpLayoutConfig(host: TargetType): McpLayoutConfig | undefined {
-    return resolveMcpLayoutConfig(host, BUILT_IN_LAYERS);
+  public static getMcpLayoutConfig(host: TargetType, scope: McpConfigScope): McpLayoutConfig | undefined {
+    return resolveMcpLayoutConfig(host, scope, BUILT_IN_LAYERS);
   }
 
   /**
-   * Returns the workspace-relative MCP config file path for a given host,
-   * or null if the IDE has no official workspace-level MCP config.
-   * Derived from the `mcpConfig.workspaceFile` entry in default-layouts.json.
-   * @param host - Optional TargetType override (defaults to detectHostApp()).
+   * JSON root key used for MCP server entries for a given host and scope.
+   * Defaults to `'servers'` (VS Code) when the IDE declares no MCP file, so
+   * callers that only need the key never have to null-check.
+   * @param host - TargetType.
+   * @param scope - Which scope's MCP file to read the key from.
    */
-  public static getWorkspaceMcpRelativePath(host?: TargetType): string | null {
-    const targetHost = host ?? detectHostApp();
-    const mcpLayout = this.getMcpLayoutConfig(targetHost);
-    return mcpLayout ? (mcpLayout.workspaceFile ?? null) : '.vscode/mcp.json';
-  }
-
-  /**
-   * Returns the workspace MCP config subfolder (for backward compat with McpServerManager).
-   * @param host - Optional TargetType override.
-   */
-  public static getMcpWorkspaceConfigFolder(host?: TargetType): string {
-    const workspaceRelativePath = this.getWorkspaceMcpRelativePath(host);
-    if (!workspaceRelativePath) {
-      return '.vscode';
-    }
-    const configFolder = path.dirname(path.normalize(workspaceRelativePath));
-    return configFolder === '.' ? '.' : configFolder;
-  }
-
-  /**
-   * Returns the JSON key used for MCP server entries for a given host.
-   * Derived from `mcpConfig.serversKey` in default-layouts.json.
-   * Default (VS Code): 'servers'. All other known IDEs use 'mcpServers'.
-   * @param host - TargetType (required — use detectHostApp() at call site if needed).
-   */
-  public static getMcpServersKey(host: TargetType): McpServersKey {
-    return this.getMcpLayoutConfig(host)?.serversKey ?? 'servers';
+  public static getMcpServersKey(host: TargetType, scope: McpConfigScope): McpServersKey {
+    return this.getMcpLayoutConfig(host, scope)?.serversKey ?? 'servers';
   }
 
   public static initialize(context: vscode.ExtensionContext) {
@@ -98,34 +96,33 @@ export class McpConfigLocator {
   }
 
   /**
-   * VS Code user data `User` directory, used for IDEs whose `mcpConfig.userFile`
-   * is `null` (VS Code / Insiders).
+   * Value for the `${vscodeUserDir}` token: the VS Code user data `User` directory.
+   *
+   * Prefers `context.globalStorageUri`, which is authoritative — it reflects
+   * portable installs, `--user-data-dir` overrides and remote/WSL sessions, none
+   * of which a static template could express. Falls back to the per-platform
+   * convention when no extension context is available (unit tests, CLI use).
    *
    * KNOWN LIMITATION — this always resolves to the **default profile**.
-   * `globalStorageUri` is `<userDataDir>/User/globalStorage/<extensionId>` and is not
-   * profile-scoped, so a non-default profile's MCP file
-   * (`<userDataDir>/User/profiles/<profileId>/mcp.json`) is never reached: a user-scope
-   * install made while a non-default profile is active writes a file the active profile
-   * does not read. Workspace scope is unaffected (`.vscode/mcp.json` is profile-independent).
+   * `globalStorageUri` is not profile-scoped, so a non-default profile's
+   * `<userDataDir>/User/profiles/<id>/mcp.json` is never targeted: a user-scope
+   * install made while a non-default profile is active writes a file that
+   * profile does not read. Repository scope is unaffected.
    *
-   * Not fixable with the current API — there is no supported way to obtain the active
-   * profile directory. Both requests were closed as not planned:
+   * Not fixable with the current API — both requests for a way to resolve the
+   * active profile were closed as not planned:
    * - https://github.com/microsoft/vscode/issues/160466 (profile-aware globalStorageUri)
    * - https://github.com/microsoft/vscode/issues/211890 (Profiles API)
    *
-   * The profile ID also cannot be expressed as a `userFile` template, being neither
-   * HOME-relative nor known at authoring time. The long-term fix is
-   * `vscode.lm.registerMcpServerDefinitionProvider`, which hands storage and profile
-   * scoping to VS Code. See docs/contributor-guide/architecture/mcp-integration.md.
+   * Confining this to a single token keeps the fix a one-function change if
+   * VS Code ever ships an API. See docs/contributor-guide/architecture/mcp-integration.md.
    */
-  private static getUserConfigDirectory(): string {
+  private static getVsCodeUserDir(): string {
     if (this.context?.globalStorageUri) {
-      // globalStorageUri points to .../User/globalStorage/publisher.name
-      // We want .../User which is 2 levels up
+      // globalStorageUri points to .../User/globalStorage/publisher.name — go up two levels.
       return path.dirname(path.dirname(this.context.globalStorageUri.fsPath));
     }
 
-    // Fallback for tests or when context is not available
     const home = os.homedir();
     const platform = os.platform();
     const variant = this.getVsCodeVariant();
@@ -136,104 +133,111 @@ export class McpConfigLocator {
     } else if (platform === 'darwin') {
       return path.join(home, 'Library', 'Application Support', variant, 'User');
     } else {
-      const configDir = variant === 'Code' ? '.config/Code' : `.config/${variant}`;
-      return path.join(home, configDir, 'User');
+      return path.join(home, '.config', variant, 'User');
     }
   }
 
-  private static getWorkspaceConfigDirectory(host?: TargetType): string | undefined {
+  /**
+   * Absolute workspace root, or `undefined` when no folder is open.
+   * Multi-root workspaces resolve to the first folder, matching how the
+   * primitive layout resolver treats `${workspaceRoot}`.
+   */
+  private static getWorkspaceRoot(): string | undefined {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return undefined;
     }
-    const workspaceRelativePath = this.getWorkspaceMcpRelativePath(host);
-    if (!workspaceRelativePath) {
-      return undefined; // IDE has no workspace-level MCP support
-    }
-    return path.dirname(path.join(workspaceFolders[0].uri.fsPath, workspaceRelativePath));
+    return workspaceFolders[0].uri.fsPath;
   }
 
   /**
-   * User-level MCP config path.
-   * Derived from `mcpConfig.userFile` in default-layouts.json (resolves `${HOME}` token).
-   * Falls back to the VS Code appData path for VS Code / Insiders (userFile = null).
-   * For those hosts the result targets the default profile only — see
-   * `getUserConfigDirectory` for why per-profile paths cannot be resolved.
-   * TODO: User-level path resolution is tightly coupled to McpConfigLocator.
-   * Consider moving to user-scope-service.ts in a future refactor so that
-   * all user-scope config paths live in one place.
-   * @param host - Optional TargetType override for testing.
+   * Resolve the MCP config file path for a host and scope.
+   * Returns `undefined` when the IDE has no MCP file at that scope, or when
+   * repository scope is requested with no workspace open.
+   * @param scope - Which scope's MCP file to resolve.
+   * @param host - Optional TargetType override (defaults to detectHostApp()).
+   * @param workspaceRootOverride - Workspace root to resolve `${workspaceRoot}` against,
+   *   for callers that operate on a specific workspace rather than the active one.
    */
-  public static getUserMcpConfigPath(host?: TargetType): string {
+  public static getMcpConfigPath(
+    scope: McpConfigScope,
+    host?: TargetType,
+    workspaceRootOverride?: string
+  ): string | undefined {
+    const mcpLayout = this.getMcpLayoutConfig(host ?? detectHostApp(), scope);
+    if (!mcpLayout) {
+      return undefined;
+    }
+    const workspaceRoot = workspaceRootOverride ?? this.getWorkspaceRoot();
+    if (scope === 'repository' && workspaceRoot === undefined) {
+      return undefined;
+    }
+    // Only the tokens a template may legitimately use are supplied; anything else
+    // throws UnresolvedPathTokenError rather than reaching the filesystem.
+    return path.normalize(resolveMcpConfigPath(mcpLayout, {
+      HOME: os.homedir(),
+      USERPROFILE: os.homedir(),
+      workspaceRoot,
+      vscodeUserDir: this.getVsCodeUserDir()
+    }));
+  }
+
+  /**
+   * Full location, format and existence of the MCP config file for a scope.
+   * `undefined` when the IDE has no MCP file at that scope.
+   * @param scope - Which scope's MCP file to locate.
+   * @param host - Optional TargetType override.
+   * @param workspaceRootOverride - Workspace root to resolve `${workspaceRoot}` against.
+   */
+  public static getMcpConfigLocation(
+    scope: McpConfigScope,
+    host?: TargetType,
+    workspaceRootOverride?: string
+  ): McpConfigLocation | undefined {
     const targetHost = host ?? detectHostApp();
-    const mcpLayout = this.getMcpLayoutConfig(targetHost);
-    if (mcpLayout?.userFile) {
-      // Expand ${HOME} token and normalise to OS path separators
-      return path.normalize(expandMcpUserFilePath(mcpLayout, os.homedir()) as string);
-    }
-    // No mcpConfig or userFile is null → use VS Code globalStorageUri-derived path
-    return path.join(this.getUserConfigDirectory(), this.MCP_FILENAME);
-  }
-
-  public static getWorkspaceMcpConfigPath(host?: TargetType): string | undefined {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
+    const mcpLayout = this.getMcpLayoutConfig(targetHost, scope);
+    const configPath = this.getMcpConfigPath(scope, targetHost, workspaceRootOverride);
+    if (!mcpLayout || configPath === undefined) {
       return undefined;
     }
-    const workspaceRelativePath = this.getWorkspaceMcpRelativePath(host);
-    if (!workspaceRelativePath) {
-      return undefined; // IDE has no workspace-level MCP support
-    }
-    return path.join(workspaceFolders[0].uri.fsPath, workspaceRelativePath);
-  }
-
-  public static getWorkspaceTrackingPath(): string | undefined {
-    const workspaceDir = this.getWorkspaceConfigDirectory();
-    if (!workspaceDir) {
-      return undefined;
-    }
-    return path.join(workspaceDir, this.TRACKING_FILENAME);
+    return {
+      configPath,
+      trackingPath: path.join(path.dirname(configPath), this.TRACKING_FILENAME),
+      exists: fs.existsSync(configPath),
+      serversKey: mcpLayout.serversKey,
+      format: mcpLayout.format
+    };
   }
 
   /**
-   * User-level tracking metadata path.
-   * Derives from the user MCP config path (same directory, different filename).
-   * @param host - Optional TargetType override for testing.
+   * Directory of the MCP config file relative to the workspace root, e.g.
+   * `.kiro/settings` or `.vscode`, or `.` when the file sits at the root
+   * (Claude Code's `.mcp.json`). `undefined` when the IDE has no
+   * repository-scope MCP file.
+   * @param host - Optional TargetType override.
    */
-  public static getUserTrackingPath(host?: TargetType): string {
-    const configPath = this.getUserMcpConfigPath(host);
-    return path.join(path.dirname(configPath), this.TRACKING_FILENAME);
-  }
-
-  public static getMcpConfigLocation(scope: 'user' | 'workspace'): { configPath: string; trackingPath: string; exists: boolean } | undefined {
-    if (scope === 'user') {
-      const configPath = this.getUserMcpConfigPath();
-      const trackingPath = this.getUserTrackingPath();
-      return {
-        configPath,
-        trackingPath,
-        exists: fs.existsSync(configPath)
-      };
-    } else {
-      const configPath = this.getWorkspaceMcpConfigPath();
-      const trackingPath = this.getWorkspaceTrackingPath();
-
-      if (!configPath || !trackingPath) {
-        return undefined;
-      }
-
-      return {
-        configPath,
-        trackingPath,
-        exists: fs.existsSync(configPath)
-      };
+  public static getMcpWorkspaceConfigFolder(host?: TargetType): string | undefined {
+    const targetHost = host ?? detectHostApp();
+    const mcpLayout = this.getMcpLayoutConfig(targetHost, 'repository');
+    if (!mcpLayout) {
+      return undefined;
     }
+    // Derived from the template rather than the resolved path so this works with
+    // no workspace open, and so the result stays workspace-relative.
+    const relative = mcpLayout.path.split('${workspaceRoot}').join('').replace(/^[/\\]+/, '');
+    const folder = path.dirname(path.normalize(relative));
+    return folder === '.' ? '.' : folder;
   }
 
-  public static async ensureConfigDirectory(scope: 'user' | 'workspace'): Promise<void> {
-    const location = this.getMcpConfigLocation(scope);
+  /**
+   * Create the directory holding the MCP config file for a scope.
+   * @param scope - Which scope's directory to create.
+   * @param host - Optional TargetType override.
+   */
+  public static async ensureConfigDirectory(scope: McpConfigScope, host?: TargetType): Promise<void> {
+    const location = this.getMcpConfigLocation(scope, host);
     if (!location) {
-      throw new Error(`Cannot determine ${scope}-level configuration directory. No workspace open?`);
+      throw new Error(`No MCP configuration file is defined for this IDE at ${scope} scope. No workspace open?`);
     }
 
     const configDir = path.dirname(location.configPath);

@@ -20,6 +20,9 @@ import {
   parseMcpConfig,
   serializeMcpConfig,
 } from '../utils/mcp-config-format';
+import type {
+  McpConfigLocation,
+} from '../utils/mcp-config-locator';
 import {
   McpConfigLocator,
 } from '../utils/mcp-config-locator';
@@ -85,20 +88,39 @@ export class McpServerManager {
   }
 
   /**
-   * Returns the IDE-specific config folder path (relative to workspace root).
-   * Delegates to McpConfigLocator.getMcpWorkspaceConfigFolder() which uses a lookup map,
-   * so adding Windsurf/Claude/Devin support is a one-line change in that map.
+   * Returns the IDE-specific config folder, relative to the workspace root
+   * (e.g. `.kiro/settings`, `.vscode`, or `.` for Claude Code's root-level file).
+   * Used only for the .git/info/exclude entry; path resolution itself goes
+   * through McpConfigLocator so the filename comes from default-layouts.json.
    */
   private getWorkspaceConfigFolder(): string {
-    return McpConfigLocator.getMcpWorkspaceConfigFolder(detectHostApp());
+    return McpConfigLocator.getMcpWorkspaceConfigFolder(detectHostApp()) ?? '.vscode';
   }
 
   /**
-   * Get the path to mcp.json in a workspace
+   * Resolve the repository-scope MCP config location for a workspace.
+   * Throws when the host IDE has no workspace-level MCP file, rather than
+   * silently falling back to the user config.
+   * @param workspaceRoot - Absolute workspace root.
+   */
+  private getWorkspaceMcpLocation(workspaceRoot: string): McpConfigLocation {
+    const location = McpConfigLocator.getMcpConfigLocation('repository', detectHostApp(), workspaceRoot);
+    if (!location) {
+      throw new Error(
+        'This IDE has no workspace-level MCP configuration file. Install to user scope instead.'
+      );
+    }
+    return location;
+  }
+
+  /**
+   * Get the path to the workspace MCP config file.
+   * The filename comes from default-layouts.json, so hosts whose file is not
+   * called `mcp.json` (e.g. Claude Code's root-level `.mcp.json`) resolve correctly.
    * @param workspaceRoot
    */
   private getWorkspaceMcpConfigPath(workspaceRoot: string): string {
-    return path.join(workspaceRoot, this.getWorkspaceConfigFolder(), 'mcp.json');
+    return this.getWorkspaceMcpLocation(workspaceRoot).configPath;
   }
 
   /**
@@ -106,7 +128,7 @@ export class McpServerManager {
    * @param workspaceRoot
    */
   private getWorkspaceTrackingPath(workspaceRoot: string): string {
-    return path.join(workspaceRoot, this.getWorkspaceConfigFolder(), 'prompt-registry-mcp-tracking.json');
+    return this.getWorkspaceMcpLocation(workspaceRoot).trackingPath;
   }
 
   /**
@@ -141,8 +163,7 @@ export class McpServerManager {
       // Shared parse + normalize (see utils/mcp-config-format). Uses the JSONC
       // parser: workspace mcp.json files may legitimately contain comments and
       // trailing commas, which plain JSON.parse rejects.
-      const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
-      const { config, warnings } = parseMcpConfig(content, serversKey);
+      const { config, warnings } = parseMcpConfig(content, this.getWorkspaceMcpLocation(workspaceRoot).serversKey);
       if (warnings.length > 0) {
         this.logger.warn(`JSONC parse warnings in ${configPath}: ${warnings.join(', ')}`);
       }
@@ -179,9 +200,8 @@ export class McpServerManager {
 
     try {
       // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
-      // Extend McpConfigLocator.MCP_SERVERS_KEY to add new IDEs without touching this code.
-      const serversKey = McpConfigLocator.getMcpServersKey(detectHostApp());
-      const serialized = serializeMcpConfig(config, serversKey);
+      // The key comes from default-layouts.json via McpConfigLocator.
+      const serialized = serializeMcpConfig(config, this.getWorkspaceMcpLocation(workspaceRoot).serversKey);
       const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(configPath, content, 'utf8');
       this.logger.info(`Workspace MCP configuration written to ${configPath}`);
