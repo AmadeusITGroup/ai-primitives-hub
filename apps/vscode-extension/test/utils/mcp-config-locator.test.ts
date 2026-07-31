@@ -57,6 +57,5 @@ suite('McpConfigLocator Test Suite', () => {
     assert.ok(location.trackingPath, 'Should have tracking path');
     assert.strictEqual(typeof location.exists, 'boolean', 'Should have exists flag');
     assert.ok(location.serversKey, 'Should carry the serversKey for the scope');
-    assert.ok(location.format, 'Should carry the on-disk format for the scope');
   });
 });

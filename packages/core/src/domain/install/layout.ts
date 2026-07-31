@@ -61,15 +61,14 @@ export interface TargetLayoutDef {
 export type McpServersKey = 'servers' | 'mcpServers';
 
 /**
- * On-disk syntax of an MCP config file.
- * `jsonc` files may contain comments and trailing commas.
- */
-export type McpConfigFormat = 'json' | 'jsonc';
-
-/**
  * MCP config file description for one IDE at one scope.
  * Stored in default-layouts.json alongside the primitive layout definitions
- * so that all IDE-specific path and format decisions live in one place.
+ * so that all IDE-specific path decisions live in one place.
+ *
+ * Note: there is deliberately no `format` field. Every file is read with the JSONC
+ * parser (which accepts plain JSON), and every write currently reformats the file via
+ * `JSON.stringify`, so nothing would branch on it. A format field belongs here only
+ * once comment-preserving writes exist to consume it.
  */
 export interface McpLayoutConfig {
   /**
@@ -83,8 +82,6 @@ export interface McpLayoutConfig {
    * VS Code Copilot uses `'servers'`; all other known IDEs use `'mcpServers'`.
    */
   readonly serversKey: McpServersKey;
-  /** On-disk syntax, which determines whether comments must be preserved on write. */
-  readonly format: McpConfigFormat;
 }
 
 /**
@@ -287,7 +284,6 @@ function validateScopedLayoutDef(raw: unknown, path: string): void {
 }
 
 const MCP_SERVERS_KEYS = new Set(['servers', 'mcpServers']);
-const MCP_FORMATS = new Set(['json', 'jsonc']);
 
 function validateMcpLayoutConfig(raw: unknown, path: string): void {
   if (raw === null || typeof raw !== 'object') {
@@ -300,11 +296,6 @@ function validateMcpLayoutConfig(raw: unknown, path: string): void {
   if (typeof obj.serversKey !== 'string' || !MCP_SERVERS_KEYS.has(obj.serversKey)) {
     throw new TypeError(
       `layout config: "${path}.serversKey" must be one of ${[...MCP_SERVERS_KEYS].join(', ')}`
-    );
-  }
-  if (typeof obj.format !== 'string' || !MCP_FORMATS.has(obj.format)) {
-    throw new TypeError(
-      `layout config: "${path}.format" must be one of ${[...MCP_FORMATS].join(', ')}`
     );
   }
 }

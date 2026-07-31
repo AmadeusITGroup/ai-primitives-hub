@@ -117,8 +117,7 @@ describe('resolvePathTokens', () => {
 describe('resolveMcpConfigPath', () => {
   const config = (templatePath: string): McpLayoutConfig => ({
     path: templatePath,
-    serversKey: 'mcpServers',
-    format: 'json'
+    serversKey: 'mcpServers'
   });
 
   it('resolves a HOME-relative user path', () => {

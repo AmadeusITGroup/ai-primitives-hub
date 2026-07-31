@@ -280,20 +280,17 @@ describe('resolveMcpLayoutConfig', () => {
 
   const kiroUserMcp: McpLayoutConfig = {
     path: '${HOME}/.kiro/settings/mcp.json',
-    serversKey: 'mcpServers',
-    format: 'json'
+    serversKey: 'mcpServers'
   };
 
   const kiroRepoMcp: McpLayoutConfig = {
     path: '${workspaceRoot}/.kiro/settings/mcp.json',
-    serversKey: 'mcpServers',
-    format: 'json'
+    serversKey: 'mcpServers'
   };
 
   const vscodeUserMcp: McpLayoutConfig = {
     path: '${vscodeUserDir}/mcp.json',
-    serversKey: 'servers',
-    format: 'jsonc'
+    serversKey: 'servers'
   };
 
   it('returns undefined when there are no layers', () => {

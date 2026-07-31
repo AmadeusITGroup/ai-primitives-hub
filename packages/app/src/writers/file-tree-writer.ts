@@ -30,7 +30,6 @@ import type {
   ResourceTransformer,
   Target,
   TargetLayout,
-  TargetLayoutsConfig,
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
@@ -126,7 +125,7 @@ export type { KindRoutes, TargetLayout } from '@ai-primitives-hub/core';
 export const resolveLayout = (target: Target): TargetLayout => {
   // Cast needed: TypeScript widens JSON string values to `string`, making
   // serversKey: string incompatible with McpServersKey. Values are correct at runtime.
-  const result = resolveLayoutFromLayers(target, [builtInLayouts as unknown as TargetLayoutsConfig]);
+  const result = resolveLayoutFromLayers(target, [builtInLayouts]);
   if (result === null) {
     throw new Error(`No layout defined for target type "${target.type}"`);
   }

@@ -8,10 +8,8 @@ import {
   resolveMcpLayoutConfig,
 } from '@ai-primitives-hub/app';
 import type {
-  McpConfigFormat,
   McpLayoutConfig,
   McpServersKey,
-  TargetLayoutsConfig,
   TargetType,
 } from '@ai-primitives-hub/core';
 import {
@@ -25,10 +23,14 @@ import {
   detectHostApp,
 } from './host-app';
 
-/** Built-in layout layers used for MCP config resolution. Treated as a single-layer array. */
-// TypeScript widens JSON string values to `string`, making serversKey: string incompatible
-// with McpServersKey. The assertion is safe: JSON values are validated at authoring time.
-const BUILT_IN_LAYERS: TargetLayoutsConfig[] = [defaultLayouts as unknown as TargetLayoutsConfig];
+/**
+ * Built-in layout layers used for MCP config resolution.
+ *
+ * Only the built-in layer today: user-supplied layout files are loaded elsewhere and
+ * are not yet threaded through here, so an `mcpConfig` in a user layout file is
+ * validated but not applied. Tracked separately.
+ */
+const BUILT_IN_LAYERS = [defaultLayouts];
 
 /**
  * Location and format of a resolved MCP config file.
@@ -42,8 +44,6 @@ export interface McpConfigLocation {
   exists: boolean;
   /** JSON root key holding the server map for this IDE and scope. */
   serversKey: McpServersKey;
-  /** On-disk syntax, which determines whether comments must be preserved on write. */
-  format: McpConfigFormat;
 }
 
 export class McpConfigLocator {
@@ -204,8 +204,7 @@ export class McpConfigLocator {
       configPath,
       trackingPath: path.join(path.dirname(configPath), this.TRACKING_FILENAME),
       exists: fs.existsSync(configPath),
-      serversKey: mcpLayout.serversKey,
-      format: mcpLayout.format
+      serversKey: mcpLayout.serversKey
     };
   }
 

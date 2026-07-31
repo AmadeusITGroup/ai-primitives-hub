@@ -31,8 +31,7 @@ suite('McpServerManager Test Suite', () => {
       configPath: mockConfigPath,
       trackingPath: mockTrackingPath,
       exists: false,
-      serversKey: 'servers',
-      format: 'jsonc'
+      serversKey: 'servers'
     });
     sandbox.stub(McpConfigLocator, 'ensureConfigDirectory').resolves();
   });

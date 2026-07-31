@@ -43,11 +43,10 @@ const WORKSPACE_FOLDERS_GLOBAL = '__mockWorkspaceFolders';
 // ─────────────────────────────────────────────────────────────────────────────
 
 suite('McpConfigLocator.getMcpLayoutConfig — reads per scope from default-layouts.json', () => {
-  test('Kiro user: mcpServers key, json format, HOME-relative path', () => {
+  test('Kiro user: mcpServers key, HOME-relative path', () => {
     const mc = McpConfigLocator.getMcpLayoutConfig('kiro', 'user');
     assert.ok(mc, 'Kiro should define a user-scope mcpConfig');
     assert.strictEqual(mc.serversKey, 'mcpServers');
-    assert.strictEqual(mc.format, 'json');
     assert.strictEqual(mc.path, '${HOME}/.kiro/settings/mcp.json');
   });
 
@@ -58,11 +57,10 @@ suite('McpConfigLocator.getMcpLayoutConfig — reads per scope from default-layo
     assert.strictEqual(mc.path, '${workspaceRoot}/.kiro/settings/mcp.json');
   });
 
-  test('VS Code user: servers key, jsonc format, vscodeUserDir token', () => {
+  test('VS Code user: servers key, vscodeUserDir token', () => {
     const mc = McpConfigLocator.getMcpLayoutConfig('vscode', 'user');
     assert.ok(mc, 'VS Code should define a user-scope mcpConfig');
     assert.strictEqual(mc.serversKey, 'servers');
-    assert.strictEqual(mc.format, 'jsonc');
     assert.strictEqual(mc.path, '${vscodeUserDir}/mcp.json');
   });
 
@@ -70,7 +68,6 @@ suite('McpConfigLocator.getMcpLayoutConfig — reads per scope from default-layo
     const mc = McpConfigLocator.getMcpLayoutConfig('vscode', 'repository');
     assert.ok(mc);
     assert.strictEqual(mc.path, '${workspaceRoot}/.vscode/mcp.json');
-    assert.strictEqual(mc.format, 'jsonc');
   });
 
   test('Claude Code repository: root-level .mcp.json, not mcp.json', () => {
@@ -184,11 +181,10 @@ suite('McpConfigLocator — path resolution', () => {
     assert.strictEqual(path.dirname(location.trackingPath), path.dirname(location.configPath));
   });
 
-  test('location carries the serversKey and format for the scope', () => {
+  test('location carries the serversKey for the scope', () => {
     const location = McpConfigLocator.getMcpConfigLocation('user', 'kiro');
     assert.ok(location);
     assert.strictEqual(location.serversKey, 'mcpServers');
-    assert.strictEqual(location.format, 'json');
   });
 
   test('getMcpWorkspaceConfigFolder returns the folder relative to the workspace root', () => {
@@ -440,6 +436,44 @@ suite('McpConfigService — Kiro workspace round-trip', () => {
     assert.ok(!('servers' in onDisk), 'Kiro file should not carry the servers key');
     assert.ok(onDisk.tasks, 'tasks should be written');
     assert.ok(onDisk.inputs, 'inputs should be written alongside tasks');
+  });
+
+  test('mergeServers preserves unrelated top-level state through a full install', async () => {
+    // Regression: both merge sites rebuilt the config from only servers/tasks/inputs,
+    // dropping every other top-level key BEFORE serialization ran. Hosts such as
+    // Claude Code keep projects, account and preference state as siblings in the same
+    // file, so an install truncated it. The sibling round-trip tests missed this
+    // because they call readMcpConfig -> writeMcpConfig directly and never go through
+    // the merge, which is the path a real install takes.
+    await fsExtra.writeJson(kiroMcpPath, {
+      mcpServers: { existing: { command: 'node' } },
+      projects: { '/some/repo': { allowedTools: ['read'] } },
+      primaryApiKey: 'secret-value',
+      numStartups: 42
+    });
+
+    const service = new McpConfigService();
+    const existing = await service.readMcpConfig('workspace');
+
+    const merged = await service.mergeServers(
+      existing,
+      { 'new-server': { command: 'npx', args: ['-y', 'pkg'] } },
+      { scope: 'workspace', overwrite: false, skipOnConflict: false }
+    );
+    await service.writeMcpConfig(merged.config, 'workspace', false);
+
+    const onDisk = await fsExtra.readJson(kiroMcpPath) as Record<string, unknown>;
+
+    assert.deepStrictEqual(onDisk.projects, { '/some/repo': { allowedTools: ['read'] } },
+      'unrelated project state must survive an install');
+    assert.strictEqual(onDisk.primaryApiKey, 'secret-value',
+      'credential state must survive an install');
+    assert.strictEqual(onDisk.numStartups, 42,
+      'unrelated scalar state must survive an install');
+
+    const servers = onDisk.mcpServers as Record<string, unknown>;
+    assert.ok(servers.existing, 'pre-existing server should remain');
+    assert.ok(servers['new-server'], 'newly installed server should be present');
   });
 
   test('a read → write cycle leaves exactly one server map', async () => {

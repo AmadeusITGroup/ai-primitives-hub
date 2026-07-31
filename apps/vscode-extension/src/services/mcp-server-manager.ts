@@ -88,13 +88,21 @@ export class McpServerManager {
   }
 
   /**
-   * Returns the IDE-specific config folder, relative to the workspace root
-   * (e.g. `.kiro/settings`, `.vscode`, or `.` for Claude Code's root-level file).
-   * Used only for the .git/info/exclude entry; path resolution itself goes
-   * through McpConfigLocator so the filename comes from default-layouts.json.
+   * Git-exclude pattern for the workspace MCP config file, relative to the
+   * workspace root.
+   *
+   * Derived from the resolved config path rather than reassembling a folder plus a
+   * hardcoded `mcp.json`, so hosts whose file is named differently (Claude Code's
+   * root-level `.mcp.json`) are excluded correctly.
+   *
+   * Separators are forced to `/`: git exclude patterns require forward slashes and
+   * treat `\` as an escape, so a Windows path would silently fail to match and the
+   * config would be committed despite local-only mode.
+   * @param workspaceRoot - Absolute workspace root.
    */
-  private getWorkspaceConfigFolder(): string {
-    return McpConfigLocator.getMcpWorkspaceConfigFolder(detectHostApp()) ?? '.vscode';
+  private getWorkspaceMcpExcludePattern(workspaceRoot: string): string {
+    const configPath = this.getWorkspaceMcpLocation(workspaceRoot).configPath;
+    return path.relative(workspaceRoot, configPath).split(path.sep).join('/');
   }
 
   /**
@@ -620,7 +628,10 @@ export class McpServerManager {
       }
 
       // Merge servers into existing config
+      // Spread `existingConfig` first so unrelated top-level state in the host's file
+      // survives the merge. See the equivalent note in McpConfigService.mergeServers.
       const mergedConfig: McpConfiguration = {
+        ...existingConfig,
         servers: { ...existingConfig.servers, ...serversToInstall },
         tasks: existingConfig.tasks,
         inputs: this.configService.mergeInputs(existingConfig.inputs, inputsManifest)
@@ -632,7 +643,7 @@ export class McpServerManager {
 
       // Handle git exclude for local-only mode
       if (options.commitMode === 'local-only') {
-        await this.addToGitExclude(workspaceRoot, `${this.getWorkspaceConfigFolder()}/mcp.json`);
+        await this.addToGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
       }
 
       result.serversInstalled = Object.keys(serversToInstall).length;
@@ -696,7 +707,7 @@ export class McpServerManager {
       // Only remove from git exclude if no more managed servers exist
       const hasRemainingManagedServers = Object.keys(tracking.managedServers).length > 0;
       if (!hasRemainingManagedServers) {
-        await this.removeFromGitExclude(workspaceRoot, `${this.getWorkspaceConfigFolder()}/mcp.json`);
+        await this.removeFromGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
       }
 
       result.serversRemoved = removedServers.length;

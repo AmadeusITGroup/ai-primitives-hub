@@ -15,8 +15,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${vscodeUserDir}/mcp.json",
-          "serversKey": "servers",
-          "format": "jsonc"
+          "serversKey": "servers"
         }
       },
       "repository": {
@@ -33,8 +32,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.vscode/mcp.json",
-          "serversKey": "servers",
-          "format": "jsonc"
+          "serversKey": "servers"
         }
       }
     },
@@ -53,8 +51,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${vscodeUserDir}/mcp.json",
-          "serversKey": "servers",
-          "format": "jsonc"
+          "serversKey": "servers"
         }
       },
       "repository": {
@@ -71,8 +68,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.vscode/mcp.json",
-          "serversKey": "servers",
-          "format": "jsonc"
+          "serversKey": "servers"
         }
       }
     },
@@ -90,8 +86,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"],
         "mcpConfig": {
           "path": "${HOME}/.copilot/mcp-config.json",
-          "serversKey": "mcpServers",
-          "format": "json"
+          "serversKey": "mcpServers"
         }
       },
       "repository": {
@@ -119,8 +114,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${HOME}/.kiro/settings/mcp.json",
-          "serversKey": "mcpServers",
-          "format": "json"
+          "serversKey": "mcpServers"
         }
       },
       "repository": {
@@ -134,8 +128,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.kiro/settings/mcp.json",
-          "serversKey": "mcpServers",
-          "format": "json"
+          "serversKey": "mcpServers"
         }
       }
     },
@@ -152,8 +145,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${HOME}/.codeium/windsurf/mcp_config.json",
-          "serversKey": "mcpServers",
-          "format": "json"
+          "serversKey": "mcpServers"
         }
       },
       "repository": {
@@ -183,8 +175,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${HOME}/.claude.json",
-          "serversKey": "mcpServers",
-          "format": "json"
+          "serversKey": "mcpServers"
         }
       },
       "repository": {
@@ -201,8 +192,7 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.mcp.json",
-          "serversKey": "mcpServers",
-          "format": "json"
+          "serversKey": "mcpServers"
         }
       }
     }

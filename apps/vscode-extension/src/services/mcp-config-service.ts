@@ -351,7 +351,13 @@ export class McpConfigService {
     options: McpInstallOptions,
     newInputs?: McpInputDefinition[]
   ): Promise<{ config: McpConfiguration; conflicts: string[]; warnings: string[] }> {
+    // Spread `existingConfig` first: hosts such as Claude Code keep unrelated state
+    // (projects, account/OAuth data, preferences) as sibling top-level keys in the
+    // same file. Rebuilding the object from only servers/tasks/inputs would drop all
+    // of it before serialization ever runs, so the preservation guarantee has to start
+    // here, not in serializeMcpConfig.
     const result: McpConfiguration = {
+      ...existingConfig,
       servers: { ...existingConfig.servers },
       tasks: existingConfig.tasks ? { ...existingConfig.tasks } : undefined,
       inputs: this.mergeInputs(existingConfig.inputs, newInputs)
