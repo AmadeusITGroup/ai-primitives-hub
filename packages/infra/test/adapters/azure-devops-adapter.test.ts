@@ -332,8 +332,7 @@ describe('AzureDevOpsAdapter', () => {
       const admZip = new AdmZip(zip);
       const manifestEntry = admZip.getEntry('deployment-manifest.yml');
       expect(manifestEntry).not.toBeNull();
-      // eslint-disable-next-line unicorn/prefer-blob-reading-methods -- TODO: romeguarin
-      const manifest = yaml.load(admZip.readAsText(manifestEntry!)) as Record<string, unknown>;
+      const manifest = yaml.load(manifestEntry!.getData().toString('utf8')) as Record<string, unknown>;
 
       expect(manifest.id).toBe('my-bundle');
       expect(manifest.name).toBe('My Bundle');
