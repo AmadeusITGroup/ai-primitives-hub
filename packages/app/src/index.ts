@@ -13,6 +13,7 @@
  * modules) is the first real module family to land.
  */
 export * from './collection';
+export * from './auth';
 export * from './context-detection';
 export * from './discovery';
 export * from './install';

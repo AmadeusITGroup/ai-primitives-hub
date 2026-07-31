@@ -197,9 +197,9 @@ export class HubManager {
     const httpClient = new NodeHttpClient();
     const tokenProvider = new CompositeTokenProvider([new VsCodeSessionTokenProvider(true), new GhCliTokenProvider()]);
     const resolver = new CompositeHubResolver(
-      new GitHubHubResolver(httpClient, tokenProvider),
+      new GitHubHubResolver(httpClient, tokenProvider, this.translateLogEvent),
       new LocalHubResolver(new NodeFileSystem()),
-      new UrlHubResolver(httpClient, tokenProvider)
+      new UrlHubResolver(httpClient, tokenProvider, this.translateLogEvent)
     );
 
     this.appHubManager = new AppHubManager({

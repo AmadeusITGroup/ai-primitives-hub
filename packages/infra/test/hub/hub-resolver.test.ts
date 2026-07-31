@@ -104,6 +104,38 @@ describe('UrlHubResolver', () => {
     await expect(resolver.resolve({ type: 'url', location: 'https://example.com/hub-config.yml' }))
       .rejects.toThrow(/Failed to parse hub config/);
   });
+
+  it('falls back to an anonymous request when a rejected credential yields 404 on a GitHub-hosted URL', async () => {
+    // UrlHubResolver shares fetchYamlConfig's isGitHubHost() branch with
+    // GitHubHubResolver, so a `url`-type reference pointing at
+    // raw.githubusercontent.com must get the same anonymous-retry
+    // treatment: a rejected credential must not make a public hub look
+    // non-existent.
+    const fetchSpy = vi.fn((req: HttpRequest): HttpResponse => (
+      req.headers?.Authorization === undefined
+        ? { statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: req.url, headers: {} }
+        : { statusCode: 404, body: new TextEncoder().encode('404: Not Found'), finalUrl: req.url, headers: {} }
+    ));
+    const http: HttpClient = { fetch: (req): Promise<HttpResponse> => Promise.resolve(fetchSpy(req)) };
+    const logged: string[] = [];
+    const resolver = new UrlHubResolver(http, fakeTokenProvider('stale-token'), (event) => {
+      logged.push(`${event.level}: ${event.message}`);
+    });
+
+    const url = 'https://raw.githubusercontent.com/owner/repo/main/hub-config.yml';
+    const resolved = await resolver.resolve({ type: 'url', location: url });
+
+    expect(resolved.config.metadata.name).toBe('Hub');
+    // Exactly two attempts at the hub config itself: authenticated, then
+    // anonymous. (Further calls are the api.github.com credential probe.)
+    const hubCalls = fetchSpy.mock.calls
+      .map((call) => call[0])
+      .filter((req) => req.url === url);
+    expect(hubCalls).toHaveLength(2);
+    expect(hubCalls[0].headers).toHaveProperty('Authorization');
+    expect(hubCalls[1].headers).not.toHaveProperty('Authorization');
+    expect(logged.some((line) => line.startsWith('warn:') && line.includes('GitHub rejected it'))).toBe(true);
+  });
 });
 
 describe('GitHubHubResolver', () => {
@@ -118,6 +150,52 @@ describe('GitHubHubResolver', () => {
     expect(resolved.reference).toBe(ref);
     const calledUrl = fetchSpy.mock.calls[0][0].url;
     expect(calledUrl).toMatch(/^https:\/\/raw\.githubusercontent\.com\/owner\/repo\/main\/hub-config\.yml\?t=\d+$/);
+  });
+
+  it('falls back to an anonymous request when a rejected credential yields 404', async () => {
+    // raw.githubusercontent.com answers 404 (not 401) for a credential it
+    // rejects, even on public content — so a stale GitHub session must not
+    // make a public hub look non-existent.
+    const fetchSpy = vi.fn((req: HttpRequest): HttpResponse => (
+      req.headers?.Authorization === undefined
+        ? { statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: req.url, headers: {} }
+        : { statusCode: 404, body: new TextEncoder().encode('404: Not Found'), finalUrl: req.url, headers: {} }
+    ));
+    const http: HttpClient = { fetch: (req): Promise<HttpResponse> => Promise.resolve(fetchSpy(req)) };
+    const logged: string[] = [];
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider('stale-token'), (event) => {
+      logged.push(`${event.level}: ${event.message}`);
+    });
+
+    const resolved = await resolver.resolve({ type: 'github', location: 'owner/repo' });
+
+    expect(resolved.config.metadata.name).toBe('Hub');
+    // Exactly two attempts at the hub config itself: authenticated, then
+    // anonymous. (Further calls are the api.github.com credential probe.)
+    const hubCalls = fetchSpy.mock.calls
+      .map((call) => call[0])
+      .filter((req) => req.url.startsWith('https://raw.githubusercontent.com/'));
+    expect(hubCalls).toHaveLength(2);
+    expect(hubCalls[0].headers).toHaveProperty('Authorization');
+    expect(hubCalls[1].headers).not.toHaveProperty('Authorization');
+    expect(logged.some((line) => line.startsWith('warn:') && line.includes('GitHub rejected it'))).toBe(true);
+  });
+
+  it('reports the authenticated failure with a credential hint when anonymous access fails too', async () => {
+    const http = fakeHttpClient((req) => ({ statusCode: 404, body: new TextEncoder().encode('404: Not Found'), finalUrl: req.url, headers: {} }));
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider('stale-token'));
+
+    await expect(resolver.resolve({ type: 'github', location: 'owner/private-repo' }))
+      .rejects.toThrow(/HTTP 404 \(note: raw\.githubusercontent\.com answers 404 for a rejected credential/);
+  });
+
+  it('does not retry anonymously when no credential was attached', async () => {
+    const fetchSpy = vi.fn((req: HttpRequest): HttpResponse => ({ statusCode: 404, body: new Uint8Array(), finalUrl: req.url, headers: {} }));
+    const http: HttpClient = { fetch: (req): Promise<HttpResponse> => Promise.resolve(fetchSpy(req)) };
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider());
+
+    await expect(resolver.resolve({ type: 'github', location: 'owner/repo' })).rejects.toThrow('HTTP 404');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it('uses the given ref as the branch segment', async () => {
