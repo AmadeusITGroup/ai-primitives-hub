@@ -44,6 +44,8 @@ export interface McpConfigLocation {
   exists: boolean;
   /** JSON root key holding the server map for this IDE and scope. */
   serversKey: McpServersKey;
+  /** Whether the host resolves `${input:id}` placeholders. VS Code Copilot only. */
+  supportsInputs: boolean;
 }
 
 export class McpConfigLocator {
@@ -62,17 +64,6 @@ export class McpConfigLocator {
    */
   public static getMcpLayoutConfig(host: TargetType, scope: McpConfigScope): McpLayoutConfig | undefined {
     return resolveMcpLayoutConfig(host, scope, BUILT_IN_LAYERS);
-  }
-
-  /**
-   * JSON root key used for MCP server entries for a given host and scope.
-   * Defaults to `'servers'` (VS Code) when the IDE declares no MCP file, so
-   * callers that only need the key never have to null-check.
-   * @param host - TargetType.
-   * @param scope - Which scope's MCP file to read the key from.
-   */
-  public static getMcpServersKey(host: TargetType, scope: McpConfigScope): McpServersKey {
-    return this.getMcpLayoutConfig(host, scope)?.serversKey ?? 'servers';
   }
 
   public static initialize(context: vscode.ExtensionContext) {
@@ -164,6 +155,29 @@ export class McpConfigLocator {
     host?: TargetType,
     workspaceRootOverride?: string
   ): string | undefined {
+    return this.getMcpConfigLocation(scope, host, workspaceRootOverride)?.configPath;
+  }
+
+  /**
+   * Full location and existence of the MCP config file for a scope.
+   *
+   * Error contract: returns `undefined` for the two *expected* cases — the host
+   * declares no MCP file at this scope, or repository scope was requested with no
+   * workspace open. It throws `UnresolvedPathTokenError` only for a *malformed* path
+   * template, which is a configuration defect rather than a normal outcome.
+   *
+   * This is the single resolution entry point; `getMcpConfigPath` delegates here so a
+   * caller never resolves the layout twice or probes the filesystem more than once.
+   * @param scope - Which scope's MCP file to locate.
+   * @param host - Optional TargetType override.
+   * @param workspaceRootOverride - Workspace root to resolve `${workspaceRoot}` against.
+   * @throws {UnresolvedPathTokenError} When the path template references an unknown token.
+   */
+  public static getMcpConfigLocation(
+    scope: McpConfigScope,
+    host?: TargetType,
+    workspaceRootOverride?: string
+  ): McpConfigLocation | undefined {
     const mcpLayout = this.getMcpLayoutConfig(host ?? detectHostApp(), scope);
     if (!mcpLayout) {
       return undefined;
@@ -174,37 +188,18 @@ export class McpConfigLocator {
     }
     // Only the tokens a template may legitimately use are supplied; anything else
     // throws UnresolvedPathTokenError rather than reaching the filesystem.
-    return path.normalize(resolveMcpConfigPath(mcpLayout, {
+    const configPath = path.normalize(resolveMcpConfigPath(mcpLayout, {
       HOME: os.homedir(),
       USERPROFILE: os.homedir(),
       workspaceRoot,
       vscodeUserDir: this.getVsCodeUserDir()
     }));
-  }
-
-  /**
-   * Full location, format and existence of the MCP config file for a scope.
-   * `undefined` when the IDE has no MCP file at that scope.
-   * @param scope - Which scope's MCP file to locate.
-   * @param host - Optional TargetType override.
-   * @param workspaceRootOverride - Workspace root to resolve `${workspaceRoot}` against.
-   */
-  public static getMcpConfigLocation(
-    scope: McpConfigScope,
-    host?: TargetType,
-    workspaceRootOverride?: string
-  ): McpConfigLocation | undefined {
-    const targetHost = host ?? detectHostApp();
-    const mcpLayout = this.getMcpLayoutConfig(targetHost, scope);
-    const configPath = this.getMcpConfigPath(scope, targetHost, workspaceRootOverride);
-    if (!mcpLayout || configPath === undefined) {
-      return undefined;
-    }
     return {
       configPath,
       trackingPath: path.join(path.dirname(configPath), this.TRACKING_FILENAME),
       exists: fs.existsSync(configPath),
-      serversKey: mcpLayout.serversKey
+      serversKey: mcpLayout.serversKey,
+      supportsInputs: mcpLayout.supportsInputs ?? false
     };
   }
 

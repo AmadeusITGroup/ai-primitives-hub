@@ -15,7 +15,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${vscodeUserDir}/mcp.json",
-          "serversKey": "servers"
+          "serversKey": "servers",
+          "supportsInputs": true
         }
       },
       "repository": {
@@ -32,7 +33,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.vscode/mcp.json",
-          "serversKey": "servers"
+          "serversKey": "servers",
+          "supportsInputs": true
         }
       }
     },
@@ -51,7 +53,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${vscodeUserDir}/mcp.json",
-          "serversKey": "servers"
+          "serversKey": "servers",
+          "supportsInputs": true
         }
       },
       "repository": {
@@ -68,7 +71,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.vscode/mcp.json",
-          "serversKey": "servers"
+          "serversKey": "servers",
+          "supportsInputs": true
         }
       }
     },
@@ -99,7 +103,11 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
+        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.mcp.json",
+          "serversKey": "mcpServers"
+        }
       }
     },
     "kiro": {

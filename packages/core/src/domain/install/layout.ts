@@ -82,6 +82,18 @@ export interface McpLayoutConfig {
    * VS Code Copilot uses `'servers'`; all other known IDEs use `'mcpServers'`.
    */
   readonly serversKey: McpServersKey;
+  /**
+   * Whether the host resolves `${input:id}` placeholders against an `inputs` array,
+   * prompting the user for the value. This is a VS Code Copilot feature.
+   *
+   * Defaults to `false` when absent, because only VS Code is known to support it.
+   *
+   * A host that does not support inputs receives the placeholder as a literal string,
+   * so the server is written successfully and then fails at startup. Callers must
+   * therefore check this before installing a server that references an input, rather
+   * than relying on the write succeeding.
+   */
+  readonly supportsInputs?: boolean;
 }
 
 /**
@@ -297,5 +309,8 @@ function validateMcpLayoutConfig(raw: unknown, path: string): void {
     throw new TypeError(
       `layout config: "${path}.serversKey" must be one of ${[...MCP_SERVERS_KEYS].join(', ')}`
     );
+  }
+  if (obj.supportsInputs !== undefined && typeof obj.supportsInputs !== 'boolean') {
+    throw new TypeError(`layout config: "${path}.supportsInputs" must be a boolean`);
   }
 }

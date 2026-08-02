@@ -18,6 +18,7 @@ import type {
   Target,
   TargetLayout,
   TargetLayoutsConfig,
+  TargetType,
 } from '@ai-primitives-hub/core';
 import {
   WORKSPACE_ROOT_TOKEN,
@@ -134,7 +135,7 @@ export type McpConfigScope = 'user' | 'repository';
  * @returns The resolved config, or `undefined` when the IDE has no MCP file at this scope.
  */
 export function resolveMcpLayoutConfig(
-  targetType: string,
+  targetType: TargetType,
   scope: McpConfigScope,
   layers: TargetLayoutsConfig[]
 ): McpLayoutConfig | undefined {

@@ -385,11 +385,15 @@ export class McpConfigService {
   }
 
   /**
-   * Collect all ${input:id} references across all server configurations.
-   * @param servers
+   * Collect all `${input:id}` references across the given server configurations.
+   *
+   * Public because the install path needs it to detect servers that cannot work on a
+   * host which does not resolve inputs — the placeholder would be written verbatim and
+   * the server would fail at startup rather than at install time.
+   * @param servers - Server configurations to scan.
+   * @returns The set of referenced input ids.
    */
-  // eslint-disable-next-line @typescript-eslint/member-ordering -- private method added after public ones, ordering is intentional
-  private collectInputReferences(servers: Record<string, McpServerConfig>): Set<string> {
+  public collectInputReferences(servers: Record<string, McpServerConfig>): Set<string> {
     const inputPattern = /\$\{input:([^}]+)\}/g;
     const referenced = new Set<string>();
 

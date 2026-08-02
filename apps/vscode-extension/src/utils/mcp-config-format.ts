@@ -81,15 +81,13 @@ export function serializeMcpConfig(
   config: McpConfiguration,
   serversKey: McpServersKey
 ): McpRawConfig {
-  const { servers, tasks, inputs } = config;
+  // `withoutServerMapKeys` copies every key except the two server-map keys, so
+  // `tasks` and `inputs` are carried across by the copy itself. There is deliberately
+  // no conditional re-attachment here: an earlier version destructured them out and
+  // re-added them behind `if` guards, which is what allowed `inputs` to be dropped
+  // when `tasks` was also present.
   const result = withoutServerMapKeys(config);
-  result[serversKey] = servers ?? {};
-  if (tasks) {
-    result.tasks = tasks;
-  }
-  if (inputs) {
-    result.inputs = inputs;
-  }
+  result[serversKey] = config.servers ?? {};
   return result;
 }
 
