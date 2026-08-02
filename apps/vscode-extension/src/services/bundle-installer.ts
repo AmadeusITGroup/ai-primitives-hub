@@ -452,6 +452,25 @@ export class BundleInstaller {
    * @param scope
    * @param commitMode
    */
+  /**
+   * Surface an MCP installation failure to the user.
+   *
+   * Bundle installation deliberately continues when MCP setup fails, but the failure
+   * must still be visible: the errors include cases the user has to act on, such as a
+   * bundle whose servers need input values the host cannot prompt for, or a host with
+   * no workspace-level MCP file. Logging alone left those silent, so the bundle
+   * appeared to install cleanly while its MCP servers were missing.
+   * @param bundleId - Bundle being installed.
+   * @param errors - Errors reported by the MCP manager.
+   */
+  private notifyMcpInstallFailure(bundleId: string, errors: string[] | undefined): void {
+    const detail = errors && errors.length > 0 ? errors.join(' ') : 'Unknown error.';
+    this.logger.warn(`MCP server installation had issues: ${detail}`);
+    void vscode.window.showWarningMessage(
+      `MCP servers for "${bundleId}" were not installed. ${detail}`
+    );
+  }
+
   private async installMcpServers(
     bundleId: string,
     bundleVersion: string,
@@ -493,7 +512,7 @@ export class BundleInstaller {
         if (workspaceInstallationResult.success) {
           this.logger.info(`Successfully installed ${workspaceInstallationResult.serversInstalled} MCP servers to workspace`);
         } else {
-          this.logger.warn(`MCP server installation had issues: ${workspaceInstallationResult.errors?.join(', ')}`);
+          this.notifyMcpInstallFailure(bundleId, workspaceInstallationResult.errors);
         }
 
         if (workspaceInstallationResult.warnings && workspaceInstallationResult.warnings.length > 0) {
@@ -520,7 +539,7 @@ export class BundleInstaller {
       if (result.success) {
         this.logger.info(`Successfully installed ${result.serversInstalled} MCP servers`);
       } else {
-        this.logger.warn(`MCP server installation had issues: ${result.errors?.join(', ')}`);
+        this.notifyMcpInstallFailure(bundleId, result.errors);
       }
 
       if (result.warnings && result.warnings.length > 0) {
