@@ -45,7 +45,8 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Validation](contributor-guide/validation.md)** — Local validation commands
 - **[Coding Standards](contributor-guide/coding-standards.md)** — Style guide
 - **[Releasing](contributor-guide/releasing.md)** — Release process
-- **[Manual Test Plan](contributor-guide/testing/test-plan.md)** — Manual verification plans, and the gate for a major release
+- **[Golden Path Test Cases](contributor-guide/testing/golden-path.md)** — The three mandatory manual scenarios, and the release gate
+- **[Full Test Plan](contributor-guide/testing/test-plan.md)** — All 19 plans, for area-by-area manual coverage
 
 ---
 

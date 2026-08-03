@@ -60,7 +60,8 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Testing Details",
           items: [
-            { type: "doc", id: "contributor-guide/testing/test-plan", label: "Manual Test Plan" },
+            { type: "doc", id: "contributor-guide/testing/golden-path", label: "Golden Path Test Cases" },
+            { type: "doc", id: "contributor-guide/testing/test-plan", label: "Full Test Plan" },
             { type: "doc", id: "contributor-guide/testing/ssh-remote", label: "Testing SSH Remote" },
           ],
         },

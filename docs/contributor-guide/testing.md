@@ -85,12 +85,16 @@ Coverage reports are written to the `coverage/` directory.
 
 ## What These Suites Do Not Cover
 
-Everything above is automated. The paths a person still has to walk by hand — installing the published extension on a clean machine, authenticating against real GitHub, the marketplace and tree UI, publishing and distribution, upgrading from the previous major — live in the [Manual Test Plan](./testing/test-plan.md). That page is also the sign-off gate for a **MAJOR** release.
+Everything above is automated. The paths a person still has to walk by hand — installing the published extension on a clean machine, authenticating against real GitHub, confirming Copilot and Kiro actually recognize what was installed, publishing a collection through a real runner, upgrading from the previous major — are covered manually.
+
+Start with the [Golden Path Test Cases](./testing/golden-path.md): three chained scenarios that every release must pass on both the extension and the CLI. 
+The [Full Test Plan](./testing/test-plan.md) holds all 19 plans for area-by-area coverage when a PR touches something specific.
 
 ## See Also
 
 - [`test/AGENTS.md`](../../apps/vscode-extension/test/AGENTS.md) — Test writing patterns, helpers, anti-patterns
 - [`test/e2e/AGENTS.md`](../../apps/vscode-extension/test/e2e/AGENTS.md) — E2E-specific guidance
 - [Development Setup](./development-setup.md) — Environment setup
-- [Manual Test Plan](./testing/test-plan.md) — Manual verification plans, and the gate for a major release
+- [Golden Path Test Cases](./testing/golden-path.md) — The three mandatory manual scenarios, and the release gate
+- [Full Test Plan](./testing/test-plan.md) — All 19 plans, for area-by-area manual coverage
 - [Testing SSH Remote](./testing/ssh-remote.md) — Testing in a VS Code remote SSH scenario
