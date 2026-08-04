@@ -67,6 +67,9 @@ jobs:
           min-severity: high
           label: website
 
+      - name: Run website tests
+        run: pnpm -C website run test
+
       - name: Build documentation
         run: pnpm -C website run build
 

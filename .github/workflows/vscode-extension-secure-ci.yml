@@ -31,6 +31,12 @@ on:
 
 # Security: Restrict permissions to minimum necessary (SLSA Level 2)
 permissions: read-all
+
+# Cancel superseded runs on the same ref (keeps main/develop runs intact).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # Security: Use environment variables for configuration
   NODE_VERSION: "24"
@@ -106,7 +112,6 @@ jobs:
   dependency-analysis:
     name: Dependency & License Analysis
     runs-on: ubuntu-latest
-    needs: security-scan
 
     steps:
       - name: Harden Runner
@@ -166,7 +171,6 @@ jobs:
   validate:
     name: Validate Extension
     runs-on: ${{ matrix.os }}
-    needs: [security-scan, dependency-analysis]
 
     strategy:
       fail-fast: false
@@ -200,14 +204,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Build the entire workspace (including lib and extension)
-        run: pnpm run build
+      # Builds packages (topological), lib, the GH action and the extension.
+      # The website is excluded: it has no workspace dependency and is covered by docs.yml.
+      # The extension's own `build` script is `compile`, so it is not compiled twice.
+      - name: Build workspace (excluding website)
+        run: pnpm --filter "!prompt-registry-docs" build
 
       - name: Run linting
-        run: pnpm run lint
+        run: pnpm --filter "!prompt-registry-docs" lint
 
-      - name: Run compilation of the VSCode extension
-        run: pnpm -C ${{ env.EXTENSION_DIR }} run compile
+      # Only core/infra/app/cli vitest suites. Must not be a recursive run:
+      # the extension's `test` script is `test:all` (unit + integration).
+      - name: Run packages unit tests
+        run: pnpm --filter "@ai-primitives-hub/*" test
 
       - name: Install VS Code dependencies (Linux)
         if: runner.os == 'Linux'
@@ -362,7 +371,7 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build workspace packages
-        run: pnpm run build
+        run: pnpm --filter "@ai-primitives-hub/*" --filter "@prompt-registry/collection-scripts" build
 
       - name: Compile extension and tests
         working-directory: ${{ env.EXTENSION_DIR }}
