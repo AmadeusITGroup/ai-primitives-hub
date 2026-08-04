@@ -42,7 +42,12 @@ export type {
   UninstallResult,
 } from './uninstall-pipeline';
 
+export type {
+  McpConfigScope,
+} from './layout-resolver';
+
 export {
   resolveLayoutFromLayers,
+  resolveMcpLayoutConfig,
   WORKSPACE_ROOT_TOKEN,
 } from './layout-resolver';

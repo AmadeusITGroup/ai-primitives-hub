@@ -5,14 +5,28 @@ import {
   McpInputDefinition,
   McpInstallOptions,
   McpInstallResult,
+  McpServerConfig,
   McpServersManifest,
   McpTrackingMetadata,
   McpUninstallResult,
   McpWorkspaceInstallOptions,
 } from '../types/mcp';
 import {
+  detectHostApp,
+} from '../utils/host-app';
+import {
   Logger,
 } from '../utils/logger';
+import {
+  parseMcpConfig,
+  serializeMcpConfig,
+} from '../utils/mcp-config-format';
+import type {
+  McpConfigLocation,
+} from '../utils/mcp-config-locator';
+import {
+  McpConfigLocator,
+} from '../utils/mcp-config-locator';
 import {
   McpConfigService,
 } from './mcp-config-service';
@@ -30,6 +44,35 @@ export class McpServerManager {
   constructor() {
     this.logger = Logger.getInstance();
     this.configService = new McpConfigService();
+  }
+
+  /**
+   * Reject servers that reference `${input:id}` when the host cannot resolve inputs.
+   *
+   * `inputs` and `${input:...}` are a VS Code Copilot feature. Other hosts receive the
+   * placeholder as a literal value, so the install would succeed and the server would
+   * then fail at startup with no indication why. Failing here converts that into an
+   * actionable install-time error.
+   *
+   * Returns `null` when the install may proceed, or a message describing what to do.
+   * @param servers - Servers about to be installed.
+   * @param supportsInputs - Whether the resolved host/scope resolves inputs.
+   */
+  private describeUnsupportedInputs(
+    servers: Record<string, McpServerConfig>,
+    supportsInputs: boolean
+  ): string | null {
+    if (supportsInputs) {
+      return null;
+    }
+    const referenced = this.configService.collectInputReferences(servers);
+    if (referenced.size === 0) {
+      return null;
+    }
+    const ids = [...referenced].toSorted().join(', ');
+    return `This bundle's MCP servers require the input value(s) ${ids}, which this IDE `
+      + 'cannot prompt for. Install the bundle in VS Code, or set the value(s) directly in '
+      + 'the MCP configuration file after installing.';
   }
 
   /**
@@ -75,11 +118,47 @@ export class McpServerManager {
   }
 
   /**
-   * Get the path to .vscode/mcp.json in a workspace
+   * Git-exclude pattern for the workspace MCP config file, relative to the
+   * workspace root.
+   *
+   * Derived from the resolved config path rather than reassembling a folder plus a
+   * hardcoded `mcp.json`, so hosts whose file is named differently (Claude Code's
+   * root-level `.mcp.json`) are excluded correctly.
+   *
+   * Separators are forced to `/`: git exclude patterns require forward slashes and
+   * treat `\` as an escape, so a Windows path would silently fail to match and the
+   * config would be committed despite local-only mode.
+   * @param workspaceRoot - Absolute workspace root.
+   */
+  private getWorkspaceMcpExcludePattern(workspaceRoot: string): string {
+    const configPath = this.getWorkspaceMcpLocation(workspaceRoot).configPath;
+    return path.relative(workspaceRoot, configPath).split(path.sep).join('/');
+  }
+
+  /**
+   * Resolve the repository-scope MCP config location for a workspace.
+   * Throws when the host IDE has no workspace-level MCP file, rather than
+   * silently falling back to the user config.
+   * @param workspaceRoot - Absolute workspace root.
+   */
+  private getWorkspaceMcpLocation(workspaceRoot: string): McpConfigLocation {
+    const location = McpConfigLocator.getMcpConfigLocation('repository', detectHostApp(), workspaceRoot);
+    if (!location) {
+      throw new Error(
+        'This IDE has no workspace-level MCP configuration file. Install to user scope instead.'
+      );
+    }
+    return location;
+  }
+
+  /**
+   * Get the path to the workspace MCP config file.
+   * The filename comes from default-layouts.json, so hosts whose file is not
+   * called `mcp.json` (e.g. Claude Code's root-level `.mcp.json`) resolve correctly.
    * @param workspaceRoot
    */
   private getWorkspaceMcpConfigPath(workspaceRoot: string): string {
-    return path.join(workspaceRoot, '.vscode', 'mcp.json');
+    return this.getWorkspaceMcpLocation(workspaceRoot).configPath;
   }
 
   /**
@@ -87,7 +166,7 @@ export class McpServerManager {
    * @param workspaceRoot
    */
   private getWorkspaceTrackingPath(workspaceRoot: string): string {
-    return path.join(workspaceRoot, '.vscode', 'prompt-registry-mcp-tracking.json');
+    return this.getWorkspaceMcpLocation(workspaceRoot).trackingPath;
   }
 
   /**
@@ -107,11 +186,13 @@ export class McpServerManager {
   }
 
   /**
-   * Read MCP configuration from workspace .vscode/mcp.json
+   * Read MCP configuration from workspace mcp.json (handles both VS Code 'servers' and Kiro 'mcpServers' formats)
    * @param workspaceRoot
    */
   private async readWorkspaceMcpConfig(workspaceRoot: string): Promise<McpConfiguration> {
-    const configPath = this.getWorkspaceMcpConfigPath(workspaceRoot);
+    // Resolve once: the location carries both the path and the server key.
+    const location = this.getWorkspaceMcpLocation(workspaceRoot);
+    const configPath = location.configPath;
 
     if (!await fs.pathExists(configPath)) {
       return { servers: {} };
@@ -119,7 +200,14 @@ export class McpServerManager {
 
     try {
       const content = await fs.readFile(configPath, 'utf8');
-      return JSON.parse(content) as McpConfiguration;
+      // Shared parse + normalize (see utils/mcp-config-format). Uses the JSONC
+      // parser: workspace mcp.json files may legitimately contain comments and
+      // trailing commas, which plain JSON.parse rejects.
+      const { config, warnings } = parseMcpConfig(content, location.serversKey);
+      if (warnings.length > 0) {
+        this.logger.warn(`JSONC parse warnings in ${configPath}: ${warnings.join(', ')}`);
+      }
+      return config;
     } catch (error) {
       this.logger.error(`Failed to read workspace mcp.json from ${configPath}`, error as Error);
       throw new Error(`Failed to read workspace MCP configuration: ${(error as Error).message}`);
@@ -133,7 +221,9 @@ export class McpServerManager {
    * @param createBackup
    */
   private async writeWorkspaceMcpConfig(workspaceRoot: string, config: McpConfiguration, createBackup = true): Promise<void> {
-    const configPath = this.getWorkspaceMcpConfigPath(workspaceRoot);
+    // Resolve once: the location carries both the path and the server key.
+    const location = this.getWorkspaceMcpLocation(workspaceRoot);
+    const configPath = location.configPath;
     const configDir = path.dirname(configPath);
 
     // Ensure .vscode directory exists
@@ -151,7 +241,10 @@ export class McpServerManager {
     }
 
     try {
-      const content = JSON.stringify(config, null, 2);
+      // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
+      // The key comes from default-layouts.json via McpConfigLocator.
+      const serialized = serializeMcpConfig(config, location.serversKey);
+      const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(configPath, content, 'utf8');
       this.logger.info(`Workspace MCP configuration written to ${configPath}`);
     } catch (error) {
@@ -405,6 +498,19 @@ export class McpServerManager {
         };
       }
 
+      const location = McpConfigLocator.getMcpConfigLocation(
+        options.scope === 'workspace' ? 'repository' : 'user'
+      );
+      const unsupportedInputs = this.describeUnsupportedInputs(
+        serversToInstall,
+        location?.supportsInputs ?? false
+      );
+      if (unsupportedInputs) {
+        result.errors?.push(unsupportedInputs);
+        result.success = false;
+        return result;
+      }
+
       const mergeResult = await this.configService.mergeServers(
         existingConfig,
         serversToInstall,
@@ -568,8 +674,21 @@ export class McpServerManager {
         return result;
       }
 
+      const unsupportedInputs = this.describeUnsupportedInputs(
+        serversToInstall,
+        this.getWorkspaceMcpLocation(workspaceRoot).supportsInputs
+      );
+      if (unsupportedInputs) {
+        result.errors?.push(unsupportedInputs);
+        result.success = false;
+        return result;
+      }
+
       // Merge servers into existing config
+      // Spread `existingConfig` first so unrelated top-level state in the host's file
+      // survives the merge. See the equivalent note in McpConfigService.mergeServers.
       const mergedConfig: McpConfiguration = {
+        ...existingConfig,
         servers: { ...existingConfig.servers, ...serversToInstall },
         tasks: existingConfig.tasks,
         inputs: this.configService.mergeInputs(existingConfig.inputs, inputsManifest)
@@ -581,7 +700,7 @@ export class McpServerManager {
 
       // Handle git exclude for local-only mode
       if (options.commitMode === 'local-only') {
-        await this.addToGitExclude(workspaceRoot, '.vscode/mcp.json');
+        await this.addToGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
       }
 
       result.serversInstalled = Object.keys(serversToInstall).length;
@@ -645,7 +764,7 @@ export class McpServerManager {
       // Only remove from git exclude if no more managed servers exist
       const hasRemainingManagedServers = Object.keys(tracking.managedServers).length > 0;
       if (!hasRemainingManagedServers) {
-        await this.removeFromGitExclude(workspaceRoot, '.vscode/mcp.json');
+        await this.removeFromGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
       }
 
       result.serversRemoved = removedServers.length;

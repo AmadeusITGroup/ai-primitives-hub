@@ -35,6 +35,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   determineFileType,
+  expandPath,
   getSkillName,
   getTargetFileName,
   normalizePromptId,
@@ -122,6 +123,8 @@ export type { KindRoutes, TargetLayout } from '@ai-primitives-hub/core';
  * @returns Resolved TargetLayout.
  */
 export const resolveLayout = (target: Target): TargetLayout => {
+  // Cast needed: TypeScript widens JSON string values to `string`, making
+  // serversKey: string incompatible with McpServersKey. Values are correct at runtime.
   const result = resolveLayoutFromLayers(target, [builtInLayouts]);
   if (result === null) {
     throw new Error(`No layout defined for target type "${target.type}"`);
@@ -149,20 +152,11 @@ export const resolveLayoutAsync = async (
 };
 
 /**
- * Expand `${VAR}` and leading `~` in a path. Pure; HOME comes from the
- * injected env map.
- * @param p - Path with possible ${VAR} or ~ tokens.
- * @param env - Process env map.
- * @returns Expanded path.
+ * Re-export of `expandPath` (expands `${VAR}` and a leading `~` in a path).
+ * @deprecated Import `expandPath` from `@ai-primitives-hub/core` directly. This re-export
+ * is kept for backward compatibility and will be removed in a future version.
  */
-export const expandPath = (p: string, env: Record<string, string | undefined>): string => {
-  let out = p.replaceAll(/\$\{([A-Z0-9_]+)\}/g, (_m, name: string) => env[name] ?? '');
-  if (out.startsWith('~')) {
-    const home = env.HOME ?? env.USERPROFILE ?? '';
-    out = home + out.slice(1);
-  }
-  return out;
-};
+export { expandPath } from '@ai-primitives-hub/core';
 
 /**
  * Options for FileTreeTargetWriter.

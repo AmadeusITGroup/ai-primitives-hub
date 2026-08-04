@@ -1,5 +1,7 @@
+import type {
+  McpConfigScope,
+} from '@ai-primitives-hub/app';
 import * as fs from 'fs-extra';
-import * as jsonc from 'jsonc-parser';
 import {
   isRemoteServerConfig,
   McpConfiguration,
@@ -15,6 +17,10 @@ import {
 import {
   Logger,
 } from '../utils/logger';
+import {
+  parseMcpConfig,
+  serializeMcpConfig,
+} from '../utils/mcp-config-format';
 import {
   McpConfigLocator,
 } from '../utils/mcp-config-locator';
@@ -100,8 +106,17 @@ export class McpConfigService {
     }
   }
 
+  /**
+   * Map this service's scope vocabulary onto the layout config's scopes.
+   * The layout file uses `repository` for what this service calls `workspace`.
+   * @param scope - Service-level scope.
+   */
+  private static toLayoutScope(scope: 'user' | 'workspace'): McpConfigScope {
+    return scope === 'workspace' ? 'repository' : 'user';
+  }
+
   public async readMcpConfig(scope: 'user' | 'workspace'): Promise<McpConfiguration> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(McpConfigService.toLayoutScope(scope));
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
@@ -112,14 +127,14 @@ export class McpConfigService {
 
     try {
       const content = await fs.readFile(location.configPath, 'utf8');
-      // Use JSONC parser to handle trailing commas and comments (VS Code mcp.json format)
-      const errors: jsonc.ParseError[] = [];
-      const config = jsonc.parse(content, errors) as McpConfiguration;
-      if (errors.length > 0) {
-        const errorMessages = errors.map((e) => `${jsonc.printParseErrorCode(e.error)} at offset ${e.offset}`).join(', ');
-        this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${errorMessages}`);
+      // Shared parse + normalize: tolerates JSONC (comments, trailing commas),
+      // maps the IDE's server key onto the internal 'servers' key and drops the
+      // non-canonical one. See utils/mcp-config-format.
+      const { config, warnings } = parseMcpConfig(content, location.serversKey);
+      if (warnings.length > 0) {
+        this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${warnings.join(', ')}`);
       }
-      return config || { servers: {} };
+      return config;
     } catch (error) {
       this.logger.error(`Failed to read mcp.json from ${location.configPath}`, error as Error);
       throw new Error(`Failed to read MCP configuration: ${(error as Error).message}`);
@@ -127,19 +142,24 @@ export class McpConfigService {
   }
 
   public async writeMcpConfig(config: McpConfiguration, scope: 'user' | 'workspace', createBackup = true): Promise<void> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const layoutScope = McpConfigService.toLayoutScope(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
 
-    await McpConfigLocator.ensureConfigDirectory(scope);
+    await McpConfigLocator.ensureConfigDirectory(layoutScope);
 
     if (createBackup && location.exists) {
       await this.createBackup(location.configPath);
     }
 
     try {
-      const content = JSON.stringify(config, null, 2);
+      // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
+      // The mapping itself comes from default-layouts.json via McpConfigLocator,
+      // so adding an IDE needs no change here.
+      const serialized = serializeMcpConfig(config, location.serversKey);
+      const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(location.configPath, content, 'utf8');
       this.logger.info(`MCP configuration written to ${location.configPath}`);
     } catch (error) {
@@ -149,7 +169,7 @@ export class McpConfigService {
   }
 
   public async readTrackingMetadata(scope: 'user' | 'workspace'): Promise<McpTrackingMetadata> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(McpConfigService.toLayoutScope(scope));
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
@@ -172,12 +192,13 @@ export class McpConfigService {
   }
 
   public async writeTrackingMetadata(metadata: McpTrackingMetadata, scope: 'user' | 'workspace'): Promise<void> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const layoutScope = McpConfigService.toLayoutScope(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
 
-    await McpConfigLocator.ensureConfigDirectory(scope);
+    await McpConfigLocator.ensureConfigDirectory(layoutScope);
 
     metadata.lastUpdated = new Date().toISOString();
 
@@ -330,7 +351,13 @@ export class McpConfigService {
     options: McpInstallOptions,
     newInputs?: McpInputDefinition[]
   ): Promise<{ config: McpConfiguration; conflicts: string[]; warnings: string[] }> {
+    // Spread `existingConfig` first: hosts such as Claude Code keep unrelated state
+    // (projects, account/OAuth data, preferences) as sibling top-level keys in the
+    // same file. Rebuilding the object from only servers/tasks/inputs would drop all
+    // of it before serialization ever runs, so the preservation guarantee has to start
+    // here, not in serializeMcpConfig.
     const result: McpConfiguration = {
+      ...existingConfig,
       servers: { ...existingConfig.servers },
       tasks: existingConfig.tasks ? { ...existingConfig.tasks } : undefined,
       inputs: this.mergeInputs(existingConfig.inputs, newInputs)
@@ -358,11 +385,15 @@ export class McpConfigService {
   }
 
   /**
-   * Collect all ${input:id} references across all server configurations.
-   * @param servers
+   * Collect all `${input:id}` references across the given server configurations.
+   *
+   * Public because the install path needs it to detect servers that cannot work on a
+   * host which does not resolve inputs — the placeholder would be written verbatim and
+   * the server would fail at startup rather than at install time.
+   * @param servers - Server configurations to scan.
+   * @returns The set of referenced input ids.
    */
-  // eslint-disable-next-line @typescript-eslint/member-ordering -- private method added after public ones, ordering is intentional
-  private collectInputReferences(servers: Record<string, McpServerConfig>): Set<string> {
+  public collectInputReferences(servers: Record<string, McpServerConfig>): Set<string> {
     const inputPattern = /\$\{input:([^}]+)\}/g;
     const referenced = new Set<string>();
 
