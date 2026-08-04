@@ -93,8 +93,10 @@ export interface GitHubApiClientOptions {
   random?: () => number;
 }
 
-const DEFAULT_BASE_URL = 'https://api.github.com';
-const DEFAULT_USER_AGENT = 'ai-primitives-hub/1.0';
+/** Canonical `api.github.com` base URL, shared with other GitHub callers. */
+export const GITHUB_API_BASE_URL = 'https://api.github.com';
+/** Canonical `User-Agent` GitHub sees from this project. */
+export const GITHUB_API_USER_AGENT = 'ai-primitives-hub/1.0';
 const NOOP_EVENT_HANDLER: GitHubClientEventHandler = (): void => undefined;
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -127,8 +129,8 @@ export class GitHubApiClient implements GitHubApi {
     private readonly http: HttpClient,
     private readonly options: GitHubApiClientOptions = {}
   ) {
-    this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
-    this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
+    this.baseUrl = options.baseUrl ?? GITHUB_API_BASE_URL;
+    this.userAgent = options.userAgent ?? GITHUB_API_USER_AGENT;
     this.maxRetries = options.maxRetries ?? 4;
     this.backoffBaseMs = options.backoffBaseMs ?? 250;
     this.jitterMs = options.jitterMs ?? 250;

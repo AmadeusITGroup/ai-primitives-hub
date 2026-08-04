@@ -28,10 +28,12 @@ import type {
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import {
-  describeToken,
   diagnoseGitHubToken,
   formatGitHubTokenReport,
 } from '../auth/github-token-diagnostics';
+import {
+  redactToken,
+} from '../harvest/token-provider';
 import {
   isGitHubHost,
 } from '../http/github-host';
@@ -53,14 +55,6 @@ export interface ResolvedHub {
  * instead of a bad token.
  */
 const CREDENTIAL_SUSPECT_STATUSES = new Set([401, 403, 404]);
-
-/**
- * Optional log sink, mirroring `app`'s `onLog` dependency style.
- * Re-exports `core`'s `OnLogEvent` under this module's established name
- * so existing call sites (e.g. the extension's `HubManager`) keep
- * working unchanged.
- */
-export type HubResolverLog = OnLogEvent;
 
 /**
  * Common interface implemented by every per-type hub resolver.
@@ -89,7 +83,7 @@ async function fetchYamlConfig(
   http: HttpClient,
   tokens: TokenProvider,
   url: string,
-  onLog?: HubResolverLog,
+  onLog?: OnLogEvent,
   repoLocation?: string
 ): Promise<HubConfig> {
   const host = new URL(url).hostname;
@@ -106,9 +100,7 @@ async function fetchYamlConfig(
   };
 
   let res = await attempt(true);
-  const credentialSuspect = token !== undefined
-    && res.statusCode !== 200
-    && CREDENTIAL_SUSPECT_STATUSES.has(res.statusCode);
+  const credentialSuspect = token !== undefined && CREDENTIAL_SUSPECT_STATUSES.has(res.statusCode);
 
   if (credentialSuspect) {
     // A rejected credential is indistinguishable from "not found" on
@@ -119,14 +111,17 @@ async function fetchYamlConfig(
       onLog?.({
         level: 'warn',
         message: `[HubResolver] Hub config for ${url} is reachable anonymously but not with the resolved GitHub credential `
-          + `(${describeToken(token)}): GitHub rejected it. Private hubs will stay unreachable until the credential is fixed.`
+          + `(${redactToken(token)}): GitHub rejected it. Private hubs will stay unreachable until the credential is fixed.`
       });
       res = anonymous;
     }
 
-    // Ask api.github.com what raw.githubusercontent.com refused to say.
-    // Only on the suspect path, so a healthy fetch costs no extra requests.
-    if (onLog !== undefined && isGitHubHost(host)) {
+    // Ask api.github.com what raw.githubusercontent.com refused to say —
+    // but only while the fetch is still broken. Once the anonymous retry
+    // has produced both a usable config and an actionable warning, the
+    // extra probes would just make the caller wait for detail nobody is
+    // blocked on.
+    if (res.statusCode !== 200 && onLog !== undefined && isGitHubHost(host)) {
       const report = await diagnoseGitHubToken(http, token, repoLocation);
       onLog({
         level: 'warn',
@@ -194,7 +189,7 @@ export class UrlHubResolver implements HubResolver {
   public constructor(
     private readonly http: HttpClient,
     private readonly tokens: TokenProvider,
-    private readonly onLog?: HubResolverLog
+    private readonly onLog?: OnLogEvent
   ) {}
 
   /**
@@ -224,7 +219,7 @@ export class GitHubHubResolver implements HubResolver {
   public constructor(
     private readonly http: HttpClient,
     private readonly tokens: TokenProvider,
-    private readonly onLog?: HubResolverLog
+    private readonly onLog?: OnLogEvent
   ) {}
 
   /**

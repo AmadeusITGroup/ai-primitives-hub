@@ -12,7 +12,6 @@
  */
 import type {
   HttpClient,
-  LogEvent,
   OnLogEvent,
 } from '@ai-primitives-hub/core';
 import {
@@ -20,10 +19,6 @@ import {
   formatGitHubTokenReport,
   type GitHubTokenReport,
 } from '@ai-primitives-hub/infra';
-
-function log(onLog: OnLogEvent | undefined, level: LogEvent['level'], message: string, error?: Error): void {
-  onLog?.({ level, message, error });
-}
 
 /**
  * Outcome of validating a global GitHub credential.
@@ -58,11 +53,14 @@ export async function validateGlobalToken(
   const report = await diagnoseGitHubToken(http, token);
 
   if (report.userStatus === 401) {
-    log(onLog, 'warn', '[validateGlobalToken] The configured GitHub token was rejected by GitHub; '
-    + `ignoring it for this session and falling back to another credential: ${formatGitHubTokenReport(report)}`);
+    onLog?.({
+      level: 'warn',
+      message: '[validateGlobalToken] The configured GitHub token was rejected by GitHub; '
+        + `ignoring it for this session and falling back to another credential: ${formatGitHubTokenReport(report)}`
+    });
     return { rejected: true, report };
   }
 
-  log(onLog, 'debug', `[validateGlobalToken] Global GitHub token validated: ${formatGitHubTokenReport(report)}`);
+  onLog?.({ level: 'debug', message: `[validateGlobalToken] Global GitHub token validated: ${formatGitHubTokenReport(report)}` });
   return { rejected: false, report };
 }

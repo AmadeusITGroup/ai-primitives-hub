@@ -39,14 +39,19 @@ import {
 
 const fs = new NodeFileSystem();
 const clock = new SystemClock();
-const httpClient = new NodeHttpClient();
+/**
+ * Process-wide `HttpClient`. Exported so other extension-side callers that
+ * need raw HTTP (e.g. `RegistryManager`'s global-token probe) share this one
+ * instance instead of each constructing their own.
+ */
+export const sharedHttpClient = new NodeHttpClient();
 const processRunner = new NodeProcessRunner();
 const ghCliTokenProvider = new GhCliTokenProvider();
 
 const promptingDeps: SourceAdapterFactoryDeps = {
   fs,
   clock,
-  httpClient,
+  httpClient: sharedHttpClient,
   processRunner,
   fallbackTokenProviders: [new VsCodeSessionTokenProvider(true), ghCliTokenProvider]
 };
@@ -54,7 +59,7 @@ const promptingDeps: SourceAdapterFactoryDeps = {
 const silentDeps: SourceAdapterFactoryDeps = {
   fs,
   clock,
-  httpClient,
+  httpClient: sharedHttpClient,
   processRunner,
   fallbackTokenProviders: [new VsCodeSessionTokenProvider(false), ghCliTokenProvider]
 };

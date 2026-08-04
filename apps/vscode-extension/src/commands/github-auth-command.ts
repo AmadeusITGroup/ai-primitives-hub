@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import {
+  GITHUB_REQUIRED_SCOPES,
+} from '../adapters/vscode-session-token-provider';
+import {
   RegistryManager,
 } from '../services/registry-manager';
 import {
   Logger,
 } from '../utils/logger';
-
-/** Scopes the extension needs; private hubs are unreadable without `repo`. */
-const REQUIRED_SCOPES = ['repo'];
 
 /**
  * Command to force re-authentication with GitHub.
@@ -45,14 +45,14 @@ export class GitHubAuthCommand {
         // flow. `clearSessionPreference` additionally lets the user land
         // on a different account than the remembered one, which is the
         // other half of "my token is wrong" (right token, wrong account).
-        const session = await vscode.authentication.getSession('github', REQUIRED_SCOPES, {
+        const session = await vscode.authentication.getSession('github', GITHUB_REQUIRED_SCOPES, {
           forceNewSession: true,
           clearSessionPreference: true
         });
 
         this.logger.info(`[GitHubAuth] New GitHub session issued (account=${session.account.label}, scopes=[${session.scopes.join(', ')}])`);
 
-        const missingScopes = REQUIRED_SCOPES.filter((scope) => !session.scopes.includes(scope));
+        const missingScopes = GITHUB_REQUIRED_SCOPES.filter((scope) => !session.scopes.includes(scope));
         if (missingScopes.length > 0) {
           this.logger.warn(`[GitHubAuth] Session is missing required scope(s): ${missingScopes.join(', ')}. Private hubs will not be readable.`);
         }

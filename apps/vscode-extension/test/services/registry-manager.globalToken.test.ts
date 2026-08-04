@@ -26,41 +26,18 @@ import {
 import {
   RegistrySource,
 } from '../../src/types/registry';
+import {
+  createMockExtensionContext,
+} from '../helpers/extension-context-helpers';
 
-function makeContext(sandbox: sinon.SinonSandbox): vscode.ExtensionContext {
-  return {
-    globalState: {
-      get: sandbox.stub(),
-      update: sandbox.stub().resolves(),
-      keys: sandbox.stub().returns([]),
-      setKeysForSync: sandbox.stub()
-    } as any,
-    workspaceState: {
-      get: sandbox.stub(),
-      update: sandbox.stub().resolves(),
-      keys: sandbox.stub().returns([]),
-      setKeysForSync: sandbox.stub()
-    } as any,
-    subscriptions: [],
-    extensionPath: '/mock/path',
-    extensionUri: vscode.Uri.file('/mock/path'),
-    storageUri: vscode.Uri.file('/mock/storage'),
-    globalStorageUri: vscode.Uri.file('/mock/global'),
-    asAbsolutePath: (p: string) => `/mock/path/${p}`
-  } as any;
-}
-
-function makeGithubSource(overrides: Partial<RegistrySource> = {}): RegistrySource {
-  return {
-    id: 'gh-source',
-    name: 'GH Source',
-    type: 'github',
-    url: 'https://github.com/owner/repo',
-    enabled: true,
-    priority: 0,
-    ...overrides
-  };
-}
+const GITHUB_SOURCE: RegistrySource = {
+  id: 'gh-source',
+  name: 'GH Source',
+  type: 'github',
+  url: 'https://github.com/owner/repo',
+  enabled: true,
+  priority: 0
+};
 
 suite('RegistryManager - Global Token Rejection Behavior', () => {
   let sandbox: sinon.SinonSandbox;
@@ -68,6 +45,7 @@ suite('RegistryManager - Global Token Rejection Behavior', () => {
   let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
   let configStub: sinon.SinonStub;
   let warnMessageStub: sinon.SinonStub;
+  let factoryStub: sinon.SinonStub;
 
   setup(() => {
     sandbox = sinon.createSandbox();
@@ -81,10 +59,15 @@ suite('RegistryManager - Global Token Rejection Behavior', () => {
 
     warnMessageStub = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
 
-    manager = RegistryManager.getInstance(makeContext(sandbox));
+    factoryStub = sandbox.stub(InfraAdapterFactory, 'createRegistryAdapter').returns({
+      validate: sandbox.stub().resolves({ valid: true, errors: [] }),
+      fetchBundles: sandbox.stub().resolves([])
+    } as any);
+
+    manager = RegistryManager.getInstance(createMockExtensionContext(sandbox));
 
     mockStorage = sandbox.createStubInstance(RegistryStorage);
-    mockStorage.getSources.resolves([]);
+    mockStorage.getSources.resolves([GITHUB_SOURCE]);
     mockStorage.getProfiles.resolves([]);
     mockStorage.getInstalledBundles.resolves([]);
     mockStorage.addSource.resolves();
@@ -99,16 +82,7 @@ suite('RegistryManager - Global Token Rejection Behavior', () => {
   test('does not apply a rejected global token to a newly added source', async () => {
     nock('https://api.github.com').get('/user').reply(401, { message: 'Bad credentials' });
 
-    const mockAdapter = {
-      validate: sandbox.stub().resolves({ valid: true, errors: [] }),
-      fetchBundles: sandbox.stub().resolves([])
-    };
-    const factoryStub = sandbox.stub(InfraAdapterFactory, 'createRegistryAdapter').returns(mockAdapter as any);
-
-    const source = makeGithubSource();
-    mockStorage.getSources.resolves([source]);
-
-    await manager.addSource(source);
+    await manager.addSource(GITHUB_SOURCE);
 
     assert.ok(factoryStub.called, 'Adapter factory should be called');
     const enrichedSource = factoryStub.firstCall.args[0];
@@ -121,16 +95,7 @@ suite('RegistryManager - Global Token Rejection Behavior', () => {
   test('applies the global token to a newly added source when it is valid', async () => {
     nock('https://api.github.com').get('/user').reply(200, { login: 'octocat' }, { 'x-oauth-scopes': 'repo' });
 
-    const mockAdapter = {
-      validate: sandbox.stub().resolves({ valid: true, errors: [] }),
-      fetchBundles: sandbox.stub().resolves([])
-    };
-    const factoryStub = sandbox.stub(InfraAdapterFactory, 'createRegistryAdapter').returns(mockAdapter as any);
-
-    const source = makeGithubSource();
-    mockStorage.getSources.resolves([source]);
-
-    await manager.addSource(source);
+    await manager.addSource(GITHUB_SOURCE);
 
     const enrichedSource = factoryStub.firstCall.args[0];
     assert.strictEqual(enrichedSource.token, 'stale-token', 'A validated global token should still be applied');
@@ -140,19 +105,10 @@ suite('RegistryManager - Global Token Rejection Behavior', () => {
   test('probes the global token only once across multiple operations (memoization)', async () => {
     const userScope = nock('https://api.github.com').get('/user').reply(401, { message: 'Bad credentials' });
 
-    const mockAdapter = {
-      validate: sandbox.stub().resolves({ valid: true, errors: [] }),
-      fetchBundles: sandbox.stub().resolves([])
-    };
-    sandbox.stub(InfraAdapterFactory, 'createRegistryAdapter').returns(mockAdapter as any);
-
-    const source = makeGithubSource();
-    mockStorage.getSources.resolves([source]);
-
     // addSource() and validateSource() both call ensureGlobalTokenChecked();
     // the second call must not re-probe api.github.com.
-    await manager.addSource(source);
-    await manager.validateSource(source);
+    await manager.addSource(GITHUB_SOURCE);
+    await manager.validateSource(GITHUB_SOURCE);
 
     assert.strictEqual(userScope.pendingMocks().length, 0, 'The single /user mock should have been consumed exactly once');
     assert.strictEqual(warnMessageStub.callCount, 1, 'The rejection warning should only fire once per session');
@@ -163,16 +119,7 @@ suite('RegistryManager - Global Token Rejection Behavior', () => {
       get: sandbox.stub().withArgs('githubToken', '').returns('')
     } as any);
 
-    const mockAdapter = {
-      validate: sandbox.stub().resolves({ valid: true, errors: [] }),
-      fetchBundles: sandbox.stub().resolves([])
-    };
-    const factoryStub = sandbox.stub(InfraAdapterFactory, 'createRegistryAdapter').returns(mockAdapter as any);
-
-    const source = makeGithubSource();
-    mockStorage.getSources.resolves([source]);
-
-    await manager.addSource(source);
+    await manager.addSource(GITHUB_SOURCE);
 
     const enrichedSource = factoryStub.firstCall.args[0];
     assert.strictEqual(enrichedSource.token, undefined);

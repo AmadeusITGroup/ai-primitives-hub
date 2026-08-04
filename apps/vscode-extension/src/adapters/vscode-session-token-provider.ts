@@ -24,6 +24,14 @@ import {
   Logger,
 } from '../utils/logger';
 
+/**
+ * Scopes every GitHub session this extension requests must carry; private
+ * hubs and repositories are unreadable without `repo`. Single source of
+ * truth for the scope list, shared with the account picker
+ * (`utils/github-account-prompt.ts`) and the force-auth command.
+ */
+export const GITHUB_REQUIRED_SCOPES = ['repo'];
+
 export class VsCodeSessionTokenProvider implements TokenProvider {
   private readonly logger = Logger.getInstance();
 
@@ -43,7 +51,7 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
     }
     try {
       this.logger.debug('[VsCodeSessionTokenProvider] Trying VS Code GitHub authentication...');
-      const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: this.createIfNone });
+      const session = await vscode.authentication.getSession('github', GITHUB_REQUIRED_SCOPES, { createIfNone: this.createIfNone });
       if (session) {
         this.logger.info('[VsCodeSessionTokenProvider] Using VS Code GitHub authentication');
         return session.accessToken;

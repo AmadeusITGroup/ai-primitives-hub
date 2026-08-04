@@ -28,14 +28,14 @@ import {
 } from '@ai-primitives-hub/app';
 import type {
   LogEvent,
-} from '@ai-primitives-hub/app';
+} from '@ai-primitives-hub/core';
 import {
   GitHubAdapter as InfraGitHubAdapter,
-  NodeHttpClient,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
   createRegistryAdapter,
+  sharedHttpClient,
 } from '../adapters/infra-adapter-factory';
 import {
   IRepositoryAdapter,
@@ -81,6 +81,9 @@ import {
   generateLegacyHubSourceId,
 } from '../utils/source-id-utils';
 import {
+  toError,
+} from '../utils/type-guards';
+import {
   VersionManager,
 } from '../utils/version-manager';
 import {
@@ -98,6 +101,9 @@ import {
 import {
   LockfileManager,
 } from './lockfile-manager';
+import {
+  NotificationManager,
+} from './notification-manager';
 import {
   VersionConsolidator,
 } from './version-consolidator';
@@ -234,7 +240,7 @@ export class RegistryManager {
       if (globalToken === undefined) {
         return;
       }
-      const { rejected, report } = await validateGlobalToken(new NodeHttpClient(), globalToken, (event) => this.forwardLogEvent(event));
+      const { rejected, report } = await validateGlobalToken(sharedHttpClient, globalToken, (event) => this.forwardLogEvent(event));
       if (rejected) {
         this.globalTokenRejected = true;
         this.notifyGlobalTokenRejected(report.token);
@@ -256,8 +262,9 @@ export class RegistryManager {
   private notifyGlobalTokenRejected(tokenDescriptor: string): void {
     const openSettings = 'Open Settings';
     const clearToken = 'Clear Token';
+    const notifications = NotificationManager.getInstance();
 
-    void vscode.window.showWarningMessage(
+    void notifications.showWarning(
       `AI Primitives Hub: the GitHub token in your 'promptregistry.githubToken' setting has expired or been revoked (${tokenDescriptor}). `
       + 'It is being ignored; your signed-in GitHub session will be used instead. Private repositories may be unavailable until you clear or replace it.',
       openSettings,
@@ -270,10 +277,10 @@ export class RegistryManager {
       if (choice === clearToken) {
         try {
           await vscode.workspace.getConfiguration('promptregistry').update('githubToken', '', vscode.ConfigurationTarget.Global);
-          vscode.window.showInformationMessage('Expired GitHub token cleared. Reload the window or re-sync your sources to pick up the change.');
+          await notifications.showInfo('Expired GitHub token cleared. Reload the window or re-sync your sources to pick up the change.');
         } catch (error) {
-          this.logger.error('[RegistryManager] Failed to clear \'promptregistry.githubToken\'', error as Error);
-          vscode.window.showErrorMessage(`Could not clear the setting: ${error instanceof Error ? error.message : String(error)}`);
+          this.logger.error('[RegistryManager] Failed to clear \'promptregistry.githubToken\'', toError(error));
+          await notifications.showError(`Could not clear the setting: ${toError(error).message}`);
         }
       }
     });
@@ -291,24 +298,23 @@ export class RegistryManager {
     }
 
     const globalToken = this.getConfiguredGlobalToken();
+    if (globalToken === undefined) {
+      return source;
+    }
 
     // A credential GitHub has already rejected can only turn a working
     // session into a 401, so leave the source untokenized and let the
     // adapter's own auth chain supply a live credential instead.
-    if (globalToken !== undefined && this.globalTokenRejected) {
+    if (this.globalTokenRejected) {
       this.logger.debug(`[RegistryManager] Skipping rejected global GitHub token for source '${source.id}'; using the adapter's own authentication chain`);
       return source;
     }
 
-    if (globalToken !== undefined) {
-      this.logger.debug(`[RegistryManager] Applying global GitHub token to source '${source.id}'`);
-      return {
-        ...source,
-        token: globalToken
-      };
-    }
-
-    return source;
+    this.logger.debug(`[RegistryManager] Applying global GitHub token to source '${source.id}'`);
+    return {
+      ...source,
+      token: globalToken
+    };
   }
 
   /**
@@ -789,8 +795,12 @@ export class RegistryManager {
    */
   public async initialize(): Promise<void> {
     this.logger.info('Initializing AI Primitives Hub...');
-    await this.storage.initialize();
-    await this.ensureGlobalTokenChecked();
+    // The token probe reads only the `promptregistry.githubToken` setting, so
+    // it does not depend on storage; running the two together hides its
+    // network round-trip behind the disk work instead of adding it to
+    // activation. `loadAdapters` is the one real ordering dependency — it
+    // reads `globalTokenRejected`.
+    await Promise.all([this.storage.initialize(), this.ensureGlobalTokenChecked()]);
     await this.loadAdapters();
     this.logger.info('AI Primitives Hub initialized successfully');
   }

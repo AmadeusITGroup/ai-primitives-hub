@@ -31,6 +31,7 @@ function httpFor(routes: (req: HttpRequest) => HttpResponse): HttpClient {
 
 // gho_ prefix + 36 chars = 40 total, matching the expected redacted descriptor below
 const VALID_TOKEN = 'gho_' + 'a'.repeat(36);
+const REDACTED_TOKEN = '***<len=40,tail=aaaa>';
 
 describe('diagnoseGitHubToken', () => {
   it('identifies a rejected credential from a 401 on /user', async () => {
@@ -107,6 +108,6 @@ describe('diagnoseGitHubToken', () => {
     const rendered = formatGitHubTokenReport(report);
 
     expect(rendered).not.toContain(VALID_TOKEN);
-    expect(rendered).toContain('gho_*** (length 40)');
+    expect(rendered).toContain(REDACTED_TOKEN);
   });
 });

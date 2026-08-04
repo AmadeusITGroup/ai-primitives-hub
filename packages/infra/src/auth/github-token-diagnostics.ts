@@ -14,19 +14,23 @@
  * (`x-github-sso`), wrong account (`login`), or genuinely no access to
  * that repo (403/404 on the repo endpoint while `/user` succeeds).
  *
- * Token values never appear in the output, only a prefix + length
- * descriptor.
+ * Token values never appear in the output, only the package-wide
+ * `redactToken` descriptor.
  * @module auth/github-token-diagnostics
  */
 import type {
   HttpClient,
 } from '@ai-primitives-hub/core';
-
-/** GitHub API endpoint that validates a credential and reports its scopes. */
-const GITHUB_USER_ENDPOINT = 'https://api.github.com/user';
+import {
+  redactToken,
+} from '../harvest/token-provider';
+import {
+  GITHUB_API_BASE_URL,
+  GITHUB_API_USER_AGENT,
+} from '../http/github-api-client';
 
 export interface GitHubTokenReport {
-  /** Redacted token descriptor (prefix + length). */
+  /** Redacted token descriptor (`redactToken`: length + last four chars). */
   token: string;
   /** Status of `GET /user`; absent when the request never completed. */
   userStatus?: number;
@@ -42,18 +46,6 @@ export interface GitHubTokenReport {
   error?: string;
   /** Plain-language conclusion drawn from the probes. */
   verdict: string;
-}
-
-/**
- * Describe a token by prefix and length only, so logs can identify which
- * credential was used without exposing it.
- * @param token The token to describe.
- * @returns A redacted descriptor.
- */
-export function describeToken(token: string): string {
-  const separatorIndex = token.indexOf('_');
-  const prefix = separatorIndex > 0 ? token.slice(0, separatorIndex + 1) : '(no prefix)';
-  return `${prefix}*** (length ${token.length})`;
 }
 
 /**
@@ -104,14 +96,14 @@ export async function diagnoseGitHubToken(
   token: string,
   repoLocation?: string
 ): Promise<GitHubTokenReport> {
-  const report: GitHubTokenReport = { token: describeToken(token), verdict: '' };
+  const report: GitHubTokenReport = { token: redactToken(token), verdict: '' };
 
   // Same header shape the hub fetch uses, so a rejection here reproduces
   // the rejection there rather than testing a different credential path.
-  const headers = { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'ai-primitives-hub' };
+  const headers = { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': GITHUB_API_USER_AGENT };
 
   try {
-    const userRes = await http.fetch({ url: GITHUB_USER_ENDPOINT, headers, maxRedirects: 5 });
+    const userRes = await http.fetch({ url: `${GITHUB_API_BASE_URL}/user`, headers, maxRedirects: 5 });
     report.userStatus = userRes.statusCode;
     report.scopes = userRes.headers['x-oauth-scopes'];
     if (userRes.statusCode === 200) {
@@ -123,7 +115,7 @@ export async function diagnoseGitHubToken(
       }
 
       if (repoLocation !== undefined) {
-        const repoRes = await http.fetch({ url: `https://api.github.com/repos/${repoLocation}`, headers, maxRedirects: 5 });
+        const repoRes = await http.fetch({ url: `${GITHUB_API_BASE_URL}/repos/${repoLocation}`, headers, maxRedirects: 5 });
         report.repoStatus = repoRes.statusCode;
         report.sso = repoRes.headers['x-github-sso'];
       }

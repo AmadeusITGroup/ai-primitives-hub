@@ -39,6 +39,22 @@ export class NotificationManager {
   }
 
   /**
+   * Show warning notification with automatic logging
+   * @param message - The warning message to display
+   * @param actions - Optional action button labels
+   * @returns The label of the action button clicked by user, or undefined if dismissed
+   * @example
+   * const action = await notificationManager.showWarning('Token expired', 'Open Settings');
+   * if (action === 'Open Settings') {
+   *     // Reveal the setting
+   * }
+   */
+  public async showWarning(message: string, ...actions: string[]): Promise<string | undefined> {
+    this.logger.warn(`Notification (Warning): ${message}`);
+    return await vscode.window.showWarningMessage(message, ...actions);
+  }
+
+  /**
    * Show error notification with automatic logging
    * @param message - The error message to display
    * @param actions - Optional action button labels
