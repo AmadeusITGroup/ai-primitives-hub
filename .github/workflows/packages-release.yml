@@ -1,0 +1,160 @@
+name: Release @ai-primitives-hub packages to npmjs
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Semantic version bump"
+        required: true
+        default: "prerelease"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+      preid:
+        description: "Prerelease id (only used when release-type is prerelease)"
+        required: false
+        default: "alpha"
+        type: string
+      packages:
+        description: "Packages to release"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - core
+          - infra
+          - app
+          - cli
+      npm_tag:
+        description: "npm distribution tag"
+        required: true
+        default: "next"
+        type: choice
+        options:
+          - latest
+          - next
+          - alpha
+          - beta
+      dry_run:
+        description: "Dry run: bump and build, but do not commit, tag, or publish"
+        required: false
+        default: true
+        type: boolean
+      skip_checks:
+        description: "Skip lint/build/test gates"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  release:
+    name: Bump, tag and publish packages
+    runs-on: ubuntu-latest
+    environment: npmjs
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Lint, build and test packages
+        if: ${{ !inputs.skip_checks }}
+        run: |
+          pnpm --filter '@ai-primitives-hub/*' lint
+          pnpm --filter '@ai-primitives-hub/*' build
+          pnpm --filter '@ai-primitives-hub/*' test
+
+      - name: Determine package selector
+        id: selector
+        run: |
+          if [ "${{ inputs.packages }}" = "all" ]; then
+            echo "selector=@ai-primitives-hub/*" >> "$GITHUB_OUTPUT"
+            echo "names=core infra app cli" >> "$GITHUB_OUTPUT"
+          else
+            echo "selector=@ai-primitives-hub/${{ inputs.packages }}" >> "$GITHUB_OUTPUT"
+            echo "names=${{ inputs.packages }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump package versions
+        id: bump
+        run: |
+          PREID_ARG=""
+          if [ "${{ inputs.release_type }}" = "prerelease" ]; then
+            PREID_ARG="--preid ${{ inputs.preid }}"
+          fi
+          pnpm version ${{ inputs.release_type }} $PREID_ARG -r --filter "${{ steps.selector.outputs.selector }}" --no-git-tag-version
+
+      - name: Update lockfile
+        run: pnpm install --lockfile-only
+
+      - name: Show versions to release
+        run: |
+          for name in ${{ steps.selector.outputs.names }}; do
+            version=$(node -p "require('./packages/$name/package.json').version")
+            echo "$name -> $version"
+          done
+
+      - name: Commit and push version bump
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git add pnpm-lock.yaml packages/*/package.json
+          git commit -m "chore(release): bump @ai-primitives-hub packages"
+          git push origin "HEAD:${{ github.ref_name }}"
+
+      - name: Create and push git tags
+        if: ${{ !inputs.dry_run }}
+        run: |
+          for name in ${{ steps.selector.outputs.names }}; do
+            version=$(node -p "require('./packages/$name/package.json').version")
+            tag="packages/${name}-v${version}"
+            git tag "$tag"
+            git push origin "refs/tags/${tag}:refs/tags/${tag}"
+          done
+
+      - name: Publish packages to npmjs
+        if: ${{ !inputs.dry_run }}
+        run: |
+          for name in ${{ steps.selector.outputs.names }}; do
+            echo "Publishing @ai-primitives-hub/$name ..."
+            pnpm --filter "@ai-primitives-hub/$name" publish \
+              --access public \
+              --tag "${{ inputs.npm_tag }}" \
+              --no-git-checks \
+              --provenance
+          done
