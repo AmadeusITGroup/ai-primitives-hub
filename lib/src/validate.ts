@@ -25,19 +25,44 @@ import type {
  * @returns Array of valid item kinds
  */
 export function loadItemKindsFromSchema(schemaDir?: string): string[] {
-  try {
-    const schemaPath = schemaDir
-      ? path.join(schemaDir, 'collection.schema.json')
-      : path.join(__dirname, '..', '..', 'schemas', 'collection.schema.json');
-    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
-    const kinds = schema?.properties?.items?.items?.properties?.kind?.enum;
-    if (Array.isArray(kinds) && kinds.length > 0) {
-      return kinds;
+  const schemaPaths = schemaDir === undefined
+    ? [
+      path.join(__dirname, '..', '..', 'schemas', 'collection.schema.json'),
+      path.join(__dirname, '..', '..', '..', 'schemas', 'collection.schema.json')
+    ]
+    : [path.join(schemaDir, 'collection.schema.json')];
+  for (const schemaPath of schemaPaths) {
+    try {
+      const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+      const kinds = schema?.properties?.items?.items?.properties?.kind?.enum;
+      if (Array.isArray(kinds) && kinds.length > 0) {
+        return kinds;
+      }
+    } catch {
+      // Try the next candidate path before using the resilience fallback.
     }
-  } catch {
-    // Schema unavailable or malformed, use fallback
   }
-  return ['prompt', 'instruction', 'agent', 'skill'];
+
+  // Schema unavailable or malformed, use fallback.
+  return [
+    'prompt',
+    'instruction',
+    'chat-mode',
+    'agent',
+    'skill',
+    'plugin',
+    'hook',
+    'mcp-server',
+    'steering',
+    'spec',
+    'command',
+    'rule',
+    'output-style',
+    'tool',
+    'power',
+    'knowledge',
+    'playbook'
+  ];
 }
 
 /**
@@ -58,8 +83,7 @@ export const VALIDATION_RULES: ValidationRules = {
   },
   itemKinds: loadItemKindsFromSchema(),
   deprecatedKinds: {
-    chatmode: 'agent',
-    'chat-mode': 'agent'
+    chatmode: 'agent'
   }
 };
 

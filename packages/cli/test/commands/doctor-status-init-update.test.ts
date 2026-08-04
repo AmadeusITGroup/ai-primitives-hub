@@ -11,6 +11,7 @@
  * approach in install.test.ts/uninstall.test.ts.
  */
 import {
+  access,
   mkdir,
   mkdtemp,
   rm,
@@ -118,11 +119,77 @@ describe('doctor/status/init/update commands', () => {
   describe('doctor diagnostics', () => {
     it('runs the full self-contained smoke test successfully', async () => {
       const result = await run(['doctor', 'diagnostics', '-o', 'json']);
-      const envelope = parseJson<{ ok: boolean; steps: { name: string; exitCode: number }[] }>(result.stdout);
+      const envelope = parseJson<{
+        ok: boolean;
+        workspace: string;
+        workspaceRetained: boolean;
+        steps: { name: string; exitCode: number }[];
+      }>(result.stdout);
       const failed = envelope.data.steps.filter((s) => s.exitCode !== 0);
+      const stepNames = envelope.data.steps.map((step) => step.name);
       expect(failed).toEqual([]);
       expect(envelope.data.ok).toBe(true);
+      expect(envelope.data.workspaceRetained).toBe(false);
+      expect(stepNames).toEqual(expect.arrayContaining([
+        'index-bench',
+        'index-report',
+        'build-governed-bundle',
+        'verify-governed-archive',
+        'materialize-governed-bundle',
+        'install-governed-bundle',
+        'verify-governed-install',
+        'uninstall-governed-bundle',
+        'verify-governed-removed',
+        'collection-affected',
+        'version-compute',
+        'config-list',
+        'target-remove',
+        'hub-remove'
+      ]));
+      await expect(access(envelope.data.workspace)).rejects.toThrow();
       expect(result.exitCode).toBe(0);
+    }, 60_000);
+
+    it('retains the diagnostic workspace when explicitly requested', async () => {
+      const result = await run(['doctor', 'diagnostics', '--retain-workspace', '-o', 'json']);
+      const envelope = parseJson<{
+        ok: boolean;
+        workspace: string;
+        workspaceRetained: boolean;
+        steps: {
+          name: string;
+          exitCode: number;
+          output?: { formatVersion?: number; inventoryCount?: number };
+        }[];
+      }>(result.stdout);
+
+      try {
+        expect(result.exitCode).toBe(0);
+        expect(envelope.data.ok).toBe(true);
+        expect(envelope.data.workspaceRetained).toBe(true);
+        await expect(access(envelope.data.workspace)).resolves.toBeUndefined();
+        await expect(access(path.join(
+          envelope.data.workspace,
+          'collections',
+          'governed.collection.yml'
+        ))).resolves.toBeUndefined();
+        await expect(access(path.join(
+          envelope.data.workspace,
+          'governed-dist',
+          'governed-foo',
+          'governed-foo.bundle.zip'
+        ))).resolves.toBeUndefined();
+        await expect(access(path.join(envelope.data.workspace, '.git', 'HEAD'))).resolves.toBeUndefined();
+
+        const archiveStep = envelope.data.steps.find((step) => step.name === 'verify-governed-archive');
+        expect(archiveStep?.exitCode).toBe(0);
+        expect(archiveStep?.output).toMatchObject({
+          formatVersion: 1
+        });
+        expect(archiveStep?.output?.inventoryCount).toBeGreaterThan(0);
+      } finally {
+        await rm(envelope.data.workspace, { recursive: true, force: true });
+      }
     }, 60_000);
   });
 

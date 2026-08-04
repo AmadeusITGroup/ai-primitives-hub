@@ -100,6 +100,10 @@ export {
   findProjectLockfile,
   loadTargets,
   lockfilePathForTarget,
+  resolveEffectiveTarget,
+} from './target';
+export type {
+  TargetOverrides,
 } from './target';
 export {
   copyCommandPrototype,

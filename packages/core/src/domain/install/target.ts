@@ -16,6 +16,12 @@
  * @module domain/install/target
  */
 import type {
+  PrimitiveKind,
+} from '../primitive/types';
+import {
+  isPrimitiveKind,
+} from '../primitive/types';
+import type {
   InstallationScope,
   RepositoryCommitMode,
 } from './types';
@@ -28,8 +34,13 @@ export const TARGET_TYPES = [
   'vscode-insiders',
   'copilot-cli',
   'kiro',
+  'kiro-cli',
   'windsurf',
-  'claude-code'
+  'claude-code',
+  'cursor',
+  'opencode',
+  'devin',
+  'devin-cli'
 ] as const;
 
 /**
@@ -52,7 +63,7 @@ export interface TargetBase {
   /** Override the platform-default config path for this target. */
   path?: string;
   /** Restrict which primitive kinds this target accepts, e.g. `['prompt', 'agent']`. */
-  allowedKinds?: string[];
+  allowedKinds?: PrimitiveKind[];
 }
 
 export interface VsCodeTarget extends TargetBase {
@@ -67,12 +78,32 @@ export interface KiroTarget extends TargetBase {
   type: 'kiro';
 }
 
+export interface KiroCliTarget extends TargetBase {
+  type: 'kiro-cli';
+}
+
 export interface WindsurfTarget extends TargetBase {
   type: 'windsurf';
 }
 
 export interface ClaudeCodeTarget extends TargetBase {
   type: 'claude-code';
+}
+
+export interface CursorTarget extends TargetBase {
+  type: 'cursor';
+}
+
+export interface OpencodeTarget extends TargetBase {
+  type: 'opencode';
+}
+
+export interface DevinTarget extends TargetBase {
+  type: 'devin';
+}
+
+export interface DevinCliTarget extends TargetBase {
+  type: 'devin-cli';
 }
 
 /**
@@ -82,8 +113,13 @@ export type Target =
   | VsCodeTarget
   | CopilotCliTarget
   | KiroTarget
+  | KiroCliTarget
   | WindsurfTarget
-  | ClaudeCodeTarget;
+  | ClaudeCodeTarget
+  | CursorTarget
+  | OpencodeTarget
+  | DevinTarget
+  | DevinCliTarget;
 
 const INSTALLATION_SCOPES: readonly string[] = ['user', 'workspace', 'repository'];
 const COMMIT_MODES: readonly string[] = ['commit', 'local-only'];
@@ -110,6 +146,11 @@ export function isTarget(value: unknown): value is Target {
     return false;
   }
   if (candidate.commitMode !== undefined && !COMMIT_MODES.includes(candidate.commitMode as string)) {
+    return false;
+  }
+  if (candidate.allowedKinds !== undefined
+    && (!Array.isArray(candidate.allowedKinds)
+      || candidate.allowedKinds.some((kind) => !isPrimitiveKind(kind)))) {
     return false;
   }
   return true;

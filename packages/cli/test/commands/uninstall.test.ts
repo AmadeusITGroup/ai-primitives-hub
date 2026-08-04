@@ -37,6 +37,10 @@ import {
 import {
   runCommand,
 } from '../../src/framework';
+import {
+  createGovernedReleaseArchive,
+  writeReleaseArchive,
+} from '../fixtures/release-archives';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -108,6 +112,28 @@ describe('uninstall command', () => {
     expect(lockContent.bundles).toEqual({});
   });
 
+  it('uninstalls a governed bundle using installable-only lockfile paths', async () => {
+    const initialUninstall = await run(['uninstall', '--bundle', 'local-foo', '--target', 'copilot', '-o', 'json']);
+    expect(initialUninstall.exitCode).toBe(0);
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo' }));
+
+    const installResult = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+    expect(installResult.exitCode).toBe(0);
+    await expect(readFile(installedFile(), 'utf8')).resolves.toContain('Hello Prompt');
+
+    const uninstallResult = await run(['uninstall', '--bundle', 'local-foo', '--target', 'copilot', '-o', 'json']);
+    expect(uninstallResult.exitCode).toBe(0);
+    await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
+
+    const envelope = parseJson<{ lockfile: string }>(uninstallResult.stdout);
+    const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
+      bundles: Record<string, unknown>;
+    };
+    expect(lockContent.bundles).toEqual({});
+  });
+
   it('is a warning no-op (exit 0) when the bundle is not installed', async () => {
     await run(['uninstall', '--bundle', 'local-foo', '--target', 'copilot', '-o', 'json']);
     const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'copilot', '-o', 'json']);
@@ -126,6 +152,27 @@ describe('uninstall command', () => {
 
     const stillInstalled = await readFile(installedFile(), 'utf8');
     expect(stillInstalled).toContain('Hello Prompt');
+  });
+
+  it('round-trips repository scope: removes files from the same layout used by install', async () => {
+    const installResult = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot',
+      '--scope', 'repository', '-o', 'json'
+    ]);
+    expect(installResult.exitCode).toBe(0);
+
+    const repositoryFile = path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md');
+    await expect(readFile(repositoryFile, 'utf8')).resolves.toContain('Hello Prompt');
+
+    const uninstallResult = await run([
+      'uninstall', '--bundle', 'local-foo', '--target', 'copilot',
+      '--scope', 'repository', '-o', 'json'
+    ]);
+    expect(uninstallResult.exitCode).toBe(0);
+    const envelope = parseJson<{ removed: string[]; lockfile: string }>(uninstallResult.stdout);
+    expect(envelope.data.removed.length).toBeGreaterThan(0);
+    await expect(readFile(repositoryFile, 'utf8')).rejects.toThrow();
+    await expect(readFile(envelope.data.lockfile, 'utf8')).rejects.toThrow();
   });
 
   it('--all removes every installed bundle for the target', async () => {

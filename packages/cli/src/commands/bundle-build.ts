@@ -23,16 +23,23 @@ import {
   existsSync,
   unlinkSync,
 } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
-  readCollection,
-  resolveCollectionItemPaths,
-  resolveCollectionReadmePath,
-} from '@ai-primitives-hub/app';
-import {
-  generateBundleId,
   normalizeRepoRelativePath,
+  validateManifest,
 } from '@ai-primitives-hub/core';
+import {
+  ZipBundleExtractor,
+} from '@ai-primitives-hub/infra';
+import {
+  createLegacyReleaseManifestPlan,
+  createReleaseManifestPlan,
+  generateBundleId,
+  isMissingSourceLicenseError,
+  LEGACY_RELEASE_WARNING,
+  serializeReleaseManifest,
+} from '@prompt-registry/collection-scripts';
 import archiver from 'archiver';
 import {
   Command,
@@ -44,7 +51,6 @@ import {
   renderError,
 } from '../framework';
 import {
-  generateBundleManifest,
   resolveCollectionFile,
 } from './bundle-manifest';
 
@@ -67,17 +73,15 @@ const FIXED_DATE = new Date('1980-01-01T00:00:00.000Z');
 /**
  * Create a deterministic ZIP archive with fixed timestamps and sorted entries.
  * @param input - Zip creation parameters.
- * @param input.repoRoot
  * @param input.zipPath
- * @param input.manifestPath
- * @param input.itemPaths
+ * @param input.manifest
+ * @param input.entries
  * @returns Promise that resolves when the ZIP is created.
  */
 const createDeterministicZip = (input: {
-  repoRoot: string;
   zipPath: string;
-  manifestPath: string;
-  itemPaths: string[];
+  manifest: string;
+  entries: { path: string; bytes: Uint8Array }[];
 }): Promise<void> => {
   // The single archiver/streams use site in this command file.
   // Reproducible timestamps, sorted entry order, max zlib compression.
@@ -116,13 +120,15 @@ const createDeterministicZip = (input: {
       reject(err);
     });
     archive.pipe(output);
-    archive.file(input.manifestPath, { name: 'deployment-manifest.yml', date: FIXED_DATE });
-    const sorted = input.itemPaths
-      .map((p) => normalizeRepoRelativePath(p))
-      .toSorted((a, b) => a.localeCompare(b));
-    for (const rel of sorted) {
-      const abs = path.join(input.repoRoot, rel);
-      archive.file(abs, { name: rel, date: FIXED_DATE });
+    archive.append(input.manifest, { name: 'deployment-manifest.yml', date: FIXED_DATE });
+    const sorted = input.entries
+      .map((entry) => ({
+        path: normalizeRepoRelativePath(entry.path),
+        bytes: entry.bytes
+      }))
+      .toSorted((a, b) => (a.path < b.path ? -1 : (a.path > b.path ? 1 : 0)));
+    for (const entry of sorted) {
+      archive.append(Buffer.from(entry.bytes), { name: entry.path, date: FIXED_DATE });
     }
     archive.finalize().catch(() => { /* handled by archive.on('error') above */ });
   });
@@ -180,7 +186,7 @@ export class BundleBuildCommand extends Command {
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
     const fmt = (this.output ?? 'text');
-    const version = this.version ?? '';
+    const version = this.version ?? '0.0.0-dev';
 
     try {
       const cwd = ctx.cwd();
@@ -192,8 +198,26 @@ export class BundleBuildCommand extends Command {
       // injected working directories (Context invariant).
       const outDirRel = this.outDir ?? 'dist';
       const outDir = path.isAbsolute(outDirRel) ? outDirRel : path.join(cwd, outDirRel);
-      const collection = readCollection(cwd, collectionFile);
-      const collectionId = collection.id;
+      const warnings: string[] = [];
+      let releasePlan;
+      try {
+        releasePlan = createReleaseManifestPlan({
+          repoRoot: cwd,
+          collectionFile,
+          version
+        });
+      } catch (err) {
+        if (!isMissingSourceLicenseError(err)) {
+          throw err;
+        }
+        releasePlan = createLegacyReleaseManifestPlan({
+          repoRoot: cwd,
+          collectionFile,
+          version
+        });
+        warnings.push(LEGACY_RELEASE_WARNING);
+      }
+      const collectionId = String(releasePlan.manifest.id);
       if (typeof collectionId !== 'string' || collectionId.length === 0) {
         throw new RegistryError({
           code: 'BUNDLE.INVALID_MANIFEST',
@@ -205,33 +229,16 @@ export class BundleBuildCommand extends Command {
       const collectionOutDir = path.join(outDir, collectionId);
       await ctx.fs.mkdir(collectionOutDir, { recursive: true });
 
-      // Generate the deployment-manifest.yml in the bundle output
-      // directory by calling `bundle manifest`'s exported helper
-      // in-process (its own errors propagate via the same try/catch).
       const standaloneManifestPath = path.join(collectionOutDir, 'deployment-manifest.yml');
-      // Suppress the manifest sub-step's own stdout envelope so it
-      // doesn't pollute this command's output. The OutputStream
-      // contract is just `{ write(chunk: string): void }`.
-      const subCtx: Context = {
-        ...ctx,
-        stdout: { write: () => undefined }
-      };
-      await generateBundleManifest(
-        subCtx,
-        cwd,
-        { output: 'json', version, collectionFile },
-        standaloneManifestPath
-      );
-
-      const itemPaths = resolveCollectionItemPaths(cwd, collection);
-      const readmeAsset = resolveCollectionReadmePath(collection);
+      const manifestYaml = serializeReleaseManifest(releasePlan.manifest);
+      await ctx.fs.writeFile(standaloneManifestPath, manifestYaml);
       const zipPath = path.join(collectionOutDir, `${collectionId}.bundle.zip`);
       await createDeterministicZip({
-        repoRoot: cwd,
         zipPath,
-        manifestPath: standaloneManifestPath,
-        itemPaths
+        manifest: manifestYaml,
+        entries: releasePlan.entries
       });
+      await validateBuiltArchive(zipPath, collectionId, version);
 
       const data: BundleBuildData = {
         collectionId,
@@ -239,15 +246,16 @@ export class BundleBuildCommand extends Command {
         outDir: collectionOutDir.replaceAll('\\', '/'),
         manifestAsset: standaloneManifestPath.replaceAll('\\', '/'),
         zipAsset: zipPath.replaceAll('\\', '/'),
-        ...(readmeAsset ? { readmeAsset: readmeAsset.replaceAll('\\', '/') } : {}),
+        ...(releasePlan.readmeSourcePath ? { readmeAsset: releasePlan.readmeSourcePath.replaceAll('\\', '/') } : {}),
         bundleId
       };
       formatOutput({
         ctx,
         command: 'bundle.build',
         output: fmt,
-        status: 'ok',
+        status: warnings.length > 0 ? 'warning' : 'ok',
         data,
+        warnings,
         textRenderer: (d) =>
           `Built ${d.zipAsset} (bundle id: ${d.bundleId}, version: ${d.version})\n`
       });
@@ -265,3 +273,18 @@ export class BundleBuildCommand extends Command {
     }
   }
 }
+
+/**
+ * Verify the exact bytes written to the ZIP satisfy the release contract.
+ * @param zipPath
+ * @param collectionId
+ * @param version
+ */
+const validateBuiltArchive = async (
+  zipPath: string,
+  collectionId: string,
+  version: string
+): Promise<void> => {
+  const files = await new ZipBundleExtractor().extract(await fs.readFile(zipPath));
+  validateManifest(files, { expectedId: collectionId, expectedVersion: version });
+};

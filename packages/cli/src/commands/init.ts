@@ -69,8 +69,13 @@ function getTargetTypeDisplayName(type: TargetType): string {
     'vscode-insiders': 'Visual Studio Code Insiders',
     'copilot-cli': 'GitHub Copilot CLI',
     kiro: 'Kiro IDE',
+    'kiro-cli': 'Kiro CLI',
     windsurf: 'Windsurf Editor',
-    'claude-code': 'Anthropic Claude Code'
+    'claude-code': 'Anthropic Claude Code',
+    cursor: 'Cursor',
+    opencode: 'OpenCode',
+    devin: 'Devin',
+    'devin-cli': 'Devin CLI'
   };
   return displayNames[type];
 }

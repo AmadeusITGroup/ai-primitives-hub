@@ -12,6 +12,9 @@
  * YAML schema and must not be reformatted to camelCase).
  * @module domain/collection/types
  */
+import type {
+  PrimitiveKind,
+} from '../primitive/types';
 
 /**
  * Compression formats supported when packaging a bundle.
@@ -27,6 +30,7 @@ export interface CollectionItem {
   kind: string;
   name?: string;
   description?: string;
+  tags?: string[];
 }
 
 /**
@@ -233,4 +237,110 @@ export interface DeploymentManifest {
    * `domain/mcp` module — not required by any Phase 2 consumer yet.
    */
   mcpServers?: Record<string, unknown>;
+}
+
+/**
+ * Version of the self-contained release deployment-manifest contract.
+ *
+ * This is deliberately separate from the legacy {@link DeploymentManifest}
+ * build-spec shape above. The legacy format remains readable for existing
+ * releases; a release opts into the governed archive contract by declaring
+ * this format version.
+ */
+export const RELEASE_DEPLOYMENT_MANIFEST_FORMAT_VERSION = 1 as const;
+
+/**
+ * How a file carried by a release archive participates in installation.
+ *
+ * `installable` files are passed to a target writer. `metadata` files retain
+ * provenance, licensing, and documentation evidence inside the archive but
+ * are never routed into an IDE target. `ignored` records make intentionally
+ * retained non-runtime content visible to policy without installing it.
+ */
+export type ReleaseManifestFileRole = 'installable' | 'metadata' | 'ignored';
+
+/** A canonical primitive item in a versioned release manifest. */
+export interface ReleaseManifestItem {
+  /** Stable identifier within the release. */
+  id: string;
+  /** Canonical bundle-relative path to the primitive entry point. */
+  path: string;
+  /** Canonical runtime primitive vocabulary. */
+  kind: PrimitiveKind;
+  name?: string;
+  description?: string;
+  tags?: string[];
+}
+
+/** A file inventory record for a self-contained release archive. */
+export interface ReleaseManifestFile {
+  /** Canonical bundle-relative path, excluding deployment-manifest.yml itself. */
+  path: string;
+  role: ReleaseManifestFileRole;
+  /** Exact uncompressed byte length. */
+  size: number;
+  /** Lowercase SHA-256 digest in canonical sha256:<hex> form. */
+  sha256: string;
+}
+
+/** Source facts resolved before packaging a self-contained release. */
+export interface ReleaseManifestProvenance {
+  /** Immutable source location, such as a repository URL. */
+  source: string;
+  /** Immutable source revision used for both discovery and packaging. */
+  revision: string;
+  /** Path of the collection in the source tree at {@link revision}. */
+  collectionPath: string;
+  /** Archive-relative snapshot of the source collection definition. */
+  sourceSnapshotPath: string;
+  /** License identifier or source declaration. */
+  license: string;
+  /** Archive-relative path containing the applicable license text. */
+  licensePath: string;
+}
+
+/**
+ * Legacy item representation retained for older bundle consumers.
+ * New producers must treat {@link ReleaseDeploymentManifest.items} as
+ * canonical and may emit this representation as a compatibility projection.
+ */
+export interface LegacyReleaseManifestItem {
+  id: string;
+  file: string;
+  type: string;
+  name?: string;
+  description?: string;
+  tags?: string[];
+}
+
+/**
+ * Self-contained, versioned deployment manifest published inside a release
+ * archive. The manifest intentionally does not contain the ZIP's own digest:
+ * that digest must remain a detached release asset or attestation to avoid a
+ * circular archive hash.
+ */
+export interface ReleaseDeploymentManifest {
+  formatVersion: typeof RELEASE_DEPLOYMENT_MANIFEST_FORMAT_VERSION;
+  id: string;
+  version: string;
+  name: string;
+  description?: string;
+  author?: string;
+  tags?: string[];
+  environments?: string[];
+  /** Archive-relative README when the source declares one. */
+  readme?: string;
+  /** Legacy/package-level license declaration. */
+  license?: string;
+  repository?: string;
+  /** Canonical release primitive representation. */
+  items: ReleaseManifestItem[];
+  /** Complete inventory of every archive file except this manifest. */
+  files: ReleaseManifestFile[];
+  provenance: ReleaseManifestProvenance;
+  /** Compatibility projection for legacy consumers. */
+  prompts?: LegacyReleaseManifestItem[];
+  dependencies?: unknown[];
+  mcpServers?: Record<string, unknown>;
+  mcpInputs?: unknown[];
 }

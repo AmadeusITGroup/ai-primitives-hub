@@ -19,6 +19,9 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  resolveUserConfigPaths,
+} from '@ai-primitives-hub/app';
+import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
@@ -46,6 +49,11 @@ import {
 import {
   runCommand,
 } from '../../src/framework';
+import {
+  createGovernedReleaseArchive,
+  createLegacyReleaseArchive,
+  writeReleaseArchive,
+} from '../fixtures/release-archives';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -92,14 +100,8 @@ describe('profile activate/deactivate', () => {
     targetDir = path.join(workspace, 'target');
     hubConfigFile = path.join(workspace, 'hub-config.yml');
 
-    await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
     await mkdir(targetDir, { recursive: true });
-
-    await writeFile(
-      path.join(bundleDir, 'deployment-manifest.yml'),
-      'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n'
-    );
-    await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
+    await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: 'local-foo' }));
     await writeFile(
       hubConfigFile,
       `version: 1.0.0
@@ -178,6 +180,33 @@ profiles:
     expect(currentResult.exitCode).toBe(0);
     const currentEnvelope = parseJson<{ active: { hubId: string; profileId: string } }>(currentResult.stdout);
     expect(currentEnvelope.data.active).toEqual({ hubId: 'test-hub', profileId: 'backend' });
+  });
+
+  it('activates a governed profile without writing archive metadata or ignored files', async () => {
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo' }));
+    expect((await run(['hub', 'sync', 'test-hub', '-o', 'json'])).exitCode).toBe(0);
+
+    const activateResult = await run(['profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json']);
+    expect(activateResult.exitCode).toBe(0);
+
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
+      .resolves.toContain('Hello Prompt');
+    await expect(readFile(path.join(targetDir, 'README.md'), 'utf8')).rejects.toThrow();
+    await expect(readFile(path.join(targetDir, 'LICENSE'), 'utf8')).rejects.toThrow();
+    await expect(readFile(path.join(targetDir, 'ignored', 'build', 'cache.pyc'), 'utf8'))
+      .rejects.toThrow();
+
+    const lockfilePath = resolveUserConfigPaths({
+      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+      HOME: workspace,
+      USERPROFILE: workspace
+    }).userLockfile;
+    const lockfile = JSON.parse(await readFile(lockfilePath, 'utf8')) as {
+      bundles: Record<string, { files: { path: string }[] }>;
+    };
+    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toEqual([
+      'prompts/hello.prompt.md'
+    ]);
   });
 
   it('deactivates a profile: removes installed files and clears the active profile', async () => {

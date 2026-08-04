@@ -328,6 +328,9 @@ importers:
       '@ai-primitives-hub/infra':
         specifier: workspace:*
         version: link:../infra
+      '@prompt-registry/collection-scripts':
+        specifier: workspace:^
+        version: link:../../lib
       archiver:
         specifier: ^7.0.1
         version: 7.0.1

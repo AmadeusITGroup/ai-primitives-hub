@@ -23,6 +23,7 @@ import {
   upsertBundleEntry,
   upsertSource,
   writeLockfile,
+  writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import type {
   HttpClient,
@@ -33,6 +34,7 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  getInstallableBundleFiles,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -60,6 +62,7 @@ import {
   loadTargets,
   lockfilePathForTarget,
   Option,
+  resolveEffectiveTarget,
 } from '../framework';
 import {
   type Context,
@@ -213,10 +216,11 @@ export class UpdateCommand extends BaseUpdateCommand {
 
     try {
       const targetName = await resolveTargetName(opts.target, 'update', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
-      const target = await resolveTarget(targetName, 'update', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const configuredTarget = await resolveTarget(targetName, 'update', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
-      const commitMode = opts.commitMode ?? target.commitMode ?? 'commit';
-      const scope = opts.scope ?? target.scope;
+      const commitMode = target.commitMode ?? 'commit';
+      const scope = target.scope;
       const lockPath = opts.lockfile !== undefined && opts.lockfile.length > 0
         ? (path.isAbsolute(opts.lockfile) ? opts.lockfile : path.join(ctx.cwd(), opts.lockfile))
         : lockfilePathForTarget(ctx, target, commitMode);
@@ -410,7 +414,8 @@ function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skipp
  * @returns A TargetWriter.
  */
 function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode): TargetWriter {
-  if (scope === 'repository') {
+  const effectiveScope = scope as Target['scope'];
+  if (effectiveScope === 'repository' && new Set(['vscode', 'vscode-insiders', 'copilot-cli']).has(target.type)) {
     const writer = new RepositoryScopeWriter({
       fs: ctx.fs,
       workspaceRoot: target.rootPath ?? ctx.cwd(),
@@ -489,7 +494,8 @@ async function applyUpdate(
   const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: undefined });
 
   const writer = writerFor(ctx, target, scope, commitMode);
-  await writer.write(target, files);
+  const targetFiles = getInstallableBundleFiles(files, manifest);
+  const result = await writeTargetSafely(writer, target, targetFiles);
 
   const entry: LockfileBundleEntry = {
     version: manifest.version,
@@ -497,7 +503,7 @@ async function applyUpdate(
     sourceType: candidate.entry.sourceType,
     checksum: dl.sha256,
     installedAt: new Date().toISOString(),
-    files: checksumFiles(files)
+    files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
   };
   if (scope === 'repository') {
     entry.commitMode = commitMode;
