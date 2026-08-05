@@ -6,12 +6,12 @@
     "build": "rollup --config rollup.config.js"
   },
   "dependencies": {
-    "@prompt-registry/collection-scripts": "*",
-    "js-yaml": "^4.1.1"
+    "@prompt-registry/collection-scripts": "^1.0.5",
+    "js-yaml": "^4.3.1"
   },
   "devDependencies": {
-    "rollup": "^4.59.0",
-    "@rollup/plugin-commonjs": "^25.0.0",
-    "@rollup/plugin-node-resolve": "^15.0.0"
+    "@rollup/plugin-commonjs": "^25.0.8",
+    "@rollup/plugin-node-resolve": "^15.3.1",
+    "rollup": "^4.62.2"
   }
 }
