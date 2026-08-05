@@ -1,12 +1,9 @@
 /**
- * Shared local-path resolution for `local-*` source adapters.
+ * Shared path/URL resolution utilities for all local-based source adapters,
+ * including `LocalAdapter` and the `local-*` adapter variants.
  *
- * `LocalAdapter` (ported earlier) has its own inline equivalent and is
- * deliberately left untouched here — this module exists for the three
- * `local-*` adapters landing together in one later commit, which need
- * the `~/` expansion that `LocalAdapter`'s own `getLocalPath` doesn't
- * currently perform (a pre-existing gap in already-shipped code, out of
- * scope for this change).
+ * Handles `file://` URL-to-path conversion, `~/` home-directory expansion,
+ * and path normalization.
  * @module adapters/local-path
  */
 import * as os from 'node:os';

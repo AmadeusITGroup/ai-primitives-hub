@@ -224,23 +224,7 @@ jobs:
 
       - name: Apply post-compilation fixes
         if: runner.os != 'Windows'
-        shell: bash
-        working-directory: ${{ env.EXTENSION_DIR }}
-        run: |
-          # Ensure the post-compilation fixes script exists and is executable
-          # Create VS Code mock and apply fixes
-          if [ -f "../../.github/workflows/scripts/ensure-test-index.sh" ]; then
-            chmod +x ../../.github/workflows/scripts/ensure-test-index.sh
-            ../../.github/workflows/scripts/ensure-test-index.sh
-          fi
-          if [ -f "../../.github/workflows/scripts/create-vscode-mock.sh" ]; then
-            chmod +x ../../.github/workflows/scripts/create-vscode-mock.sh
-            ../../.github/workflows/scripts/create-vscode-mock.sh
-          fi
-          if [ -f "../../.github/workflows/scripts/post_compile_fixes.sh" ]; then
-            chmod +x ../../.github/workflows/scripts/post_compile_fixes.sh
-            ../../.github/workflows/scripts/post_compile_fixes.sh
-          fi
+        uses: ./.github/actions/post-compile-fixes
 
       - name: Compile tests
         shell: bash
@@ -385,23 +369,7 @@ jobs:
           sudo apt-get install -y libnss3-dev libatk-bridge2.0-dev libdrm2 libxkbcommon-dev libxss1 libasound2-dev
       - name: Apply post-compilation fixes
         if: runner.os != 'Windows'
-        shell: bash
-        working-directory: ${{ env.EXTENSION_DIR }}
-        run: |
-          # Ensure the post-compilation fixes script exists and is executable
-          # Create VS Code mock and apply fixes
-          if [ -f "../../.github/workflows/scripts/ensure-test-index.sh" ]; then
-            chmod +x ../../.github/workflows/scripts/ensure-test-index.sh
-            ../../.github/workflows/scripts/ensure-test-index.sh
-          fi
-          if [ -f "../../.github/workflows/scripts/create-vscode-mock.sh" ]; then
-            chmod +x ../../.github/workflows/scripts/create-vscode-mock.sh
-            ../../.github/workflows/scripts/create-vscode-mock.sh
-          fi
-          if [ -f "../../.github/workflows/scripts/post_compile_fixes.sh" ]; then
-            chmod +x ../../.github/workflows/scripts/post_compile_fixes.sh
-            ../../.github/workflows/scripts/post_compile_fixes.sh
-          fi
+        uses: ./.github/actions/post-compile-fixes
 
       - name: Run VS Code Extension Tests
         env:
