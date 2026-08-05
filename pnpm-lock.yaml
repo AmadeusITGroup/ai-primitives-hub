@@ -139,7 +139,7 @@ importers:
         specifier: ^17.0.4
         version: 17.0.4
       '@types/vscode':
-        specifier: ^1.99.3
+        specifier: ^1.125.0
         version: 1.125.0
       '@types/yauzl':
         specifier: ^2.10.3
