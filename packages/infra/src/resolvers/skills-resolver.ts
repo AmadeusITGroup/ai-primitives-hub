@@ -37,6 +37,9 @@ import {
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import {
+  resolveLocalPath,
+} from '../adapters/local-path';
+import {
   buildZip,
 } from '../writers/zip-writer';
 
@@ -199,7 +202,7 @@ export class LocalSkillsBundleResolver implements BundleResolver {
    * @returns Installable, or null when the directory is missing.
    */
   public async resolve(spec: BundleSpec): Promise<Installable | null> {
-    const root = stripFileScheme(this.opts.rootPath);
+    const root = resolveLocalPath(this.opts.rootPath);
     const skillsPath = (this.opts.skillsPath ?? 'skills').replaceAll(/^\/+|\/+$/g, '');
     const skillRoot = path.join(root, skillsPath, spec.bundleId);
     const entries: ZipEntry[] = [];
@@ -278,7 +281,7 @@ export class LocalAwesomeCopilotBundleResolver implements BundleResolver {
    * @returns Installable, or null when the collection is missing.
    */
   public async resolve(spec: BundleSpec): Promise<Installable | null> {
-    const root = stripFileScheme(this.opts.rootPath);
+    const root = resolveLocalPath(this.opts.rootPath);
     const collectionsPath = (this.opts.collectionsPath ?? 'collections').replaceAll(/^\/+|\/+$/g, '');
     const collectionFile = `${spec.bundleId}.collection.yml`;
     const collectionAbs = path.join(root, collectionsPath, collectionFile);
@@ -357,8 +360,6 @@ const parseSkillFrontmatter = (md: string): { name: string; description: string 
     return { name: '', description: '' };
   }
 };
-
-const stripFileScheme = (p: string): string => p.replace(/^file:\/\//, '');
 
 const quote = (s: string): string => {
   if (s.length === 0) {

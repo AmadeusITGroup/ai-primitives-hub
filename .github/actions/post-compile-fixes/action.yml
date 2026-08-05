@@ -1,7 +1,7 @@
 name: Apply post-compilation fixes
 description: >
-  Runs the three post-compilation fix scripts (ensure-test-index, create-vscode-mock,
-  post_compile_fixes) from the extension working directory. Skipped on Windows.
+  Runs post_compile_fixes.sh (which itself invokes ensure-test-index and
+  create-vscode-mock) from the extension working directory. Skipped on Windows.
 
 runs:
   using: composite
@@ -10,17 +10,7 @@ runs:
       shell: bash
       working-directory: ${{ env.EXTENSION_DIR }}
       run: |
-        # Ensure the post-compilation fixes script exists and is executable
-        # Create VS Code mock and apply fixes
-        if [ -f "../../.github/workflows/scripts/ensure-test-index.sh" ]; then
-          chmod +x ../../.github/workflows/scripts/ensure-test-index.sh
-          ../../.github/workflows/scripts/ensure-test-index.sh
-        fi
-        if [ -f "../../.github/workflows/scripts/create-vscode-mock.sh" ]; then
-          chmod +x ../../.github/workflows/scripts/create-vscode-mock.sh
-          ../../.github/workflows/scripts/create-vscode-mock.sh
-        fi
-        if [ -f "../../.github/workflows/scripts/post_compile_fixes.sh" ]; then
-          chmod +x ../../.github/workflows/scripts/post_compile_fixes.sh
-          ../../.github/workflows/scripts/post_compile_fixes.sh
+        script="../../.github/workflows/scripts/post_compile_fixes.sh"
+        if [ -f "$script" ]; then
+          bash "$script"
         fi

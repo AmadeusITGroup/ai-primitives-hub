@@ -146,9 +146,10 @@ jobs:
       - name: License compliance check
         working-directory: ${{ env.EXTENSION_DIR }}
         shell: bash
+        # Single `dlx` resolution reused for both report formats.
         run: |
-          pnpm dlx license-checker --summary > license-summary.txt
-          pnpm dlx license-checker --csv > license-report.csv
+          pnpm --package=license-checker dlx sh -c \
+            'license-checker --summary > license-summary.txt && license-checker --csv > license-report.csv'
 
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -207,7 +208,9 @@ jobs:
       - name: Build workspace (excluding website)
         run: pnpm --filter "!prompt-registry-docs" build
 
+      # ESLint results are platform-independent; one runner is enough.
       - name: Run linting
+        if: runner.os == 'Linux'
         run: pnpm --filter "!prompt-registry-docs" lint
 
       # Only core/infra/app/cli vitest suites. Must not be a recursive run:
@@ -222,13 +225,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb libnss3-dev libatk-bridge2.0-dev libdrm2 libxkbcommon-dev libxss1 libasound2-dev
 
-      - name: Apply post-compilation fixes
-        if: runner.os != 'Windows'
-        uses: ./.github/actions/post-compile-fixes
-
       - name: Compile tests
         shell: bash
         run: pnpm run compile-tests
+
+      # The shell scripts patch `test-dist`, so they must run after compile-tests.
+      - name: Apply post-compilation fixes
+        if: runner.os != 'Windows'
+        uses: ./.github/actions/post-compile-fixes
 
       - name: Apply essential post-compilation fixes (all platforms)
         shell: bash
@@ -270,9 +274,9 @@ jobs:
         shell: bash
         working-directory: ${{ env.EXTENSION_DIR }}
         run: |
-          npm install -g @vscode/vsce
           echo "📦 Creating VSIX package with production .vscodeignore..."
-          vsce package --no-dependencies --out ${{ env.EXTENSION_NAME }}-${{ matrix.os }}-${{ matrix.node-version }}.vsix
+          # vsce is a devDependency of the extension: no global install needed.
+          pnpm exec vsce package --no-dependencies --out ${{ env.EXTENSION_NAME }}-${{ matrix.os }}-${{ matrix.node-version }}.vsix
 
           # Show package size for verification
           if [ -f "${{env.EXTENSION_NAME}}-${{ matrix.os }}-${{ matrix.node-version }}.vsix" ]; then
@@ -376,11 +380,13 @@ jobs:
           VSCODE_VERSION: ${{ matrix.vscode-version }}
         shell: bash
         working-directory: ${{ env.EXTENSION_DIR }}
+        # Invokes the runner directly: `test:integration` would re-run
+        # compile-tests, which the "Compile extension and tests" step already did.
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
-            xvfb-run -a pnpm run test:integration
+            xvfb-run -a node ./test/runExtensionTests.js
           else
-            pnpm run test:integration
+            node ./test/runExtensionTests.js
           fi
 
   # Security compliance report
@@ -403,9 +409,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
 
       - name: Generate compliance report
         shell: bash

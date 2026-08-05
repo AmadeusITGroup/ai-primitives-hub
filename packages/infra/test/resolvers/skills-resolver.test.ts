@@ -156,4 +156,10 @@ describe('LocalAwesomeCopilotBundleResolver', () => {
     const result = await resolver.resolve({ bundleId: 'test' });
     expect(result).not.toBeNull();
   });
+
+  it('resolves a file:// root path', async () => {
+    const resolver = new LocalAwesomeCopilotBundleResolver({ rootPath: 'file:///repo', fs: makeFs() });
+    const result = await resolver.resolve({ bundleId: 'test' });
+    expect(result).not.toBeNull();
+  });
 });
