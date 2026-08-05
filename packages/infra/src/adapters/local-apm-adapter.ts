@@ -55,6 +55,7 @@ import {
 import {
   isValidLocalUrl,
   resolveLocalPath,
+  toFileUrl,
 } from './local-path';
 
 const DEFAULT_MAX_DEPTH = 2;
@@ -216,9 +217,9 @@ export class LocalApmAdapter extends BaseSourceAdapter {
       size: formatDependencyCount(manifest.dependencies?.apm),
       dependencies: mapDependencies(manifest.dependencies?.apm),
       license: manifest.license ?? 'MIT',
-      manifestUrl: `file://${path.join(packageDir, 'apm.yml')}`,
-      downloadUrl: `file://${packageDir}`,
-      repository: `file://${this.getLocalPath()}`
+      manifestUrl: toFileUrl(path.join(packageDir, 'apm.yml')),
+      downloadUrl: toFileUrl(packageDir),
+      repository: toFileUrl(this.getLocalPath())
     };
   }
 
@@ -384,7 +385,7 @@ export class LocalApmAdapter extends BaseSourceAdapter {
   }
 
   public async downloadBundle(bundle: Bundle): Promise<Buffer> {
-    const packageDir = bundle.downloadUrl.startsWith('file://') ? bundle.downloadUrl.slice('file://'.length) : bundle.downloadUrl;
+    const packageDir = resolveLocalPath(bundle.downloadUrl);
     if (!(await this.directoryExists(packageDir))) {
       throw new Error(`Package directory not found: ${packageDir}`);
     }
@@ -433,7 +434,7 @@ export class LocalApmAdapter extends BaseSourceAdapter {
   }
 
   public getManifestUrl(bundleId: string): string {
-    return `file://${path.join(this.getLocalPath(), bundleId, 'apm.yml')}`;
+    return toFileUrl(path.join(this.getLocalPath(), bundleId, 'apm.yml'));
   }
 
   public getDownloadUrl(bundleId: string): string {

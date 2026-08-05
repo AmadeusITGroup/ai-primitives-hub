@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import type {
   RegistrySource,
 } from '@ai-primitives-hub/core';
@@ -180,7 +181,12 @@ describe('LocalApmAdapter', () => {
   describe('validate', () => {
     it('is invalid when the root directory does not exist', async () => {
       const result = await makeAdapter().validate();
-      expect(result).toEqual({ valid: false, errors: ['Directory does not exist: /packages-root'], warnings: [], bundlesFound: 0 });
+      expect(result).toEqual({
+        valid: false,
+        errors: [`Directory does not exist: ${path.join('/packages-root')}`],
+        warnings: [],
+        bundlesFound: 0
+      });
     });
 
     it('is valid with a warning when the directory has no apm.yml files', async () => {

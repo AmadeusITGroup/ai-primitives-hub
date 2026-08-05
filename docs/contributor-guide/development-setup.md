@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js 18.x or 20.x
+- Node.js 24.x
 - npm 8.x+
 - TypeScript 5.3+
 - VS Code (latest)

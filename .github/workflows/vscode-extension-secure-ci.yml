@@ -32,9 +32,9 @@ on:
 # Security: Restrict permissions to minimum necessary (SLSA Level 2)
 permissions: read-all
 
-# Cancel superseded runs on the same ref (keeps main/develop runs intact).
+# Cancel superseded pull-request runs while keeping every branch run distinct.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -61,19 +61,19 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Security: Pin to specific commit for reproducibility
           # persist-credentials: false
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: 11.5.0
+          version: 11.20.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
@@ -120,17 +120,17 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: 11.5.0
+          version: 11.20.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
@@ -141,9 +141,7 @@ jobs:
 
       - name: Generate SBOM (Software Bill of Materials)
         working-directory: ${{ env.EXTENSION_DIR }}
-        run: |
-          pnpm dlx @cyclonedx/cyclonedx-npm --ignore-npm-errors --no-workspaces --output-file sbom.json
-          pnpm dlx @cyclonedx/cyclonedx-npm --ignore-npm-errors --no-workspaces --output-format XML --output-file sbom.xml
+        run: pnpm --filter prompt-registry sbom --sbom-format cyclonedx --sbom-type application --out sbom.json
 
       - name: License compliance check
         working-directory: ${{ env.EXTENSION_DIR }}
@@ -153,12 +151,11 @@ jobs:
           pnpm dlx license-checker --csv > license-report.csv
 
       - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom-reports
           path: |
             ${{ env.EXTENSION_DIR }}/sbom.json
-            ${{ env.EXTENSION_DIR }}/sbom.xml
             ${{ env.EXTENSION_DIR }}/license-summary.txt
             ${{ env.EXTENSION_DIR }}/license-report.csv
 
@@ -185,17 +182,17 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: 11.5.0
+          version: 11.20.0
 
       - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
@@ -326,7 +323,7 @@ jobs:
 
       - name: Upload extension artifacts
         if: ${{ matrix.node-version == env.NODE_VERSION }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vsix-${{ matrix.os }}-node${{ matrix.node-version }}
           path: ${{ env.EXTENSION_DIR }}/*.vsix
@@ -351,17 +348,17 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: 11.5.0
+          version: 11.20.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
@@ -435,7 +432,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -467,7 +464,7 @@ jobs:
           echo "" >> compliance-report.md
 
       - name: Upload compliance report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: compliance-report
           path: compliance-report.md

@@ -16,6 +16,8 @@ import {
 } from '../../src/resolvers/local-resolver';
 
 describe('readLocalBundle', () => {
+  const normalizePath = (value: string): string => value.replaceAll('\\', '/');
+
   const mockFs = {
     readDir: vi.fn(),
     readFile: vi.fn(),
@@ -36,19 +38,19 @@ describe('readLocalBundle', () => {
   it('reads bundle directory and produces ExtractedFiles map', async () => {
     mockFs.exists.mockResolvedValue(true);
     mockFs.readDir.mockImplementation(async (p: string) => {
-      if (p === '/bundle') {
+      if (normalizePath(p) === '/bundle') {
         return ['file1.txt', 'subdir'];
       }
-      if (p === '/bundle/subdir') {
+      if (normalizePath(p) === '/bundle/subdir') {
         return ['file2.txt'];
       }
       return [];
     });
     mockFs.readFile.mockImplementation(async (p: string) => {
-      if (p === '/bundle/file1.txt') {
+      if (normalizePath(p) === '/bundle/file1.txt') {
         return 'content1';
       }
-      if (p === '/bundle/subdir/file2.txt') {
+      if (normalizePath(p) === '/bundle/subdir/file2.txt') {
         return 'content2';
       }
       throw new Error('Not a file');
@@ -81,19 +83,19 @@ describe('readLocalBundle', () => {
   it('handles deeply nested directories', async () => {
     mockFs.exists.mockResolvedValue(true);
     mockFs.readDir.mockImplementation(async (p: string) => {
-      if (p === '/bundle') {
+      if (normalizePath(p) === '/bundle') {
         return ['dir1'];
       }
-      if (p === '/bundle/dir1') {
+      if (normalizePath(p) === '/bundle/dir1') {
         return ['dir2'];
       }
-      if (p === '/bundle/dir1/dir2') {
+      if (normalizePath(p) === '/bundle/dir1/dir2') {
         return ['file.txt'];
       }
       return [];
     });
     mockFs.readFile.mockImplementation(async (p: string) => {
-      if (p === '/bundle/dir1/dir2/file.txt') {
+      if (normalizePath(p) === '/bundle/dir1/dir2/file.txt') {
         return 'content';
       }
       throw new Error('Not a file');
@@ -106,16 +108,16 @@ describe('readLocalBundle', () => {
   it('handles mixed files and directories', async () => {
     mockFs.exists.mockResolvedValue(true);
     mockFs.readDir.mockImplementation(async (p: string) => {
-      if (p === '/bundle') {
+      if (normalizePath(p) === '/bundle') {
         return ['file1.txt', 'dir1', 'file2.txt'];
       }
-      if (p === '/bundle/dir1') {
+      if (normalizePath(p) === '/bundle/dir1') {
         return ['file3.txt'];
       }
       return [];
     });
     mockFs.readFile.mockImplementation(async (p: string) => {
-      if (p.includes('file')) {
+      if (normalizePath(p).includes('file')) {
         return 'content';
       }
       throw new Error('Not a file');

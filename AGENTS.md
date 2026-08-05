@@ -16,7 +16,7 @@ The extension lives in `apps/vscode-extension/src/`: adapters fetch sources, ser
 
 ## Commands
 
-Use Node 22+ and pnpm 11+.
+Use Node 24+ and pnpm 11+.
 
 ```bash
 pnpm install

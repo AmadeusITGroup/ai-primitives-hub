@@ -11,6 +11,9 @@
  */
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  fileURLToPath,
+} from 'node:url';
 
 /**
  * True for a `file://` URL, an absolute path, or a `~/`/`./`-relative path.
@@ -27,9 +30,27 @@ export function isValidLocalUrl(url: string): boolean {
  * @param url - Source URL to resolve.
  */
 export function resolveLocalPath(url: string): string {
-  let localPath = url.startsWith('file://') ? url.slice('file://'.length) : url;
+  let localPath = url;
+  if (url.startsWith('file://')) {
+    try {
+      localPath = fileURLToPath(url);
+    } catch {
+      // POSIX-style file URLs without a drive letter are valid source
+      // identifiers in portable configurations, including test fixtures.
+      localPath = url.slice('file://'.length);
+    }
+  }
   if (localPath.startsWith('~/')) {
     localPath = path.join(os.homedir(), localPath.slice(2));
   }
   return path.normalize(localPath);
+}
+
+/**
+ * Serializes a local filesystem path as a cross-platform `file://` URL.
+ * @param localPath - Local filesystem path, using either native separator style.
+ */
+export function toFileUrl(localPath: string): string {
+  const urlPath = localPath.replaceAll('\\', '/');
+  return `file://${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
 }

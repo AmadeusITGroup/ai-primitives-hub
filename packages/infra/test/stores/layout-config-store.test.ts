@@ -4,6 +4,7 @@
  * Tests built-in loading, filesystem hierarchy loading, validation
  * error handling, and the XDG config dir resolution.
  */
+import * as path from 'node:path';
 import {
   describe,
   expect,
@@ -23,13 +24,12 @@ import type {
 describe('resolveUserConfigDir', () => {
   it('uses XDG_CONFIG_HOME when set', () => {
     const dir = resolveUserConfigDir({ XDG_CONFIG_HOME: '/xdg/config' });
-    expect(dir).toBe('/xdg/config/ai-primitives-hub');
+    expect(dir).toBe(path.join('/xdg/config', 'ai-primitives-hub'));
   });
 
   it('falls back to ~/.config/ai-primitives-hub when XDG not set', () => {
     const dir = resolveUserConfigDir({});
-    // Can't know exact home in CI, but must end with /ai-primitives-hub
-    expect(dir.endsWith('/ai-primitives-hub')).toBe(true);
+    expect(dir.endsWith(path.join('', 'ai-primitives-hub'))).toBe(true);
     expect(dir).not.toContain('XDG');
   });
 });
@@ -69,13 +69,14 @@ describe('BuiltInOnlyLayoutConfigLoader', () => {
 describe('FileSystemLayoutConfigLoader', () => {
   const makeFs = (files: Record<string, string>): LayoutConfigFs => ({
     readFile: async (p: string): Promise<string> => {
-      if (Object.prototype.hasOwnProperty.call(files, p)) {
-        return files[p];
+      const normalizedPath = p.replaceAll('\\', '/');
+      if (Object.prototype.hasOwnProperty.call(files, normalizedPath)) {
+        return files[normalizedPath];
       }
       throw new Error(`ENOENT: ${p}`);
     },
     exists: async (p: string): Promise<boolean> =>
-      Object.prototype.hasOwnProperty.call(files, p)
+      Object.prototype.hasOwnProperty.call(files, p.replaceAll('\\', '/'))
   });
 
   it('returns only built-in when no override files exist', async () => {
