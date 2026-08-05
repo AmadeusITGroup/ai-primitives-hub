@@ -35,19 +35,19 @@
   },
   "dependencies": {
     "@ai-primitives-hub/core": "workspace:*",
-    "@elastic/elasticsearch": "^9.3.4",
+    "@elastic/elasticsearch": "^9.4.2",
     "adm-zip": "^0.6.0",
     "archiver": "^7.0.1",
-    "js-yaml": "^4.1.1"
+    "js-yaml": "^4.3.1"
   },
   "devDependencies": {
-    "@types/adm-zip": "^0.5.5",
+    "@types/adm-zip": "^0.5.8",
     "@types/archiver": "^7.0.0",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.0.0",
-    "@vitest/coverage-v8": "^4.1.7",
+    "@types/node": "^22.20.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=18.0.0"
