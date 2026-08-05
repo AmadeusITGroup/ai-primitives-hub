@@ -114,7 +114,7 @@ interface ResolveHubSourcesParams {
   hubConfigFile: string | undefined;
   hubRepo: string;
   hubBranch: string;
-  client: GitHubApi;
+  client: GitHubApi | undefined;
   extraSources: string[] | undefined;
   onLog: ((msg: string) => void) | undefined;
   sourcesInclude: string[] | undefined;
@@ -224,13 +224,16 @@ async function loadBaseSources(
   hubConfigFile: string | undefined,
   hubRepo: string,
   hubBranch: string,
-  client: GitHubApi
+  client: GitHubApi | undefined
 ): Promise<HubSourceSpec[]> {
   if (hubConfigFile !== undefined) {
     return parseHubConfig(await readFile(hubConfigFile, 'utf8'));
   }
   if (noHubConfig) {
     return [];
+  }
+  if (client === undefined) {
+    throw new Error('GitHub client is required to load hub sources');
   }
   const [owner, repo] = hubRepo.split('/');
   const yamlText = await client.getText(
@@ -287,7 +290,15 @@ export const harvestHub = async (
 ): Promise<HubHarvestPipelineResult> => {
   validateHarvestOptions(opts);
   const { hubRepo, hubBranch, cacheDir, progressFile, outFile, concurrency } = resolveHarvestPaths(opts, env);
-  const { resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts);
+  const requiresHubConfig = opts.noHubConfig !== true && opts.hubConfigFile === undefined;
+  let client: GitHubApiClient | undefined;
+  let resolvedToken: string | undefined;
+  let tokenSource = 'none';
+
+  if (requiresHubConfig) {
+    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts));
+  }
+
   const sources = await resolveHubSources({
     noHubConfig: opts.noHubConfig === true,
     hubConfigFile: opts.hubConfigFile,
@@ -300,8 +311,27 @@ export const harvestHub = async (
     sourcesExclude: opts.sourcesExclude
   });
 
+  if (sources.length > 0 && client === undefined) {
+    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts));
+  }
+
+  // An empty offline harvest must succeed without GitHub credentials.
+  // HubHarvester never calls the client when there are no sources.
+  const harvestClient = client ?? new GitHubApiClient(
+    new NodeHttpClient(),
+    { tokenProvider: new StaticTokenProvider('') }
+  );
+
   logHarvestStart(opts, hubRepo, hubBranch, resolvedToken, sources.length, concurrency);
-  const result = await runHarvester(sources, client, new StaticTokenProvider(resolvedToken), cacheDir, progressFile, concurrency, opts);
+  const result = await runHarvester(
+    sources,
+    harvestClient,
+    new StaticTokenProvider(resolvedToken ?? ''),
+    cacheDir,
+    progressFile,
+    concurrency,
+    opts
+  );
   await writeIndexWithIntegrity(result.index, outFile, env);
 
   const stats = result.index.stats();
@@ -316,7 +346,7 @@ export const harvestHub = async (
     hubBranch,
     sourcesCount: sources.length,
     tokenSource,
-    client
+    client: harvestClient
   });
 };
 
@@ -369,10 +399,17 @@ async function createGitHubClient(
   return { resolvedToken, client, tokenSource: token.source };
 }
 
-function logHarvestStart(opts: HubHarvestPipelineOptions, hubRepo: string, hubBranch: string, resolvedToken: string, sourcesCount: number, concurrency: number): void {
+function logHarvestStart(
+  opts: HubHarvestPipelineOptions,
+  hubRepo: string,
+  hubBranch: string,
+  resolvedToken: string | undefined,
+  sourcesCount: number,
+  concurrency: number
+): void {
   opts.onLog?.(
     `hub=${hubRepo}@${hubBranch} `
-    + `token=${opts.explicitToken ? 'explicit' : 'env'}:${redactToken(resolvedToken)} `
+    + `token=${resolvedToken === undefined ? 'none' : (opts.explicitToken ? 'explicit' : 'env')}:${redactToken(resolvedToken)} `
     + `sources=${String(sourcesCount)} concurrency=${String(concurrency)}`
   );
 }

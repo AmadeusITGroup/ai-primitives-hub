@@ -588,6 +588,15 @@ const checkGitHubAuth = async (ctx: Context, verbose: boolean): Promise<DoctorCh
  */
 const checkGitHubCli = (ctx: Context, verbose: boolean): Promise<DoctorCheck> => {
   const logs = createLogger(verbose);
+  if (ctx.env.AI_PRIMITIVES_HUB_SKIP_NETWORK === '1') {
+    log(logs, 'info', 'Skipped (AI_PRIMITIVES_HUB_SKIP_NETWORK=1).');
+    return Promise.resolve({
+      name: 'github-cli',
+      status: 'warn',
+      detail: 'Skipped (AI_PRIMITIVES_HUB_SKIP_NETWORK=1).',
+      logs
+    });
+  }
   try {
     const version = spawnSync('gh', ['--version'], {
       encoding: 'utf8',

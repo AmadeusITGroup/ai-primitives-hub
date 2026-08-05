@@ -27,7 +27,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ### Prerequisites
 
-- **Node.js**: Version 18.x or 20.x
+- **Node.js**: Version 24.x
 - **npm**: Version 8.x or higher
 - **VS Code**: Latest stable version
 - **Git**: For version control

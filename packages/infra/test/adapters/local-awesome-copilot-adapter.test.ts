@@ -233,7 +233,7 @@ describe('LocalAwesomeCopilotAdapter', () => {
 
       expect(metadata).toMatchObject({
         name: 'collections-root',
-        description: 'Local Awesome Copilot collections from /collections-root',
+        description: `Local Awesome Copilot collections from ${path.join('/collections-root')}`,
         bundleCount: 1,
         version: '1.0.0'
       });
@@ -251,7 +251,7 @@ describe('LocalAwesomeCopilotAdapter', () => {
       const result = await new LocalAwesomeCopilotAdapter(makeSource(), new InMemoryFileSystem()).validate();
       expect(result).toEqual({
         valid: false,
-        errors: ['Collections directory does not exist: /collections-root/collections'],
+        errors: [`Collections directory does not exist: ${path.join('/collections-root', 'collections')}`],
         warnings: [],
         bundlesFound: 0
       });

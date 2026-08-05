@@ -101,6 +101,10 @@ describe('doctor/status/init/update commands', () => {
       const envelope = parseJson<{ checks: { name: string; status: string }[]; summary: { ok: number; warn: number; fail: number } }>(result.stdout);
       expect(envelope.data.checks.length).toBe(11);
       expect(envelope.data.summary.fail).toBe(0);
+      expect(envelope.data.checks).toContainEqual(expect.objectContaining({
+        name: 'github-cli',
+        status: 'warn'
+      }));
     });
 
     it('-v includes per-check logs', async () => {

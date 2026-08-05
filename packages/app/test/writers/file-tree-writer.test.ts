@@ -9,6 +9,7 @@
  * `default-layouts.json` single-source-of-truth history). Written
  * fresh against this module's actual current behavior.
  */
+import * as path from 'node:path';
 import type {
   ResourceTransformer,
   Target,
@@ -33,6 +34,8 @@ import {
 import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
+
+const localPath = (...segments: string[]): string => path.join(...segments);
 
 describe('resolveLayout', () => {
   it('resolves vscode user scope layout from built-in defaults', () => {
@@ -95,7 +98,7 @@ describe('resolveLayoutAsync', () => {
       ['prompts/test.md', new TextEncoder().encode('# Test')]
     ]));
 
-    expect(await fs.readFile('/custom/custom-prompts/test.md')).toBe('# Test');
+    expect(await fs.readFile(localPath('/custom', 'custom-prompts', 'test.md'))).toBe('# Test');
   });
 });
 
@@ -129,9 +132,9 @@ describe('FileTreeTargetWriter', () => {
 
     const result = await writer.write(target, files);
 
-    expect(result.written).toContain('/out/prompts/test.md');
+    expect(result.written).toContain(localPath('/out', 'prompts', 'test.md'));
     expect(result.skipped).toEqual([]);
-    expect(await fs.readFile('/out/prompts/test.md')).toBe('# Test');
+    expect(await fs.readFile(localPath('/out', 'prompts', 'test.md'))).toBe('# Test');
   });
 
   it('skips files in the layout skipPaths list', async () => {
@@ -170,7 +173,7 @@ describe('FileTreeTargetWriter', () => {
 
     const result = await writer.write(restrictedTarget, files);
 
-    expect(result.written).toContain('/out/skills/my-skill/SKILL.md');
+    expect(result.written).toContain(localPath('/out', 'skills', 'my-skill', 'SKILL.md'));
     expect(result.skipped).toContain('prompts/test.md');
   });
 
@@ -186,7 +189,7 @@ describe('FileTreeTargetWriter', () => {
 
     await writer.write(target, files);
 
-    expect(await fs.readFile('/out/prompts/test.md')).toBe('# Test\n<!-- transformed -->');
+    expect(await fs.readFile(localPath('/out', 'prompts', 'test.md'))).toBe('# Test\n<!-- transformed -->');
   });
 
   it('falls back to original content when the transformer throws', async () => {
@@ -203,17 +206,17 @@ describe('FileTreeTargetWriter', () => {
 
     await writer.write(target, files);
 
-    expect(await fs.readFile('/out/prompts/test.md')).toBe('# Test');
+    expect(await fs.readFile(localPath('/out', 'prompts', 'test.md'))).toBe('# Test');
   });
 
   it('removes a routed file', async () => {
     const fs = new InMemoryFileSystem();
-    fs.seed('/out/prompts/test.md', '# Test');
+    fs.seed(localPath('/out', 'prompts', 'test.md'), '# Test');
     const writer = new FileTreeTargetWriter({ fs, env: {} });
 
     await writer.remove(target, 'prompts/test.md');
 
-    expect(await fs.exists('/out/prompts/test.md')).toBe(false);
+    expect(await fs.exists(localPath('/out', 'prompts', 'test.md'))).toBe(false);
   });
 
   it('no-ops removing an unrouted file', async () => {
@@ -239,9 +242,9 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
 
     const result = await writer.writeManifestItems(repoTarget, files, items);
 
-    expect(result.written).toEqual(['/ws/.github/prompts/my-prompt.prompt.md']);
+    expect(result.written).toEqual([localPath('/ws', '.github', 'prompts', 'my-prompt.prompt.md')]);
     expect(result.skipped).toEqual([]);
-    expect(await fs.readFile('/ws/.github/prompts/my-prompt.prompt.md')).toBe('# Hello');
+    expect(await fs.readFile(localPath('/ws', '.github', 'prompts', 'my-prompt.prompt.md'))).toBe('# Hello');
   });
 
   it('auto-detects the file type from tags when type is omitted', async () => {
@@ -256,7 +259,7 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
 
     const result = await writer.writeManifestItems(repoTarget, files, items);
 
-    expect(result.written).toEqual(['/ws/.github/instructions/my-instructions.instructions.md']);
+    expect(result.written).toEqual([localPath('/ws', '.github', 'instructions', 'my-instructions.instructions.md')]);
   });
 
   it('routes chatmode items alongside agents', async () => {
@@ -271,7 +274,7 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
 
     const result = await writer.writeManifestItems(repoTarget, files, items);
 
-    expect(result.written).toEqual(['/ws/.github/agents/my-mode.chatmode.md']);
+    expect(result.written).toEqual([localPath('/ws', '.github', 'agents', 'my-mode.chatmode.md')]);
   });
 
   it('routes agent items to the agents/ directory', async () => {
@@ -286,7 +289,7 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
 
     const result = await writer.writeManifestItems(repoTarget, files, items);
 
-    expect(result.written).toEqual(['/ws/.github/agents/my-agent.agent.md']);
+    expect(result.written).toEqual([localPath('/ws', '.github', 'agents', 'my-agent.agent.md')]);
   });
 
   it('skips items whose kind is excluded by target.allowedKinds', async () => {
@@ -319,7 +322,7 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
 
     const result = await writer.writeManifestItems(windsurfTarget, files, items);
 
-    expect(result.written).toEqual(['/ws/.windsurf/agents/my-agent.agent.md']);
+    expect(result.written).toEqual([localPath('/ws', '.windsurf', 'agents', 'my-agent.agent.md')]);
     expect(result.skipped).toEqual([]);
   });
 
@@ -351,7 +354,7 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
 
     await writer.writeManifestItems(repoTarget, files, items);
 
-    expect(await fs.readFile('/ws/.github/prompts/my-prompt.prompt.md')).toBe('# Hello\n<!-- transformed -->');
+    expect(await fs.readFile(localPath('/ws', '.github', 'prompts', 'my-prompt.prompt.md'))).toBe('# Hello\n<!-- transformed -->');
   });
 
   it('copies an entire skill directory into {id}/, renaming the directory but preserving relative paths', async () => {
@@ -367,11 +370,11 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
 
     const result = await writer.writeManifestItems(repoTarget, files, items);
 
-    expect(result.written).toContain('/ws/.github/skills/my-skill/SKILL.md');
-    expect(result.written).toContain('/ws/.github/skills/my-skill/scripts/run.sh');
+    expect(result.written).toContain(localPath('/ws', '.github', 'skills', 'my-skill', 'SKILL.md'));
+    expect(result.written).toContain(localPath('/ws', '.github', 'skills', 'my-skill', 'scripts', 'run.sh'));
     expect(result.skipped).toEqual([]);
-    expect(await fs.readFile('/ws/.github/skills/my-skill/SKILL.md')).toBe('# Skill');
-    expect(await fs.readFile('/ws/.github/skills/my-skill/scripts/run.sh')).toBe('#!/bin/sh');
+    expect(await fs.readFile(localPath('/ws', '.github', 'skills', 'my-skill', 'SKILL.md'))).toBe('# Skill');
+    expect(await fs.readFile(localPath('/ws', '.github', 'skills', 'my-skill', 'scripts', 'run.sh'))).toBe('#!/bin/sh');
   });
 
   it('skips a skill item when no bundle files match its source skill directory', async () => {

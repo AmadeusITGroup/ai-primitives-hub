@@ -48,6 +48,7 @@ import {
 import {
   isValidLocalUrl,
   resolveLocalPath,
+  toFileUrl,
 } from './local-path';
 
 const DEFAULT_COLLECTIONS_PATH = 'collections';
@@ -222,13 +223,13 @@ export class LocalAwesomeCopilotAdapter extends BaseSourceAdapter {
       repository: this.source.url,
       tags: collection.tags ?? [],
       environments: inferEnvironments(collection.tags ?? []),
-      manifestUrl: `file://${collectionPath}`,
-      downloadUrl: `file://${collectionPath}`,
+      manifestUrl: toFileUrl(collectionPath),
+      downloadUrl: toFileUrl(collectionPath),
       lastUpdated: new Date(mtimeMs).toISOString(),
       size: `${collection.items.length} items`,
       dependencies: [],
       license: 'MIT',
-      readmeUrl: readmePath ? `file://${readmePath}` : undefined
+      readmeUrl: readmePath ? toFileUrl(readmePath) : undefined
     };
 
     // Attach a content breakdown + raw MCP servers for the Marketplace
@@ -384,7 +385,7 @@ export class LocalAwesomeCopilotAdapter extends BaseSourceAdapter {
     if (!bundle.readmeUrl) {
       return null;
     }
-    const localFile = bundle.readmeUrl.replace(/^file:\/\//, '');
+    const localFile = resolveLocalPath(bundle.readmeUrl);
     try {
       return await this.fs.readFile(localFile);
     } catch {
@@ -410,7 +411,7 @@ export class LocalAwesomeCopilotAdapter extends BaseSourceAdapter {
   }
 
   public getManifestUrl(bundleId: string): string {
-    return `file://${path.join(this.getCollectionsDir(), `${bundleId}.collection.yml`)}`;
+    return toFileUrl(path.join(this.getCollectionsDir(), `${bundleId}.collection.yml`));
   }
 
   public getDownloadUrl(bundleId: string): string {

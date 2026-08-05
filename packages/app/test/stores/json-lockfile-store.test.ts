@@ -7,6 +7,7 @@
  * extension's actual on-disk lockfile format (see the module doc for
  * the full rationale) — written fresh against that adapted schema.
  */
+import * as nodePath from 'node:path';
 import {
   describe,
   expect,
@@ -32,11 +33,11 @@ import {
 
 describe('getLockfilePathForMode', () => {
   it('routes commit mode to prompt-registry.lock.json', () => {
-    expect(getLockfilePathForMode('/repo', 'commit')).toBe(`/repo/${LOCKFILE_NAME}`);
+    expect(getLockfilePathForMode('/repo', 'commit')).toBe(nodePath.join('/repo', LOCKFILE_NAME));
   });
 
   it('routes local-only mode to prompt-registry.local.lock.json', () => {
-    expect(getLockfilePathForMode('/repo', 'local-only')).toBe(`/repo/${LOCAL_LOCKFILE_NAME}`);
+    expect(getLockfilePathForMode('/repo', 'local-only')).toBe(nodePath.join('/repo', LOCAL_LOCKFILE_NAME));
   });
 });
 

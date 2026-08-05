@@ -24,6 +24,10 @@ interface InMemoryEntry {
 export class InMemoryFileSystem implements FileSystem {
   private readonly files = new Map<string, InMemoryEntry>();
 
+  private normalizePath(path: string): string {
+    return path.replaceAll('\\', '/');
+  }
+
   /**
    * Seed a file directly, bypassing `writeFile`, for test setup.
    * @param path - File path to seed.
@@ -32,19 +36,20 @@ export class InMemoryFileSystem implements FileSystem {
    * milliseconds since the Unix epoch. Defaults to `0`.
    */
   public seed(path: string, contents: string, mtimeMs = 0): void {
-    this.files.set(path, { contents, mtimeMs });
+    this.files.set(this.normalizePath(path), { contents, mtimeMs });
   }
 
   public async readFile(path: string): Promise<string> {
-    const entry = this.files.get(path);
+    const normalizedPath = this.normalizePath(path);
+    const entry = this.files.get(normalizedPath);
     if (!entry) {
-      throw new Error(`ENOENT: no such file: ${path}`);
+      throw new Error(`ENOENT: no such file: ${normalizedPath}`);
     }
     return entry.contents;
   }
 
   public async writeFile(path: string, contents: string): Promise<void> {
-    this.files.set(path, { contents, mtimeMs: Date.now() });
+    this.files.set(this.normalizePath(path), { contents, mtimeMs: Date.now() });
   }
 
   public async readJson<T = unknown>(path: string): Promise<T> {
@@ -56,10 +61,11 @@ export class InMemoryFileSystem implements FileSystem {
   }
 
   public async exists(path: string): Promise<boolean> {
-    if (this.files.has(path)) {
+    const normalizedPath = this.normalizePath(path);
+    if (this.files.has(normalizedPath)) {
       return true;
     }
-    const dirPrefix = path.endsWith('/') ? path : `${path}/`;
+    const dirPrefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
     return [...this.files.keys()].some((existing) => existing.startsWith(dirPrefix));
   }
 
@@ -73,10 +79,11 @@ export class InMemoryFileSystem implements FileSystem {
   }
 
   public async readDirEntries(path: string): Promise<DirEntry[]> {
-    if (this.files.has(path)) {
-      throw new Error(`ENOTDIR: not a directory: ${path}`);
+    const normalizedPath = this.normalizePath(path);
+    if (this.files.has(normalizedPath)) {
+      throw new Error(`ENOTDIR: not a directory: ${normalizedPath}`);
     }
-    const prefix = path.endsWith('/') ? path : `${path}/`;
+    const prefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
     const names = new Map<string, boolean>();
 
     for (const filePath of this.files.keys()) {
@@ -96,7 +103,8 @@ export class InMemoryFileSystem implements FileSystem {
   }
 
   public async stat(path: string): Promise<FileStat> {
-    const entry = this.files.get(path);
+    const normalizedPath = this.normalizePath(path);
+    const entry = this.files.get(normalizedPath);
     if (entry) {
       return {
         isDirectory: false,
@@ -105,22 +113,23 @@ export class InMemoryFileSystem implements FileSystem {
         mtimeMs: entry.mtimeMs
       };
     }
-    if (await this.exists(path)) {
+    if (await this.exists(normalizedPath)) {
       return { isDirectory: true, isFile: false, size: 0, mtimeMs: 0 };
     }
-    throw new Error(`ENOENT: no such file or directory: ${path}`);
+    throw new Error(`ENOENT: no such file or directory: ${normalizedPath}`);
   }
 
   public async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {
+    const normalizedPath = this.normalizePath(path);
     if (opts?.recursive === true) {
-      const prefix = path.endsWith('/') ? path : `${path}/`;
+      const prefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
       for (const key of this.files.keys()) {
-        if (key === path || key.startsWith(prefix)) {
+        if (key === normalizedPath || key.startsWith(prefix)) {
           this.files.delete(key);
         }
       }
       return;
     }
-    this.files.delete(path);
+    this.files.delete(normalizedPath);
   }
 }

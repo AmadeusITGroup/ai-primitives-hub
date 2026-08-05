@@ -40,6 +40,8 @@ const makeTarget = (name: string, type: 'vscode' | 'copilot-cli' | 'kiro', scope
   scope
 });
 
+const userConfigHome = path.join(path.sep, 'home', 'user', '.config');
+
 describe('loadTargets', () => {
   let workspace: string;
 
@@ -115,9 +117,9 @@ describe('findProjectLockfile', () => {
 
 describe('lockfilePathForTarget', () => {
   it('returns the user lockfile for non-repository scopes', () => {
-    const ctx = createTestContext({ env: { XDG_CONFIG_HOME: '/home/user/.config' } });
+    const ctx = createTestContext({ env: { XDG_CONFIG_HOME: userConfigHome } });
     const target = makeTarget('copilot', 'copilot-cli', 'user');
-    expect(lockfilePathForTarget(ctx, target)).toBe('/home/user/.config/ai-primitives-hub/ai-primitives-hub.lock.json');
+    expect(lockfilePathForTarget(ctx, target)).toBe(path.join(userConfigHome, 'ai-primitives-hub', 'ai-primitives-hub.lock.json'));
   });
 
   it('uses the repository lockfile path for repository scope', () => {

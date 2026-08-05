@@ -30,6 +30,9 @@ import {
  */
 const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
 
+const toGitIgnorePath = (workspaceRoot: string, filePath: string): string =>
+  path.relative(workspaceRoot, filePath).replaceAll('\\', '/');
+
 /**
  * Commit mode for repository-scoped installations.
  */
@@ -296,7 +299,7 @@ export class RepositoryScopeWriter {
 
       // Add paths to section
       for (const p of paths) {
-        const relativePath = path.relative(this.workspaceRoot, p);
+        const relativePath = toGitIgnorePath(this.workspaceRoot, p);
         if (!lines.includes(relativePath)) {
           lines.splice(sectionIndex + 1, 0, relativePath);
         }
@@ -310,7 +313,7 @@ export class RepositoryScopeWriter {
 
       const lines = [GIT_EXCLUDE_SECTION_HEADER];
       for (const p of paths) {
-        const relativePath = path.relative(this.workspaceRoot, p);
+        const relativePath = toGitIgnorePath(this.workspaceRoot, p);
         lines.push(relativePath);
       }
 
@@ -330,7 +333,7 @@ export class RepositoryScopeWriter {
       }
 
       // Remove paths from section
-      const toRemove = new Set(paths.map((p) => path.relative(this.workspaceRoot, p)));
+      const toRemove = new Set(paths.map((p) => toGitIgnorePath(this.workspaceRoot, p)));
       const filtered = lines.filter((l, i) => {
         if (i <= sectionIndex) {
           return true;
