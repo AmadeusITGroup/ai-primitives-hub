@@ -99,6 +99,7 @@ The `sources` array defines bundle sources available in the hub.
 | `local-apm` | Local APM packages |
 | `skills` | GitHub repository with skills |
 | `local-skills` | Local filesystem skills directory |
+| `azure-devops` | Azure DevOps Git repository (cloud) |
 
 ### Optional Fields per Source
 
@@ -116,7 +117,7 @@ The `sources` array defines bundle sources available in the hub.
 | Field | Type | Description |
 |-------|------|-------------|
 | `branch` | string | Git branch name (for git-based sources) |
-| `collectionsPath` | string | Path to collections directory (for awesome-copilot) |
+| `collectionsPath` | string | Path to collections directory (for awesome-copilot and azure-devops) |
 | `indexFile` | string | Index file name (for awesome-copilot) |
 
 ### Source Metadata Object

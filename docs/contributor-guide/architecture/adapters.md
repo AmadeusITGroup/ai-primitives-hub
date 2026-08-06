@@ -29,11 +29,12 @@ interface IRepositoryAdapter {
 | **LocalAwesomeCopilotAdapter** | `local-awesome-copilot` | Buffer-based | Active |
 | **ApmAdapter** | `apm` | URL-based | Active |
 | **LocalApmAdapter** | `local-apm` | Buffer-based | Active |
+| **AzureDevOpsAdapter** | `azure-devops` | Buffer-based (fetches via ADO Items API) | Active |
 
 Source types are defined in `src/types/registry.ts`:
 ```typescript
 export type SourceType = 'github' | 'local' | 
-    'awesome-copilot' | 'local-awesome-copilot' | 'apm' | 'local-apm';
+    'awesome-copilot' | 'local-awesome-copilot' | 'apm' | 'local-apm' | 'azure-devops';
 ```
 
 > **Freshness note:** `LocalAwesomeCopilotAdapter` does not cache its bundle list. `fetchBundles()` re-reads collection files from disk on every call so local edits (including readmes) are reflected immediately during development.

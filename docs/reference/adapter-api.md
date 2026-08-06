@@ -157,6 +157,7 @@ export type SourceType =
     | 'local-awesome-copilot'
     | 'apm'
     | 'local-apm'
+    | 'azure-devops'
     | 'my-custom';
 ```
 
@@ -172,6 +173,7 @@ export type SourceType =
 | `LocalApmAdapter` | `local-apm` | Local APM packages | Active |
 | `SkillsAdapter` | `skills` | Fetches skills from a GitHub repository's `skills/` directory | Active |
 | `LocalSkillsAdapter` | `local-skills` | Local filesystem skills directory | Active |
+| `AzureDevOpsAdapter` | `azure-devops` | Fetches `.collection.yml` bundles from an Azure DevOps Git repo via PAT auth | Active |
 
 ## Authentication
 

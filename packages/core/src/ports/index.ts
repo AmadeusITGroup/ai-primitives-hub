@@ -9,6 +9,7 @@ export * from './copilot-sdk';
 export * from './filesystem';
 export * from './http';
 export * from './github-api';
+export * from './azure-devops-api';
 export * from './process-runner';
 export * from './bundle-extractor';
 export * from './target-writer';

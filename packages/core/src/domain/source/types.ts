@@ -21,7 +21,8 @@ export type SourceType =
   | 'apm'
   | 'local-apm'
   | 'skills'
-  | 'local-skills';
+  | 'local-skills'
+  | 'azure-devops';
 
 /**
  * A configured bundle source.

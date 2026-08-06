@@ -14,6 +14,7 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 |------|----------|--------|
 | `awesome-copilot` | Community collections (GitHub-hosted) | Active |
 | `local-awesome-copilot` | Local collection development/testing | Active |
+| `azure-devops` | Community collections (Azure DevOps hosted) | Active |
 | `github` | GitHub repository releases | Active ( Recommended ) |
 | `local` | File system directories | Active |
 | `apm` | APM package repositories | Active |

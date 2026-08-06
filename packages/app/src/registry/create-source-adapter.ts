@@ -21,6 +21,7 @@
  * @module registry/create-source-adapter
  */
 import type {
+  AzureDevOpsApi,
   Clock,
   FileSystem,
   GitHubApi,
@@ -33,6 +34,8 @@ import type {
 import {
   ApmAdapter,
   AwesomeCopilotAdapter,
+  AzureDevOpsAdapter,
+  AzureDevOpsApiClient,
   CompositeTokenProvider,
   GitHubAdapter,
   GitHubApiClient,
@@ -71,6 +74,10 @@ function buildGitHubApi(tokenProvider: TokenProvider, deps: SourceAdapterFactory
   return new GitHubApiClient(deps.httpClient, { tokenProvider });
 }
 
+function buildAzureDevOpsApi(tokenProvider: TokenProvider, deps: SourceAdapterFactoryDeps): AzureDevOpsApi {
+  return new AzureDevOpsApiClient(deps.httpClient, { tokenProvider });
+}
+
 /**
  * Build the `infra` `SourceAdapter` for a `RegistrySource`.
  * @param source - The source to build an adapter for.
@@ -102,6 +109,13 @@ export function createSourceAdapter(source: RegistrySource, deps: SourceAdapterF
     case 'apm': {
       const tokenProvider = buildSourceTokenProvider(source, deps);
       return new ApmAdapter(source, buildGitHubApi(tokenProvider, deps), deps.processRunner, deps.fs, deps.clock, tokenProvider);
+    }
+    case 'azure-devops': {
+      return new AzureDevOpsAdapter(
+        source,
+        buildAzureDevOpsApi(buildSourceTokenProvider(source, deps), deps),
+        deps.clock
+      );
     }
     default: {
       throw new Error(`No adapter for source type: ${String(source.type)}`);
