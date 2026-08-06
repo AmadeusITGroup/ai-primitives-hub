@@ -169,21 +169,22 @@ See [Author Guide: Collection Schema](../../author-guide/collection-schema.md) f
 ### Default Hubs Schema
 
 **Location:** `schemas/default-hubs-config.schema.json`  
-**Validates:** Default hub configurations for extension first-run setup
+**Validates:** Default hub configurations (`packages/infra/config/default-hubs.json`) for first-run setup, shared by the extension and the CLI
 
 **Required fields:**
 - `defaultHubs` — Array of hub options
   - `name` — Display name for hub selection
   - `description` — Description shown in selector UI
-  - `icon` — VS Code codicon name (without `$()` wrapper)
+  - `icon` — Plain-text icon (emoji) used by the CLI
   - `reference` — Hub reference configuration
     - `type` — Source type (`github`, `local`, `url`)
     - `location` — Hub location (repo path, local path, or URL)
 
 **Optional fields:**
+- `codicon` — VS Code codicon name (without `$()` wrapper) used by the extension selector
 - `reference.ref` — Git reference (branch, tag, commit) for GitHub sources
 - `reference.autoSync` — Automatic synchronization flag
-- `recommended` — Recommended default hub flag
+- `recommended` — Recommended default hub flag (at most one entry)
 - `enabled` — Visibility in first-run selector
 
 **Validation features:**

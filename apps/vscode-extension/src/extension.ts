@@ -1,3 +1,6 @@
+import {
+  getEnabledDefaultHubs,
+} from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
   AddResourceCommand,
@@ -41,9 +44,6 @@ import {
 import {
   ValidateCollectionsCommand,
 } from './commands/validate-collections-command';
-import {
-  getEnabledDefaultHubs,
-} from './config/default-hubs';
 import {
   CopilotIntegration,
 } from './integrations/copilot-integration';
@@ -1440,7 +1440,7 @@ export class PromptRegistryExtension {
     const items = verifiedHubs
       .filter((hub) => hub.verified) // Only show verified hubs
       .map((hub) => ({
-        label: `$(${hub.icon}) ${hub.name}${hub.recommended ? ' ⭐' : ''}`,
+        label: `$(${hub.codicon ?? 'cloud'}) ${hub.name}${hub.recommended ? ' ⭐' : ''}`,
         description: hub.recommended ? hub.description + ' (recommended)' : hub.description,
         detail: `${hub.reference.type}/${hub.reference.location}`,
         hubConfig: hub
