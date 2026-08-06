@@ -58,7 +58,11 @@ export function createSharedConfig({ name, tsProjects, tsconfigRootDir, nodeGlob
         'import/resolver': {
           node: true,
           typescript: {
-            project: tsProjects
+            project: tsProjects,
+            // Every package legitimately has both a src and a test tsconfig;
+            // without this the resolver prints a "Multiple projects found"
+            // warning on stderr for each lint run, which reads like a fault.
+            noWarnOnMultipleProjects: true
           }
         }
       }

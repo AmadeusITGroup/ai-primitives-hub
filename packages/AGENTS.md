@@ -22,13 +22,16 @@ CLI / Extension → app → infra → core
 
 ## Commands
 
+From the repository root:
+
 ```bash
-pnpm --filter './packages/*' build
-pnpm --filter './packages/*' test
-pnpm --filter './packages/*' lint:fix
+pnpm run verify:packages   # build + test + lint:fix for these four packages
+pnpm run build:packages
+pnpm run test:packages
+pnpm run lint:packages
 ```
 
-Use the filter, not `pnpm -C packages -r <script>`: the latter resolves the whole workspace and also runs the extension, `lib/`, `website/`, and `github-actions/`.
+These filter on `@ai-primitives-hub/*`. Do not open-code `pnpm -C packages -r <script>`: it resolves the whole workspace and also runs the extension, `lib/`, `website/`, and `github-actions/`. For a single package, `pnpm -C packages/<name> test` is fine.
 
 Tests use Vitest, which exits non-zero on failure — check that exit status rather than grepping the summary, and pass `--no-color` when you do need to match `Tests N passed`. For a bug fix or feature: add a focused failing test in the owning package, make the minimal change, rerun, then run that package's suite.
 

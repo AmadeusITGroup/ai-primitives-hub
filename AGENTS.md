@@ -20,30 +20,37 @@ Use Node 24+ and pnpm 11+.
 
 ```bash
 pnpm install
-pnpm --filter './packages/*' build   # also required before the extension typechecks
-pnpm --filter './packages/*' test
-pnpm run compile                     # extension bundle
-pnpm run compile-tests               # extension tests -> test-dist/
-pnpm run test:unit                   # runs test-dist/, never src/
+pnpm run verify            # everything, in the right order, one exit code
+pnpm run verify:packages   # packages/ only: build + test + lint:fix (~30s)
+```
+
+`verify` is `verify:packages` followed by the extension's `compile`, `test:extension`, and `lint:extension`. Prefer it over running the steps by hand: the ordering matters and this bakes it in. It takes ~110s and prints thousands of lines, so redirect it and only read the tail on failure — a passing run needs no output at all:
+
+```bash
+pnpm run verify > /tmp/verify.log 2>&1 || tail -40 /tmp/verify.log
+```
+
+The individual steps, when you need a tighter loop:
+
+```bash
+pnpm run build:packages    # required before the extension typechecks
+pnpm run test:packages
+pnpm run compile           # extension bundle
+pnpm run test:extension    # compile-tests, then test:unit
+pnpm run lint:fix          # packages + extension
 pnpm run package:vsix
 ```
 
-Scope recursive commands with `--filter './packages/*'`. `pnpm -C packages -r <script>` looks scoped but resolves the whole workspace, so it also runs the extension, `lib/`, `website/`, and `github-actions/`: 4920 lines of output where the filter gives 181.
+Use these scripts rather than open-coding a recursive command. `pnpm -r <script>` and `pnpm -C packages -r <script>` both resolve the whole workspace — the latter looks scoped but is not — so they also run `lib/`, `website/`, and `github-actions/`: 4920 lines of output where the scoped script gives 181. The scripts filter on `@ai-primitives-hub/*`, matching what CI does.
 
 `lib/` has its own test cycle: `cd lib && npm test`.
 
-Lint per package. There is no root `lint:fix` script and no root `eslint.config.mjs`, so both `pnpm run lint:fix` and `npx eslint <path>` fail at the repository root:
-
-```bash
-pnpm --filter './packages/*' lint:fix
-pnpm -C apps/vscode-extension run lint:fix
-```
-
-Always run linting with its `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation. `src test` carries accepted warnings, so add `--quiet` when you only want errors.
+There is no root `eslint.config.mjs`, so a bare `npx eslint <path>` fails at the repository root. Lint through `lint:fix` (or `lint:packages` / `lint:extension`), always with the `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation. `src test` carries accepted warnings, so add `--quiet` when you only want errors.
 
 ## Verification
 
 - **Judge success by exit status, not by grepping output.** A pipe replaces the exit code with the last command's, so `vitest … | tail` and `eslint … | grep` both report success for a failing run. Run the command bare, or end it with `&& echo PASS || echo FAIL`.
+- **`pnpm run test:unit` alone proves nothing.** It executes the already-compiled `test-dist/` and compiles nothing, so after editing any `.ts` it silently re-runs the previous build and passes. Use `pnpm run test:extension`, which compiles first.
 - **Rebuild `packages/` after switching branches or changing a cross-package type.** Lint and `tsc` resolve `@ai-primitives-hub/*` through built `dist/`, so a stale build invents errors that are absent from the checked-out source and hides ones that are present. The usual symptoms are a new export reported as "has no exported member" and type errors naming a symbol you cannot find in `src/`.
 - Vitest (`packages/*`) prints `Tests N passed`; Mocha (the extension) prints `N passing`. Pass `--no-color` to Vitest before matching on that line; otherwise ANSI codes break the match.
 - Extension unit tests log expected errors from negative-path cases (`cmd.exe not found`, `[AI Primitives Hub] ERROR: …`). Those are not failures. Only the summary line and the exit status are.
