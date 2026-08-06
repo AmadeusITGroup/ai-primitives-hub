@@ -6,6 +6,7 @@ import type {
   ProcessResult,
   ProcessRunner,
   RegistrySource,
+  ResolvedToken,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -56,8 +57,8 @@ class RecordingHttpClient implements HttpClient {
 class StubTokenProvider implements TokenProvider {
   public constructor(private readonly token: string) {}
 
-  public async getToken(): Promise<string | undefined> {
-    return this.token;
+  public async getToken(): Promise<ResolvedToken | undefined> {
+    return { token: this.token, origin: { kind: 'explicit' } };
   }
 }
 

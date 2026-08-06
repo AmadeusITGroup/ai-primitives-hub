@@ -216,7 +216,10 @@ export class RegistryManager {
       this.logger.debug(`[RegistryManager] Applying global GitHub token to source '${source.id}'`);
       return {
         ...source,
-        token: globalToken.trim()
+        token: globalToken.trim(),
+        // Marked so a later failure can say `origin=setting:promptregistry.githubToken`
+        // instead of leaving the user guessing which credential was used.
+        tokenOrigin: { kind: 'setting', detail: 'promptregistry.githubToken' }
       };
     }
 

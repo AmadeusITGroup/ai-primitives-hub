@@ -168,6 +168,44 @@ describe('AI Primitives Hub Integration Test Scenarios', () => {
         'promptRegistry.syncAllSources command should be available'
       );
     });
+
+    /**
+     * The diagnose command is only reachable if `extension.ts` registers the
+     * handler *and* `package.json` declares it under `contributes.commands`
+     * and `menus.commandPalette`. A unit test can see neither: it mocks
+     * `vscode` and never loads the manifest. Registering without declaring
+     * hides the command from the palette; declaring without registering
+     * makes it fail when picked. Both halves are asserted here, against the
+     * manifest VS Code actually loaded.
+     */
+    it('should expose the diagnose GitHub authentication command', async function () {
+      this.timeout(5000);
+
+      const commands = await vscode.commands.getCommands(true);
+      assert.ok(
+        commands.includes('promptregistry.diagnoseGitHubAuth'),
+        'promptregistry.diagnoseGitHubAuth should be registered after activation'
+      );
+
+      const extension = vscode.extensions.all.find((ext) =>
+        ext.id.toLowerCase().includes('prompt-registry')
+        || ext.id.toLowerCase().includes('promptregistry')
+      );
+      assert.ok(extension, 'AI Primitives Hub extension should be found');
+
+      const contributes = extension.packageJSON.contributes as {
+        commands?: { command: string }[];
+        menus?: { commandPalette?: { command: string }[] };
+      };
+      assert.ok(
+        contributes.commands?.some((entry) => entry.command === 'promptregistry.diagnoseGitHubAuth'),
+        'promptregistry.diagnoseGitHubAuth should be declared in contributes.commands'
+      );
+      assert.ok(
+        contributes.menus?.commandPalette?.some((entry) => entry.command === 'promptregistry.diagnoseGitHubAuth'),
+        'promptregistry.diagnoseGitHubAuth should be offered in the command palette'
+      );
+    });
   });
 
   describe('Scenario 6: Scope Migration Commands', () => {

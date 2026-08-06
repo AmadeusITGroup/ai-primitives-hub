@@ -20,16 +20,14 @@
 import type {
   Bundle,
   InstallOptions,
+  LogEvent,
+  OnLogEvent,
   RegistrySource,
 } from '@ai-primitives-hub/core';
 import {
   bundleIdHasVersionSuffix,
   extractBundleIdentity,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 import type {
   BundleVersion,
 } from './version-consolidator';

@@ -17,6 +17,8 @@ import {
   ActiveHubStore,
   defaultTokenProvider,
   findProjectConfigPath,
+  formatCredential,
+  formatTokenOrigin,
   HubStore,
   NodeHttpClient,
   readTargets,
@@ -550,14 +552,17 @@ const checkGitHubAuth = async (ctx: Context, verbose: boolean): Promise<DoctorCh
   const logs = createLogger(verbose);
   try {
     const provider = defaultTokenProvider(ctx.env);
-    const token = await provider.getToken('api.github.com');
-    log(logs, 'output', `tokenResolved: ${token !== undefined && token.length > 0 ? 'true' : 'false'}`);
-    if (token !== undefined && token.length > 0) {
-      log(logs, 'output', `tokenLength: ${token.length}`);
+    const credential = await provider.getToken('api.github.com');
+    log(logs, 'output', `tokenResolved: ${credential === undefined ? 'false' : 'true'}`);
+    if (credential !== undefined) {
+      // The origin is the actionable part: "a token was found" doesn't say
+      // which of GITHUB_TOKEN, GH_TOKEN or `gh auth token` supplied it.
+      log(logs, 'output', formatCredential(credential));
       return {
         name: 'github-auth',
         status: 'ok',
-        detail: `GitHub token resolved (${token.length} chars). Token is never logged.`,
+        detail: `GitHub token resolved from ${formatTokenOrigin(credential.origin)} `
+          + `(${credential.token.length} chars). Token is never logged.`,
         logs
       };
     }
@@ -672,11 +677,11 @@ const checkApiReachable = async (ctx: Context, verbose: boolean): Promise<Doctor
     log(logs, 'input', 'GET https://api.github.com/rate_limit');
     const http = new NodeHttpClient();
     const provider = defaultTokenProvider(ctx.env);
-    const token = await provider.getToken('api.github.com');
-    log(logs, 'output', `tokenPresent: ${token !== undefined && token.length > 0 ? 'true' : 'false'}`);
+    const credential = await provider.getToken('api.github.com');
+    log(logs, 'output', formatCredential(credential));
     const headers: Record<string, string> = {};
-    if (token !== undefined && token.length > 0) {
-      headers.Authorization = `Bearer ${token}`;
+    if (credential !== undefined) {
+      headers.Authorization = `Bearer ${credential.token}`;
     }
     const res = await http.fetch({ url: 'https://api.github.com/rate_limit', headers });
     log(logs, 'output', `statusCode: ${String(res.statusCode)}`);

@@ -61,6 +61,11 @@
         "category": "AI Primitives Hub"
       },
       {
+        "command": "promptregistry.diagnoseGitHubAuth",
+        "title": "Diagnose GitHub Authentication",
+        "category": "AI Primitives Hub"
+      },
+      {
         "command": "promptRegistry.scaffoldProject",
         "title": "Scaffold Project",
         "category": "AI Primitives Hub"
@@ -440,6 +445,9 @@
       "commandPalette": [
         {
           "command": "promptregistry.forceGitHubAuth"
+        },
+        {
+          "command": "promptregistry.diagnoseGitHubAuth"
         }
       ],
       "view/title": [

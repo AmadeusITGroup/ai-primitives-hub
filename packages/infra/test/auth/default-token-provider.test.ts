@@ -10,7 +10,10 @@ import {
 describe('defaultTokenProvider', () => {
   it('resolves a token from the env without shelling out to gh', async () => {
     const provider = defaultTokenProvider({ GITHUB_TOKEN: 'from-env', AI_PRIMITIVES_HUB_DISABLE_GH_CLI: '1' });
-    await expect(provider.getToken('github.com')).resolves.toBe('from-env');
+    await expect(provider.getToken('github.com')).resolves.toEqual({
+      token: 'from-env',
+      origin: { kind: 'env', detail: 'GITHUB_TOKEN' }
+    });
   });
 
   it('resolves from env without needing the gh CLI fallback to run', async () => {
@@ -20,7 +23,7 @@ describe('defaultTokenProvider', () => {
     // so the (unmockable, real-process) gh fallback is never invoked.
     // This keeps the test hermetic without needing a `gh` binary present.
     const provider = defaultTokenProvider({ GITHUB_TOKEN: 'from-env' });
-    await expect(provider.getToken('github.com')).resolves.toBe('from-env');
+    await expect(provider.getToken('github.com')).resolves.toMatchObject({ token: 'from-env' });
   });
 
   it('returns only the env provider when AI_PRIMITIVES_HUB_DISABLE_GH_CLI=1 and no token is set', async () => {

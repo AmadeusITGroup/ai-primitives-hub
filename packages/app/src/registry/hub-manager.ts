@@ -29,6 +29,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   DEFAULT_LOCAL_HUB_ID,
+  isRegistryError,
   sanitizeHubId,
 } from '@ai-primitives-hub/core';
 import type {
@@ -39,6 +40,58 @@ import type {
   HubStoreMetadata,
   LoadHubResult,
 } from '@ai-primitives-hub/infra';
+
+/**
+ * Why a hub could not be reached. Mirrors the `RegistryError` codes the
+ * hub resolver throws, so callers switch on a small closed set instead of
+ * matching error text.
+ */
+export type HubUnavailableReason =
+  | 'auth-rejected'
+  | 'missing-scope'
+  | 'sso-required'
+  | 'no-access'
+  | 'fetch-failed';
+
+export interface HubAvailability {
+  available: boolean;
+  reason?: HubUnavailableReason;
+  /** Credential in play, as rendered by `formatCredential`. */
+  credential?: string;
+  /** Plain-language conclusion from the credential diagnosis. */
+  detail?: string;
+}
+
+const REASON_BY_CODE: Record<string, HubUnavailableReason> = {
+  'AUTH.TOKEN_REJECTED': 'auth-rejected',
+  'AUTH.MISSING_SCOPE': 'missing-scope',
+  'AUTH.SSO_REQUIRED': 'sso-required',
+  'AUTH.NO_REPO_ACCESS': 'no-access',
+  'HUB.FETCH_FAILED': 'fetch-failed'
+};
+
+/**
+ * Translate a hub-resolution failure into a reason + the credential facts
+ * the resolver attached.
+ * @param error Whatever `resolver.resolve` threw.
+ * @returns Availability describing the failure.
+ */
+function classifyHubFailure(error: unknown): HubAvailability {
+  if (isRegistryError(error)) {
+    const origin = error.context?.origin;
+    return {
+      available: false,
+      reason: REASON_BY_CODE[error.code] ?? 'fetch-failed',
+      credential: typeof origin === 'string' ? origin : undefined,
+      detail: error.hint ?? error.message
+    };
+  }
+  return {
+    available: false,
+    reason: 'fetch-failed',
+    detail: error instanceof Error ? error.message : String(error)
+  };
+}
 
 export interface HubInfo {
   id: string;
@@ -277,15 +330,30 @@ export class HubManager {
    * @returns true iff the reference validates and the config fetch succeeds.
    */
   public async verifyHubAvailability(reference: HubReference): Promise<boolean> {
+    return (await this.checkHubAvailability(reference)).available;
+  }
+
+  /**
+   * Probe a hub reference and report *why* it is unavailable.
+   *
+   * `verifyHubAvailability`'s boolean cannot distinguish "this account has
+   * no access to a hub we ship by default" — an expected condition for
+   * anyone outside the owning organization — from a broken credential, so
+   * callers that need to choose between an `info` log and an error
+   * notification use this instead. Never throws.
+   * @param reference Hub reference to verify.
+   * @returns Availability plus the classified reason on failure.
+   */
+  public async checkHubAvailability(reference: HubReference): Promise<HubAvailability> {
     try {
       const refValidation = await this.validateReference(reference);
       if (!refValidation.valid) {
-        return false;
+        return { available: false, reason: 'fetch-failed', detail: refValidation.errors.join('; ') };
       }
       await this.deps.resolver.resolve(reference);
-      return true;
-    } catch {
-      return false;
+      return { available: true };
+    } catch (error) {
+      return classifyHubFailure(error);
     }
   }
 

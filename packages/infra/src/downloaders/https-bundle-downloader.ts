@@ -20,6 +20,12 @@ import type {
   Installable,
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import {
+  formatCredential,
+} from '../auth/format-token-origin';
+import {
+  describeAmbiguous404,
+} from '../http/github-api-client';
 
 const sha256Hex = (bytes: Uint8Array): string =>
   createHash('sha256').update(bytes).digest('hex');
@@ -39,15 +45,22 @@ export class HttpsBundleDownloader implements BundleDownloader {
     }
 
     const host = new URL(installable.downloadUrl).hostname;
-    const token = await this.tokens.getToken(host);
+    const credential = await this.tokens.getToken(host);
     const headers: Record<string, string> = { Accept: 'application/octet-stream' };
-    if (token !== undefined) {
-      headers.Authorization = `Bearer ${token}`;
+    if (credential !== undefined) {
+      headers.Authorization = `Bearer ${credential.token}`;
     }
 
     const response = await this.http.fetch({ url: installable.downloadUrl, headers });
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw new Error(`Failed to download bundle: HTTP ${String(response.statusCode)} from ${installable.downloadUrl}`);
+      // A bare status is not actionable: on raw/asset URLs a rejected
+      // credential and a missing file look identical, so name the
+      // credential that was used and the 404 ambiguity.
+      throw new Error(
+        `Failed to download bundle: HTTP ${String(response.statusCode)} from ${installable.downloadUrl}`
+        + ` [${formatCredential(credential)}]`
+        + describeAmbiguous404(installable.downloadUrl, credential)
+      );
     }
 
     return {

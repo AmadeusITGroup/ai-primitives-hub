@@ -1,3 +1,6 @@
+import {
+  getEnabledDefaultHubs,
+} from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
   AddResourceCommand,
@@ -11,6 +14,10 @@ import {
 import {
   CreateCollectionCommand,
 } from './commands/create-collection-command';
+import {
+  DiagnoseGitHubAuthCommand,
+  type DiagnoseGitHubAuthTarget,
+} from './commands/diagnose-github-auth-command';
 import {
   GitHubAuthCommand,
 } from './commands/github-auth-command';
@@ -41,9 +48,6 @@ import {
 import {
   ValidateCollectionsCommand,
 } from './commands/validate-collections-command';
-import {
-  getEnabledDefaultHubs,
-} from './config/default-hubs';
 import {
   CopilotIntegration,
 } from './integrations/copilot-integration';
@@ -125,6 +129,10 @@ import {
   getValidUpdateCheckFrequency,
 } from './utils/config-type-guards';
 import {
+  describeHubAvailability,
+  summarizeFirstRunHubs,
+} from './utils/first-run-hub-report';
+import {
   promptGitHubAccountSelection,
 } from './utils/github-account-prompt';
 import {
@@ -133,6 +141,9 @@ import {
 import {
   McpConfigLocator,
 } from './utils/mcp-config-locator';
+import {
+  showOperationFailure,
+} from './utils/show-auth-failure';
 
 // Module-level variable to store the extension instance for deactivation
 let extensionInstance: PromptRegistryExtension | undefined;
@@ -288,6 +299,7 @@ export class PromptRegistryExtension {
     // Note: scaffoldCommand is registered inline in command handler
     const addResourceCommand = new AddResourceCommand(this.context.extensionPath);
     const githubAuthCommand = new GitHubAuthCommand(this.registryManager);
+    const diagnoseGitHubAuthCommand = new DiagnoseGitHubAuthCommand();
     this.validateCollectionsCommand = new ValidateCollectionsCommand(this.context);
     this.validateApmCommand = new ValidateApmCommand(this.context);
     this.createCollectionCommand = new CreateCollectionCommand();
@@ -466,7 +478,12 @@ export class PromptRegistryExtension {
         }
       }),
 
-      vscode.commands.registerCommand('promptregistry.forceGitHubAuth', () => githubAuthCommand.execute())
+      vscode.commands.registerCommand('promptregistry.forceGitHubAuth', () => githubAuthCommand.execute()),
+
+      vscode.commands.registerCommand(
+        'promptregistry.diagnoseGitHubAuth',
+        (target?: DiagnoseGitHubAuthTarget) => diagnoseGitHubAuthCommand.execute(target)
+      )
     ];
 
     // Add to disposables
@@ -1423,14 +1440,16 @@ export class PromptRegistryExtension {
     // Verify each hub in parallel but preserve order
     this.logger.info('Verifying default hubs...');
     const verificationResults = await Promise.all(defaultHubs.map(async (hub) => {
-      const isAvailable = await hubManager.verifyHubAvailability(hub.reference);
-      this.logger.debug(`Hub verification result for ${hub.name}: ${isAvailable ? 'available' : 'unavailable'}`);
-      if (isAvailable) {
-        this.logger.info(`✓ Hub verified: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
-      } else {
-        this.logger.warn(`✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
+      const availability = await hubManager.checkHubAvailability(hub.reference);
+      const report = describeHubAvailability(hub, availability);
+      for (const line of report.lines) {
+        if (report.level === 'info') {
+          this.logger.info(line);
+        } else {
+          this.logger.warn(line);
+        }
       }
-      return { ...hub, verified: isAvailable };
+      return { ...hub, verified: availability.available, availability };
     }));
 
     // verificationResults maintains the same order as defaultHubs
@@ -1440,7 +1459,7 @@ export class PromptRegistryExtension {
     const items = verifiedHubs
       .filter((hub) => hub.verified) // Only show verified hubs
       .map((hub) => ({
-        label: `$(${hub.icon}) ${hub.name}${hub.recommended ? ' ⭐' : ''}`,
+        label: `$(${hub.codicon ?? 'cloud'}) ${hub.name}${hub.recommended ? ' ⭐' : ''}`,
         description: hub.recommended ? hub.description + ' (recommended)' : hub.description,
         detail: `${hub.reference.type}/${hub.reference.location}`,
         hubConfig: hub
@@ -1462,13 +1481,16 @@ export class PromptRegistryExtension {
       }
     );
 
-    // Show warning if no verified hubs
-    if (verifiedHubs.filter((h) => h.verified).length === 0) {
+    // No hub available: information when every failure was expected (an
+    // account outside the owning organization), a warning when something is
+    // actually broken. The picker is shown either way.
+    const summary = summarizeFirstRunHubs(verifiedHubs.map((hub) => ({ hub, availability: hub.availability })));
+    if (summary.notification === 'information') {
+      this.logger.info('No default hub is available to this GitHub account (expected outside the owning organization)');
+      vscode.window.showInformationMessage(summary.message!);
+    } else if (summary.notification === 'warning') {
       this.logger.warn('No default hubs are currently accessible');
-      vscode.window.showWarningMessage(
-        'Default hubs are currently unavailable. You can import a custom hub or skip for now.',
-        'Continue'
-      );
+      vscode.window.showWarningMessage(summary.message!, 'Continue');
     }
 
     const selected = await vscode.window.showQuickPick(items, {
@@ -1513,8 +1535,10 @@ export class PromptRegistryExtension {
         vscode.window.showInformationMessage(`Successfully activated ${selected.hubConfig.name}`);
       } catch (error) {
         this.logger.error(`Failed to import hub: ${selected.hubConfig.name}`, error as Error);
-        vscode.window.showErrorMessage(
-          `Failed to import ${selected.hubConfig.name}: ${error instanceof Error ? error.message : String(error)}`
+        await showOperationFailure(
+          `Failed to import ${selected.hubConfig.name}: ${error instanceof Error ? error.message : String(error)}`,
+          error,
+          { label: selected.hubConfig.name }
         );
       }
     } else if (selected.label.includes('Custom Hub URL')) {

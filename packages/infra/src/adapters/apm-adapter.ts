@@ -425,12 +425,12 @@ export class ApmAdapter extends BaseSourceAdapter {
 
     const status = await this.getRuntimeStatus();
     const commandPrefix = status.installed ? 'apm' : 'uvx apm';
-    const token = await this.tokenProvider?.getToken('github.com');
+    const credential = await this.tokenProvider?.getToken('github.com');
 
     try {
       await this.processRunner.exec(`${commandPrefix} install`, {
         cwd: targetDir,
-        env: token ? { GITHUB_TOKEN: token } : undefined,
+        env: credential ? { GITHUB_TOKEN: credential.token } : undefined,
         timeoutMs: INSTALL_TIMEOUT_MS
       });
     } catch (error) {

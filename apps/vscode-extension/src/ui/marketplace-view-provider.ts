@@ -40,6 +40,9 @@ import {
   Logger,
 } from '../utils/logger';
 import {
+  showOperationFailure,
+} from '../utils/show-auth-failure';
+import {
   VersionManager,
 } from '../utils/version-manager';
 
@@ -787,7 +790,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       await this.loadBundles();
     } catch (error) {
       this.logger.error('Failed to install bundle from marketplace', error as Error);
-      vscode.window.showErrorMessage(`Failed to install bundle: ${(error as Error).message}`);
+      await showOperationFailure(`Failed to install bundle: ${(error as Error).message}`, error, { label: bundleId });
     }
   }
 
@@ -901,7 +904,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       await this.loadBundles();
     } catch (error) {
       this.logger.error('Failed to install specific version from marketplace', error as Error);
-      vscode.window.showErrorMessage(`Failed to install bundle v${version}: ${(error as Error).message}`);
+      await showOperationFailure(`Failed to install bundle v${version}: ${(error as Error).message}`, error, { label: bundleId });
     }
   }
 

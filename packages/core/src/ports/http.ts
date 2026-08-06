@@ -40,6 +40,32 @@ export interface HttpClient {
 }
 
 /**
+ * Where a credential came from. Named rather than inferred so a failure
+ * log can always answer "which credential was used?" — the question a
+ * status code alone never answers, and the one that decides whether the
+ * user should reset a VS Code session, edit a setting, or fix an env var.
+ */
+export type TokenOriginKind =
+  | 'explicit'
+  | 'setting'
+  | 'vscode-session'
+  | 'env'
+  | 'gh-cli'
+  | 'unknown';
+
+export interface TokenOrigin {
+  kind: TokenOriginKind;
+  /** Specifics: 'promptregistry.githubToken', 'GITHUB_TOKEN', a GitHub account label. */
+  detail?: string;
+}
+
+/** A token plus the provenance of that token. */
+export interface ResolvedToken {
+  token: string;
+  origin: TokenOrigin;
+}
+
+/**
  * Resolves a bearer token for an authenticated request, e.g. to GitHub's
  * API. Host-aware (`host` is the target request's hostname): the harvest
  * subsystem (Phase 3b) can walk many distinct sources/hosts in a single
@@ -55,7 +81,11 @@ export interface HttpClient {
  * Called once per request rather than cached by the caller, so a provider
  * backed by a session that can expire/rotate stays correct without infra
  * needing its own retry-on-401 logic.
+ *
+ * Returns the token *with* its origin: every provider self-reports, so no
+ * consumer has to guess where a credential came from, and a chain of
+ * providers cannot lose the answer on the way out.
  */
 export interface TokenProvider {
-  getToken(host: string): Promise<string | undefined>;
+  getToken(host: string): Promise<ResolvedToken | undefined>;
 }

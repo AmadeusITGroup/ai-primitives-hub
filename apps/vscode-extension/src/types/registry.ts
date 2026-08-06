@@ -1,6 +1,9 @@
 /**
  * Core type definitions for the AI Primitives Hub system
  */
+import type {
+  TokenOrigin,
+} from '@ai-primitives-hub/core';
 import {
   McpInputDefinition,
   McpServersManifest,
@@ -38,6 +41,7 @@ export interface RegistrySource {
   priority: number;
   private?: boolean;
   token?: string; // Environment variable or secure storage key
+  tokenOrigin?: TokenOrigin; // Where an injected token came from (e.g. the global setting)
   hubId?: string; // Hub identifier if this source is from a curated hub
   metadata?: {
     description?: string;

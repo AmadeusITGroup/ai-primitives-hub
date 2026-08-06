@@ -20,7 +20,11 @@ import {
 import type {
   SourceAdapterFactoryDeps,
 } from '@ai-primitives-hub/app';
+import type {
+  TokenProvider,
+} from '@ai-primitives-hub/core';
 import {
+  CompositeTokenProvider,
   GhCliTokenProvider,
   NodeFileSystem,
   NodeHttpClient,
@@ -39,7 +43,9 @@ import {
 
 const fs = new NodeFileSystem();
 const clock = new SystemClock();
-const httpClient = new NodeHttpClient();
+/** Shared HTTP client, so diagnostics probe over the same client as fetches. */
+export const sharedHttpClient = new NodeHttpClient();
+const httpClient = sharedHttpClient;
 const processRunner = new NodeProcessRunner();
 const ghCliTokenProvider = new GhCliTokenProvider();
 
@@ -58,6 +64,20 @@ const silentDeps: SourceAdapterFactoryDeps = {
   processRunner,
   fallbackTokenProviders: [new VsCodeSessionTokenProvider(false), ghCliTokenProvider]
 };
+
+/**
+ * The credential chain the diagnose command reads.
+ *
+ * Deliberately non-interactive (`createIfNone: false`): read-only
+ * diagnostics must report what is currently in effect, not pop a sign-in
+ * modal and then diagnose a brand-new session. Reuses the same `gh` CLI
+ * provider instance as the adapter chains, so the diagnosis sees exactly
+ * the credential a real fetch would use.
+ */
+export const githubDiagnosticsTokenProvider: TokenProvider = new CompositeTokenProvider([
+  new VsCodeSessionTokenProvider(false),
+  ghCliTokenProvider
+]);
 
 /**
  * Build the `infra`-backed adapter for a `RegistrySource`, matching the

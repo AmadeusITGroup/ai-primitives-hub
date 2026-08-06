@@ -24,6 +24,7 @@ import {
   promisify,
 } from 'node:util';
 import type {
+  ResolvedToken,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -39,14 +40,14 @@ export class GhCliTokenProvider implements TokenProvider {
     private readonly execFn: ExecFn = (cmd) => promisify(exec)(cmd, { timeout: GH_CLI_TIMEOUT_MS })
   ) {}
 
-  public async getToken(host: string): Promise<string | undefined> {
+  public async getToken(host: string): Promise<ResolvedToken | undefined> {
     if (!isGitHubHost(host)) {
       return undefined;
     }
     try {
       const { stdout } = await this.execFn('gh auth token');
       const token = stdout.trim();
-      return token.length > 0 ? token : undefined;
+      return token.length > 0 ? { token, origin: { kind: 'gh-cli', detail: 'gh auth token' } } : undefined;
     } catch {
       // gh not installed, not authenticated, or the command otherwise
       // failed - no token available via this strategy.

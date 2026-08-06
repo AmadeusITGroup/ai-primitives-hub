@@ -15,6 +15,8 @@
  * @module auth/static-token-provider
  */
 import type {
+  ResolvedToken,
+  TokenOrigin,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -22,12 +24,23 @@ import {
 } from '../http/github-host';
 
 export class StaticTokenProvider implements TokenProvider {
-  public constructor(private readonly token: string) {}
+  /**
+   * Wrap a literal token as a `TokenProvider`.
+   * @param token - The literal token to hand out.
+   * @param origin - Where the token came from. Defaults to `explicit`,
+   * the case where a caller passed a token in directly (e.g. a per-source
+   * `RegistrySource.token`); pass a specific origin when the token was
+   * read from somewhere the user can act on, such as a setting.
+   */
+  public constructor(
+    private readonly token: string,
+    private readonly origin: TokenOrigin = { kind: 'explicit' }
+  ) {}
 
-  public getToken(host: string): Promise<string | undefined> {
-    if (this.token.length === 0) {
+  public getToken(host: string): Promise<ResolvedToken | undefined> {
+    if (this.token.length === 0 || !isGitHubHost(host)) {
       return Promise.resolve(undefined);
     }
-    return Promise.resolve(isGitHubHost(host) ? this.token : undefined);
+    return Promise.resolve({ token: this.token, origin: this.origin });
   }
 }
