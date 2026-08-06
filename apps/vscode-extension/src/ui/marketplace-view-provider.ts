@@ -787,7 +787,22 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       await this.loadBundles();
     } catch (error) {
       this.logger.error('Failed to install bundle from marketplace', error as Error);
-      vscode.window.showErrorMessage(`Failed to install bundle: ${(error as Error).message}`);
+      const message = (error as Error).message;
+      // A 401/403/404 from GitHub carries no root cause of its own
+      // (raw.githubusercontent.com reports a rejected token as 404, exactly
+      // like a missing file), so run the credential diagnosis immediately
+      // rather than leaving the user to guess. The URL embedded in the
+      // message names the repository, so the diagnosis targets just that one
+      // and ends on the reset action when the token is at fault.
+      if (/GitHub API error: (401|403|404)/.test(message)) {
+        this.logger.warn('[Marketplace] Install failed with a GitHub auth-ambiguous status; diagnosing the credential');
+        await vscode.commands.executeCommand('promptregistry.diagnoseGitHubAuth', {
+          url: /https?:\/\/[^\s)]+/.exec(message)?.[0],
+          label: bundleId
+        });
+        return;
+      }
+      vscode.window.showErrorMessage(`Failed to install bundle: ${message}`);
     }
   }
 

@@ -12,6 +12,9 @@ import {
   CreateCollectionCommand,
 } from './commands/create-collection-command';
 import {
+  DiagnoseGitHubAuthCommand,
+} from './commands/diagnose-github-auth-command';
+import {
   GitHubAuthCommand,
 } from './commands/github-auth-command';
 import {
@@ -288,6 +291,7 @@ export class PromptRegistryExtension {
     // Note: scaffoldCommand is registered inline in command handler
     const addResourceCommand = new AddResourceCommand(this.context.extensionPath);
     const githubAuthCommand = new GitHubAuthCommand(this.registryManager);
+    const diagnoseGitHubAuthCommand = new DiagnoseGitHubAuthCommand(this.registryManager);
     this.validateCollectionsCommand = new ValidateCollectionsCommand(this.context);
     this.validateApmCommand = new ValidateApmCommand(this.context);
     this.createCollectionCommand = new CreateCollectionCommand();
@@ -466,7 +470,9 @@ export class PromptRegistryExtension {
         }
       }),
 
-      vscode.commands.registerCommand('promptregistry.forceGitHubAuth', () => githubAuthCommand.execute())
+      vscode.commands.registerCommand('promptregistry.forceGitHubAuth', () => githubAuthCommand.execute()),
+
+      vscode.commands.registerCommand('promptregistry.diagnoseGitHubAuth', (target?) => diagnoseGitHubAuthCommand.execute(target))
     ];
 
     // Add to disposables
