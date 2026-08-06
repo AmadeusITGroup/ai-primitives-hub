@@ -21,6 +21,8 @@ pnpm run test:one -- test/services/telemetry-service.test.ts
 pnpm run test:coverage:unit
 ```
 
+`compile-tests` before `test:unit` is mandatory, not conventional: `test:unit` runs the already-compiled `test-dist/` and compiles nothing, so skipping it re-runs the previous build and reports a pass that covers none of your changes.
+
 ## Test Design
 
 - Test public behavior: return values, visible side effects, and errors. Do not test private methods, operation order, or internal call counts.

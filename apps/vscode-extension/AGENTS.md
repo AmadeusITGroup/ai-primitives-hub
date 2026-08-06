@@ -14,7 +14,14 @@ pnpm -C apps/vscode-extension run compile-tests
 pnpm -C apps/vscode-extension run test:unit
 pnpm -C apps/vscode-extension run test:integration
 pnpm -C apps/vscode-extension run package:vsix
+pnpm -C apps/vscode-extension run lint:fix
 ```
+
+**`test:unit` executes `test-dist/`, and does not compile anything.** It has no `pre` hook (`pretest` belongs to `test`, not `test:unit`), so running it after editing a `.ts` file silently re-runs the previous build: a changed test keeps its old assertions and a new test file is simply absent from the glob. The suite then passes and tells you nothing. Always run `compile-tests` first, and treat a pass that arrives without one as unverified.
+
+`compile-tests` is also the only typecheck for `test/**`, since `compile` (webpack) only covers `src/`. It emits JavaScript even when it reports type errors, so tests can pass while the types are broken — read its output, do not just check that tests ran afterwards.
+
+Building `packages/` first is a precondition for both: cross-package types resolve through the built `dist/`.
 
 ## Architecture
 

@@ -20,15 +20,33 @@ Use Node 24+ and pnpm 11+.
 
 ```bash
 pnpm install
-pnpm run compile
-pnpm run test:unit
-pnpm run lint:fix
+pnpm --filter './packages/*' build   # also required before the extension typechecks
+pnpm --filter './packages/*' test
+pnpm run compile                     # extension bundle
+pnpm run compile-tests               # extension tests -> test-dist/
+pnpm run test:unit                   # runs test-dist/, never src/
 pnpm run package:vsix
 ```
 
-`lib/` has its own test cycle: `cd lib && npm test`. For package work, run `pnpm -C packages -r build`, `pnpm -C packages -r lint:fix`, or `pnpm -C packages -r test`.
+Scope recursive commands with `--filter './packages/*'`. `pnpm -C packages -r <script>` looks scoped but resolves the whole workspace, so it also runs the extension, `lib/`, `website/`, and `github-actions/`: 4920 lines of output where the filter gives 181.
 
-Always run linting with its `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation.
+`lib/` has its own test cycle: `cd lib && npm test`.
+
+Lint per package. There is no root `lint:fix` script and no root `eslint.config.mjs`, so both `pnpm run lint:fix` and `npx eslint <path>` fail at the repository root:
+
+```bash
+pnpm --filter './packages/*' lint:fix
+pnpm -C apps/vscode-extension run lint:fix
+```
+
+Always run linting with its `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation. `src test` carries accepted warnings, so add `--quiet` when you only want errors.
+
+## Verification
+
+- **Judge success by exit status, not by grepping output.** A pipe replaces the exit code with the last command's, so `vitest … | tail` and `eslint … | grep` both report success for a failing run. Run the command bare, or end it with `&& echo PASS || echo FAIL`.
+- **Rebuild `packages/` after switching branches or changing a cross-package type.** Lint and `tsc` resolve `@ai-primitives-hub/*` through built `dist/`, so a stale build invents errors that are absent from the checked-out source and hides ones that are present. The usual symptoms are a new export reported as "has no exported member" and type errors naming a symbol you cannot find in `src/`.
+- Vitest (`packages/*`) prints `Tests N passed`; Mocha (the extension) prints `N passing`. Pass `--no-color` to Vitest before matching on that line; otherwise ANSI codes break the match.
+- Extension unit tests log expected errors from negative-path cases (`cmd.exe not found`, `[AI Primitives Hub] ERROR: …`). Those are not failures. Only the summary line and the exit status are.
 
 ## Architecture
 

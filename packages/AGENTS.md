@@ -23,12 +23,16 @@ CLI / Extension → app → infra → core
 ## Commands
 
 ```bash
-pnpm -C packages -r build
-pnpm -C packages -r test
-pnpm -C packages -r lint
+pnpm --filter './packages/*' build
+pnpm --filter './packages/*' test
+pnpm --filter './packages/*' lint:fix
 ```
 
-Tests use Vitest. For a bug fix or feature: add a focused failing test in the owning package, make the minimal change, rerun, then run that package's suite.
+Use the filter, not `pnpm -C packages -r <script>`: the latter resolves the whole workspace and also runs the extension, `lib/`, `website/`, and `github-actions/`.
+
+Tests use Vitest, which exits non-zero on failure — check that exit status rather than grepping the summary, and pass `--no-color` when you do need to match `Tests N passed`. For a bug fix or feature: add a focused failing test in the owning package, make the minimal change, rerun, then run that package's suite.
+
+A cross-package type change is only visible to the other packages after a build, because they resolve `@ai-primitives-hub/*` through `dist/`. Build before trusting a lint or typecheck result.
 
 ## References
 
