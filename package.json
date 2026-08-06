@@ -21,7 +21,8 @@
     "compile": "pnpm -C apps/vscode-extension run compile",
     "compile-tests": "pnpm -C apps/vscode-extension run compile-tests",
     "test:unit": "pnpm -C apps/vscode-extension run test:unit",
-    "test:extension": "pnpm run compile-tests && pnpm run test:unit",
+    "test:extension": "pnpm -C apps/vscode-extension run test:all",
+    "test:extension:unit": "pnpm run compile-tests && pnpm run test:unit",
     "verify:packages": "pnpm run build:packages && pnpm run test:packages && pnpm run lint:packages",
     "verify": "pnpm run verify:packages && pnpm run compile && pnpm run test:extension && pnpm run lint:extension",
     "package:vsix": "pnpm -C apps/vscode-extension run package:vsix"
