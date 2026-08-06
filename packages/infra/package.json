@@ -20,7 +20,8 @@
     "email": "opensource@amadeus.com"
   },
   "files": [
-    "dist"
+    "dist",
+    "config"
   ],
   "scripts": {
     "build": "tsc && npm run copy-templates",
