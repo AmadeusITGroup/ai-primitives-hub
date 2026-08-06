@@ -20,13 +20,11 @@ import {
 } from '@ai-primitives-hub/core';
 import type {
   BundleUpdate,
+  LogEvent,
+  OnLogEvent,
   UpdateCheckResult,
   UpdateRegistryReader,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from './log-event';
 
 /**
  * Read access to a single bundle's auto-update preference — all
