@@ -287,7 +287,7 @@ describe('ApmAdapter', () => {
 
     it('passes a resolved token as GITHUB_TOKEN to the install command', async () => {
       const processRunner = withApmInstalled(new FakeProcessRunner()).on('apm install');
-      const tokenProvider: TokenProvider = { getToken: async () => 'gho_secret' };
+      const tokenProvider: TokenProvider = { getToken: async () => ({ token: 'gho_secret', origin: { kind: 'explicit' } }) };
 
       const adapter = makeAdapter({ processRunner, tokenProvider });
       await adapter.downloadBundle({ downloadUrl: `${RAW_BASE}/apm.yml` } as never);

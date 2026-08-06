@@ -22,9 +22,24 @@ import type {
   HttpClient,
   HubConfig,
   HubReference,
+  OnLogEvent,
+  ResolvedToken,
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import {
+  RegistryError,
+} from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
+import {
+  formatCredential,
+} from '../auth/format-token-origin';
+import type {
+  GitHubTokenReport,
+} from '../auth/github-token-diagnostics';
+import {
+  diagnoseGitHubToken,
+  formatGitHubTokenReport,
+} from '../auth/github-token-diagnostics';
 
 export interface ResolvedHub {
   config: HubConfig;
@@ -44,23 +59,72 @@ export interface HubResolver {
 }
 
 /**
+ * Pick the error code that names the root cause, from facts rather than
+ * from the (uninformative) status of the failing request.
+ *
+ * Callers classify on `code`, never by matching the message text.
+ * @param report - Credential diagnosis from `api.github.com`.
+ * @returns A `RegistryError` code.
+ */
+function classifyCredentialFailure(report: GitHubTokenReport): string {
+  if (report.error !== undefined) {
+    // Could not even reach api.github.com: network/proxy, not access.
+    return 'HUB.FETCH_FAILED';
+  }
+  if (report.userStatus === 401) {
+    return 'AUTH.TOKEN_REJECTED';
+  }
+  if (report.userStatus !== 200) {
+    return 'HUB.FETCH_FAILED';
+  }
+  if (report.sso !== undefined) {
+    return 'AUTH.SSO_REQUIRED';
+  }
+  const scopes = (report.scopes ?? '').split(',').map((scope) => scope.trim());
+  if (!scopes.includes('repo')) {
+    return 'AUTH.MISSING_SCOPE';
+  }
+  // Valid credential, right scopes, still cannot see the repository: this
+  // account simply has no access to it.
+  return 'AUTH.NO_REPO_ACCESS';
+}
+
+/**
  * Shared GET-and-parse-YAML logic for the `url`/`github` resolvers,
  * mirroring the extension's `fetchFromUrl` (minus manual redirect
  * handling, which `HttpClient` already provides).
+ *
+ * Exactly **one** authenticated request is made. There is deliberately no
+ * anonymous retry: `raw.githubusercontent.com` answers 404 (never
+ * 401/403) when GitHub rejects the attached credential, so a fallback
+ * would serve public hubs while hiding the very credential fault the
+ * caller needs to see, and would still fail on every private hub. When a
+ * credential was attached and the fetch failed, the credential is
+ * diagnosed against `api.github.com` and the result is thrown as a
+ * `RegistryError` whose code names the cause.
  * @param http HttpClient to fetch with.
  * @param tokens TokenProvider consulted for the target host.
  * @param url Absolute URL to GET.
+ * @param opts Diagnostics context: `repoLocation` (`owner/repo`) narrows
+ * the diagnosis to repository access, `onLog` receives the warn line.
+ * @param opts.repoLocation
+ * @param opts.onLog
  */
-async function fetchYamlConfig(http: HttpClient, tokens: TokenProvider, url: string): Promise<HubConfig> {
+async function fetchYamlConfig(
+  http: HttpClient,
+  tokens: TokenProvider,
+  url: string,
+  opts: { repoLocation?: string; onLog?: OnLogEvent } = {}
+): Promise<HubConfig> {
   const headers: Record<string, string> = {};
-  const token = await tokens.getToken(new URL(url).hostname);
-  if (token !== undefined) {
-    headers.Authorization = `token ${token}`;
+  const credential = await tokens.getToken(new URL(url).hostname);
+  if (credential !== undefined) {
+    headers.Authorization = `token ${credential.token}`;
   }
 
   const res = await http.fetch({ url, headers, maxRedirects: 10 });
   if (res.statusCode !== 200) {
-    throw new Error(`Failed to fetch hub config: HTTP ${res.statusCode}`);
+    throw await hubFetchError(http, url, res.statusCode, credential, opts);
   }
 
   const text = new TextDecoder().decode(res.body);
@@ -69,6 +133,56 @@ async function fetchYamlConfig(http: HttpClient, tokens: TokenProvider, url: str
   } catch (error) {
     throw new Error(`Failed to parse hub config: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/**
+ * Build the error for a failed hub-config fetch, diagnosing the
+ * credential first when one was attached.
+ * @param http HttpClient used for the diagnosis probes.
+ * @param url The URL that failed.
+ * @param status Status it answered with.
+ * @param credential Credential that was attached, if any.
+ * @param opts Diagnostics context (`repoLocation`, `onLog`).
+ * @param opts.repoLocation
+ * @param opts.onLog
+ * @returns The `RegistryError` to throw.
+ */
+async function hubFetchError(
+  http: HttpClient,
+  url: string,
+  status: number,
+  credential: ResolvedToken | undefined,
+  opts: { repoLocation?: string; onLog?: OnLogEvent }
+): Promise<RegistryError> {
+  const baseMessage = `Failed to fetch hub config: HTTP ${String(status)}`;
+  if (credential === undefined) {
+    const anonymousMessage = `${baseMessage} (${url}) [${formatCredential(undefined)}]`;
+    opts.onLog?.({ level: 'warn', message: anonymousMessage });
+    return new RegistryError({
+      code: 'HUB.FETCH_FAILED',
+      message: anonymousMessage,
+      hint: 'No credential was attached. A private hub is indistinguishable from a missing one here; sign in to GitHub and retry.',
+      context: { url, repoLocation: opts.repoLocation, status, origin: formatCredential(undefined) }
+    });
+  }
+
+  const report = await diagnoseGitHubToken(http, credential.token, opts.repoLocation);
+  const message = `${baseMessage} (${url}) [${formatCredential(credential)}] ${formatGitHubTokenReport(report)}`;
+  opts.onLog?.({ level: 'warn', message });
+  return new RegistryError({
+    code: classifyCredentialFailure(report),
+    message,
+    hint: report.verdict,
+    context: {
+      url,
+      repoLocation: opts.repoLocation,
+      status,
+      origin: formatCredential(credential),
+      scopes: report.scopes,
+      sso: report.sso,
+      login: report.login
+    }
+  });
 }
 
 /**
@@ -110,10 +224,14 @@ export class UrlHubResolver implements HubResolver {
    * Construct a UrlHubResolver instance.
    * @param http HttpClient for the GET request.
    * @param tokens TokenProvider for hosts that need auth.
+   * @param onLog Optional sink for the credential-diagnosis warn line, so
+   * the host (extension output channel, CLI stderr) shows the root cause
+   * and not just the thrown message.
    */
   public constructor(
     private readonly http: HttpClient,
-    private readonly tokens: TokenProvider
+    private readonly tokens: TokenProvider,
+    private readonly onLog?: OnLogEvent
   ) {}
 
   /**
@@ -122,7 +240,7 @@ export class UrlHubResolver implements HubResolver {
    * @returns Resolved hub.
    */
   public async resolve(ref: HubReference): Promise<ResolvedHub> {
-    const config = await fetchYamlConfig(this.http, this.tokens, ref.location);
+    const config = await fetchYamlConfig(this.http, this.tokens, ref.location, { onLog: this.onLog });
     return { config, reference: ref };
   }
 }
@@ -138,10 +256,12 @@ export class GitHubHubResolver implements HubResolver {
    * Construct a GitHubHubResolver instance.
    * @param http HttpClient for the GET request.
    * @param tokens TokenProvider for private repos.
+   * @param onLog Optional sink for the credential-diagnosis warn line.
    */
   public constructor(
     private readonly http: HttpClient,
-    private readonly tokens: TokenProvider
+    private readonly tokens: TokenProvider,
+    private readonly onLog?: OnLogEvent
   ) {}
 
   /**
@@ -153,7 +273,13 @@ export class GitHubHubResolver implements HubResolver {
     const branch = ref.ref ?? 'main';
     const timestamp = Date.now();
     const url = `https://raw.githubusercontent.com/${ref.location}/${branch}/hub-config.yml?t=${timestamp}`;
-    const config = await fetchYamlConfig(this.http, this.tokens, url);
+    // `ref.location` is `owner/repo`, exactly what the repo-access probe
+    // needs to tell "credential is broken" from "this account has no
+    // access to this repository".
+    const config = await fetchYamlConfig(this.http, this.tokens, url, {
+      repoLocation: ref.location,
+      onLog: this.onLog
+    });
     return { config, reference: ref };
   }
 }

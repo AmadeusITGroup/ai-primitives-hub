@@ -12,23 +12,28 @@
  * to decide whether it has anything to offer for a given host.
  *
  * Every `TokenProvider` implementation in this codebase only ever
- * resolves a non-empty string or `undefined` (never `null` or an empty
+ * resolves a non-empty token or `undefined` (never `null` or an empty
  * string) - this class relies on that contract rather than
  * re-validating it.
+ *
+ * The winning provider's `ResolvedToken` is returned untouched, origin
+ * included: this chain is where provenance used to be lost, and a
+ * credential whose origin is unknown cannot produce an actionable error.
  * @module auth/composite-token-provider
  */
 import type {
+  ResolvedToken,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 
 export class CompositeTokenProvider implements TokenProvider {
   public constructor(private readonly providers: readonly TokenProvider[]) {}
 
-  public async getToken(host: string): Promise<string | undefined> {
+  public async getToken(host: string): Promise<ResolvedToken | undefined> {
     for (const provider of this.providers) {
-      const token = await provider.getToken(host);
-      if (token !== undefined) {
-        return token;
+      const resolved = await provider.getToken(host);
+      if (resolved !== undefined) {
+        return resolved;
       }
     }
     return undefined;

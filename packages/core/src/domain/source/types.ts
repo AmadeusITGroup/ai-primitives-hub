@@ -9,6 +9,9 @@
  * a superset, so existing `{ valid, errors }` call sites remain compatible.
  * @module domain/source/types
  */
+import type {
+  TokenOrigin,
+} from '../../ports/http';
 
 /**
  * All source adapter types known to the registry.
@@ -36,6 +39,13 @@ export interface RegistrySource {
   private?: boolean;
   /** Environment variable name or secure-storage key, not the token itself. */
   token?: string;
+  /**
+   * Where `token` came from, when it was injected rather than configured on
+   * the source itself (e.g. the global `promptregistry.githubToken`
+   * setting). Carried so a failure can name the credential's origin instead
+   * of guessing it. Absent means "the token on this source", i.e. explicit.
+   */
+  tokenOrigin?: TokenOrigin;
   /** Hub identifier, when this source was provisioned by a curated hub. */
   hubId?: string;
   metadata?: {

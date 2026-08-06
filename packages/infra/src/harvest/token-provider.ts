@@ -28,6 +28,9 @@
 import {
   exec,
 } from 'node:child_process';
+import type {
+  TokenOrigin,
+} from '@ai-primitives-hub/core';
 
 export type TokenSource =
   | 'explicit'
@@ -41,9 +44,41 @@ export interface TokenResolver {
   readGhCli(): Promise<string | undefined>;
 }
 
-export interface ResolvedToken {
+/**
+ * Result of the harvest-side resolution chain. Named apart from `core`'s
+ * `ResolvedToken` (the `TokenProvider` port's return type) because this one
+ * may carry no token at all — `source: 'none'` is a valid answer here.
+ */
+export interface HarvestedToken {
   token: string | undefined;
   source: TokenSource;
+}
+
+/**
+ * Translate this module's `TokenSource` into the port-level `TokenOrigin`,
+ * so harvest logs and every other failure path speak one vocabulary
+ * instead of each hand-rolling an origin label.
+ * @param source - Harvest-side token source.
+ * @returns The equivalent `TokenOrigin`.
+ */
+export function tokenSourceToOrigin(source: TokenSource): TokenOrigin {
+  switch (source) {
+    case 'explicit': {
+      return { kind: 'explicit' };
+    }
+    case 'env:GITHUB_TOKEN': {
+      return { kind: 'env', detail: 'GITHUB_TOKEN' };
+    }
+    case 'env:GH_TOKEN': {
+      return { kind: 'env', detail: 'GH_TOKEN' };
+    }
+    case 'gh-cli': {
+      return { kind: 'gh-cli', detail: 'gh auth token' };
+    }
+    default: {
+      return { kind: 'unknown' };
+    }
+  }
 }
 
 /**
@@ -81,7 +116,7 @@ export const defaultResolver: TokenResolver = {
 export async function resolveGithubToken(
   opts: { explicit?: string },
   resolver: TokenResolver = defaultResolver
-): Promise<ResolvedToken> {
+): Promise<HarvestedToken> {
   if (opts.explicit && opts.explicit.length > 0) {
     return { token: opts.explicit, source: 'explicit' };
   }

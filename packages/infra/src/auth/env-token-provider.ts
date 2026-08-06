@@ -11,6 +11,7 @@
  * @module auth/env-token-provider
  */
 import type {
+  ResolvedToken,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -20,11 +21,20 @@ import {
 export class EnvTokenProvider implements TokenProvider {
   public constructor(private readonly env: Readonly<Record<string, string | undefined>>) {}
 
-  public getToken(host: string): Promise<string | undefined> {
-    const token = this.env.GITHUB_TOKEN ?? this.env.GH_TOKEN;
-    if (token === undefined || token.length === 0) {
-      return Promise.resolve(undefined);
+  public getToken(host: string): Promise<ResolvedToken | undefined> {
+    // Reported per variable rather than collapsed into one 'env' label:
+    // "which env var is wrong?" is exactly what the user needs to know.
+    const candidates: [string, string | undefined][] = [
+      ['GITHUB_TOKEN', this.env.GITHUB_TOKEN],
+      ['GH_TOKEN', this.env.GH_TOKEN]
+    ];
+    for (const [variable, token] of candidates) {
+      if (token !== undefined && token.length > 0) {
+        return Promise.resolve(
+          isGitHubHost(host) ? { token, origin: { kind: 'env', detail: variable } } : undefined
+        );
+      }
     }
-    return Promise.resolve(isGitHubHost(host) ? token : undefined);
+    return Promise.resolve(undefined);
   }
 }

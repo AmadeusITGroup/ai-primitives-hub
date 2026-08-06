@@ -1,4 +1,5 @@
 import type {
+  ResolvedToken,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -10,8 +11,12 @@ import {
   CompositeTokenProvider,
 } from '../../src/auth/composite-token-provider';
 
-function fakeProvider(fn: (host: string) => Promise<string | undefined>): TokenProvider {
+function fakeProvider(fn: (host: string) => Promise<ResolvedToken | undefined>): TokenProvider {
   return { getToken: fn };
+}
+
+function resolved(token: string, kind: ResolvedToken['origin']['kind'] = 'explicit'): ResolvedToken {
+  return { token, origin: { kind } };
 }
 
 describe('CompositeTokenProvider', () => {
@@ -24,16 +29,31 @@ describe('CompositeTokenProvider', () => {
       }),
       fakeProvider(async () => {
         calls.push('second');
-        return 'token-from-second';
+        return resolved('token-from-second');
       }),
       fakeProvider(async () => {
         calls.push('third');
-        return 'token-from-third';
+        return resolved('token-from-third');
       })
     ]);
 
-    await expect(provider.getToken('github.com')).resolves.toBe('token-from-second');
+    await expect(provider.getToken('github.com')).resolves.toMatchObject({ token: 'token-from-second' });
     expect(calls).toEqual(['first', 'second']);
+  });
+
+  it('preserves the winning provider\'s origin, so provenance survives the chain', async () => {
+    const provider = new CompositeTokenProvider([
+      fakeProvider(async () => undefined),
+      fakeProvider(async () => ({
+        token: 'gho_session',
+        origin: { kind: 'vscode-session', detail: 'octocat' }
+      }))
+    ]);
+
+    await expect(provider.getToken('github.com')).resolves.toEqual({
+      token: 'gho_session',
+      origin: { kind: 'vscode-session', detail: 'octocat' }
+    });
   });
 
   it('stops at the first provider, never calling later ones', async () => {
@@ -41,15 +61,15 @@ describe('CompositeTokenProvider', () => {
     const provider = new CompositeTokenProvider([
       fakeProvider(async () => {
         calls.push('first');
-        return 'token-from-first';
+        return resolved('token-from-first');
       }),
       fakeProvider(async () => {
         calls.push('second');
-        return 'token-from-second';
+        return resolved('token-from-second');
       })
     ]);
 
-    await expect(provider.getToken('github.com')).resolves.toBe('token-from-first');
+    await expect(provider.getToken('github.com')).resolves.toMatchObject({ token: 'token-from-first' });
     expect(calls).toEqual(['first']);
   });
 

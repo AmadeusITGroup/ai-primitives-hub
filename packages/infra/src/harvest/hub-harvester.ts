@@ -40,6 +40,7 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  formatCredential,
   StaticTokenProvider,
 } from '../auth';
 import {
@@ -93,8 +94,9 @@ import {
   type ProgressSummary,
 } from './progress-log';
 import {
-  redactToken,
   resolveGithubToken,
+  type TokenSource,
+  tokenSourceToOrigin,
 } from './token-provider';
 import {
   resolveCommitSha,
@@ -293,7 +295,7 @@ export const harvestHub = async (
   const requiresHubConfig = opts.noHubConfig !== true && opts.hubConfigFile === undefined;
   let client: GitHubApiClient | undefined;
   let resolvedToken: string | undefined;
-  let tokenSource = 'none';
+  let tokenSource: TokenSource = 'none';
 
   if (requiresHubConfig) {
     ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts));
@@ -322,7 +324,7 @@ export const harvestHub = async (
     { tokenProvider: new StaticTokenProvider('') }
   );
 
-  logHarvestStart(opts, hubRepo, hubBranch, resolvedToken, sources.length, concurrency);
+  logHarvestStart(opts, hubRepo, hubBranch, resolvedToken, tokenSource, sources.length, concurrency);
   const result = await runHarvester(
     sources,
     harvestClient,
@@ -384,14 +386,16 @@ async function createGitHubClient(
 ): Promise<{
   resolvedToken: string;
   client: GitHubApiClient;
-  tokenSource: string;
+  tokenSource: TokenSource;
 }> {
   const token = await resolveGithubToken({ explicit: opts.explicitToken });
   if (token.token === undefined || token.token.length === 0) {
     throw new Error('No GitHub token available (tried explicit, env, gh CLI).');
   }
   const resolvedToken: string = token.token;
-  const client = new GitHubApiClient(new NodeHttpClient(), { tokenProvider: new StaticTokenProvider(resolvedToken) });
+  const client = new GitHubApiClient(new NodeHttpClient(), {
+    tokenProvider: new StaticTokenProvider(resolvedToken, tokenSourceToOrigin(token.source))
+  });
   const [owner, repo] = hubRepo.split('/');
   if (owner === undefined || repo === undefined || owner.length === 0 || repo.length === 0) {
     throw new Error(`Invalid hubRepo: ${hubRepo} (expected "owner/repo").`);
@@ -404,12 +408,19 @@ function logHarvestStart(
   hubRepo: string,
   hubBranch: string,
   resolvedToken: string | undefined,
+  tokenSource: TokenSource,
   sourcesCount: number,
   concurrency: number
 ): void {
+  // The origin comes from the resolver that actually picked the token, not
+  // from re-guessing it here: `explicitToken ? 'explicit' : 'env'` mislabelled
+  // every gh-CLI and GH_TOKEN run.
+  const credential = resolvedToken === undefined
+    ? undefined
+    : { token: resolvedToken, origin: tokenSourceToOrigin(tokenSource) };
   opts.onLog?.(
     `hub=${hubRepo}@${hubBranch} `
-    + `token=${resolvedToken === undefined ? 'none' : (opts.explicitToken ? 'explicit' : 'env')}:${redactToken(resolvedToken)} `
+    + `${formatCredential(credential)} `
     + `sources=${String(sourcesCount)} concurrency=${String(concurrency)}`
   );
 }

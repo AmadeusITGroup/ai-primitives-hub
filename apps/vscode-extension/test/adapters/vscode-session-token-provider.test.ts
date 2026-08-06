@@ -30,18 +30,21 @@ suite('VsCodeSessionTokenProvider', () => {
     assert.ok(getSessionStub.notCalled);
   });
 
-  test('returns the session access token for a GitHub host', async () => {
+  test('returns the session access token, labelled with the account it belongs to', async () => {
     getSessionStub.resolves({
       accessToken: 'gho_abc123',
-      account: { id: 'test', label: 'test' },
+      account: { id: 'test', label: 'octocat' },
       id: 'session-id',
       scopes: ['repo']
     });
 
     const provider = new VsCodeSessionTokenProvider();
-    const token = await provider.getToken('github.com');
+    const credential = await provider.getToken('github.com');
 
-    assert.strictEqual(token, 'gho_abc123');
+    assert.deepStrictEqual(credential, {
+      token: 'gho_abc123',
+      origin: { kind: 'vscode-session', detail: 'octocat' }
+    });
   });
 
   test('accepts any GitHub-owned host (api, raw content)', async () => {
@@ -54,8 +57,8 @@ suite('VsCodeSessionTokenProvider', () => {
 
     const provider = new VsCodeSessionTokenProvider();
 
-    assert.strictEqual(await provider.getToken('api.github.com'), 'gho_abc123');
-    assert.strictEqual(await provider.getToken('raw.githubusercontent.com'), 'gho_abc123');
+    assert.strictEqual((await provider.getToken('api.github.com'))?.token, 'gho_abc123');
+    assert.strictEqual((await provider.getToken('raw.githubusercontent.com'))?.token, 'gho_abc123');
   });
 
   test('returns undefined when no session is available', async () => {

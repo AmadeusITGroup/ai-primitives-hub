@@ -10,7 +10,10 @@ import {
 describe('GhCliTokenProvider', () => {
   it('returns the trimmed stdout when gh auth token succeeds', async () => {
     const provider = new GhCliTokenProvider(async () => ({ stdout: '  gho_abc123\n' }));
-    await expect(provider.getToken('github.com')).resolves.toBe('gho_abc123');
+    await expect(provider.getToken('github.com')).resolves.toEqual({
+      token: 'gho_abc123',
+      origin: { kind: 'gh-cli', detail: 'gh auth token' }
+    });
   });
 
   it('returns undefined when gh auth token exits non-zero (not installed or not authenticated)', async () => {
@@ -35,8 +38,8 @@ describe('GhCliTokenProvider', () => {
 
   it('accepts any GitHub-owned host (api, raw content) without changing behavior', async () => {
     const provider = new GhCliTokenProvider(async () => ({ stdout: 'gho_abc123' }));
-    await expect(provider.getToken('api.github.com')).resolves.toBe('gho_abc123');
-    await expect(provider.getToken('raw.githubusercontent.com')).resolves.toBe('gho_abc123');
+    await expect(provider.getToken('api.github.com')).resolves.toMatchObject({ token: 'gho_abc123' });
+    await expect(provider.getToken('raw.githubusercontent.com')).resolves.toMatchObject({ token: 'gho_abc123' });
   });
 
   it('returns undefined without shelling out for a non-GitHub host', async () => {

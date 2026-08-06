@@ -22,6 +22,7 @@ import {
   loadHubSourcesProgressively,
 } from '@ai-primitives-hub/app';
 import type {
+  HubAvailability,
   HubConfigStore,
   LoadHubSourcesOptions,
   LogEvent,
@@ -197,9 +198,9 @@ export class HubManager {
     const httpClient = new NodeHttpClient();
     const tokenProvider = new CompositeTokenProvider([new VsCodeSessionTokenProvider(true), new GhCliTokenProvider()]);
     const resolver = new CompositeHubResolver(
-      new GitHubHubResolver(httpClient, tokenProvider),
+      new GitHubHubResolver(httpClient, tokenProvider, this.translateLogEvent),
       new LocalHubResolver(new NodeFileSystem()),
-      new UrlHubResolver(httpClient, tokenProvider)
+      new UrlHubResolver(httpClient, tokenProvider, this.translateLogEvent)
     );
 
     this.appHubManager = new AppHubManager({
@@ -513,6 +514,22 @@ export class HubManager {
       this.logger.debug(`Hub verification failed: ${reference.type}:${reference.location}`);
     }
     return available;
+  }
+
+  /**
+   * Probe a hub reference and report why it is unavailable, so callers can
+   * tell an expected "this account has no access to a default hub" apart
+   * from a broken credential.
+   * @param reference Hub reference to verify.
+   * @returns Availability plus the classified reason on failure.
+   */
+  public async checkHubAvailability(reference: HubReference): Promise<HubAvailability> {
+    const availability = await this.appHubManager.checkHubAvailability(reference);
+    this.logger.debug(
+      `Hub verification ${availability.available ? 'successful' : `failed (${availability.reason ?? 'unknown'})`}: `
+      + `${reference.type}:${reference.location}`
+    );
+    return availability;
   }
 
   /**

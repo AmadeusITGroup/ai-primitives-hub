@@ -22,6 +22,7 @@ import {
 } from '@ai-primitives-hub/app';
 import type {
   HttpClient,
+  OnLogEvent,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -64,6 +65,21 @@ export interface CreateHubManagerOptions {
 }
 
 /**
+ * Route infra log events to the CLI's stderr, so hub-resolution
+ * diagnostics (which credential was used, what GitHub said about it) are
+ * visible instead of being dropped. stderr rather than stdout: these are
+ * diagnostics, and stdout may be carrying machine-readable output.
+ * @param ctx CLI context.
+ * @returns A log sink for the hub resolvers.
+ */
+const stderrLogSink = (ctx: Context): OnLogEvent => (event): void => {
+  if (event.level === 'debug') {
+    return;
+  }
+  ctx.stderr.write(`${event.level}: ${event.message}\n`);
+};
+
+/**
  * Create a HubManager with default HTTP client and token provider.
  * @param opts Options for creating HubManager.
  * @returns Configured HubManager instance.
@@ -72,10 +88,11 @@ export const createHubManager = (opts: CreateHubManagerOptions): HubManager => {
   const { ctx, http, tokens } = opts;
   const paths = resolveUserConfigPaths(ctx.env);
   const [httpClient, tokenProvider] = createHttpClientAndTokens(http, ctx, tokens);
+  const onLog = stderrLogSink(ctx);
   const resolver = new CompositeHubResolver(
-    new GitHubHubResolver(httpClient, tokenProvider),
+    new GitHubHubResolver(httpClient, tokenProvider, onLog),
     new LocalHubResolver(ctx.fs),
-    new UrlHubResolver(httpClient, tokenProvider)
+    new UrlHubResolver(httpClient, tokenProvider, onLog)
   );
   return new HubManager({
     store: new HubStore(paths.hubs, ctx.fs),

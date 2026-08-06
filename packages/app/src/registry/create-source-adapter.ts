@@ -61,7 +61,9 @@ export interface SourceAdapterFactoryDeps {
 function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFactoryDeps): TokenProvider {
   const providers: TokenProvider[] = [];
   if (source.token) {
-    providers.push(new StaticTokenProvider(source.token));
+    // `tokenOrigin` is set when the token was injected from elsewhere (the
+    // global setting); absent means it is configured on the source itself.
+    providers.push(new StaticTokenProvider(source.token, source.tokenOrigin ?? { kind: 'explicit' }));
   }
   providers.push(...deps.fallbackTokenProviders);
   return new CompositeTokenProvider(providers);

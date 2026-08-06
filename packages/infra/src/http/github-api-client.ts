@@ -34,8 +34,12 @@ import type {
   GitHubApi,
   HttpClient,
   HttpResponse,
+  ResolvedToken,
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import {
+  formatCredential,
+} from '../auth/format-token-origin';
 
 export type GitHubClientEventKind =
   | 'request'
@@ -93,8 +97,10 @@ export interface GitHubApiClientOptions {
   random?: () => number;
 }
 
-const DEFAULT_BASE_URL = 'https://api.github.com';
-const DEFAULT_USER_AGENT = 'ai-primitives-hub/1.0';
+/** Canonical `api.github.com` base URL, shared with other GitHub callers. */
+export const GITHUB_API_BASE_URL = 'https://api.github.com';
+/** Canonical `User-Agent` GitHub sees from this project. */
+export const GITHUB_API_USER_AGENT = 'ai-primitives-hub/1.0';
 const NOOP_EVENT_HANDLER: GitHubClientEventHandler = (): void => undefined;
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -127,8 +133,8 @@ export class GitHubApiClient implements GitHubApi {
     private readonly http: HttpClient,
     private readonly options: GitHubApiClientOptions = {}
   ) {
-    this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
-    this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
+    this.baseUrl = options.baseUrl ?? GITHUB_API_BASE_URL;
+    this.userAgent = options.userAgent ?? GITHUB_API_USER_AGENT;
     this.maxRetries = options.maxRetries ?? 4;
     this.backoffBaseMs = options.backoffBaseMs ?? 250;
     this.jitterMs = options.jitterMs ?? 250;
@@ -154,18 +160,22 @@ export class GitHubApiClient implements GitHubApi {
     return url.startsWith(this.baseUrl);
   }
 
-  private async buildHeaders(url: string, accept: string, extraHeaders?: Record<string, string>): Promise<Record<string, string>> {
+  private async buildHeaders(
+    url: string,
+    accept: string,
+    extraHeaders?: Record<string, string>
+  ): Promise<{ headers: Record<string, string>; credential: ResolvedToken | undefined }> {
     const headers: Record<string, string> = {
       'User-Agent': this.userAgent,
       Accept: accept,
       ...extraHeaders
     };
     const host = new URL(url).hostname;
-    const token = await this.options.tokenProvider?.getToken(host);
-    if (token) {
-      headers.Authorization = `token ${token}`;
+    const credential = await this.options.tokenProvider?.getToken(host);
+    if (credential) {
+      headers.Authorization = `token ${credential.token}`;
     }
-    return headers;
+    return { headers, credential };
   }
 
   private classify(response: HttpResponse): Classification {
@@ -235,7 +245,7 @@ export class GitHubApiClient implements GitHubApi {
     opts?: { allowStatus?: number[] }
   ): Promise<HttpResponse> {
     const url = this.resolveUrl(pathOrUrl);
-    const headers = await this.buildHeaders(url, accept, extraHeaders);
+    const { headers, credential } = await this.buildHeaders(url, accept, extraHeaders);
     const allowStatus = opts?.allowStatus ?? [];
     let attempt = 0;
     for (;;) {
@@ -249,8 +259,14 @@ export class GitHubApiClient implements GitHubApi {
       }
       const classification = this.classify(response);
       if (classification.kind === 'fatal' || attempt > this.maxRetries) {
-        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: classification.reason });
-        throw new Error(describeError(response, url));
+        this.onEvent({
+          kind: 'give-up',
+          url,
+          attempt,
+          status: response.statusCode,
+          reason: `${classification.reason} (${describeAuthContext(response, credential)})`
+        });
+        throw new Error(describeError(response, url, credential));
       }
       const sleepMs = Math.min(this.computeSleep(classification, attempt, response), this.maxSleepMs);
       this.onEvent({
@@ -305,19 +321,79 @@ export class GitHubApiClient implements GitHubApi {
   }
 }
 
-function describeError(response: HttpResponse, url: string): string {
+/**
+ * Credential context for a failed response, safe to log.
+ *
+ * Answers the three questions a bare status code can't: was the request
+ * even authenticated and *where did that credential come from* (so the user
+ * knows what to fix — a VS Code session, a setting, an env var), which
+ * credential it was (redacted, so a wrong token is still recognizable by
+ * length + tail), and what GitHub itself said about that credential in its
+ * response headers - the token's real scopes (`x-oauth-scopes`), the scopes
+ * the endpoint wanted (`x-accepted-oauth-scopes`), and any SAML SSO
+ * authorization challenge (`x-github-sso`), which is the usual reason an
+ * org-owned repository answers 404 to a perfectly valid token.
+ * @param response - The failing response.
+ * @param credential - Credential attached to the request, if any.
+ */
+export function describeAuthContext(response: HttpResponse, credential: ResolvedToken | undefined): string {
+  const parts = [formatCredential(credential)];
+  const headerFields: [string, string][] = [
+    ['token-scopes', 'x-oauth-scopes'],
+    ['accepted-scopes', 'x-accepted-oauth-scopes'],
+    ['sso', 'x-github-sso'],
+    ['www-authenticate', 'www-authenticate']
+  ];
+  for (const [label, header] of headerFields) {
+    const value = response.headers[header];
+    if (value !== undefined) {
+      parts.push(`${label}=${value.length === 0 ? '(empty)' : value}`);
+    }
+  }
+  return parts.join(', ');
+}
+
+/**
+ * `raw.githubusercontent.com` never answers 401/403: a rejected or
+ * insufficiently-authorized credential yields the same 404 as a path that
+ * doesn't exist. The status alone therefore cannot name the root cause, so
+ * point the caller at the probe that can (`diagnoseGitHubToken`, which asks
+ * `api.github.com` - a host that is honest about auth failures - whether
+ * the credential is valid, whose it is, what scopes it carries and whether
+ * it is SSO-authorized for the organization).
+ *
+ * Exported because every other consumer of raw content (the bundle
+ * downloader, the hub resolver) needs the same note, and it must read
+ * identically wherever it appears.
+ * @param url - The failing URL.
+ * @param credential - Credential attached to the request, if any.
+ */
+export function describeAmbiguous404(url: string, credential: ResolvedToken | undefined): string {
+  if (!url.startsWith('https://raw.githubusercontent.com/')) {
+    return '';
+  }
+  if (credential === undefined) {
+    return ' No credential was attached, so a private repository is indistinguishable from a missing file here; sign in to GitHub and retry.';
+  }
+  return ' raw.githubusercontent.com answers 404 (never 401/403) for a rejected credential or one lacking SSO authorization for the owning organization,'
+    + ' so this is indistinguishable from a missing file; diagnose the credential against api.github.com (`diagnoseGitHubToken`) to get the root cause,'
+    + ' and reset the token if it is the one at fault.';
+}
+
+function describeError(response: HttpResponse, url: string, credential?: ResolvedToken): string {
+  const auth = describeAuthContext(response, credential);
   switch (response.statusCode) {
     case 401: {
-      return `GitHub API error: 401 - Authentication failed. Token may be invalid or expired. (${url})`;
+      return `GitHub API error: 401 - Authentication failed. Token may be invalid or expired. (${url}) [${auth}]`;
     }
     case 403: {
-      return `GitHub API error: 403 - Access forbidden. Token may lack required scopes (repo). (${url})`;
+      return `GitHub API error: 403 - Access forbidden. Token may lack required scopes (repo). (${url}) [${auth}]`;
     }
     case 404: {
-      return `GitHub API error: 404 - Not found or not accessible. Check authentication. (${url})`;
+      return `GitHub API error: 404 - Not found or not accessible. Check authentication. (${url}) [${auth}]${describeAmbiguous404(url, credential)}`;
     }
     default: {
-      return `GitHub API error: ${response.statusCode} (${url})`;
+      return `GitHub API error: ${response.statusCode} (${url}) [${auth}]`;
     }
   }
 }
