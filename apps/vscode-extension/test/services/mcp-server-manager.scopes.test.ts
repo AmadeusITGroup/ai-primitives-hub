@@ -6,8 +6,8 @@
  *   rather than silently retargeting the user's home config
  * - the .git/info/exclude pattern must use forward slashes and the host's real
  *   filename, not a hardcoded `mcp.json`
- * - a bundle whose servers reference `${input:id}` must be refused on hosts that
- *   cannot resolve inputs, instead of installing and failing at server startup
+ * - a bundle whose servers reference `${input:id}` is installed with a warning on
+ *   hosts that cannot resolve inputs, so the user can configure the value manually
  */
 
 import * as assert from 'node:assert';
@@ -149,17 +149,29 @@ suite('McpServerManager — host and scope behaviour', () => {
   });
 
   suite('inputs on hosts that cannot resolve them', () => {
-    test('Kiro: a server referencing ${input:...} is refused', async () => {
+    test('Kiro: a server referencing ${input:...} installs with a warning', async () => {
       await setHost('Kiro', 'kiro');
 
       const result = await new McpServerManager().installServersToWorkspace(
-        'bundle-a', '1.0.0', tmpRoot, inputReferencingManifest, { commitMode: 'commit' }
+        'bundle-a',
+        '1.0.0',
+        tmpRoot,
+        inputReferencingManifest,
+        { commitMode: 'commit' },
+        [{ id: 'api-key', type: 'promptString', description: 'API key' }]
       );
 
-      assert.strictEqual(result.success, false,
-        'installing an input-dependent server on Kiro must fail at install time');
-      assert.match(result.errors?.join(' ') ?? '', /api-key/,
-        'the error should name the input that cannot be resolved');
+      assert.strictEqual(result.success, true,
+        `the server should still be written so the user can supply the value manually, errors: ${result.errors?.join(', ')}`);
+      assert.match(result.warnings?.join(' ') ?? '', /api-key/,
+        'a warning should name the input the host cannot prompt for');
+
+      const written = await fsExtra.readJson(
+        path.join(tmpRoot, '.kiro', 'settings', 'mcp.json')
+      ) as Record<string, unknown>;
+      assert.ok(written.mcpServers, 'the server entry should be present in the Kiro file');
+      assert.strictEqual(written.inputs, undefined,
+        'no input declaration should be synthesised for a host that never resolves inputs');
     });
 
     test('Kiro: a server with no input references still installs', async () => {

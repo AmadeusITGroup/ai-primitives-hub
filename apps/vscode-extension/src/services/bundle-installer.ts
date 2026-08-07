@@ -471,6 +471,27 @@ export class BundleInstaller {
     );
   }
 
+  /**
+   * Surface MCP warnings for an otherwise successful install.
+   *
+   * The servers were written, so this is not a failure, but the warnings cover cases
+   * the user still has to act on — most notably a host that cannot prompt for
+   * `${input:id}` values, where the server is present but needs the secret filled in
+   * manually before it will connect.
+   * @param bundleId - Bundle being installed.
+   * @param warnings - Warnings reported by the MCP manager.
+   */
+  private notifyMcpInstallWarnings(bundleId: string, warnings: string[] | undefined): void {
+    if (!warnings || warnings.length === 0) {
+      return;
+    }
+    const detail = warnings.join(' ');
+    this.logger.warn(`MCP installation warnings: ${detail}`);
+    void vscode.window.showWarningMessage(
+      `MCP servers for "${bundleId}" ${detail}`
+    );
+  }
+
   private async installMcpServers(
     bundleId: string,
     bundleVersion: string,
@@ -515,9 +536,7 @@ export class BundleInstaller {
           this.notifyMcpInstallFailure(bundleId, workspaceInstallationResult.errors);
         }
 
-        if (workspaceInstallationResult.warnings && workspaceInstallationResult.warnings.length > 0) {
-          this.logger.warn(`MCP installation warnings: ${workspaceInstallationResult.warnings.join(', ')}`);
-        }
+        this.notifyMcpInstallWarnings(bundleId, workspaceInstallationResult.warnings);
         return;
       }
 
@@ -542,9 +561,7 @@ export class BundleInstaller {
         this.notifyMcpInstallFailure(bundleId, result.errors);
       }
 
-      if (result.warnings && result.warnings.length > 0) {
-        this.logger.warn(`MCP installation warnings: ${result.warnings.join(', ')}`);
-      }
+      this.notifyMcpInstallWarnings(bundleId, result.warnings);
     } catch (error) {
       this.logger.error(`Failed to install MCP servers for bundle ${bundleId}`, error as Error);
       // Don't fail the entire bundle installation if MCP installation fails

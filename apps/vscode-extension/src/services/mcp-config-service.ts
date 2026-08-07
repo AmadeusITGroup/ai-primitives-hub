@@ -345,11 +345,22 @@ export class McpConfigService {
     return merged.length > 0 ? merged : undefined;
   }
 
+  /**
+   * Merge new servers and their input declarations into an existing MCP configuration.
+   * @param existingConfig - Current config read from the host's mcp.json.
+   * @param newServers - Servers to add, already prefixed with their bundle id.
+   * @param options - Install options (conflict handling).
+   * @param newInputs - Input declarations shipped by the bundle manifest.
+   * @param supportsInputs - Whether the target host resolves `${input:id}`. When
+   * false, missing declarations are not auto-derived because the host will never
+   * prompt for them and the entry would only mislead the user.
+   */
   public async mergeServers(
     existingConfig: McpConfiguration,
     newServers: Record<string, McpServerConfig>,
     options: McpInstallOptions,
-    newInputs?: McpInputDefinition[]
+    newInputs?: McpInputDefinition[],
+    supportsInputs = true
   ): Promise<{ config: McpConfiguration; conflicts: string[]; warnings: string[] }> {
     // Spread `existingConfig` first: hosts such as Claude Code keep unrelated state
     // (projects, account/OAuth data, preferences) as sibling top-level keys in the
@@ -360,7 +371,11 @@ export class McpConfigService {
       ...existingConfig,
       servers: { ...existingConfig.servers },
       tasks: existingConfig.tasks ? { ...existingConfig.tasks } : undefined,
-      inputs: this.mergeInputs(existingConfig.inputs, newInputs)
+      // Hosts without input support must not receive bundle declarations: they
+      // would never prompt, so preserve only input state already in the file.
+      inputs: supportsInputs
+        ? this.mergeInputs(existingConfig.inputs, newInputs)
+        : existingConfig.inputs
     };
     const conflicts: string[] = [];
     const warnings: string[] = [];
@@ -378,6 +393,35 @@ export class McpConfigService {
         }
       } else {
         result.servers[serverName] = serverConfig;
+      }
+    }
+
+    // Auto-derive missing input declarations from ${input:id} references in the
+    // newly-installed servers.  The bundle manifest's mcpInputs should always
+    // declare every referenced id, but if it doesn't we synthesise
+    // a minimal promptString entry so the placeholder is resolvable at runtime and
+    // the literal unresolved string is never sent as a header value.
+    // A warning is also emitted so bundle authors know their manifest is incomplete.
+    // Skipped on hosts that do not resolve inputs — the declaration would never be
+    // read and its presence suggests a prompt that will never appear.
+    const referencedInNewServers = supportsInputs
+      ? this.collectInputReferences(newServers)
+      : new Set<string>();
+    const declaredIds = new Set((result.inputs ?? []).map((i) => i.id));
+    const undeclared = [...referencedInNewServers].filter((id) => !declaredIds.has(id));
+
+    if (undeclared.length > 0) {
+      for (const id of undeclared) {
+        warnings.push(
+          `Input "${id}" is referenced by a server config but has no matching declaration in the bundle's mcpInputs. `
+          + `A placeholder declaration has been auto-derived; update the bundle manifest to provide a proper description.`
+        );
+        const synthetic: McpInputDefinition = {
+          id,
+          type: 'promptString',
+          description: `Enter value for "${id}"`
+        };
+        result.inputs = result.inputs ? [...result.inputs, synthetic] : [synthetic];
       }
     }
 
