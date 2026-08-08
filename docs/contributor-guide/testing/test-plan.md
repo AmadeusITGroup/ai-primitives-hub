@@ -109,7 +109,7 @@ Claude Code and Windsurf are **install targets**, not hosts that run this extens
 
 The plans run in the order written — a user journey where state carries forward, so you are not rebuilding fixtures for every case. Running a subset is normal: pick the plans covering what changed, and check the preceding plans for state a chosen plan depends on.
 
-Every plan is a happy path. Failure modes, resilience and performance are out of scope; they belong in automation.
+Plans are happy paths by default — resilience and performance belong in automation, not here. The exception is a small set of rows marked **"Reported from testing"**: failure modes someone actually hit, where the product fails *silently* or blocks the user with no way out. Those earn a place because a passing happy path does not reveal them.
 
 ---
 
@@ -178,6 +178,7 @@ Golden coverage is the **GitHub** adapter only. The awesome-copilot, APM, skills
 | ⭐ 5.10 | Add a **local** source pointing at collection content on disk | Discovered and installable | 🟢 `packages/infra/test/adapters/local-adapter.test.ts` |
 | 5.11 | GitHub source exposing multiple collections in one repository | All discovered and listed separately | 🟢 `test/e2e/github-multiple-collections.test.ts` |
 | 5.12 | `Remove Source` while its bundles are installed | Source removed, installed bundles intact | 🟡 `test/commands/source-commands.test.ts` (`removeSource`: confirmation, cancellation) covers the command. **That installed bundles survive is not asserted** |
+| 5.13 | Add and sync a GitHub source behind **enterprise SSO** — a repository that answers `307` (SSO redirect) or `502` (CDN failure for SSO-protected repos) | The error names SSO/authentication as the cause and suggests the fix — not a bare `HTTP 307`, and not a silent timeout on sync | 🟡 `packages/infra/src/http/node-http-client.ts` follows `301/302/303/307/308`, but **no test covers an SSO redirect landing on a login page, or a `502`**, and the hub-import path reports the raw status. Common in enterprise orgs — reported from testing |
 
 ## TP-06 — Marketplace Discovery
 
@@ -207,15 +208,29 @@ Layout resolution is well covered by unit tests. What they use is a mocked files
 | ⭐ 7.6 | Install a collection containing **every primitive kind** | Every kind routed correctly; nothing silently dropped | 🟡 **5 of 7 kinds are covered.** `test/services/repository-scope-service.test.ts` exercises prompts, instructions, agents, chatmodes and skills; `test/e2e/skills-workflow.test.ts` covers four of those. **No suite installs `hooks/` or `plugins/`, and none installs all kinds in one collection** |
 | ⭐ 7.7 | In **Kiro**, check where `prompts/` and `instructions/` landed | Both folded into `steering/`; nothing left in a `prompts/` or `instructions/` directory | 🟢 `test/services/repository-scope-service.test.ts` asserts both types resolve to `.kiro/steering/`; `packages/infra/test/stores/layout-config-store.test.ts` asserts `kindRoutes['prompts/'] === 'steering/'` |
 | ⭐ 7.8 | Confirm the installed primitives in Copilot and Kiro | Prompts invocable, instructions/steering applied, agents and skills available | 🔴 **Nothing asserts a real agent consumes our output.** Highest-value row in this plan |
-| 7.9 | Install a collection declaring MCP servers, in each host | MCP config written to the location that host actually reads | 🟡 `test/services/mcp-config-service.*.test.ts` covers merge, duplicates and inputs. **Per-host config location is the gap** — see the note below |
+| 7.9 | Install a collection declaring MCP servers | Servers appear in the `mcp.json` the host reads, and the host can start them | 🟡 Broadly covered — see [MCP servers and inputs](#mcp-servers-and-inputs) below for the per-case detail and the two gaps |
 | 7.10 | Install at `workspace` and `project` scope | Files land in the corresponding workspace paths | 🟢 `test/services/user-scope-service.test.ts`, `packages/app/test/install/layout-resolver.test.ts` |
 | 7.11 | `View Bundle Details` on the installed bundle | Installed version, scope and source all accurate | 🟢 `packages/app/test/registry/list-installed-bundles.test.ts` |
 | 7.12 | Install a second bundle from a different source | Both coexist; neither overwrites the other | 🟢 `packages/app/test/install/install-bundle.test.ts` |
 | ⭐ 7.13 | Repeat 7.1–7.8 through the **CLI**, passing `kiro` and `vscode` as explicit targets | Same on-disk result as the extension | 🟡 `packages/cli/test/commands/install.test.ts` covers the CLI alone. **No test diffs CLI output against extension output** |
+### MCP servers and inputs
+
+`mcpServers` and `mcpInputs` are declared at the top level of the manifest and land in an `mcp.json` whose location depends on scope and host. Row 7.9 is the smoke check; these are the cases worth walking.
+
+| # | Scenario | Expected result | Automation → where to focus |
+|---|---|---|---|
+| 7.14 | Install a bundle declaring MCP servers at **user** scope | Servers written to the user-level `mcp.json`, with a tracking entry so they can be removed later | 🟡 `test/services/mcp-server-manager.test.ts` has only 4 tests, two of which are named *"may fail if mcp.json has syntax errors"*. **The user-scope path is far weaker than the workspace one — verify it by hand** |
+| 7.15 | Install at **repository/workspace** scope, into a workspace that already has an `mcp.json` with unrelated servers | `.vscode/mcp.json` (and the `.vscode` dir) created if absent; new servers merged; pre-existing and other bundles' servers preserved | 🟢 `test/services/mcp-server-manager.repositoryScope.test.ts` — 14 tests on a real filesystem, incl. creation, merge, preservation and per-bundle tracking |
+| 7.16 | Install in local-only mode, then in commit mode | `.vscode/mcp.json` added to git exclude for local-only, **not** for commit | 🟢 same suite |
+| 7.17 | Install two bundles that declare the **same server**, then uninstall the one that won | Exactly one server stays active; the duplicate is disabled and then re-enabled when the active one goes; identity ignores `headers` and `env`, and stdio never collides with remote | 🟢 `mcp-config-service.duplicateDetection.test.ts` and `.duplicateLifecycle.test.ts` |
+| 7.18 | Install a bundle declaring a **remote** server (HTTP or SSE) using `${bundlePath}` and environment variables in the URL and headers | Type resolved correctly, variables substituted in both URL and headers, `disabled`/`description` preserved | 🟢 `mcp-config-service.remoteServers.test.ts`, incl. Unix socket and Windows named-pipe URLs |
+| 7.19 | Install a bundle declaring `mcpInputs`, then a second bundle declaring an input with the **same id** | Inputs merged, deduplicated by id keeping the existing definition, and written to `mcp.json` | 🟢 `mcp-config-service.inputs.test.ts` (`mergeInputs`, `mergeServers() with inputs`) |
+| 7.20 | Install a bundle whose `mcpServers` reference a `${input:id}` placeholder with **no matching entry in `mcpInputs`** | The gap is reported at install or validation time; the user is not left with a server that silently cannot start | 🔴 The suite covers the **opposite** direction — `removeOrphanedInputs` handles inputs defined but unreferenced. Nothing asserts referenced-but-undefined, and `deployment-manifest-validator.test.ts` does not check it either, though `mcp-config-service.ts` already scans for `${input:…}`. Reported from testing |
+| 7.21 | Check where the `mcp.json` landed in **Kiro** versus VS Code | Each host's config is written where that host actually reads it | 🔴 `test/utils/mcp-config-locator.test.ts` has 3 tests and none covers Kiro. `getVsCodeVariant()` branches on Insiders, Cursor and Windsurf but **not Kiro**, and the workspace path is hardcoded to `.vscode` |
 
 `hooks/` and `plugins/` are not supported on Kiro, so there is no scenario for them here. If that changes, add a row and assert the routing.
 
-> **On 7.9.** `McpConfigLocator` resolves the VS Code variant for Insiders, Cursor and Windsurf but has no Kiro branch, and the workspace path is hardcoded to `.vscode`. Verify against whatever the current behaviour is meant to be rather than assuming — this is being addressed separately.
+> **On 7.21.** Verify against whatever the current behaviour is meant to be rather than assuming — the per-host MCP path is being addressed separately.
 
 ### Coverage breakdown
 
@@ -248,11 +263,22 @@ Layout resolution is well covered by unit tests. What they use is a mocked files
 - [ ] Prompts invocable in Copilot; instructions applied; agents selectable
 - [ ] Steering, agents and skills in effect in Kiro
 
-**7.9 — MCP servers**
+**7.9, 7.14–7.21 — MCP servers and inputs**
 
-- [x] Config merge, duplicate detection and lifecycle, declared inputs, remote servers — `test/services/mcp-config-service.*.test.ts` *(real fs via tmpdir)*
-- [x] Repository-scope MCP handling — `test/services/mcp-server-manager.repositoryScope.test.ts` *(real fs)*
-- [ ] The **per-host config location**: `McpConfigLocator` has no Kiro branch and hardcodes `.vscode` for workspace scope
+- [x] Workspace `mcp.json` created, merged, and other bundles' servers preserved; per-bundle tracking for uninstall — `test/services/mcp-server-manager.repositoryScope.test.ts` *(real fs)*
+- [x] Server-ID conflict, and `overwrite` honoured — same suite *(real fs)*
+- [x] Git exclude added for local-only, omitted for commit, cleaned on uninstall — same suite *(real fs)*
+- [x] Uninstall removes only that bundle's servers — same suite *(real fs)*
+- [x] Duplicate identity for stdio/HTTP/SSE, ignoring `headers` and `env`; first kept, later ones disabled; no stdio↔remote collision — `mcp-config-service.duplicateDetection.test.ts` *(real fs)*
+- [x] Duplicate re-enabled when the active server is removed; one stays active until all bundles go — `.duplicateLifecycle.test.ts` *(real fs)*
+- [x] Remote HTTP/SSE type guards, URL and header variable substitution, socket and named-pipe URLs — `.remoteServers.test.ts` *(real fs)*
+- [x] Input merge, dedupe by id, propagation into the merged config and into `mcp.json` — `.inputs.test.ts` *(real fs)*
+- [x] Orphaned inputs removed; inputs referenced from a remote server's `headers` kept; shared inputs kept while one referencer remains — same suite *(real fs)*
+- [x] `mcpInputs`/`mcpServers` carried from the top-level manifest fields — `packages/infra/test/adapters/github-adapter.test.ts`, `lib/test/generate-manifest.test.ts` *(fake port / real fs)*
+- [ ] **User-scope install** beyond four shallow tests, two of which are named "may fail if mcp.json has syntax errors"
+- [ ] **A `${input:id}` referenced but not defined** — the opposite direction to `removeOrphanedInputs`
+- [ ] **Per-host config location**: no Kiro branch in `getVsCodeVariant()`, and `.vscode` hardcoded for workspace scope
+- [ ] The host actually **starting** an installed server
 
 **7.10–7.12 — scopes and coexistence**
 
@@ -292,6 +318,7 @@ Layout resolution is well covered by unit tests. What they use is a mocked files
 | 8.7 | `List All Profiles` | Complete and accurate | 🟢 `packages/app/test/registry/list-all-profiles.test.ts` |
 | 8.8 | `Toggle Favorite`, then switch `Show Favorites` / `Show All Profiles` | Filtered view correct; title actions follow the `promptRegistry.favoritesViewActive` context key | 🟢 `packages/infra/test/stores/favorites-store.test.ts`, `test/ui/registry-tree-provider.test.ts` |
 | 8.9 | Delete a profile | Gone from the tree and from `List All Profiles` | 🟢 `packages/app/test/registry/local-profile-crud.test.ts` |
+| ⭐ 8.10 | Activate a profile where **one bundle fails to download** (e.g. GitHub answers `502`) | The user sees a clear notification naming the bundles that could not be installed, and the profile is **not** reported as fully active | 🔴 **No coverage.** `test/commands/profile-commands.test.ts` asserts activation marks the profile active and installs its bundles, but only on the success path. Today a per-bundle failure is silent, so the user believes content was installed when nothing was. Reported from testing |
 
 ## TP-09 — Hub Profiles and Sync
 
@@ -309,6 +336,7 @@ Better automated than it looks. `test/commands/hub-sync-commands.test.ts` and `t
 | 9.8 | `View Hub Profile Sync History` | Every sync recorded in order | 🟢 `test/commands/hub-sync-history.test.ts` — records additions, updates, removals and metadata changes; asserts chronological order and limits |
 | 9.9 | `Rollback Hub Profile` to a previous entry | Earlier state restored exactly | 🟢 `test/commands/hub-sync-history.test.ts` (`Rollback to History Entry`) — restores state, records the rollback as a new entry, errors on a non-active profile |
 | 9.10 | `Clear Hub Profile Sync History`, then `Deactivate Hub Profile` | History clears without touching active state; deactivation removes primitives cleanly | 🟢 `test/commands/hub-sync-history.test.ts` (`Clear History`, including per-profile scoping), `test/services/hub-profile-deactivation.test.ts` |
+| ⭐ 9.11 | Activate a hub profile where **one bundle fails to download** | Same expectation as 8.10 — failures named, profile not reported as fully active | 🔴 **No coverage** — see 8.10 |
 
 ## TP-10 — Update Lifecycle
 
@@ -415,6 +443,7 @@ This is the most heavily automated area in the repository — `test/services/loc
 | 12.4 | Hand-edit an installed file, then uninstall | Local-modification warning appears; choice honoured | 🟢 `test/services/local-modification-warning-service.test.ts` (+ `.property.test.ts`) |
 | 12.5 | Leave unrelated files alongside a bundle, then uninstall | Unrelated files preserved | 🟢 `test/e2e/uninstall-preserves-unrelated-files.test.ts` |
 | 12.6 | Uninstall everything, then inspect the target directories | No orphaned directories or empty scaffolding | 🟡 Pipeline covered; **leftover empty directories on real disk are the gap** |
+| ⭐ 12.7 | Delete an installed bundle's files from disk by hand, then uninstall it from the tree view | `Uninstall` is offered and cleans up the lockfile entry and registry record | 🔴 **Known defect.** `registry-tree-provider.ts` sets `contextValue = 'installedBundle.filesMissing'`, which appears in no `view/item/context` `when` clause in `package.json` — every uninstall clause matches `installed_bundle_*` instead. The action is therefore unavailable and broken installs cannot be cleaned up from the UI. Reported from testing |
 
 ## TP-13 — Settings
 
