@@ -26,9 +26,19 @@ pnpm run lint:fix
 pnpm run package:vsix
 ```
 
-`lib/` has its own test cycle: `cd lib && npm test`. For package work, run `pnpm -C packages -r build`, `pnpm -C packages -r lint:fix`, or `pnpm -C packages -r test`.
+`lib/` has its own test cycle: `cd lib && npm test`. For package work, run `pnpm -C packages -r build` or `pnpm -C packages -r test`.
 
-Always run linting with its `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation.
+### Linting
+
+Lint only the files you changed, with one command per package, and trust its verdict — do not re-run with other flags, formatters, or a wider scope to confirm it:
+
+```bash
+npx eslint <changed-paths> --fix --quiet && echo LINT_OK || echo LINT_FAILED
+```
+
+`--quiet` drops the tracked warning backlog so only errors show, and the `echo` makes an otherwise silent clean run readable. Never pipe lint output through `grep`/`tail` or pass `--format`: both can make a failing run look clean.
+
+Build `packages/` before linting or typechecking `apps/vscode-extension`: the extension resolves `@ai-primitives-hub/*` through built `.d.ts` files, so a new export fails as "has no exported member" until `pnpm -C packages -r build` runs.
 
 ## Architecture
 

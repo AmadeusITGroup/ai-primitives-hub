@@ -282,4 +282,51 @@ describe('GitHubApiClient', () => {
       expect(events.map((e) => e.kind)).toEqual(['request', 'retry', 'request', 'success']);
     });
   });
+
+  describe('credential diagnostics', () => {
+    const rawUrl = 'https://raw.githubusercontent.com/o/r/main/collections/a.collection.yml';
+
+    it('reports the redacted credential and GitHub auth headers on a fatal status', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 403, { 'x-oauth-scopes': 'read:user', 'x-accepted-oauth-scopes': 'repo', 'x-github-sso': 'required' }));
+      const client = new GitHubApiClient(http, { tokenProvider: new StaticTokenProvider('gho_abcdefgh1234') });
+      await expect(client.getJson('/repos/o/r')).rejects.toThrow(
+        '[auth=token ***<len=16,tail=1234>, token-scopes=read:user, accepted-scopes=repo, sso=required]'
+      );
+    });
+
+    it('never leaks the token value into the error message', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 404));
+      const client = new GitHubApiClient(http, { tokenProvider: new StaticTokenProvider('gho_supersecret') });
+      await expect(client.getJson('/repos/o/r')).rejects.toThrow(expect.not.stringContaining('gho_supersecret') as unknown);
+    });
+
+    it('says the request was anonymous when no credential was attached', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 404));
+      await expect(new GitHubApiClient(http).getJson('/repos/o/r')).rejects.toThrow('auth=anonymous');
+    });
+
+    it('explains that a raw.githubusercontent.com 404 may be the credential rather than a missing file', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 404));
+      const client = new GitHubApiClient(http, { tokenProvider: new StaticTokenProvider('gho_token') });
+      await expect(client.getText(rawUrl)).rejects.toThrow('answers 404 (never 401/403)');
+    });
+
+    it('fails a credential-suspect request instead of silently retrying without the credential', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 404));
+      const client = new GitHubApiClient(http, { tokenProvider: new StaticTokenProvider('gho_stale') });
+
+      await expect(client.getText(rawUrl)).rejects.toThrow('404');
+      expect(http.requests).toHaveLength(1);
+      expect(http.requests[0].headers?.Authorization).toBe('token gho_stale');
+    });
+
+    it('emits the auth context on the give-up event', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 404, { 'x-oauth-scopes': 'read:user' }));
+      const events: GitHubClientEvent[] = [];
+      const client = new GitHubApiClient(http, { tokenProvider: new StaticTokenProvider('gho_token'), onEvent: (e) => events.push(e) });
+
+      await expect(client.getText(rawUrl)).rejects.toThrow('404');
+      expect(events.find((e) => e.kind === 'give-up')?.reason).toContain('token-scopes=read:user');
+    });
+  });
 });

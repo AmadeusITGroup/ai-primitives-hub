@@ -24,15 +24,13 @@
 import type {
   HubSource,
   HubSourceSync,
+  LogEvent,
+  OnLogEvent,
   RegistrySource,
 } from '@ai-primitives-hub/core';
 import {
   generateSourceId,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 import {
   createSourceSyncQueue,
 } from './source-sync-queue';

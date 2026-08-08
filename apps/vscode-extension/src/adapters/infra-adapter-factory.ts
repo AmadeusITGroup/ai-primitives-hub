@@ -20,6 +20,9 @@ import {
 import type {
   SourceAdapterFactoryDeps,
 } from '@ai-primitives-hub/app';
+import type {
+  TokenProvider,
+} from '@ai-primitives-hub/core';
 import {
   GhCliTokenProvider,
   NodeFileSystem,
@@ -39,22 +42,43 @@ import {
 
 const fs = new NodeFileSystem();
 const clock = new SystemClock();
-const httpClient = new NodeHttpClient();
+/**
+ * Process-wide `HttpClient`. Exported so other extension-side callers that
+ * need raw HTTP (e.g. `RegistryManager`'s global-token probe) share this one
+ * instance instead of each constructing their own.
+ */
+export const sharedHttpClient = new NodeHttpClient();
 const processRunner = new NodeProcessRunner();
 const ghCliTokenProvider = new GhCliTokenProvider();
+
+/**
+ * The extension's GitHub credential chain, in resolution order, each entry
+ * carrying a human-readable label.
+ *
+ * Labelled (rather than relying on `constructor.name`, which the bundler
+ * may mangle) so credential diagnostics can report *where* the token that
+ * GitHub rejected came from - "the VS Code session" and "whatever `gh auth
+ * token` prints" need very different fixes. Exported so the diagnostics
+ * command probes the exact same provider instances the adapters use,
+ * rather than a look-alike chain that could resolve differently.
+ */
+export const githubTokenProviderChain: readonly { label: string; provider: TokenProvider }[] = [
+  { label: 'VS Code GitHub session', provider: new VsCodeSessionTokenProvider(true) },
+  { label: 'gh CLI (`gh auth token`)', provider: ghCliTokenProvider }
+];
 
 const promptingDeps: SourceAdapterFactoryDeps = {
   fs,
   clock,
-  httpClient,
+  httpClient: sharedHttpClient,
   processRunner,
-  fallbackTokenProviders: [new VsCodeSessionTokenProvider(true), ghCliTokenProvider]
+  fallbackTokenProviders: githubTokenProviderChain.map((entry) => entry.provider)
 };
 
 const silentDeps: SourceAdapterFactoryDeps = {
   fs,
   clock,
-  httpClient,
+  httpClient: sharedHttpClient,
   processRunner,
   fallbackTokenProviders: [new VsCodeSessionTokenProvider(false), ghCliTokenProvider]
 };

@@ -20,16 +20,41 @@
 import type {
   FileSystem,
   HttpClient,
+  HttpResponse,
   HubConfig,
   HubReference,
+  OnLogEvent,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
+import {
+  diagnoseGitHubToken,
+  formatGitHubTokenReport,
+} from '../auth/github-token-diagnostics';
+import {
+  redactToken,
+} from '../harvest/token-provider';
+import {
+  isGitHubHost,
+} from '../http/github-host';
 
 export interface ResolvedHub {
   config: HubConfig;
   reference: HubReference;
 }
+
+/**
+ * Statuses that an attached credential can be responsible for, and which
+ * therefore warrant a second, anonymous attempt.
+ *
+ * `raw.githubusercontent.com` answers **404** (not 401/403) when the
+ * `Authorization` header carries a credential GitHub rejects — even for
+ * content that is public and would be served fine anonymously. So a
+ * stale VS Code GitHub session makes *every* hub look non-existent,
+ * public ones included, and the diagnostics point at a missing repo
+ * instead of a bad token.
+ */
+const CREDENTIAL_SUSPECT_STATUSES = new Set([401, 403, 404]);
 
 /**
  * Common interface implemented by every per-type hub resolver.
@@ -50,17 +75,66 @@ export interface HubResolver {
  * @param http HttpClient to fetch with.
  * @param tokens TokenProvider consulted for the target host.
  * @param url Absolute URL to GET.
+ * @param onLog Optional log sink for credential diagnostics.
+ * @param repoLocation Optional `owner/repo` probed during credential
+ * diagnostics, to tell "token rejected" from "no access to this repo".
  */
-async function fetchYamlConfig(http: HttpClient, tokens: TokenProvider, url: string): Promise<HubConfig> {
-  const headers: Record<string, string> = {};
-  const token = await tokens.getToken(new URL(url).hostname);
-  if (token !== undefined) {
-    headers.Authorization = `token ${token}`;
+async function fetchYamlConfig(
+  http: HttpClient,
+  tokens: TokenProvider,
+  url: string,
+  onLog?: OnLogEvent,
+  repoLocation?: string
+): Promise<HubConfig> {
+  const host = new URL(url).hostname;
+  const token = await tokens.getToken(host);
+
+  /**
+   * Perform the GET, optionally authenticated.
+   * @param withToken Whether to attach the resolved credential.
+   * @returns The HTTP response.
+   */
+  const attempt = async (withToken: boolean): Promise<HttpResponse> => {
+    const headers: Record<string, string> = withToken && token !== undefined ? { Authorization: `token ${token}` } : {};
+    return await http.fetch({ url, headers, maxRedirects: 10 });
+  };
+
+  let res = await attempt(true);
+  const credentialSuspect = token !== undefined && CREDENTIAL_SUSPECT_STATUSES.has(res.statusCode);
+
+  if (credentialSuspect) {
+    // A rejected credential is indistinguishable from "not found" on
+    // raw.githubusercontent.com, so never let one keep us from public
+    // content: retry once anonymously before declaring the hub missing.
+    const anonymous = await attempt(false);
+    if (anonymous.statusCode === 200) {
+      onLog?.({
+        level: 'warn',
+        message: `[HubResolver] Hub config for ${url} is reachable anonymously but not with the resolved GitHub credential `
+          + `(${redactToken(token)}): GitHub rejected it. Private hubs will stay unreachable until the credential is fixed.`
+      });
+      res = anonymous;
+    }
+
+    // Ask api.github.com what raw.githubusercontent.com refused to say —
+    // but only while the fetch is still broken. Once the anonymous retry
+    // has produced both a usable config and an actionable warning, the
+    // extra probes would just make the caller wait for detail nobody is
+    // blocked on.
+    if (res.statusCode !== 200 && onLog !== undefined && isGitHubHost(host)) {
+      const report = await diagnoseGitHubToken(http, token, repoLocation);
+      onLog({
+        level: 'warn',
+        message: `[HubResolver] GitHub credential diagnostics for ${repoLocation ?? url}: ${formatGitHubTokenReport(report)}`
+      });
+    }
   }
 
-  const res = await http.fetch({ url, headers, maxRedirects: 10 });
   if (res.statusCode !== 200) {
-    throw new Error(`Failed to fetch hub config: HTTP ${res.statusCode}`);
+    const hint = credentialSuspect
+      ? ' (note: raw.githubusercontent.com answers 404 for a rejected credential, so this may be an expired GitHub session or an account without access rather than a missing file)'
+      : '';
+    throw new Error(`Failed to fetch hub config: HTTP ${res.statusCode}${hint}`);
   }
 
   const text = new TextDecoder().decode(res.body);
@@ -110,10 +184,12 @@ export class UrlHubResolver implements HubResolver {
    * Construct a UrlHubResolver instance.
    * @param http HttpClient for the GET request.
    * @param tokens TokenProvider for hosts that need auth.
+   * @param onLog Optional log sink for credential diagnostics.
    */
   public constructor(
     private readonly http: HttpClient,
-    private readonly tokens: TokenProvider
+    private readonly tokens: TokenProvider,
+    private readonly onLog?: OnLogEvent
   ) {}
 
   /**
@@ -122,7 +198,7 @@ export class UrlHubResolver implements HubResolver {
    * @returns Resolved hub.
    */
   public async resolve(ref: HubReference): Promise<ResolvedHub> {
-    const config = await fetchYamlConfig(this.http, this.tokens, ref.location);
+    const config = await fetchYamlConfig(this.http, this.tokens, ref.location, this.onLog);
     return { config, reference: ref };
   }
 }
@@ -138,10 +214,12 @@ export class GitHubHubResolver implements HubResolver {
    * Construct a GitHubHubResolver instance.
    * @param http HttpClient for the GET request.
    * @param tokens TokenProvider for private repos.
+   * @param onLog Optional log sink for credential diagnostics.
    */
   public constructor(
     private readonly http: HttpClient,
-    private readonly tokens: TokenProvider
+    private readonly tokens: TokenProvider,
+    private readonly onLog?: OnLogEvent
   ) {}
 
   /**
@@ -153,7 +231,7 @@ export class GitHubHubResolver implements HubResolver {
     const branch = ref.ref ?? 'main';
     const timestamp = Date.now();
     const url = `https://raw.githubusercontent.com/${ref.location}/${branch}/hub-config.yml?t=${timestamp}`;
-    const config = await fetchYamlConfig(this.http, this.tokens, url);
+    const config = await fetchYamlConfig(this.http, this.tokens, url, this.onLog, ref.location);
     return { config, reference: ref };
   }
 }

@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import {
+  GITHUB_REQUIRED_SCOPES,
+} from '../adapters/vscode-session-token-provider';
+import {
   Logger,
 } from './logger';
 
@@ -24,7 +27,7 @@ export async function promptGitHubAccountSelection(): Promise<void> {
 
   const session = await vscode.authentication.getSession(
     'github',
-    ['repo'],
+    GITHUB_REQUIRED_SCOPES,
     { clearSessionPreference: true, createIfNone: true }
   );
 
