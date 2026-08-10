@@ -70,7 +70,7 @@ export class McpServerManager {
       return null;
     }
     const ids = [...referenced].toSorted().join(', ');
-    return `Require the input value(s) ${ids}. `
+    return `require the input value(s) ${ids}. `
       + 'Set the value(s) directly in the MCP configuration file after installing.';
   }
 
@@ -693,26 +693,18 @@ export class McpServerManager {
         : existingConfig.inputs;
 
       // Auto-derive missing input declarations from ${input:id} references in the
-      // newly-installed servers, mirroring the same fix in McpConfigService.mergeServers.
+      // newly-installed servers, using the shared helper in McpConfigService.
       // Skipped when the host does not resolve inputs: the declaration would be dead
       // weight in the file and can mislead the user into thinking a prompt will appear.
       let finalInputs = mergedInputs;
       if (supportsInputs) {
-        const referencedInNew = this.configService.collectInputReferences(serversToInstall);
-        const declaredIds = new Set((mergedInputs ?? []).map((i: { id: string }) => i.id));
-        const undeclared = [...referencedInNew].filter((id) => !declaredIds.has(id));
-        for (const id of undeclared) {
-          this.logger.warn(
-            `Input "${id}" is referenced by a server config but has no matching declaration in the bundle's mcpInputs. `
-            + `A placeholder declaration has been auto-derived; update the bundle manifest to provide a proper description.`
-          );
-          const synthetic = {
-            id,
-            type: 'promptString' as const,
-            description: `Enter value for "${id}"`
-          };
-          finalInputs = finalInputs ? [...finalInputs, synthetic] : [synthetic];
+        const { inputs: derivedInputs, warnings: derivedWarnings } =
+          this.configService.autoDeriveMissingInputs(serversToInstall, mergedInputs);
+        finalInputs = derivedInputs;
+        for (const w of derivedWarnings) {
+          this.logger.warn(w);
         }
+        result.warnings?.push(...derivedWarnings);
       }
 
       const mergedConfig: McpConfiguration = {

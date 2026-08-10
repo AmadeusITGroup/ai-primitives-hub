@@ -15,6 +15,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fsExtra from 'fs-extra';
+import * as sinon from 'sinon';
 import {
   McpServerManager,
 } from '../../src/services/mcp-server-manager';
@@ -187,6 +188,49 @@ suite('McpServerManager — host and scope behaviour', () => {
         path.join(tmpRoot, '.kiro', 'settings', 'mcp.json')
       ) as Record<string, unknown>;
       assert.ok(written.mcpServers, 'Kiro file should use the mcpServers key');
+    });
+  });
+
+  suite('installServers (user scope) on hosts that cannot resolve inputs', () => {
+    test('Kiro user scope: input-referencing server installs with a warning', async () => {
+      await setHost('Kiro', 'kiro');
+
+      // Stub McpConfigLocator for user-scope resolution to point at our temp dir
+      const { McpConfigLocator } = await import('../../src/utils/mcp-config-locator');
+      const mockConfigPath = path.join(tmpRoot, 'mcp.json');
+      const mockTrackingPath = path.join(tmpRoot, 'mcp-tracking.json');
+      const localSandbox = sinon.createSandbox();
+      localSandbox.stub(McpConfigLocator, 'getMcpConfigLocation').returns({
+        configPath: mockConfigPath,
+        trackingPath: mockTrackingPath,
+        exists: false,
+        serversKey: 'mcpServers',
+        supportsInputs: false
+      });
+      localSandbox.stub(McpConfigLocator, 'ensureConfigDirectory').resolves();
+
+      try {
+        const result = await new McpServerManager().installServers(
+          'bundle-user',
+          '1.0.0',
+          tmpRoot,
+          inputReferencingManifest,
+          { scope: 'user', overwrite: false, skipOnConflict: false },
+          [{ id: 'api-key', type: 'promptString', description: 'API key' }]
+        );
+
+        assert.strictEqual(result.success, true,
+          `user-scope install should succeed with a warning, errors: ${result.errors?.join(', ')}`);
+        assert.match(result.warnings?.join(' ') ?? '', /api-key/,
+          'a warning should name the input the host cannot prompt for');
+
+        const written = JSON.parse(await fs.promises.readFile(mockConfigPath, 'utf8')) as Record<string, unknown>;
+        assert.ok(written.mcpServers, 'the server entry should be present');
+        assert.strictEqual(written.inputs, undefined,
+          'no input declaration should be synthesised for a host that never resolves inputs');
+      } finally {
+        localSandbox.restore();
+      }
     });
   });
 });

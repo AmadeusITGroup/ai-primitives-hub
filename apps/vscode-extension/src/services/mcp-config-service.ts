@@ -1,6 +1,13 @@
 import type {
   McpConfigScope,
 } from '@ai-primitives-hub/app';
+import {
+  autoDeriveMissingInputs,
+  mergeInputDeclarations,
+} from '@ai-primitives-hub/app';
+import {
+  collectInputReferences,
+} from '@ai-primitives-hub/core';
 import * as fs from 'fs-extra';
 import {
   isRemoteServerConfig,
@@ -323,7 +330,7 @@ export class McpConfigService {
 
   /**
    * Merge new input definitions into existing ones, deduplicating by id.
-   * Existing inputs with the same id are preserved unchanged.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
    * @param existing - Current inputs array from mcp.json
    * @param incoming - New inputs to add
    */
@@ -331,18 +338,7 @@ export class McpConfigService {
     existing: McpInputDefinition[] | undefined,
     incoming: McpInputDefinition[] | undefined
   ): McpInputDefinition[] | undefined {
-    if (!incoming || incoming.length === 0) {
-      return existing;
-    }
-    const merged = existing ? [...existing] : [];
-    const existingIds = new Set(merged.map((i) => i.id));
-    for (const input of incoming) {
-      if (!existingIds.has(input.id)) {
-        merged.push(input);
-        existingIds.add(input.id);
-      }
-    }
-    return merged.length > 0 ? merged : undefined;
+    return mergeInputDeclarations(existing, incoming);
   }
 
   /**
@@ -397,76 +393,39 @@ export class McpConfigService {
     }
 
     // Auto-derive missing input declarations from ${input:id} references in the
-    // newly-installed servers.  The bundle manifest's mcpInputs should always
-    // declare every referenced id, but if it doesn't we synthesise
-    // a minimal promptString entry so the placeholder is resolvable at runtime and
-    // the literal unresolved string is never sent as a header value.
-    // A warning is also emitted so bundle authors know their manifest is incomplete.
-    // Skipped on hosts that do not resolve inputs — the declaration would never be
-    // read and its presence suggests a prompt that will never appear.
-    const referencedInNewServers = supportsInputs
-      ? this.collectInputReferences(newServers)
-      : new Set<string>();
-    const declaredIds = new Set((result.inputs ?? []).map((i) => i.id));
-    const undeclared = [...referencedInNewServers].filter((id) => !declaredIds.has(id));
-
-    if (undeclared.length > 0) {
-      for (const id of undeclared) {
-        warnings.push(
-          `Input "${id}" is referenced by a server config but has no matching declaration in the bundle's mcpInputs. `
-          + `A placeholder declaration has been auto-derived; update the bundle manifest to provide a proper description.`
-        );
-        const synthetic: McpInputDefinition = {
-          id,
-          type: 'promptString',
-          description: `Enter value for "${id}"`
-        };
-        result.inputs = result.inputs ? [...result.inputs, synthetic] : [synthetic];
-      }
+    // newly-installed servers. Delegates to the pure core helper.
+    // Skipped on hosts that do not resolve inputs.
+    if (supportsInputs) {
+      const { inputs: derivedInputs, warnings: derivedWarnings } =
+        this.autoDeriveMissingInputs(newServers, result.inputs);
+      result.inputs = derivedInputs;
+      warnings.push(...derivedWarnings);
     }
 
     return { config: result, conflicts, warnings };
   }
 
   /**
+   * Auto-derive missing `${input:id}` declarations for newly-installed servers.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
+   * @param servers - Servers to scan for `${input:id}` references.
+   * @param existingInputs - Inputs already declared (merged manifest + existing file).
+   */
+  public autoDeriveMissingInputs(
+    servers: Record<string, McpServerConfig>,
+    existingInputs: McpInputDefinition[] | undefined
+  ): { inputs: McpInputDefinition[] | undefined; warnings: string[] } {
+    return autoDeriveMissingInputs(servers, existingInputs);
+  }
+
+  /**
    * Collect all `${input:id}` references across the given server configurations.
-   *
-   * Public because the install path needs it to detect servers that cannot work on a
-   * host which does not resolve inputs — the placeholder would be written verbatim and
-   * the server would fail at startup rather than at install time.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
    * @param servers - Server configurations to scan.
    * @returns The set of referenced input ids.
    */
   public collectInputReferences(servers: Record<string, McpServerConfig>): Set<string> {
-    const inputPattern = /\$\{input:([^}]+)\}/g;
-    const referenced = new Set<string>();
-
-    const scan = (value: string | undefined): void => {
-      if (!value) {
-        return;
-      }
-      let match: RegExpExecArray | null;
-      while ((match = inputPattern.exec(value)) !== null) {
-        referenced.add(match[1]);
-      }
-    };
-
-    for (const serverConfig of Object.values(servers)) {
-      if (isRemoteServerConfig(serverConfig)) {
-        scan(serverConfig.url);
-        if (serverConfig.headers) {
-          Object.values(serverConfig.headers).forEach((v) => scan(v));
-        }
-      } else {
-        scan(serverConfig.command);
-        serverConfig.args?.forEach((v) => scan(v));
-        if (serverConfig.env) {
-          Object.values(serverConfig.env).forEach((v) => scan(v));
-        }
-      }
-    }
-
-    return referenced;
+    return collectInputReferences(servers);
   }
 
   /**
@@ -478,7 +437,7 @@ export class McpConfigService {
     if (!config.inputs || config.inputs.length === 0) {
       return config;
     }
-    const referenced = this.collectInputReferences(config.servers);
+    const referenced = collectInputReferences(config.servers);
     const filteredInputs = config.inputs.filter((input) => referenced.has(input.id));
     return {
       ...config,
