@@ -474,10 +474,9 @@ export class BundleInstaller {
   /**
    * Surface MCP warnings for an otherwise successful install.
    *
-   * The servers were written, so this is not a failure, but the warnings cover cases
-   * the user still has to act on — most notably a host that cannot prompt for
-   * `${input:id}` values, where the server is present but needs the secret filled in
-   * manually before it will connect.
+   * Only user-actionable warnings (e.g. "host cannot prompt for inputs") are shown
+   * as notifications. Bundle-author concerns (auto-derived declarations) are logged
+   * but not surfaced to the end user.
    * @param bundleId - Bundle being installed.
    * @param warnings - Warnings reported by the MCP manager.
    */
@@ -485,11 +484,21 @@ export class BundleInstaller {
     if (!warnings || warnings.length === 0) {
       return;
     }
-    const detail = warnings.join(' ');
-    this.logger.warn(`MCP installation warnings: ${detail}`);
-    void vscode.window.showWarningMessage(
-      `MCP servers for "${bundleId}" ${detail}`
-    );
+    // Auto-derive warnings are bundle-author concerns — log only.
+    const userActionable = warnings.filter((w) => !w.includes('auto-derived'));
+    const logOnly = warnings.filter((w) => w.includes('auto-derived'));
+
+    for (const w of logOnly) {
+      this.logger.warn(`MCP installation: ${w}`);
+    }
+
+    if (userActionable.length > 0) {
+      const detail = userActionable.join(' ');
+      this.logger.warn(`MCP installation warnings: ${detail}`);
+      void vscode.window.showWarningMessage(
+        `MCP servers for "${bundleId}" ${detail}`
+      );
+    }
   }
 
   private async installMcpServers(
