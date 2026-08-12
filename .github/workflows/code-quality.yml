@@ -1,0 +1,141 @@
+name: Code Quality and Coverage
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "packages/**"
+      - "lib/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - "tsconfig.base.json"
+      - "eslint.shared.mjs"
+      - ".github/workflows/code-quality.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "packages/**"
+      - "lib/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - "tsconfig.base.json"
+      - "eslint.shared.mjs"
+      - ".github/workflows/code-quality.yml"
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.20.0"
+
+jobs:
+  package-coverage:
+    name: Shared Packages Coverage Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      # CLI compatibility tests execute lib/bin/generate-manifest.js, so the
+      # full dependency chain must be built before coverage is collected.
+      - name: Build shared packages and legacy collection tooling
+        run: pnpm --filter "@ai-primitives-hub/*" --filter "@prompt-registry/collection-scripts" build
+
+      - name: Run package tests with coverage thresholds
+        run: pnpm --filter "@ai-primitives-hub/*" run test:coverage
+
+      - name: Add coverage summary
+        if: always()
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const packages = ['core', 'infra', 'app', 'cli'];
+          const rows = [];
+          for (const name of packages) {
+            const file = `packages/${name}/coverage/coverage-summary.json`;
+            if (!fs.existsSync(file)) continue;
+            const total = JSON.parse(fs.readFileSync(file, 'utf8')).total;
+            rows.push(`| ${name} | ${total.statements.pct}% | ${total.branches.pct}% | ${total.functions.pct}% | ${total.lines.pct}% |`);
+          }
+          const summary = [
+            '## Shared package coverage',
+            '',
+            '| Package | Statements | Branches | Functions | Lines |',
+            '|---|---:|---:|---:|---:|',
+            ...rows,
+            '',
+            'Coverage floors are enforced by each package\'s `vitest.config.mjs`.'
+          ].join('\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+          NODE
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: shared-package-coverage
+          path: packages/*/coverage
+          if-no-files-found: warn
+          retention-days: 14
+
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4
+        with:
+          category: "/language:javascript-typescript"
