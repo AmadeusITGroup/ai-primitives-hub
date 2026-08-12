@@ -167,6 +167,20 @@ h1 {
     color: var(--vscode-foreground);
 }
 
+.scope-change-button {
+    margin-left: 10px;
+    padding: 3px 8px;
+    color: var(--vscode-button-secondaryForeground);
+    background: var(--vscode-button-secondaryBackground);
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.scope-change-button:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
 code {
     background: var(--vscode-textCodeBlock-background);
     padding: 2px 6px;

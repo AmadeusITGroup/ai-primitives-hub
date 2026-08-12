@@ -351,34 +351,34 @@ export class PromptRegistryExtension {
       vscode.commands.registerCommand('promptRegistry.listInstalled', () => this.bundleCommands!.listInstalled()),
 
       // Bundle Scope Management Commands
-      vscode.commands.registerCommand('promptRegistry.moveToRepositoryCommit', (arg?) => {
+      vscode.commands.registerCommand('promptRegistry.moveToRepositoryCommit', async (arg?) => {
         const bundleId = this.extractBundleId(arg);
         if (bundleId && this.bundleScopeCommands) {
-          void this.bundleScopeCommands.moveToRepository(bundleId, 'commit');
+          await this.bundleScopeCommands.moveToRepository(bundleId, 'commit');
         }
       }),
-      vscode.commands.registerCommand('promptRegistry.moveToRepositoryLocalOnly', (arg?) => {
+      vscode.commands.registerCommand('promptRegistry.moveToRepositoryLocalOnly', async (arg?) => {
         const bundleId = this.extractBundleId(arg);
         if (bundleId && this.bundleScopeCommands) {
-          void this.bundleScopeCommands.moveToRepository(bundleId, 'local-only');
+          await this.bundleScopeCommands.moveToRepository(bundleId, 'local-only');
         }
       }),
-      vscode.commands.registerCommand('promptRegistry.moveToUser', (arg?) => {
+      vscode.commands.registerCommand('promptRegistry.moveToUser', async (arg?) => {
         const bundleId = this.extractBundleId(arg);
         if (bundleId && this.bundleScopeCommands) {
-          void this.bundleScopeCommands.moveToUser(bundleId);
+          await this.bundleScopeCommands.moveToUser(bundleId);
         }
       }),
-      vscode.commands.registerCommand('promptRegistry.switchToLocalOnly', (arg?) => {
+      vscode.commands.registerCommand('promptRegistry.switchToLocalOnly', async (arg?) => {
         const bundleId = this.extractBundleId(arg);
         if (bundleId && this.bundleScopeCommands) {
-          void this.bundleScopeCommands.switchCommitMode(bundleId, 'local-only');
+          await this.bundleScopeCommands.switchCommitMode(bundleId, 'local-only');
         }
       }),
-      vscode.commands.registerCommand('promptRegistry.switchToCommit', (arg?) => {
+      vscode.commands.registerCommand('promptRegistry.switchToCommit', async (arg?) => {
         const bundleId = this.extractBundleId(arg);
         if (bundleId && this.bundleScopeCommands) {
-          void this.bundleScopeCommands.switchCommitMode(bundleId, 'commit');
+          await this.bundleScopeCommands.switchCommitMode(bundleId, 'commit');
         }
       }),
 
