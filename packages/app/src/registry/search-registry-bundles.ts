@@ -19,14 +19,12 @@
  */
 import type {
   Bundle,
+  LogEvent,
+  OnLogEvent,
   RegistrySource,
   SearchQuery,
   SourceAdapter,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 
 /**
  * Read/write access `searchRegistryBundles` needs: source listing,

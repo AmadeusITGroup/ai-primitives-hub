@@ -15,12 +15,10 @@
 import type {
   HubProfileSync,
   InstalledBundle,
-  Profile,
-} from '@ai-primitives-hub/core';
-import type {
   LogEvent,
   OnLogEvent,
-} from '../update/log-event';
+  Profile,
+} from '@ai-primitives-hub/core';
 
 /**
  * Dependencies needed to deactivate a profile.

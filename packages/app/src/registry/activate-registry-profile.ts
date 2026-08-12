@@ -32,6 +32,8 @@ import type {
   HubProfileWithMetadata,
   InstalledBundle,
   InstallOptions,
+  LogEvent,
+  OnLogEvent,
   Profile,
   ProfileBundle,
   RegistrySource,
@@ -39,10 +41,6 @@ import type {
   SourceAdapter,
   SourceType,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 
 /** Mirrors the extension's `CONCURRENCY_CONSTANTS.REGISTRY_BATCH_LIMIT` — this module is its only remaining consumer. */
 const PROFILE_BUNDLE_INSTALL_BATCH_LIMIT = 5;

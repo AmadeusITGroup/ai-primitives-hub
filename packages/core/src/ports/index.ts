@@ -14,6 +14,7 @@ export * from './process-runner';
 export * from './bundle-extractor';
 export * from './target-writer';
 export * from './layout-config-loader';
+export * from './log-sink';
 export * from './resource-transformer';
 export * from './source-resolver';
 export * from './bundle-downloader';
