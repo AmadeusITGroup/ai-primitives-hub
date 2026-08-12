@@ -44,6 +44,7 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Architecture Details",
           items: [
+            { type: "doc", id: "contributor-guide/architecture/complete-architecture-guide", label: "Complete Architecture Guide" },
             { type: "doc", id: "contributor-guide/architecture/adapters", label: "Adapters" },
             { type: "doc", id: "contributor-guide/architecture/authentication", label: "Authentication" },
             { type: "doc", id: "contributor-guide/architecture/installation-flow", label: "Installation Flow" },
