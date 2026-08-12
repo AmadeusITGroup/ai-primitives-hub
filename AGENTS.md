@@ -20,15 +20,42 @@ Use Node 24+ and pnpm 11+.
 
 ```bash
 pnpm install
-pnpm run compile
-pnpm run test:unit
-pnpm run lint:fix
+pnpm run verify            # everything, in the right order, one exit code
+pnpm run verify:packages   # packages/ only: build + test + lint:fix (~30s)
+```
+
+`verify` is `verify:packages` followed by the extension's `compile`, `test:extension`, and `lint:extension`. Prefer it over running the steps by hand: the ordering matters and this bakes it in. It takes ~150s and prints thousands of lines, so redirect it and only read the tail on failure — a passing run needs no output at all:
+
+```bash
+pnpm run verify > /tmp/verify.log 2>&1 || tail -40 /tmp/verify.log
+```
+
+The individual steps, when you need a tighter loop:
+
+```bash
+pnpm run build:packages       # required before the extension typechecks
+pnpm run test:packages
+pnpm run compile              # extension bundle
+pnpm run test:extension       # unit + integration (delegates to the extension's test:all)
+pnpm run test:extension:unit  # unit only: no real VS Code, ~20s
+pnpm run lint:fix             # packages + extension
 pnpm run package:vsix
 ```
 
-`lib/` has its own test cycle: `cd lib && npm test`. For package work, run `pnpm -C packages -r build`, `pnpm -C packages -r lint:fix`, or `pnpm -C packages -r test`.
+`test:extension` launches a real VS Code through `@vscode/test-electron` for the `test/suite/` tests, so it needs a display (CI wraps it in `xvfb-run` on Linux). That layer is the only one that sees command registration and `package.json` contributions, so a change to either is not verified until it runs — use `test:extension:unit` for the inner loop, but not as your final check.
 
-Always run linting with its `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation.
+Use these scripts rather than open-coding a recursive command. `pnpm -r <script>` and `pnpm -C packages -r <script>` both resolve the whole workspace — the latter looks scoped but is not — so they also run `lib/`, `website/`, and `github-actions/`: 4920 lines of output where the scoped script gives 181. The scripts filter on `@ai-primitives-hub/*`, matching what CI does.
+
+`lib/` has its own test cycle: `cd lib && npm test`.
+
+There is no root `eslint.config.mjs`, so a bare `npx eslint <path>` fails at the repository root. Lint through `lint:fix` (or `lint:packages` / `lint:extension`), always with the `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation. `src test` carries accepted warnings, so add `--quiet` when you only want errors.
+
+## Verification
+
+- **Judge success by exit status, not by grepping output.** A pipe replaces the exit code with the last command's, so `vitest … | tail` and `eslint … | grep` both report success for a failing run. Run the command bare, or end it with `&& echo PASS || echo FAIL`.
+- **`pnpm run test:unit` alone proves nothing.** It executes the already-compiled `test-dist/` and compiles nothing, so after editing any `.ts` it silently re-runs the previous build and passes. Use `pnpm run test:extension`, which compiles first.- **Rebuild `packages/` after switching branches or changing a cross-package type.** Lint and `tsc` resolve `@ai-primitives-hub/*` through built `dist/`, so a stale build invents errors that are absent from the checked-out source and hides ones that are present. The usual symptoms are a new export reported as "has no exported member" and type errors naming a symbol you cannot find in `src/`.
+- Vitest (`packages/*`) prints `Tests N passed`; Mocha (the extension) prints `N passing`. Pass `--no-color` to Vitest before matching on that line; otherwise ANSI codes break the match.
+- Extension unit tests log expected errors from negative-path cases (`cmd.exe not found`, `[AI Primitives Hub] ERROR: …`). Those are not failures. Only the summary line and the exit status are.
 
 ## Architecture
 

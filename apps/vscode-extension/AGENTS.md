@@ -6,15 +6,30 @@ Business logic lives in `@ai-primitives-hub/app`/`core`/`infra`, not here. Per [
 
 ## Commands
 
-Run from the repository root:
+From the repository root:
 
 ```bash
-pnpm -C apps/vscode-extension run compile
-pnpm -C apps/vscode-extension run compile-tests
-pnpm -C apps/vscode-extension run test:unit
-pnpm -C apps/vscode-extension run test:integration
+pnpm run compile                  # bundle src/
+pnpm run test:extension           # unit + integration (the package's own test:all)
+pnpm run test:extension:unit      # unit only, ~20s
+pnpm run lint:extension
 pnpm -C apps/vscode-extension run package:vsix
 ```
+
+**Use one of the `test:extension*` scripts, not `test:unit` on its own.** `test:unit` executes `test-dist/` and compiles nothing — it has no `pre` hook (`pretest` belongs to `test`), so running it after editing a `.ts` file silently re-runs the previous build: a changed test keeps its old assertions and a new test file is simply absent from the glob. The suite then passes and tells you nothing. `test:unit` stays a separate script because CI applies post-compilation fixes between the two steps.
+
+Two layers, and only the second one sees VS Code:
+
+| Layer | Files | Sees |
+|---|---|---|
+| unit | `test/**` except `test/suite/` | everything importable with a mocked `vscode` |
+| integration | `test/suite/` | command registration, `package.json` contributions, real activation |
+
+So a change to `package.json` contributions or to `extension.ts` command wiring is **not** verified by a passing unit run. `test:extension` covers both; it launches a real VS Code and needs a display.
+
+`compile-tests` is also the only typecheck for `test/**`, since `compile` (webpack) only covers `src/`. It emits JavaScript even when it reports type errors, so tests can pass while the types are broken — read its output, do not just check that tests ran afterwards.
+
+Building `packages/` first is a precondition for both: cross-package types resolve through the built `dist/`. `pnpm run verify` does the whole chain in order.
 
 ## Architecture
 

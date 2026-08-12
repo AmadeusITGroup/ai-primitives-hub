@@ -171,6 +171,10 @@ post-compile-fixes-cross-platform.js
 # Cache directories
 .cache/
 
+# Local code-intelligence cache: hundreds of MB of single-line JSON that
+# search tools should never read.
+.gitnexus/
+
 # Claude local settings file
 .claude/settings.local.json
 
