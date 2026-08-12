@@ -403,6 +403,17 @@ body {
     margin-bottom: 12px;
 }
 
+.recommended-badge {
+    display: inline-block;
+    margin-bottom: 8px;
+    padding: 3px 8px;
+    border: 1px solid var(--vscode-charts-yellow);
+    border-radius: 12px;
+    color: var(--vscode-charts-yellow);
+    font-size: 11px;
+    font-weight: 600;
+}
+
 .bundle-title {
     font-size: 18px;
     font-weight: 600;
@@ -454,6 +465,38 @@ body {
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 16px;
+}
+
+.bundle-rating {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 14px;
+}
+
+.rating-label,
+.community-rating {
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+
+.community-rating {
+    margin-left: 8px;
+}
+
+.rating-star {
+    border: 0;
+    padding: 1px;
+    color: var(--vscode-disabledForeground);
+    background: transparent;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.rating-star:hover,
+.rating-star:focus,
+.rating-star.selected {
+    color: var(--vscode-charts-yellow);
 }
 
 .tag {

@@ -27,6 +27,8 @@ export interface Bundle {
   tags: string[];
   downloads?: number;
   rating?: number;
+  /** Rating submitted by this user on this device. */
+  userRating?: number;
   lastUpdated: string;
   size: string;
   dependencies: BundleDependency[];
@@ -39,6 +41,8 @@ export interface Bundle {
   isCurated?: boolean;
   /** Name of the curated hub, when `isCurated` is true. */
   hubName?: string;
+  /** Explicitly recommended by the source maintainer. */
+  recommended?: boolean;
   checksum?: {
     algorithm: string;
     hash: string;
