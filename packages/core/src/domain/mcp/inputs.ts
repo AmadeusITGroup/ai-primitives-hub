@@ -1,34 +1,34 @@
 /**
- * MCP input declaration types and the reference scanner.
+ * MCP input reference scanning — pure domain logic.
  *
- * `${input:id}` is a VS Code Copilot feature: an `inputs` array at the root
- * of an MCP config file declares the values the IDE should prompt for, and
- * each server config can reference them via `${input:id}` placeholders.
+ * `${input:id}` is a host-specific feature (currently VS Code Copilot): an
+ * `inputs` array at the root of an MCP config file declares the values the
+ * IDE should prompt for, and each server config can reference them via
+ * `${input:id}` placeholders.
  *
- * This module holds only the domain types and the pure scanner — use-case
- * orchestration (merge, auto-derive) lives in `@ai-primitives-hub/app`.
+ * This module provides only the generic scanner and minimal types needed by
+ * use-case orchestration in `@ai-primitives-hub/app`. The full
+ * IDE-specific input definition interface (`McpInputDefinition`) lives in
+ * the delivery layer (`apps/vscode-extension/src/types/mcp.ts`).
  *
  * Pure: no IO, no side effects, no framework imports.
  * @module domain/mcp/inputs
  */
 
 /**
- * A single input declaration as written in the `inputs` array of an MCP
- * config file.  Mirrors the VS Code Copilot `inputs` schema.
+ * Minimal shape for an input declaration — just enough for merge/derive
+ * logic to identify and deduplicate entries by `id`.
+ *
+ * The full schema (password, options, default, etc.) is delivery-layer
+ * specific and defined in the extension's type file.
  */
-export interface McpInputDefinition {
+export interface McpInputDeclaration {
   /** Unique identifier referenced by `${input:<id>}` placeholders. */
   id: string;
-  /** How the value is collected: `promptString` is the common case. */
-  type: 'promptString' | 'pickString' | 'command';
+  /** Discriminator for the prompt type. */
+  type: string;
   /** Human-readable label shown in the IDE prompt. */
   description?: string;
-  /** Whether the value should be masked in the UI. */
-  password?: boolean;
-  /** Pre-filled default value. */
-  default?: string;
-  /** Choices for `pickString` type. */
-  options?: string[];
 }
 
 /**
@@ -64,7 +64,9 @@ export function collectInputReferences(
   const referenced = new Set<string>();
 
   const scan = (value: string | undefined): void => {
-    if (!value) return;
+    if (!value) {
+      return;
+    }
     let match: RegExpExecArray | null;
     while ((match = inputPattern.exec(value)) !== null) {
       referenced.add(match[1]);
@@ -74,9 +76,19 @@ export function collectInputReferences(
   for (const config of Object.values(servers)) {
     scan(config.url);
     scan(config.command);
-    config.args?.forEach(scan);
-    if (config.env) Object.values(config.env).forEach(scan);
-    if (config.headers) Object.values(config.headers).forEach(scan);
+    config.args?.forEach((v) => {
+      scan(v);
+    });
+    if (config.env) {
+      Object.values(config.env).forEach((v) => {
+        scan(v);
+      });
+    }
+    if (config.headers) {
+      Object.values(config.headers).forEach((v) => {
+        scan(v);
+      });
+    }
   }
 
   return referenced;

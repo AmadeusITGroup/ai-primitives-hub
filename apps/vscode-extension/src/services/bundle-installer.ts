@@ -484,20 +484,21 @@ export class BundleInstaller {
     if (!warnings || warnings.length === 0) {
       return;
     }
-    // Auto-derive warnings are bundle-author concerns — log only.
-    const userActionable = warnings.filter((w) => !w.includes('auto-derived'));
-    const logOnly = warnings.filter((w) => w.includes('auto-derived'));
 
-    for (const w of logOnly) {
-      this.logger.warn(`MCP installation: ${w}`);
+    const userActionable: string[] = [];
+    const nonActionable: string[] = [];
+    for (const w of warnings) {
+      (w.includes('auto-derived') ? nonActionable : userActionable).push(w);
+    }
+
+    if (nonActionable.length > 0) {
+      this.logger.warn(`MCP installation: ${nonActionable.join(' ')}`);
     }
 
     if (userActionable.length > 0) {
       const detail = userActionable.join(' ');
       this.logger.warn(`MCP installation warnings: ${detail}`);
-      void vscode.window.showWarningMessage(
-        `MCP servers for "${bundleId}" ${detail}`
-      );
+      void vscode.window.showWarningMessage(`MCP servers for "${bundleId}" ${detail}`);
     }
   }
 

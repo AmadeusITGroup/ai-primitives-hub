@@ -12,7 +12,6 @@ import * as fs from 'fs-extra';
 import {
   isRemoteServerConfig,
   McpConfiguration,
-  McpInputDefinition,
   McpInstallOptions,
   McpRemoteServerConfig,
   McpServerConfig,
@@ -20,6 +19,7 @@ import {
   McpStdioServerConfig,
   McpTrackingMetadata,
   McpVariableContext,
+  VSCodeMcpInputDefinition,
 } from '../types/mcp';
 import {
   Logger,
@@ -335,9 +335,9 @@ export class McpConfigService {
    * @param incoming - New inputs to add
    */
   public mergeInputs(
-    existing: McpInputDefinition[] | undefined,
-    incoming: McpInputDefinition[] | undefined
-  ): McpInputDefinition[] | undefined {
+    existing: VSCodeMcpInputDefinition[] | undefined,
+    incoming: VSCodeMcpInputDefinition[] | undefined
+  ): VSCodeMcpInputDefinition[] | undefined {
     return mergeInputDeclarations(existing, incoming);
   }
 
@@ -355,7 +355,7 @@ export class McpConfigService {
     existingConfig: McpConfiguration,
     newServers: Record<string, McpServerConfig>,
     options: McpInstallOptions,
-    newInputs?: McpInputDefinition[],
+    newInputs?: VSCodeMcpInputDefinition[],
     supportsInputs = true
   ): Promise<{ config: McpConfiguration; conflicts: string[]; warnings: string[] }> {
     // Spread `existingConfig` first: hosts such as Claude Code keep unrelated state
@@ -413,8 +413,8 @@ export class McpConfigService {
    */
   public autoDeriveMissingInputs(
     servers: Record<string, McpServerConfig>,
-    existingInputs: McpInputDefinition[] | undefined
-  ): { inputs: McpInputDefinition[] | undefined; warnings: string[] } {
+    existingInputs: VSCodeMcpInputDefinition[] | undefined
+  ): { inputs: VSCodeMcpInputDefinition[] | undefined; warnings: string[] } {
     return autoDeriveMissingInputs(servers, existingInputs);
   }
 

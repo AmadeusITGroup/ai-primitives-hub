@@ -2,15 +2,18 @@
  * MCP input merge and auto-derive use-case logic.
  *
  * These functions orchestrate input declaration handling during MCP server
- * installation. They depend only on `@ai-primitives-hub/core` types and the
- * `collectInputReferences` scanner — no IO, no framework dependency.
+ * installation. They use the generic `McpInputDeclaration` from core and
+ * the `collectInputReferences` scanner — no IO, no framework dependency.
+ *
+ * The full IDE-specific input type (`McpInputDefinition`) lives in the
+ * delivery layer; these functions work with any object that has an `id` field.
  *
  * Pure: no IO, no side effects.
  * @module mcp/input-merge
  */
 
 import type {
-  McpInputDefinition,
+  McpInputDeclaration,
   McpServerInputView,
 } from '@ai-primitives-hub/core';
 import {
@@ -23,17 +26,18 @@ import {
  * Existing declarations win: if an id already exists, the incoming entry is
  * ignored so that a bundle author's re-install does not reset a user-edited
  * description or password flag.
- *
  * @param existing - Current inputs array from the host's config file.
  * @param incoming - New declarations from the bundle manifest.
  * @returns Merged array, or `undefined` when the result would be empty.
  */
-export function mergeInputDeclarations(
-  existing: McpInputDefinition[] | undefined,
-  incoming: McpInputDefinition[] | undefined
-): McpInputDefinition[] | undefined {
-  if (!incoming || incoming.length === 0) return existing;
-  const merged = existing ? [...existing] : [];
+export function mergeInputDeclarations<T extends McpInputDeclaration>(
+  existing: T[] | undefined,
+  incoming: T[] | undefined
+): T[] | undefined {
+  if (!incoming || incoming.length === 0) {
+    return existing;
+  }
+  const merged: T[] = existing ? [...existing] : [];
   const existingIds = new Set(merged.map((i) => i.id));
   for (const input of incoming) {
     if (!existingIds.has(input.id)) {
@@ -52,15 +56,14 @@ export function mergeInputDeclarations(
  * doesn't this function synthesises a minimal `promptString` entry so the
  * placeholder is resolvable at runtime and the literal unresolved string is
  * never sent as a header value.
- *
  * @param servers - Newly-installed servers to scan for references.
  * @param existingInputs - Declarations already present (merged manifest + file).
  * @returns Updated inputs array and warnings to surface to the user.
  */
-export function autoDeriveMissingInputs(
+export function autoDeriveMissingInputs<T extends McpInputDeclaration>(
   servers: Record<string, McpServerInputView>,
-  existingInputs: McpInputDefinition[] | undefined
-): { inputs: McpInputDefinition[] | undefined; warnings: string[] } {
+  existingInputs: T[] | undefined
+): { inputs: T[] | undefined; warnings: string[] } {
   const warnings: string[] = [];
   const referenced = collectInputReferences(servers);
   const declaredIds = new Set((existingInputs ?? []).map((i) => i.id));
@@ -70,7 +73,7 @@ export function autoDeriveMissingInputs(
     return { inputs: existingInputs, warnings };
   }
 
-  const inputs: McpInputDefinition[] = existingInputs ? [...existingInputs] : [];
+  const inputs: T[] = existingInputs ? [...existingInputs] : [];
   for (const id of undeclared) {
     warnings.push(
       `Input "${id}" is referenced by a server config but has no matching declaration in the bundle's mcpInputs. `
@@ -80,7 +83,7 @@ export function autoDeriveMissingInputs(
       id,
       type: 'promptString',
       description: `Enter value for "${id}"`
-    });
+    } as T);
   }
   return { inputs, warnings };
 }

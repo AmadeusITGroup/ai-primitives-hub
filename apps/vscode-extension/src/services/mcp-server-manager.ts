@@ -2,7 +2,6 @@ import * as path from 'node:path';
 import * as fs from 'fs-extra';
 import {
   McpConfiguration,
-  McpInputDefinition,
   McpInstallOptions,
   McpInstallResult,
   McpServerConfig,
@@ -10,6 +9,7 @@ import {
   McpTrackingMetadata,
   McpUninstallResult,
   McpWorkspaceInstallOptions,
+  VSCodeMcpInputDefinition,
 } from '../types/mcp';
 import {
   detectHostApp,
@@ -450,7 +450,7 @@ export class McpServerManager {
     bundlePath: string,
     serversManifest: McpServersManifest,
     options: McpInstallOptions,
-    inputsManifest?: McpInputDefinition[]
+    inputsManifest?: VSCodeMcpInputDefinition[]
   ): Promise<McpInstallResult> {
     const result: McpInstallResult = {
       success: false,
@@ -605,7 +605,7 @@ export class McpServerManager {
     workspaceRoot: string,
     serversManifest: McpServersManifest,
     options: McpWorkspaceInstallOptions,
-    inputsManifest?: McpInputDefinition[]
+    inputsManifest?: VSCodeMcpInputDefinition[]
   ): Promise<McpInstallResult> {
     const result: McpInstallResult = {
       success: false,

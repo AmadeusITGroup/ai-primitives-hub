@@ -13,7 +13,7 @@ import {
 } from '../../src/services/mcp-config-service';
 import {
   McpConfiguration,
-  McpInputDefinition,
+  VSCodeMcpInputDefinition,
 } from '../../src/types/mcp';
 
 suite('McpConfigService - Input Merging', () => {
@@ -53,13 +53,13 @@ suite('McpConfigService - Input Merging', () => {
     });
 
     test('should return existing unchanged when incoming is empty', () => {
-      const existing: McpInputDefinition[] = [{ id: 'token', type: 'promptString' }];
+      const existing: VSCodeMcpInputDefinition[] = [{ id: 'token', type: 'promptString' }];
       const result = configService.mergeInputs(existing, []);
       assert.deepStrictEqual(result, existing);
     });
 
     test('should add new inputs when existing is undefined', () => {
-      const incoming: McpInputDefinition[] = [
+      const incoming: VSCodeMcpInputDefinition[] = [
         { id: 'ocToken', type: 'promptString', description: 'OpenShift token', password: true }
       ];
       const result = configService.mergeInputs(undefined, incoming);
@@ -67,10 +67,10 @@ suite('McpConfigService - Input Merging', () => {
     });
 
     test('should add new inputs that do not conflict with existing ones', () => {
-      const existing: McpInputDefinition[] = [
+      const existing: VSCodeMcpInputDefinition[] = [
         { id: 'existingToken', type: 'promptString' }
       ];
-      const incoming: McpInputDefinition[] = [
+      const incoming: VSCodeMcpInputDefinition[] = [
         { id: 'newToken', type: 'promptString', password: true }
       ];
 
@@ -82,10 +82,10 @@ suite('McpConfigService - Input Merging', () => {
     });
 
     test('should deduplicate inputs by id, preserving the existing definition', () => {
-      const existing: McpInputDefinition[] = [
+      const existing: VSCodeMcpInputDefinition[] = [
         { id: 'sharedToken', type: 'promptString', description: 'Original description' }
       ];
-      const incoming: McpInputDefinition[] = [
+      const incoming: VSCodeMcpInputDefinition[] = [
         { id: 'sharedToken', type: 'promptString', description: 'New description' }
       ];
 
@@ -96,11 +96,11 @@ suite('McpConfigService - Input Merging', () => {
     });
 
     test('should merge multiple inputs handling duplicates and new ones together', () => {
-      const existing: McpInputDefinition[] = [
+      const existing: VSCodeMcpInputDefinition[] = [
         { id: 'bbUser', type: 'promptString' },
         { id: 'bbPassword', type: 'promptString', password: true }
       ];
-      const incoming: McpInputDefinition[] = [
+      const incoming: VSCodeMcpInputDefinition[] = [
         { id: 'bbUser', type: 'promptString', description: 'Should be ignored (duplicate)' },
         { id: 'ocToken', type: 'promptString', password: true }
       ];
@@ -196,7 +196,7 @@ suite('McpConfigService - Input Merging', () => {
         inputs: [{ id: 'existingInput', type: 'promptString' }]
       };
 
-      const newInputs: McpInputDefinition[] = [
+      const newInputs: VSCodeMcpInputDefinition[] = [
         { id: 'ocToken', type: 'promptString', password: true }
       ];
 
@@ -230,7 +230,7 @@ suite('McpConfigService - Input Merging', () => {
       });
       sandbox.stub(McpConfigLocator, 'ensureConfigDirectory').resolves();
 
-      const inputs: McpInputDefinition[] = [
+      const inputs: VSCodeMcpInputDefinition[] = [
         { id: 'bbUser', type: 'promptString', description: 'Bitbucket username' },
         { id: 'bbPassword', type: 'promptString', password: true }
       ];
