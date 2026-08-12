@@ -40,6 +40,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
   - [Scaffolding](contributor-guide/architecture/scaffolding.md)
   - [Validation](contributor-guide/architecture/validation.md)
 - **[Core Flows](contributor-guide/core-flows.md)** — Key system flows
+- **[Microsoft 365 Copilot MVP](contributor-guide/microsoft-365-copilot-mvp.md)** — Declarative-agent export design and limits
 - **[Testing](contributor-guide/testing.md)** — Testing strategy
 - **[Testing SSH Remote](contributor-guide/testing-ssh-remote.md)** — SSH testing
 - **[Validation](contributor-guide/validation.md)** — Local validation commands

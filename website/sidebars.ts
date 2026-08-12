@@ -55,6 +55,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         { type: "doc", id: "contributor-guide/core-flows", label: "Core Flows" },
+        { type: "doc", id: "contributor-guide/microsoft-365-copilot-mvp", label: "Microsoft 365 Copilot MVP" },
         { type: "doc", id: "contributor-guide/testing", label: "Testing" },
         { type: "doc", id: "contributor-guide/testing-ssh-remote", label: "Testing SSH Remote" },
         { type: "doc", id: "contributor-guide/validation", label: "Validation" },
