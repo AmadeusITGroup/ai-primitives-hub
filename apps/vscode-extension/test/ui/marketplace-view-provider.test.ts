@@ -269,6 +269,12 @@ suite('MarketplaceViewProvider - Dynamic Filtering', () => {
       assert.ok(ids.includes('bundle4'));
     });
 
+    test('should support matching all selected tags', () => {
+      const filtered = filterBundlesByTags(mockBundles, ['testing', 'automation'], 'all');
+
+      assert.deepStrictEqual(filtered.map((bundle) => bundle.id), ['bundle1']);
+    });
+
     test('should return all bundles when tags array is empty', () => {
       const filtered = filterBundlesByTags(mockBundles, []);
 
@@ -285,6 +291,43 @@ suite('MarketplaceViewProvider - Dynamic Filtering', () => {
       const filtered = filterBundlesByTags(mockBundles, ['TESTING']);
 
       assert.strictEqual(filtered.length, 2);
+    });
+  });
+
+  suite('Advanced Search', () => {
+    test('should require every unscoped search term', () => {
+      const filtered = filterBundlesBySearch(mockBundles, 'testing automation');
+
+      assert.deepStrictEqual(filtered.map((bundle) => bundle.id), ['bundle1']);
+    });
+
+    test('should support quoted phrases', () => {
+      const filtered = filterBundlesBySearch(mockBundles, '"AI agents"');
+
+      assert.deepStrictEqual(filtered.map((bundle) => bundle.id), ['bundle3']);
+    });
+
+    test('should support field filters', () => {
+      const filtered = filterBundlesBySearch(mockBundles, 'tag:automation author:"AI Team" env:cursor');
+
+      assert.deepStrictEqual(filtered.map((bundle) => bundle.id), ['bundle3']);
+    });
+
+    test('should support excluded terms and fields', () => {
+      const filtered = filterBundlesBySearch(mockBundles, 'testing -tag:accessibility');
+
+      assert.deepStrictEqual(filtered.map((bundle) => bundle.id), ['bundle1']);
+    });
+
+    test('should rank exact names ahead of description-only matches', () => {
+      const bundles = [
+        { ...mockBundles[0], id: 'description-match', name: 'Helpers', description: 'Angular Bundle helpers' },
+        mockBundles[3]
+      ];
+
+      const filtered = filterBundlesBySearch(bundles, 'Angular Bundle');
+
+      assert.deepStrictEqual(filtered.map((bundle) => bundle.id), ['bundle4', 'description-match']);
     });
   });
 

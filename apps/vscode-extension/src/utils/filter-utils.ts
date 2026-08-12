@@ -21,7 +21,95 @@ export interface SourceWithCount extends RegistrySource {
 export interface FilterOptions {
   sourceId?: string;
   tags?: string[];
+  tagMatch?: 'any' | 'all';
   searchText?: string;
+}
+
+type SearchField = 'id' | 'name' | 'description' | 'tag' | 'author' | 'env' | 'source';
+
+interface SearchToken {
+  excluded: boolean;
+  field?: SearchField;
+  value: string;
+}
+
+const SEARCH_TOKEN_PATTERN = /(-)?(?:(id|name|description|tag|author|env|source):)?(?:"([^"]+)"|(\S+))/giu;
+
+function normalizeSearchValue(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Parse the marketplace's compact search syntax. Words are combined with AND;
+ * quotes preserve phrases; a leading minus excludes a match; and field prefixes
+ * restrict a term (for example `tag:security` or `author:"AI Team"`).
+ * @param searchText - Raw text entered by the user.
+ */
+function parseSearchTokens(searchText: string): SearchToken[] {
+  const tokens: SearchToken[] = [];
+  for (const match of searchText.matchAll(SEARCH_TOKEN_PATTERN)) {
+    const value = normalizeSearchValue(match[3] || match[4] || '');
+    if (!value) {
+      continue;
+    }
+    tokens.push({
+      excluded: match[1] === '-',
+      field: match[2]?.toLowerCase() as SearchField | undefined,
+      value
+    });
+  }
+  return tokens;
+}
+
+function bundleSearchFields(bundle: Bundle): Record<SearchField, string[]> {
+  return {
+    id: [normalizeSearchValue(bundle.id)],
+    name: [normalizeSearchValue(bundle.name)],
+    description: [normalizeSearchValue(bundle.description)],
+    tag: bundle.tags.map((tag) => normalizeSearchValue(tag)),
+    author: [normalizeSearchValue(bundle.author || '')],
+    env: bundle.environments.map((environment) => normalizeSearchValue(environment)),
+    source: [normalizeSearchValue(bundle.sourceId)]
+  };
+}
+
+function tokenMatches(fields: Record<SearchField, string[]>, token: SearchToken): boolean {
+  const values = token.field
+    ? fields[token.field]
+    : Object.values(fields).flat();
+  return values.some((value) => value.includes(token.value));
+}
+
+function scoreBundle(fields: Record<SearchField, string[]>, tokens: SearchToken[]): number {
+  let score = 0;
+  for (const token of tokens) {
+    if (token.excluded) {
+      continue;
+    }
+
+    if (fields.id.includes(token.value)) {
+      score += 120;
+    } else if (fields.name.includes(token.value)) {
+      score += 100;
+    } else if (fields.name.some((value) => value.startsWith(token.value))) {
+      score += 70;
+    } else if (fields.tag.includes(token.value)) {
+      score += 50;
+    } else if (fields.author.includes(token.value)) {
+      score += 35;
+    } else if (fields.name.some((value) => value.includes(token.value))) {
+      score += 30;
+    } else if (fields.description.some((value) => value.includes(token.value))) {
+      score += 15;
+    } else {
+      score += 10;
+    }
+  }
+  return score;
 }
 
 /**
@@ -99,9 +187,14 @@ export function filterBundlesBySource(bundles: Bundle[], sourceId: string): Bund
  * Case-insensitive matching
  * @param bundles - Array of bundles to filter
  * @param tags - Tags to filter by (empty array returns all bundles)
+ * @param match - Whether any or all selected tags must match.
  * @returns Filtered array of bundles
  */
-export function filterBundlesByTags(bundles: Bundle[], tags: string[]): Bundle[] {
+export function filterBundlesByTags(
+  bundles: Bundle[],
+  tags: string[],
+  match: 'any' | 'all' = 'any'
+): Bundle[] {
   if (tags.length === 0) {
     return bundles;
   }
@@ -109,15 +202,17 @@ export function filterBundlesByTags(bundles: Bundle[], tags: string[]): Bundle[]
   const normalizedTags = tags.map((t) => t.toLowerCase());
 
   return bundles.filter((bundle) => {
-    return bundle.tags.some((bundleTag) =>
-      normalizedTags.includes(bundleTag.toLowerCase())
-    );
+    const bundleTags = bundle.tags.map((tag) => tag.toLowerCase());
+    return match === 'all'
+      ? normalizedTags.every((tag) => bundleTags.includes(tag))
+      : normalizedTags.some((tag) => bundleTags.includes(tag));
   });
 }
 
 /**
- * Filter bundles by search text (searches name, description, and tags)
- * Case-insensitive matching
+ * Filter and relevance-rank bundles using the marketplace search syntax.
+ * Unscoped terms search id, name, description, tags, author, environments,
+ * and source. Multiple positive terms use AND semantics.
  * @param bundles - Array of bundles to filter
  * @param searchText - Text to search for (empty string returns all bundles)
  * @returns Filtered array of bundles
@@ -127,14 +222,26 @@ export function filterBundlesBySearch(bundles: Bundle[], searchText: string): Bu
     return bundles;
   }
 
-  const term = searchText.toLowerCase();
+  const tokens = parseSearchTokens(searchText);
+  if (tokens.length === 0) {
+    return bundles;
+  }
 
-  return bundles.filter((bundle) =>
-    bundle.name.toLowerCase().includes(term)
-    || bundle.description.toLowerCase().includes(term)
-    || bundle.tags.some((tag) => tag.toLowerCase().includes(term))
-    || bundle.author.toLowerCase().includes(term)
-  );
+  return bundles
+    .map((bundle, index) => {
+      const fields = bundleSearchFields(bundle);
+      return { bundle, fields, index };
+    })
+    .filter(({ fields }) => tokens.every((token) =>
+      token.excluded ? !tokenMatches(fields, token) : tokenMatches(fields, token)
+    ))
+    .map(({ bundle, fields, index }) => ({
+      bundle,
+      index,
+      score: scoreBundle(fields, tokens)
+    }))
+    .toSorted((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ bundle }) => bundle);
 }
 
 /**
@@ -152,7 +259,7 @@ export function applyFilters(bundles: Bundle[], options: FilterOptions): Bundle[
   }
 
   if (options.tags && options.tags.length > 0) {
-    filtered = filterBundlesByTags(filtered, options.tags);
+    filtered = filterBundlesByTags(filtered, options.tags, options.tagMatch);
   }
 
   if (options.searchText) {

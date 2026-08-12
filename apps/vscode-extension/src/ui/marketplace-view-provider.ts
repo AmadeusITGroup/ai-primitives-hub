@@ -76,6 +76,7 @@ interface BundlesLoadedMessage {
   filterOptions: {
     tags: string[];
     sources: unknown[];
+    environments: string[];
   };
   setupState: string;
   sourcesCount: number;
@@ -392,6 +393,9 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       // Extract dynamic filter options
       const availableTags = extractAllTags(bundles);
       const availableSources = extractBundleSources(bundles, sources);
+      const availableEnvironments = Array.from(
+        new Set(bundles.flatMap((bundle) => bundle.environments || []))
+      ).toSorted();
 
       // Get setup state for empty state UI
       const setupState = await this.setupStateManager.getState();
@@ -401,7 +405,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         bundles: enhancedBundles,
         filterOptions: {
           tags: availableTags,
-          sources: availableSources
+          sources: availableSources,
+          environments: availableEnvironments
         },
         setupState,
         sourcesCount: sources.length
