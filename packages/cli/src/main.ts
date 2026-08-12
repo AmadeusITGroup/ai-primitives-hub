@@ -162,6 +162,9 @@ import {
   createProductionContext,
   runCli,
 } from './framework';
+import {
+  CLI_VERSION,
+} from './version';
 
 /**
  * Main entry point.
@@ -243,7 +246,7 @@ async function main(): Promise<number> {
     commands: [],
     commandClasses,
     name: 'ai-primitives-hub',
-    version: '1.0.0',
+    version: CLI_VERSION,
     http,
     tokens,
     defaultOutput: 'text'

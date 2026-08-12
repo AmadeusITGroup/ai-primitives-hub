@@ -137,6 +137,29 @@ describe('uninstall command', () => {
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
   });
 
+  it('removes a Kiro repository file and its local-only Git exclusion', async () => {
+    const repoRoot = path.join(workspace, 'kiro-repo');
+    await mkdir(path.join(repoRoot, '.git', 'info'), { recursive: true });
+    expect((await run([
+      'target', 'add', 'kiro-local', '--type', 'kiro', '--scope', 'repository',
+      '--workspace-root', repoRoot, '-o', 'json'
+    ])).exitCode).toBe(0);
+    expect((await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'kiro-local',
+      '--commit-mode', 'local-only', '-o', 'json'
+    ])).exitCode).toBe(0);
+
+    const result = await run([
+      'uninstall', '--bundle', 'local-foo', '--target', 'kiro-local',
+      '--commit-mode', 'local-only', '-o', 'json'
+    ]);
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(path.join(repoRoot, '.kiro/steering/hello.prompt.md'), 'utf8'))
+      .rejects.toThrow();
+    const exclude = await readFile(path.join(repoRoot, '.git', 'info', 'exclude'), 'utf8');
+    expect(exclude).not.toContain('.kiro/steering/hello.prompt.md');
+  });
+
   it('fails with exit 1 when neither --bundle, --lockfile, nor --all is given (and no lockfile is discoverable)', async () => {
     const freshWorkspace = await mkdtemp(path.join(os.tmpdir(), 'cli-uninstall-test-fresh-'));
     try {

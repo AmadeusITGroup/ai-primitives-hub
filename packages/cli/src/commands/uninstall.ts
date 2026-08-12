@@ -17,12 +17,10 @@
 import * as path from 'node:path';
 import {
   cleanupOrphanedSource,
-  FileTreeTargetWriter,
   type LockfileBundleEntry,
   readLockfile,
   removeBundleEntry,
   type TargetWriter,
-  TransformerRegistry,
   UninstallPipeline,
   type UninstallResult,
   writeLockfile,
@@ -31,16 +29,13 @@ import type {
   Target,
 } from '@ai-primitives-hub/core';
 import {
-  FileSystemLayoutConfigLoader,
   readTargets,
   type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   TargetStateStore,
 } from '@ai-primitives-hub/infra';
 import {
   Command,
+  createTargetWriter,
   failWith,
   findProjectLockfile,
   loadTargets,
@@ -219,7 +214,7 @@ export class UninstallCommand extends BaseUninstallCommand {
 /**
  * Create a writer factory that routes to the appropriate writer based on target scope.
  * - user scope → FileTreeTargetWriter
- * - repository scope → RepositoryScopeWriter
+ * - repository scope → target-aware FileTreeTargetWriter
  * @param ctx CLI context.
  * @param opts Uninstall options.
  * @returns Writer factory function.
@@ -228,39 +223,11 @@ export const createWriterFactory = (
   ctx: Context,
   opts: UninstallOptions
 ): (target: Target) => TargetWriter => {
-  // Create transformer registry with built-in transformers — must match
-  // install.ts's factory so `writer.remove()` computes the same on-disk
-  // path that `writer.write()` used (targets with a real, non-identity
-  // transformer like Kiro would otherwise resolve the wrong path).
-  const transformerRegistry = TransformerRegistry.withBuiltIns();
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-
   return (target: Target): TargetWriter => {
     // Use CLI flags to override target scope if specified
     const scope = opts.scope ?? target.scope;
     const commitMode = opts.commitMode ?? target.commitMode ?? 'commit';
-    const workspaceRoot = target.rootPath ?? ctx.cwd();
-
-    if (scope === 'repository') {
-      const writer = new RepositoryScopeWriter({
-        fs: ctx.fs,
-        workspaceRoot,
-        commitMode
-      });
-      return new RepositoryScopeWriterAdapter(writer);
-    }
-    // Default to FileTreeTargetWriter for user scope
-    const transformer = transformerRegistry.getTransformer(target.type);
-    return new FileTreeTargetWriter({
-      fs: ctx.fs,
-      env: ctx.env,
-      transformer,
-      layoutLoader
-    });
+    return createTargetWriter(ctx, target, scope, commitMode);
   };
 };
 

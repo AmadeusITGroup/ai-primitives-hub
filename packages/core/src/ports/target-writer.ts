@@ -1,8 +1,7 @@
 /**
  * TargetWriter port — writes extracted bundle files into an install
  * target (VS Code, Kiro, Windsurf, etc.). Concrete adapters live in
- * `infra`/`app`. Repository-scope installations use a specialised
- * writer that handles the `.github/` layout.
+ * `infra`/`app`; repository targets retain their target-specific layout.
  * @module ports/target-writer
  */
 import type {
