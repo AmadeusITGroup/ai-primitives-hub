@@ -292,4 +292,6 @@ When GitHub Actions fails:
 
 - [Development Setup](./development-setup.md)
 - [Testing](./testing.md)
+- [Golden Path Test Cases](./testing/golden-path.md)
+- [Full Test Plan](./testing/test-plan.md)
 - [Architecture: Validation](./architecture/validation.md)

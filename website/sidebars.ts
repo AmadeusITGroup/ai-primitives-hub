@@ -56,7 +56,15 @@ const sidebars: SidebarsConfig = {
         },
         { type: "doc", id: "contributor-guide/core-flows", label: "Core Flows" },
         { type: "doc", id: "contributor-guide/testing", label: "Testing" },
-        { type: "doc", id: "contributor-guide/testing-ssh-remote", label: "Testing SSH Remote" },
+        {
+          type: "category",
+          label: "Testing Details",
+          items: [
+            { type: "doc", id: "contributor-guide/testing/golden-path", label: "Golden Path Test Cases" },
+            { type: "doc", id: "contributor-guide/testing/test-plan", label: "Full Test Plan" },
+            { type: "doc", id: "contributor-guide/testing/ssh-remote", label: "Testing SSH Remote" },
+          ],
+        },
         { type: "doc", id: "contributor-guide/validation", label: "Validation" },
         { type: "doc", id: "contributor-guide/coding-standards", label: "Coding Standards" },
         { type: "doc", id: "contributor-guide/spec-collection-scripts-lib", label: "Collection Scripts Spec" },
