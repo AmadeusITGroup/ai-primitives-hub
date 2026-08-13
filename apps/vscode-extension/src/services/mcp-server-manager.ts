@@ -2,7 +2,6 @@ import * as path from 'node:path';
 import * as fs from 'fs-extra';
 import {
   McpConfiguration,
-  McpInputDefinition,
   McpInstallOptions,
   McpInstallResult,
   McpServerConfig,
@@ -10,6 +9,7 @@ import {
   McpTrackingMetadata,
   McpUninstallResult,
   McpWorkspaceInstallOptions,
+  VSCodeMcpInputDefinition,
 } from '../types/mcp';
 import {
   detectHostApp,
@@ -47,14 +47,14 @@ export class McpServerManager {
   }
 
   /**
-   * Reject servers that reference `${input:id}` when the host cannot resolve inputs.
+   * Describe servers that reference `${input:id}` when the host cannot resolve inputs.
    *
    * `inputs` and `${input:...}` are a VS Code Copilot feature. Other hosts receive the
-   * placeholder as a literal value, so the install would succeed and the server would
-   * then fail at startup with no indication why. Failing here converts that into an
-   * actionable install-time error.
+   * placeholder as a literal value, so the server needs manual configuration after
+   * installation. The caller surfaces this message as a warning while still writing
+   * the server configuration.
    *
-   * Returns `null` when the install may proceed, or a message describing what to do.
+   * Returns `null` when no warning is needed, or a message describing what to do.
    * @param servers - Servers about to be installed.
    * @param supportsInputs - Whether the resolved host/scope resolves inputs.
    */
@@ -70,9 +70,8 @@ export class McpServerManager {
       return null;
     }
     const ids = [...referenced].toSorted().join(', ');
-    return `This bundle's MCP servers require the input value(s) ${ids}, which this IDE `
-      + 'cannot prompt for. Install the bundle in VS Code, or set the value(s) directly in '
-      + 'the MCP configuration file after installing.';
+    return `require the input value(s) ${ids}. `
+      + 'Set the value(s) directly in the MCP configuration file after installing.';
   }
 
   /**
@@ -451,7 +450,7 @@ export class McpServerManager {
     bundlePath: string,
     serversManifest: McpServersManifest,
     options: McpInstallOptions,
-    inputsManifest?: McpInputDefinition[]
+    inputsManifest?: VSCodeMcpInputDefinition[]
   ): Promise<McpInstallResult> {
     const result: McpInstallResult = {
       success: false,
@@ -501,21 +500,21 @@ export class McpServerManager {
       const location = McpConfigLocator.getMcpConfigLocation(
         options.scope === 'workspace' ? 'repository' : 'user'
       );
-      const unsupportedInputs = this.describeUnsupportedInputs(
-        serversToInstall,
-        location?.supportsInputs ?? false
-      );
+      // See the note in installServersToWorkspace: hosts that cannot resolve
+      // `${input:id}` still get the server written, with a warning instead of a hard
+      // failure, so the user can supply the value manually.
+      const supportsInputs = location?.supportsInputs ?? false;
+      const unsupportedInputs = this.describeUnsupportedInputs(serversToInstall, supportsInputs);
       if (unsupportedInputs) {
-        result.errors?.push(unsupportedInputs);
-        result.success = false;
-        return result;
+        result.warnings?.push(unsupportedInputs);
       }
 
       const mergeResult = await this.configService.mergeServers(
         existingConfig,
         serversToInstall,
         options,
-        inputsManifest
+        inputsManifest,
+        supportsInputs
       );
 
       result.warnings?.push(...mergeResult.warnings);
@@ -606,7 +605,7 @@ export class McpServerManager {
     workspaceRoot: string,
     serversManifest: McpServersManifest,
     options: McpWorkspaceInstallOptions,
-    inputsManifest?: McpInputDefinition[]
+    inputsManifest?: VSCodeMcpInputDefinition[]
   ): Promise<McpInstallResult> {
     const result: McpInstallResult = {
       success: false,
@@ -674,24 +673,45 @@ export class McpServerManager {
         return result;
       }
 
-      const unsupportedInputs = this.describeUnsupportedInputs(
-        serversToInstall,
-        this.getWorkspaceMcpLocation(workspaceRoot).supportsInputs
-      );
+      // Hosts that cannot resolve `${input:id}` (e.g. Kiro) still get the server
+      // written, because a present-but-unconfigured server is more useful than no
+      // server at all — the user can fill the value in directly. We surface a warning
+      // so they know the manual step is required.
+      const supportsInputs = this.getWorkspaceMcpLocation(workspaceRoot).supportsInputs;
+      const unsupportedInputs = this.describeUnsupportedInputs(serversToInstall, supportsInputs);
       if (unsupportedInputs) {
-        result.errors?.push(unsupportedInputs);
-        result.success = false;
-        return result;
+        result.warnings?.push(unsupportedInputs);
       }
 
       // Merge servers into existing config
       // Spread `existingConfig` first so unrelated top-level state in the host's file
       // survives the merge. See the equivalent note in McpConfigService.mergeServers.
+      // Do not add bundle input declarations on hosts that cannot resolve them.
+      // Preserve any existing declarations as part of the host config round-trip.
+      const mergedInputs = supportsInputs
+        ? this.configService.mergeInputs(existingConfig.inputs, inputsManifest)
+        : existingConfig.inputs;
+
+      // Auto-derive missing input declarations from ${input:id} references in the
+      // newly-installed servers, using the shared helper in McpConfigService.
+      // Skipped when the host does not resolve inputs: the declaration would be dead
+      // weight in the file and can mislead the user into thinking a prompt will appear.
+      let finalInputs = mergedInputs;
+      if (supportsInputs) {
+        const { inputs: derivedInputs, warnings: derivedWarnings } =
+          this.configService.autoDeriveMissingInputs(serversToInstall, mergedInputs);
+        finalInputs = derivedInputs;
+        for (const w of derivedWarnings) {
+          this.logger.warn(w);
+        }
+        result.warnings?.push(...derivedWarnings);
+      }
+
       const mergedConfig: McpConfiguration = {
         ...existingConfig,
         servers: { ...existingConfig.servers, ...serversToInstall },
         tasks: existingConfig.tasks,
-        inputs: this.configService.mergeInputs(existingConfig.inputs, inputsManifest)
+        inputs: finalInputs
       };
 
       // Write config and tracking

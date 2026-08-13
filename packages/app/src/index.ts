@@ -16,6 +16,7 @@ export * from './collection';
 export * from './context-detection';
 export * from './discovery';
 export * from './install';
+export * from './mcp';
 export * from './writers';
 export * from './stores';
 export * from './update';

@@ -82,13 +82,13 @@ export interface McpTaskDefinition {
   description?: string;
 }
 
-export interface McpInputDefinition {
+export interface VSCodeMcpInputDefinition {
   id: string;
   type: 'promptString' | 'pickString' | 'command';
   description?: string;
   password?: boolean;
   default?: string;
-  options?: string[];
+  options?: (string | { value: string; label?: string })[];
 }
 
 /**
@@ -101,7 +101,7 @@ export interface McpRawConfig {
   readonly servers?: Record<string, McpServerConfig>;
   readonly mcpServers?: Record<string, McpServerConfig>;
   readonly tasks?: Record<string, McpTaskDefinition>;
-  readonly inputs?: McpInputDefinition[];
+  readonly inputs?: VSCodeMcpInputDefinition[];
   readonly [key: string]: unknown;
 }
 
@@ -117,7 +117,7 @@ export interface McpRawConfig {
 export interface McpConfiguration {
   servers: Record<string, McpServerConfig>;
   tasks?: Record<string, McpTaskDefinition>;
-  inputs?: McpInputDefinition[];
+  inputs?: VSCodeMcpInputDefinition[];
   [key: string]: unknown;
 }
 
