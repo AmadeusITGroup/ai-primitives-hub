@@ -289,6 +289,40 @@ export const upsertSource = (
 });
 
 /**
+ * Remap all bundle entries referencing `oldSourceId` to point at
+ * `newSourceId`, and move the source descriptor accordingly. Pure;
+ * doesn't touch disk.
+ * @param lock - Existing Lockfile.
+ * @param oldSourceId - Source id being retired.
+ * @param newSourceId - Replacement source id.
+ * @param newSourceDescriptor - Source descriptor for the replacement.
+ * @returns New Lockfile (input is not mutated).
+ */
+export const remapSourceId = (
+  lock: Lockfile,
+  oldSourceId: string,
+  newSourceId: string,
+  newSourceDescriptor: LockfileSourceEntry
+): Lockfile => {
+  const bundles: Record<string, LockfileBundleEntry> = {};
+  for (const [id, entry] of Object.entries(lock.bundles)) {
+    bundles[id] = entry.sourceId === oldSourceId
+      ? { ...entry, sourceId: newSourceId }
+      : entry;
+  }
+  const sources = { ...lock.sources };
+  delete sources[oldSourceId];
+  sources[newSourceId] = newSourceDescriptor;
+  return {
+    ...lock,
+    version: LOCKFILE_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    bundles,
+    sources
+  };
+};
+
+/**
  * Remove a source descriptor if no remaining bundle references it.
  * Pure; doesn't touch disk.
  * @param lock - Existing Lockfile.
