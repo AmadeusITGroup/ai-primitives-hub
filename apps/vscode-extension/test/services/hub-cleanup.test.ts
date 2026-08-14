@@ -47,6 +47,10 @@ class MockRegistryManager {
     this.sources = this.sources.filter((s) => s.id !== sourceId);
   }
 
+  public listInstalledBundles() {
+    return Promise.resolve([]);
+  }
+
   public updateSource(sourceId: string, updates: any) {
     const source = this.sources.find((s) => s.id === sourceId);
     if (source) {
@@ -333,18 +337,22 @@ suite('Hub Cleanup', () => {
     });
 
     test('should cleanup when clearing active hub (setting to null)', async () => {
+      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+      const ref: HubReference = { type: 'local', location: fixturePath };
+      await hubManager.importHub(ref, 'hub1');
+      await hubManager.setActiveHub('hub1');
+      await hubManager.toggleProfileFavorite('hub1', 'profile1');
+
+      // Seed a hub1 source/profile AFTER import so the clear-active-hub
+      // cleanup path (not import-time orphan pruning) is what removes them.
+      // These are not declared in the fixture, so seeding before import
+      // would let loadHubSources prune the source as an orphan first.
       mockRegistryManager.sources = [
         { id: 'hub-hub1-source1', name: 'Hub1 Source', hubId: 'hub1' }
       ];
       mockRegistryManager.profiles = [
         { id: 'hub1-profile', name: 'Hub1 Profile', active: true, hubId: 'hub1' }
       ];
-
-      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
-      const ref: HubReference = { type: 'local', location: fixturePath };
-      await hubManager.importHub(ref, 'hub1');
-      await hubManager.setActiveHub('hub1');
-      await hubManager.toggleProfileFavorite('hub1', 'profile1');
 
       // Clear active hub
       mockRegistryManager.removedSourceIds = [];

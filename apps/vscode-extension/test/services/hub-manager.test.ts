@@ -762,6 +762,7 @@ suite('Hub Source Loading - SourceId Format', () => {
     public addSourceCalls: RegistrySource[] = [];
     public updateSourceCalls: { id: string; updates: Partial<RegistrySource> }[] = [];
     public syncSourceCalls: string[] = [];
+    public removeSourceCalls: string[] = [];
 
     public listSources(): Promise<RegistrySource[]> {
       return Promise.resolve([...this.sources]);
@@ -787,11 +788,25 @@ suite('Hub Source Loading - SourceId Format', () => {
       return Promise.resolve();
     }
 
+    public removeSource(id: string): Promise<void> {
+      const index = this.sources.findIndex((s) => s.id === id);
+      if (index !== -1) {
+        this.sources.splice(index, 1);
+        this.removeSourceCalls.push(id);
+      }
+      return Promise.resolve();
+    }
+
+    public listInstalledBundles(): Promise<RegistrySource[]> {
+      return Promise.resolve([]);
+    }
+
     public reset(): void {
       this.sources = [];
       this.addSourceCalls = [];
       this.updateSourceCalls = [];
       this.syncSourceCalls = [];
+      this.removeSourceCalls = [];
     }
 
     public getSourceCount(): number {
@@ -1055,6 +1070,52 @@ suite('Hub Source Loading - SourceId Format', () => {
       assert.strictEqual(sourcesAfterReload.length, 2, 'Should still have only 2 sources (no duplicates)');
       assert.strictEqual(mockRegistry.updateSourceCalls.length, 2, 'Should have 2 update calls');
       assert.strictEqual(mockRegistry.addSourceCalls.length, 0, 'Should have 0 add calls on reload');
+    });
+
+    test('should prune an orphaned hub source on collection URL rename, leaving manual sources untouched', async () => {
+      // Import the hub, loading its two declared sources under this hubId.
+      await hubManager.importHub(localRef, 'test-orphan-prune');
+      assert.strictEqual(mockRegistry.getSourceCount(), 2, 'Should have 2 sources after import');
+
+      // Stale source left behind by a collection URL rename: same hub,
+      // but a sourceId that is no longer present in the hub config.
+      const orphan: RegistrySource = {
+        id: 'awesome-copilot-oldhash',
+        name: 'Old Renamed Collection',
+        type: 'awesome-copilot',
+        url: 'https://github.com/github/old-name',
+        enabled: true,
+        priority: 1,
+        hubId: 'test-orphan-prune',
+        config: { branch: 'main', collectionsPath: 'collections' }
+      };
+      await mockRegistry.addSource(orphan);
+
+      // Manually-added source (no hubId) must never be touched.
+      const manual: RegistrySource = {
+        id: 'manual-source',
+        name: 'Manual',
+        type: 'awesome-copilot',
+        url: 'https://github.com/org/manual',
+        enabled: true,
+        priority: 1,
+        config: { branch: 'main', collectionsPath: 'collections' }
+      };
+      await mockRegistry.addSource(manual);
+
+      mockRegistry.removeSourceCalls = [];
+
+      // Reload the same hub: the orphan is pruned, the manual one kept.
+      await hubManager.loadHubSources('test-orphan-prune');
+
+      assert.ok(!mockRegistry.hasSource('awesome-copilot-oldhash'), 'Orphaned hub source should be removed');
+      assert.ok(mockRegistry.hasSource('manual-source'), 'Manually-added source should be preserved');
+      assert.deepStrictEqual(
+        mockRegistry.removeSourceCalls,
+        ['awesome-copilot-oldhash'],
+        'Only the orphaned hub source should be removed'
+      );
+      assert.strictEqual(mockRegistry.getSourceCount(), 3, 'Two hub sources + one manual source remain');
     });
   });
 });

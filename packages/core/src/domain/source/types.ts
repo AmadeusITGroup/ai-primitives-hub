@@ -39,6 +39,13 @@ export interface RegistrySource {
   token?: string;
   /** Hub identifier, when this source was provisioned by a curated hub. */
   hubId?: string;
+  /**
+   * The hub config `sources[].id` this source was provisioned from — the
+   * stable, author-assigned identity that survives a `url` change. Used to
+   * match a pre-rename orphan to its replacement. Absent on manually-added
+   * sources and on hub sources persisted before this field existed.
+   */
+  hubSourceId?: string;
   metadata?: {
     description?: string;
     homepage?: string;

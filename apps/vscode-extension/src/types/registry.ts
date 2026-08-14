@@ -39,6 +39,13 @@ export interface RegistrySource {
   private?: boolean;
   token?: string; // Environment variable or secure storage key
   hubId?: string; // Hub identifier if this source is from a curated hub
+  /**
+   * The hub config `sources[].id` this source was provisioned from — the
+   * stable, author-assigned identity that survives a `url` change. Used to
+   * match a pre-rename orphan to its replacement. Absent on manually-added
+   * sources and on hub sources persisted before this field existed.
+   */
+  hubSourceId?: string;
   metadata?: {
     description?: string;
     homepage?: string;
