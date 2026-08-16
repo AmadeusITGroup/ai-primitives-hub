@@ -104,6 +104,9 @@ export {
 export {
   copyCommandPrototype,
 } from './command-class';
+export {
+  createTargetWriter,
+} from './target-writer';
 export type {
   RenderTableOptions,
   TableColumn,

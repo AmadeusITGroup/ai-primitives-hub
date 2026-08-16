@@ -140,4 +140,75 @@ describe('install command (local --from mode)', () => {
     ]);
     expect(result.exitCode).toBe(1);
   });
+
+  it.each([
+    ['vscode', '.github/prompts/hello.prompt.md'],
+    ['kiro', '.kiro/steering/hello.prompt.md'],
+    ['claude-code', '.claude/commands/hello.prompt.md']
+  ] as const)('uses the native %s repository layout', async (targetType, expectedPath) => {
+    const repoRoot = path.join(workspace, `repo-${targetType}`);
+    const targetName = `repo-${targetType}`;
+    await mkdir(repoRoot, { recursive: true });
+    const addResult = await run([
+      'target', 'add', targetName,
+      '--type', targetType,
+      '--scope', 'repository',
+      '--workspace-root', repoRoot,
+      '-o', 'json'
+    ]);
+    expect(addResult.exitCode).toBe(0);
+
+    const installResult = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', targetName, '-o', 'json'
+    ]);
+    expect(installResult.exitCode).toBe(0);
+    expect(await readFile(path.join(repoRoot, expectedPath), 'utf8')).toContain('Hello Prompt');
+  });
+
+  it('writes every supported primitive kind for Kiro repository targets', async () => {
+    const repoRoot = path.join(workspace, 'repo-kiro-all-kinds');
+    await Promise.all([
+      mkdir(path.join(bundleDir, 'instructions'), { recursive: true }),
+      mkdir(path.join(bundleDir, 'agents'), { recursive: true }),
+      mkdir(path.join(bundleDir, 'skills', 'reviewer'), { recursive: true }),
+      mkdir(repoRoot, { recursive: true })
+    ]);
+    await Promise.all([
+      writeFile(path.join(bundleDir, 'instructions', 'rules.instructions.md'), '# Rules\n'),
+      writeFile(path.join(bundleDir, 'agents', 'reviewer.agent.md'), '# Reviewer\n'),
+      writeFile(path.join(bundleDir, 'skills', 'reviewer', 'SKILL.md'), '# Skill\n')
+    ]);
+    expect((await run([
+      'target', 'add', 'kiro-all', '--type', 'kiro', '--scope', 'repository',
+      '--workspace-root', repoRoot, '-o', 'json'
+    ])).exitCode).toBe(0);
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'kiro-all', '-o', 'json'
+    ]);
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(path.join(repoRoot, '.kiro/steering/rules.instructions.md'), 'utf8'))
+      .resolves.toContain('Rules');
+    await expect(readFile(path.join(repoRoot, '.kiro/agents/reviewer.agent.md'), 'utf8'))
+      .resolves.toContain('Reviewer');
+    await expect(readFile(path.join(repoRoot, '.kiro/skills/reviewer/SKILL.md'), 'utf8'))
+      .resolves.toContain('Skill');
+  });
+
+  it('records local-only repository paths in Git exclude', async () => {
+    const repoRoot = path.join(workspace, 'repo-local-only');
+    await mkdir(path.join(repoRoot, '.git', 'info'), { recursive: true });
+    expect((await run([
+      'target', 'add', 'kiro-local', '--type', 'kiro', '--scope', 'repository',
+      '--workspace-root', repoRoot, '-o', 'json'
+    ])).exitCode).toBe(0);
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'kiro-local',
+      '--commit-mode', 'local-only', '-o', 'json'
+    ]);
+    expect(result.exitCode).toBe(0);
+    const exclude = await readFile(path.join(repoRoot, '.git', 'info', 'exclude'), 'utf8');
+    expect(exclude).toContain('.kiro/steering/hello.prompt.md');
+  });
 });

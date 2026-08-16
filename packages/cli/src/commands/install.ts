@@ -8,7 +8,7 @@
  * Lockfile integration uses `app`'s dict-based `Lockfile` (extension-compatible
  * schema, `bundles: Record<bundleId, LockfileBundleEntry>`) rather than the
  * reference branch's array-of-entries schema. There is no per-entry `target`
- * field — repository scope always writes to `.github/` regardless of target,
+ * field — each repository target uses its own native directory layout,
  * and user-scope installs get their own lockfile file
  * (`resolveUserConfigPaths(env).userLockfile`) rather than the project-root one.
  * `SourceDispatcher`/`GitHubBundleResolver` take a shared `GitHubApi` client
@@ -19,14 +19,12 @@ import * as path from 'node:path';
 import {
   checksumFiles,
   emptyLockfile,
-  FileTreeTargetWriter,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
   readLockfile,
   resolveUserConfigPaths,
   type TargetWriter,
-  TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
   writeLockfile,
@@ -46,7 +44,6 @@ import {
   ActiveHubStore,
   AwesomeCopilotBundleResolver,
   defaultTokenProvider,
-  FileSystemLayoutConfigLoader,
   GitHubApiClient,
   GitHubBundleResolver,
   HttpsBundleDownloader,
@@ -55,9 +52,6 @@ import {
   readLocalBundle,
   readTargets,
   type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   SourceDispatcher,
   TargetStateStore,
   ZipBundleExtractor,
@@ -66,6 +60,7 @@ import inquirer from 'inquirer';
 import {
   Command,
   createHubManager,
+  createTargetWriter,
   failWith,
   findProjectLockfile,
   loadTargets,
@@ -410,7 +405,7 @@ async function executeInstallMode(
  * Create a writer factory that routes to the appropriate
  * writer based on target scope.
  * - user scope → FileTreeTargetWriter
- * - repository scope → RepositoryScopeWriter
+ * - repository scope → target-aware FileTreeTargetWriter
  * @param ctx CLI context.
  * @param opts Install options.
  * @returns Writer factory function.
@@ -419,36 +414,11 @@ export const createWriterFactory = (
   ctx: Context,
   opts: InstallOptions
 ): (target: Target) => TargetWriter => {
-  // Create transformer registry and hierarchical layout loader once per command.
-  const transformerRegistry = TransformerRegistry.withBuiltIns();
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-
   return (target: Target): TargetWriter => {
     // Use CLI flags to override target scope if specified
     const scope = opts.scope ?? target.scope;
     const commitMode = opts.commitMode ?? target.commitMode ?? 'commit';
-    const workspaceRoot = target.rootPath ?? ctx.cwd();
-
-    if (scope === 'repository') {
-      const writer = new RepositoryScopeWriter({
-        fs: ctx.fs,
-        workspaceRoot,
-        commitMode
-      });
-      return new RepositoryScopeWriterAdapter(writer);
-    }
-    // Default to FileTreeTargetWriter for user scope
-    const transformer = transformerRegistry.getTransformer(target.type);
-    return new FileTreeTargetWriter({
-      fs: ctx.fs,
-      env: ctx.env,
-      transformer,
-      layoutLoader
-    });
+    return createTargetWriter(ctx, target, scope, commitMode);
   };
 };
 
@@ -936,12 +906,10 @@ async function performRemoteInstall(
       });
       return 0;
     }
-    const transformerRegistry = TransformerRegistry.withBuiltIns();
-    const transformer = transformerRegistry.getTransformer(target.type);
-    const writer = new FileTreeTargetWriter({ fs: ctx.fs, env: ctx.env, transformer });
-    const result = await writer.write(target, files);
     const scope = opts.scope ?? target.scope;
     const commitMode = opts.commitMode ?? target.commitMode ?? 'commit';
+    const writer = createTargetWriter(ctx, target, scope, commitMode);
+    const result = await writer.write(target, files);
     const lockPath = lockfilePathForTarget(ctx, target, commitMode);
     const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
     const entry: LockfileBundleEntry = {

@@ -12,14 +12,12 @@
 import * as path from 'node:path';
 import {
   checksumFiles,
-  FileTreeTargetWriter,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
   readLockfile,
   resolveUserConfigPaths,
   type TargetWriter,
-  TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
   writeLockfile,
@@ -38,15 +36,11 @@ import {
 import {
   ActiveHubStore,
   defaultTokenProvider,
-  FileSystemLayoutConfigLoader,
   GitHubApiClient,
   HttpsBundleDownloader,
   NodeHttpClient,
   readTargets,
   type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   SourceDispatcher,
   TargetStateStore,
   ZipBundleExtractor,
@@ -55,6 +49,7 @@ import inquirer from 'inquirer';
 import {
   Command,
   createHubManager,
+  createTargetWriter,
   failWith,
   findProjectLockfile,
   loadTargets,
@@ -410,21 +405,7 @@ function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skipp
  * @returns A TargetWriter.
  */
 function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode): TargetWriter {
-  if (scope === 'repository') {
-    const writer = new RepositoryScopeWriter({
-      fs: ctx.fs,
-      workspaceRoot: target.rootPath ?? ctx.cwd(),
-      commitMode
-    });
-    return new RepositoryScopeWriterAdapter(writer);
-  }
-  const transformer = TransformerRegistry.withBuiltIns().getTransformer(target.type);
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-  return new FileTreeTargetWriter({ fs: ctx.fs, env: ctx.env, transformer, layoutLoader });
+  return createTargetWriter(ctx, target, scope as Target['scope'], commitMode);
 }
 
 async function applyUpdates(

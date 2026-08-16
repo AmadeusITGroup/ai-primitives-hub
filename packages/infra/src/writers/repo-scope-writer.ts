@@ -557,3 +557,88 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
     await this.writer.removeFile(filePath);
   }
 }
+
+/**
+ * Decorates a layout-aware writer with repository local-only bookkeeping.
+ * This keeps Kiro, Claude Code, and other target-specific layouts while still
+ * excluding installed files from Git when requested.
+ */
+/* eslint-disable @typescript-eslint/member-ordering -- public TargetWriter API precedes helpers. */
+export class LocalOnlyTargetWriter implements TargetWriter {
+  public constructor(
+    private readonly delegate: TargetWriter,
+    private readonly fs: FileSystem,
+    private readonly workspaceRoot: string
+  ) {}
+
+  public async write(target: Target, files: ExtractedFiles): Promise<TargetWriteResult> {
+    const result = await this.delegate.write(target, files);
+    await this.addToGitExclude(result.written);
+    return result;
+  }
+
+  public async remove(target: Target, filePath: string): Promise<void> {
+    await this.delegate.remove(target, filePath);
+    await this.pruneGitExclude();
+  }
+
+  private async addToGitExclude(paths: string[]): Promise<void> {
+    if (paths.length === 0) {
+      return;
+    }
+    const excludePath = path.join(this.workspaceRoot, '.git', 'info', 'exclude');
+    let lines: string[] = [];
+    try {
+      lines = (await this.fs.readFile(excludePath)).split('\n');
+    } catch {
+      await this.fs.mkdir(path.dirname(excludePath), { recursive: true });
+    }
+    if (!lines.includes(GIT_EXCLUDE_SECTION_HEADER)) {
+      lines.push(GIT_EXCLUDE_SECTION_HEADER);
+    }
+    for (const writtenPath of paths) {
+      const relativePath = toGitIgnorePath(this.workspaceRoot, writtenPath);
+      if (!lines.includes(relativePath)) {
+        lines.push(relativePath);
+      }
+    }
+    await this.fs.writeFile(excludePath, lines.join('\n'));
+  }
+
+  private async pruneGitExclude(): Promise<void> {
+    const excludePath = path.join(this.workspaceRoot, '.git', 'info', 'exclude');
+    let lines: string[];
+    try {
+      lines = (await this.fs.readFile(excludePath)).split('\n');
+    } catch {
+      return;
+    }
+
+    const headerIndex = lines.indexOf(GIT_EXCLUDE_SECTION_HEADER);
+    if (headerIndex === -1) {
+      return;
+    }
+    let sectionEnd = lines.length;
+    for (let index = headerIndex + 1; index < lines.length; index += 1) {
+      if (lines[index]?.startsWith('#') === true) {
+        sectionEnd = index;
+        break;
+      }
+    }
+
+    const before = lines.slice(0, headerIndex);
+    const entries = lines.slice(headerIndex + 1, sectionEnd);
+    const after = lines.slice(sectionEnd);
+    const retained: string[] = [];
+    for (const entry of entries) {
+      if (entry.length > 0 && await this.fs.exists(path.join(this.workspaceRoot, entry))) {
+        retained.push(entry);
+      }
+    }
+    const nextLines = retained.length === 0
+      ? [...before, ...after]
+      : [...before, GIT_EXCLUDE_SECTION_HEADER, ...retained, ...after];
+    await this.fs.writeFile(excludePath, nextLines.join('\n'));
+  }
+}
+/* eslint-enable @typescript-eslint/member-ordering */
