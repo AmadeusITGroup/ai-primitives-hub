@@ -6,6 +6,9 @@
  */
 
 import * as assert from 'node:assert';
+import {
+  GitHubApiClient,
+} from '@ai-primitives-hub/infra';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import * as InfraAdapterFactory from '../../src/adapters/infra-adapter-factory';
@@ -1238,5 +1241,99 @@ suite('RegistryManager - Adapter Cache Clearing', () => {
       registryManager.clearAdapterCache('source-1');
       registryManager.clearAdapterCache('');
     });
+  });
+});
+
+suite('RegistryManager - Primitive Index Source Selection', () => {
+  let sandbox: sinon.SinonSandbox;
+  let mockContext: vscode.ExtensionContext;
+  let registryManager: RegistryManager;
+  let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+    mockContext = {
+      globalState: {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      } as any,
+      workspaceState: {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      } as any,
+      subscriptions: [],
+      extensionPath: '/mock/path',
+      extensionUri: vscode.Uri.file('/mock/path'),
+      storageUri: vscode.Uri.file('/mock/storage'),
+      globalStorageUri: vscode.Uri.file('/mock/global'),
+      asAbsolutePath: (p: string) => `/mock/path/${p}`
+    } as any;
+
+    registryManager = RegistryManager.getInstance(mockContext);
+    mockStorage = sandbox.createStubInstance(RegistryStorage);
+    (registryManager as any).storage = mockStorage;
+  });
+
+  teardown(() => {
+    sandbox.restore();
+  });
+
+  test('uses native primitive providers for supported GitHub source types', async () => {
+    const sources = [
+      {
+        id: 'awesome-copilot',
+        name: 'Awesome Copilot',
+        type: 'awesome-copilot' as const,
+        url: 'https://github.com/github/awesome-copilot',
+        enabled: true,
+        priority: 0
+      },
+      {
+        id: 'awesome-copilot-plugin',
+        name: 'Awesome Copilot Plugin',
+        type: 'awesome-copilot-plugin' as RegistrySource['type'],
+        url: 'https://github.com/example/plugins',
+        enabled: true,
+        priority: 0
+      },
+      {
+        id: 'supported-source',
+        name: 'Supported Source',
+        type: 'github' as const,
+        url: 'https://github.com/example/supported',
+        enabled: true,
+        priority: 0
+      }
+    ] as RegistrySource[];
+    mockStorage.getSources.resolves(sources);
+    sandbox.stub(GitHubApiClient.prototype, 'getJson').callsFake(async (url) => {
+      if (url.includes('/commits/')) {
+        return { sha: 'test-sha' };
+      }
+      return { tree: [] };
+    });
+
+    const createdSourceIds: string[] = [];
+    sandbox.stub(InfraAdapterFactory, 'createCoreRegistryAdapter').callsFake((source) => {
+      createdSourceIds.push(source.id);
+      return {
+        source,
+        fetchBundles: async () => [{ id: 'bundle', version: '1.0.0' }]
+      } as any;
+    });
+
+    const provider = await registryManager.createPrimitiveBundleProvider();
+    const refs = [];
+    for await (const ref of provider.listBundles()) {
+      refs.push(ref);
+    }
+
+    assert.deepStrictEqual(createdSourceIds, []);
+    assert.strictEqual(refs.length, 1);
+    assert.strictEqual(refs[0].sourceId, 'supported-source');
   });
 });

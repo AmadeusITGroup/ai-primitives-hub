@@ -412,8 +412,11 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@elastic/elasticsearch':
-        specifier: ^9.4.2
+        specifier: ^9.3.4
         version: 9.4.2
+      '@ternlight/mini':
+        specifier: 0.1.0
+        version: 0.1.0
       adm-zip:
         specifier: ^0.6.0
         version: 0.6.0
@@ -3227,6 +3230,10 @@ packages:
   '@szmarczak/http-timer@5.0.1':
     resolution: {integrity: sha512-+PmQX0PiAYPMeVYe237LJAYvOMYW1j2rH5YROyS3b4CTVJum34HfRvKvAzozHAQG0TnHNdUfY9nCeUyRAs//cw==}
     engines: {node: '>=14.16'}
+
+  '@ternlight/mini@0.1.0':
+    resolution: {integrity: sha512-YuBODYpRoXWuH3fTw2pSvlm39VkbVuKybXJwgybzMSZQjck92ZWD1MEQj5K/ANdlW3EvsqrH/NZxbKE5rwSOzA==}
+    engines: {node: '>=18'}
 
   '@textlint/ast-node-types@15.7.1':
     resolution: {integrity: sha512-Wii5UgUKFEh9Uv6wbq1zr4/Kf+dtjiUuzPrrXzKp8H+ifkvKNzi23V4Nz+6wVyHQn5T28AFuc8VH8OtzvGYecA==}
@@ -13678,6 +13685,8 @@ snapshots:
   '@szmarczak/http-timer@5.0.1':
     dependencies:
       defer-to-connect: 2.0.1
+
+  '@ternlight/mini@0.1.0': {}
 
   '@textlint/ast-node-types@15.7.1': {}
 

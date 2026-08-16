@@ -1,3 +1,10 @@
+import {
+  getBundleRefKey,
+} from '@ai-primitives-hub/core';
+import {
+  AppStoragePrimitiveIndexStore,
+  XdgAppStorage,
+} from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
   AddResourceCommand,
@@ -23,6 +30,9 @@ import {
 import {
   HubProfileCommands,
 } from './commands/hub-profile-commands';
+import {
+  PrimitiveSearchCommand,
+} from './commands/primitive-search-command';
 import {
   ProfileCommands,
 } from './commands/profile-commands';
@@ -83,6 +93,9 @@ import {
 import {
   OutputChannelTransport,
 } from './services/output-channel-transport';
+import {
+  PrimitiveIndexService,
+} from './services/primitive-index-service';
 import {
   RegistryManager,
 } from './services/registry-manager';
@@ -145,6 +158,12 @@ export class PromptRegistryExtension {
   private readonly statusBar: StatusBar;
   private readonly notifications: ExtensionNotifications;
   private readonly registryManager: RegistryManager;
+  private readonly primitiveIndexService: PrimitiveIndexService;
+  private readonly primitiveSearchCommand: PrimitiveSearchCommand;
+  private readonly initialSourceSyncReady: Promise<void>;
+  private resolveInitialSourceSyncReady!: () => void;
+  private initialSourceSyncReadyResolved = false;
+  private initialSourceSyncPromise: Promise<void> | undefined;
   private treeProvider: RegistryTreeProvider | undefined;
   private marketplaceProvider: MarketplaceViewProvider | undefined;
   private profileCommands: ProfileCommands | undefined;
@@ -185,6 +204,32 @@ export class PromptRegistryExtension {
     this.statusBar = StatusBar.getInstance();
     this.notifications = ExtensionNotifications.getInstance();
     this.registryManager = RegistryManager.getInstance(context);
+    this.initialSourceSyncReady = new Promise<void>((resolve) => {
+      this.resolveInitialSourceSyncReady = resolve;
+    });
+    const sharedIndexStorage = new XdgAppStorage();
+    this.primitiveIndexService = new PrimitiveIndexService(context, {
+      profile: 'ternlight-dual-v1',
+      indexStore: new AppStoragePrimitiveIndexStore(sharedIndexStorage),
+      indexKeyProvider: () => this.registryManager.getPrimitiveIndexKey('ternlight-dual-v1'),
+      installedBundleKeysProvider: async () => {
+        const installed = await this.registryManager.listInstalledBundles();
+        return installed
+          .filter((bundle) => bundle.sourceId !== undefined)
+          .map((bundle) => getBundleRefKey({
+            sourceId: bundle.sourceId!,
+            bundleId: bundle.bundleId,
+            bundleVersion: bundle.version
+          }));
+      },
+      providerFactory: () => this.registryManager.createPrimitiveBundleProvider(),
+      initializationReady: this.initialSourceSyncReady,
+      searchIndexKeyProvider: () => this.registryManager.getCachedPrimitiveIndexKey('ternlight-dual-v1'),
+      searchIndexSourceIdsProvider: async () => (await this.registryManager.listSources())
+        .filter((source) => source.enabled)
+        .map((source) => source.id)
+    });
+    this.primitiveSearchCommand = new PrimitiveSearchCommand(this.primitiveIndexService);
   }
 
   /**
@@ -241,6 +286,29 @@ export class PromptRegistryExtension {
     }
   }
 
+  /** Rebuild the shared primitive index when registry data or install state changes. */
+  private registerPrimitiveIndexLifecycle(): void {
+    const schedule = (reason: string) => this.primitiveIndexService.scheduleRebuild(reason);
+    const scheduleWhenReady = (reason: string) => {
+      if (!this.initialSourceSyncReadyResolved) {
+        return;
+      }
+      schedule(reason);
+    };
+
+    this.disposables.push(
+      this.registryManager.onSourceAdded(() => scheduleWhenReady('source added')),
+      this.registryManager.onSourceRemoved(() => scheduleWhenReady('source removed')),
+      this.registryManager.onSourceUpdated(() => scheduleWhenReady('source updated')),
+      this.registryManager.onSourceSynced(() => scheduleWhenReady('source synced')),
+      this.registryManager.onBundleInstalled(() => scheduleWhenReady('bundle installed')),
+      this.registryManager.onBundleUninstalled(() => scheduleWhenReady('bundle uninstalled')),
+      this.registryManager.onBundleUpdated(() => scheduleWhenReady('bundle updated')),
+      this.registryManager.onBundlesInstalled(() => scheduleWhenReady('bundles installed')),
+      this.registryManager.onBundlesUninstalled(() => scheduleWhenReady('bundles uninstalled'))
+    );
+  }
+
   /**
    * Register all extension commands
    */
@@ -273,11 +341,17 @@ export class PromptRegistryExtension {
     // This replaces the ad-hoc syncAllSources call that was previously in syncActiveHub().
     this.hubManager.onHubSynced(async (hubId) => {
       this.logger.info(`Hub synced (${hubId}), syncing all sources...`);
+      const sourceSyncPromise = this.sourceCommands!.syncAllSources({ silent: true });
+      if (!this.initialSourceSyncPromise) {
+        this.initialSourceSyncPromise = sourceSyncPromise;
+      }
       try {
-        await this.sourceCommands!.syncAllSources({ silent: true });
+        await sourceSyncPromise;
         vscode.commands.executeCommand('promptRegistry.refresh');
       } catch (error) {
         this.logger.warn('Source sync after hub sync failed', error);
+      } finally {
+        this.markInitialSourceSyncReady(sourceSyncPromise);
       }
     });
 
@@ -319,6 +393,8 @@ export class PromptRegistryExtension {
 
       // Bundle Management Commands
       vscode.commands.registerCommand('promptRegistry.searchBundles', () => this.bundleCommands!.searchAndInstall()),
+      vscode.commands.registerCommand('promptRegistry.searchPrimitives', () => this.primitiveSearchCommand.search()),
+      vscode.commands.registerCommand('promptRegistry.rebuildPrimitiveIndex', () => this.primitiveSearchCommand.rebuild()),
       vscode.commands.registerCommand('promptRegistry.installBundle', (bundleId?) => this.bundleCommands!.installBundle(bundleId)),
       vscode.commands.registerCommand('promptRegistry.uninstallBundle', (arg?) => this.bundleCommands!.uninstallBundle(this.extractBundleId(arg))),
       vscode.commands.registerCommand('promptRegistry.updateBundle', (arg?) => this.bundleCommands!.updateBundle(this.extractBundleId(arg))),
@@ -527,7 +603,12 @@ export class PromptRegistryExtension {
     this.logger.info('Registering Marketplace View...');
 
     // Create marketplace provider
-    this.marketplaceProvider = new MarketplaceViewProvider(this.context, this.registryManager, this.setupStateManager!);
+    this.marketplaceProvider = new MarketplaceViewProvider(
+      this.context,
+      this.registryManager,
+      this.setupStateManager!,
+      this.primitiveIndexService
+    );
 
     // Register webview view
     const marketplaceView = vscode.window.registerWebviewViewProvider(
@@ -621,7 +702,9 @@ export class PromptRegistryExtension {
         async (bundleId: string) => {
           return await this.registryManager.getBundleName(bundleId);
         },
-        this.autoUpdateService
+        this.autoUpdateService,
+        this.initialSourceSyncReady,
+        () => !this.initialSourceSyncPromise
       );
 
       // Wire up update detection to tree provider
@@ -1459,6 +1542,7 @@ export class PromptRegistryExtension {
         description: 'Configure hub later',
         detail: 'You can configure a hub anytime from the toolbar',
         hubConfig: null as any
+
       }
     );
 
@@ -1563,6 +1647,26 @@ export class PromptRegistryExtension {
     await vscode.commands.executeCommand('promptRegistry.refresh');
   }
 
+  /**
+   * Release the automatic update check once the initial source sync is done.
+   * @param completedSync
+   */
+  private markInitialSourceSyncReady(completedSync?: Promise<void>): void {
+    if (completedSync && completedSync !== this.initialSourceSyncPromise) {
+      return;
+    }
+    if (!this.initialSourceSyncReadyResolved) {
+      this.initialSourceSyncReadyResolved = true;
+      this.primitiveIndexService.scheduleRebuild('initial source sync complete', 0);
+      this.resolveInitialSourceSyncReady();
+    }
+  }
+
+  /** Shared primitive index service used by commands and UI adapters. */
+  public getPrimitiveIndexService(): PrimitiveIndexService {
+    return this.primitiveIndexService;
+  }
+
   public async activate(): Promise<void> {
     try {
       this.logger.info('Activating AI Primitives Hub extension...');
@@ -1581,6 +1685,7 @@ export class PromptRegistryExtension {
 
       // Register commands
       this.registerCommands();
+      this.registerPrimitiveIndexLifecycle();
 
       // Initialize UI components
       await this.initializeUI();
@@ -1618,6 +1723,13 @@ export class PromptRegistryExtension {
         await this.syncActiveHub();
       }
 
+      // A hub sync emits the source synchronization asynchronously. Do not let
+      // the automatic update timer race it; activation itself remains
+      // non-blocking while the startup check waits on the readiness promise.
+      if (!this.initialSourceSyncPromise) {
+        this.markInitialSourceSyncReady();
+      }
+
       // Ensure only one profile is active (cleanup any multi-active state)
       await this.ensureSingleActiveProfile();
 
@@ -1645,6 +1757,7 @@ export class PromptRegistryExtension {
       // Dispose of all resources
       this.disposables.forEach((disposable) => disposable.dispose());
       this.disposables = [];
+      this.primitiveIndexService.dispose();
 
       // Dispose telemetry event subscriptions
       this.telemetryService?.dispose();

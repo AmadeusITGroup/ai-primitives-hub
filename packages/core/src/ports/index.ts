@@ -4,6 +4,7 @@
  */
 export * from './source-adapter';
 export * from './app-storage';
+export * from './primitive-index-store';
 export * from './clock';
 export * from './copilot-sdk';
 export * from './filesystem';

@@ -68,6 +68,8 @@ export interface Primitive {
   model?: string;
   /** Short excerpt of the primitive's body, for search result previews. */
   bodyPreview: string;
+  /** Optional longer extractive summary of the primitive's body (~80 words). */
+  bodySummary?: string;
   /** Content hash, for change detection between harvests. */
   contentHash: string;
   rating?: number;

@@ -105,6 +105,10 @@ describe('hub-harvester', () => {
     expect(result.primitives).toBe(2);
     expect(result.totalMs).toBeGreaterThanOrEqual(0);
     expect(result.index.stats().primitives).toBe(2);
+    expect(result.sourceCoverage).toEqual([
+      { sourceId: 'src-1', state: 'indexed', primitives: 1, revision: 'sha-o1r1' },
+      { sourceId: 'src-2', state: 'indexed', primitives: 1, revision: 'sha-o2r2' }
+    ]);
   });
 
   it('skips unchanged sources on a second run (smart rebuild)', async () => {
@@ -135,6 +139,41 @@ describe('hub-harvester', () => {
     expect(second.skip).toBe(1);
     expect(commitCallCount()).toBe(commitCallsAfterFirst + 1);
     expect(second.index.stats().primitives).toBe(1);
+    expect(second.sourceCoverage).toEqual([
+      { sourceId: 'src-1', state: 'skipped', message: 'already-harvested', revision: 'fixed-sha' }
+    ]);
+  });
+
+  it('retains the last successful source snapshot when a warm run fails', async () => {
+    const promptBytes = Buffer.from('---\ntitle: Hello\n---\n# Hello\n', 'utf8');
+    const promptSha = computeGitBlobSha(promptBytes);
+    const fake = new FakeGitHubApi();
+    seedRepo(fake, 'o', 'r', 'first-sha', [{ path: 'prompts/a.prompt.md', sha: promptSha, size: promptBytes.length }], new Map([[promptSha, promptBytes]]));
+    const cache = new BlobCache(path.join(tmp, 'blobs'));
+    const options = {
+      sources: [spec('src-1', 'o', 'r')],
+      client: fake,
+      cache,
+      progressFile: path.join(tmp, 'progress.jsonl'),
+      concurrency: 1
+    } as const;
+
+    const first = await new HubHarvester(options).run();
+    expect(first.index.stats().primitives).toBe(1);
+
+    // The commit moved, but the subsequent tree request is unavailable. The
+    // warm run must keep the last known-good primitive rather than replacing
+    // the persisted source snapshot with an empty array.
+    fake.seedJson('/repos/o/r/commits/main', { sha: 'second-sha' });
+    const second = await new HubHarvester(options).run();
+    expect(second.error).toBe(1);
+    expect(second.index.stats().primitives).toBe(1);
+    expect(second.sourceCoverage).toHaveLength(1);
+    expect(second.sourceCoverage[0]).toMatchObject({
+      sourceId: 'src-1',
+      state: 'failed',
+      revision: 'second-sha'
+    });
   });
 
   it('harvests an awesome-copilot-plugin source (one bundle per plugin)', async () => {
@@ -414,6 +453,55 @@ items:
         progressFile: path.join(tmp, 'progress.jsonl'),
         cacheDir: path.join(tmp, 'cache')
       })).rejects.toThrow('Invalid hubRepo');
+    });
+
+    it('does not write an index during a dry run', async () => {
+      const outFile = path.join(tmp, 'dry-run-index.json');
+      await harvestHub({
+        noHubConfig: true,
+        dryRun: true,
+        outFile,
+        progressFile: path.join(tmp, 'dry-run-progress.jsonl'),
+        cacheDir: path.join(tmp, 'dry-run-cache')
+      });
+      expect(fs.existsSync(outFile)).toBe(false);
+    });
+
+    it('allows public extra-source harvests to continue anonymously when no token exists', async () => {
+      const envKeys = ['GITHUB_TOKEN', 'GH_TOKEN'];
+      const saved = new Map<string, string | undefined>();
+      const savedPath = process.env.PATH;
+      for (const key of envKeys) {
+        saved.set(key, process.env[key]);
+        delete process.env[key];
+      }
+      process.env.PATH = path.join(tmp, 'no-gh-path');
+
+      try {
+        const result = await harvestHub({
+          noHubConfig: true,
+          dryRun: true,
+          extraSources: ['id=hello,type=github,url=https://github.com/octocat/hello-world'],
+          outFile: path.join(tmp, 'anonymous-index.json'),
+          progressFile: path.join(tmp, 'anonymous-progress.jsonl'),
+          cacheDir: path.join(tmp, 'anonymous-cache')
+        });
+        expect(result.tokenSource).toBe('none');
+      } finally {
+        if (savedPath === undefined) {
+          delete process.env.PATH;
+        } else {
+          process.env.PATH = savedPath;
+        }
+        for (const key of envKeys) {
+          const value = saved.get(key);
+          if (value === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = value;
+          }
+        }
+      }
     });
   });
 });

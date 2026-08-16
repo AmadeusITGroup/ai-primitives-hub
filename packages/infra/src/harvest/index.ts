@@ -15,5 +15,6 @@ export * from './integrity';
 export * from './plugin-manifest';
 export * from './plugin-tree-enumerator';
 export * from './progress-log';
+export * from './source-revision';
 export * from './token-provider';
 export * from './tree-enumerator';

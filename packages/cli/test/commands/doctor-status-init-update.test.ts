@@ -11,6 +11,7 @@
  * approach in install.test.ts/uninstall.test.ts.
  */
 import {
+  access,
   mkdir,
   mkdtemp,
   rm,
@@ -173,6 +174,30 @@ describe('doctor/status/init/update commands', () => {
   });
 
   describe('init', () => {
+    const writeLocalHubConfig = async (hubConfigFile: string): Promise<void> => {
+      const hubSourceDir = path.join(path.dirname(hubConfigFile), 'hub-source');
+      await mkdir(hubSourceDir, { recursive: true });
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: local-foo-src
+    name: Local Foo Source
+    type: local
+    url: ${hubSourceDir}
+    enabled: true
+    priority: 0
+    hubId: test-hub
+profiles: []
+`
+      );
+    };
+
     it('creates a target non-interactively', async () => {
       const result = await run(['init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '-o', 'json']);
       expect(result.exitCode).toBe(0);
@@ -195,27 +220,7 @@ describe('doctor/status/init/update commands', () => {
 
     it('imports and syncs a local hub when --hub/--hub-type local are given', async () => {
       const hubConfigFile = path.join(workspace, 'hub-config.yml');
-      const hubSourceDir = path.join(workspace, 'hub-source');
-      await mkdir(hubSourceDir, { recursive: true });
-      await writeFile(
-        hubConfigFile,
-        `version: 1.0.0
-metadata:
-  name: Test Hub
-  description: Test hub
-  maintainer: test
-  updatedAt: '2026-01-01T00:00:00Z'
-sources:
-  - id: local-foo-src
-    name: Local Foo Source
-    type: local
-    url: ${hubSourceDir}
-    enabled: true
-    priority: 0
-    hubId: test-hub
-profiles: []
-`
-      );
+      await writeLocalHubConfig(hubConfigFile);
       const result = await run([
         'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
         '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '-o', 'json'
@@ -223,6 +228,45 @@ profiles: []
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{ hub: { id: string } | null }>(result.stdout);
       expect(envelope.data.hub).not.toBeNull();
+    });
+
+    it('builds an embedded index by default after importing a hub', async () => {
+      const hubConfigFile = path.join(workspace, 'hub-config.yml');
+      const outFile = path.join(workspace, 'xdg-cache', 'ai-primitives-hub', 'primitive-index.json');
+      await writeLocalHubConfig(hubConfigFile);
+      const result = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ steps: string[] }>(result.stdout);
+      expect(envelope.data.steps.some((s) => s.startsWith('index built:'))).toBe(true);
+      expect(envelope.data.steps.some((s) => s.includes('embeddings: ternlight-mini'))).toBe(true);
+      await access(outFile);
+    });
+
+    it('honours --skip-index and --no-embed flags', async () => {
+      const hubConfigFile = path.join(workspace, 'hub-config.yml');
+      const outFile = path.join(workspace, 'xdg-cache', 'ai-primitives-hub', 'primitive-index.json');
+      await writeLocalHubConfig(hubConfigFile);
+      const result = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '--skip-index', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ steps: string[] }>(result.stdout);
+      expect(envelope.data.steps.some((s) => s.startsWith('index built:'))).toBe(false);
+      await expect(access(outFile)).rejects.toThrow();
+
+      const noEmbedResult = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '--no-embed', '-o', 'json'
+      ]);
+      expect(noEmbedResult.exitCode).toBe(0);
+      const noEmbedEnvelope = parseJson<{ steps: string[] }>(noEmbedResult.stdout);
+      const indexStep = noEmbedEnvelope.data.steps.find((s) => s.startsWith('index built:'));
+      expect(indexStep).toBeDefined();
+      expect(indexStep).not.toContain('embeddings');
     });
   });
 

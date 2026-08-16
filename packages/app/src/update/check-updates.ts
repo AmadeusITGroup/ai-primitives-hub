@@ -189,8 +189,9 @@ export class UpdateCheckerCore {
    * unless bypassed, otherwise syncs GitHub release sources and queries
    * the registry, enriching results with auto-update preferences.
    * @param bypassCache - Skip the cache and force a fresh check.
+   * @param syncSources
    */
-  public async checkForUpdates(bypassCache = false): Promise<UpdateCheckResult[]> {
+  public async checkForUpdates(bypassCache = false, syncSources = true): Promise<UpdateCheckResult[]> {
     this.log('info', 'Checking for bundle updates');
 
     if (!bypassCache) {
@@ -201,7 +202,7 @@ export class UpdateCheckerCore {
       }
     }
 
-    if (bypassCache || !this.opts.cache.isValid()) {
+    if (syncSources && (bypassCache || !this.opts.cache.isValid())) {
       await this.syncGitHubReleaseSources();
     }
 

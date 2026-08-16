@@ -51,12 +51,12 @@ import {
   TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
-import inquirer from 'inquirer';
 import {
   Command,
   createHubManager,
   failWith,
   findProjectLockfile,
+  loadInquirer,
   loadTargets,
   lockfilePathForTarget,
   Option,
@@ -378,6 +378,7 @@ async function selectUpdatesInteractively(interactive: boolean, candidates: Upda
   if (!interactive || candidates.length === 0) {
     return candidates;
   }
+  const inquirer = await loadInquirer();
   const answers = await (inquirer.prompt as (q: unknown) => Promise<{ selected: UpdateCandidate[] }>)([{
     type: 'checkbox',
     name: 'selected',

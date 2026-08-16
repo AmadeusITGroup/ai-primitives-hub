@@ -15,6 +15,15 @@ This document lists all VS Code commands provided by the AI Primitives Hub exten
 | `promptRegistry.enableAutoUpdate` | Enable Auto-Update | Enable automatic updates for a bundle |
 | `promptRegistry.disableAutoUpdate` | Disable Auto-Update | Disable automatic updates for a bundle |
 
+## Index & Search
+
+| Command | Title | Description |
+|---------|-------|-------------|
+| `promptRegistry.searchPrimitives` | Search Primitives | Search indexed prompts, instructions, chat modes, agents, and skills |
+| `promptRegistry.rebuildPrimitiveIndex` | Rebuild Primitive Index | Rebuild the shared primitive index from enabled sources, with progress in a notification and the AI Primitives Hub output channel |
+
+Primitive search reads only a pre-built local index. It does not synchronize sources or rebuild the index. **Rebuild Primitive Index** is the explicit lifecycle operation that may access configured sources; it reports harvest, indexing, and embedding milestones in the **AI Primitives Hub** output channel and shows a completion or failure notification.
+
 ## Scope Management
 
 Commands for managing bundle installation scope. These are available via context menu on installed bundles in the Registry Explorer.

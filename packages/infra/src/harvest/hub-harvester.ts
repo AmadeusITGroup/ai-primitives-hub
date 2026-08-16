@@ -37,6 +37,8 @@ import * as path from 'node:path';
 import type {
   GitHubApi,
   HubSourceSpec,
+  PrimitiveIndexKey,
+  PrimitiveIndexStore,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -51,6 +53,7 @@ import {
 } from '../search/primitive-index';
 import type {
   BundleProvider,
+  EmbeddingProvider,
   IndexStats,
   Primitive,
 } from '../search/types';
@@ -93,8 +96,14 @@ import {
   type ProgressSummary,
 } from './progress-log';
 import {
+  createSourceRevision,
+  type SourceRevisionEntry,
+} from './source-revision';
+import {
+  defaultResolver,
   redactToken,
   resolveGithubToken,
+  type TokenResolver,
 } from './token-provider';
 import {
   resolveCommitSha,
@@ -129,12 +138,14 @@ interface BuildHarvestResultParams {
   progressFile: string;
   cacheDir: string;
   stats: IndexStats;
-  result: { index: PrimitiveIndex; totalMs: number; done: number; error: number; skip: number; primitives: number; wallMs: number };
+  result: HubHarvestResult;
   hubRepo: string;
   hubBranch: string;
   sourcesCount: number;
   tokenSource: string;
   client: GitHubApiClient;
+  sourceRevision: string;
+  hubId: string;
 }
 
 export interface HubHarvestPipelineOptions {
@@ -176,6 +187,19 @@ export interface HubHarvestPipelineOptions {
   onEvent?: (ev: HubHarvestEvent) => void;
   /** Observer for diagnostic messages (one per source-config decision). */
   onLog?: (msg: string) => void;
+  /**
+   * Optional embedding provider. When supplied, the harvested primitives are
+   * embedded into the index so that `ranking: 'hybrid'` searches work locally.
+   */
+  embeddings?: EmbeddingProvider;
+  /** Embedding strategy when `embeddings` is supplied. Default: `single`. */
+  embeddingStrategy?: 'single' | 'dual';
+  /** Stable app-level search profile that produced the persisted index. */
+  searchProfileId?: string;
+  /** Stable hub identity used by the shared namespaced index store. */
+  hubId?: string;
+  /** Optional shared namespaced index location resolver. */
+  indexStore?: PrimitiveIndexStore;
 }
 
 export interface HubHarvestPipelineResult {
@@ -198,6 +222,10 @@ export interface HubHarvestPipelineResult {
   };
   rateLimit: GitHubApiClient['lastRateLimit'];
   tokenSource: string;
+  sourceRevision: string;
+  hubId: string;
+  /** Per-source outcomes used by lifecycle adapters to expose index coverage. */
+  sourceCoverage: HarvestSourceCoverage[];
 }
 
 function resolveHubRepo(
@@ -290,13 +318,17 @@ export const harvestHub = async (
 ): Promise<HubHarvestPipelineResult> => {
   validateHarvestOptions(opts);
   const { hubRepo, hubBranch, cacheDir, progressFile, outFile, concurrency } = resolveHarvestPaths(opts, env);
+  const hubId = opts.hubId ?? (opts.noHubConfig === true || opts.hubConfigFile !== undefined ? 'local' : hubRepo);
+
   const requiresHubConfig = opts.noHubConfig !== true && opts.hubConfigFile === undefined;
   let client: GitHubApiClient | undefined;
   let resolvedToken: string | undefined;
   let tokenSource = 'none';
 
   if (requiresHubConfig) {
-    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts));
+    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts, env));
+  } else {
+    client = createUnauthenticatedClient();
   }
 
   const sources = await resolveHubSources({
@@ -311,8 +343,15 @@ export const harvestHub = async (
     sourcesExclude: opts.sourcesExclude
   });
 
-  if (sources.length > 0 && client === undefined) {
-    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts));
+  // A local hub-config still needs an authenticated client for its GitHub
+  // sources. The unauthenticated client above is only sufficient to read the
+  // local config itself; leaving it in place silently bypasses env/gh token
+  // resolution and throttles every source as an anonymous request.
+  if (!requiresHubConfig && sources.length > 0) {
+    // A local hub-config should still use env/gh credentials when available,
+    // but harvesting public sources must continue to work anonymously when
+    // no token exists. Token resolution is diagnostic here, not mandatory.
+    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts, env, client));
   }
 
   // An empty offline harvest must succeed without GitHub credentials.
@@ -322,7 +361,7 @@ export const harvestHub = async (
     { tokenProvider: new StaticTokenProvider('') }
   );
 
-  logHarvestStart(opts, hubRepo, hubBranch, resolvedToken, sources.length, concurrency);
+  logHarvestStart(opts, hubRepo, hubBranch, resolvedToken, tokenSource, sources.length, concurrency);
   const result = await runHarvester(
     sources,
     harvestClient,
@@ -330,14 +369,24 @@ export const harvestHub = async (
     cacheDir,
     progressFile,
     concurrency,
-    opts
+    opts,
+    hubId
   );
-  await writeIndexWithIntegrity(result.index, outFile, env);
+  const searchProfileId = opts.searchProfileId ?? 'bm25-v1';
+  const indexKey: PrimitiveIndexKey = {
+    hubId,
+    sourceRevision: result.sourceRevision,
+    searchProfileId
+  };
+  const resolvedOutFile = opts.outFile ?? opts.indexStore?.getIndexPath(indexKey) ?? outFile;
+  if (opts.dryRun !== true) {
+    await writeIndexWithIntegrity(result.index, resolvedOutFile, env);
+  }
 
   const stats = result.index.stats();
 
   return buildHarvestResult({
-    outFile,
+    outFile: resolvedOutFile,
     progressFile,
     cacheDir,
     stats,
@@ -346,7 +395,9 @@ export const harvestHub = async (
     hubBranch,
     sourcesCount: sources.length,
     tokenSource,
-    client: harvestClient
+    client: harvestClient,
+    sourceRevision: result.sourceRevision,
+    hubId
   });
 };
 
@@ -380,14 +431,26 @@ function resolveHarvestPaths(opts: HubHarvestPipelineOptions, env: NodeJS.Proces
 
 async function createGitHubClient(
   hubRepo: string,
-  opts: HubHarvestPipelineOptions
+  opts: HubHarvestPipelineOptions,
+  env: NodeJS.ProcessEnv,
+  fallbackClient?: GitHubApiClient
 ): Promise<{
-  resolvedToken: string;
+  resolvedToken: string | undefined;
   client: GitHubApiClient;
   tokenSource: string;
 }> {
-  const token = await resolveGithubToken({ explicit: opts.explicitToken });
+  const resolver: TokenResolver = {
+    readEnv: (name: string): string | undefined => {
+      const value = env[name];
+      return value && value.length > 0 ? value : undefined;
+    },
+    readGhCli: (): Promise<string | undefined> => defaultResolver.readGhCli()
+  };
+  const token = await resolveGithubToken({ explicit: opts.explicitToken }, resolver);
   if (token.token === undefined || token.token.length === 0) {
+    if (fallbackClient) {
+      return { resolvedToken: undefined, client: fallbackClient, tokenSource: 'none' };
+    }
     throw new Error('No GitHub token available (tried explicit, env, gh CLI).');
   }
   const resolvedToken: string = token.token;
@@ -399,17 +462,22 @@ async function createGitHubClient(
   return { resolvedToken, client, tokenSource: token.source };
 }
 
+function createUnauthenticatedClient(): GitHubApiClient {
+  return new GitHubApiClient(new NodeHttpClient(), { tokenProvider: new StaticTokenProvider('') });
+}
+
 function logHarvestStart(
   opts: HubHarvestPipelineOptions,
   hubRepo: string,
   hubBranch: string,
   resolvedToken: string | undefined,
+  tokenSource: string,
   sourcesCount: number,
   concurrency: number
 ): void {
   opts.onLog?.(
     `hub=${hubRepo}@${hubBranch} `
-    + `token=${resolvedToken === undefined ? 'none' : (opts.explicitToken ? 'explicit' : 'env')}:${redactToken(resolvedToken)} `
+    + `token=${tokenSource}:${redactToken(resolvedToken)} `
     + `sources=${String(sourcesCount)} concurrency=${String(concurrency)}`
   );
 }
@@ -421,8 +489,9 @@ async function runHarvester(
   cacheDir: string,
   progressFile: string,
   concurrency: number,
-  opts: HubHarvestPipelineOptions
-): Promise<{ index: PrimitiveIndex; totalMs: number; done: number; error: number; skip: number; primitives: number; wallMs: number }> {
+  opts: HubHarvestPipelineOptions,
+  hubId: string
+): Promise<HubHarvestResult> {
   const cache = new BlobCache(path.join(cacheDir, 'blobs'));
   const etagStore = await EtagStore.open(path.join(cacheDir, 'etags.json'));
   const harvester = new HubHarvester({
@@ -430,7 +499,12 @@ async function runHarvester(
     progressFile, concurrency,
     force: opts.force ?? false,
     dryRun: opts.dryRun ?? false,
-    onEvent: opts.onEvent
+    onEvent: opts.onEvent,
+    onLog: opts.onLog,
+    embeddings: opts.embeddings,
+    embeddingStrategy: opts.embeddingStrategy,
+    searchProfileId: opts.searchProfileId,
+    hubId
   });
   const result = await harvester.run();
   await etagStore.save();
@@ -459,12 +533,17 @@ function buildHarvestResult(params: BuildHarvestResultParams): HubHarvestPipelin
       done: params.result.done,
       error: params.result.error,
       skip: params.result.skip,
-      primitives: params.result.primitives,
+      // The progress log is append-only and its primitive total spans prior
+      // runs. Report the count in the index written by this invocation.
+      primitives: params.stats.primitives,
       wallMs: params.result.wallMs
     },
     hub: { repo: params.hubRepo, branch: params.hubBranch, sources: params.sourcesCount },
     rateLimit: params.client.lastRateLimit,
-    tokenSource: params.tokenSource
+    tokenSource: params.tokenSource,
+    sourceRevision: params.sourceRevision,
+    hubId: params.hubId,
+    sourceCoverage: params.result.sourceCoverage
   };
 }
 
@@ -477,6 +556,8 @@ export interface HubHarvesterOptions {
   concurrency?: number;
   /** Observer hook for CLI logging, tests, etc. */
   onEvent?: (ev: HubHarvestEvent) => void;
+  /** Optional diagnostic/progress log sink. */
+  onLog?: (msg: string) => void;
   /**
    * Optional ETag store; enables conditional /commits/:ref lookups so
    * warm runs can answer "did anything change?" with a 304 replay.
@@ -494,6 +575,26 @@ export interface HubHarvesterOptions {
    * for "how much does this hub cost to ingest" estimates.
    */
   dryRun?: boolean;
+  /**
+   * Optional embedding provider. When supplied, the harvested primitives are
+   * embedded into the index so that `ranking: 'hybrid'` searches work locally.
+   */
+  embeddings?: EmbeddingProvider;
+  /** Embedding strategy when `embeddings` is supplied. Default: `single`. */
+  embeddingStrategy?: 'single' | 'dual';
+  /** Stable app-level search profile that produced the persisted index. */
+  searchProfileId?: string;
+  /** Stable hub identity stored in index metadata. */
+  hubId?: string;
+}
+
+/** Outcome of one configured source in a harvest lifecycle operation. */
+export interface HarvestSourceCoverage {
+  sourceId: string;
+  state: 'indexed' | 'skipped' | 'unsupported' | 'failed';
+  primitives?: number;
+  revision?: string;
+  message?: string;
 }
 
 export interface HubHarvestResult extends ProgressSummary {
@@ -505,6 +606,9 @@ export interface HubHarvestResult extends ProgressSummary {
    * this holds only the primitives newly collected in this run.
    */
   index: PrimitiveIndex;
+  sourceRevision: string;
+  /** One deterministic record for every configured source. */
+  sourceCoverage: HarvestSourceCoverage[];
 }
 
 /* eslint-disable @typescript-eslint/member-ordering -- public API kept at top. */
@@ -516,6 +620,8 @@ export class HubHarvester {
     const log = await HarvestProgressLog.open(this.opts.progressFile);
     const snapshot = await loadSnapshot(this.snapshotFile());
     const primitives: Primitive[] = [];
+    const sourceRevisions = new Map<string, SourceRevisionEntry>();
+    const sourceCoverage = new Map<string, HarvestSourceCoverage>();
     const concurrency = Math.max(1, this.opts.concurrency ?? 1);
 
     const queue = [...this.opts.sources];
@@ -527,7 +633,7 @@ export class HubHarvester {
         if (!spec) {
           return;
         }
-        await this.processSource(spec, log, primitives, snapshot);
+        await this.processSource(spec, log, primitives, snapshot, sourceRevisions, sourceCoverage);
       }
     };
     for (let i = 0; i < concurrency; i += 1) {
@@ -537,22 +643,45 @@ export class HubHarvester {
 
     await log.close();
 
-    // Persist a fresh snapshot capturing the latest set of primitives per
-    // sourceId so the next warm run can reconstruct the full index.
-    const fresh = new Map<string, Primitive[]>();
+    // Reconstruct the index from the complete active source set. A source can
+    // be skipped (and restored from the snapshot) or fail transiently after a
+    // previous successful run. The old implementation only saved primitives
+    // produced by this invocation, which turned an otherwise recoverable warm
+    // run into a one-source/empty index when GitHub returned 403/404 errors.
+    const currentBySource = new Map<string, Primitive[]>();
     for (const p of primitives) {
-      const list = fresh.get(p.bundle.sourceId) ?? [];
+      const list = currentBySource.get(p.bundle.sourceId) ?? [];
       list.push(p);
-      fresh.set(p.bundle.sourceId, list);
+      currentBySource.set(p.bundle.sourceId, list);
+    }
+    const activeSourceIds = new Set(this.opts.sources.map((source) => source.id));
+    const fresh = new Map<string, Primitive[]>();
+    for (const sourceId of activeSourceIds) {
+      fresh.set(sourceId, currentBySource.get(sourceId) ?? snapshot.get(sourceId) ?? []);
     }
     await saveSnapshot(this.snapshotFile(), fresh);
 
-    const index = PrimitiveIndex.fromPrimitives(primitives);
+    const indexPrimitives = [...fresh.values()].flat();
+    const sourceRevision = createSourceRevision([...sourceRevisions.values()]);
+    const index = await PrimitiveIndex.buildFromPrimitives(indexPrimitives, {
+      hubId: this.opts.hubId,
+      sourceRevision,
+      embeddings: this.opts.embeddings,
+      embeddingStrategy: this.opts.embeddingStrategy,
+      searchProfileId: this.opts.searchProfileId,
+      onLog: this.opts.onLog
+    });
     const summary = log.summary();
     return {
       ...summary,
       totalMs: Date.now() - startedAt,
-      index
+      index,
+      sourceRevision,
+      sourceCoverage: this.opts.sources.map((source) => sourceCoverage.get(source.id) ?? {
+        sourceId: source.id,
+        state: 'failed',
+        message: 'Source did not produce a harvest outcome.'
+      })
     };
   }
 
@@ -564,27 +693,64 @@ export class HubHarvester {
     spec: HubSourceSpec,
     log: HarvestProgressLog,
     out: Primitive[],
-    snapshot: Map<string, Primitive[]>
+    snapshot: Map<string, Primitive[]>,
+    sourceRevisions: Map<string, SourceRevisionEntry>,
+    sourceCoverage: Map<string, HarvestSourceCoverage>
   ): Promise<void> {
     const bundleId = spec.id;
+    this.opts.onLog?.(`processing source ${spec.id}...`);
     this.opts.onEvent?.({ kind: 'source-start', sourceId: spec.id });
     let commitSha: string | undefined;
     try {
       commitSha = await this.resolveCommitShaForSource(spec);
-      const shouldSkip = await this.checkSkipConditions(spec, bundleId, commitSha, log, snapshot, out);
-      if (shouldSkip) {
+      sourceRevisions.set(spec.id, {
+        sourceId: spec.id,
+        url: spec.url,
+        branch: spec.branch,
+        revision: commitSha
+      });
+      const skipReason = await this.checkSkipConditions(spec, bundleId, commitSha, log, snapshot, out);
+      if (skipReason !== undefined) {
+        sourceCoverage.set(spec.id, {
+          sourceId: spec.id,
+          state: 'skipped',
+          revision: commitSha,
+          message: skipReason
+        });
+        this.opts.onLog?.(`source ${spec.id} skipped`);
         return;
       }
       const primsTotal = await this.harvestSource(spec, bundleId, commitSha, log, out);
+      sourceCoverage.set(spec.id, {
+        sourceId: spec.id,
+        state: 'indexed',
+        primitives: primsTotal,
+        revision: commitSha
+      });
+      this.opts.onLog?.(`source ${spec.id} done: ${String(primsTotal)} primitive${primsTotal === 1 ? '' : 's'}`);
       this.opts.onEvent?.({
         kind: 'source-done', sourceId: spec.id, commitSha,
         primitives: primsTotal, ms: Date.now()
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (!sourceRevisions.has(spec.id)) {
+        sourceRevisions.set(spec.id, {
+          sourceId: spec.id,
+          url: spec.url,
+          branch: spec.branch,
+          revision: commitSha ?? 'unknown'
+        });
+      }
       await log.recordError({
         sourceId: spec.id, bundleId,
         commitSha: commitSha ?? 'unknown', error: msg
+      });
+      sourceCoverage.set(spec.id, {
+        sourceId: spec.id,
+        state: 'failed',
+        revision: commitSha,
+        message: msg
       });
       this.opts.onEvent?.({ kind: 'source-error', sourceId: spec.id, error: msg });
     }
@@ -606,7 +772,7 @@ export class HubHarvester {
     log: HarvestProgressLog,
     snapshot: Map<string, Primitive[]>,
     out: Primitive[]
-  ): Promise<boolean> {
+  ): Promise<string | undefined> {
     if (!this.opts.force && !log.shouldResume(spec.id, bundleId, commitSha)) {
       await log.recordSkip({
         sourceId: spec.id, bundleId, commitSha,
@@ -617,7 +783,7 @@ export class HubHarvester {
       this.opts.onEvent?.({
         kind: 'source-skip', sourceId: spec.id, commitSha, reason: 'already-harvested'
       });
-      return true;
+      return 'already-harvested';
     }
     if (this.opts.dryRun) {
       await log.recordSkip({
@@ -627,9 +793,9 @@ export class HubHarvester {
       this.opts.onEvent?.({
         kind: 'source-skip', sourceId: spec.id, commitSha, reason: 'dry-run'
       });
-      return true;
+      return 'dry-run';
     }
-    return false;
+    return undefined;
   }
 
   private async harvestSource(

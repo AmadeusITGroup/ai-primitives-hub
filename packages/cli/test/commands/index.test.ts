@@ -9,6 +9,7 @@
  * already-proven bundle fixture.
  */
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -22,6 +23,7 @@ import {
 } from '@ai-primitives-hub/app';
 import {
   ActiveHubStore,
+  AppStoragePrimitiveIndexStore,
   HubStore,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -90,6 +92,7 @@ describe('index commands', () => {
   let workspace: string;
   let bundleDir: string;
   let indexFile: string;
+  let embeddedIndexFile: string;
 
   const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
     commandClasses: COMMAND_CLASSES,
@@ -111,6 +114,7 @@ describe('index commands', () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-index-test-'));
     bundleDir = path.join(workspace, 'bundle');
     indexFile = path.join(workspace, 'primitive-index.json');
+    embeddedIndexFile = path.join(workspace, 'embedded-index.json');
 
     const localFooDir = path.join(bundleDir, 'local-foo');
     await mkdir(path.join(localFooDir, 'prompts'), { recursive: true });
@@ -122,6 +126,10 @@ describe('index commands', () => {
 
     expect((await run([
       'index', 'build', '--root', bundleDir, '--out', indexFile, '--source-id', 'local-foo-src', '-o', 'json'
+    ])).exitCode).toBe(0);
+
+    expect((await run([
+      'index', 'build', '--root', bundleDir, '--out', embeddedIndexFile, '--source-id', 'local-foo-src', '--embed', '-o', 'json'
     ])).exitCode).toBe(0);
   });
 
@@ -135,9 +143,21 @@ describe('index commands', () => {
       expect(content).toBeTruthy();
     });
 
-    it('fails with exit 1 when --root is missing', async () => {
+    it('embeds primitive text when --embed is passed', async () => {
+      const content = JSON.parse(await readFile(embeddedIndexFile, 'utf8')) as {
+        embeddingsMeta?: { provider: string; dim: number } | null;
+      };
+      expect(content.embeddingsMeta).toBeTruthy();
+      expect(content.embeddingsMeta?.dim).toBe(384);
+    });
+
+    it('uses the current directory as the default --root and writes to the XDG cache', async () => {
       const result = await run(['index', 'build', '-o', 'json']);
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ primitives: number; bundles: number; outFile: string }>(result.stdout);
+      expect(envelope.data.primitives).toBe(0);
+      expect(envelope.data.bundles).toBe(0);
+      expect(envelope.data.outFile).toBe(path.join(workspace, 'xdg-cache', 'ai-primitives-hub', 'primitive-index.json'));
     });
   });
 
@@ -171,6 +191,54 @@ describe('index commands', () => {
       expect(envelope.data.hits).toEqual([]);
     });
 
+    it('performs hybrid search with --ranking hybrid on an embedded index', async () => {
+      const result = await run([
+        'index', 'search', '--query', 'diagnostic prompt', '--index', embeddedIndexFile, '--ranking', 'hybrid', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ hits: { primitive: { id: string } }[] }>(result.stdout);
+      expect(envelope.data.hits.length).toBeGreaterThan(0);
+    });
+
+    it('reads a stable index namespace for a timestamp-suffixed active hub id', async () => {
+      const store = new AppStoragePrimitiveIndexStore({
+        getPaths: () => ({
+          cache: path.join(workspace, 'xdg-cache', 'ai-primitives-hub'),
+          config: path.join(workspace, 'xdg-config', 'ai-primitives-hub'),
+          data: path.join(workspace, 'xdg-data', 'ai-primitives-hub'),
+          state: path.join(workspace, 'xdg-state', 'ai-primitives-hub')
+        })
+      });
+      const stablePath = store.getIndexPath({
+        hubId: 'amadeus-hub',
+        sourceRevision: 'contract-revision',
+        searchProfileId: 'ternlight-single-v1'
+      });
+      await mkdir(path.dirname(stablePath), { recursive: true });
+      await copyFile(embeddedIndexFile, stablePath);
+
+      const activeHubStore = new ActiveHubStore(
+        path.join(workspace, 'xdg-config', 'ai-primitives-hub', 'active-hub.json'),
+        new NodeFileSystem()
+      );
+      await mkdir(path.dirname(path.join(workspace, 'xdg-config', 'ai-primitives-hub', 'active-hub.json')), { recursive: true });
+      await activeHubStore.set('amadeus-hub-788228');
+
+      const result = await run(['index', 'search', '--query', 'hello', '-o', 'json']);
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const envelope = parseJson<{ hits: unknown[] }>(result.stdout);
+      expect(envelope.data.hits.length).toBeGreaterThan(0);
+    });
+
+    it('rejects --ranking hybrid on a non-embedded index', async () => {
+      const result = await run([
+        'index', 'search', '--query', 'hello', '--index', indexFile, '--ranking', 'hybrid'
+      ]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('embedded index');
+    });
+
     it('uses legacy prompt-registry active hub when installing from search results', async () => {
       const userPaths = resolveUserConfigPaths({
         HOME: workspace,
@@ -197,13 +265,17 @@ describe('index commands', () => {
           {
             id: 'local-foo-src',
             name: 'Local Foo Source',
-            description: 'Source matching indexed bundle source id',
             type: 'local',
             url: 'file:///tmp/local-foo',
-            repository: 'local/foo',
-            branch: 'main',
-            path: '/',
-            hubId
+            enabled: true,
+            priority: 0,
+            hubId,
+            metadata: {
+              description: 'Source matching indexed bundle source id'
+            },
+            config: {
+              branch: 'main'
+            }
           }
         ],
         profiles: []

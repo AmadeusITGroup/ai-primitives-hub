@@ -10,6 +10,9 @@ import {
   harvest,
 } from '../../src/harvest/harvester';
 import {
+  TernlightEmbeddingProvider,
+} from '../../src/search/embedding/ternlight-embedding-provider';
+import {
   PrimitiveIndex,
 } from '../../src/search/primitive-index';
 import {
@@ -53,6 +56,20 @@ describe('PrimitiveIndex', () => {
     const idx = await buildIndex();
     const res = idx.search({ installedOnly: true });
     expect(res.hits.every((h) => h.primitive.bundle.installed)).toBe(true);
+  });
+
+  it('applies the current installed bundle snapshot at query time', async () => {
+    const idx = await buildIndex();
+    const target = idx.all().find((primitive) => !primitive.bundle.installed);
+    expect(target).toBeDefined();
+
+    const res = idx.search({
+      installedOnly: true,
+      installedBundleKeys: [`${target!.bundle.sourceId}\u0000${target!.bundle.bundleId}\u0000${target!.bundle.bundleVersion}`]
+    });
+
+    expect(res.hits.length).toBeGreaterThan(0);
+    expect(res.hits.every((hit) => hit.primitive.bundle.bundleId === target!.bundle.bundleId)).toBe(true);
   });
 
   it('explain mode attaches matches', async () => {
@@ -105,6 +122,21 @@ describe('PrimitiveIndex', () => {
     }
   });
 
+  it('replaces an existing index atomically without leaving temporary files', async () => {
+    const idx = await buildIndex();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'primitive-index-atomic-'));
+    const file = path.join(dir, 'nested', 'primitive-index.json');
+    try {
+      saveIndex(idx, file);
+      saveIndex(idx, file);
+
+      expect(loadIndex(file).stats().primitives).toBe(idx.stats().primitives);
+      expect(fs.readdirSync(path.dirname(file))).toStrictEqual(['primitive-index.json']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('refresh reports adds/updates/removes and prunes shortlists', async () => {
     const bundles = createFixtureBundles();
     const provider = new FakeBundleProvider(bundles);
@@ -121,5 +153,15 @@ describe('PrimitiveIndex', () => {
     expect(report.updated.length).toBe(0);
     // Shortlist should still contain the primitive since nothing was removed
     expect(idx.getShortlist(sl.id)?.primitiveIds.length).toBe(1);
+  });
+
+  it('requires embeddings when refreshing an embedded index', async () => {
+    const idx = await PrimitiveIndex.buildFrom(
+      new FakeBundleProvider(createFixtureBundles()),
+      { embeddings: new TernlightEmbeddingProvider() }
+    );
+
+    await expect(idx.refresh(new FakeBundleProvider(createFixtureBundles())))
+      .rejects.toThrow(/requires the embedding provider/);
   });
 });

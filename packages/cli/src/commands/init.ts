@@ -17,8 +17,10 @@
  */
 import * as path from 'node:path';
 import {
+  createEmbeddingProvider,
   emptyLockfile,
   getLockfilePathForMode,
+  getSearchProfile,
   resolveUserConfigPaths,
   writeLockfile,
 } from '@ai-primitives-hub/app';
@@ -33,12 +35,16 @@ import {
 import {
   addTarget,
   addTargetToPath,
+  defaultIndexFile,
   findProjectConfigPath,
   getEnabledDefaultHubs,
+  harvestHub,
   readTargets,
   writeTargets,
 } from '@ai-primitives-hub/infra';
-import inquirer from 'inquirer';
+import {
+  loadInquirer,
+} from '../framework';
 import {
   Command,
   type CommandDefinition,
@@ -124,6 +130,10 @@ export interface InitOptions {
   yes?: boolean;
   /** Verbose output with file paths and verification commands. */
   verbose?: boolean;
+  /** Skip building the searchable index after hub import. */
+  skipIndex?: boolean;
+  /** When building an index, skip generating embeddings. */
+  noEmbed?: boolean;
   /** HTTP client seam for testing. */
   http?: HttpClient;
   /** Token provider seam for testing. */
@@ -167,6 +177,8 @@ export class InitCommand extends Command {
         ai-primitives-hub init --target-name my-copilot --target-type copilot-cli --yes
         ai-primitives-hub init --hub owner/repo --yes
         ai-primitives-hub init --hub file:./hub-config.yml --hub-type local --yes
+        ai-primitives-hub init --hub owner/repo --yes --no-embed
+        ai-primitives-hub init --hub owner/repo --yes --skip-index
     `
   });
 
@@ -176,6 +188,8 @@ export class InitCommand extends Command {
   public hub = Option.String('--hub');
   public hubType = Option.String('--hub-type');
   public yes = Option.Boolean('-y,--yes', false);
+  public skipIndex = Option.Boolean('--skip-index', false);
+  public noEmbed = Option.Boolean('--no-embed', false);
   public output = Option.String('-o,--output');
   public verbose = Option.Boolean('-v,--verbose', false);
   public commandContext!: { ctx: Context; http?: HttpClient; tokens?: TokenProvider };
@@ -190,6 +204,8 @@ export class InitCommand extends Command {
       hub: this.hub,
       hubType: this.hubType as HubType | undefined,
       yes: this.yes,
+      skipIndex: this.skipIndex,
+      noEmbed: this.noEmbed,
       verbose: this.verbose,
       http,
       tokens
@@ -232,6 +248,8 @@ async function runInteractiveWizard(ctx: Context, _opts: InitOptions): Promise<{
     { name: 'Local directory', value: 'local' },
     { name: 'Skip for now', value: 'skip' }
   ];
+
+  const inquirer = await loadInquirer();
 
   const answers = await inquirer.prompt<WizardAnswers>([
     {
@@ -548,6 +566,30 @@ async function runInit(ctx: Context, opts: InitOptions): Promise<number> {
     if (hubRef !== undefined && hubRef.length > 0) {
       hubId = await importAndSyncHub(ctx, hubRef, hubType, hubRefParam, opts);
       steps.push(`hub "${hubId}" imported and synced`);
+    }
+
+    if (hubId !== null && opts.skipIndex !== true) {
+      const hubConfigFile = path.join(userPaths.hubs, `${hubId}.yml`);
+      const outFile = defaultIndexFile(ctx.env);
+      const embeddings = opts.noEmbed === true
+        ? undefined
+        : createEmbeddingProvider(getSearchProfile('ternlight-single-v1'));
+      const indexResult = await harvestHub({
+        hubConfigFile,
+        outFile,
+        embeddings,
+        searchProfileId: embeddings ? 'ternlight-single-v1' : 'bm25-v1',
+        onLog: (msg): void => {
+          ctx.stderr.write(`[index harvest] ${msg}\n`);
+        }
+      }, ctx.env);
+      const embedSuffix = embeddings === undefined
+        ? ''
+        : ` (embeddings: ${embeddings.name} dim=${embeddings.dim})`;
+      // `totals.primitives` is a cumulative progress-log summary and can
+      // include older runs. The persisted index stats are authoritative for
+      // what was actually written by this command.
+      steps.push(`index built: ${String(indexResult.stats.primitives)} primitives → ${outFile}${embedSuffix}`);
     }
 
     const data = {

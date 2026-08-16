@@ -154,6 +154,18 @@
         "category": "AI Primitives Hub"
       },
       {
+        "command": "promptRegistry.searchPrimitives",
+        "title": "Search Primitives",
+        "category": "AI Primitives Hub",
+        "icon": "$(search)"
+      },
+      {
+        "command": "promptRegistry.rebuildPrimitiveIndex",
+        "title": "Rebuild Primitive Index",
+        "category": "AI Primitives Hub",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "promptRegistry.checkBundleUpdates",
         "title": "Check for Bundle Updates",
         "category": "AI Primitives Hub"
@@ -708,9 +720,10 @@
     "copy-webview": "cpy \"src/ui/webview/marketplace/*\" dist/webview/marketplace && cpy \"src/ui/webview/bundle-details/*\" dist/webview/bundle-details",
     "copy-skill-references": "cd ../.. && cpy docs/README.md apps/vscode-extension/resources/skills/prompt-registry-helper/references/docs-index.md && cpy \"docs/**\" \"!docs/README.md\" \"!docs/contributor-guide\" \"!docs/contributor-guide/**\" \"!docs/reference/adapter-api.md\" \"!docs/AGENTS.md\" apps/vscode-extension/resources/skills/prompt-registry-helper/references",
     "copy-schemas": "node scripts/package-helpers.js expand-schemas",
-    "compile": "webpack --mode production && pnpm run copy-webview && pnpm run copy-skill-references && pnpm run copy-schemas",
+    "copy-ternlight-wasm": "node scripts/package-helpers.js copy-ternlight-wasm",
+    "compile": "webpack --mode production && pnpm run copy-webview && pnpm run copy-skill-references && pnpm run copy-schemas && pnpm run copy-ternlight-wasm",
     "watch": "webpack --mode development --watch",
-    "package": "webpack --mode production --devtool hidden-source-map && pnpm run copy-webview",
+    "package": "webpack --mode production --devtool hidden-source-map && pnpm run copy-webview && pnpm run copy-ternlight-wasm",
     "package:vsix": "vsce package --no-dependencies",
     "compile-tests": "tsc -p tsconfig.test.json && node scripts/copy-test-fixtures.js",
     "watch-tests": "tsc -p tsconfig.test.json -w",

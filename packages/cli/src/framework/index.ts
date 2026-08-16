@@ -123,3 +123,6 @@ export {
 export {
   suggestCommand,
 } from './suggest';
+export {
+  loadInquirer,
+} from './inquirer';
