@@ -21,6 +21,11 @@ Toggle with ⭐ button in Registry Explorer.
 
 A **Hub** is a centralized repository of versioned profiles and sources. Share across your organization.
 
+Use a Hub when a team needs one maintained catalog of approved sources and
+role-based profiles. A Hub contains configuration; the collections and their
+primitive files remain in the referenced sources. If you only need to publish
+one collection repository, configure a source instead of creating a Hub.
+
 ### First-Run Hub Selection
 
 On first launch, AI Primitives Hub offers a hub selection dialog:
@@ -85,4 +90,5 @@ profiles:
 
 - [Getting Started](./getting-started.md) — First-run experience
 - [Sources](./sources.md) — Configure sources
+- [Creating a Hub](../author-guide/creating-a-hub.md) — Author and publish a Hub
 - [Hub Schema](../reference/hub-schema.md) — Full schema reference

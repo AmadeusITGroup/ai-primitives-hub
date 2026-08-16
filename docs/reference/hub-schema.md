@@ -98,8 +98,11 @@ The `sources` array defines bundle sources available in the hub.
 | `apm` | APM package repositories |
 | `local-apm` | Local APM packages |
 | `skills` | GitHub repository with skills |
-| `local-skills` | Local filesystem skills directory |
-| `azure-devops` | Azure DevOps Git repository (cloud) |
+
+> **Schema boundary:** Other parts of AI Primitives Hub have additional
+> source adapters. A source type can be used inside `hub-config.yml` only when
+> it is included in the Hub JSON Schema. The schema is authoritative for this
+> list.
 
 ### Optional Fields per Source
 
@@ -117,7 +120,7 @@ The `sources` array defines bundle sources available in the hub.
 | Field | Type | Description |
 |-------|------|-------------|
 | `branch` | string | Git branch name (for git-based sources) |
-| `collectionsPath` | string | Path to collections directory (for awesome-copilot and azure-devops) |
+| `collectionsPath` | string | Path to collections directory (for awesome-copilot sources) |
 | `indexFile` | string | Index file name (for awesome-copilot) |
 
 ### Source Metadata Object
@@ -304,29 +307,50 @@ telemetry:
 
 ## Validation
 
-Hub configurations are automatically validated during import and loading operations using two validation phases:
+Validation currently differs by delivery layer.
 
 ### Schema Validation
-- Uses JSON Schema validation with AJV
-- Validates against `schemas/hub-config.schema.json`
-- Checks field types, required fields, patterns, and constraints
+
+The VS Code extension uses AJV and the Hub JSON Schema to check field types,
+required fields, patterns, and constraints.
 
 ### Runtime Validation
-- Additional business logic checks
-- Validates hub references and security constraints
-- Verifies source configurations and accessibility
+
+Shared runtime validation checks required metadata, basic source/profile
+shape, path traversal, and profile source references. The CLI currently runs
+these runtime checks during import, but does not apply the complete JSON
+Schema. Source accessibility is checked during resolution or synchronization,
+not by the schema itself.
 
 ### Manual Validation
-To manually validate a hub configuration:
+To run the CLI's runtime validation, import the local file without activating
+or synchronizing it:
+
+```bash
+ai-primitives-hub hub add \
+  --type local \
+  --location ./hub-config.yml \
+  --id hub-validation \
+  --no-use \
+  --no-sync
+```
+
+The local `--location` is the path to the YAML file, not its containing
+directory. Remove the temporary imported entry after validation with
+`ai-primitives-hub hub remove hub-validation`.
+
+To apply the full JSON Schema and runtime validation with the extension:
 
 1. Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
 2. Run "AI Primitives Hub: Import Hub"
-3. The extension validates the configuration before importing
+3. Select the local `hub-config.yml` file
+4. The extension validates the configuration before importing
 
 Validation errors are displayed in VS Code notifications and logged to the output channel.
 
 ## See Also
 
 - [Profiles and Hubs Guide](../user-guide/profiles-and-hubs.md) — User guide for working with hubs
+- [Creating a Hub](../author-guide/creating-a-hub.md) — End-to-end authoring and publishing
 - [Collection Schema](../author-guide/collection-schema.md) — Schema for collection YAML files
 - [Settings Reference](./settings.md) — Extension configuration options

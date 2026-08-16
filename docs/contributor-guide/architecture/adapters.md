@@ -1,86 +1,104 @@
-# Adapter Architecture
+# Source Adapter Architecture
 
-Adapters provide a unified interface for fetching bundles from different source types.
+Source adapters normalize different collection sources behind the
+`SourceAdapter` port in `packages/core/src/ports/source-adapter.ts`.
 
-## IRepositoryAdapter Interface
+## Current Ownership
+
+```mermaid
+flowchart TD
+    DELIVERY["CLI or extension"] --> FACTORY["app createSourceAdapter"]
+    FACTORY --> PORT["core SourceAdapter port"]
+    FACTORY --> IMPL["infra adapter implementation"]
+    IMPL --> EXTERNAL["GitHub, Azure DevOps, local filesystem, or tooling"]
+```
+
+- `core` defines `SourceAdapter`, `RegistrySource`, `Bundle`, and related
+  domain types.
+- `infra` contains all concrete source adapters.
+- `app` selects and constructs an adapter in
+  `packages/app/src/registry/create-source-adapter.ts`.
+- The extension compatibility factory supplies VS Code-specific token
+  providers and Node port implementations, then delegates construction to
+  `app`.
+
+Do not add new concrete adapters to
+`apps/vscode-extension/src/adapters/`. That directory contains delivery
+wiring and compatibility types for remaining extension call sites.
+
+## SourceAdapter Contract
+
+Every adapter currently provides:
 
 ```typescript
-interface IRepositoryAdapter {
-    readonly type: string;
-    readonly source: RegistrySource;
-    fetchBundles(onPartialBundles?: (bundles: Bundle[]) => void | Promise<void>): Promise<Bundle[]>;
-    downloadBundle(bundle: Bundle): Promise<Buffer>;
-    fetchMetadata(): Promise<SourceMetadata>;
-    validate(): Promise<ValidationResult>;
-    requiresAuthentication(): boolean;
-    getManifestUrl(bundleId: string, version?: string): string;
-    getDownloadUrl(bundleId: string, version?: string): string;
-    forceAuthentication?(): Promise<void>;
+interface SourceAdapter {
+  readonly type: string;
+  readonly source: RegistrySource;
+  fetchBundles(): Promise<Bundle[]>;
+  downloadBundle(bundle: Bundle): Promise<Buffer>;
+  fetchMetadata(): Promise<SourceMetadata>;
+  validate(): Promise<ValidationResult>;
+  requiresAuthentication(): boolean;
+  getManifestUrl(bundleId: string, version?: string): string;
+  getDownloadUrl(bundleId: string, version?: string): string;
+  downloadReadme(bundle: Bundle): Promise<string | null>;
+  forceAuthentication?(): Promise<void>;
 }
 ```
 
-## Adapter Types
+Actual installation always consumes the `Buffer` returned by
+`downloadBundle`. Manifest and download URLs are retained for display and
+diagnostics; they do not define a second installation API.
 
-| Adapter | Source Type | Installation Method | Status |
-|---------|-------------|---------------------|--------|
-| **GitHubAdapter** | `github` | URL-based (getDownloadUrl) | Active |
-| **LocalAdapter** | `local` | Buffer-based (downloadBundle) | Active |
-| **AwesomeCopilotAdapter** | `awesome-copilot` | Buffer-based (builds zip on-the-fly) | Active |
-| **LocalAwesomeCopilotAdapter** | `local-awesome-copilot` | Buffer-based | Active |
-| **ApmAdapter** | `apm` | URL-based | Active |
-| **LocalApmAdapter** | `local-apm` | Buffer-based | Active |
-| **AzureDevOpsAdapter** | `azure-devops` | Buffer-based (fetches via ADO Items API) | Active |
+## Implemented Adapters
 
-Source types are defined in `src/types/registry.ts`:
-```typescript
-export type SourceType = 'github' | 'local' | 
-    'awesome-copilot' | 'local-awesome-copilot' | 'apm' | 'local-apm' | 'azure-devops';
-```
+Concrete implementations are under `packages/infra/src/adapters/`:
 
-> **Freshness note:** `LocalAwesomeCopilotAdapter` does not cache its bundle list. `fetchBundles()` re-reads collection files from disk on every call so local edits (including readmes) are reflected immediately during development.
->
-> **Readme revision reuse:** For remote sources, `RegistryManager` carries a cached readme over to a freshly synced bundle only when the bundle's `readmeRevision` is unchanged; otherwise the readme is re-downloaded. This keeps readmes fresh while avoiding redundant downloads on every sync. Adapters set `readmeRevision` to a value that changes when the readme content can change — the GitHub adapter uses the release tag, and the Awesome Copilot adapter uses the configured branch's head commit sha (so a stale readme is refreshed once the branch advances). If an adapter cannot resolve a revision, it leaves `readmeRevision` unset and the readme is re-downloaded on every sync.
->
-> **MCP extraction (GitHub):** `processRelease` reads MCP data from the deployment manifest's top-level `mcpServers` and `mcpInputs` fields (written by `generate-manifest.js`). When `mcpInputs` is present it is attached to the bundle as-is for marketplace metadata; the installer uses the same top-level fields from the deployment manifest when configuring MCP. This differs from `AwesomeCopilotAdapter`, which reads the nested `mcp.items` collection field directly rather than parsing a deployment manifest.
->
-> **Readme asset resolution (GitHub):** The GitHub adapter does not guess the readme filename. GitHub names each release asset after the uploaded file's basename, and a collection may declare any readme path (e.g. `docs/collection-overview.md`), so the deployment manifest records the readme asset basename in its `readme` field (written by `lib/bin/generate-manifest.js`). `processRelease` reads `manifest.readme` and matches it against the release assets; if the manifest omits `readme`, no readme is attached.
+| Source type | Adapter |
+|---|---|
+| `github` | `GitHubAdapter` |
+| `local` | `LocalAdapter` |
+| `awesome-copilot` | `AwesomeCopilotAdapter` |
+| `local-awesome-copilot` | `LocalAwesomeCopilotAdapter` |
+| `apm` | `ApmAdapter` |
+| `local-apm` | `LocalApmAdapter` |
+| `skills` | `SkillsAdapter` |
+| `local-skills` | `LocalSkillsAdapter` |
+| `azure-devops` | `AzureDevOpsAdapter` |
 
-## Two Installation Paths
+This is the application registry-source list. The Hub configuration schema
+currently accepts a narrower list, so do not infer valid Hub source types
+from this table. See [Hub Schema](../../reference/hub-schema.md).
 
-**URL-Based** (`install()`):
-- Pre-packaged zip bundles on remote servers
-- Direct download from URL
-- Used by: GitHub, AwesomeCopilot
+## Construction and Authentication
 
-**Buffer-Based** (`installFromBuffer()`):
-- Dynamically created bundles
-- Builds zip in memory
-- Used by: AwesomeCopilot, Local
+`createSourceAdapter` receives delivery-provided ports for filesystem, clock,
+HTTP, process execution, and fallback token providers.
 
-## Adding a New Adapter
+For authenticated sources:
 
-```typescript
-// 1. Extend RepositoryAdapter base class
-export class MyAdapter extends RepositoryAdapter {
-    readonly type = 'my-type';
-    
-    async fetchBundles(): Promise<Bundle[]> { /* ... */ }
-    async downloadBundle(bundle: Bundle): Promise<Buffer> { /* ... */ }
-    async fetchMetadata(): Promise<SourceMetadata> { /* ... */ }
-    async validate(): Promise<ValidationResult> { /* ... */ }
-    getManifestUrl(bundleId: string, version?: string): string { /* ... */ }
-    getDownloadUrl(bundleId: string, version?: string): string { /* ... */ }
-}
+1. An explicit token on the source is considered first.
+2. Delivery-provided token providers are tried in order.
+3. GitHub and Azure DevOps API clients receive the resulting provider.
 
-// 2. Register in factory
-RepositoryAdapterFactory.register('my-type', MyAdapter);
+The extension supplies its VS Code GitHub-session bridge followed by the
+GitHub CLI provider. The CLI supplies its own available providers. See
+[Authentication](./authentication.md).
 
-// 3. Add to SourceType union in src/types/registry.ts
-export type SourceType = 'github' | 'local' | 
-    'awesome-copilot' | 'local-awesome-copilot' | 'apm' | 'local-apm' | 'my-type';
-```
+## Adding a Source Type
+
+1. Add or extend the source/domain type in `packages/core`.
+2. Implement the `SourceAdapter` port in `packages/infra/src/adapters/`.
+3. Export the adapter from the infra adapter index.
+4. Add a construction case to
+   `packages/app/src/registry/create-source-adapter.ts`.
+5. Add focused adapter tests and application-factory tests.
+6. Update user/reference documentation for any configuration fields.
+7. If the source must be usable inside a Hub, update and test the Hub schema
+   separately.
 
 ## See Also
 
-- [Authentication](./authentication.md) — Auth for private repos
-- [Installation Flow](./installation-flow.md) — How bundles are installed
+- [Authentication](./authentication.md)
+- [Installation Flow](./installation-flow.md)
+- [Hub Schema](../../reference/hub-schema.md)

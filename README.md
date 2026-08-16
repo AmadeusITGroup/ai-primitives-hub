@@ -52,7 +52,7 @@ pnpm lint
 | `github-actions/validate-collections/` | Reusable GitHub Action for validating collections in CI |
 | `docs/` | User, author, and contributor documentation |
 | `website/` | Docusaurus documentation site |
-| `config/` | Default hubs configuration |
+| `packages/infra/src/hub/` | Shared Hub resolution, validation, and default-Hub definitions |
 
 ## 🏗️ Architecture
 
