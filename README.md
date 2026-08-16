@@ -30,6 +30,9 @@ See the [Author Guide](./docs/author-guide/creating-source-bundle.md).
 
 **As a contributor:**
 
+Requires Node.js 24 or newer and pnpm 11 or newer. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the complete development setup.
+
 ```bash
 git clone https://github.com/AmadeusITGroup/ai-primitives-hub.git
 cd ai-primitives-hub

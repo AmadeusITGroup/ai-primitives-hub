@@ -54,17 +54,17 @@ diagnostics; they do not define a second installation API.
 
 Concrete implementations are under `packages/infra/src/adapters/`:
 
-| Source type | Adapter |
-|---|---|
-| `github` | `GitHubAdapter` |
-| `local` | `LocalAdapter` |
-| `awesome-copilot` | `AwesomeCopilotAdapter` |
-| `local-awesome-copilot` | `LocalAwesomeCopilotAdapter` |
-| `apm` | `ApmAdapter` |
-| `local-apm` | `LocalApmAdapter` |
-| `skills` | `SkillsAdapter` |
-| `local-skills` | `LocalSkillsAdapter` |
-| `azure-devops` | `AzureDevOpsAdapter` |
+| Source type | Adapter | Implementation file |
+|---|---|---|
+| `github` | `GitHubAdapter` | `github-adapter.ts` |
+| `local` | `LocalAdapter` | `local-adapter.ts` |
+| `awesome-copilot` | `AwesomeCopilotAdapter` | `awesome-copilot-adapter.ts` |
+| `local-awesome-copilot` | `LocalAwesomeCopilotAdapter` | `local-awesome-copilot-adapter.ts` |
+| `apm` | `ApmAdapter` | `apm-adapter.ts` |
+| `local-apm` | `LocalApmAdapter` | `local-apm-adapter.ts` |
+| `skills` | `SkillsAdapter` | `skills-adapter.ts` |
+| `local-skills` | `LocalSkillsAdapter` | `local-skills-adapter.ts` |
+| `azure-devops` | `AzureDevOpsAdapter` | `azure-devops-adapter.ts` |
 
 This is the application registry-source list. The Hub configuration schema
 currently accepts a narrower list, so do not infer valid Hub source types

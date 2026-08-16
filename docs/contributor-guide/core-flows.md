@@ -4,6 +4,23 @@ This page is a code-oriented map of the principal flows implemented today.
 It complements the [architecture overview](./architecture.md); focused pages
 contain the detailed rules for each subsystem.
 
+## Detailed Flow References
+
+The previous single-page flow guide mixed current behavior with older
+extension-owned paths. Detail now lives in these current, subsystem-specific
+pages:
+
+| Area | Detailed page |
+|---|---|
+| Installation, scope, lockfiles, rollback, and uninstall | [Installation Flow](./architecture/installation-flow.md) |
+| Source adapter contract, implementations, and extension steps | [Adapters](./architecture/adapters.md) |
+| Token providers and host-specific authentication | [Authentication](./architecture/authentication.md) |
+| Update detection, preferences, and notifications | [Update System](./architecture/update-system.md) |
+| Hub authoring, user behavior, and schema | [Creating a Hub](../author-guide/creating-a-hub.md), [Profiles and Hubs](../user-guide/profiles-and-hubs.md), and [Hub Schema](../reference/hub-schema.md) |
+| Validation ownership and execution | [Validation Architecture](./architecture/validation.md) |
+| MCP discovery, merge, and persistence | [MCP Integration](./architecture/mcp-integration.md) |
+| Marketplace and tree-view delivery behavior | [UI Components](./architecture/ui-components.md) |
+
 ## 1. Extension Installation
 
 The VS Code command entry point is

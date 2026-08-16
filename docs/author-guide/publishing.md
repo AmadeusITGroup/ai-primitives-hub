@@ -24,16 +24,22 @@ If you're contributing a collection to a source you don't own:
 
 1. **Fork** the source repository on GitHub
 2. **Clone** your fork and open it in VS Code with AI Primitives Hub installed
-3. **Create a new collection**: `Ctrl+Shift+P` → "AI Primitives Hub: Create Collection"
+3. **Create a new collection**: open the Command Palette (`Ctrl+Shift+P` on
+   Windows/Linux or `Cmd+Shift+P` on macOS) and run
+   **AI Primitives Hub: Create Collection**
 4. Fill in the collection metadata (id, name, description, version, author, tags) and link your primitives — see [Collection Schema](./collection-schema.md)
-5. **Validate**: `Ctrl+Shift+P` → "AI Primitives Hub: Validate Collections"
+5. **Validate**: open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+   `Cmd+Shift+P` on macOS) and run
+   **AI Primitives Hub: Validate Collections**
 6. Create a new branch, commit, and open a **Pull Request** against the upstream source repository
 
 ## Creating a New Source (GitHub Recommended)
 
 ### Setup
 
-1. Scaffold a new repository: `Ctrl+Shift+P` → "AI Primitives Hub: Scaffold Project" → `Awesome Copilot Project`
+1. Scaffold a new repository: open the Command Palette (`Ctrl+Shift+P` on
+   Windows/Linux or `Cmd+Shift+P` on macOS), run
+   **AI Primitives Hub: Scaffold Project**, and choose `Awesome Copilot Project`
 2. Choose an empty folder where the repository should be bootstrap
 3. Update the content of different folder and collections files
 4. Validate your collection [Validation](./validation.md)
@@ -51,9 +57,10 @@ description: What this collection does
 
 ### Users Install Via
 
-```bash
-Ctrl+Shift+P → "Add Source" → Collection from Github repository → Name of the source → Link to your repository you just published → remaining can remain as default
-```
+Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
+macOS), run **AI Primitives Hub: Add Source**, choose a collection from a
+GitHub repository, then provide the source name and repository link. The
+remaining values can keep their defaults.
 - Once source is added refresh your marketplace and search for your bundles you can install them
 
 ## Updating

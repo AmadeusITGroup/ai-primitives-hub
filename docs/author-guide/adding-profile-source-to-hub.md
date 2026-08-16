@@ -170,15 +170,15 @@ metadata:
   name: "Engineering Team Hub"
   description: "Centralized prompt management for the engineering organization"
   maintainer: "Platform Team"
-  updatedAt: "2026-08-16T00:00:00Z"  # Use the current ISO 8601 timestamp
+  updatedAt: "2026-08-16T00:00:00Z"  # Replace with the current ISO 8601 timestamp
 ```
 
 ### 3. Notify Users
 
 Users can sync the updated hub:
 - Right-click hub in Registry Explorer → "Sync Hub"
-- Or open the Command Palette with `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS),
-  then run **AI Primitives Hub: Sync Hub**.
+- Or open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+  `Cmd+Shift+P` on macOS) and run **AI Primitives Hub: Sync Hub**.
 
 Hub sync refreshes the configuration and source catalog. For a profile that is
 already active, it can reveal added, removed, or version-changed bundle
@@ -198,7 +198,7 @@ metadata:
   name: "Engineering Team Hub"
   description: "Centralized prompt management for the engineering organization"
   maintainer: "Platform Team"
-  updatedAt: "2026-08-16T00:00:00Z"
+  updatedAt: "2026-08-16T00:00:00Z"  # Replace with the current ISO 8601 timestamp
 
 sources:
   # Existing sources...

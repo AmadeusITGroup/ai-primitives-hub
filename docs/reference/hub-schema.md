@@ -341,8 +341,9 @@ directory. Remove the temporary imported entry after validation with
 
 To apply the full JSON Schema and runtime validation with the extension:
 
-1. Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
-2. Run "AI Primitives Hub: Import Hub"
+1. Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+   `Cmd+Shift+P` on macOS).
+2. Run **AI Primitives Hub: Import Hub**.
 3. Select the local `hub-config.yml` file
 4. The extension validates the configuration before importing
 

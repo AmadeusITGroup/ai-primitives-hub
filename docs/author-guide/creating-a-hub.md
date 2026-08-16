@@ -80,7 +80,7 @@ metadata:
   name: "Engineering Hub"
   description: "Approved AI primitive collections for engineering teams"
   maintainer: "Developer Experience Team"
-  updatedAt: "2026-08-14T00:00:00Z"
+  updatedAt: "2026-08-16T00:00:00Z" # Replace with the current ISO 8601 timestamp
 
 sources:
   - id: "engineering-collections"
@@ -246,7 +246,8 @@ Use `--no-use` or `--no-sync` when those automatic actions are not wanted.
 
 Using the extension:
 
-1. Open the Command Palette.
+1. Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+   `Cmd+Shift+P` on macOS).
 2. Run **AI Primitives Hub: Import Hub**.
 3. Choose the GitHub or URL option.
 4. Enter the repository or direct HTTPS reference requested by the dialog.
