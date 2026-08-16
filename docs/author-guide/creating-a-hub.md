@@ -52,9 +52,20 @@ engineering-hub/hub-config.yml
 ```
 
 The command creates a skeleton, not a ready-to-publish Hub. Complete the
-required `description` and `maintainer` fields before importing it. If you use
-`--add-source`, also review the generated source and add its required
-`enabled` and `priority` fields.
+required `description` and `maintainer` fields before importing it.
+
+To pre-populate a local source, pass its filesystem path:
+
+```bash
+ai-primitives-hub hub create \
+  --name "Engineering Hub" \
+  --out ./engineering-hub \
+  --add-source ../engineering-collections
+```
+
+`--add-source` currently creates a `type: local` source whose `url` is the
+resolved filesystem path. Review that generated source and add its required
+`enabled` and `priority` fields. Add GitHub and other source types manually.
 
 You can also create `hub-config.yml` manually.
 
@@ -110,7 +121,7 @@ profiles:
   - id: "backend-developer"
     name: "Backend Developer"
     description: "Shared collections for backend API development"
-    icon: "server"
+    icon: "🖥️"
     bundles:
       - id: "api-design"
         version: "latest"
@@ -128,6 +139,14 @@ profiles:
 Each bundle's `source` must match a source ID in the same Hub. The bundle ID
 and requested version must exist in that source when users synchronize and
 activate the profile.
+
+The schema accepts any string for `icon`. The extension's profile picker and
+tree use emoji, so the examples use emoji for consistent rendering.
+
+Pin a specific semantic version for stable or production profiles whose
+contents should change only through a reviewed Hub update. Use `latest` when
+following the newest available collection is intentional, such as during
+development. A Hub sync alone does not update an already installed collection.
 
 Use `required: true` for collections that define the profile's expected base
 environment. Use optional entries for additions users may choose not to
@@ -191,6 +210,10 @@ engineering-hub/
 └── hub-config.yml
 ```
 
+Here, `engineering-hub/` represents the root of its own GitHub repository.
+Do not publish `hub-config.yml` inside another nested subdirectory of that
+repository.
+
 Commit and push the configuration:
 
 ```bash
@@ -247,7 +270,11 @@ ai-primitives-hub hub sync engineering-hub
 
 or by using **Sync Hub** in the extension. Hub synchronization refreshes the
 Hub configuration and its source catalog. Bundle update behavior is managed
-separately.
+separately. For an already active profile, Hub sync can expose added, removed,
+or version-changed bundle references, but it does not automatically install,
+remove, or update those collections. **Sync Profile** accepts the updated
+profile definition, but it also does not install bundles. Users manage bundle
+installation, updates, and removal through their separate commands.
 
 ## Troubleshooting
 

@@ -51,14 +51,17 @@ collection published through GitHub releases, use `github`.
 Source types supported elsewhere in the product are not necessarily valid in
 a Hub. Check the [Hub Schema](../reference/hub-schema.md) before adding one.
 
+For a `local` source inside `hub-config.yml`, `url` is the filesystem path to
+that collection source. By contrast, the CLI's `hub add --location` flag in
+the validation steps below points to the Hub's `hub-config.yml` file itself.
+`location` is a CLI option, not a source field in the YAML.
+
 ### 3. Priority Guidelines
 
-Set priority based on source importance:
-- **90-100**: Critical organizational sources
-- **70-89**: Important team sources  
-- **50-69**: Community sources
-- **10-49**: Experimental sources
-- **1-9**: Deprecated sources
+The Hub schema accepts priorities from `0` through `100`; higher values win
+when sources conflict. There are no canonical category ranges. Choose values
+relative to the other sources in the same Hub and document any team-specific
+convention in the Hub repository.
 
 ## Adding a Profile
 
@@ -75,7 +78,7 @@ profiles:
   - id: "data-science"                     # Unique identifier
     name: "Data Science Toolkit"          # Display name
     description: "Prompts for data analysis, ML, and visualization"
-    icon: "📊"                             # Optional icon/emoji
+    icon: "📊"                             # Optional emoji icon
     bundles:
       - id: "python-data"                  # Bundle from any source
         version: "latest"                  # Version or "latest"
@@ -97,6 +100,11 @@ Each bundle in a profile needs:
 - **version**: Semantic version or `"latest"`
 - **source**: Must reference a source ID defined in the hub
 - **required**: `true` for mandatory bundles, `false` for optional
+
+Pin a semantic version for stable or production profiles whose contents
+should change only through a reviewed Hub update. Use `latest` only when
+following the newest available collection is intentional, such as during
+development.
 
 ### 3. Profile Organization
 
@@ -162,14 +170,22 @@ metadata:
   name: "Engineering Team Hub"
   description: "Centralized prompt management for the engineering organization"
   maintainer: "Platform Team"
-  updatedAt: "2025-01-15T10:30:00Z"  # Update timestamp
+  updatedAt: "2026-08-16T00:00:00Z"  # Use the current ISO 8601 timestamp
 ```
 
 ### 3. Notify Users
 
 Users can sync the updated hub:
 - Right-click hub in Registry Explorer → "Sync Hub"
-- Or: `Ctrl+Shift+P` → "AI Primitives Hub: Sync Hub"
+- Or open the Command Palette with `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS),
+  then run **AI Primitives Hub: Sync Hub**.
+
+Hub sync refreshes the configuration and source catalog. For a profile that is
+already active, it can reveal added, removed, or version-changed bundle
+references, but it does not automatically install, remove, or update those
+collections. **Sync Profile** accepts the updated profile definition, but it
+also does not install bundles. Bundle installation, updates, and removal remain
+separate user actions.
 
 ## Example: Complete Addition
 
@@ -182,7 +198,7 @@ metadata:
   name: "Engineering Team Hub"
   description: "Centralized prompt management for the engineering organization"
   maintainer: "Platform Team"
-  updatedAt: "2025-01-15T10:30:00Z"
+  updatedAt: "2026-08-16T00:00:00Z"
 
 sources:
   # Existing sources...
