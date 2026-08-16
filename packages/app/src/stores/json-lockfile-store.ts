@@ -59,7 +59,13 @@ export type RepositoryCommitMode = 'commit' | 'local-only';
 export interface LockfileFileEntry {
   /** Relative path from repository root. */
   path: string;
-  /** SHA256 checksum of the file contents. */
+  /**
+   * SHA256 of the extracted archive bytes for this path (not the
+   * optionally transformed on-disk result). User-modification checks
+   * compare this against the current file; transformed files will
+   * therefore look modified until an `installedChecksum` field is
+   * added (issue #357 Stage 2).
+   */
   checksum: string;
 }
 

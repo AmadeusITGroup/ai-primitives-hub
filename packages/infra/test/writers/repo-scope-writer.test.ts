@@ -340,6 +340,54 @@ prompts:
     expect(result.written).toEqual([]);
   });
 
+  it('writes binary skill assets byte-for-byte (issue #357)', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+
+    // Zip local-header magic followed by bytes that are NOT valid UTF-8;
+    // a lossy TextDecoder round-trip would replace them with U+FFFD.
+    const binaryBytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x9D, 0xC7, 0x80]);
+    const manifest = `id: test-bundle
+skills:
+  - id: deck-skill
+    file: skills/deck-skill/SKILL.md
+    type: skill`;
+
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['skills/deck-skill/SKILL.md', new TextEncoder().encode('# Deck skill')],
+      ['skills/deck-skill/assets/template.pptx', binaryBytes]
+    ]);
+
+    const result = await writer.write(files);
+
+    const installedPath = path.join(WORKSPACE_ROOT, '.github', 'skills', 'deck-skill', 'assets', 'template.pptx');
+    expect(result.written).toContain(installedPath);
+    expect(await fs.readFileBytes(installedPath)).toEqual(binaryBytes);
+  });
+
+  it('writes binary manifest items byte-for-byte', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+
+    const binaryBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0xFF, 0xD8, 0x00, 0xC0]);
+    const manifest = `id: test-bundle
+hooks:
+  - id: binary-hook
+    file: hooks/tool.bin
+    type: hook`;
+
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['hooks/tool.bin', binaryBytes]
+    ]);
+
+    await writer.write(files);
+
+    const installedPath = path.join(WORKSPACE_ROOT, '.github', 'hooks', 'tool.bin');
+    expect(await fs.readFileBytes(installedPath)).toEqual(binaryBytes);
+  });
+
   it('handles file paths with special characters', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });

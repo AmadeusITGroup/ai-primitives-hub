@@ -78,6 +78,15 @@ class NodeWriterFs implements WriterFs {
     await writeFile(p, contents, 'utf8');
   }
 
+  public async writeFileBytes(p: string, bytes: Uint8Array): Promise<void> {
+    await fs.promises.writeFile(p, bytes);
+  }
+
+  public async readFileBytes(p: string): Promise<Uint8Array> {
+    const buffer = await fs.promises.readFile(p);
+    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  }
+
   public async mkdir(p: string, opts?: { recursive?: boolean }): Promise<void> {
     await fs.promises.mkdir(p, opts);
   }

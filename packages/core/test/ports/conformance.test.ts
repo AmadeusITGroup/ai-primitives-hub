@@ -55,6 +55,14 @@ class InMemoryFileSystem implements FileSystem {
     this.files.set(path, contents);
   }
 
+  public async readFileBytes(path: string): Promise<Uint8Array> {
+    return new TextEncoder().encode(await this.readFile(path));
+  }
+
+  public async writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
+    this.files.set(path, new TextDecoder().decode(bytes));
+  }
+
   public async readJson<T = unknown>(path: string): Promise<T> {
     return JSON.parse(await this.readFile(path)) as T;
   }

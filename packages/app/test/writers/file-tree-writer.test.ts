@@ -177,6 +177,43 @@ describe('FileTreeTargetWriter', () => {
     expect(result.skipped).toContain('prompts/test.md');
   });
 
+  it('writes binary files byte-for-byte without applying a transformer (issue #357)', async () => {
+    const fs = new InMemoryFileSystem();
+    const transformer: ResourceTransformer = {
+      transform: (ctx) => ({ content: `${ctx.content}\n<!-- transformed -->`, modified: true })
+    };
+    const writer = new FileTreeTargetWriter({ fs, env: {}, transformer });
+    // Invalid UTF-8 sequences: a lossy TextDecoder round-trip would
+    // replace them with U+FFFD and corrupt the asset.
+    const binaryBytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x9D, 0xC7, 0x80]);
+    const files = new Map<string, Uint8Array>([
+      ['skills/deck/assets/template.pptx', binaryBytes]
+    ]);
+
+    const result = await writer.write(target, files);
+
+    const installedPath = localPath('/out', 'skills', 'deck', 'assets', 'template.pptx');
+    expect(result.written).toContain(installedPath);
+    expect(await fs.readFileBytes(installedPath)).toEqual(binaryBytes);
+  });
+
+  it('writes binary skill assets byte-for-byte in writeManifestItems', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const binaryBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0xFF, 0xD8, 0x00, 0xC0]);
+    const files = new Map<string, Uint8Array>([
+      ['skills/deck/SKILL.md', new TextEncoder().encode('# Deck')],
+      ['skills/deck/assets/logo.png', binaryBytes]
+    ]);
+    const items: ManifestPlacementItem[] = [
+      { id: 'deck', file: 'skills/deck/SKILL.md', type: 'skill' }
+    ];
+
+    await writer.writeManifestItems(target, files, items);
+
+    expect(await fs.readFileBytes(localPath('/out', 'skills', 'deck', 'assets', 'logo.png'))).toEqual(binaryBytes);
+  });
+
   it('applies a resource transformer to file content', async () => {
     const fs = new InMemoryFileSystem();
     const transformer: ResourceTransformer = {

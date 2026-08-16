@@ -34,11 +34,13 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  decodeUtf8Strict,
   determineFileType,
   expandPath,
   getSkillName,
   getTargetFileName,
   normalizePromptId,
+  verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
   defaultLayouts as builtInLayouts,
@@ -58,6 +60,14 @@ export type {
 
 export interface WriterFs {
   writeFile(p: string, contents: string): Promise<void>;
+  /**
+   * Write raw bytes verbatim. Required for binary bundle assets
+   * (images, archives, office documents): decoding them through the
+   * string `writeFile` path is lossy and corrupts them (issue #357).
+   */
+  writeFileBytes(p: string, bytes: Uint8Array): Promise<void>;
+  /** Byte-level read-back used for post-write integrity verification. */
+  readFileBytes(p: string): Promise<Uint8Array>;
   mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;
   remove(p: string): Promise<void>;
   exists(p: string): Promise<boolean>;
@@ -220,30 +230,60 @@ export class FileTreeTargetWriter implements TargetWriter {
         continue;
       }
 
-      // Decode content
-      let content = new TextDecoder().decode(bytes);
-
-      // Apply transformation if transformer is provided
-      if (this.opts.transformer !== undefined) {
-        try {
-          const result = this.opts.transformer.transform({
-            target,
-            filePath: bundlePath,
-            content
-          });
-          content = result.content;
-        } catch {
-          // Fail-safe: on transformation error, use original content
-          // In production, this would log a warning
-        }
-      }
-
       const outPath = path.join(baseDir, route.outPrefix, route.tail);
-      await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFile(outPath, content);
+      await this.writeContent(target, bundlePath, bytes, outPath);
       written.push(outPath);
     }
     return { written, skipped };
+  }
+
+  /**
+   * Write one bundle file to its resolved output path, binary-safe
+   * (issue #357).
+   *
+   * Text payloads (strict UTF-8) go through the optional transformer
+   * and are written as strings; anything else is written byte-for-byte
+   * — the previous unconditional `TextDecoder` round-trip replaced
+   * invalid UTF-8 sequences with U+FFFD and corrupted binary assets
+   * such as PPTX files. Every write is verified by re-reading the file
+   * and comparing it against the intended bytes.
+   * @param target - Install target (passed to the transformer).
+   * @param bundlePath - Bundle-relative source path (transformer context).
+   * @param bytes - Raw source bytes from the extracted bundle.
+   * @param outPath - Absolute destination path.
+   */
+  private async writeContent(
+    target: Target,
+    bundlePath: string,
+    bytes: Uint8Array,
+    outPath: string
+  ): Promise<void> {
+    await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
+
+    const text = decodeUtf8Strict(bytes);
+    if (text === null) {
+      // Binary payload: write verbatim, never transform.
+      await this.opts.fs.writeFileBytes(outPath, bytes);
+      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+      return;
+    }
+
+    let content = text;
+    if (this.opts.transformer !== undefined) {
+      try {
+        const result = this.opts.transformer.transform({
+          target,
+          filePath: bundlePath,
+          content
+        });
+        content = result.content;
+      } catch {
+        // Fail-safe: on transformation error, use original content
+        // In production, this would log a warning
+      }
+    }
+    await this.opts.fs.writeFile(outPath, content);
+    await verifyWrittenBytes(this.opts.fs, outPath, new TextEncoder().encode(content));
   }
 
   /**
@@ -305,17 +345,7 @@ export class FileTreeTargetWriter implements TargetWriter {
         continue;
       }
       const outPath = path.join(baseDir, outPrefix, getTargetFileName(item.id, type));
-      let content = new TextDecoder().decode(bytes);
-      if (this.opts.transformer !== undefined) {
-        try {
-          const result = this.opts.transformer.transform({ target, filePath: item.file, content });
-          content = result.content;
-        } catch {
-          // Fail-safe: on transformation error, use original content
-        }
-      }
-      await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFile(outPath, content);
+      await this.writeContent(target, item.file, bytes, outPath);
       written.push(outPath);
     }
 
@@ -361,8 +391,11 @@ export class FileTreeTargetWriter implements TargetWriter {
       }
       const tail = bundlePath.slice(sourcePrefix.length);
       const outPath = path.join(baseDir, outPrefix, targetSkillId, tail);
+      // Skill directories carry arbitrary assets (scripts, images,
+      // office documents) — copy byte-for-byte, never transform.
       await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFile(outPath, new TextDecoder().decode(bytes));
+      await this.opts.fs.writeFileBytes(outPath, bytes);
+      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
       written.push(outPath);
       wroteAny = true;
     }
