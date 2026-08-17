@@ -91,6 +91,8 @@ const rejectFsCall = (): Promise<never> =>
 const STUB_FS: FsAbstraction = {
   readFile: rejectFsCall,
   writeFile: rejectFsCall,
+  readFileBytes: rejectFsCall,
+  writeFileBytes: rejectFsCall,
   readJson: rejectFsCall,
   writeJson: rejectFsCall,
   exists: rejectFsCall,

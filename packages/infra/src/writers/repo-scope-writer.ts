@@ -22,6 +22,9 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  verifyWrittenBytes,
+} from '@ai-primitives-hub/core';
+import {
   load as parseYaml,
 } from 'js-yaml';
 
@@ -104,6 +107,23 @@ export class RepositoryScopeWriter {
     const text = new TextDecoder().decode(manifestBytes);
     const manifest = parseYaml(text) as DeploymentManifest;
     return manifest;
+  }
+
+  /**
+   * Write raw bundle bytes verbatim and verify the on-disk result.
+   *
+   * Binary-safe (issue #357): the previous string round-trip
+   * (`TextDecoder` + `writeFile`) replaced invalid UTF-8 sequences with
+   * U+FFFD and corrupted binary assets such as PPTX files. Writing
+   * bytes and re-reading them turns any residual corruption into a
+   * loud `FileIntegrityError` instead of a silent broken artifact.
+   * @param targetPath Absolute destination path.
+   * @param bytes Exact bytes to install.
+   */
+  private async writeBytesVerified(targetPath: string, bytes: Uint8Array): Promise<void> {
+    await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await this.fs.writeFileBytes(targetPath, bytes);
+    await verifyWrittenBytes(this.fs, targetPath, bytes);
   }
 
   private getTargetPath(item: { type: string; file: string }): string | null {
@@ -195,8 +215,7 @@ export class RepositoryScopeWriter {
       if (bundlePath.startsWith(sourcePrefix)) {
         const relativePath = bundlePath.slice(sourcePrefix.length);
         const targetPath = path.join(skillDir, relativePath);
-        await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
-        await this.fs.writeFile(targetPath, new TextDecoder().decode(bytes));
+        await this.writeBytesVerified(targetPath, bytes);
         written.push(targetPath);
       }
     }
@@ -226,8 +245,7 @@ export class RepositoryScopeWriter {
       if (bundlePath.startsWith(sourcePrefix)) {
         const relativePath = bundlePath.slice(sourcePrefix.length);
         const targetPath = path.join(pluginDir, relativePath);
-        await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
-        await this.fs.writeFile(targetPath, new TextDecoder().decode(bytes));
+        await this.writeBytesVerified(targetPath, bytes);
         written.push(targetPath);
       }
     }
@@ -251,8 +269,7 @@ export class RepositoryScopeWriter {
         if (bytes) {
           const targetPath = this.getTargetPath({ type: p.type, file: p.file });
           if (targetPath) {
-            await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
-            await this.fs.writeFile(targetPath, new TextDecoder().decode(bytes));
+            await this.writeBytesVerified(targetPath, bytes);
             written.push(targetPath);
           } else {
             skipped.push(p.file);
@@ -431,8 +448,7 @@ export class RepositoryScopeWriter {
             const relativePath = bundlePath.slice(skillPrefix.length);
             const targetPath = path.join(skillDir, relativePath);
 
-            await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
-            await this.fs.writeFile(targetPath, new TextDecoder().decode(bytes));
+            await this.writeBytesVerified(targetPath, bytes);
             written.push(targetPath);
           }
         }
