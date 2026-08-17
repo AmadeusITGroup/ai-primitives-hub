@@ -22,6 +22,7 @@ export interface FilterOptions {
   sourceId?: string;
   tags?: string[];
   searchText?: string;
+  contentTypes?: ContentTypeFilter[];
 }
 
 /**
@@ -138,6 +139,33 @@ export function filterBundlesBySearch(bundles: Bundle[], searchText: string): Bu
 }
 
 /**
+ * Content types that can be used for filtering
+ */
+export type ContentTypeFilter = 'agents' | 'skills' | 'prompts' | 'mcpServers' | 'instructions';
+
+/**
+ * Filter bundles by content types based on their content breakdown (OR logic)
+ * A bundle matches if it contains any of the specified content types
+ * @param bundles - Array of bundles with contentBreakdown
+ * @param contentTypes - Content types to filter by (empty array returns all bundles)
+ * @returns Filtered array of bundles
+ */
+export function filterBundlesByContentType(
+    bundles: (Bundle & { contentBreakdown?: { prompts?: number; instructions?: number; agents?: number; skills?: number; mcpServers?: number } })[],
+    contentTypes: ContentTypeFilter[]
+): Bundle[] {
+  if (contentTypes.length === 0) {
+    return bundles;
+  }
+  return bundles.filter((bundle) => {
+    if (!bundle.contentBreakdown) {
+      return false;
+    }
+    return contentTypes.some((type) => (bundle.contentBreakdown![type] || 0) > 0);
+  });
+}
+
+/**
  * Apply all filters to bundles
  * Combines source, tag, and search filtering
  * @param bundles - Array of bundles to filter
@@ -153,6 +181,10 @@ export function applyFilters(bundles: Bundle[], options: FilterOptions): Bundle[
 
   if (options.tags && options.tags.length > 0) {
     filtered = filterBundlesByTags(filtered, options.tags);
+  }
+
+  if (options.contentTypes && options.contentTypes.length > 0) {
+    filtered = filterBundlesByContentType(filtered, options.contentTypes);
   }
 
   if (options.searchText) {

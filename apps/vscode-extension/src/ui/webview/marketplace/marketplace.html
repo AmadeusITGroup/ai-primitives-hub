@@ -54,6 +54,21 @@
                 </div>
             </div>
         </div>
+
+        <div class="filter-group">
+            <label class="filter-label">Content:</label>
+            <div class="content-type-selector">
+                <button class="content-type-selector-btn" id="contentTypeSelectorBtn">
+                    <span id="contentTypeSelectorText">All Content</span>
+                    <span class="dropdown-arrow">▾</span>
+                </button>
+                <div class="content-type-dropdown" id="contentTypeDropdown" style="display: none;">
+                    <div class="content-type-list" id="contentTypeList">
+                        <!-- Content type options will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
         
         <div class="installed-filter" id="installedFilter">
             <input type="checkbox" id="installedCheckbox">
