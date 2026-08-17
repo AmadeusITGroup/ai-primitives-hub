@@ -249,8 +249,13 @@ suite('VersionConsolidator Property Tests', () => {
           // Consolidate
           const consolidated = consolidator.consolidateBundles(allBundles);
 
-          // Should have exactly one entry per unique repository
-          const expectedCount = repoConfigs.length;
+          // Should have exactly one entry per unique repository. The generator
+          // may emit the same owner/repo more than once; those collapse into a
+          // single consolidated entry, so count distinct repositories rather
+          // than raw config entries.
+          const expectedCount = new Set(
+            repoConfigs.map((config) => `${config.owner}/${config.repo}`)
+          ).size;
 
           // Verify count matches
           if (consolidated.length !== expectedCount) {
