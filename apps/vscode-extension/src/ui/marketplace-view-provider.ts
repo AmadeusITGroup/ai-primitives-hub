@@ -40,6 +40,9 @@ import {
   Logger,
 } from '../utils/logger';
 import {
+  formatInstallationScope,
+} from '../utils/scope-selection-ui';
+import {
   VersionManager,
 } from '../utils/version-manager';
 
@@ -48,7 +51,7 @@ import {
  */
 interface WebviewMessage {
   type: 'ready' | 'refresh' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
-    | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'completeSetup' | 'openExternalLink';
+    | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'completeSetup' | 'openExternalLink' | 'changeScope';
   bundleId?: string;
   installPath?: string;
   filePath?: string;
@@ -380,6 +383,11 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
           ...bundle,
           installed: !!installed,
           installedVersion: installed?.version,
+          installedScope: installed?.scope,
+          installedCommitMode: installed?.commitMode,
+          installedScopeLabel: installed
+            ? this.formatInstalledScope(installed)
+            : undefined,
           buttonState,
           isCurated,
           hubName,
@@ -618,6 +626,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         }
         break;
       }
+      case 'changeScope': {
+        if (message.bundleId) {
+          await this.handleChangeScope(message.bundleId);
+        }
+        break;
+      }
       default: {
         // eslint-disable-next-line @typescript-eslint/restrict-template-expressions -- value is safely stringifiable at runtime
         this.logger.warn(`Unknown message type: ${message.type}`);
@@ -744,11 +758,65 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Show scope selection dialog and return result
+   * @param bundleName - Optional name used in the picker title.
+   * @param current - Optional current installation to mark in the picker.
    * @returns Scope selection result or undefined if cancelled
    */
-  private async promptForScope(): Promise<import('../utils/scope-selection-ui').ScopeSelectionResult | undefined> {
+  private async promptForScope(
+    bundleName?: string,
+    current?: Pick<InstalledBundle, 'scope' | 'commitMode'>
+  ): Promise<import('../utils/scope-selection-ui').ScopeSelectionResult | undefined> {
     const { showScopeSelectionDialog } = await import('../utils/scope-selection-ui');
-    return showScopeSelectionDialog();
+    return showScopeSelectionDialog(bundleName, current);
+  }
+
+  private formatInstalledScope(installed: Pick<InstalledBundle, 'scope' | 'commitMode'>): string {
+    return formatInstallationScope(installed);
+  }
+
+  /**
+   * Move an installed bundle to another scope, or switch its repository mode.
+   * Existing scope commands provide transactional migration and rollback.
+   * @param bundleId - Marketplace bundle ID.
+   * @returns Whether a scope change command was run.
+   */
+  private async handleChangeScope(bundleId: string): Promise<boolean> {
+    const { bundle, installed } = await this.findInstalledBundleByMarketplaceId(bundleId);
+    if (!installed) {
+      vscode.window.showErrorMessage(`Bundle "${bundle.name}" is not installed.`);
+      return false;
+    }
+
+    const selected = await this.promptForScope(bundle.name, installed);
+    if (!selected) {
+      return false;
+    }
+
+    const currentMode = installed.commitMode ?? 'commit';
+    if (selected.scope === installed.scope
+      && (selected.scope === 'user' || selected.commitMode === currentMode)) {
+      vscode.window.showInformationMessage(
+        `"${bundle.name}" is already installed in ${this.formatInstalledScope(installed)}.`
+      );
+      return false;
+    }
+
+    let command: string;
+    if (selected.scope === 'user') {
+      command = 'promptRegistry.moveToUser';
+    } else if (installed.scope === 'user') {
+      command = selected.commitMode === 'local-only'
+        ? 'promptRegistry.moveToRepositoryLocalOnly'
+        : 'promptRegistry.moveToRepositoryCommit';
+    } else {
+      command = selected.commitMode === 'local-only'
+        ? 'promptRegistry.switchToLocalOnly'
+        : 'promptRegistry.switchToCommit';
+    }
+
+    await vscode.commands.executeCommand(command, installed.bundleId);
+    await this.loadBundles();
+    return true;
   }
 
   /**
@@ -1024,7 +1092,9 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
 
     // Generate dynamic sections
-    const installedBadge = isInstalled ? '<span class="badge">✓ Installed</span>' : '';
+    const installedBadge = isInstalled
+      ? `<span class="badge">✓ Installed: ${this.escapeHtml(this.formatInstalledScope(installed))}</span>`
+      : '';
 
     const autoUpdateSection = isInstalled
       ? `
@@ -1078,6 +1148,13 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
     const installedInfoRows = isInstalled
       ? `
+            <div class="info-row">
+                <div class="info-label">Installation Scope:</div>
+                <div class="info-value">
+                    ${this.escapeHtml(this.formatInstalledScope(installed))}
+                    <button class="scope-change-button" data-action="changeScope">Change</button>
+                </div>
+            </div>
             <div class="info-row">
                 <div class="info-label">Installed At:</div>
                 <div class="info-value">${new Date(installed.installedAt).toLocaleString()}</div>
@@ -1409,6 +1486,15 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
               if (installed) {
                 const newStatus = await this.registryManager.autoUpdateService?.isAutoUpdateEnabled(installed.bundleId) || false;
                 panel.webview.postMessage({ type: 'autoUpdateStatusChanged', enabled: newStatus });
+              }
+
+              break;
+            }
+            case 'changeScope': {
+              const changed = await this.handleChangeScope(bundle.id);
+              if (changed) {
+                panel.dispose();
+                await this.openBundleDetails(bundle.id);
               }
 
               break;

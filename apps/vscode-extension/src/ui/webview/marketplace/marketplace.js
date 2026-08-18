@@ -405,7 +405,10 @@
 
     marketplace.innerHTML = filteredBundles.map((bundle) => {
       return '<div class="bundle-card ' + (bundle.installed ? 'installed' : '') + '" data-bundle-id="' + bundle.id + '" data-action="openDetails">'
-        + (bundle.installed && bundle.autoUpdateEnabled ? '<div class="installed-badge">🔄 Auto-Update</div>' : (bundle.installed ? '<div class="installed-badge">✓ Installed</div>' : ''))
+        + (bundle.installed
+          ? '<div class="installed-badge">✓ ' + (bundle.installedScopeLabel || 'Installed')
+          + (bundle.autoUpdateEnabled ? ' • Auto-update' : '') + '</div>'
+          : '')
 
         + '<div class="bundle-header">'
         + '<div class="bundle-title">' + bundle.name + '</div>'
@@ -432,6 +435,9 @@
 
         + '<div class="bundle-actions" data-stop-propagation="true">'
         + renderBundleButtons(bundle)
+        + (bundle.installed
+          ? '<button class="btn btn-secondary" data-action="changeScope" data-bundle-id="' + bundle.id + '">Scope</button>'
+          : '')
         + '<button class="btn btn-secondary" data-action="openDetails" data-bundle-id="' + bundle.id + '">Details</button>'
         + '<button class="btn btn-link" data-action="openSourceRepo" data-bundle-id="' + bundle.id + '" title="Open Source Repository">'
         + '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">'
@@ -558,6 +564,10 @@
     vscode.postMessage({ type: 'openSourceRepository', bundleId: bundleId });
   };
 
+  const changeScope = (bundleId) => {
+    vscode.postMessage({ type: 'changeScope', bundleId: bundleId });
+  };
+
   const completeSetup = () => {
     vscode.postMessage({ type: 'completeSetup' });
   };
@@ -657,6 +667,13 @@
           if (bundleId) {
             e.stopPropagation();
             openSourceRepo(bundleId);
+          }
+          break;
+        }
+        case 'changeScope': {
+          if (bundleId) {
+            e.stopPropagation();
+            changeScope(bundleId);
           }
           break;
         }

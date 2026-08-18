@@ -44,6 +44,13 @@
     });
   };
 
+  const changeScope = () => {
+    vscode.postMessage({
+      type: 'changeScope',
+      bundleId: bundleId
+    });
+  };
+
   // Listen for status updates from extension
   window.addEventListener('message', (event) => {
     var message = event.data;
@@ -94,6 +101,10 @@
         }
         case 'toggleAutoUpdate': {
           toggleAutoUpdate();
+          break;
+        }
+        case 'changeScope': {
+          changeScope();
           break;
         }
       }

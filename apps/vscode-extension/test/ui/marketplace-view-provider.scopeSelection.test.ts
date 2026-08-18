@@ -76,6 +76,32 @@ suite('MarketplaceViewProvider - Scope Selection Bug', () => {
       assert.strictEqual(enabledAndPicked.length, 0,
         'No enabled option should be pre-selected when workspace is closed');
     });
+
+    test('should identify the current installation and pre-select it', () => {
+      const items = scopeSelectionUI.createScopeQuickPickItems(true, {
+        scope: 'repository',
+        commitMode: 'local-only'
+      });
+      const current = items.find((item) => item.picked);
+
+      assert.strictEqual(current?._scope, 'repository');
+      assert.strictEqual(current?._commitMode, 'local-only');
+      assert.match(current?.description || '', /Current installation/);
+    });
+  });
+
+  suite('Installed scope labels', () => {
+    test('should clearly label user and repository installation modes', () => {
+      assert.strictEqual(scopeSelectionUI.formatInstallationScope({ scope: 'user' }), 'User profile');
+      assert.strictEqual(
+        scopeSelectionUI.formatInstallationScope({ scope: 'repository', commitMode: 'commit' }),
+        'Repository (committed)'
+      );
+      assert.strictEqual(
+        scopeSelectionUI.formatInstallationScope({ scope: 'repository', commitMode: 'local-only' }),
+        'Repository (local only)'
+      );
+    });
   });
 
   suite('Scope option labels and descriptions', () => {

@@ -29,6 +29,25 @@ export interface ScopeSelectionResult {
   commitMode?: RepositoryCommitMode;
 }
 
+/** Installation information used to mark the current location in the picker. */
+export interface CurrentScopeSelection {
+  scope: InstallationScope;
+  commitMode?: RepositoryCommitMode;
+}
+
+/**
+ * Build the short scope label shown in bundle cards and details.
+ * @param installation - Installed scope and optional repository mode.
+ */
+export function formatInstallationScope(installation: CurrentScopeSelection): string {
+  if (installation.scope === 'user') {
+    return 'User profile';
+  }
+  return installation.commitMode === 'local-only'
+    ? 'Repository (local only)'
+    : 'Repository (committed)';
+}
+
 /**
  * Internal option structure for QuickPick items
  */
@@ -75,8 +94,12 @@ export function getRepositoryRootFolder(): string {
 /**
  * Creates the QuickPick items for scope selection
  * @param hasWorkspace
+ * @param current - Optional current installation to identify in the picker.
  */
-export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPickItem[] {
+export function createScopeQuickPickItems(
+  hasWorkspace: boolean,
+  current?: CurrentScopeSelection
+): ScopeQuickPickItem[] {
   const repoRoot = getRepositoryRootFolder();
   const options: ScopeSelectionOption[] = [
     {
@@ -103,16 +126,20 @@ export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPick
     }
   ];
 
-  return options.map((opt) => ({
-    label: opt.label,
-    description: opt.description,
-    detail: opt.detail,
-    picked: opt.scope === 'repository' && opt.commitMode === 'commit' && hasWorkspace,
-    _scope: opt.scope,
-    _commitMode: opt.commitMode,
-    _disabled: opt.disabled,
-    _originalDetail: opt.detail
-  }));
+  return options.map((opt) => {
+    const isCurrent = current?.scope === opt.scope
+      && (opt.scope === 'user' || (current.commitMode ?? 'commit') === opt.commitMode);
+    return {
+      label: `${opt.label}${isCurrent ? ' $(check)' : ''}`,
+      description: `${opt.description}${isCurrent ? ' • Current installation' : ''}`,
+      detail: opt.detail,
+      picked: isCurrent || (!current && opt.scope === 'repository' && opt.commitMode === 'commit' && hasWorkspace),
+      _scope: opt.scope,
+      _commitMode: opt.commitMode,
+      _disabled: opt.disabled,
+      _originalDetail: opt.detail
+    };
+  });
 }
 
 /**
@@ -126,6 +153,7 @@ export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPick
  * Repository options are disabled when no workspace is open.
  * When a disabled option is clicked, the dialog remains open and shows an inline warning.
  * @param bundleName - Optional bundle name to display in the dialog title
+ * @param current - Optional current installation when changing scope.
  * @returns The selected scope and commit mode, or undefined if cancelled
  * @example
  * ```typescript
@@ -138,12 +166,15 @@ export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPick
  * }
  * ```
  */
-export async function showScopeSelectionDialog(bundleName?: string): Promise<ScopeSelectionResult | undefined> {
+export async function showScopeSelectionDialog(
+  bundleName?: string,
+  current?: CurrentScopeSelection
+): Promise<ScopeSelectionResult | undefined> {
   const hasWorkspace = hasOpenWorkspace();
-  const quickPickItems = createScopeQuickPickItems(hasWorkspace);
+  const quickPickItems = createScopeQuickPickItems(hasWorkspace, current);
 
   const title = bundleName
-    ? `Install ${bundleName} - Select Scope`
+    ? `${current ? 'Change installation scope for' : 'Install'} ${bundleName}`
     : 'Select Installation Scope';
 
   // Use custom QuickPick to handle disabled option selection
