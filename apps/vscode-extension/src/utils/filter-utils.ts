@@ -16,6 +16,23 @@ export interface SourceWithCount extends RegistrySource {
 }
 
 /**
+ * Content types that can be used for filtering
+ */
+export type ContentTypeFilter = 'agents' | 'skills' | 'prompts' | 'mcpServers' | 'instructions';
+
+/**
+ * Content breakdown showing count of each resource type in a bundle
+ */
+export interface ContentBreakdown {
+  prompts: number;
+  instructions: number;
+  chatmodes: number;
+  agents: number;
+  skills: number;
+  mcpServers: number;
+}
+
+/**
  * Filter options for marketplace
  */
 export interface FilterOptions {
@@ -139,11 +156,6 @@ export function filterBundlesBySearch(bundles: Bundle[], searchText: string): Bu
 }
 
 /**
- * Content types that can be used for filtering
- */
-export type ContentTypeFilter = 'agents' | 'skills' | 'prompts' | 'mcpServers' | 'instructions';
-
-/**
  * Filter bundles by content types based on their content breakdown (OR logic)
  * A bundle matches if it contains any of the specified content types
  * @param bundles - Array of bundles with contentBreakdown
@@ -151,7 +163,7 @@ export type ContentTypeFilter = 'agents' | 'skills' | 'prompts' | 'mcpServers' |
  * @returns Filtered array of bundles
  */
 export function filterBundlesByContentType(
-    bundles: (Bundle & { contentBreakdown?: { prompts?: number; instructions?: number; agents?: number; skills?: number; mcpServers?: number } })[],
+    bundles: (Bundle & { contentBreakdown?: Partial<ContentBreakdown> })[],
     contentTypes: ContentTypeFilter[]
 ): Bundle[] {
   if (contentTypes.length === 0) {

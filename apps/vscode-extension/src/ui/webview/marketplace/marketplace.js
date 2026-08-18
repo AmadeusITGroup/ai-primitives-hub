@@ -219,10 +219,15 @@
 
   // Update selected content types from checkboxes
   const updateSelectedContentTypes = () => {
-    var checkboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:checked');
-    selectedContentTypes = Array.from(checkboxes).map((cb) => {
-      return cb.value;
-    });
+    var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
+    var checkedBoxes = Array.from(allCheckboxes).filter((cb) => cb.checked);
+    // When all types are selected (Select All), treat as no filter so all bundles are shown
+    if (checkedBoxes.length === allCheckboxes.length) {
+      selectedContentTypes = [];
+      document.querySelector('#contentType-selectAll').checked = true;
+    } else {
+      selectedContentTypes = checkedBoxes.map((cb) => cb.value);
+    }
     updateContentTypeButtonText();
     renderBundles();
   };
@@ -241,7 +246,8 @@
   };
 
   // Toggle tag dropdown
-  document.querySelector('#tagSelectorBtn').addEventListener('click', () => {
+  document.querySelector('#tagSelectorBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
     var dropdown = document.querySelector('#tagDropdown');
     dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
 
@@ -473,6 +479,7 @@
     }
 
     // Apply content type filter (OR logic - bundle matches if it has ANY of the selected types)
+    // NOTE: mirrors filterBundlesByContentType() in src/utils/filter-utils.ts — keep in sync
     if (selectedContentTypes.length > 0) {
       filteredBundles = filteredBundles.filter((bundle) => {
         if (!bundle.contentBreakdown) {
