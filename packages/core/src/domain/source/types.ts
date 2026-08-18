@@ -43,6 +43,8 @@ export interface RegistrySource {
     description?: string;
     homepage?: string;
     contact?: string;
+    /** Explicit maintainer recommendation; distinct from merely being curated. */
+    recommended?: boolean;
   };
   config?: {
     /** Git branch, for git-based sources. */

@@ -146,6 +146,10 @@
               "contact": {
                 "type": "string",
                 "description": "Contact information"
+              },
+              "recommended": {
+                "type": "boolean",
+                "description": "Explicitly mark collections from this source as maintainer-recommended"
               }
             }
           }

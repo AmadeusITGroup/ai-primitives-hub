@@ -43,6 +43,8 @@ export interface RegistrySource {
     description?: string;
     homepage?: string;
     contact?: string;
+    /** Explicit maintainer recommendation; curated alone does not imply recommended. */
+    recommended?: boolean;
   };
   config?: {
     branch?: string; // Git branch (for git-based sources)
@@ -66,6 +68,8 @@ export interface Bundle {
   tags: string[];
   downloads?: number;
   rating?: number;
+  /** Rating submitted by this user on this device. */
+  userRating?: number;
   lastUpdated: string;
   size: string;
   dependencies: BundleDependency[];
@@ -76,6 +80,7 @@ export interface Bundle {
   downloadUrl: string;
   isCurated?: boolean; // True if bundle is from a curated hub
   hubName?: string; // Name of the curated hub
+  recommended?: boolean; // Explicitly recommended by the source maintainer
   checksum?: {
     algorithm: string;
     hash: string;

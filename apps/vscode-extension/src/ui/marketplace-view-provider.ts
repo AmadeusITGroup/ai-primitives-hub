@@ -9,6 +9,9 @@ import MarkdownIt from 'markdown-it';
 import sanitizeHtml from 'sanitize-html';
 import * as vscode from 'vscode';
 import {
+  BundleFeedbackStore,
+} from '../services/bundle-feedback-store';
+import {
   RegistryManager,
 } from '../services/registry-manager';
 import {
@@ -48,7 +51,7 @@ import {
  */
 interface WebviewMessage {
   type: 'ready' | 'refresh' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
-    | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'completeSetup' | 'openExternalLink';
+    | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'completeSetup' | 'openExternalLink' | 'rateBundle';
   bundleId?: string;
   installPath?: string;
   filePath?: string;
@@ -56,6 +59,7 @@ interface WebviewMessage {
   enabled?: boolean;
   sourceId?: string;
   url?: string;
+  rating?: number;
 }
 
 /**
@@ -88,6 +92,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   private webviewReady = false;
   private latestBundlesMessage?: BundlesLoadedMessage;
   private readonly logger: Logger;
+  private readonly feedbackStore: BundleFeedbackStore;
 
   private readonly sourceSyncThrottle = new LeadingTrailingThrottle(
     () => void this.loadBundles(),
@@ -136,6 +141,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     private readonly setupStateManager: SetupStateManager
   ) {
     this.logger = Logger.getInstance();
+    this.feedbackStore = new BundleFeedbackStore(this.context.globalState);
 
     // Listen to bundle and source events to refresh marketplace
     this.disposables.push(
@@ -340,6 +346,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         this.registryManager.listSources()
       ]);
       const autoUpdateService = this.registryManager.autoUpdateService;
+      const userRatings = this.feedbackStore.getAll();
 
       // Preload auto-update preferences once per refresh
       const autoUpdatePreferences = autoUpdateService
@@ -383,6 +390,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
           buttonState,
           isCurated,
           hubName,
+          recommended: source?.metadata?.recommended === true,
+          userRating: userRatings[`${bundle.sourceId}:${bundle.id}`],
           contentBreakdown,
           availableVersions,
           autoUpdateEnabled
@@ -615,6 +624,13 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       case 'openExternalLink': {
         if (message.url) {
           await this.handleOpenExternalLink(message.url);
+        }
+        break;
+      }
+      case 'rateBundle': {
+        if (message.bundleId !== undefined && message.sourceId !== undefined && message.rating !== undefined) {
+          await this.feedbackStore.set(`${message.sourceId}:${message.bundleId}`, message.rating);
+          await this.loadBundles();
         }
         break;
       }

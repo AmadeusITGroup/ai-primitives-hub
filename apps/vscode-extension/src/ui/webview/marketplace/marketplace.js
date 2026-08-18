@@ -408,8 +408,17 @@
         + (bundle.installed && bundle.autoUpdateEnabled ? '<div class="installed-badge">🔄 Auto-Update</div>' : (bundle.installed ? '<div class="installed-badge">✓ Installed</div>' : ''))
 
         + '<div class="bundle-header">'
+        + (bundle.recommended ? '<div class="recommended-badge" title="Recommended by the source maintainer">★ Recommended</div>' : '')
         + '<div class="bundle-title">' + bundle.name + '</div>'
         + '<div class="bundle-author">by ' + (bundle.author || 'Unknown') + ' • ' + formatVersionLabel(bundle.version) + '</div>'
+        + '</div>'
+
+        + '<div class="bundle-rating" data-stop-propagation="true" aria-label="Rate this collection">'
+        + '<span class="rating-label">Your rating:</span>'
+        + [1, 2, 3, 4, 5].map((rating) => '<button class="rating-star ' + (rating <= (bundle.userRating || 0) ? 'selected' : '')
+          + '" data-action="rateBundle" data-bundle-id="' + bundle.id + '" data-source-id="' + bundle.sourceId + '" data-rating="' + rating
+          + '" title="Rate ' + rating + ' out of 5" aria-label="Rate ' + rating + ' out of 5">★</button>').join('')
+        + (typeof bundle.rating === 'number' ? '<span class="community-rating" title="Score supplied by the collection source">Source score: ' + bundle.rating.toFixed(1) + '</span>' : '')
         + '</div>'
 
         + '<div class="bundle-description">'
@@ -617,6 +626,8 @@
       var bundleId = actionElement.dataset.bundleId || (actionElement.closest('[data-bundle-id]') ? actionElement.closest('[data-bundle-id]').dataset.bundleId : null);
       var version = actionElement.dataset.version;
       var dropdownId = actionElement.dataset.dropdownId;
+      var rating = Number(actionElement.dataset.rating);
+      var sourceId = actionElement.dataset.sourceId;
 
       switch (action) {
         case 'openDetails': {
@@ -670,6 +681,13 @@
         case 'completeSetup': {
           e.stopPropagation();
           completeSetup();
+          break;
+        }
+        case 'rateBundle': {
+          if (bundleId && sourceId && Number.isInteger(rating)) {
+            e.stopPropagation();
+            vscode.postMessage({ type: 'rateBundle', bundleId: bundleId, sourceId: sourceId, rating: rating });
+          }
           break;
         }
       }
