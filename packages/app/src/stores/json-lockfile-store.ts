@@ -311,12 +311,20 @@ export const cleanupOrphanedSource = (lock: Lockfile, sourceId: string): Lockfil
  * expects. Excludes `deployment-manifest.yml` — it is bundle metadata,
  * not an installed file — matching every writer's own exclusion of it.
  * @param files - Extracted bundle files (path -> raw bytes).
+ * @param includedPaths
  * @returns Per-file checksum entries, manifest excluded.
  */
-export const checksumFiles = (files: ExtractedFiles): LockfileFileEntry[] => {
+export const checksumFiles = (
+  files: ExtractedFiles,
+  includedPaths?: Iterable<string>
+): LockfileFileEntry[] => {
   const entries: LockfileFileEntry[] = [];
+  const included = includedPaths === undefined ? null : new Set(includedPaths);
   for (const [filePath, bytes] of files) {
     if (filePath === 'deployment-manifest.yml') {
+      continue;
+    }
+    if (included !== null && !included.has(filePath)) {
       continue;
     }
     entries.push({

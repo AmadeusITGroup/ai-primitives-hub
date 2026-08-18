@@ -26,6 +26,11 @@ export {
   InstallPipelineError,
 } from './pipeline';
 
+export {
+  TargetWriteRejectedError,
+  writeTargetSafely,
+} from './target-write';
+
 export type {
   InstallOutcome,
   InstallPipelineOptions,

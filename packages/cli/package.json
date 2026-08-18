@@ -41,6 +41,7 @@
     "@ai-primitives-hub/app": "workspace:*",
     "@ai-primitives-hub/core": "workspace:*",
     "@ai-primitives-hub/infra": "workspace:*",
+    "@prompt-registry/collection-scripts": "workspace:^",
     "archiver": "^7.0.1",
     "clipanion": "4.0.0-rc.4",
     "inquirer": "^9.3.8",

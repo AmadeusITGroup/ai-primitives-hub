@@ -31,6 +31,46 @@ export const loadTargets = async (ctx: Context): Promise<Target[]> => {
 };
 
 /**
+ * CLI-only overrides that can change how a configured target is used for one
+ * command invocation.
+ */
+export interface TargetOverrides {
+  scope?: Target['scope'];
+  commitMode?: RepositoryCommitMode;
+}
+
+/**
+ * Derive the concrete target used by an operation.
+ *
+ * Scope and commit-mode flags must travel with the target all the way to the
+ * writer and lockfile helpers. Keeping them as separate local variables lets
+ * layout-aware writers observe the stale configured scope. Repository targets
+ * also need an explicit root so every downstream consumer resolves the same
+ * workspace when `--scope repository` is used without `--workspace-root`.
+ * @param ctx CLI context.
+ * @param target Configured target.
+ * @param overrides Per-invocation CLI overrides.
+ * @returns A new target containing the effective operation values.
+ */
+export const resolveEffectiveTarget = (
+  ctx: Context,
+  target: Target,
+  overrides: TargetOverrides = {}
+): Target => {
+  const scope = overrides.scope ?? target.scope;
+  const rootPath = target.rootPath === undefined || target.rootPath.length === 0
+    ? (scope === 'repository' ? ctx.cwd() : target.rootPath)
+    : target.rootPath;
+
+  return {
+    ...target,
+    ...(overrides.scope === undefined ? {} : { scope: overrides.scope }),
+    ...(overrides.commitMode === undefined ? {} : { commitMode: overrides.commitMode }),
+    ...(rootPath === undefined ? {} : { rootPath })
+  };
+};
+
+/**
  * Find the lockfile path for the current working directory.
  * @param ctx CLI context.
  * @returns Lockfile path or null if not found.

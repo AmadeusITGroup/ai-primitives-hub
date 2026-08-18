@@ -125,6 +125,23 @@ describe('target commands', () => {
       expect(result.exitCode).toBe(1);
     });
 
+    it('rejects an unknown allowed primitive kind', async () => {
+      const result = await run([
+        'target', 'add', 'bad-kinds', '--type', 'vscode', '--allowed-kinds', 'prompt,not-a-kind', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(1);
+    });
+
+    it('accepts canonical primitive kinds and legacy route aliases', async () => {
+      const result = await run([
+        'target', 'add', 'restricted', '--type', 'vscode',
+        '--allowed-kinds', 'prompt,chat-mode,skills', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ target: { allowedKinds: string[] } }>(result.stdout);
+      expect(envelope.data.target.allowedKinds).toEqual(['prompt', 'chat-mode', 'skill']);
+    });
+
     it('fails with exit 1 when adding a duplicate name', async () => {
       await run(['target', 'add', 'dup', '--type', 'vscode', '-o', 'json']);
       const result = await run(['target', 'add', 'dup', '--type', 'vscode', '-o', 'json']);

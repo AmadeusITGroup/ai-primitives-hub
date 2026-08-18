@@ -4,16 +4,23 @@ import {
   it,
 } from 'vitest';
 import {
+  getInstallableBundleFiles,
   ManifestValidationError,
   validateManifest,
 } from '../../../src/domain/collection/manifest-validator';
 import type {
   ExtractedFiles,
 } from '../../../src/ports/bundle-extractor';
+import {
+  createGovernedReleaseArchive,
+  createLegacyReleaseArchive,
+} from '../../fixtures/release-archives';
 
 const filesWith = (yaml: string): ExtractedFiles => new Map([
   ['deployment-manifest.yml', new TextEncoder().encode(yaml)]
 ]);
+
+const bytes = (content: string): Uint8Array => new TextEncoder().encode(content);
 
 describe('validateManifest', () => {
   it('returns the parsed manifest when id/version/name are present and nothing is expected', () => {
@@ -96,5 +103,54 @@ describe('validateManifest', () => {
     );
 
     expect(manifest.version).toBe('1.0.0');
+  });
+
+  it('keeps every legacy archive entry available to compatibility writers', () => {
+    const files = createLegacyReleaseArchive({ id: 'legacy-bundle' });
+
+    const manifest = validateManifest(files, {});
+
+    expect(manifest.formatVersion).toBeUndefined();
+    expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([...files.keys()]);
+  });
+
+  it('validates a fully governed release and exposes only installable files', () => {
+    const files = createGovernedReleaseArchive({ id: 'governed-bundle' });
+
+    const manifest = validateManifest(files, {});
+
+    expect(manifest.formatVersion).toBe(1);
+    expect(manifest.items).toEqual([{
+      id: 'hello',
+      path: 'prompts/hello.prompt.md',
+      kind: 'prompt'
+    }]);
+    expect(manifest.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'README.md', role: 'metadata' }),
+      expect.objectContaining({ path: 'LICENSE', role: 'metadata' }),
+      expect.objectContaining({ path: 'ignored/build/cache.pyc', role: 'ignored' })
+    ]));
+    expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([
+      'deployment-manifest.yml',
+      'prompts/hello.prompt.md'
+    ]);
+  });
+
+  it('rejects a versioned manifest when archive content is not declared in its inventory', () => {
+    const malformed = new Map(createGovernedReleaseArchive());
+    malformed.set('unexpected.txt', bytes('not declared'));
+
+    expect(() => validateManifest(malformed, {})).toThrowError(
+      expect.objectContaining({ code: 'BUNDLE.MANIFEST_INVALID' })
+    );
+  });
+
+  it('rejects a versioned manifest when an inventoried file is tampered with', () => {
+    const malformed = new Map(createGovernedReleaseArchive());
+    malformed.set('prompts/hello.prompt.md', bytes('# Tampered\n'));
+
+    expect(() => validateManifest(malformed, {})).toThrowError(
+      expect.objectContaining({ code: 'BUNDLE.MANIFEST_INVALID' })
+    );
   });
 });

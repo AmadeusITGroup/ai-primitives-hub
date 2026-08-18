@@ -17,11 +17,14 @@ import * as path from 'node:path';
 import type {
   ExtractedFiles,
   FileSystem,
+  PrimitiveKind,
   Target,
+  TargetWritePlan,
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  normalizePrimitiveKind,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -57,10 +60,12 @@ export interface RepositoryScopeWriterOptions {
  * Deployment manifest structure (matches test format).
  */
 interface DeploymentManifest {
+  formatVersion?: number;
   id?: string;
   version?: string;
   name?: string;
   description?: string;
+  items?: { path: string; kind: string; id?: string }[];
   prompts?: { id: string; file: string; type: string }[];
   agents?: { id: string; file: string; type: string }[];
   instructions?: { id: string; file: string; type: string }[];
@@ -76,6 +81,7 @@ interface WriteResult {
   written: string[];
   skipped: string[];
   skillDirs: string[];
+  writtenBundlePaths: string[];
 }
 
 /**
@@ -142,10 +148,10 @@ export class RepositoryScopeWriter {
     if (typeLower === 'prompt') {
       return 'copilot/prompts';
     }
-    if (typeLower === 'instruction') {
+    if (typeLower === 'instruction' || typeLower === 'instructions') {
       return 'copilot/instructions';
     }
-    if (typeLower === 'agent') {
+    if (typeLower === 'agent' || typeLower === 'chatmode' || typeLower === 'chat-mode') {
       return 'copilot/agents';
     }
     if (typeLower === 'skill') {
@@ -200,12 +206,14 @@ export class RepositoryScopeWriter {
    * @param files Extracted bundle files.
    * @param written Accumulates written file paths.
    * @param skillDirs Accumulates skill directory paths.
+   * @param writtenBundlePaths
    */
   private async installSkillItem(
     p: { file: string; id?: string },
     files: ExtractedFiles,
     written: string[],
-    skillDirs: string[]
+    skillDirs: string[],
+    writtenBundlePaths: string[]
   ): Promise<void> {
     const sourceSkillId = this.extractSkillId(p.file);
     const sourcePrefix = `skills/${sourceSkillId}`;
@@ -217,6 +225,7 @@ export class RepositoryScopeWriter {
         const targetPath = path.join(skillDir, relativePath);
         await this.writeBytesVerified(targetPath, bytes);
         written.push(targetPath);
+        writtenBundlePaths.push(bundlePath);
       }
     }
     skillDirs.push(skillDir);
@@ -230,12 +239,14 @@ export class RepositoryScopeWriter {
    * @param files Extracted bundle files.
    * @param written Accumulates written file paths.
    * @param skillDirs Accumulates plugin directory paths (reusing skillDirs for cleanup).
+   * @param writtenBundlePaths
    */
   private async installPluginItem(
     p: { file: string; id?: string },
     files: ExtractedFiles,
     written: string[],
-    skillDirs: string[]
+    skillDirs: string[],
+    writtenBundlePaths: string[]
   ): Promise<void> {
     const sourcePluginId = this.extractPluginId(p.file);
     const sourcePrefix = `plugins/${sourcePluginId}`;
@@ -247,6 +258,7 @@ export class RepositoryScopeWriter {
         const targetPath = path.join(pluginDir, relativePath);
         await this.writeBytesVerified(targetPath, bytes);
         written.push(targetPath);
+        writtenBundlePaths.push(bundlePath);
       }
     }
     skillDirs.push(pluginDir);
@@ -257,13 +269,20 @@ export class RepositoryScopeWriter {
     files: ExtractedFiles,
     written: string[],
     skipped: string[],
-    skillDirs: string[]
+    skillDirs: string[],
+    writtenBundlePaths: string[],
+    allowedKinds: ReadonlySet<PrimitiveKind> | null
   ): Promise<void> {
     for (const p of items) {
+      const kind = normalizePrimitiveKind(p.type);
+      if (allowedKinds !== null && (kind === null || !allowedKinds.has(kind))) {
+        skipped.push(p.file);
+        continue;
+      }
       if (p.type.toLowerCase() === 'skill') {
-        await this.installSkillItem(p, files, written, skillDirs);
+        await this.installSkillItem(p, files, written, skillDirs, writtenBundlePaths);
       } else if (p.type.toLowerCase() === 'plugin') {
-        await this.installPluginItem(p, files, written, skillDirs);
+        await this.installPluginItem(p, files, written, skillDirs, writtenBundlePaths);
       } else {
         const bytes = files.get(p.file);
         if (bytes) {
@@ -271,6 +290,7 @@ export class RepositoryScopeWriter {
           if (targetPath) {
             await this.writeBytesVerified(targetPath, bytes);
             written.push(targetPath);
+            writtenBundlePaths.push(p.file);
           } else {
             skipped.push(p.file);
           }
@@ -400,69 +420,117 @@ export class RepositoryScopeWriter {
     }
   }
 
+  private getManifestItems(manifest: DeploymentManifest): { file: string; type: string; id?: string }[] {
+    if (manifest.formatVersion === 1 && manifest.items !== undefined) {
+      return manifest.items.map((item) => ({ file: item.path, type: item.kind, id: item.id }));
+    }
+    return [
+      ...(manifest.items?.map((item) => ({ file: item.path, type: item.kind, id: item.id })) ?? []),
+      ...(manifest.prompts ?? []),
+      ...(manifest.agents ?? []),
+      ...(manifest.instructions ?? []),
+      ...(manifest.hooks ?? []),
+      ...(manifest.plugins ?? []),
+      // Legacy skill IDs were descriptive metadata rather than installation
+      // destination overrides. Preserve the historical source-directory route
+      // for unversioned manifests; canonical `items[]` remains authoritative
+      // for governed releases above.
+      ...(manifest.skills?.map((item) => ({ file: item.file, type: item.type })) ?? [])
+    ];
+  }
+
+  /**
+   * Plan a repository write without changing the filesystem.
+   * @param files Extracted bundle files.
+   * @param allowedKinds Optional canonical target allowlist.
+   * @returns Bundle-relative writable and skipped paths.
+   */
+  public async preflight(
+    files: ExtractedFiles,
+    allowedKinds?: readonly PrimitiveKind[]
+  ): Promise<TargetWritePlan> {
+    const manifestBytes = files.get('deployment-manifest.yml');
+    if (manifestBytes === undefined) {
+      return { writable: [], skipped: [] };
+    }
+    const manifest = await this.parseManifest(manifestBytes);
+    const allowed = allowedKinds === undefined ? null : new Set(allowedKinds);
+    const writable: string[] = [];
+    const skipped: string[] = [];
+
+    for (const item of this.getManifestItems(manifest)) {
+      const kind = normalizePrimitiveKind(item.type);
+      if (kind === null || (allowed !== null && !allowed.has(kind))) {
+        skipped.push(item.file);
+        continue;
+      }
+      if (kind === 'skill' || kind === 'plugin') {
+        const prefix = `${path.posix.dirname(item.file)}/`;
+        const matches = [...files.keys()].filter((file) => file.startsWith(prefix));
+        if (matches.length === 0) {
+          skipped.push(item.file);
+        } else {
+          writable.push(...matches);
+        }
+        continue;
+      }
+      if (files.has(item.file) && this.getTargetPath({ type: item.type, file: item.file }) !== null) {
+        writable.push(item.file);
+      } else {
+        skipped.push(item.file);
+      }
+    }
+
+    return { writable, skipped };
+  }
+
   /**
    * Write bundle files to repository scope.
    * @param files - Extracted bundle files.
+   * @param allowedKinds
    * @returns Write result with written paths.
    */
-  public async write(files: ExtractedFiles): Promise<WriteResult> {
+  public async write(files: ExtractedFiles, allowedKinds?: readonly PrimitiveKind[]): Promise<WriteResult> {
     const written: string[] = [];
     const skipped: string[] = [];
     const skillDirs: string[] = [];
+    const writtenBundlePaths: string[] = [];
+    const allowed = allowedKinds === undefined ? null : new Set(allowedKinds);
 
     const manifestBytes = files.get('deployment-manifest.yml');
     if (!manifestBytes) {
-      return { written, skipped, skillDirs };
+      return { written, skipped, skillDirs, writtenBundlePaths };
     }
 
     const manifest = await this.parseManifest(manifestBytes);
 
-    // Process prompts, agents, and instructions (skill items get directory install)
-    if (manifest.prompts) {
-      await this.processManifestItems(manifest.prompts, files, written, skipped, skillDirs);
-    }
-    if (manifest.agents) {
-      await this.processManifestItems(manifest.agents, files, written, skipped, skillDirs);
-    }
-    if (manifest.instructions) {
-      await this.processManifestItems(manifest.instructions, files, written, skipped, skillDirs);
-    }
-    // Process hooks and plugins
-    if (manifest.hooks) {
-      await this.processManifestItems(manifest.hooks, files, written, skipped, skillDirs);
-    }
-    if (manifest.plugins) {
-      await this.processManifestItems(manifest.plugins, files, written, skipped, skillDirs);
-    }
-
-    // Process skills
-    if (manifest.skills) {
-      for (const skillFile of manifest.skills) {
-        const skillId = this.extractSkillId(skillFile.file);
-        const skillPrefix = `skills/${skillId}`;
-        const skillDir = path.join(this.workspaceRoot, '.github', skillPrefix);
-
-        // Install all files in the skill directory
-        for (const [bundlePath, bytes] of files) {
-          if (bundlePath.startsWith(skillPrefix)) {
-            const relativePath = bundlePath.slice(skillPrefix.length);
-            const targetPath = path.join(skillDir, relativePath);
-
-            await this.writeBytesVerified(targetPath, bytes);
-            written.push(targetPath);
-          }
-        }
-
-        skillDirs.push(skillDir);
-      }
-    }
+    await this.processManifestItems(
+      this.getManifestItems(manifest),
+      files,
+      written,
+      skipped,
+      skillDirs,
+      writtenBundlePaths,
+      allowed
+    );
 
     // Update git exclude for local-only mode
     if (this.commitMode === 'local-only') {
       await this.updateGitExclude(written);
     }
 
-    return { written, skipped, skillDirs };
+    return { written, skipped, skillDirs, writtenBundlePaths };
+  }
+
+  /**
+   * Remove paths written by a rejected repository installation.
+   * @param written Absolute paths returned by `write`.
+   */
+  public async rollback(written: readonly string[]): Promise<void> {
+    await this.removePaths([...written]);
+    if (this.commitMode === 'local-only') {
+      await this.removeFromGitExclude([...written]);
+    }
   }
 
   /**
@@ -475,6 +543,34 @@ export class RepositoryScopeWriter {
   }
 
   /**
+   * Remove a bundle-relative file using the same route mapping as `write()`.
+   * Lockfiles record source paths from the bundle, whereas repository output
+   * lives below `.github/` and may use a different subdirectory.
+   * @param filePath - Bundle-relative path recorded in the lockfile.
+   */
+  public async removeBundleFile(filePath: string): Promise<void> {
+    const normalized = filePath.replaceAll('\\', '/');
+    const route = [
+      ['prompts/', 'copilot/prompts/'],
+      ['instructions/', 'copilot/instructions/'],
+      ['chat-modes/', 'copilot/agents/'],
+      ['chatmodes/', 'copilot/agents/'],
+      ['agents/', 'copilot/agents/'],
+      ['skills/', 'skills/'],
+      ['hooks/', 'hooks/'],
+      ['plugins/', 'plugins/']
+    ].find(([sourcePrefix]) => normalized.startsWith(sourcePrefix));
+
+    const targetPath = route === undefined
+      ? path.join(this.workspaceRoot, normalized)
+      : path.join(this.workspaceRoot, '.github', route[1], normalized.slice(route[0].length));
+    await this.removePaths([targetPath]);
+    if (this.commitMode === 'local-only') {
+      await this.removeFromGitExclude([targetPath]);
+    }
+  }
+
+  /**
    * Remove files for a bundle from repository scope.
    * @param bundleId - Bundle identifier (used for logging).
    * @param manifest - Deployment manifest to determine which files to remove.
@@ -483,24 +579,28 @@ export class RepositoryScopeWriter {
     const pathsToRemove: string[] = [];
     const skillDirsToRemove: string[] = [];
 
-    // Collect paths to remove for prompts, agents, and instructions
-    if (manifest.prompts) {
-      this.collectRemovePaths(manifest.prompts, pathsToRemove, skillDirsToRemove);
-    }
-    if (manifest.agents) {
-      this.collectRemovePaths(manifest.agents, pathsToRemove, skillDirsToRemove);
-    }
-    if (manifest.instructions) {
-      this.collectRemovePaths(manifest.instructions, pathsToRemove, skillDirsToRemove);
-    }
+    if (manifest.formatVersion === 1 && manifest.items !== undefined) {
+      this.collectRemovePaths(this.getManifestItems(manifest), pathsToRemove, skillDirsToRemove);
+    } else {
+      // Collect paths to remove for prompts, agents, and instructions
+      if (manifest.prompts) {
+        this.collectRemovePaths(manifest.prompts, pathsToRemove, skillDirsToRemove);
+      }
+      if (manifest.agents) {
+        this.collectRemovePaths(manifest.agents, pathsToRemove, skillDirsToRemove);
+      }
+      if (manifest.instructions) {
+        this.collectRemovePaths(manifest.instructions, pathsToRemove, skillDirsToRemove);
+      }
 
-    // Process skills
-    if (manifest.skills) {
-      for (const skillFile of manifest.skills) {
-        const skillId = this.extractSkillId(skillFile.file);
-        const skillPrefix = `skills/${skillId}`;
-        const skillDir = path.join(this.workspaceRoot, '.github', skillPrefix);
-        skillDirsToRemove.push(skillDir);
+      // Process legacy skills using their historic source-directory route.
+      if (manifest.skills) {
+        for (const skillFile of manifest.skills) {
+          const skillId = this.extractSkillId(skillFile.file);
+          const skillPrefix = `skills/${skillId}`;
+          const skillDir = path.join(this.workspaceRoot, '.github', skillPrefix);
+          skillDirsToRemove.push(skillDir);
+        }
       }
     }
 
@@ -557,19 +657,40 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
    * @param files
    */
   public async write(_target: Target, files: ExtractedFiles): Promise<TargetWriteResult> {
-    const result = await this.writer.write(files);
+    const result = await this.writer.write(files, _target.allowedKinds);
     return {
       written: result.written,
-      skipped: result.skipped
+      skipped: result.skipped,
+      writtenBundlePaths: result.writtenBundlePaths
     };
   }
 
+  public async preflight(target: Target, files: ExtractedFiles): Promise<TargetWritePlan> {
+    return this.writer.preflight(files, target.allowedKinds);
+  }
+
+  public async rollback(_target: Target, written: readonly string[]): Promise<void> {
+    await this.writer.rollback(written);
+  }
+
   /**
-   * TargetWriter.remove implementation - delegates to RepositoryScopeWriter.removeFile.
+   * TargetWriter.remove implementation - translates bundle-relative lockfile
+   * paths back through the repository writer's output routes. Legacy paths
+   * already relative to `.github/` retain the old behavior.
    * @param _target
    * @param filePath
    */
   public async remove(_target: Target, filePath: string): Promise<void> {
-    await this.writer.removeFile(filePath);
+    const normalized = filePath.replaceAll('\\', '/');
+    if (normalized.startsWith('.github/')) {
+      await this.writer.removeBundleFile(normalized);
+      return;
+    }
+    const knownBundlePrefix = /^(prompts|instructions|chat-modes|chatmodes|agents|skills|hooks|plugins)\//;
+    if (knownBundlePrefix.test(normalized)) {
+      await this.writer.removeBundleFile(normalized);
+      return;
+    }
+    await this.writer.removeFile(normalized);
   }
 }
