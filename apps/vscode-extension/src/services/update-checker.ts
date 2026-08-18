@@ -84,9 +84,10 @@ export class UpdateChecker {
    * Uses cache if available and valid, otherwise queries RegistryManager
    * Enriches results with auto-update preferences
    * @param bypassCache
+   * @param syncSources
    */
-  public async checkForUpdates(bypassCache = false): Promise<UpdateCheckResult[]> {
-    return this.core.checkForUpdates(bypassCache);
+  public async checkForUpdates(bypassCache = false, syncSources = true): Promise<UpdateCheckResult[]> {
+    return this.core.checkForUpdates(bypassCache, syncSources);
   }
 
   /**

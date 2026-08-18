@@ -12,6 +12,9 @@
  * @module stores/json-index-store
  */
 
+import {
+  randomUUID,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -25,10 +28,17 @@ import {
  */
 export function saveIndex(idx: PrimitiveIndex, filePath: string): void {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const temporaryPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`
+  );
+  try {
+    fs.writeFileSync(temporaryPath, JSON.stringify(idx.toJSON(), null, 2), 'utf8');
+    fs.renameSync(temporaryPath, filePath);
+  } finally {
+    fs.rmSync(temporaryPath, { force: true });
   }
-  fs.writeFileSync(filePath, JSON.stringify(idx.toJSON(), null, 2), 'utf8');
 }
 
 /**

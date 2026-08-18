@@ -88,6 +88,17 @@ export interface BundleRef {
 }
 
 /**
+ * Stable identity for one source-qualified bundle version.
+ *
+ * The separator is intentionally not user-facing; callers should treat the
+ * result as an opaque key shared by index records and installation snapshots.
+ * @param ref
+ */
+export function getBundleRefKey(ref: Pick<BundleRef, 'sourceId' | 'bundleId' | 'bundleVersion'>): string {
+  return `${ref.sourceId}\u0000${ref.bundleId}\u0000${ref.bundleVersion}`;
+}
+
+/**
  * The subset of a `deployment-manifest.yml` (or legacy `collection.yml`)
  * the harvester's primitive extractor reads: per-item kind/title/tags
  * hints, plus top-level tags/author as fallbacks. Permissive — unknown

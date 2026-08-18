@@ -5,9 +5,15 @@
  */
 
 import * as fs from 'node:fs';
+import {
+  resolveBundleSearchKeys,
+} from '@ai-primitives-hub/app';
 import MarkdownIt from 'markdown-it';
 import sanitizeHtml from 'sanitize-html';
 import * as vscode from 'vscode';
+import {
+  PrimitiveIndexService,
+} from '../services/primitive-index-service';
 import {
   RegistryManager,
 } from '../services/registry-manager';
@@ -47,7 +53,7 @@ import {
  * Message types sent from webview to extension
  */
 interface WebviewMessage {
-  type: 'ready' | 'refresh' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
+  type: 'ready' | 'refresh' | 'search' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
     | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'completeSetup' | 'openExternalLink';
   bundleId?: string;
   installPath?: string;
@@ -56,6 +62,7 @@ interface WebviewMessage {
   enabled?: boolean;
   sourceId?: string;
   url?: string;
+  query?: string;
 }
 
 /**
@@ -81,6 +88,20 @@ interface BundlesLoadedMessage {
   sourcesCount: number;
 }
 
+interface PrimitiveSearchDiagnostics {
+  profile: string;
+  ranking: string;
+  embeddings: boolean;
+  primitiveHits: number;
+  bundleHits: number;
+  error?: string;
+}
+
+interface MarketplaceBundleIdentity {
+  sourceId: string;
+  bundleId: string;
+}
+
 export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptregistry.marketplace';
 
@@ -96,6 +117,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
   private isLoadingBundles = false;
   private loadBundlesPending = false;
+  private primitiveSearchGeneration = 0;
   private disposables: vscode.Disposable[] = [];
   private markDownIt: InstanceType<typeof MarkdownIt> | undefined;
   private readonly sanitizeOptions: sanitizeHtml.IOptions = {
@@ -133,7 +155,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly registryManager: RegistryManager,
-    private readonly setupStateManager: SetupStateManager
+    private readonly setupStateManager: SetupStateManager,
+    private readonly primitiveIndexService?: PrimitiveIndexService
   ) {
     this.logger = Logger.getInstance();
 
@@ -160,7 +183,10 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       this.registryManager.onAutoUpdatePreferenceChanged(() => this.loadBundles()),
       // Repository bundle changes (lockfile changes, workspace folder changes)
       this.registryManager.onRepositoryBundlesChanged(() => this.loadBundles()),
-      this.registryManager.onReadmeDownloaded(() => this.loadBundles())
+      // README hydration emits one event per completed download batch. Route
+      // those events through the same throttle as source syncs so progressive
+      // hydration cannot start a marketplace load for every batch.
+      this.registryManager.onReadmeDownloaded(() => this.sourceSyncThrottle.trigger())
     );
   }
 
@@ -543,6 +569,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * @param message
    */
   private async handleMessage(message: WebviewMessage): Promise<void> {
+    if (message.type === 'search') {
+      this.logger.info(
+        `Marketplace search event received query="${message.query ?? ''}" `
+        + `service=${String(this.primitiveIndexService !== undefined)} view=${String(this._view !== undefined)}`
+      );
+    }
     switch (message.type) {
       case 'ready': {
         this.webviewReady = true;
@@ -552,6 +584,10 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       }
       case 'refresh': {
         await this.loadBundles();
+        break;
+      }
+      case 'search': {
+        await this.handlePrimitiveSearch(message.query ?? '');
         break;
       }
       case 'install': {
@@ -623,6 +659,110 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         this.logger.warn(`Unknown message type: ${message.type}`);
       }
     }
+  }
+
+  /**
+   * Resolve free-text marketplace search to ranked bundle identities.
+   * @param query
+   */
+  private async handlePrimitiveSearch(query: string): Promise<void> {
+    const searchGeneration = ++this.primitiveSearchGeneration;
+    if (!this.primitiveIndexService || !this._view) {
+      this.logger.warn(
+        `Marketplace semantic search skipped service=${String(this.primitiveIndexService !== undefined)} `
+        + `view=${String(this._view !== undefined)}`
+      );
+      return;
+    }
+
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) {
+      await this._view.webview.postMessage({
+        type: 'primitiveSearchResults',
+        query,
+        bundleKeys: null
+      });
+      return;
+    }
+
+    try {
+      this.logger.info(`Marketplace semantic search started profile=${this.primitiveIndexService.getProfile()} query="${normalizedQuery}"`);
+      // Marketplace search is deliberately read-only: source synchronization
+      // and index rebuilds are owned by the extension lifecycle. Do not call
+      // ensureBuilt() here because a missing snapshot must not trigger a
+      // provider enumeration or remote-source interaction on a keystroke.
+      const result = await this.primitiveIndexService.search({ q: normalizedQuery, limit: 200 });
+      this.logger.info(`Marketplace semantic search query completed profile=${this.primitiveIndexService.getProfile()} query="${normalizedQuery}"`);
+      if (searchGeneration !== this.primitiveSearchGeneration) {
+        this.logger.debug(`Ignoring stale Marketplace semantic search result query="${normalizedQuery}"`);
+        return;
+      }
+      const catalogBundles = this.getMarketplaceBundleIdentities();
+      const bundleKeys = resolveBundleSearchKeys(
+        result.hits.map((hit) => ({
+          sourceId: hit.primitive.bundle.sourceId,
+          bundleId: hit.primitive.bundle.bundleId
+        })),
+        catalogBundles
+      );
+      const diagnostics: PrimitiveSearchDiagnostics = {
+        profile: result.searchProfileId ?? this.primitiveIndexService.getProfile(),
+        ranking: result.ranking ?? 'unknown',
+        embeddings: result.embeddingUsed === true,
+        primitiveHits: result.hits.length,
+        bundleHits: bundleKeys.length
+      };
+      this.logger.info(
+        `Primitive semantic search profile=${result.searchProfileId ?? this.primitiveIndexService.getProfile()} `
+        + `ranking=${result.ranking ?? 'unknown'} embeddings=${String(result.embeddingUsed === true)} query="${normalizedQuery}" `
+        + `primitiveHits=${String(result.hits.length)} bundleHits=${String(bundleKeys.length)}`
+      );
+      const delivered = await this._view.webview.postMessage({
+        type: 'primitiveSearchResults',
+        query,
+        bundleKeys,
+        diagnostics
+      });
+      this.logger.info(
+        `Marketplace semantic search results delivered=${String(delivered)} query="${normalizedQuery}" `
+        + `catalogBundles=${String(catalogBundles.length)} bundleHits=${String(bundleKeys.length)}`
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Marketplace indexed search unavailable; using metadata search: ${reason}`);
+      await this._view.webview.postMessage({
+        type: 'primitiveSearchResults',
+        query,
+        bundleKeys: null,
+        diagnostics: {
+          profile: this.primitiveIndexService.getProfile(),
+          ranking: 'unavailable',
+          embeddings: false,
+          primitiveHits: 0,
+          bundleHits: 0,
+          error: reason
+        }
+      });
+    }
+  }
+
+  /**
+   * Return the exact catalog snapshot currently rendered by the webview.
+   * Searching the registry again here can produce a different consolidated
+   * version/source snapshot from `latestBundlesMessage`, making valid semantic
+   * keys invisible to the UI. Keep projection on the rendered snapshot.
+   */
+  private getMarketplaceBundleIdentities(): MarketplaceBundleIdentity[] {
+    const bundles = this.latestBundlesMessage?.bundles ?? [];
+    return bundles.flatMap((bundle) => {
+      if (!bundle || typeof bundle !== 'object') {
+        return [];
+      }
+      const candidate = bundle as { sourceId?: unknown; id?: unknown };
+      return typeof candidate.sourceId === 'string' && typeof candidate.id === 'string'
+        ? [{ sourceId: candidate.sourceId, bundleId: candidate.id }]
+        : [];
+    });
   }
 
   /**

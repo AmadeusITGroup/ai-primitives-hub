@@ -55,6 +55,25 @@ body {
     outline-offset: -1px;
 }
 
+.search-status {
+    min-height: 16px;
+    margin: -12px 0 12px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+
+.search-status.active {
+    color: var(--vscode-testing-iconPassed);
+}
+
+.search-status.searching {
+    color: var(--vscode-charts-blue);
+}
+
+.search-status.unavailable {
+    color: var(--vscode-editorWarning-foreground);
+}
+
 .filter-group {
     display: flex;
     align-items: center;

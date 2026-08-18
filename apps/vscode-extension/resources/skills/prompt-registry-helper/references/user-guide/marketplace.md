@@ -4,11 +4,18 @@ Open via Activity Bar icon or `Ctrl+Shift+P` → "AI Primitives Hub: Focus On Ma
 
 ## Browsing
 
-- **Search** — Filter by name, description, tags
+- **Search** — Filter by name, description, tags, and indexed primitive content
 - **Filter by Type** — Prompts, Instructions, Chat Modes, Agents
 - **Filter by Tags** — Multiple tags use OR logic
 - **Filter by Source** — Show bundles from specific repositories
 - **Installed Only** — Show only installed bundles
+
+The marketplace builds the primitive index on demand when you search. To start a
+rebuild explicitly, open the Command Palette and run **AI Primitives Hub:
+Rebuild Primitive Index**. The index is also rebuilt automatically after source
+syncs and bundle installation changes. `awesome-copilot` and
+`awesome-copilot-plugin` sources are intentionally excluded from primitive
+indexing; they remain available to the regular bundle catalog.
 
 ## Installing
 

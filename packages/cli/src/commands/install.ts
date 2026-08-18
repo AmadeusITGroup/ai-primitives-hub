@@ -64,12 +64,12 @@ import {
   TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
-import inquirer from 'inquirer';
 import {
   Command,
   createHubManager,
   failWith,
   findProjectLockfile,
+  loadInquirer,
   loadTargets,
   lockfilePathForTarget,
   Option,
@@ -550,7 +550,7 @@ async function interactiveBundleSelection(
       return 0;
     }
 
-    await previewInstallation(selectedBundles, target.name, ctx);
+    previewInstallation(selectedBundles, target.name, ctx);
     const confirmed = await confirmInstallation(ctx);
     if (!confirmed) {
       return 0;
@@ -606,7 +606,8 @@ async function promptBundleSelection(
   bundleChoices: { name: string; value: string; short: string }[],
   bundles: { id: string }[]
 ): Promise<{ id: string; version: string; source: string }[]> {
-  const answers = await inquirer.prompt([
+  const inquirer = await loadInquirer();
+  const answers = await inquirer.prompt<{ selectedBundles: string[] }>([
     {
       type: 'checkbox',
       name: 'selectedBundles',
@@ -616,11 +617,11 @@ async function promptBundleSelection(
     }
   ]);
 
-  const selectedBundleIds = answers.selectedBundles as string[];
+  const selectedBundleIds = answers.selectedBundles;
   return bundles.filter((b) => selectedBundleIds.includes(b.id)) as { id: string; version: string; source: string }[];
 }
 
-async function previewInstallation(bundles: { id: string; version: string; source: string }[], targetName: string, ctx: Context): Promise<void> {
+function previewInstallation(bundles: { id: string; version: string; source: string }[], targetName: string, ctx: Context): void {
   ctx.stdout.write(`\nPreview: Installing ${bundles.length} bundle${bundles.length === 1 ? '' : 's'} to target "${targetName}"\n`);
   for (const b of bundles) {
     ctx.stdout.write(`  - ${b.id}@${b.version} (source: ${b.source})\n`);
@@ -628,7 +629,8 @@ async function previewInstallation(bundles: { id: string; version: string; sourc
 }
 
 async function confirmInstallation(ctx: Context): Promise<boolean> {
-  const confirm = await inquirer.prompt([
+  const inquirer = await loadInquirer();
+  const confirm = await inquirer.prompt<{ proceed: boolean }>([
     {
       type: 'confirm',
       name: 'proceed',
