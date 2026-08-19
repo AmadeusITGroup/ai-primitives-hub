@@ -1,14 +1,17 @@
 # Architecture Overview
+AI Primitives Hub is one platform to discover, install, govern, and share AI primitives — prompts, instructions, agents, skills, and MCP server configurations — across every major AI coding tool. It runs as a VS Code extension (also in Kiro and Windsurf) and as a standalone CLI that targets VS Code, Kiro, Windsurf, Claude Code, Copilot CLI, and Kiro CLI, with per-IDE content adaptation and governance that scales from solo developers to teams to enterprise-wide primitive management.
 
-AI Primitives Hub is a pnpm monorepo for discovering, packaging, installing,
-and managing AI primitives. This page describes the implementation in this
-repository today. Architecture Decision Records (ADRs) explain decisions and
-migration direction; they are not evidence that every migration step is
-complete.
 
 ## Current Shape
 
-The repository has two delivery layers over shared packages:
+- Visual Marketplace with search/filter (extension)
+- CLI with interactive init wizard and multi-target install
+- Multi-source support (GitHub, Local, AwesomeCopilot, APM, Skills, Azure DevOps)
+- Multi-target install with per-IDE file layouts and content transformers
+- Bundle management (install, update, uninstall)
+- Auto-sync with GitHub Copilot
+- Cross-platform (macOS, Linux, Windows)
+- MCP server integration
 
 - The Clipanion CLI under `packages/cli/`
 - The VS Code extension under `apps/vscode-extension/`
@@ -19,17 +22,48 @@ storage wiring, events, notifications, and several compatibility facades. The
 extension is therefore not yet only a thin shell.
 
 ```mermaid
-flowchart TD
-    USER["CLI user"] --> CLI["packages/cli"]
-    IDE["VS Code user"] --> EXT["Extension commands and UI"]
-    EXT --> ESVC["Extension services and facades"]
-    CLI --> APP["packages/app"]
-    ESVC --> APP
-    ESVC --> INFRA["packages/infra"]
-    ESVC --> CORE["packages/core"]
-    APP --> INFRA
-    APP --> CORE
-    INFRA --> CORE
+graph TD
+    subgraph UI["🎨 UI Layer"]
+        A[Marketplace & Tree Views<br/>StatusBar]
+    end
+    
+    subgraph CMD["⚡ Command Layer"]
+        B[VS Code Commands<br/>Bundle • Source • Profile • Hub]
+    end
+    
+    subgraph SVC["🔧 Service Layer"]
+        C1[RegistryManager<br/>Central Orchestrator]
+        C2[BundleInstaller<br/>Download & Install]
+        C3[UserScopeService<br/>Sync to Copilot]
+        C4[UpdateService<br/>Auto Updates]
+        C5[McpServerManager<br/>MCP Integration]
+    end
+    
+    subgraph ADP["🔌 Adapter Layer"]
+        D[Source Adapters<br/>GitHub • Local • APM • Skills • Azure DevOps]
+    end
+    
+    subgraph TGT["🎯 Multi-Target Layer"]
+        T1[Host App Detection<br/>VS Code / Kiro / Windsurf]
+        T2[Target Writers<br/>Per-IDE file layouts]
+        T3[Content Transformers<br/>Kiro / Windsurf / Claude Code]
+    end
+    
+    subgraph STG["💾 Storage Layer"]
+        E[Persistent Storage<br/>Registry & Hub Data]
+    end
+    
+    UI --> CMD
+    CMD --> SVC
+    SVC --> ADP
+    SVC --> TGT
+    ADP --> STG
+    
+    C1 -.-> C2
+    C1 -.-> C3
+    C1 -.-> C4
+    C1 -.-> C5
+    C2 -.-> TGT
 ```
 
 ## Package Responsibilities
@@ -74,25 +108,20 @@ flowchart TD
 
 Important current boundaries:
 
-- `RegistryManager` remains the central extension facade. Search,
-  installation, uninstallation, update detection, and profile operations
-  already delegate substantial behavior to `packages/app`.
-- `BundleInstaller` owns extension-specific installation wiring and invokes
-  the shared `InstallPipeline` for the generic download, extraction,
-  validation, cache, and write sequence.
-- `UserScopeService` and `RepositoryScopeService` handle host- and
-  scope-specific synchronization.
-- `McpServerManager` and `McpConfigService` manage MCP configuration as a
-  merge/tracking lifecycle rather than as a normal copied file.
-- `HubManager` is an extension facade over shared Hub resolution, storage,
-  validation, and application operations.
-- Source adapter construction has moved to `packages/app` and
-  `packages/infra`; the extension adapter directory contains compatibility
-  wiring for remaining call sites.
+File locations vary by target IDE:
 
-See [Core Flows](./core-flows.md) for the current entry points and
-[Installation Flow](./architecture/installation-flow.md) for scope-specific
-details.
+| Target | User Scope | Repository Scope |
+|--------|-----------|----------------|
+| **VS Code** (macOS) | `~/Library/Application Support/Code/User/prompts` | `.github/prompts/` |
+| **VS Code** (Linux) | `~/.config/Code/User/prompts` | `.github/prompts/` |
+| **VS Code** (Windows) | `%APPDATA%/Code/User/prompts` | `.github/prompts/` |
+| **VS Code Insiders** | Same structure with `Code - Insiders` | `.github/prompts/` |
+| **Kiro / Kiro CLI** | `~/.kiro/` | `.kiro/` |
+| **Windsurf / Devin** | `~/.codeium/windsurf/` | `.windsurf/` |
+| **Claude Code** | `~/.claude/` | `.claude/` |
+| **Copilot CLI** | `~/.copilot/` | `.github/` |
+
+Supports: VS Code Stable, VS Code Insiders, Kiro/Kiro CLI, Windsurf/Devin (extension host detection); Claude Code, Copilot CLI, Kiro CLI (CLI-only targets).
 
 ## CLI
 
@@ -188,3 +217,5 @@ existing focused pages rather than repeating it here:
 
 When these pages disagree with executable code, tests, or schemas, treat the
 executable behavior as authoritative and correct the documentation.
+ing](./architecture/scaffolding.md) — Project templates
+- [Validation](./architecture/validation.md) — Schema validation

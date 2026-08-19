@@ -1,6 +1,6 @@
 # `packages/` — AI Primitives Hub library-centric packages
 
-Ports-and-adapters packages shared by the VS Code extension and the (future)
+Ports-and-adapters packages shared by the VS Code extension and the
 `ai-primitives-hub` CLI. See `.tmp/ai-primitives-hub-next-migration-plan.md`
 at the repo root for the full migration plan, architecture rationale, and
 phase-by-phase sequencing this directory is built against.
@@ -25,9 +25,9 @@ repository can move to pnpm in one deliberate, reviewed step.
 | Package | Purpose | Depends on |
 |---|---|---|
 | `core` | Domain types and port interfaces. No dependency on other `@ai-primitives-hub` packages. | — |
-| `infra` | Adapters implementing `core`'s ports: source adapters (GitHub/local/APM/Skills/Awesome Copilot), harvest, search, per-target writers, stores, scaffolding. | `core` |
-| `app` | Use-case orchestration: install/uninstall pipelines, registry (hub/profile), discovery + search, multi-target content transforms. Also the public SDK surface until a standalone `sdk` package has a real consumer. | `core`, `infra` |
-| `cli` | Thin Clipanion delivery adapter — argument parsing + calling into `app` + formatting output, never business logic. | `core`, `infra`, `app` |
+| `infra` | Adapters implementing `core`'s ports: source adapters (GitHub/local/APM/Skills/Awesome Copilot/Azure DevOps), harvest, search, per-target writers, stores, scaffolding. | `core` |
+| `app` | Use-case orchestration: install/uninstall pipelines, registry (hub/profile), discovery + search, multi-target content transforms (Kiro, Windsurf, Claude Code). Also the public SDK surface until a standalone `sdk` package has a real consumer. | `core`, `infra` |
+| `cli` | Thin Clipanion delivery adapter — argument parsing + calling into `app` + formatting output, never business logic. Supports six target types: `vscode`, `vscode-insiders`, `copilot-cli`, `kiro`, `windsurf`, `claude-code`. | `core`, `infra`, `app` |
 
 ## Planned module boundaries (reserved, not yet populated)
 

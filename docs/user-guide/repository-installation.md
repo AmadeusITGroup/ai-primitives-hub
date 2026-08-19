@@ -196,13 +196,33 @@ If you've modified bundle files locally, you'll see a warning before updating wi
 
 ## File Locations
 
-| File Type | Repository Location |
-|-----------|---------------------|
-| Prompts (`.prompt.md`) | `.github/prompts/` |
-| Instructions (`.instructions.md`) | `.github/instructions/` |
-| Agents (`.agent.md`) | `.github/agents/` |
-| Skills | `.github/skills/<skill-name>/` |
-| MCP Servers | `.vscode/mcp.json` |
+File locations depend on the target IDE. The extension auto-detects the host editor; the CLI uses the `--target` flag or `ai-primitives-hub.yml` configuration.
+
+| File Type | VS Code / Copilot CLI | Kiro | Windsurf / Devin | Claude Code |
+|-----------|----------------------|------|------------------|-------------|
+| Prompts (`.prompt.md`) | `.github/prompts/` | `.kiro/steering/` | `.windsurf/rules/` | `.claude/commands/` |
+| Instructions (`.instructions.md`) | `.github/instructions/` | `.kiro/steering/` | `.windsurf/rules/` | `.claude/instructions/` |
+| Agents (`.agent.md`) | `.github/agents/` | `.kiro/agents/` | `.windsurf/agents/` | `.claude/agents/` |
+| Skills | `.github/skills/<name>/` | `.kiro/skills/<name>/` | `.windsurf/skills/<name>/` | `.claude/skills/<name>/` |
+| MCP Servers | `.vscode/mcp.json` | `.kiro/settings/mcp.json` | `.windsurf/mcp_config.json` | `.claude.json` |
+
+> **Note:** MCP config key is `servers` for VS Code and `mcpServers` for Kiro, Windsurf, Claude Code, and Copilot CLI. The extension and CLI handle this translation automatically.
+
+### CLI Installation
+
+```bash
+# Install at repository scope
+ai-primitives-hub install <bundle-id> --target my-kiro --scope repository
+
+# Install at user scope
+ai-primitives-hub install <bundle-id> --target my-claude --scope user
+
+# Install from a local bundle
+ai-primitives-hub install <bundle-id> --from ./my-bundle.zip --target my-vscode
+
+# Install using a lockfile (declarative mode)
+ai-primitives-hub install --lockfile prompt-registry.lock.json --target my-vscode
+```
 
 ## Troubleshooting
 

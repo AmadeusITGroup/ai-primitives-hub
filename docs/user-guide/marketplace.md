@@ -4,6 +4,25 @@ Open it from the Activity Bar, or open the Command Palette (`Ctrl+Shift+P` on
 Windows/Linux or `Cmd+Shift+P` on macOS) and run
 **AI Primitives Hub: Focus On Marketplace View**.
 
+## CLI
+
+```bash
+# Discover available bundles
+ai-primitives-hub discover
+
+# Search by keyword
+ai-primitives-hub search <query>
+
+# Install a bundle
+ai-primitives-hub install <bundle-id> [--target <target-name>]
+
+# Update all bundles
+ai-primitives-hub update --all
+
+# Uninstall a bundle
+ai-primitives-hub uninstall <bundle-id> [--target <target-name>]
+```
+
 ## Browsing
 
 - **Search** — Filter by name, description, tags, and indexed primitive content
@@ -21,15 +40,31 @@ indexing; they remain available to the regular bundle catalog.
 
 ## Installing
 
+### Via Extension
 1. Click bundle tile to view details
 2. Click **Install** (or **Update** if newer version exists)
 3. Badge shows "✓ Installed" with version
+
+### Via CLI
+```bash
+ai-primitives-hub install <bundle-id> --target my-kiro
+```
 
 ## Updates
 
 - **Check for updates:** Right-click a bundle and select **Check for Updates**.
 - **Update all:** Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
   `Cmd+Shift+P` on macOS) and run **AI Primitives Hub: Update All Bundles**.
+
+### Via CLI
+
+```bash
+# Check for updates
+ai-primitives-hub update --dry-run
+
+# Apply updates
+ai-primitives-hub update --all
+```
 
 Auto-update settings in `File → Preferences → Settings → AI Primitives Hub`:
 
@@ -41,7 +76,13 @@ Auto-update settings in `File → Preferences → Settings → AI Primitives Hub
 
 ## Uninstalling
 
+### Via Extension
 Marketplace → Installed checkbox → Click bundle → Uninstall
+
+### Via CLI
+```bash
+ai-primitives-hub uninstall <bundle-id> --target my-kiro
+```
 
 ## See Also
 

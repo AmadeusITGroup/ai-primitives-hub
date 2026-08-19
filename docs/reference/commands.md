@@ -1,8 +1,12 @@
 # Command Reference
 
-This document lists all VS Code commands provided by the AI Primitives Hub extension.
+This document lists all commands provided by AI Primitives Hub — both the VS Code extension commands and the `ai-primitives-hub` CLI commands.
 
-## Bundle Management
+## VS Code Extension Commands
+
+> The extension runs in VS Code and its forks (Kiro, Windsurf/Devin). Commands are accessed via the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+
+### Bundle Management
 
 | Command | Title | Description |
 |---------|-------|-------------|
@@ -179,6 +183,83 @@ The scaffold command normalizes path separators to forward slashes before checki
 |---------|-------|-------------|
 | `promptregistry.openItemRepository` | Open Repository | Open an item's repository in a browser |
 | `promptRegistry.resetFirstRun` | Reset First Run | Reset first-run state to re-trigger hub selection dialog |
+
+## CLI Commands
+
+The `ai-primitives-hub` CLI provides a terminal interface for all core operations. It can target any supported IDE (VS Code, Kiro, Windsurf/Devin, Claude Code, Copilot CLI, Kiro CLI) without requiring an editor to be running.
+
+### Initialization & Targets
+
+| Command | Description |
+|---------|-------------|
+| `ai-primitives-hub init` | Interactive setup wizard — select IDE, configure hub, add sources |
+| `ai-primitives-hub target add <name> --type <type> [--scope <scope>] [--path <path>]` | Add an install target |
+| `ai-primitives-hub target list` | List configured targets |
+| `ai-primitives-hub target remove <name>` | Remove a target |
+| `ai-primitives-hub target types` | List all supported target types |
+
+### Installation
+
+| Command | Description |
+|---------|-------------|
+| `ai-primitives-hub install <bundle-id> [--target <name>] [--scope <scope>] [--from <path>] [--lockfile <file>]` | Install a bundle to a target |
+| `ai-primitives-hub uninstall <bundle-id> [--target <name>]` | Uninstall a bundle |
+| `ai-primitives-hub update [--all] [--dry-run]` | Check or apply updates |
+
+### Sources
+
+| Command | Description |
+|---------|-------------|
+| `ai-primitives-hub source add <name> --type <type> [--url <url>] [--path <path>]` | Add a bundle source |
+| `ai-primitives-hub source list` | List configured sources |
+| `ai-primitives-hub source remove <name>` | Remove a source |
+| `ai-primitives-hub source sync [<name>] [--all]` | Sync sources |
+
+### Hub & Profiles
+
+| Command | Description |
+|---------|-------------|
+| `ai-primitives-hub hub add <name> --url <url>` | Add a hub |
+| `ai-primitives-hub hub use <name>` | Set active hub |
+| `ai-primitives-hub hub sync` | Sync the active hub |
+| `ai-primitives-hub hub list` | List configured hubs |
+| `ai-primitives-hub profile list` | List available profiles |
+| `ai-primitives-hub profile activate <id> [--target <name>]` | Activate a profile |
+
+### Discovery & Search
+
+| Command | Description |
+|---------|-------------|
+| `ai-primitives-hub discover` | List all available bundles from all sources |
+| `ai-primitives-hub search <query>` | Search bundles by keyword or tag |
+| `ai-primitives-hub index build` | Build the local search index |
+| `ai-primitives-hub index search <query>` | Search the local index |
+
+### Collections & Scaffolding
+
+| Command | Description |
+|---------|-------------|
+| `ai-primitives-hub collection create` | Scaffold a new collection |
+| `ai-primitives-hub collection validate [path]` | Validate collection YAML files |
+| `ai-primitives-hub bundle build [path]` | Build a bundle from a collection |
+
+### Diagnostics
+
+| Command | Description |
+|---------|-------------|
+| `ai-primitives-hub status` | Show targets, active hub, index, and lockfile state |
+| `ai-primitives-hub doctor` | Run diagnostics — check auth, connectivity, config |
+
+### Supported Target Types
+
+| Type | Description |
+|------|-------------|
+| `vscode` | VS Code (user or repository scope) |
+| `vscode-insiders` | VS Code Insiders |
+| `copilot-cli` | GitHub Copilot CLI (user scope only) |
+| `kiro` | Kiro IDE / Kiro CLI |
+| `windsurf` | Windsurf Editor (Codeium) / Devin |
+| `claude-code` | Anthropic Claude Code |
 
 ## See Also
 

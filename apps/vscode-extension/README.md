@@ -1,15 +1,25 @@
 # 🎨 AI Primitives Hub
 
-> A visual marketplace for discovering, installing, and managing GitHub Copilot prompt libraries from multiple sources.
+> One platform to discover, install, govern, and share AI primitives — prompts, instructions, agents, skills, and MCP server configurations — across every major AI coding tool. From a solo developer to teams and enterprise, the same primitives scale effortlessly.
 
 [![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=AmadeusITGroup.prompt-registry)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=github)](https://amadeusitgroup.github.io/ai-primitives-hub/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Version](https://img.shields.io/github/v/release/AmadeusITGroup/ai-primitives-hub)](https://github.com/AmadeusITGroup/ai-primitives-hub/releases)
 
+### Supported IDEs & CLIs
+
+![VS Code](https://img.shields.io/badge/VS%20Code-✓-007ACC?logo=visual-studio-code&logoColor=white)
+![VS Code Insiders](https://img.shields.io/badge/VS%20Code%20Insiders-✓-24b395?logo=visual-studio-code&logoColor=white)
+![Kiro](https://img.shields.io/badge/Kiro-✓-FF6B35)
+![Kiro CLI](https://img.shields.io/badge/Kiro%20CLI-✓-FF6B35)
+![Windsurf / Devin](https://img.shields.io/badge/Windsurf%20%2F%20Devin-✓-1E90FF?logo=windsurf&logoColor=white)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-✓-D97757?logo=anthropic&logoColor=white)
+![Copilot CLI](https://img.shields.io/badge/Copilot%20CLI-✓-24292e?logo=githubcopilot&logoColor=white)
+
 ---
 
-**AI Primitives Hub** transforms how you discover and manage GitHub Copilot prompts. Browse a visual marketplace, search by tags, and install curated prompt libraries with a single click—no manual file copying or repository cloning required.
+**AI Primitives Hub** gives you a single marketplace to manage the full lifecycle of AI primitives — discover, install, update, transform, and share — across VS Code, Kiro, Windsurf, Claude Code, Copilot CLI, and Kiro CLI. Browse a visual marketplace, search by tags, and install curated prompt libraries with a single click—no manual file copying or repository cloning required. The CLI extends the same capabilities to any terminal, automatically adapting content (frontmatter, file layout, MCP config) to each target IDE.
 
 > **ℹ️ Note:** This project was formerly known as **Prompt Registry**. It has been renamed to **AI Primitives Hub** to better reflect its broader scope. The extension ID (`AmadeusITGroup.prompt-registry`) and package name remain unchanged for compatibility — seeing `prompt-registry` in install commands and file names is expected.
 
@@ -55,7 +65,7 @@ The extension automatically adds the Awesome Copilot source and syncs your selec
 - **📦 Version Management** — Track versions, detect updates, and enable automatic background updates ([details](./docs/user-guide/configuration.md))
 - **👥 Profiles & Hubs** — Organize bundles by project/team and share configurations across your organization ([details](./docs/user-guide/profiles-and-hubs.md))
 - **🤖 Built-in Copilot Skill** — Ask GitHub Copilot questions about AI Primitives Hub directly in chat — setup, authoring, troubleshooting, and more
-- **🌍 Cross-Platform** — Works on macOS, Linux, and Windows with all VS Code flavors
+- **🌍 Cross-Platform & Multi-Target** — Works on macOS, Linux, and Windows with all VS Code flavors (VS Code, Insiders, Kiro, Windsurf). The CLI extends support to Claude Code, Copilot CLI, and Kiro CLI.
 
 ---
 
@@ -97,10 +107,21 @@ The extension runs in VS Code and its forks. For **workspace (repository) scope*
 | Host editor | Workspace destination |
 |-------------|----------------------|
 | VS Code / VS Code Insiders | `.github/` |
-| Kiro | `.kiro/` |
-| Windsurf | `.windsurf/` |
+| Kiro / Kiro CLI | `.kiro/` |
+| Windsurf / Devin | `.windsurf/` |
 
-Only editors that are VS Code forks (and therefore actually run this extension) are detected. An unrecognized host falls back to the VS Code `.github/` layout, so behavior is never worse than before. Non-VS-Code tools such as Claude Code and Devin are CLI/cloud agents that do not run this extension, so they are not host-detected (the CLI can still target them explicitly).
+Only editors that are VS Code forks (and therefore actually run this extension) are detected. Devin is detected as Windsurf (they share the same paths and target type). Kiro CLI shares the same `.kiro/` directory as the Kiro IDE, so the `kiro` target covers both. An unrecognized host falls back to the VS Code `.github/` layout, so behavior is never worse than before. Non-VS-Code tools such as Claude Code, Copilot CLI, and Kiro CLI are CLI/cloud agents that do not run this extension, so they are not host-detected — but the `ai-primitives-hub` CLI can target them explicitly via `--target`.
+
+### CLI Targets
+
+The `ai-primitives-hub` CLI extends multi-target support beyond VS Code forks:
+
+| CLI Target | Type ID | User Scope | Repository Scope |
+|------------|--------|------------|------------------|
+| Claude Code | `claude-code` | `~/.claude/` | `.claude/` |
+| Copilot CLI | `copilot-cli` | `~/.copilot/` | `.github/` |
+
+The CLI applies the same content transformers as the extension (Kiro, Windsurf, Claude Code) and uses the same layout maps (`default-layouts.json`).
 
 > **Note:** Detection applies to new installs only. If you previously installed bundles into `.github/` while running Kiro, those files are **not** migrated automatically — reinstall the bundle (or move the files) to place them under `.kiro/`.
 
@@ -176,6 +197,8 @@ code --user-data-dir "$ud" --extensions-dir "$ed" --install-extension prompt-reg
 | **GitHub** | Direct from GitHub repositories
 | **Local** | File system directories 
 | **APM** | APM package repositories
+| **Skills** | GitHub repository with skills
+| **Azure DevOps** | Azure DevOps Git repositories
 
 → [Source Configuration Guide](./docs/user-guide/sources.md)
 

@@ -99,8 +99,234 @@ receive a `GitHubApiClient`; Azure DevOps receives an
 6. Update source configuration documentation.
 7. Update the Hub schema separately if Hubs should accept the new type.
 
-Do not register the adapter in an extension-only factory. Both delivery
-layers use the shared application factory.
+## Creating a Custom Adapter
+
+### Step 1: Implement the Interface
+
+```typescript
+import { IRepositoryAdapter, Bundle, SourceMetadata, ValidationResult } from '../types';
+
+export class MyCustomAdapter implements IRepositoryAdapter {
+    constructor(private config: MyAdapterConfig) {}
+    
+    async fetchBundles(): Promise<Bundle[]> {
+        // Fetch bundle list from your source
+        const response = await fetch(this.config.apiUrl);
+        const data = await response.json();
+        
+        return data.bundles.map(item => ({
+            id: item.id,
+            name: item.name,
+            version: item.version,
+            description: item.description,
+            // ... other bundle properties
+        }));
+    }
+    
+    async downloadBundle(bundle: Bundle): Promise<Buffer> {
+        // For buffer-based adapters
+        const response = await fetch(`${this.config.apiUrl}/download/${bundle.id}`);
+        return Buffer.from(await response.arrayBuffer());
+    }
+    
+    async fetchMetadata(): Promise<SourceMetadata> {
+        return {
+            name: this.config.name,
+            type: 'my-custom',
+            url: this.config.apiUrl,
+        };
+    }
+    
+    async validate(): Promise<ValidationResult> {
+        try {
+            await fetch(this.config.apiUrl);
+            return { valid: true };
+        } catch (error) {
+            return { valid: false, error: error.message };
+        }
+    }
+    
+    getManifestUrl(bundleId: string, version: string): string {
+        return `${this.config.apiUrl}/manifests/${bundleId}/${version}`;
+    }
+    
+    getDownloadUrl(bundleId: string, version: string): string {
+        return `${this.config.apiUrl}/download/${bundleId}/${version}`;
+    }
+}
+```
+
+### Step 2: Register the Adapter
+
+Register your adapter with the `RepositoryAdapterFactory`:
+
+```typescript
+import { RepositoryAdapterFactory } from '../adapters/RepositoryAdapterFactory';
+import { MyCustomAdapter } from './MyCustomAdapter';
+
+// Register the adapter type
+RepositoryAdapterFactory.register('my-custom', MyCustomAdapter);
+```
+
+### Step 3: Update Source Types
+
+Add your adapter type to the `SourceType` union in `src/types/registry.ts`:
+
+```typescript
+export type SourceType = 
+    | 'github' 
+    | 'local' 
+    | 'awesome-copilot'
+    | 'local-awesome-copilot'
+    | 'apm'
+    | 'local-apm'
+    | 'azure-devops'
+    | 'my-custom';
+```
+
+## Built-in Adapters
+
+| Adapter | Source Type | Description | Status |
+|---------|-------------|-------------|--------|
+| `GitHubAdapter` | `github` | Fetches releases and assets from GitHub repositories | Active |
+| `LocalAdapter` | `local` | Installs from local file system directories | Active |
+| `AwesomeCopilotAdapter` | `awesome-copilot` | Fetches YAML collections from GitHub, builds zips on-the-fly | Active |
+| `LocalAwesomeCopilotAdapter` | `local-awesome-copilot` | Local YAML collections for development | Active |
+| `ApmAdapter` | `apm` | APM package repositories | Active |
+| `LocalApmAdapter` | `local-apm` | Local APM packages | Active |
+| `SkillsAdapter` | `skills` | Fetches skills from a GitHub repository's `skills/` directory | Active |
+| `LocalSkillsAdapter` | `local-skills` | Local filesystem skills directory | Active |
+| `AzureDevOpsAdapter` | `azure-devops` | Fetches `.collection.yml` bundles from an Azure DevOps Git repo via PAT auth | Active |
+
+## Authentication
+
+Adapters that access private repositories should implement authentication. The GitHub and AwesomeCopilot adapters use a three-tier authentication chain:
+
+### VS Code Extension
+
+1. **VS Code GitHub Authentication** — Uses the built-in VS Code GitHub auth
+2. **GitHub CLI** — Falls back to `gh auth token` if available
+3. **Explicit Token** — Uses a configured token from source config
+
+### CLI
+
+1. **Environment variable** — `GITHUB_TOKEN` or `GH_TOKEN`
+2. **GitHub CLI** — Falls back to `gh auth token`
+3. **Explicit Token** — Passed via `--token` flag or `ai-primitives-hub.yml`
+
+```typescript
+private async getAuthenticationToken(): Promise<string | undefined> {
+    // 1. Try VSCode GitHub authentication
+    const session = await vscode.authentication.getSession('github', ['repo'], { silent: true });
+    if (session) return session.accessToken;
+    
+    // 2. Try GitHub CLI
+    const { stdout } = await execAsync('gh auth token');
+    if (stdout.trim()) return stdout.trim();
+    
+    // 3. Try explicit token from source config
+    const explicitToken = this.getAuthToken();
+    if (explicitToken) return explicitToken;
+    
+    return undefined;
+}
+```
+
+Use Bearer token format for authenticated requests:
+
+```typescript
+headers['Authorization'] = `Bearer ${token}`;
+```
+
+## Bundle Manifest Format
+
+Bundles must include a `deployment-manifest.yml` file:
+
+```yaml
+version: "1.0"
+id: "my-bundle"
+name: "My Custom Bundle"
+prompts:
+  - id: "my-prompt"
+    name: "My Prompt"
+    type: "prompt"
+    file: "prompts/my-prompt.prompt.md"
+    tags: ["custom", "example"]
+# Optional: MCP servers with user-configurable inputs
+mcpInputs:
+    - id: myToken
+        type: promptString
+        description: "API token"
+        password: true
+mcpServers:
+    my-server:
+        type: stdio
+        command: node
+        args:
+            - "${bundlePath}/server.js"
+            - "--token"
+            - "${input:myToken}"
+```
+
+The nested `mcp.items` and `mcp.inputs` shape is used in source collection files and is converted to these top-level deployment-manifest fields during bundle generation. Older deployment manifests may contain `mcpServers` without `mcpInputs`.
+
+## Error Handling
+
+Adapters should handle errors gracefully and return meaningful error messages:
+
+```typescript
+async fetchBundles(): Promise<Bundle[]> {
+    try {
+        const response = await fetch(this.config.apiUrl);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        Logger.getInstance().error(`[MyAdapter] Failed to fetch bundles: ${error.message}`);
+        throw error;
+    }
+}
+```
+
+## Target Writers
+
+The `TargetWriter` port (`packages/core/src/ports/target-writer.ts`) writes extracted bundle files into an install target's filesystem layout. The built-in implementation is `FileTreeTargetWriter` (`packages/app/src/writers/file-tree-writer.ts`).
+
+```typescript
+interface TargetWriter {
+    write(files: BundleFile[], target: Target): Promise<TargetWriteResult[]>;
+}
+```
+
+Each target type has a layout defined in `packages/infra/src/writers/default-layouts.json` that maps primitive kinds to directories:
+
+| Target | Prompts → | Instructions → | Agents → | Skills → | MCP Config |
+|--------|----------|----------------|----------|----------|------------|
+| `vscode` | `prompts/` | `instructions/` | `agents/` | `skills/` | `mcp.json` (key: `servers`) |
+| `kiro` (Kiro IDE / Kiro CLI) | `steering/` | `steering/` | `agents/` | `skills/` | `settings/mcp.json` (key: `mcpServers`) |
+| `windsurf` | `rules/` | `rules/` | `agents/` | `skills/` | `mcp_config.json` (key: `mcpServers`) |
+| `claude-code` | `commands/` | `instructions/` | `agents/` | `skills/` | `.claude.json` (key: `mcpServers`) |
+| `copilot-cli` | `prompts/` | `instructions/` | `agents/` | `skills/` | `mcp-config.json` (key: `mcpServers`) |
+
+## Resource Transformers
+
+The `ResourceTransformer` port (`packages/core/src/ports/resource-transformer.ts`) adapts file content per target — for example, ensuring mandatory frontmatter fields for Kiro, adjusting formatting for Windsurf, etc.
+
+```typescript
+interface ResourceTransformer {
+    transform(file: BundleFile, context: TransformContext): TransformResult;
+}
+```
+
+Built-in transformers (registered in `TransformerRegistry`):
+
+| Transformer | Target | What It Does |
+|-------------|--------|-------------|
+| `KiroTransformer` | `kiro` | Ensures agent files have `name` field in frontmatter (per [Kiro subagents spec](https://kiro.dev/docs/chat/subagents/)) |
+| `WindsurfTransformer` | `windsurf` (Devin) | Adds `trigger` field to rules frontmatter (`always_on`, `model_decision`, `glob`, `manual`); maps `applyTo` glob to `trigger: glob` + `globs` (per [Windsurf rules spec](https://docs.windsurf.com/windsurf/cascade/memories#rules)) |
+| `ClaudeCodeTransformer` | `claude-code` | Ensures agent files have both `name` and `description` in frontmatter (per [Claude Code subagents spec](https://code.claude.com/docs/en/sub-agents)) |
+| `NoOpTransformer` | `vscode`, `vscode-insiders`, `copilot-cli` | Pass-through — no content modifications |
 
 ## See Also
 

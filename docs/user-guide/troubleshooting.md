@@ -2,21 +2,37 @@
 
 ## Debug Mode
 
+### VS Code Extension
 Enable: `"promptregistry.enableLogging": true`
 
 View logs: `View → Output → AI Primitives Hub`
+
+### CLI
+```bash
+# Run diagnostics
+ai-primitives-hub doctor
+
+# Show current status
+ai-primitives-hub status
+
+# Verbose output
+ai-primitives-hub --verbose <command>
+```
 
 ## Common Issues
 
 ### Bundles Not Showing in Copilot
 
 1. Check sync completed in logs
-2. Verify directory exists:
-   - **macOS**: `~/Library/Application Support/Code/User/prompts/`
-   - **Linux**: `~/.config/Code/User/prompts/`
-   - **Windows**: `%APPDATA%\Code\User\prompts\`
-3. Restart VS Code (`Ctrl+R`)
-4. Run `AI Primitives Hub: Sync All Bundles`
+2. Verify directory exists for your target:
+   - **VS Code (macOS)**: `~/Library/Application Support/Code/User/prompts/`
+   - **VS Code (Linux)**: `~/.config/Code/User/prompts/`
+   - **VS Code (Windows)**: `%APPDATA%\Code\User\prompts\`
+   - **Kiro / Kiro CLI**: `~/.kiro/` (user) or `.kiro/` (repository)
+   - **Windsurf / Devin**: `~/.codeium/windsurf/` (user) or `.windsurf/` (repository)
+   - **Claude Code**: `~/.claude/` (user) or `.claude/` (repository)
+3. Restart your editor (`Ctrl+R` in VS Code)
+4. Run `AI Primitives Hub: Sync All Bundles` (extension) or `ai-primitives-hub sync` (CLI)
 
 ### Installation Fails
 
@@ -27,11 +43,18 @@ View logs: `View → Output → AI Primitives Hub`
 
 ### Authentication Fails (404/401)
 
+#### Via Extension
 1. Check VS Code GitHub auth (bottom-left avatar)
 2. Try GitHub CLI: `gh auth status`
 3. Add explicit token with `repo` scope
 4. Run: `AI Primitives Hub: Validate Repository Access`
 5. Force refresh authentication: `AI Primitives Hub: Force GitHub Authentication`
+
+#### Via CLI
+1. Check environment: `echo $GITHUB_TOKEN` or `echo $GH_TOKEN`
+2. Try GitHub CLI: `gh auth status`
+3. Pass token explicitly: `ai-primitives-hub --token <token> <command>`
+4. Run diagnostics: `ai-primitives-hub doctor`
 
 ### Azure DevOps Authentication Fails (401/403)
 
@@ -87,21 +110,27 @@ macOS) to access these commands:
 
 **⚠️ WARNING: Use as last resort only!**
 
-If all other troubleshooting steps fail, you can completely reset the extension:
+If all other troubleshooting steps fail, you can completely reset:
 
-1. **Complete Extension Reset** (most thorough):
-   - Uninstall the AI Primitives Hub extension
-   - Close VS Code completely
-   - Delete the extension storage directory:
-     - **macOS**: `~/Library/Application Support/Code/User/globalStorage/amadeus-prompt-registry/`
-     - **Linux**: `~/.config/Code/User/globalStorage/amadeus-prompt-registry/`
-     - **Windows**: `%APPDATA%\Code\User\globalStorage\amadeus-prompt-registry\`
-   - Restart VS Code
-   - Reinstall the AI Primitives Hub extension
+#### Extension Reset (most thorough):
+1. Uninstall the AI Primitives Hub extension
+2. Close your editor completely
+3. Delete the extension storage directory:
+   - **macOS**: `~/Library/Application Support/Code/User/globalStorage/amadeus-prompt-registry/`
+   - **Linux**: `~/.config/Code/User/globalStorage/amadeus-prompt-registry/`
+   - **Windows**: `%APPDATA%\Code\User\globalStorage\amadeus-prompt-registry\`
+4. Restart your editor
+5. Reinstall the AI Primitives Hub extension
 
-2. **Reset First Run Command** (alternative):
-   - Run: `AI Primitives Hub: Reset First Run`
-   - Reload VS Code window (`Ctrl+R` / `Cmd+R`)
+#### CLI Reset:
+1. Delete the CLI state: `rm -rf ~/.config/ai-primitives-hub/` (Linux/macOS) or `%APPDATA%\ai-primitives-hub\` (Windows)
+2. Delete the project config: `rm ai-primitives-hub.yml`
+3. Delete target state: `rm -rf .ai-primitives-hub/`
+4. Re-run `ai-primitives-hub init`
+
+#### Reset First Run Command (extension alternative):
+- Run: `AI Primitives Hub: Reset First Run`
+- Reload VS Code window (`Ctrl+R` / `Cmd+R`)
 
 **This will completely remove:**
 - All configured sources

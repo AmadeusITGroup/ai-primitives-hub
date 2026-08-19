@@ -1,8 +1,8 @@
 # Settings Reference
 
-This document describes all configuration settings available for the AI Primitives Hub extension.
+This document describes all configuration settings available for AI Primitives Hub — both the VS Code extension settings and the CLI configuration file.
 
-## General Settings
+## VS Code Extension Settings
 
 ### `promptregistry.autoCheckUpdates`
 
@@ -109,6 +109,65 @@ This document describes all configuration settings available for the AI Primitiv
   "promptregistry.updateCheck.notificationPreference": "critical"
 }
 ```
+
+## CLI Configuration
+
+The CLI reads configuration from `ai-primitives-hub.yml` in the project root. This file is created by `ai-primitives-hub init` and can be edited manually.
+
+### Structure
+
+```yaml
+# ai-primitives-hub.yml
+targets:
+  - name: my-vscode
+    type: vscode           # vscode | vscode-insiders | copilot-cli | kiro | windsurf | claude-code
+    scope: user            # user | repository
+    # path: /optional/path  # override the default install path
+    # allowedKinds:         # restrict which primitive types are installed
+    #   - prompts
+    #   - agents
+
+sources:
+  - name: awesome
+    type: awesome-copilot
+    enabled: true
+
+hub:
+  url: https://raw.githubusercontent.com/org/hub/main/hub.yml
+```
+
+### Target Configuration
+
+Each target entry supports:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Unique identifier for the target |
+| `type` | Yes | One of: `vscode`, `vscode-insiders`, `copilot-cli`, `kiro`, `windsurf`, `claude-code` |
+| `scope` | Yes | `user` or `repository` (Copilot CLI is always `user`) |
+| `path` | No | Override the default install path |
+| `allowedKinds` | No | Restrict which primitive types are installed (e.g., `prompts`, `agents`, `instructions`, `skills`, `hooks`, `plugins`) |
+
+### Per-Target File Layouts
+
+The CLI and extension use built-in layout maps (`default-layouts.json`) to route files to the correct directories per target type. Content transformers automatically adapt frontmatter for each target:
+
+| Target | Transformer | Key Adaptations |
+|--------|------------|-----------------|
+| `vscode` / `vscode-insiders` | No-op (pass-through) | None |
+| `copilot-cli` | No-op (pass-through) | None |
+| `kiro` (Kiro IDE / Kiro CLI) | `KiroTransformer` | Ensures `name` field in agent frontmatter |
+| `windsurf` (Devin) | `WindsurfTransformer` | Adds `trigger` field to rules frontmatter |
+| `claude-code` | `ClaudeCodeTransformer` | Ensures `name` + `description` in agent frontmatter |
+
+### CLI State
+
+CLI state is stored in:
+
+| Scope | Location |
+|-------|----------|
+| Per-project target state | `.ai-primitives-hub/target-state.json` |
+| User-level target state | `$XDG_CONFIG_HOME/ai-primitives-hub/target-state.json` (or `~/.config/ai-primitives-hub/` on Linux/macOS, `%APPDATA%\ai-primitives-hub\` on Windows) |
 
 ## See Also
 

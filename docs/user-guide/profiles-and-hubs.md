@@ -11,6 +11,13 @@ A **Profile** groups bundles from multiple sources. Activate with one click.
 - **Activate**: Right-click profile → Activate Profile
 - **Deactivate**: Right-click active profile → Deactivate Profile
 
+#### CLI
+
+```bash
+ai-primitives-hub profile list
+ai-primitives-hub profile activate <profile-id> [--target <target-name>]
+```
+
 ### Views
 
 - **Shared Profiles** — Full catalog from hubs
@@ -48,9 +55,11 @@ On first run, the extension automatically adds the **Awesome Copilot** source (`
 ### Automatic Hub Sync
 
 The active hub is automatically synchronized to keep it up-to-date:
-- **On startup**: Hub configuration is refreshed each time VS Code starts
-- **Periodic**: Hub re-syncs every 24 hours while VS Code is open
-- **Manual**: Right-click hub → Sync Hub
+
+- **On startup** (extension): Hub configuration is refreshed each time VS Code starts
+- **Periodic** (extension): Hub re-syncs every 24 hours while VS Code is open
+- **Manual** (extension): Right-click hub → Sync Hub
+- **Manual** (CLI): `ai-primitives-hub hub sync`
 
 After every hub sync (startup, periodic, or manual), all sources are automatically re-synced and the tree view refreshes with the latest bundles.
 
@@ -62,15 +71,23 @@ while collection installation, updates, and removal remain separate actions.
 
 ### Commands
 
-- **Import**: Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
-  `Cmd+Shift+P` on macOS) and run **AI Primitives Hub: Import Hub**
-- **Export**: Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
-  `Cmd+Shift+P` on macOS) and run
-  **AI Primitives Hub: Export Hub Configuration**
+#### VS Code Extension
+
+- **Import**: `Ctrl+Shift+P` → "AI Primitives Hub: Import Hub"
+- **Export**: `Ctrl+Shift+P` → "AI Primitives Hub: Export Hub Configuration"
 - **Sync**: Right-click hub → Sync Hub
 - **Reset First Run**: Open the Command Palette (`Ctrl+Shift+P` on
   Windows/Linux or `Cmd+Shift+P` on macOS) and run
   **AI Primitives Hub: Reset First Run** (re-triggers hub selector)
+
+#### CLI
+
+```bash
+ai-primitives-hub hub add <name> --url <hub-url>
+ai-primitives-hub hub use <name>
+ai-primitives-hub hub sync
+ai-primitives-hub hub list
+```
 
 ### Hub Config Format
 

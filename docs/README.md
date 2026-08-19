@@ -1,17 +1,17 @@
 # AI Primitives Hub Documentation
 
-Marketplace and registry for Copilot prompt bundles in VS Code.
+One platform to discover, install, govern, and share AI primitives — prompts, instructions, agents, skills, and MCP server configurations — across every major AI coding tool. Delivered through a VS Code extension (also runs in Kiro and Windsurf) and a standalone CLI. From a solo developer to teams and enterprise, the same primitives scale effortlessly.
 
 ---
 
 ## 📖 For Users
 
-- **[Getting Started](user-guide/getting-started.md)** — Installation and first steps
+- **[Getting Started](user-guide/getting-started.md)** — Installation and first steps (extension & CLI)
 - **[Marketplace](user-guide/marketplace.md)** — Browsing and installing bundles
 - **[Repository Installation](user-guide/repository-installation.md)** — Team-shared configurations via Git
 - **[Sources](user-guide/sources.md)** — Managing bundle sources
 - **[Profiles and Hubs](user-guide/profiles-and-hubs.md)** — Profile and Hub management
-- **[Configuration](user-guide/configuration.md)** — Extension settings and telemetry
+- **[Configuration](user-guide/configuration.md)** — Extension settings, CLI config, and telemetry
 - **[Troubleshooting](user-guide/troubleshooting.md)** — Common issues
 
 ---
@@ -41,6 +41,9 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
   - [MCP Integration](contributor-guide/architecture/mcp-integration.md)
   - [Scaffolding](contributor-guide/architecture/scaffolding.md)
   - [Validation](contributor-guide/architecture/validation.md)
+  - [Library-Centric Architecture](contributor-guide/architecture/library-centric-architecture/clean-architecture.md) — Ports-and-adapters deep dive
+  - [CLI User Flows](contributor-guide/architecture/library-centric-architecture/cli-user-flows.md) — CLI command hierarchy and use cases
+  - [ADRs](contributor-guide/architecture/adr/adr-index.md) — Architecture Decision Records
 - **[Core Flows](contributor-guide/core-flows.md)** — Key system flows
 - **[Testing](contributor-guide/testing.md)** — Testing strategy
 - **[Testing SSH Remote](contributor-guide/testing/ssh-remote.md)** — SSH testing
@@ -54,9 +57,9 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 
 ## 📋 Reference
 
-- **[Commands](reference/commands.md)** — VS Code commands
-- **[Settings](reference/settings.md)** — Extension settings
-- **[Adapter API](reference/adapter-api.md)** — Custom adapters
+- **[Commands](reference/commands.md)** — VS Code extension commands & CLI commands
+- **[Settings](reference/settings.md)** — Extension settings & CLI configuration
+- **[Adapter API](reference/adapter-api.md)** — Custom adapters & target writers
 - **[Hub Schema](reference/hub-schema.md)** — Hub configuration
 
 ---

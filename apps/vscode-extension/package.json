@@ -1,7 +1,7 @@
 {
   "name": "prompt-registry",
   "displayName": "AI Primitives Hub",
-  "description": "AI Primitives Hub - AI prompt management framework for VSCode and its forks",
+  "description": "Marketplace for AI coding primitives — prompts, instructions, agents, skills, and MCP configs — across VS Code, Kiro, Windsurf, Claude Code, Copilot CLI, and more",
   "version": "0.0.2",
   "publisher": "AmadeusITGroup",
   "author": {
@@ -19,17 +19,25 @@
   "homepage": "https://github.com/AmadeusITGroup/ai-primitives-hub#readme",
   "keywords": [
     "ai",
-    "assistant",
-    "framework",
+    "copilot",
+    "prompts",
+    "agents",
+    "skills",
+    "mcp",
+    "kiro",
+    "windsurf",
+    "claude-code",
+    "marketplace",
+    "governance",
     "llm",
     "productivity",
-    "coding",
     "automation"
   ],
   "categories": [
     "Other",
     "Machine Learning",
-    "Education"
+    "Education",
+    "Snippets"
   ],
   "engines": {
     "vscode": "^1.105.0"

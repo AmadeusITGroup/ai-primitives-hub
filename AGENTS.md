@@ -1,6 +1,6 @@
 # AI Primitives Hub
 
-AI Primitives Hub is a pnpm monorepo built on a ports-and-adapters (Clean Architecture) core: one shared domain in `packages/`, delivered through two thin layers — the `ai-primitives-hub` CLI and the VS Code extension.
+AI Primitives Hub is a pnpm monorepo built on a ports-and-adapters (Clean Architecture) core: one shared domain in `packages/`, delivered through two thin layers — the `ai-primitives-hub` CLI and the VS Code extension (which also runs in Kiro and Windsurf). The CLI and extension support six target types: `vscode`, `vscode-insiders`, `copilot-cli`, `kiro`, `windsurf`, `claude-code`.
 
 ## Workspace
 

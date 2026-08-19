@@ -27,9 +27,14 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
 macOS) and run **AI Primitives Hub: Add Source**.
 
+### Via CLI
+```bash
+ai-primitives-hub source add <name> --type <type> [--url <url>] [--path <path>]
+```
+
 ## Managing Sources
 
-In Registry Explorer:
+### Via Extension (Registry Explorer)
 - **Sync** — Right-click → Sync Source
 - **Edit** — Right-click → Edit Source
 - **Toggle** — Right-click → Toggle Enabled/Disabled
@@ -41,6 +46,14 @@ Command Palette:
   Windows/Linux or `Cmd+Shift+P` on macOS) and run
   **AI Primitives Hub: Sync All Sources**
 
+### Via CLI
+```bash
+ai-primitives-hub source list
+ai-primitives-hub source sync <name>
+ai-primitives-hub source sync --all
+ai-primitives-hub source remove <name>
+```
+
 ## Skill Update Detection
 
 - **Remote skills (`anthropic/skills`)**: each skill version is derived from a content hash. If any file in the skill directory (including `assets/`, `references/`, etc.) changes, the Marketplace shows **Update** after you sync the source.
@@ -51,6 +64,8 @@ Command Palette:
 ## Private Repositories
 
 Authentication tries in order:
+
+### Via Extension
 1. **VS Code GitHub Auth** — Check bottom-left for GitHub avatar
 2. **GitHub CLI** — Run `gh auth login`
 3. **Explicit Token** — Add when editing source (needs `repo` scope)
@@ -58,6 +73,16 @@ Authentication tries in order:
 To verify access, open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
 `Cmd+Shift+P` on macOS) and run
 **AI Primitives Hub: Validate Repository Access**.
+
+### Via CLI
+1. **Environment variable** — Set `GITHUB_TOKEN` or `GH_TOKEN`
+2. **GitHub CLI** — Run `gh auth login` (the CLI calls `gh auth token`)
+3. **Explicit Token** — Pass `--token` flag or configure in `ai-primitives-hub.yml`
+
+```bash
+# Verify access
+ai-primitives-hub doctor
+```
 
 ## See Also
 
