@@ -1,6 +1,8 @@
 # Marketplace
 
-Open via Activity Bar icon or `Ctrl+Shift+P` → "AI Primitives Hub: Focus On Marketplace View"
+Open it from the Activity Bar, or open the Command Palette (`Ctrl+Shift+P` on
+Windows/Linux or `Cmd+Shift+P` on macOS) and run
+**AI Primitives Hub: Focus On Marketplace View**.
 
 ## Browsing
 
@@ -25,13 +27,9 @@ indexing; they remain available to the regular bundle catalog.
 
 ## Updates
 
-```bash
-# Check for updates
-Right-click bundle → "Check for Updates"
-
-# Update all
-Ctrl+Shift+P → "AI Primitives Hub: Update All Bundles"
-```
+- **Check for updates:** Right-click a bundle and select **Check for Updates**.
+- **Update all:** Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+  `Cmd+Shift+P` on macOS) and run **AI Primitives Hub: Update All Bundles**.
 
 Auto-update settings in `File → Preferences → Settings → AI Primitives Hub`:
 

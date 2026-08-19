@@ -24,6 +24,7 @@ const sidebars: SidebarsConfig = {
       items: [
         { type: "doc", id: "author-guide/creating-source-bundle", label: "Creating Collections" },
         { type: "doc", id: "author-guide/creating-skills", label: "Creating Skills" },
+        { type: "doc", id: "author-guide/creating-a-hub", label: "Creating a Hub" },
         { type: "doc", id: "author-guide/collection-scripts", label: "Collection Scripts" },
         { type: "doc", id: "author-guide/collection-schema", label: "Collection Schema" },
         { type: "doc", id: "author-guide/agentic-primitives-guide", label: "Agentic Primitives" },

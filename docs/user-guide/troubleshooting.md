@@ -65,7 +65,8 @@ If you installed the extension but were never prompted to select a hub:
 
 ## Useful Commands
 
-Access these commands via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
+Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
+macOS) to access these commands:
 
 ### Diagnostic Commands
 - `AI Primitives Hub: Validate Repository Access` - Test GitHub connectivity and permissions
