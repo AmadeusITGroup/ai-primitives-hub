@@ -11,9 +11,6 @@
   let selectedEnvironment = 'all';
   let sortBy = 'relevance';
   let showInstalledOnly = false;
-  let indexedBundleKeys = null;
-  let indexedSearchQuery = null;
-  let searchRequestTimer;
   let setupState = 'complete'; // Default to complete to avoid showing setup prompt unnecessarily
   let sourcesCount = 0;
 
@@ -28,15 +25,6 @@
       sourcesCount = message.sourcesCount || 0;
       updateFilterUI();
       renderBundles();
-    }
-    if (message.type === 'primitiveSearchResults') {
-      var currentQuery = document.querySelector('#searchBox').value;
-      if (message.query === currentQuery) {
-        indexedBundleKeys = message.bundleKeys;
-        indexedSearchQuery = message.bundleKeys === null ? null : currentQuery;
-        renderSearchStatus(message.diagnostics, currentQuery);
-        renderBundles();
-      }
     }
   });
 
@@ -207,44 +195,9 @@
   });
 
   // Search functionality
-  document.querySelector('#searchBox').addEventListener('input', (event) => {
-    indexedBundleKeys = null;
-    indexedSearchQuery = null;
-    renderSearchStatus({ state: 'searching' }, event.target.value);
+  document.querySelector('#searchBox').addEventListener('input', () => {
     renderBundles();
-    clearTimeout(searchRequestTimer);
-    searchRequestTimer = setTimeout(() => {
-      vscode.postMessage({ type: 'search', query: event.target.value });
-    }, 250);
   });
-
-  const renderSearchStatus = (diagnostics, query) => {
-    var status = document.querySelector('#searchStatus');
-    if (!status) {
-      return;
-    }
-    if (!query || query.trim() === '') {
-      status.textContent = '';
-      status.className = 'search-status';
-      return;
-    }
-    if (diagnostics?.state === 'searching') {
-      status.textContent = 'Semantic search: searching…';
-      status.className = 'search-status searching';
-      return;
-    }
-    if (diagnostics?.ranking === 'unavailable') {
-      status.textContent = 'Semantic search unavailable; using metadata search';
-      status.className = 'search-status unavailable';
-      return;
-    }
-    var embeddingLabel = diagnostics?.embeddings ? 'embeddings on' : 'BM25 only';
-    status.textContent = 'Semantic search: ' + (diagnostics?.profile || 'unknown')
-      + ' • ' + (diagnostics?.ranking || 'unknown')
-      + ' • ' + embeddingLabel
-      + ' • ' + String(diagnostics?.bundleHits ?? 0) + ' bundles';
-    status.className = 'search-status active';
-  };
 
   // Source selector button click
   document.querySelector('#sourceSelectorBtn').addEventListener('click', (e) => {
