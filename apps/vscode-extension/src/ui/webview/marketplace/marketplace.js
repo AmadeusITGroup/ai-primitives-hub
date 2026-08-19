@@ -368,7 +368,7 @@
 
   const parseSearchTokens = (searchText) => {
     var tokens = [];
-    var pattern = /(-)?(?:(id|name|description|tag|author|env|source):)?(?:"([^"]+)"|(\S+))/giu;
+    var pattern = /(-)?(?:(id|name|description|tag|author|env|source|platform):)?(?:"([^"]+)"|(\S+))/giu;
     var match;
     while ((match = pattern.exec(searchText)) !== null) {
       var value = normalizeSearchValue(match[3] || match[4]);
@@ -392,38 +392,45 @@
   };
 
   const tokenMatches = (fields, token) => {
-    var values = token.field ? fields[token.field] : Object.values(fields).flat();
+    var fieldName = token.field;
+    // Support 'platform' as alias for 'env'
+    if (fieldName === 'platform') {
+      fieldName = 'env';
+    }
+    var values = fieldName ? fields[fieldName] : Object.values(fields).flat();
     return values.some((value) => value.includes(token.value));
   };
 
   const scoreSearchMatch = (fields, tokens) => {
-    return tokens.reduce((score, token) => {
+    let score = 0;
+    for (const token of tokens) {
       if (token.excluded) {
-        return score;
+        continue;
       }
+      // Stricter AND logic: prioritize key fields over description
       if (fields.id.includes(token.value)) {
-        return score + 120;
+        score += 120;
+      } else if (fields.name.includes(token.value)) {
+        score += 100;
+      } else if (fields.name.some((value) => value.startsWith(token.value))) {
+        score += 70;
+      } else if (fields.tag.includes(token.value)) {
+        score += 50;
+      } else if (fields.author.includes(token.value)) {
+        score += 35;
+      } else if (fields.env.includes(token.value)) {
+        score += 40;
+      } else if (fields.source.includes(token.value)) {
+        score += 25;
+      } else if (fields.name.some((value) => value.includes(token.value))) {
+        score += 30;
+      } else if (fields.description.some((value) => value.includes(token.value))) {
+        score += 8;
+      } else {
+        score += 2;
       }
-      if (fields.name.includes(token.value)) {
-        return score + 100;
-      }
-      if (fields.name.some((value) => value.startsWith(token.value))) {
-        return score + 70;
-      }
-      if (fields.tag.includes(token.value)) {
-        return score + 50;
-      }
-      if (fields.author.includes(token.value)) {
-        return score + 35;
-      }
-      if (fields.name.some((value) => value.includes(token.value))) {
-        return score + 30;
-      }
-      if (fields.description.some((value) => value.includes(token.value))) {
-        return score + 15;
-      }
-      return score + 10;
-    }, 0);
+    }
+    return score;
   };
 
   const searchBundles = (bundles, searchText) => {
