@@ -24,6 +24,10 @@ import {
   Logger,
 } from '../utils/logger';
 
+const TOKEN_CACHE_TTL_MS = 30_000;
+const tokenCache = new Map<boolean, { token: string; expiresAt: number }>();
+const tokenRequests = new Map<boolean, Promise<string | undefined>>();
+
 export class VsCodeSessionTokenProvider implements TokenProvider {
   private readonly logger = Logger.getInstance();
 
@@ -37,15 +41,16 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
    */
   public constructor(private readonly createIfNone = true) {}
 
-  public async getToken(host: string): Promise<string | undefined> {
-    if (!isGitHubHost(host)) {
-      return undefined;
-    }
+  private async resolveToken(): Promise<string | undefined> {
     try {
       this.logger.debug('[VsCodeSessionTokenProvider] Trying VS Code GitHub authentication...');
       const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: this.createIfNone });
       if (session) {
         this.logger.info('[VsCodeSessionTokenProvider] Using VS Code GitHub authentication');
+        tokenCache.set(this.createIfNone, {
+          token: session.accessToken,
+          expiresAt: Date.now() + TOKEN_CACHE_TTL_MS
+        });
         return session.accessToken;
       }
       this.logger.debug('[VsCodeSessionTokenProvider] VS Code auth session not found');
@@ -53,6 +58,41 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
     } catch (error) {
       this.logger.warn(`[VsCodeSessionTokenProvider] VS Code auth failed: ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
+    }
+  }
+
+  /**
+   * Clear the process-wide session cache after an explicit authentication
+   * reset. The cache is shared because the extension creates one provider per
+   * source, while VS Code exposes one GitHub session for the host.
+   */
+  public static clearCache(): void {
+    tokenCache.clear();
+  }
+
+  public async getToken(host: string): Promise<string | undefined> {
+    if (!isGitHubHost(host)) {
+      return undefined;
+    }
+
+    const cached = tokenCache.get(this.createIfNone);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.token;
+    }
+
+    const pending = tokenRequests.get(this.createIfNone);
+    if (pending) {
+      return pending;
+    }
+
+    const request = this.resolveToken();
+    tokenRequests.set(this.createIfNone, request);
+    try {
+      return await request;
+    } finally {
+      if (tokenRequests.get(this.createIfNone) === request) {
+        tokenRequests.delete(this.createIfNone);
+      }
     }
   }
 }

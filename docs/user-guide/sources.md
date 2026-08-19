@@ -24,7 +24,8 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 
 ## Adding a Source
 
-`Ctrl+Shift+P` → "AI Primitives Hub: Add Source"
+Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
+macOS) and run **AI Primitives Hub: Add Source**.
 
 ## Managing Sources
 
@@ -36,7 +37,9 @@ In Registry Explorer:
 - **Open Repository** — Right-click → Open Repository
 
 Command Palette:
-- **Sync All Sources** — `Ctrl+Shift+P` → "AI Primitives Hub: Sync All Sources"
+- **Sync All Sources** — Open the Command Palette (`Ctrl+Shift+P` on
+  Windows/Linux or `Cmd+Shift+P` on macOS) and run
+  **AI Primitives Hub: Sync All Sources**
 
 ## Skill Update Detection
 
@@ -52,7 +55,9 @@ Authentication tries in order:
 2. **GitHub CLI** — Run `gh auth login`
 3. **Explicit Token** — Add when editing source (needs `repo` scope)
 
-Verify: `Ctrl+Shift+P` → "AI Primitives Hub: Validate Repository Access"
+To verify access, open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+`Cmd+Shift+P` on macOS) and run
+**AI Primitives Hub: Validate Repository Access**.
 
 ## See Also
 

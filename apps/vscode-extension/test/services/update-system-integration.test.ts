@@ -112,6 +112,61 @@ suite('Update System Integration', () => {
     updateScheduler.dispose();
   });
 
+  test('startup update check waits for the initial source sync', async () => {
+    const previousTimerOverride = process.env.UPDATE_SCHEDULER_ALLOW_TIMERS_IN_TESTS;
+    process.env.UPDATE_SCHEDULER_ALLOW_TIMERS_IN_TESTS = 'true';
+    const clock = sinon.useFakeTimers({ shouldAdvanceTime: false, shouldClearNativeTimers: true });
+
+    try {
+      const mockConfig = sandbox.stub(vscode.workspace, 'getConfiguration');
+      mockConfig.withArgs('promptregistry.updateCheck').returns({
+        get: sandbox.stub().callsFake((key: string, defaultValue?: any) => {
+          if (key === 'enabled') {
+            return true;
+          }
+          if (key === 'frequency') {
+            return 'manual';
+          }
+          return defaultValue;
+        })
+      } as any);
+
+      const mockUpdateChecker = sandbox.createStubInstance(UpdateChecker);
+      mockUpdateChecker.checkForUpdates.resolves([]);
+      let releaseInitialSync!: () => void;
+      const initialSyncReady = new Promise<void>((resolve) => {
+        releaseInitialSync = resolve;
+      });
+      const scheduler = new UpdateScheduler(
+        mockContext,
+        mockUpdateChecker,
+        undefined,
+        undefined,
+        initialSyncReady,
+        () => false
+      );
+
+      await scheduler.initialize();
+      await clock.tickAsync(5000);
+      assert.strictEqual(mockUpdateChecker.checkForUpdates.callCount, 0);
+
+      releaseInitialSync();
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.strictEqual(mockUpdateChecker.checkForUpdates.callCount, 1);
+      assert.deepStrictEqual(mockUpdateChecker.checkForUpdates.firstCall.args, [false, false]);
+
+      scheduler.dispose();
+    } finally {
+      clock.restore();
+      if (previousTimerOverride === undefined) {
+        delete process.env.UPDATE_SCHEDULER_ALLOW_TIMERS_IN_TESTS;
+      } else {
+        process.env.UPDATE_SCHEDULER_ALLOW_TIMERS_IN_TESTS = previousTimerOverride;
+      }
+    }
+  });
+
   test('Complete update system can be wired together', async () => {
     // Mock configuration
     const mockConfig = sandbox.stub(vscode.workspace, 'getConfiguration');

@@ -16,6 +16,12 @@ const EXTENSION_DIR = path.resolve(__dirname, '..');
 const SCHEMAS_DIR = path.join(EXTENSION_DIR, 'schemas');
 const SCHEMAS_SOURCE = path.resolve(__dirname, '..', '..', '..', 'packages', 'core', 'src', 'public', 'schemas');
 
+const TERNLIGHT_PACKAGE_DIR = path.dirname(require.resolve('@ternlight/mini/package.json', {
+    paths: [path.resolve(__dirname, '..', '..', '..', 'packages', 'infra')]
+}));
+const TERNLIGHT_WASM_SOURCE = path.join(TERNLIGHT_PACKAGE_DIR, 'pkg-node', 'tern_engine_bg.wasm');
+const TERNLIGHT_WASM_DESTINATION = path.join(EXTENSION_DIR, 'dist', 'tern_engine_bg.wasm');
+
 function fileExists(filePath) {
     try {
         return fs.statSync(filePath).isFile();
@@ -139,6 +145,18 @@ function restoreSchemasSymlink() {
     console.log('✅ Schemas symlink restored');
 }
 
+function copyTernlightWasm() {
+    console.log('🧠 Copying ternlight WASM runtime...');
+    if (!fileExists(TERNLIGHT_WASM_SOURCE)) {
+        console.error(`❌ Ternlight WASM file not found: ${TERNLIGHT_WASM_SOURCE}`);
+        process.exit(1);
+    }
+
+    fs.mkdirSync(path.dirname(TERNLIGHT_WASM_DESTINATION), { recursive: true });
+    fs.copyFileSync(TERNLIGHT_WASM_SOURCE, TERNLIGHT_WASM_DESTINATION);
+    console.log('✅ Copied ternlight WASM runtime');
+}
+
 // Command line interface
 const command = process.argv[2];
 
@@ -163,6 +181,9 @@ switch (command) {
     case 'restore-schemas':
         restoreSchemasSymlink();
         break;
+    case 'copy-ternlight-wasm':
+        copyTernlightWasm();
+        break;
     default:
         console.log('Prompt Registry VS Code Extension Packaging Helpers');
         console.log('');
@@ -175,6 +196,7 @@ switch (command) {
         console.log('  status           - Show current ignore mode status');
         console.log('  expand-schemas   - Expand schemas symlink into real files for packaging');
         console.log('  restore-schemas  - Restore the schemas symlink after packaging');
+        console.log('  copy-ternlight-wasm - Copy the embedding engine WASM into dist');
         console.log('');
         console.log('Examples:');
         console.log('  npm run package:prepare  # Switch to production mode');

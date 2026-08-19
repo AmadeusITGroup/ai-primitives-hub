@@ -15,12 +15,18 @@
 
 import * as crypto from 'node:crypto';
 import {
+  getBundleRefKey,
+} from '@ai-primitives-hub/core';
+import {
   harvest,
 } from '../harvest/harvester';
 import {
   Bm25Engine,
   type FieldTokens,
 } from './bm25-engine';
+import {
+  buildEmbeddingTexts,
+} from './embedding-text';
 import {
   tokenize,
 } from './tokenizer';
@@ -47,12 +53,15 @@ import {
 
 /**
  * Internal record for indexed primitives.
- * Contains the primitive, tokenized fields, and optional embedding.
+ * Contains the primitive, tokenized fields, and optional embeddings.
  */
 interface InternalRecord {
   primitive: Primitive;
   fields: FieldTokens;
+  /** Legacy single-vector embedding, kept for backward compatibility. */
   embedding?: Float32Array;
+  /** Named embedding streams (e.g. combined, metadata, body). */
+  embeddings?: Record<string, Float32Array>;
 }
 
 /**
@@ -121,7 +130,9 @@ export class PrimitiveIndex {
     schemaVersion: number;
     builtAt: string;
     hubId?: string;
-    embeddingsMeta?: { provider: string; dim: number };
+    sourceRevision?: string;
+    searchProfileId?: string;
+    embeddingsMeta?: { provider: string; dim: number; strategy?: string; embeddingStrategy?: string };
   } = { schemaVersion: 1, builtAt: new Date().toISOString(), hubId: 'my-hub-id' };
 
   /**
@@ -185,15 +196,30 @@ export class PrimitiveIndex {
     opts: BuildOptions = {}
   ): Promise<PrimitiveIndex> {
     const idx = new PrimitiveIndex();
+    let bundleCount = 0;
     const primitives = await harvest(provider, {
-      maxFilesPerBundle: opts.maxFilesPerBundle
+      maxFilesPerBundle: opts.maxFilesPerBundle,
+      onBundle: (ref, produced): void => {
+        bundleCount += 1;
+        opts.onBundle?.(ref, produced);
+        opts.onLog?.(`harvested bundle ${ref.bundleId} (${produced} primitive${produced === 1 ? '' : 's'})`);
+      },
+      onError: (ref, err): void => {
+        opts.onHarvestError?.(ref, err);
+        opts.onLog?.(`harvest error for bundle ${ref?.bundleId ?? 'unknown'}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     });
+    if (primitives.length > 0) {
+      opts.onLog?.(`harvested ${primitives.length} primitive${primitives.length === 1 ? '' : 's'} from ${bundleCount} bundle${bundleCount === 1 ? '' : 's'}`);
+    }
     await idx.reset(primitives, opts);
     return idx;
   }
 
   /**
-   * Build a new index from primitives.
+   * Build a new index from primitives synchronously.
+   * Does not support embedding providers; use {@link buildFromPrimitives}
+   * when embeddings are required.
    * @param primitives List of primitives to index.
    * @param opts Build options.
    * @returns Built PrimitiveIndex.
@@ -209,6 +235,21 @@ export class PrimitiveIndex {
   }
 
   /**
+   * Build a new index from primitives, optionally embedding them.
+   * @param primitives List of primitives to index.
+   * @param opts Build options.
+   * @returns Built PrimitiveIndex.
+   */
+  public static async buildFromPrimitives(
+    primitives: Primitive[],
+    opts: BuildOptions = {}
+  ): Promise<PrimitiveIndex> {
+    const idx = new PrimitiveIndex();
+    await idx.reset(primitives, opts);
+    return idx;
+  }
+
+  /**
    * Reset the index with new primitives.
    * @param primitives List of primitives to index.
    * @param opts Build options.
@@ -216,17 +257,60 @@ export class PrimitiveIndex {
   private async reset(primitives: Primitive[], opts: BuildOptions): Promise<void> {
     this.resetSync(primitives, opts);
     if (opts.embeddings) {
-      const texts = this.records.map((r) =>
-        `${r.primitive.title}\n${r.primitive.description}\n${r.primitive.tags.join(' ')}\n${r.primitive.bodyPreview}`
-      );
-      const vectors = await opts.embeddings.embed(texts);
-      vectors.forEach((v, i) => {
-        this.records[i].embedding = v;
+      const log = opts.onLog;
+      const count = this.records.length;
+      const provider = opts.embeddings.name ?? 'custom';
+      const strategy = opts.embeddingStrategy ?? 'single';
+      log?.(`computing ${strategy} embeddings with ${provider} (dim=${opts.embeddings.dim}) — this may take a while...`);
+
+      const textsByStream: Record<string, string[]> = {};
+      const streamNames: string[] = [];
+      for (const r of this.records) {
+        const texts = buildEmbeddingTexts(r.primitive, strategy);
+        for (const [name, text] of Object.entries(texts)) {
+          if (!textsByStream[name]) {
+            textsByStream[name] = [];
+            streamNames.push(name);
+          }
+          textsByStream[name].push(text);
+        }
+      }
+
+      const batchSize = 32;
+      const vectorsByStream: Record<string, Float32Array[]> = {};
+      const startMs = Date.now();
+      for (const name of streamNames) {
+        const texts = textsByStream[name];
+        const vectors: Float32Array[] = [];
+        for (let done = 0; done < texts.length; done += batchSize) {
+          const batch = texts.slice(done, done + batchSize);
+          const batchVectors = await opts.embeddings.embed(batch);
+          vectors.push(...batchVectors);
+        }
+        vectorsByStream[name] = vectors;
+      }
+
+      this.records.forEach((r, i) => {
+        const embeddings: Record<string, Float32Array> = {};
+        for (const name of streamNames) {
+          embeddings[name] = vectorsByStream[name][i];
+        }
+        r.embeddings = embeddings;
+        // Keep the legacy single-vector field populated for older callers.
+        if (embeddings.combined) {
+          r.embedding = embeddings.combined;
+        } else if (streamNames.length === 1) {
+          r.embedding = embeddings[streamNames[0]];
+        }
       });
+
       this.meta.embeddingsMeta = {
-        provider: (opts.embeddings as unknown as { name?: string }).name ?? 'custom',
-        dim: opts.embeddings.dim
+        provider,
+        dim: opts.embeddings.dim,
+        strategy: 'summary',
+        embeddingStrategy: strategy
       };
+      log?.(`computed ${count * streamNames.length} embeddings (${strategy}) in ${Date.now() - startMs}ms`);
     }
   }
 
@@ -237,6 +321,11 @@ export class PrimitiveIndex {
    * @param opts Build options.
    */
   private resetSync(primitives: Primitive[], opts: BuildOptions): void {
+    const startedAt = Date.now();
+    const log = opts.onLog;
+    const count = primitives.length;
+    log?.(`indexing ${count} primitive${count === 1 ? '' : 's'}...`);
+
     // Deduplicate by primitiveId; later wins.
     const byId = new Map<string, Primitive>();
     for (const p of primitives) {
@@ -247,14 +336,20 @@ export class PrimitiveIndex {
       fields: tokenizeFields(primitive)
     }));
     this.byId = new Map(this.records.map((r, i) => [r.primitive.id, i]));
+
+    log?.('building BM25 index and facet maps...');
     this.rebuildBm25();
     this.rebuildFacets();
     this.meta = {
       ...this.meta,
       schemaVersion: 1,
       builtAt: new Date().toISOString(),
-      hubId: opts.hubId ?? this.meta.hubId
+      hubId: opts.hubId ?? this.meta.hubId,
+      sourceRevision: opts.sourceRevision ?? this.meta.sourceRevision,
+      searchProfileId: opts.searchProfileId ?? (opts.embeddings ? inferSearchProfileId(opts) : 'bm25-v1'),
+      embeddingsMeta: opts.embeddings ? this.meta.embeddingsMeta : undefined
     };
+    log?.(`built BM25 index and facet maps in ${Date.now() - startedAt}ms`);
   }
 
   /**
@@ -306,7 +401,18 @@ export class PrimitiveIndex {
     candidates = intersectFacet(candidates, this.facets.bundle, query.bundles);
     candidates = intersectFacet(candidates, this.facets.tag, query.tags, true);
     if (query.installedOnly) {
-      candidates = intersectSets(candidates, this.facets.installed);
+      if (query.installedBundleKeys) {
+        const installedKeys = new Set(query.installedBundleKeys);
+        const installed = new Set<number>();
+        for (const [index, record] of this.records.entries()) {
+          if (installedKeys.has(getBundleRefKey(record.primitive.bundle))) {
+            installed.add(index);
+          }
+        }
+        candidates = intersectSets(candidates, installed);
+      } else {
+        candidates = intersectSets(candidates, this.facets.installed);
+      }
     }
     return candidates;
   }
@@ -343,27 +449,50 @@ export class PrimitiveIndex {
    * Compute final score from BM25 and optional cosine similarity.
    * @param raw Raw BM25 score.
    * @param maxScore Maximum BM25 score for normalization.
-   * @param useHybrid Whether to use hybrid scoring.
-   * @param embedding Record embedding vector.
-   * @param queryEmbedding Query embedding vector.
-   * @param alpha Weight for BM25 vs cosine similarity.
+   * @param query Search query.
+   * @param recordEmbeddings Named embedding streams for the record.
+   * @param recordEmbedding Legacy single embedding vector.
    * @returns Final score between 0 and 1.
    */
   private computeScore(
     raw: number,
     maxScore: number,
-    useHybrid: boolean,
-    embedding: Float32Array<ArrayBufferLike> | undefined,
-    queryEmbedding: Float32Array<ArrayBufferLike> | undefined,
-    alpha: number
+    query: SearchQuery,
+    recordEmbeddings: Record<string, Float32Array> | undefined,
+    recordEmbedding: Float32Array<ArrayBufferLike> | undefined
   ): number {
     const bm25Norm = maxScore > 0 ? raw / maxScore : 0;
-    let score = alpha * bm25Norm;
-    if (useHybrid && embedding && queryEmbedding) {
-      const cs = cosine(embedding, queryEmbedding);
-      score += (1 - alpha) * cs;
+    const ranking = query.ranking ?? 'bm25';
+
+    if (ranking === 'multi' && query.queryEmbeddings && recordEmbeddings) {
+      const streams = Object.keys(recordEmbeddings).filter((k) => query.queryEmbeddings?.[k]);
+      if (streams.length === 0) {
+        return bm25Norm;
+      }
+      const providedWeights = query.embeddingWeights ?? {};
+      const bm25Weight = providedWeights.bm25 ?? HYBRID_ALPHA;
+      const streamWeightTotal = streams.reduce((sum, k) => sum + (providedWeights[k] ?? 0), 0);
+      // If no per-stream weights are given, split the remaining budget evenly.
+      const defaultStreamWeight = streamWeightTotal > 0 ? 0 : (1 - bm25Weight) / streams.length;
+      let finalScore = bm25Weight * bm25Norm;
+      for (const name of streams) {
+        const weight = providedWeights[name] ?? defaultStreamWeight;
+        const qe = query.queryEmbeddings[name];
+        finalScore += weight * cosine(recordEmbeddings[name], qe);
+      }
+      return finalScore;
     }
-    return score;
+
+    const useHybrid = (ranking === 'hybrid') && !!query.queryEmbedding;
+    const alpha = HYBRID_ALPHA;
+    let hybridScore = alpha * bm25Norm;
+    if (useHybrid) {
+      const embedding = recordEmbedding ?? recordEmbeddings?.combined;
+      if (embedding && query.queryEmbedding) {
+        hybridScore += (1 - alpha) * cosine(embedding, query.queryEmbedding);
+      }
+    }
+    return hybridScore;
   }
 
   /**
@@ -427,10 +556,7 @@ export class PrimitiveIndex {
     }
 
     const maxScore = this.normalizeScores(scores);
-    const useHybrid = (query.ranking === 'hybrid') && !!query.queryEmbedding;
-    const alpha = useHybrid ? HYBRID_ALPHA : 1;
-
-    const hits = this.buildHits(scores, maxScore, useHybrid, alpha, query, explanations);
+    const hits = this.buildHits(scores, maxScore, query, explanations);
     const sortedHits = this.sortHits(hits);
 
     const limit = query.limit ?? 20;
@@ -445,8 +571,6 @@ export class PrimitiveIndex {
    * Build search hits from scores and explanations.
    * @param scores Map of record indices to scores.
    * @param maxScore Maximum score for normalization.
-   * @param useHybrid Whether to use hybrid scoring.
-   * @param alpha Weight for BM25 vs cosine similarity.
    * @param query Search query.
    * @param explanations Optional match explanations.
    * @returns List of search hits.
@@ -454,20 +578,18 @@ export class PrimitiveIndex {
   private buildHits(
     scores: Map<number, number>,
     maxScore: number,
-    useHybrid: boolean,
-    alpha: number,
     query: SearchQuery,
     explanations: Map<number, { field: SearchableField; term: string; weight: number; contribution: number }[]> | undefined
   ): SearchHit[] {
     const hits: SearchHit[] = [];
     for (const [idx, raw] of scores) {
+      const rec = this.records[idx];
       const score = this.computeScore(
         raw,
         maxScore,
-        useHybrid,
-        this.records[idx].embedding,
-        query.queryEmbedding,
-        alpha
+        query,
+        rec.embeddings,
+        rec.embedding
       );
       hits.push(this.buildSearchHit(idx, score, explanations));
     }
@@ -564,8 +686,24 @@ export class PrimitiveIndex {
     const t0 = Date.now();
     const filtered = this.filter(query);
     const result = this.rank(query, filtered);
+    const hits = query.installedBundleKeys
+      ? (() => {
+        const installedKeys = new Set(query.installedBundleKeys);
+        return result.hits.map((hit) => ({
+          ...hit,
+          primitive: {
+            ...hit.primitive,
+            bundle: {
+              ...hit.primitive.bundle,
+              installed: installedKeys.has(getBundleRefKey(hit.primitive.bundle))
+            }
+          }
+        }));
+      })()
+      : result.hits;
     return {
       ...result,
+      hits,
       facets: this.facetCounts(filtered),
       tookMs: Date.now() - t0
     };
@@ -668,6 +806,9 @@ export class PrimitiveIndex {
    * @returns Refresh report with change summary.
    */
   public async refresh(provider: BundleProvider, opts: RefreshOptions = {}): Promise<RefreshReport> {
+    if (this.meta.embeddingsMeta && !opts.embeddings) {
+      throw new Error('Refreshing an embedded index requires the embedding provider used to build it.');
+    }
     const incoming = await harvest(provider, { maxFilesPerBundle: opts.maxFilesPerBundle });
     const nextById = new Map<string, Primitive>();
     for (const p of incoming) {
@@ -692,11 +833,21 @@ export class PrimitiveIndex {
       schemaVersion: this.meta.schemaVersion,
       builtAt: this.meta.builtAt,
       hubId: this.meta.hubId,
+      sourceRevision: this.meta.sourceRevision ?? null,
+      searchProfileId: this.meta.searchProfileId ?? null,
       embeddingsMeta: this.meta.embeddingsMeta ?? null,
-      primitives: this.records.map((r) => ({
-        ...r.primitive,
-        embedding: r.embedding ? Array.from(r.embedding) : undefined
-      })),
+      primitives: this.records.map((r) => {
+        const entry: Record<string, unknown> = { ...r.primitive };
+        if (r.embeddings && Object.keys(r.embeddings).length > 0) {
+          entry.embeddings = Object.fromEntries(
+            Object.entries(r.embeddings).map(([k, v]) => [k, Array.from(v)])
+          );
+        }
+        if (r.embedding) {
+          entry.embedding = Array.from(r.embedding);
+        }
+        return entry;
+      }),
       shortlists: Array.from(this.shortlists.values())
     };
   }
@@ -712,8 +863,10 @@ export class PrimitiveIndex {
       schemaVersion: number;
       builtAt?: string;
       hubId?: string;
-      embeddingsMeta?: { provider: string; dim: number } | null;
-      primitives: (Primitive & { embedding?: number[] })[];
+      sourceRevision?: string | null;
+      searchProfileId?: string | null;
+      embeddingsMeta?: { provider: string; dim: number; strategy?: string; embeddingStrategy?: string } | null;
+      primitives: (Primitive & { embedding?: number[]; embeddings?: Record<string, number[]> })[];
       shortlists?: Shortlist[];
     };
     if (!data?.schemaVersion || data.schemaVersion !== 1) {
@@ -726,27 +879,41 @@ export class PrimitiveIndex {
       }
       return p;
     });
-    idx.records = primitives.map((p) => ({
-      primitive: {
-        id: p.id,
-        bundle: p.bundle,
-        kind: p.kind,
-        path: p.path,
-        title: p.title,
-        description: p.description,
-        tags: p.tags,
-        authors: p.authors,
-        applyTo: p.applyTo,
-        tools: p.tools,
-        model: p.model,
-        bodyPreview: p.bodyPreview,
-        contentHash: p.contentHash,
-        rating: p.rating,
-        updatedAt: p.updatedAt
-      },
-      fields: tokenizeFields(p),
-      embedding: p.embedding ? new Float32Array(p.embedding) : undefined
-    }));
+    idx.records = primitives.map((p) => {
+      const embeddings: Record<string, Float32Array> = {};
+      if (p.embeddings) {
+        for (const [k, v] of Object.entries(p.embeddings)) {
+          embeddings[k] = new Float32Array(v);
+        }
+      }
+      const embedding = p.embedding ? new Float32Array(p.embedding) : undefined;
+      if (embedding && !embeddings.combined) {
+        embeddings.combined = embedding;
+      }
+      return {
+        primitive: {
+          id: p.id,
+          bundle: p.bundle,
+          kind: p.kind,
+          path: p.path,
+          title: p.title,
+          description: p.description,
+          tags: p.tags,
+          authors: p.authors,
+          applyTo: p.applyTo,
+          tools: p.tools,
+          model: p.model,
+          bodyPreview: p.bodyPreview,
+          bodySummary: p.bodySummary,
+          contentHash: p.contentHash,
+          rating: p.rating,
+          updatedAt: p.updatedAt
+        },
+        fields: tokenizeFields(p),
+        embedding,
+        embeddings: Object.keys(embeddings).length > 0 ? embeddings : undefined
+      };
+    });
     idx.byId = new Map(idx.records.map((r, i) => [r.primitive.id, i]));
     idx.rebuildBm25();
     idx.rebuildFacets();
@@ -754,6 +921,8 @@ export class PrimitiveIndex {
       schemaVersion: 1,
       builtAt: data.builtAt ?? new Date(0).toISOString(),
       hubId: data.hubId,
+      sourceRevision: data.sourceRevision ?? undefined,
+      searchProfileId: data.searchProfileId ?? undefined,
       embeddingsMeta: data.embeddingsMeta ?? undefined
     };
     for (const sl of data.shortlists ?? []) {
@@ -761,6 +930,15 @@ export class PrimitiveIndex {
     }
     return idx;
   }
+}
+
+function inferSearchProfileId(opts: BuildOptions): string | undefined {
+  if (opts.embeddings?.name !== 'ternlight-mini') {
+    return undefined;
+  }
+  return opts.embeddingStrategy === 'dual'
+    ? 'ternlight-dual-v1'
+    : 'ternlight-single-v1';
 }
 
 function addTo(map: Map<string, Set<number>>, key: string, idx: number): void {

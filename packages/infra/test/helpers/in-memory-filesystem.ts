@@ -13,9 +13,15 @@ import type {
 } from '@ai-primitives-hub/core';
 
 interface InMemoryEntry {
-  contents: string;
+  contents: string | Uint8Array;
   mtimeMs: number;
 }
+
+const asString = (contents: string | Uint8Array): string =>
+  typeof contents === 'string' ? contents : new TextDecoder().decode(contents);
+
+const asBytes = (contents: string | Uint8Array): Uint8Array =>
+  typeof contents === 'string' ? new TextEncoder().encode(contents) : contents;
 
 /**
  * A flat, path-keyed in-memory filesystem. Directories are implicit:
@@ -35,7 +41,7 @@ export class InMemoryFileSystem implements FileSystem {
    * @param mtimeMs - Modification time to report from `stat()`, in
    * milliseconds since the Unix epoch. Defaults to `0`.
    */
-  public seed(path: string, contents: string, mtimeMs = 0): void {
+  public seed(path: string, contents: string | Uint8Array, mtimeMs = 0): void {
     this.files.set(this.normalizePath(path), { contents, mtimeMs });
   }
 
@@ -45,11 +51,24 @@ export class InMemoryFileSystem implements FileSystem {
     if (!entry) {
       throw new Error(`ENOENT: no such file: ${normalizedPath}`);
     }
-    return entry.contents;
+    return asString(entry.contents);
   }
 
   public async writeFile(path: string, contents: string): Promise<void> {
     this.files.set(this.normalizePath(path), { contents, mtimeMs: Date.now() });
+  }
+
+  public async readFileBytes(path: string): Promise<Uint8Array> {
+    const normalizedPath = this.normalizePath(path);
+    const entry = this.files.get(normalizedPath);
+    if (!entry) {
+      throw new Error(`ENOENT: no such file: ${normalizedPath}`);
+    }
+    return asBytes(entry.contents);
+  }
+
+  public async writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
+    this.files.set(this.normalizePath(path), { contents: bytes, mtimeMs: Date.now() });
   }
 
   public async readJson<T = unknown>(path: string): Promise<T> {
@@ -109,7 +128,7 @@ export class InMemoryFileSystem implements FileSystem {
       return {
         isDirectory: false,
         isFile: true,
-        size: Buffer.byteLength(entry.contents, 'utf8'),
+        size: asBytes(entry.contents).byteLength,
         mtimeMs: entry.mtimeMs
       };
     }

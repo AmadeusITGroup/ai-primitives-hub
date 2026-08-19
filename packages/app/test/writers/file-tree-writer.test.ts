@@ -37,6 +37,18 @@ import {
 
 const localPath = (...segments: string[]): string => path.join(...segments);
 
+class FailAfterFirstWriteFileSystem extends InMemoryFileSystem {
+  private writeCount = 0;
+
+  public override async writeFile(filePath: string, contents: string): Promise<void> {
+    this.writeCount += 1;
+    await super.writeFile(filePath, contents);
+    if (this.writeCount === 2) {
+      throw new Error('disk full after write');
+    }
+  }
+}
+
 describe('resolveLayout', () => {
   it('resolves vscode user scope layout from built-in defaults', () => {
     const target: Target = { name: 'test', type: 'vscode', scope: 'user', path: '/custom/path' };
@@ -66,6 +78,29 @@ describe('resolveLayout', () => {
   it('throws for an unknown target type', () => {
     const target = { name: 'test', type: 'nonexistent', scope: 'user' } as unknown as Target;
     expect(() => resolveLayout(target)).toThrow('No layout defined for target type "nonexistent"');
+  });
+
+  it('resolves cursor repository scope to ${workspaceRoot}', () => {
+    const target: Target = { name: 'test', type: 'cursor', scope: 'repository', rootPath: '/ws' };
+    const layout = resolveLayout(target);
+    expect(layout.baseDir).toBe('/ws');
+    expect(layout.kindRoutes).toHaveProperty('.cursor/rules/');
+  });
+
+  it('resolves kiro repository scope with .kiro/steering and .kiro/specs routes', () => {
+    const target: Target = { name: 'test', type: 'kiro', scope: 'repository', rootPath: '/ws' };
+    const layout = resolveLayout(target);
+    expect(layout.baseDir).toBe('/ws/.kiro');
+    expect(layout.kindRoutes['.kiro/steering/']).toBe('steering/');
+    expect(layout.kindRoutes['.kiro/specs/']).toBe('specs/');
+  });
+
+  it('resolves claude-code repository scope with claude commands and output-styles', () => {
+    const target: Target = { name: 'test', type: 'claude-code', scope: 'repository', rootPath: '/ws' };
+    const layout = resolveLayout(target);
+    expect(layout.baseDir).toBe('/ws/.claude');
+    expect(layout.kindRoutes['.claude/commands/']).toBe('commands/');
+    expect(layout.kindRoutes['.claude/output-styles/']).toBe('output-styles/');
   });
 });
 
@@ -137,6 +172,33 @@ describe('FileTreeTargetWriter', () => {
     expect(await fs.readFile(localPath('/out', 'prompts', 'test.md'))).toBe('# Test');
   });
 
+  it('rolls back files when a filesystem write throws after persisting', async () => {
+    const fs = new FailAfterFirstWriteFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['prompts/first.md', new TextEncoder().encode('# First')],
+      ['prompts/second.md', new TextEncoder().encode('# Second')]
+    ]);
+
+    await expect(writer.write(target, files)).rejects.toThrow('disk full after write');
+
+    expect(await fs.exists(localPath('/out', 'prompts', 'first.md'))).toBe(false);
+    expect(await fs.exists(localPath('/out', 'prompts', 'second.md'))).toBe(false);
+  });
+
+  it('routes the legacy chatmodes path alias to the canonical chat-modes route', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['chatmodes/review.chatmode.md', new TextEncoder().encode('# Review')]
+    ]);
+
+    const result = await writer.write(target, files);
+
+    expect(result.written).toContain(localPath('/out', 'agents', 'review.chatmode.md'));
+    expect(result.skipped).toEqual([]);
+  });
+
   it('skips files in the layout skipPaths list', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });
@@ -165,7 +227,7 @@ describe('FileTreeTargetWriter', () => {
   it('honors target.allowedKinds by skipping excluded kinds', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const restrictedTarget: Target = { ...target, allowedKinds: ['skills'] };
+    const restrictedTarget: Target = { ...target, allowedKinds: ['skill'] };
     const files = new Map<string, Uint8Array>([
       ['prompts/test.md', new TextEncoder().encode('# Test')],
       ['skills/my-skill/SKILL.md', new TextEncoder().encode('# Skill')]
@@ -175,6 +237,43 @@ describe('FileTreeTargetWriter', () => {
 
     expect(result.written).toContain(localPath('/out', 'skills', 'my-skill', 'SKILL.md'));
     expect(result.skipped).toContain('prompts/test.md');
+  });
+
+  it('writes binary files byte-for-byte without applying a transformer (issue #357)', async () => {
+    const fs = new InMemoryFileSystem();
+    const transformer: ResourceTransformer = {
+      transform: (ctx) => ({ content: `${ctx.content}\n<!-- transformed -->`, modified: true })
+    };
+    const writer = new FileTreeTargetWriter({ fs, env: {}, transformer });
+    // Invalid UTF-8 sequences: a lossy TextDecoder round-trip would
+    // replace them with U+FFFD and corrupt the asset.
+    const binaryBytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x9D, 0xC7, 0x80]);
+    const files = new Map<string, Uint8Array>([
+      ['skills/deck/assets/template.pptx', binaryBytes]
+    ]);
+
+    const result = await writer.write(target, files);
+
+    const installedPath = localPath('/out', 'skills', 'deck', 'assets', 'template.pptx');
+    expect(result.written).toContain(installedPath);
+    expect(await fs.readFileBytes(installedPath)).toEqual(binaryBytes);
+  });
+
+  it('writes binary skill assets byte-for-byte in writeManifestItems', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const binaryBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0xFF, 0xD8, 0x00, 0xC0]);
+    const files = new Map<string, Uint8Array>([
+      ['skills/deck/SKILL.md', new TextEncoder().encode('# Deck')],
+      ['skills/deck/assets/logo.png', binaryBytes]
+    ]);
+    const items: ManifestPlacementItem[] = [
+      { id: 'deck', file: 'skills/deck/SKILL.md', type: 'skill' }
+    ];
+
+    await writer.writeManifestItems(target, files, items);
+
+    expect(await fs.readFileBytes(localPath('/out', 'skills', 'deck', 'assets', 'logo.png'))).toEqual(binaryBytes);
   });
 
   it('applies a resource transformer to file content', async () => {
@@ -224,6 +323,48 @@ describe('FileTreeTargetWriter', () => {
     const writer = new FileTreeTargetWriter({ fs, env: {} });
 
     await expect(writer.remove(target, 'unrouted/thing.bin')).resolves.not.toThrow();
+  });
+
+  it('prefers the most specific route for .kiro/steering/', async () => {
+    const fs = new InMemoryFileSystem();
+    const kiroTarget: Target = { name: 'test', type: 'kiro', scope: 'repository', rootPath: '/ws' };
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['.kiro/steering/api.md', new TextEncoder().encode('# API')]
+    ]);
+
+    const result = await writer.write(kiroTarget, files);
+
+    expect(result.written).toContain(localPath('/ws', '.kiro', 'steering', 'api.md'));
+    expect(result.skipped).toEqual([]);
+  });
+
+  it('routes .cursor/rules/ for cursor repository scope', async () => {
+    const fs = new InMemoryFileSystem();
+    const cursorTarget: Target = { name: 'test', type: 'cursor', scope: 'repository', rootPath: '/ws' };
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['.cursor/rules/backend.mdc', new TextEncoder().encode('# Rules')]
+    ]);
+
+    const result = await writer.write(cursorTarget, files);
+
+    expect(result.written).toContain(localPath('/ws', '.cursor', 'rules', 'backend.mdc'));
+  });
+
+  it('routes knowledge/ and playbooks/ for devin repository scope', async () => {
+    const fs = new InMemoryFileSystem();
+    const devinTarget: Target = { name: 'test', type: 'devin', scope: 'repository', rootPath: '/ws' };
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['knowledge/onboarding.md', new TextEncoder().encode('# Onboarding')],
+      ['playbooks/bug-fix.md', new TextEncoder().encode('# Bug fix')]
+    ]);
+
+    const result = await writer.write(devinTarget, files);
+
+    expect(result.written).toContain(localPath('/ws', '.devin', 'knowledge', 'onboarding.md'));
+    expect(result.written).toContain(localPath('/ws', '.devin', 'playbooks', 'bug-fix.md'));
   });
 });
 
@@ -295,7 +436,7 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
   it('skips items whose kind is excluded by target.allowedKinds', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const restrictedTarget: Target = { ...repoTarget, allowedKinds: ['skills'] };
+    const restrictedTarget: Target = { ...repoTarget, allowedKinds: ['skill'] };
     const files = new Map<string, Uint8Array>([
       ['some-source-name.md', new TextEncoder().encode('# Hello')]
     ]);

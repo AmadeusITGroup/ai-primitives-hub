@@ -40,6 +40,15 @@ describe('NodeFileSystem', () => {
     await expect(fs.readFile(join(dir, 'missing.txt'))).rejects.toThrow();
   });
 
+  it('round-trips binary bytes losslessly via writeFileBytes/readFileBytes (issue #357)', async () => {
+    const filePath = join(dir, 'asset.pptx');
+    // Invalid UTF-8 sequences: a utf8 string round-trip would corrupt them.
+    const binaryBytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x9D, 0xC7, 0x80]);
+    await fs.writeFileBytes(filePath, binaryBytes);
+
+    expect(await fs.readFileBytes(filePath)).toEqual(binaryBytes);
+  });
+
   it('writes then reads back JSON, pretty-printed with a trailing newline', async () => {
     const filePath = join(dir, 'data.json');
     await fs.writeJson(filePath, { a: 1, b: [2, 3] });

@@ -19,6 +19,8 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 ## ✍️ For Collection Authors
 
 - **[Creating Collections](author-guide/creating-source-bundle.md)** — How to create collections
+- **[Creating a Hub](author-guide/creating-a-hub.md)** — Why, when, and how to publish a Hub
+- **[Adding Sources to Hubs](author-guide/adding-profile-source-to-hub.md)** — Maintain existing Hubs
 - **[Collection Scripts](author-guide/collection-scripts.md)** — Shared npm package for validation and building
 - **[Collection Schema](author-guide/collection-schema.md)** — YAML schema reference
 - **[Validation](author-guide/validation.md)** — Validating collections
@@ -41,10 +43,12 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
   - [Validation](contributor-guide/architecture/validation.md)
 - **[Core Flows](contributor-guide/core-flows.md)** — Key system flows
 - **[Testing](contributor-guide/testing.md)** — Testing strategy
-- **[Testing SSH Remote](contributor-guide/testing-ssh-remote.md)** — SSH testing
+- **[Testing SSH Remote](contributor-guide/testing/ssh-remote.md)** — SSH testing
 - **[Validation](contributor-guide/validation.md)** — Local validation commands
 - **[Coding Standards](contributor-guide/coding-standards.md)** — Style guide
 - **[Releasing](contributor-guide/releasing.md)** — Release process
+- **[Golden Path Test Cases](contributor-guide/testing/golden-path.md)** — The three mandatory manual scenarios, and the release gate
+- **[Full Test Plan](contributor-guide/testing/test-plan.md)** — All 19 plans, for area-by-area manual coverage
 
 ---
 

@@ -2,8 +2,8 @@
  * Core type definitions for the AI Primitives Hub system
  */
 import {
-  McpInputDefinition,
   McpServersManifest,
+  VSCodeMcpInputDefinition,
 } from './mcp';
 
 /**
@@ -336,5 +336,5 @@ export interface DeploymentManifest {
     type?: 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill'; // GitHub Copilot file type
   }[];
   mcpServers?: McpServersManifest;
-  mcpInputs?: McpInputDefinition[];
+  mcpInputs?: VSCodeMcpInputDefinition[];
 }

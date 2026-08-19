@@ -2,19 +2,20 @@
  * `index build` — build a primitive index from a local folder of
  * bundles.
  *
- * Wraps `LocalFolderBundleProvider` + `PrimitiveIndex.buildFrom` and
- * persists via `saveIndex`. Output goes through `formatOutput` so
- * callers get a stable JSON envelope on `-o json`.
+ * Delegates to the `buildIndex` use case in `@ai-primitives-hub/app`;
+ * this file only parses flags, validates required options, and formats
+ * output.
  * @module commands/index-build
  */
-import * as path from 'node:path';
 import type {
-  IndexStats,
-} from '@ai-primitives-hub/infra';
+  BuildIndexResult,
+} from '@ai-primitives-hub/app';
 import {
+  buildIndex,
+} from '@ai-primitives-hub/app';
+import {
+  defaultIndexFile,
   LocalFolderBundleProvider,
-  PrimitiveIndex,
-  saveIndex,
 } from '@ai-primitives-hub/infra';
 import {
   Command,
@@ -25,11 +26,6 @@ import {
   type OutputFormat,
   RegistryError,
 } from '../framework';
-
-interface BuildResult {
-  outFile: string;
-  stats: IndexStats;
-}
 
 /**
  * Index build command class.
@@ -42,15 +38,20 @@ export class IndexBuildCommand extends Command {
     description: 'Build a primitive index from a local folder of bundles.',
     category: 'Index & Search',
     details: `
-      Usage: ai-primitives-hub index build --root <DIR> [options]
+      Usage: ai-primitives-hub index build [options]
 
       Options:
-        --root <dir>              Root directory containing bundles (required)
-        --out, --out-file <path>  Output index file path
+        --root <dir>              Root directory containing bundles (default: current directory)
+        --out, --out-file <path>  Output index file path (default: <XDG cache>/primitive-index.json)
         --source-id <id>          Source ID for the index
+        --embed                   Embed primitive text using the local ternlight model
+        --embed-strategy <name>   Embedding strategy: single (default) or dual
         -o, --output <format>     Output format (text, json, yaml, ndjson)
 
       Examples:
+        ai-primitives-hub index build
+        ai-primitives-hub index build --embed
+        ai-primitives-hub index build --embed --embed-strategy dual
         ai-primitives-hub index build --root ./bundles
         ai-primitives-hub index build --root ./bundles --out /tmp/index.json
         ai-primitives-hub index build --root ./bundles --source-id my-source
@@ -60,6 +61,8 @@ export class IndexBuildCommand extends Command {
   public root = Option.String('--root');
   public out = Option.String('--out,--out-file');
   public sourceId = Option.String('--source-id');
+  public embed = Option.Boolean('--embed', false);
+  public embedStrategy = Option.String('--embed-strategy');
   public output = Option.String('-o,--output');
   public commandContext!: { ctx: Context };
 
@@ -67,26 +70,24 @@ export class IndexBuildCommand extends Command {
     const { ctx } = this.commandContext;
 
     const fmt = (this.output ?? 'text') as OutputFormat;
-
-    if (!this.root || this.root.length === 0) {
-      return failWith(ctx, fmt, 'index.build', new RegistryError({
-        code: 'USAGE.MISSING_FLAG',
-        message: 'index build: --root <DIR> is required'
-      }));
-    }
+    const root = this.root ?? ctx.cwd();
 
     try {
-      const outFile = this.out ?? path.join(this.root, 'primitive-index.json');
+      const outFile = this.out ?? defaultIndexFile(ctx.env);
       const provider = new LocalFolderBundleProvider({
-        root: this.root,
+        root,
         sourceId: this.sourceId
       });
-      const idx = await PrimitiveIndex.buildFrom(provider, {
-        hubId: this.sourceId
+      const data: BuildIndexResult = await buildIndex({
+        provider,
+        outFile,
+        hubId: this.sourceId,
+        embed: this.embed,
+        embedStrategy: this.embedStrategy as 'single' | 'dual' | undefined,
+        onLog: (msg): void => {
+          ctx.stderr.write(`[index build] ${msg}\n`);
+        }
       });
-      saveIndex(idx, outFile);
-      const stats = idx.stats();
-      const data: BuildResult = { outFile, stats };
       formatOutput({
         ctx,
         command: 'index.build',
@@ -94,8 +95,9 @@ export class IndexBuildCommand extends Command {
         status: 'ok',
         data,
         textRenderer: (d) =>
-          `built ${String(d.stats.primitives)} primitives `
-          + `from ${String(d.stats.bundles)} bundles → ${d.outFile}\n`
+          `built ${String(d.primitives)} primitives `
+          + `from ${String(d.bundles)} bundles → ${d.outFile}`
+          + `${d.embeddings ? ` (embeddings: ${d.embeddings.provider} dim=${d.embeddings.dim})` : ''}\n`
       });
       return 0;
     } catch (cause) {

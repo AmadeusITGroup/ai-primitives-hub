@@ -26,8 +26,13 @@ const TARGET_DESCRIPTIONS: Record<string, string> = {
   'vscode-insiders': 'VS Code Insiders (user scope — ~/.config/Code - Insiders/User/prompts/)',
   'copilot-cli': 'GitHub Copilot CLI (user scope — ~/.config/github-copilot/prompts/)',
   kiro: 'Kiro IDE',
+  'kiro-cli': 'Kiro CLI',
   windsurf: 'Windsurf IDE (Codeium)',
-  'claude-code': 'Anthropic Claude Code'
+  'claude-code': 'Anthropic Claude Code',
+  cursor: 'Cursor',
+  opencode: 'OpenCode',
+  devin: 'Devin',
+  'devin-cli': 'Devin CLI'
 };
 
 /**

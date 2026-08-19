@@ -137,17 +137,23 @@ export class DoctorDiagnosticsCommand extends BaseDoctorCommand {
       E2E user flow (target add, hub add, sync, profile activate, index build,
       install, uninstall), and reports every step with captured input/output.
 
-      The workspace is always cleaned up before exiting.
+      The workspace is cleaned up before exiting by default. Use
+      --retain-workspace when you need to inspect the generated fixtures or
+      artifacts after the run.
 
       Options:
         -o, --output <format>  Output format (text, json, yaml, ndjson)
         -v, --verbose          Print per-step progress to stderr
+        --retain-workspace     Keep the temporary diagnostic workspace
 
       Examples:
         ai-primitives-hub doctor diagnostics
         ai-primitives-hub doctor diagnostics -v
+        ai-primitives-hub doctor diagnostics --retain-workspace
     `
   });
+
+  public retainWorkspace = Option.Boolean('--retain-workspace', false);
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
@@ -155,7 +161,8 @@ export class DoctorDiagnosticsCommand extends BaseDoctorCommand {
     const result = await runDiagnostics({
       ctx,
       commandClasses: getDiagnosticCommandClasses(),
-      verbose: this.verbose
+      verbose: this.verbose,
+      retainWorkspace: this.retainWorkspace
     });
     const status: OutputStatus = result.ok ? 'ok' : 'error';
     formatOutput({
@@ -755,7 +762,7 @@ const renderDoctorText = (result: DoctorResult): string => {
 const renderDiagnosticsText = (result: DiagnosticsResult): string => {
   const lines: string[] = [
     'ai-primitives-hub doctor diagnostics',
-    `  workspace: ${result.workspace}`,
+    `  workspace: ${result.workspace} (${result.workspaceRetained ? 'retained' : 'removed'})`,
     `  ${result.ok ? '[ OK ]' : '[FAIL]'} ${result.summary}`,
     ''
   ];

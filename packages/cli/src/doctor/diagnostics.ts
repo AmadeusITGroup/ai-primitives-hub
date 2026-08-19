@@ -4,17 +4,41 @@
  * `doctor diagnostics` runs a self-contained end-to-end smoke test in a
  * temporary directory, exercising the same command sequence as the E2E user
  * flow script. It is fully idempotent and re-entrant: every run creates a
- * fresh temp workspace, and every run cleans up that workspace before exiting.
+ * fresh temp workspace, and every run cleans up that workspace before exiting
+ * unless retention is explicitly requested.
  *
  * The runner captures stdout/stderr and exit code for each step, so the
  * diagnostic report can show exactly what the system saw and produced.
  * @module doctor/diagnostics
  */
+import {
+  spawnSync,
+} from 'node:child_process';
+import {
+  readFile as readBinaryFile,
+} from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  resolveUserConfigPaths,
+} from '@ai-primitives-hub/app';
+import {
+  getInstallableBundleFiles,
+  isReleaseDeploymentManifest,
+  validateManifest,
+} from '@ai-primitives-hub/core';
+import {
+  ZipBundleExtractor,
+} from '@ai-primitives-hub/infra';
+import {
+  BundleBuildCommand,
+} from '../commands/bundle-build';
+import {
   BundleManifestCommand,
 } from '../commands/bundle-manifest';
+import {
+  CollectionAffectedCommand,
+} from '../commands/collection-affected';
 import {
   CollectionListCommand,
 } from '../commands/collection-list';
@@ -25,6 +49,9 @@ import {
   ConfigGetCommand,
 } from '../commands/config-get';
 import {
+  ConfigListCommand,
+} from '../commands/config-list';
+import {
   ExplainCommand,
 } from '../commands/explain';
 import {
@@ -32,9 +59,13 @@ import {
   HubCreateCommand,
   HubListCommand,
   HubRefreshCommand,
+  HubRemoveCommand,
   HubSyncCommand,
   HubUseCommand,
 } from '../commands/hub';
+import {
+  IndexBenchCommand,
+} from '../commands/index-bench';
 import {
   IndexBuildCommand,
 } from '../commands/index-build';
@@ -44,6 +75,9 @@ import {
 import {
   IndexExportCommand,
 } from '../commands/index-export';
+import {
+  IndexReportCommand,
+} from '../commands/index-report';
 import {
   IndexSearchCommand,
 } from '../commands/index-search';
@@ -84,6 +118,9 @@ import {
   TargetListCommand,
 } from '../commands/target-list';
 import {
+  TargetRemoveCommand,
+} from '../commands/target-remove';
+import {
   TargetTypesCommand,
 } from '../commands/target-types';
 import {
@@ -92,6 +129,9 @@ import {
 import {
   UpdateCommand,
 } from '../commands/update';
+import {
+  VersionComputeCommand,
+} from '../commands/version-compute';
 import {
   type CapturedOutputStream,
   type CommandClass,
@@ -108,6 +148,8 @@ export interface DiagnosticsOptions {
   commandClasses: CommandClass[];
   /** Print extra per-step progress to the parent stderr. */
   verbose?: boolean;
+  /** Keep the temporary workspace after the run for post-mortem inspection. */
+  retainWorkspace?: boolean;
 }
 
 /** A single step in the diagnostic report. */
@@ -140,6 +182,8 @@ export interface DiagnosticsResult {
   steps: DiagnosticStep[];
   /** Human-readable summary line. */
   summary: string;
+  /** True when the temporary workspace was intentionally retained. */
+  workspaceRetained: boolean;
 }
 
 const createCapturingStream = (): CapturedOutputStream => {
@@ -289,11 +333,17 @@ const prepareWorkspace = async (
   bundleId: string;
   sourceId: string;
   profileId: string;
+  governedCollectionFile: string;
+  governedBundleOutDir: string;
+  governedBundleSubDir: string;
+  governedBundleId: string;
 }> => {
   const fsPromises = ctx.fs;
   const bundleDir = path.join(workspace, 'bundle');
   const hubDir = path.join(workspace, 'hub');
   const targetDir = path.join(workspace, 'target');
+  const governedBundleOutDir = path.join(workspace, 'governed-dist');
+  const governedBundleSubDir = path.join(workspace, 'governed-bundle');
 
   await fsPromises.mkdir(bundleDir, { recursive: true });
   await fsPromises.mkdir(hubDir, { recursive: true });
@@ -315,6 +365,36 @@ const prepareWorkspace = async (
     TEST_SKILL
   );
 
+  await fsPromises.mkdir(path.join(workspace, 'prompts'), { recursive: true });
+  await fsPromises.mkdir(path.join(workspace, 'skills', 'governed-skill'), { recursive: true });
+  await fsPromises.mkdir(path.join(workspace, 'docs'), { recursive: true });
+  await fsPromises.writeFile(
+    path.join(workspace, 'prompts', 'governed.prompt.md'),
+    GOVERNED_PROMPT
+  );
+  await fsPromises.writeFile(
+    path.join(workspace, 'skills', 'governed-skill', 'SKILL.md'),
+    GOVERNED_SKILL
+  );
+  // This source file is intentionally committed so the governed planner's
+  // ignored-path handling is exercised for skill directories.
+  await fsPromises.writeFile(
+    path.join(workspace, 'skills', 'governed-skill', 'cached.pyc'),
+    'diagnostic cache bytes\n'
+  );
+  await fsPromises.writeFile(
+    path.join(workspace, 'docs', 'governed-readme.md'),
+    GOVERNED_README
+  );
+  await fsPromises.writeFile(
+    path.join(workspace, 'LICENSE'),
+    GOVERNED_LICENSE
+  );
+  await fsPromises.writeFile(
+    path.join(workspace, 'package.json'),
+    GOVERNED_PACKAGE_JSON
+  );
+
   const hubConfig = HUB_CONFIG
     .replace(/\{\{BUNDLE_DIR\}\}/g, localFooDir)
     .replace(/\{\{BUNDLE_ID\}\}/g, 'local-foo')
@@ -329,12 +409,18 @@ const prepareWorkspace = async (
     path.join(collectionsDir, 'foo.collection.yml'),
     COLLECTION_YML
   );
+  await fsPromises.writeFile(
+    path.join(collectionsDir, 'governed.collection.yml'),
+    GOVERNED_COLLECTION_YML
+  );
 
   const goldFile = path.join(workspace, 'gold-queries.json');
   await fsPromises.writeFile(goldFile, GOLD_QUERIES);
 
   const exportDir = path.join(workspace, 'exports');
   await fsPromises.mkdir(exportDir, { recursive: true });
+
+  initializeGitRepository(workspace);
 
   return {
     bundleDir,
@@ -348,8 +434,38 @@ const prepareWorkspace = async (
     hubId: 'local-test-hub',
     bundleId: 'local-foo',
     sourceId: 'local-foo-src',
-    profileId: 'backend'
+    profileId: 'backend',
+    governedCollectionFile: 'collections/governed.collection.yml',
+    governedBundleOutDir,
+    governedBundleSubDir,
+    governedBundleId: 'governed-foo'
   };
+};
+
+/**
+ * Initialize the synthetic repository required by governed release planning.
+ * @param workspace Diagnostic workspace.
+ */
+const initializeGitRepository = (workspace: string): void => {
+  const runGit = (args: string[]): void => {
+    const result = spawnSync('git', args, {
+      cwd: workspace,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    if (result.status !== 0) {
+      const stderr = typeof result.stderr === 'string' ? result.stderr.trim() : '';
+      throw new Error(`Git command failed: git ${args.join(' ')}${stderr ? `: ${stderr}` : ''}`);
+    }
+  };
+
+  runGit(['init']);
+  runGit(['config', 'user.email', 'doctor-diagnostics@example.invalid']);
+  runGit(['config', 'user.name', 'AI Primitives Hub Diagnostics']);
+  runGit(['config', 'commit.gpgsign', 'false']);
+  runGit(['remote', 'add', 'origin', 'https://github.com/example/diagnostic-collection.git']);
+  runGit(['add', '.']);
+  runGit(['commit', '-m', 'diagnostic governed collection']);
 };
 
 const DEPLOYMENT_MANIFEST = `id: local-foo
@@ -371,6 +487,34 @@ const TEST_SKILL = `# Test Skill
 
 A diagnostic skill.
 `;
+
+const GOVERNED_PROMPT = `# Governed Prompt
+
+## Description: A governed diagnostic prompt.
+`;
+
+const GOVERNED_SKILL = `# Governed Skill
+
+## Description: A governed diagnostic skill.
+`;
+
+const GOVERNED_README = `# Governed Diagnostic Collection
+
+Evidence-bearing README included in the release archive.
+`;
+
+const GOVERNED_LICENSE = `Diagnostic license text.
+`;
+
+const GOVERNED_PACKAGE_JSON = JSON.stringify({
+  name: 'diagnostic-collection',
+  version: '1.0.0',
+  description: 'Synthetic governed collection for diagnostics',
+  license: 'MIT',
+  repository: {
+    url: 'https://github.com/example/diagnostic-collection.git'
+  }
+}, null, 2) + '\n';
 
 const HUB_CONFIG = `version: 1.0.0
 metadata:
@@ -404,6 +548,18 @@ items:
   - path: bundle/local-foo/prompts/hello.prompt.md
     kind: prompt
   - path: bundle/local-foo/skills/test-skill/SKILL.md
+    kind: skill
+`;
+
+const GOVERNED_COLLECTION_YML = `id: governed-foo
+name: Governed Diagnostic Collection
+description: Synthetic governed collection for release diagnostics
+readme:
+  path: docs/governed-readme.md
+items:
+  - path: prompts/governed.prompt.md
+    kind: prompt
+  - path: skills/governed-skill/SKILL.md
     kind: skill
 `;
 
@@ -448,6 +604,113 @@ const extractFirstPrimitiveId = (stdout: string): string => {
 };
 
 /**
+ * Extract a bundle asset path from a JSON command response.
+ * @param stdout Captured stdout from `bundle build`.
+ * @param fallbackPath Expected path when the command did not emit JSON.
+ * @returns Bundle ZIP path.
+ */
+const extractBundleZipPath = (stdout: string, fallbackPath: string): string => {
+  try {
+    const parsed = JSON.parse(stdout) as { data?: { zipAsset?: string } };
+    return parsed.data?.zipAsset ?? fallbackPath;
+  } catch {
+    return fallbackPath;
+  }
+};
+
+/**
+ * Verify a governed bundle archive end-to-end, including its inventory,
+ * immutable provenance, evidence files, and installable projection.
+ * @param zipPath Bundle ZIP path.
+ * @param expectedId Expected collection/bundle id.
+ * @param expectedVersion Expected bundle version.
+ * @returns Safe, serializable verification details.
+ */
+const verifyGovernedArchive = async (
+  zipPath: string,
+  expectedId: string,
+  expectedVersion: string
+): Promise<Record<string, unknown>> => {
+  const files = await new ZipBundleExtractor().extract(await readBinaryFile(zipPath));
+  const manifest = validateManifest(files, {
+    expectedId,
+    expectedVersion
+  });
+  if (!isReleaseDeploymentManifest(manifest)) {
+    throw new Error('governed bundle did not declare formatVersion: 1');
+  }
+
+  const archiveFiles = [...files.keys()].toSorted();
+  const inventoryFiles = manifest.files.map((file) => file.path).toSorted();
+  const actualNonManifestFiles = archiveFiles
+    .filter((filePath) => filePath !== 'deployment-manifest.yml');
+  if (JSON.stringify(inventoryFiles) !== JSON.stringify(actualNonManifestFiles)) {
+    throw new Error('governed manifest inventory does not cover the complete archive');
+  }
+
+  const expectedInstallableFiles = [
+    'deployment-manifest.yml',
+    'prompts/governed.prompt.md',
+    'skills/governed-skill/SKILL.md'
+  ];
+  const installableFiles = [...getInstallableBundleFiles(files, manifest).keys()].toSorted();
+  if (JSON.stringify(installableFiles) !== JSON.stringify(expectedInstallableFiles.toSorted())) {
+    throw new Error('governed installable projection includes unexpected metadata or misses content');
+  }
+  if (archiveFiles.some((filePath) => filePath.endsWith('.pyc'))) {
+    throw new Error('ignored cache content leaked into the governed archive');
+  }
+
+  const provenance = manifest.provenance;
+  if (!/^[a-f0-9]{40,64}$/i.test(provenance.revision)) {
+    throw new Error('governed provenance does not contain an immutable Git revision');
+  }
+  if (provenance.source !== 'https://github.com/example/diagnostic-collection') {
+    throw new Error(`unexpected governed provenance source: ${provenance.source}`);
+  }
+  if (provenance.sourceSnapshotPath !== 'metadata/source/collections/governed.collection.yml') {
+    throw new Error('governed provenance is missing the collection source snapshot path');
+  }
+  if (provenance.licensePath !== 'LICENSE' || manifest.readme !== 'README.md') {
+    throw new Error('governed release evidence paths are incomplete');
+  }
+
+  return {
+    formatVersion: manifest.formatVersion,
+    archiveFiles,
+    inventoryFiles,
+    installableFiles,
+    inventoryCount: inventoryFiles.length,
+    revision: provenance.revision,
+    source: provenance.source,
+    readme: manifest.readme,
+    licensePath: provenance.licensePath
+  };
+};
+
+/**
+ * Materialize a governed ZIP into a local bundle directory for install/replay
+ * diagnostics. The synthetic archive intentionally contains text-only files.
+ * @param fsAbstraction Filesystem abstraction.
+ * @param zipPath Bundle ZIP path.
+ * @param destination Directory to write.
+ * @returns Archive paths written.
+ */
+const materializeBundleArchive = async (
+  fsAbstraction: FsAbstraction,
+  zipPath: string,
+  destination: string
+): Promise<string[]> => {
+  const files = await new ZipBundleExtractor().extract(await readBinaryFile(zipPath));
+  for (const [filePath, content] of files) {
+    const fullPath = path.join(destination, filePath);
+    await fsAbstraction.mkdir(path.dirname(fullPath), { recursive: true });
+    await fsAbstraction.writeFile(fullPath, new TextDecoder().decode(content));
+  }
+  return [...files.keys()].toSorted();
+};
+
+/**
  * Verify that a file exists on disk and record the result.
  * @param fsAbstraction fs abstraction.
  * @param file File to check.
@@ -465,8 +728,9 @@ const fileExists = async (fsAbstraction: FsAbstraction, file: string): Promise<b
  * Run the full diagnostic suite.
  *
  * The workspace is created fresh, populated with fixtures, exercised, and
- * then removed. If a step fails, subsequent steps still run so the report
- * shows the full picture; `ok` is false if any step exited non-zero.
+ * then removed unless retention is requested. If a step fails, subsequent
+ * steps still run so the report shows the full picture; `ok` is false if any
+ * step exited non-zero.
  * @param opts Runner options.
  * @returns Aggregate diagnostics result.
  */
@@ -485,6 +749,41 @@ export const runDiagnostics = async (
     const step = await runDiagnosticStep(opts, workspace, name, argv, input);
     steps.push(step);
     return step;
+  };
+
+  const runVerificationStep = async (
+    name: string,
+    verify: () => Promise<Record<string, unknown>>,
+    input?: Record<string, unknown>
+  ): Promise<DiagnosticStep> => {
+    const started = Date.now();
+    try {
+      const output = await verify();
+      const step: DiagnosticStep = {
+        name,
+        argv: [],
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        input,
+        output,
+        durationMs: Date.now() - started
+      };
+      steps.push(step);
+      return step;
+    } catch (err) {
+      const step: DiagnosticStep = {
+        name,
+        argv: [],
+        exitCode: 1,
+        stdout: '',
+        stderr: err instanceof Error ? err.message : String(err),
+        input,
+        durationMs: Date.now() - started
+      };
+      steps.push(step);
+      return step;
+    }
   };
 
   try {
@@ -552,9 +851,13 @@ export const runDiagnostics = async (
       fsAbstraction,
       path.join(fixtures.targetDir, 'skills', 'test-skill', 'SKILL.md')
     );
-    await runStep('verify-installed', [
+    const verifyInstalledStep = await runStep('verify-installed', [
       'status', '-o', 'json'
     ], { promptInstalled, skillInstalled });
+    if (!promptInstalled || !skillInstalled) {
+      verifyInstalledStep.exitCode = 1;
+      verifyInstalledStep.stderr = 'installed fixture files were not found in the target';
+    }
 
     // Step 10: Build a local primitive index.
     const indexPath = path.join(workspace, 'primitive-index.json');
@@ -643,13 +946,30 @@ export const runDiagnostics = async (
       '-o', 'json'
     ], { goldFile: fixtures.goldFile });
 
-    // Step 20: Deactivate the profile.
+    // Step 20: Run the local search benchmark against the generated index.
+    await runStep('index-bench', [
+      'index', 'bench',
+      '--gold', fixtures.goldFile,
+      '--index', indexPath,
+      '--iterations', '1',
+      '-o', 'json'
+    ], { goldFile: fixtures.goldFile, indexPath, iterations: 1 });
+
+    // Step 21: Render an empty local harvest report without network access.
+    await runStep('index-report', [
+      'index', 'report',
+      '--progress-file', path.join(workspace, 'harvest-progress.jsonl'),
+      '--cache-dir', path.join(workspace, 'harvest-cache'),
+      '-o', 'json'
+    ]);
+
+    // Step 22: Deactivate the profile.
     await runStep('deactivate-profile', [
       'profile', 'deactivate',
       '-o', 'json'
     ]);
 
-    // Step 21: Verify resources were removed.
+    // Step 23: Verify resources were removed.
     const promptRemoved = !(await fileExists(
       fsAbstraction,
       path.join(fixtures.targetDir, 'prompts', 'hello.prompt.md')
@@ -658,11 +978,15 @@ export const runDiagnostics = async (
       fsAbstraction,
       path.join(fixtures.targetDir, 'skills', 'test-skill', 'SKILL.md')
     ));
-    await runStep('verify-removed', [
+    const verifyRemovedStep = await runStep('verify-removed', [
       'status', '-o', 'json'
     ], { promptRemoved, skillRemoved });
+    if (!promptRemoved || !skillRemoved) {
+      verifyRemovedStep.exitCode = 1;
+      verifyRemovedStep.stderr = 'deactivated profile left fixture files in the target';
+    }
 
-    // Step 22: Direct bundle install.
+    // Step 24: Direct bundle install.
     await runStep('install-bundle', [
       'install', fixtures.bundleId,
       '--from', fixtures.bundleSubDir,
@@ -670,81 +994,95 @@ export const runDiagnostics = async (
       '-o', 'json'
     ], { bundleSubDir: fixtures.bundleSubDir });
 
-    // Step 23: Update dry-run (should report 0 updates).
+    // Step 25: Update dry-run (should report 0 updates).
     await runStep('update-dry-run', [
       'update', '--dry-run', '--no-hub-sync', '--target', 'copilot',
       '-o', 'json'
     ]);
 
-    // Step 24: Uninstall all bundles for the target.
+    // Step 26: Uninstall all bundles for the target.
     await runStep('uninstall-bundle', [
       'uninstall', '--target', 'copilot', '--all',
       '-o', 'json'
     ]);
 
-    // Step 25: List configured targets.
+    // Step 27: List configured targets.
     await runStep('target-list', [
       'target', 'list',
       '-o', 'json'
     ]);
 
-    // Step 26: List supported target types.
+    // Step 28: List supported target types.
     await runStep('target-types', [
       'target', 'types',
       '-o', 'json'
     ]);
 
-    // Step 27: List imported hubs.
+    // Step 29: List imported hubs.
     await runStep('hub-list', [
       'hub', 'list',
       '-o', 'json'
     ]);
 
-    // Step 28: Refresh the active hub.
+    // Step 30: Refresh the active hub.
     await runStep('hub-refresh', [
       'hub', 'refresh',
       '-o', 'json'
     ]);
 
-    // Step 29: Scaffold a hub-config.yml skeleton.
+    // Step 31: Scaffold a hub-config.yml skeleton.
     await runStep('hub-create', [
       'hub', 'create', '--name', 'Diagnostic Hub',
       '--out', path.join(workspace, 'scaffolded-hub'),
       '-o', 'json'
     ]);
 
-    // Step 30: Add a detached source.
+    // Step 32: Add a detached source.
     await runStep('source-add', [
       'source', 'add', '--type', 'local', '--url', fixtures.bundleSubDir,
       '--id', 'diag-source', '--name', 'Diagnostic Source',
       '-o', 'json'
     ], { bundleSubDir: fixtures.bundleSubDir });
 
-    // Step 31: List sources across all hubs.
+    // Step 33: List sources across all hubs.
     await runStep('source-list', [
       'source', 'list',
       '-o', 'json'
     ]);
 
-    // Step 32: Remove the detached source.
+    // Step 34: Remove the detached source.
     await runStep('source-remove', [
       'source', 'remove', 'diag-source',
       '-o', 'json'
     ]);
 
-    // Step 33: List collections (from collections/ dir in workspace).
+    // Step 35: List collections (from collections/ dir in workspace).
     await runStep('collection-list', [
       'collection', 'list',
       '-o', 'json'
     ], { collectionsDir: fixtures.collectionsDir });
 
-    // Step 34: Validate collections.
+    // Step 36: Validate collections.
     await runStep('collection-validate', [
       'collection', 'validate',
       '-o', 'json'
     ]);
 
-    // Step 35: Generate a deployment manifest from the collection.
+    // Step 37: Identify collections affected by a changed primitive.
+    await runStep('collection-affected', [
+      'collection', 'affected',
+      '--changed-path', 'prompts/governed.prompt.md',
+      '-o', 'json'
+    ]);
+
+    // Step 38: Compute a deterministic next version from local Git tags.
+    await runStep('version-compute', [
+      'version', 'compute',
+      '--collection-file', fixtures.governedCollectionFile,
+      '-o', 'json'
+    ], { collectionFile: fixtures.governedCollectionFile });
+
+    // Step 39: Generate a deployment manifest from the collection.
     await runStep('bundle-manifest', [
       'bundle', 'manifest',
       '--version', '1.0.0',
@@ -753,35 +1091,149 @@ export const runDiagnostics = async (
       '-o', 'json'
     ]);
 
-    // Step 36: Explain an error code.
+    // Build a governed release from the committed Git fixture.
+    const governedZipFallback = path.join(
+      fixtures.governedBundleOutDir,
+      fixtures.governedBundleId,
+      `${fixtures.governedBundleId}.bundle.zip`
+    );
+    const governedBuildStep = await runStep('build-governed-bundle', [
+      'bundle', 'build',
+      '--version', '2.3.4',
+      '--collection-file', fixtures.governedCollectionFile,
+      '--out-dir', fixtures.governedBundleOutDir,
+      '-o', 'json'
+    ], {
+      collectionFile: fixtures.governedCollectionFile,
+      outDir: fixtures.governedBundleOutDir
+    });
+    const governedZipPath = extractBundleZipPath(governedBuildStep.stdout, governedZipFallback);
+    await runVerificationStep('verify-governed-archive', () => verifyGovernedArchive(
+      governedZipPath,
+      fixtures.governedBundleId,
+      '2.3.4'
+    ), { zipPath: governedZipPath });
+    await runVerificationStep('materialize-governed-bundle', async () => ({
+      files: await materializeBundleArchive(
+        fsAbstraction,
+        governedZipPath,
+        fixtures.governedBundleSubDir
+      )
+    }), { zipPath: governedZipPath, bundleDir: fixtures.governedBundleSubDir });
+
+    // Install the governed archive through the normal local install path so
+    // the runtime's metadata/evidence filtering is covered as well.
+    await runStep('install-governed-bundle', [
+      'install', fixtures.governedBundleId,
+      '--from', fixtures.governedBundleSubDir,
+      '--target', 'copilot',
+      '-o', 'json'
+    ], { bundleSubDir: fixtures.governedBundleSubDir });
+    await runVerificationStep('verify-governed-install', async () => {
+      const targetInstallablePaths = [
+        'prompts/governed.prompt.md',
+        'skills/governed-skill/SKILL.md'
+      ];
+      const targetInstallable = await Promise.all(targetInstallablePaths.map(async (relativePath) => ({
+        path: relativePath,
+        present: await fileExists(fsAbstraction, path.join(fixtures.targetDir, relativePath))
+      })));
+      const metadataPaths = [
+        'README.md',
+        'LICENSE',
+        'metadata/source/collections/governed.collection.yml'
+      ];
+      const metadataPresent = await Promise.all(metadataPaths.map(async (relativePath) => ({
+        path: relativePath,
+        present: await fileExists(fsAbstraction, path.join(fixtures.targetDir, relativePath))
+      })));
+      const lockfilePath = resolveUserConfigPaths(buildDiagnosticEnv(opts.ctx, workspace)).userLockfile;
+      const lockfile = await fsAbstraction.readJson<{
+        bundles?: Record<string, { files?: { path: string }[] }>;
+      }>(lockfilePath);
+      const lockEntry = lockfile.bundles?.[fixtures.governedBundleId];
+      const lockfilePaths = lockEntry?.files?.map((file) => file.path).toSorted() ?? [];
+      if (targetInstallable.some((file) => !file.present)) {
+        throw new Error('governed install did not write every installable primitive');
+      }
+      if (metadataPresent.some((file) => file.present)) {
+        throw new Error('governed metadata or evidence was written into the target');
+      }
+      if (lockEntry === undefined || lockfilePaths.some((filePath) => metadataPaths.includes(filePath))) {
+        throw new Error('governed lockfile entry is missing or contains metadata paths');
+      }
+      return {
+        targetInstallable,
+        metadataPresent,
+        lockfilePath,
+        lockfilePaths
+      };
+    }, { targetDir: fixtures.targetDir });
+    await runStep('uninstall-governed-bundle', [
+      'uninstall', '--target', 'copilot', '--all',
+      '-o', 'json'
+    ]);
+    await runVerificationStep('verify-governed-removed', async () => {
+      const pathsToCheck = [
+        'prompts/governed.prompt.md',
+        'skills/governed-skill/SKILL.md'
+      ];
+      const removed = await Promise.all(pathsToCheck.map(async (relativePath) => ({
+        path: relativePath,
+        removed: !(await fileExists(fsAbstraction, path.join(fixtures.targetDir, relativePath)))
+      })));
+      if (removed.some((file) => !file.removed)) {
+        throw new Error('governed uninstall left installable files in the target');
+      }
+      return { removed };
+    }, { targetDir: fixtures.targetDir });
+
+    // Step 40: Explain an error code.
     await runStep('explain', [
       'explain', 'INDEX.NOT_FOUND',
       '-o', 'json'
     ]);
 
-    // Step 37: List CLI plugins.
+    // Step 41: List CLI plugins.
     await runStep('plugins-list', [
       'plugins', 'list',
       '-o', 'json'
     ]);
 
-    // Step 38: Read a config value.
+    // Step 42: Read a config value.
     await runStep('config-get', [
       'config', 'get', 'output.json.indent',
       '-o', 'json'
     ]);
 
-    // Step 39: Final status check.
+    // Step 43: List the complete resolved config.
+    await runStep('config-list', [
+      'config', 'list',
+      '-o', 'json'
+    ]);
+
+    // Step 44: Final status check.
     await runStep('final-status', [
       'status', '-o', 'json'
     ]);
 
-    // Step 40: Search alias as top-level command.
+    // Step 45: Search alias as top-level command.
     await runStep('search-alias', [
       'search', '--query', 'hello',
       '--index', indexPath,
       '-o', 'json'
     ]);
+
+    // Step 46: Exercise local target and hub cleanup commands last, after all
+    // other diagnostic flows no longer need either resource.
+    await runStep('target-remove', [
+      'target', 'remove', 'copilot',
+      '-o', 'json'
+    ]);
+    await runStep('hub-remove', [
+      'hub', 'remove', fixtures.hubId,
+      '-o', 'json'
+    ], { hubId: fixtures.hubId });
   } catch (err) {
     // Record the unexpected error as a synthetic step so the report always
     // explains why the run stopped.
@@ -795,23 +1247,28 @@ export const runDiagnostics = async (
       durationMs: 0
     });
   } finally {
-    // Always remove the workspace, even when steps fail.
-    try {
-      await fsAbstraction.remove(workspace, { recursive: true });
-    } catch {
-      // Best-effort cleanup; do not mask the real failure.
+    // Retention is deliberately opt-in, but it also applies to failed runs so
+    // callers can inspect the exact state that produced the failure.
+    if (opts.retainWorkspace !== true) {
+      try {
+        await fsAbstraction.remove(workspace, { recursive: true });
+      } catch {
+        // Best-effort cleanup; do not mask the real failure.
+      }
     }
   }
 
   const failed = steps.filter((s) => s.exitCode !== 0);
   const ok = failed.length === 0;
+  const workspaceRetained = await fileExists(fsAbstraction, workspace);
   return {
     ok,
     workspace,
     steps,
     summary: ok
       ? `all ${steps.length} diagnostic steps passed`
-      : `${failed.length} of ${steps.length} diagnostic steps failed`
+      : `${failed.length} of ${steps.length} diagnostic steps failed`,
+    workspaceRetained
   };
 };
 
@@ -821,23 +1278,29 @@ export const runDiagnostics = async (
  */
 export const getDiagnosticCommandClasses = (): CommandClass[] => [
   StatusCommand,
+  BundleBuildCommand,
+  ConfigListCommand,
   TargetAddCommand,
   TargetListCommand,
+  TargetRemoveCommand,
   TargetTypesCommand,
   HubAddCommand,
   HubUseCommand,
   HubSyncCommand,
   HubListCommand,
   HubRefreshCommand,
+  HubRemoveCommand,
   HubCreateCommand,
   ProfileListCommand,
   ProfileShowCommand,
   ProfileCurrentCommand,
   ProfileActivateCommand,
   ProfileDeactivateCommand,
+  IndexBenchCommand,
   IndexBuildCommand,
   IndexSearchCommand,
   IndexStatsCommand,
+  IndexReportCommand,
   IndexShortlistNewCommand,
   IndexShortlistAddCommand,
   IndexShortlistRemoveCommand,
@@ -851,9 +1314,11 @@ export const getDiagnosticCommandClasses = (): CommandClass[] => [
   SourceListCommand,
   SourceRemoveCommand,
   CollectionListCommand,
+  CollectionAffectedCommand,
   CollectionValidateCommand,
   BundleManifestCommand,
   ExplainCommand,
   PluginsListCommand,
-  ConfigGetCommand
+  ConfigGetCommand,
+  VersionComputeCommand
 ];

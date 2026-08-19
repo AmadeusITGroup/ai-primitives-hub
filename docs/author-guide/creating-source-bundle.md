@@ -47,7 +47,8 @@ See [Collection Schema](./collection-schema.md) for full reference.
 
 ## Scaffolding a Project
 
-`Ctrl+Shift+P` → "AI Primitives Hub: Scaffold Project"
+Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
+macOS) and run **AI Primitives Hub: Scaffold Project**.
 
 ### 1. Select project type
 
@@ -112,7 +113,9 @@ If you pick **Agent Skill** and the workspace already contains a `collections/` 
 
 ## Testing Locally
 
-1. Add local source: `Ctrl+Shift+P` → "Add Source" → `local-awesome-copilot`
+1. Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P`
+   on macOS), run **AI Primitives Hub: Add Source**, and choose
+   `local-awesome-copilot`.
 2. Enter path to your collection directory
 3. Bundles appear in Registry Explorer
 

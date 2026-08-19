@@ -1,14 +1,23 @@
 # Marketplace
 
-Open via Activity Bar icon or `Ctrl+Shift+P` → "AI Primitives Hub: Focus On Marketplace View"
+Open it from the Activity Bar, or open the Command Palette (`Ctrl+Shift+P` on
+Windows/Linux or `Cmd+Shift+P` on macOS) and run
+**AI Primitives Hub: Focus On Marketplace View**.
 
 ## Browsing
 
-- **Search** — Filter by name, description, tags
+- **Search** — Filter by name, description, tags, and indexed primitive content
 - **Filter by Type** — Prompts, Instructions, Chat Modes, Agents
 - **Filter by Tags** — Multiple tags use OR logic
 - **Filter by Source** — Show bundles from specific repositories
 - **Installed Only** — Show only installed bundles
+
+The marketplace builds the primitive index on demand when you search. To start a
+rebuild explicitly, open the Command Palette and run **AI Primitives Hub:
+Rebuild Primitive Index**. The index is also rebuilt automatically after source
+syncs and bundle installation changes. `awesome-copilot` and
+`awesome-copilot-plugin` sources are intentionally excluded from primitive
+indexing; they remain available to the regular bundle catalog.
 
 ## Installing
 
@@ -18,13 +27,9 @@ Open via Activity Bar icon or `Ctrl+Shift+P` → "AI Primitives Hub: Focus On Ma
 
 ## Updates
 
-```bash
-# Check for updates
-Right-click bundle → "Check for Updates"
-
-# Update all
-Ctrl+Shift+P → "AI Primitives Hub: Update All Bundles"
-```
+- **Check for updates:** Right-click a bundle and select **Check for Updates**.
+- **Update all:** Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+  `Cmd+Shift+P` on macOS) and run **AI Primitives Hub: Update All Bundles**.
 
 Auto-update settings in `File → Preferences → Settings → AI Primitives Hub`:
 

@@ -100,6 +100,10 @@ export {
   findProjectLockfile,
   loadTargets,
   lockfilePathForTarget,
+  resolveEffectiveTarget,
+} from './target';
+export type {
+  TargetOverrides,
 } from './target';
 export {
   copyCommandPrototype,
@@ -123,3 +127,6 @@ export {
 export {
   suggestCommand,
 } from './suggest';
+export {
+  loadInquirer,
+} from './inquirer';

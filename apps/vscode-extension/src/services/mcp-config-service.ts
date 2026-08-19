@@ -1,11 +1,17 @@
 import type {
   McpConfigScope,
 } from '@ai-primitives-hub/app';
+import {
+  autoDeriveMissingInputs,
+  mergeInputDeclarations,
+} from '@ai-primitives-hub/app';
+import {
+  collectInputReferences,
+} from '@ai-primitives-hub/core';
 import * as fs from 'fs-extra';
 import {
   isRemoteServerConfig,
   McpConfiguration,
-  McpInputDefinition,
   McpInstallOptions,
   McpRemoteServerConfig,
   McpServerConfig,
@@ -13,6 +19,7 @@ import {
   McpStdioServerConfig,
   McpTrackingMetadata,
   McpVariableContext,
+  VSCodeMcpInputDefinition,
 } from '../types/mcp';
 import {
   Logger,
@@ -323,33 +330,33 @@ export class McpConfigService {
 
   /**
    * Merge new input definitions into existing ones, deduplicating by id.
-   * Existing inputs with the same id are preserved unchanged.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
    * @param existing - Current inputs array from mcp.json
    * @param incoming - New inputs to add
    */
   public mergeInputs(
-    existing: McpInputDefinition[] | undefined,
-    incoming: McpInputDefinition[] | undefined
-  ): McpInputDefinition[] | undefined {
-    if (!incoming || incoming.length === 0) {
-      return existing;
-    }
-    const merged = existing ? [...existing] : [];
-    const existingIds = new Set(merged.map((i) => i.id));
-    for (const input of incoming) {
-      if (!existingIds.has(input.id)) {
-        merged.push(input);
-        existingIds.add(input.id);
-      }
-    }
-    return merged.length > 0 ? merged : undefined;
+    existing: VSCodeMcpInputDefinition[] | undefined,
+    incoming: VSCodeMcpInputDefinition[] | undefined
+  ): VSCodeMcpInputDefinition[] | undefined {
+    return mergeInputDeclarations(existing, incoming);
   }
 
+  /**
+   * Merge new servers and their input declarations into an existing MCP configuration.
+   * @param existingConfig - Current config read from the host's mcp.json.
+   * @param newServers - Servers to add, already prefixed with their bundle id.
+   * @param options - Install options (conflict handling).
+   * @param newInputs - Input declarations shipped by the bundle manifest.
+   * @param supportsInputs - Whether the target host resolves `${input:id}`. When
+   * false, missing declarations are not auto-derived because the host will never
+   * prompt for them and the entry would only mislead the user.
+   */
   public async mergeServers(
     existingConfig: McpConfiguration,
     newServers: Record<string, McpServerConfig>,
     options: McpInstallOptions,
-    newInputs?: McpInputDefinition[]
+    newInputs?: VSCodeMcpInputDefinition[],
+    supportsInputs = true
   ): Promise<{ config: McpConfiguration; conflicts: string[]; warnings: string[] }> {
     // Spread `existingConfig` first: hosts such as Claude Code keep unrelated state
     // (projects, account/OAuth data, preferences) as sibling top-level keys in the
@@ -360,7 +367,11 @@ export class McpConfigService {
       ...existingConfig,
       servers: { ...existingConfig.servers },
       tasks: existingConfig.tasks ? { ...existingConfig.tasks } : undefined,
-      inputs: this.mergeInputs(existingConfig.inputs, newInputs)
+      // Hosts without input support must not receive bundle declarations: they
+      // would never prompt, so preserve only input state already in the file.
+      inputs: supportsInputs
+        ? this.mergeInputs(existingConfig.inputs, newInputs)
+        : existingConfig.inputs
     };
     const conflicts: string[] = [];
     const warnings: string[] = [];
@@ -381,48 +392,40 @@ export class McpConfigService {
       }
     }
 
+    // Auto-derive missing input declarations from ${input:id} references in the
+    // newly-installed servers. Delegates to the pure core helper.
+    // Skipped on hosts that do not resolve inputs.
+    if (supportsInputs) {
+      const { inputs: derivedInputs, warnings: derivedWarnings } =
+        this.autoDeriveMissingInputs(newServers, result.inputs);
+      result.inputs = derivedInputs;
+      warnings.push(...derivedWarnings);
+    }
+
     return { config: result, conflicts, warnings };
   }
 
   /**
+   * Auto-derive missing `${input:id}` declarations for newly-installed servers.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
+   * @param servers - Servers to scan for `${input:id}` references.
+   * @param existingInputs - Inputs already declared (merged manifest + existing file).
+   */
+  public autoDeriveMissingInputs(
+    servers: Record<string, McpServerConfig>,
+    existingInputs: VSCodeMcpInputDefinition[] | undefined
+  ): { inputs: VSCodeMcpInputDefinition[] | undefined; warnings: string[] } {
+    return autoDeriveMissingInputs(servers, existingInputs);
+  }
+
+  /**
    * Collect all `${input:id}` references across the given server configurations.
-   *
-   * Public because the install path needs it to detect servers that cannot work on a
-   * host which does not resolve inputs — the placeholder would be written verbatim and
-   * the server would fail at startup rather than at install time.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
    * @param servers - Server configurations to scan.
    * @returns The set of referenced input ids.
    */
   public collectInputReferences(servers: Record<string, McpServerConfig>): Set<string> {
-    const inputPattern = /\$\{input:([^}]+)\}/g;
-    const referenced = new Set<string>();
-
-    const scan = (value: string | undefined): void => {
-      if (!value) {
-        return;
-      }
-      let match: RegExpExecArray | null;
-      while ((match = inputPattern.exec(value)) !== null) {
-        referenced.add(match[1]);
-      }
-    };
-
-    for (const serverConfig of Object.values(servers)) {
-      if (isRemoteServerConfig(serverConfig)) {
-        scan(serverConfig.url);
-        if (serverConfig.headers) {
-          Object.values(serverConfig.headers).forEach((v) => scan(v));
-        }
-      } else {
-        scan(serverConfig.command);
-        serverConfig.args?.forEach((v) => scan(v));
-        if (serverConfig.env) {
-          Object.values(serverConfig.env).forEach((v) => scan(v));
-        }
-      }
-    }
-
-    return referenced;
+    return collectInputReferences(servers);
   }
 
   /**
@@ -434,7 +437,7 @@ export class McpConfigService {
     if (!config.inputs || config.inputs.length === 0) {
       return config;
     }
-    const referenced = this.collectInputReferences(config.servers);
+    const referenced = collectInputReferences(config.servers);
     const filteredInputs = config.inputs.filter((input) => referenced.has(input.id));
     return {
       ...config,

@@ -4,9 +4,8 @@ Validate your collection files before publishing to catch errors early.
 
 ## Quick Validation
 
-```bash
-Ctrl+Shift+P → "AI Primitives Hub: Validate Collections"
-```
+Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
+macOS) and run **AI Primitives Hub: Validate Collections**.
 
 Validates all `.collection.yml` files in your `collections/` directory, including:
 - Schema validation (required fields, formats)

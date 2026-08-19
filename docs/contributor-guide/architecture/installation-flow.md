@@ -84,6 +84,15 @@ flowchart TD
     U --> AA
 ```
 
+## Binary Safety and Integrity Verification
+
+Bundle files are copied to the target byte-for-byte and verified after every write:
+
+- **Binary-safe writes** — writers use the `FileSystem` port's `readFileBytes`/`writeFileBytes` for all payloads. Text payloads (strict UTF-8) may additionally pass through a target-specific `ResourceTransformer`; binary payloads (images, archives, office documents) are never decoded as text — a lossy UTF-8 round-trip replaces invalid sequences with U+FFFD and corrupts them.
+- **Post-write verification** — after each write, the installed file is re-read and compared against the bytes the writer intended to write (`verifyWrittenBytes` in `core`'s `domain/install/integrity`). A mismatch throws `FileIntegrityError` (`BUNDLE.INTEGRITY_MISMATCH`) instead of leaving a silently corrupted artifact.
+- **Upstream layers already verified** — zip entry CRC-32 is checked during extraction, and governed (`formatVersion: 1`) deployment manifests carry per-file `size` + `sha256` validated against the extracted bytes.
+- **Lockfile checksums** — `checksumFiles` hashes the extracted (archive) bytes, not the optionally transformed on-disk result. For untransformed files those values match; for transformed files a later user-modification check that compares on-disk hashes to the lockfile will currently report a mismatch. Recording a separate `installedChecksum` in `LockfileFileEntry` is a follow-up (issue #357 Stage 2) and is not part of this binary-safety change.
+
 ## Scope Selection
 
 When a user initiates installation, a QuickPick dialog presents three options:

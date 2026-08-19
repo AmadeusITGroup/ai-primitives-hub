@@ -30,6 +30,7 @@ import {
   upsertBundleEntry,
   upsertSource,
   writeLockfile,
+  writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import type {
   BundleResolver,
@@ -39,6 +40,7 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  getInstallableBundleFiles,
   parseBundleSpec,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -62,12 +64,12 @@ import {
   TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
-import inquirer from 'inquirer';
 import {
   Command,
   createHubManager,
   failWith,
   findProjectLockfile,
+  loadInquirer,
   loadTargets,
   lockfilePathForTarget,
   Option,
@@ -81,6 +83,7 @@ import {
   type OutputFormat,
   readTargetsSafely,
   RegistryError,
+  resolveEffectiveTarget,
   resolveTarget,
   resolveTargetName,
   validateInputs,
@@ -279,7 +282,8 @@ export class InstallCommand extends BaseInstallCommand {
     try {
       const targetName = await resolveTargetName(opts.target, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
       checkAllowTarget(targetName, opts);
-      const target = await resolveTarget(targetName, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const configuredTarget = await resolveTarget(targetName, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
       const mode = determineInstallMode(opts);
       if (mode === undefined) {
@@ -428,12 +432,16 @@ export const createWriterFactory = (
   });
 
   return (target: Target): TargetWriter => {
-    // Use CLI flags to override target scope if specified
-    const scope = opts.scope ?? target.scope;
-    const commitMode = opts.commitMode ?? target.commitMode ?? 'commit';
-    const workspaceRoot = target.rootPath ?? ctx.cwd();
+    const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
+    const scope = effectiveTarget.scope;
+    const commitMode = effectiveTarget.commitMode ?? 'commit';
+    const workspaceRoot = effectiveTarget.rootPath ?? ctx.cwd();
 
-    if (scope === 'repository') {
+    // Copilot / VS Code repository scope still writes the .github tree and
+    // supports commitMode / .git/info/exclude. Every other target uses the
+    // data-driven FileTreeTargetWriter with its repository scope layout.
+    const copilotLikeTargets = new Set<string>(['vscode', 'vscode-insiders', 'copilot-cli']);
+    if (scope === 'repository' && copilotLikeTargets.has(effectiveTarget.type)) {
       const writer = new RepositoryScopeWriter({
         fs: ctx.fs,
         workspaceRoot,
@@ -441,8 +449,7 @@ export const createWriterFactory = (
       });
       return new RepositoryScopeWriterAdapter(writer);
     }
-    // Default to FileTreeTargetWriter for user scope
-    const transformer = transformerRegistry.getTransformer(target.type);
+    const transformer = transformerRegistry.getTransformer(effectiveTarget.type);
     return new FileTreeTargetWriter({
       fs: ctx.fs,
       env: ctx.env,
@@ -543,7 +550,7 @@ async function interactiveBundleSelection(
       return 0;
     }
 
-    await previewInstallation(selectedBundles, target.name, ctx);
+    previewInstallation(selectedBundles, target.name, ctx);
     const confirmed = await confirmInstallation(ctx);
     if (!confirmed) {
       return 0;
@@ -599,7 +606,8 @@ async function promptBundleSelection(
   bundleChoices: { name: string; value: string; short: string }[],
   bundles: { id: string }[]
 ): Promise<{ id: string; version: string; source: string }[]> {
-  const answers = await inquirer.prompt([
+  const inquirer = await loadInquirer();
+  const answers = await inquirer.prompt<{ selectedBundles: string[] }>([
     {
       type: 'checkbox',
       name: 'selectedBundles',
@@ -609,11 +617,11 @@ async function promptBundleSelection(
     }
   ]);
 
-  const selectedBundleIds = answers.selectedBundles as string[];
+  const selectedBundleIds = answers.selectedBundles;
   return bundles.filter((b) => selectedBundleIds.includes(b.id)) as { id: string; version: string; source: string }[];
 }
 
-async function previewInstallation(bundles: { id: string; version: string; source: string }[], targetName: string, ctx: Context): Promise<void> {
+function previewInstallation(bundles: { id: string; version: string; source: string }[], targetName: string, ctx: Context): void {
   ctx.stdout.write(`\nPreview: Installing ${bundles.length} bundle${bundles.length === 1 ? '' : 's'} to target "${targetName}"\n`);
   for (const b of bundles) {
     ctx.stdout.write(`  - ${b.id}@${b.version} (source: ${b.source})\n`);
@@ -621,7 +629,8 @@ async function previewInstallation(bundles: { id: string; version: string; sourc
 }
 
 async function confirmInstallation(ctx: Context): Promise<boolean> {
-  const confirm = await inquirer.prompt([
+  const inquirer = await loadInquirer();
+  const confirm = await inquirer.prompt<{ proceed: boolean }>([
     {
       type: 'confirm',
       name: 'proceed',
@@ -702,6 +711,7 @@ async function performLocalInstall(
   fmt: OutputFormat
 ): Promise<number> {
   try {
+    const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
     const files = await readLocalBundle(opts.from as string, ctx.fs);
     const manifest = validateManifest(files, {
       expectedId: opts.bundle ?? '',
@@ -715,7 +725,7 @@ async function performLocalInstall(
         status: 'ok',
         data: {
           dryRun: true,
-          target: target.name,
+          target: effectiveTarget.name,
           bundle: { id: manifest.id, version: manifest.version },
           files: [...files.keys()]
         },
@@ -725,12 +735,13 @@ async function performLocalInstall(
       return 0;
     }
     const writerFactory = createWriterFactory(ctx, opts);
-    const writer = writerFactory(target);
-    const result = await writer.write(target, files);
+    const writer = writerFactory(effectiveTarget);
+    const targetFiles = getInstallableBundleFiles(files, manifest);
+    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
 
-    const scope = opts.scope ?? target.scope;
-    const commitMode = opts.commitMode ?? target.commitMode ?? 'commit';
-    const lockPath = lockfilePathForTarget(ctx, target, commitMode);
+    const scope = effectiveTarget.scope;
+    const commitMode = effectiveTarget.commitMode ?? 'commit';
+    const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
     const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
     const localSourceId = `local-${path.basename(opts.from as string)}`;
     const entry: LockfileBundleEntry = {
@@ -738,7 +749,7 @@ async function performLocalInstall(
       sourceId: localSourceId,
       sourceType: 'local',
       installedAt: new Date().toISOString(),
-      files: checksumFiles(files)
+      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
     };
     if (scope === 'repository') {
       entry.commitMode = commitMode;
@@ -750,7 +761,7 @@ async function performLocalInstall(
     });
     await writeLockfile(lockPath, nextLock, ctx.fs);
 
-    await updateTargetState(ctx, target.name, manifest.id, manifest.version);
+    await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
 
     formatOutput({
       ctx,
@@ -758,7 +769,7 @@ async function performLocalInstall(
       output: fmt,
       status: 'ok',
       data: {
-        target: target.name,
+        target: effectiveTarget.name,
         bundle: { id: manifest.id, version: manifest.version },
         written: result.written,
         skipped: result.skipped,
@@ -798,6 +809,7 @@ async function performLockfileInstall(
   ctx: Context,
   fmt: OutputFormat
 ): Promise<number> {
+  const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
   const lockfile = opts.lockfile as string;
   const lockPath = path.isAbsolute(lockfile)
     ? lockfile
@@ -807,7 +819,7 @@ async function performLockfileInstall(
   const http = opts.http ?? new NodeHttpClient();
   const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
   const writerFactory = createWriterFactory(ctx, opts);
-  const writer = writerFactory(target);
+  const writer = writerFactory(effectiveTarget);
 
   const { replayed, failures } = await replayLockfileEntries({
     bundleIds,
@@ -815,13 +827,13 @@ async function performLockfileInstall(
     http,
     tokens,
     writer,
-    target,
+    target: effectiveTarget,
     ctx,
     verbose: opts.verbose ?? false
   });
 
   if (replayed.length > 0) {
-    await updateTargetStateFromLockfile(ctx, target.name, lock, replayed);
+    await updateTargetStateFromLockfile(ctx, effectiveTarget.name, lock, replayed);
   }
 
   const status = failures.length === 0 ? 'ok' : 'warning';
@@ -832,7 +844,7 @@ async function performLockfileInstall(
     status,
     data: {
       lockfile: lockPath,
-      target: target.name,
+      target: effectiveTarget.name,
       replayPlanned: bundleIds.length,
       replayed,
       failures
@@ -871,6 +883,7 @@ async function performRemoteInstall(
   fmt: OutputFormat
 ): Promise<number> {
   try {
+    const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
     const spec = parseBundleSpec(opts.bundle as string);
     const repoSlug = opts.source ?? spec.sourceId;
     if (repoSlug === undefined || repoSlug.length === 0) {
@@ -924,7 +937,7 @@ async function performRemoteInstall(
         status: 'ok',
         data: {
           dryRun: true,
-          target: target.name,
+          target: effectiveTarget.name,
           bundle: { id: manifest.id, version: manifest.version },
           source: { type: 'github', repo: repoSlug, downloadUrl: installable.downloadUrl },
           sha256: dl.sha256,
@@ -936,13 +949,13 @@ async function performRemoteInstall(
       });
       return 0;
     }
-    const transformerRegistry = TransformerRegistry.withBuiltIns();
-    const transformer = transformerRegistry.getTransformer(target.type);
-    const writer = new FileTreeTargetWriter({ fs: ctx.fs, env: ctx.env, transformer });
-    const result = await writer.write(target, files);
-    const scope = opts.scope ?? target.scope;
-    const commitMode = opts.commitMode ?? target.commitMode ?? 'commit';
-    const lockPath = lockfilePathForTarget(ctx, target, commitMode);
+    const writerFactory = createWriterFactory(ctx, opts);
+    const writer = writerFactory(effectiveTarget);
+    const targetFiles = getInstallableBundleFiles(files, manifest);
+    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
+    const scope = effectiveTarget.scope;
+    const commitMode = effectiveTarget.commitMode ?? 'commit';
+    const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
     const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
     const entry: LockfileBundleEntry = {
       version: manifest.version,
@@ -950,7 +963,7 @@ async function performRemoteInstall(
       sourceType: installable.ref.sourceType,
       checksum: dl.sha256,
       installedAt: new Date().toISOString(),
-      files: checksumFiles(files)
+      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
     };
     if (scope === 'repository') {
       entry.commitMode = commitMode;
@@ -970,7 +983,7 @@ async function performRemoteInstall(
       output: fmt,
       status: 'ok',
       data: {
-        target: target.name,
+        target: effectiveTarget.name,
         bundle: { id: manifest.id, version: manifest.version },
         source: { type: 'github', repo: repoSlug, sourceId: installable.ref.sourceId },
         sha256: dl.sha256,
@@ -1127,7 +1140,8 @@ export const createInstallCommand = (
       try {
         const targetName = await resolveTargetName(opts.target, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
         checkAllowTarget(targetName, opts);
-        const target = await resolveTarget(targetName, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+        const configuredTarget = await resolveTarget(targetName, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+        const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
         if (opts.from !== undefined && opts.from.length > 0) {
           return await performLocalInstall(opts, target, ctx, fmt);
@@ -1237,11 +1251,11 @@ async function validateAndWrite(
   ctx: Context,
   verbose: boolean
 ): Promise<void> {
-  validateManifest(files, {
+  const manifest = validateManifest(files, {
     expectedId: bundleId,
     expectedVersion: entry.version
   });
-  await writer.write(target, files);
+  await writeTargetSafely(writer, target, getInstallableBundleFiles(files, manifest));
   if (verbose) {
     ctx.stdout.write(`[verbose] Successfully installed ${bundleId}\n`);
   }

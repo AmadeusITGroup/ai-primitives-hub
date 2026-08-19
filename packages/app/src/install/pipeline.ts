@@ -21,6 +21,7 @@ import {
   type BundleExtractor,
   type BundleResolver,
   type BundleSpec,
+  getInstallableBundleFiles,
   type Installable,
   type Target,
   type ValidatedManifest,
@@ -30,6 +31,10 @@ import type {
   TargetWriter,
   TargetWriteResult,
 } from '../writers/file-tree-writer';
+import {
+  TargetWriteRejectedError,
+  writeTargetSafely,
+} from './target-write';
 
 /**
  * Pipeline events emitted during install.
@@ -176,11 +181,15 @@ export class InstallPipeline {
     let writeResult;
     try {
       const writer = this.opts.writerFactory(target);
-      writeResult = await writer.write(target, files);
+      const targetFiles = getInstallableBundleFiles(files, manifest);
+      writeResult = await writeTargetSafely(writer, target, targetFiles);
     } catch (writeError) {
+      const code = writeError instanceof TargetWriteRejectedError
+        ? writeError.code
+        : 'FS.WRITE_FAILED';
       throw new InstallPipelineError(
         `write failed: ${(writeError as Error).message}`,
-        'FS.WRITE_FAILED',
+        code,
         'write'
       );
     }

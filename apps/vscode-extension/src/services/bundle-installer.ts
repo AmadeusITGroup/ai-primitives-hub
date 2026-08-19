@@ -471,6 +471,37 @@ export class BundleInstaller {
     );
   }
 
+  /**
+   * Surface MCP warnings for an otherwise successful install.
+   *
+   * Only user-actionable warnings (e.g. "host cannot prompt for inputs") are shown
+   * as notifications. Bundle-author concerns (auto-derived declarations) are logged
+   * but not surfaced to the end user.
+   * @param bundleId - Bundle being installed.
+   * @param warnings - Warnings reported by the MCP manager.
+   */
+  private notifyMcpInstallWarnings(bundleId: string, warnings: string[] | undefined): void {
+    if (!warnings || warnings.length === 0) {
+      return;
+    }
+
+    const userActionable: string[] = [];
+    const nonActionable: string[] = [];
+    for (const w of warnings) {
+      (w.includes('auto-derived') ? nonActionable : userActionable).push(w);
+    }
+
+    if (nonActionable.length > 0) {
+      this.logger.warn(`MCP installation: ${nonActionable.join(' ')}`);
+    }
+
+    if (userActionable.length > 0) {
+      const detail = userActionable.join(' ');
+      this.logger.warn(`MCP installation warnings: ${detail}`);
+      void vscode.window.showWarningMessage(`MCP servers for "${bundleId}" ${detail}`);
+    }
+  }
+
   private async installMcpServers(
     bundleId: string,
     bundleVersion: string,
@@ -515,9 +546,7 @@ export class BundleInstaller {
           this.notifyMcpInstallFailure(bundleId, workspaceInstallationResult.errors);
         }
 
-        if (workspaceInstallationResult.warnings && workspaceInstallationResult.warnings.length > 0) {
-          this.logger.warn(`MCP installation warnings: ${workspaceInstallationResult.warnings.join(', ')}`);
-        }
+        this.notifyMcpInstallWarnings(bundleId, workspaceInstallationResult.warnings);
         return;
       }
 
@@ -542,9 +571,7 @@ export class BundleInstaller {
         this.notifyMcpInstallFailure(bundleId, result.errors);
       }
 
-      if (result.warnings && result.warnings.length > 0) {
-        this.logger.warn(`MCP installation warnings: ${result.warnings.join(', ')}`);
-      }
+      this.notifyMcpInstallWarnings(bundleId, result.warnings);
     } catch (error) {
       this.logger.error(`Failed to install MCP servers for bundle ${bundleId}`, error as Error);
       // Don't fail the entire bundle installation if MCP installation fails

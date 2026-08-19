@@ -1,108 +1,85 @@
-# Authentication
+# Source Authentication
 
-GitHubAdapter and AwesomeCopilotAdapter support private repos via a three-tier auth chain.
+Authentication is provided to shared source adapters through the
+`TokenProvider` port. The shared adapters do not import VS Code APIs or read
+delivery-specific settings directly.
 
-## Authentication Chain
+## Current Token Chain
+
+`packages/app/src/registry/create-source-adapter.ts` builds a
+`CompositeTokenProvider` for authenticated sources:
 
 ```mermaid
 flowchart LR
-    A[Explicit Token] --> B[VS Code GitHub Auth]
-    B --> C[GitHub CLI]
-    C --> D[No Auth]
+    EXPLICIT["Explicit source token"] --> SESSION["Delivery fallback 1"]
+    SESSION --> CLI["Delivery fallback 2"]
+    CLI --> NONE["No token"]
 ```
 
-## Implementation
+The order is:
 
-```typescript
-private async performAuthentication(): Promise<string | undefined> {
-    // 1. Explicit token from source configuration (highest priority)
-    const explicitToken = this.getAuthToken();
-    if (explicitToken?.trim()) return explicitToken.trim();
-    
-    // 2. VS Code GitHub authentication
-    const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
-    if (session) return session.accessToken;
-    
-    // 3. GitHub CLI
-    const { stdout } = await execAsync('gh auth token');
-    if (stdout.trim()) return stdout.trim();
-    
-    // 4. No authentication
-    return undefined;
-}
+1. `source.token`, when configured
+2. Fallback providers supplied by the delivery layer, in their supplied order
+3. Anonymous access when no provider returns a token
+
+For the VS Code extension, the fallback providers are:
+
+1. The selected VS Code GitHub authentication session
+2. `gh auth token` through `GhCliTokenProvider`
+
+The GitHub CLI provider has a three-second timeout so a missing or
+unresponsive executable does not block the extension indefinitely.
+
+## Construction Flow
+
+```mermaid
+sequenceDiagram
+    participant Ext as Extension delivery wiring
+    participant Factory as app createSourceAdapter
+    participant Tokens as CompositeTokenProvider
+    participant Adapter as infra source adapter
+    participant API as GitHub or Azure DevOps API client
+
+    Ext->>Factory: source and fallback providers
+    Factory->>Tokens: explicit provider plus fallbacks
+    Factory->>API: create client with token provider
+    Factory->>Adapter: create concrete adapter
+    Adapter->>API: authenticated request
 ```
 
-## GitHub CLI Timeout
+GitHub API requests use the token format implemented by
+`packages/infra/src/http/github-api-client.ts`. Azure DevOps uses its own
+Basic-auth PAT encoding in `azure-devops-api-client.ts`. Bundle downloaders
+may use a different authorization scheme required by their endpoint; use the
+relevant client implementation as the authority.
 
-The GitHub CLI step (step 3) includes a **3-second timeout** to prevent indefinite hangs when `gh` is unresponsive, missing, or misconfigured. If the timeout is exceeded, the authentication chain falls through to "No auth" and the request proceeds with rate-limited anonymous access. This timeout ensures the extension remains responsive during authentication edge cases.
+## First-Run GitHub Account Selection
 
-## Token Format
+On first-run setup, the extension invokes
+`promptGitHubAccountSelection` before Hub selection. It calls VS Code's GitHub
+authentication provider with `clearSessionPreference: true`, allowing the
+user to select an account even when VS Code already has a preferred session.
 
-Uses GitHub token format:
-```typescript
-headers['Authorization'] = `token ${token}`;
-```
+After selection, normal token-provider calls reuse the selected session. The
+**Force GitHub Authentication** command remains available when the user needs
+to choose another account.
 
-## Logging
+If the first-run picker is dismissed, setup remains incomplete and can be
+resumed later.
 
-Success:
-```
-[GitHubAdapter] ✓ Using explicit token from configuration
-[GitHubAdapter] Token preview: ghp_abc1...
-```
+## Security Rules
 
-Or:
-```
-[GitHubAdapter] ✓ Using VSCode GitHub authentication
-[GitHubAdapter] Token preview: gho_abc1...
-```
-
-Failure:
-```
-[GitHubAdapter] ✗ No authentication available - API rate limits will apply and private repos will be inaccessible
-[GitHubAdapter] HTTP 404: Not Found
-```
-
-## Token Caching
-
-- Cached after first successful retrieval
-- Persists for adapter instance lifetime
-- Tracks which method was successful
-
-## Account Selection on First Run
-
-When AI Primitives Hub is installed for the first time (setup state
-`NOT_STARTED`), `Extension.initializeHub()` calls
-`promptGitHubAccountSelection` before the hub selector opens. That helper
-invokes:
-
-```typescript
-vscode.authentication.getSession('github', ['repo'], {
-  clearSessionPreference: true,
-  createIfNone: true,
-});
-```
-
-`clearSessionPreference: true` forces VS Code's native account picker to
-appear — including the "Sign in to another account…" entry — even when a
-trusted session already exists. This prevents the extension from silently
-inheriting whichever default account VS Code has chosen, which is the
-root cause of "I can't see my private hub even though I'm logged in"
-reports.
-
-After the user picks an account, VS Code persists that preference. All
-subsequent auth calls in the extension (hub sync, every adapter) use the
-standard chain above without `clearSessionPreference`, so they silently
-reuse the chosen account.
-
-If the user dismisses the picker, `promptGitHubAccountSelection` throws;
-the existing catch in `initializeHub` calls
-`SetupStateManager.markIncomplete()` and the marketplace renders the
-"Setup Not Complete" empty state on the next launch. The "Force GitHub
-Authentication" command (`promptregistry.forceGitHubAuth`) remains the
-path to re-pick an account later.
+- Do not commit tokens to Hub or collection repositories.
+- Do not log full tokens or token previews.
+- Keep authentication at delivery/infrastructure boundaries; do not import
+  VS Code authentication APIs into `core` or `app`.
+- Prefer the user's selected VS Code session or existing GitHub CLI session
+  over copying credentials into configuration.
+- Treat authentication failures separately from missing repositories when
+  reporting private-source errors.
 
 ## See Also
 
-- [Adapters](./adapters.md) — Adapter implementations
-- [User Guide: Sources](../../user-guide/sources.md) — Configuring authentication
+- [Source Adapter Architecture](./adapters.md)
+- [User Guide: Sources](../../user-guide/sources.md)
+- [Creating a Hub](../../author-guide/creating-a-hub.md)

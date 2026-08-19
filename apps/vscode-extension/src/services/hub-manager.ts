@@ -296,6 +296,7 @@ export class HubManager {
    * fresh token on every call, so there is no cache left to clear.
    */
   public clearAuthCache(): void {
+    VsCodeSessionTokenProvider.clearCache();
     this.logger.info('[HubManager] Authentication cache cleared');
   }
 
