@@ -40,121 +40,454 @@ on:
           - alpha
           - beta
       dry_run:
-        description: "Dry run: bump and build, but do not commit, tag, or publish"
+        description: "Preview only: validate and build without pushing a branch or creating a PR"
         required: false
-        default: true
+        default: false
         type: boolean
       skip_checks:
-        description: "Skip lint/build/test gates"
+        description: "Skip lint and test gates (the publication build still runs)"
         required: false
         default: false
         type: boolean
 
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref }}
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 env:
   NODE_VERSION: "24"
 
 jobs:
-  release:
-    name: Bump, tag and publish packages
+  prepare:
+    name: Prepare release pull request
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    environment: npmjs
     permissions:
       contents: write
-      id-token: write
+      pull-requests: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.5.0
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Configure git
+      - name: Validate release request
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          PREID: ${{ inputs.preid }}
+          PACKAGES: ${{ inputs.packages }}
+          NPM_TAG: ${{ inputs.npm_tag }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Package releases must be prepared from main (received $GITHUB_REF)." >&2
+            exit 1
+          fi
+
+          case "$RELEASE_TYPE" in
+            patch|minor|major|prerelease) ;;
+            *) echo "Unsupported release type: $RELEASE_TYPE" >&2; exit 1 ;;
+          esac
+
+          case "$PACKAGES" in
+            all|core|infra|app|cli) ;;
+            *) echo "Unsupported package selection: $PACKAGES" >&2; exit 1 ;;
+          esac
+
+          case "$NPM_TAG" in
+            latest|next|alpha|beta) ;;
+            *) echo "Unsupported npm tag: $NPM_TAG" >&2; exit 1 ;;
+          esac
+
+          if [[ "$RELEASE_TYPE" == "prerelease" && ! "$PREID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "Prerelease id must contain only letters, numbers, '.', '_' or '-'." >&2
+            exit 1
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Lint, build and test packages
-        if: ${{ !inputs.skip_checks }}
-        run: |
-          pnpm --filter '@ai-primitives-hub/*' lint
-          pnpm --filter '@ai-primitives-hub/*' build
-          pnpm --filter '@ai-primitives-hub/*' test
-
       - name: Determine package selector
         id: selector
+        env:
+          PACKAGES: ${{ inputs.packages }}
         run: |
-          if [ "${{ inputs.packages }}" = "all" ]; then
-            echo "selector=@ai-primitives-hub/*" >> "$GITHUB_OUTPUT"
-            echo "names=core infra app cli" >> "$GITHUB_OUTPUT"
-          else
-            echo "selector=@ai-primitives-hub/${{ inputs.packages }}" >> "$GITHUB_OUTPUT"
-            echo "names=${{ inputs.packages }}" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+
+          case "$PACKAGES" in
+            all)
+              selector='@ai-primitives-hub/*'
+              build_selector='@ai-primitives-hub/*...'
+              names='core infra app cli'
+              ;;
+            core|infra|app|cli)
+              selector="@ai-primitives-hub/$PACKAGES"
+              build_selector="@ai-primitives-hub/$PACKAGES..."
+              names="$PACKAGES"
+              ;;
+            *)
+              echo "Unsupported package selection: $PACKAGES" >&2
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "selector=$selector"
+            echo "build_selector=$build_selector"
+            echo "names=$names"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create release branch
+        id: branch
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          release_branch="release/packages/$PACKAGES/$NPM_TAG/$GITHUB_RUN_ID"
+          git switch --create "$release_branch"
+          echo "name=$release_branch" >> "$GITHUB_OUTPUT"
 
       - name: Bump package versions
-        id: bump
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          PREID: ${{ inputs.preid }}
+          SELECTOR: ${{ steps.selector.outputs.selector }}
         run: |
-          PREID_ARG=""
-          if [ "${{ inputs.release_type }}" = "prerelease" ]; then
-            PREID_ARG="--preid ${{ inputs.preid }}"
+          set -euo pipefail
+          version_args=("$RELEASE_TYPE")
+          if [[ "$RELEASE_TYPE" == "prerelease" ]]; then
+            version_args+=(--preid "$PREID")
           fi
-          pnpm version ${{ inputs.release_type }} $PREID_ARG -r --filter "${{ steps.selector.outputs.selector }}" --no-git-tag-version
+          pnpm version "${version_args[@]}" -r --filter "$SELECTOR" --no-git-tag-version
 
       - name: Update lockfile
-        run: pnpm install --lockfile-only
+        run: pnpm install --lockfile-only --ignore-scripts --prefer-offline
 
-      - name: Show versions to release
+      - name: Commit version bump
         run: |
-          for name in ${{ steps.selector.outputs.names }}; do
+          set -euo pipefail
+          git add pnpm-lock.yaml packages/*/package.json
+          if git diff --cached --quiet; then
+            echo "The requested release did not change any package versions." >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(release): prepare @ai-primitives-hub packages"
+
+      - name: Build release packages
+        env:
+          BUILD_SELECTOR: ${{ steps.selector.outputs.build_selector }}
+        run: pnpm --filter "$BUILD_SELECTOR" build
+
+      - name: Lint and test release packages
+        if: ${{ !inputs.skip_checks }}
+        env:
+          BUILD_SELECTOR: ${{ steps.selector.outputs.build_selector }}
+        run: |
+          set -euo pipefail
+          pnpm --filter "$BUILD_SELECTOR" lint
+          pnpm --filter "$BUILD_SELECTOR" test
+
+      - name: Stage release build artifact
+        if: ${{ !inputs.dry_run }}
+        env:
+          PACKAGE_NAMES: ${{ steps.selector.outputs.names }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          rm -rf .release-artifacts
+          PACKAGE_NAMES="$PACKAGE_NAMES" NPM_TAG="$NPM_TAG" node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const childProcess = require('node:child_process');
+
+          const names = process.env.PACKAGE_NAMES.split(/\s+/).filter(Boolean);
+          const packages = names.map((directory) => {
+            const packageJsonPath = path.join('packages', directory, 'package.json');
+            const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+            const distPath = path.join('packages', directory, 'dist');
+            if (!fs.existsSync(distPath)) {
+              throw new Error(`Expected build output is missing: ${distPath}`);
+            }
+
+            const stagedDistPath = path.join('.release-artifacts', 'packages', directory, 'dist');
+            fs.mkdirSync(path.dirname(stagedDistPath), { recursive: true });
+            fs.cpSync(distPath, stagedDistPath, { recursive: true });
+
+            return {
+              directory,
+              name: packageJson.name,
+              version: packageJson.version,
+            };
+          });
+
+          const manifest = {
+            formatVersion: 1,
+            runId: Number(process.env.GITHUB_RUN_ID),
+            sourceCommit: childProcess.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+            npmTag: process.env.NPM_TAG,
+            packages,
+          };
+          fs.writeFileSync('.release-artifacts/release-manifest.json', `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+
+      - name: Upload release build artifact
+        if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-packages
+          path: .release-artifacts
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+
+      - name: Push release branch
+        if: ${{ !inputs.dry_run }}
+        env:
+          RELEASE_BRANCH: ${{ steps.branch.outputs.name }}
+        run: git push --set-upstream origin "$RELEASE_BRANCH"
+
+      - name: Create release pull request
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ steps.branch.outputs.name }}
+          PACKAGE_NAMES: ${{ steps.selector.outputs.names }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          PREID: ${{ inputs.preid }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          body_file="$RUNNER_TEMP/release-pr-body.md"
+          {
+            echo "## Release candidate"
+            echo
+            echo "This pull request was prepared by the package release workflow."
+            echo
+            echo "- Packages: \`$PACKAGE_NAMES\`"
+            if [[ "$RELEASE_TYPE" == "prerelease" ]]; then
+              echo "- Version bump: \`$RELEASE_TYPE\` (preid \`$PREID\`)"
+            else
+              echo "- Version bump: \`$RELEASE_TYPE\`"
+            fi
+            echo "- npm tag: \`$NPM_TAG\`"
+            echo "- Build artifact: workflow run [$GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            echo
+            echo "The release workflow will create package tags and publish the validated artifact when this PR is merged into main."
+          } > "$body_file"
+
+          existing_pr_url=$(gh pr list \
+            --base main \
+            --head "$RELEASE_BRANCH" \
+            --state open \
+            --json url \
+            --jq '.[0].url')
+          if [[ -n "$existing_pr_url" ]]; then
+            echo "Release pull request already exists: $existing_pr_url"
+          else
+            gh pr create \
+              --base main \
+              --head "$RELEASE_BRANCH" \
+              --title "chore(release): prepare @ai-primitives-hub packages" \
+              --body-file "$body_file"
+          fi
+
+  publish:
+    name: Tag and publish merged release
+    if: >-
+      ${{ github.event_name == 'pull_request' &&
+          github.event.pull_request.merged == true &&
+          github.event.pull_request.base.ref == 'main' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          startsWith(github.event.pull_request.head.ref, 'release/packages/') }}
+    runs-on: ubuntu-latest
+    environment: npmjs
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Checkout merged release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Determine release artifact
+        id: release
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_BRANCH" =~ ^release/packages/(all|core|infra|app|cli)/(latest|next|alpha|beta)/([0-9]+)$ ]]; then
+            echo "The merged pull request is not a recognized package release branch: $RELEASE_BRANCH" >&2
+            exit 1
+          fi
+
+          {
+            echo "packages=${BASH_REMATCH[1]}"
+            echo "npm_tag=${BASH_REMATCH[2]}"
+            echo "artifact_run_id=${BASH_REMATCH[3]}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download release build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-packages
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.release.outputs.artifact_run_id }}
+          path: .release-artifacts
+
+      - name: Verify release artifact
+        id: artifact
+        env:
+          REQUESTED_PACKAGES: ${{ steps.release.outputs.packages }}
+          REQUESTED_NPM_TAG: ${{ steps.release.outputs.npm_tag }}
+          ARTIFACT_RUN_ID: ${{ steps.release.outputs.artifact_run_id }}
+          RELEASE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const fail = (message) => {
+            throw new Error(message);
+          };
+          const requestedNames = process.env.REQUESTED_PACKAGES === 'all'
+            ? ['core', 'infra', 'app', 'cli']
+            : [process.env.REQUESTED_PACKAGES];
+          const manifestPath = path.join('.release-artifacts', 'release-manifest.json');
+          if (!fs.existsSync(manifestPath)) {
+            fail(`Release manifest is missing: ${manifestPath}`);
+          }
+
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+          if (manifest.formatVersion !== 1) fail('Unsupported release artifact format.');
+          if (manifest.runId !== Number(process.env.ARTIFACT_RUN_ID)) fail('Release artifact run does not match the release branch.');
+          if (manifest.npmTag !== process.env.REQUESTED_NPM_TAG) fail('Release artifact npm tag does not match the release branch.');
+          if (!/^[0-9a-f]{40}$/.test(manifest.sourceCommit)) fail('Release artifact source commit is invalid.');
+          if (manifest.sourceCommit !== process.env.RELEASE_HEAD_SHA) fail('Release artifact was not built from the merged pull request head.');
+
+          const actualNames = manifest.packages.map((entry) => entry.directory);
+          if (actualNames.join('\n') !== requestedNames.join('\n')) fail('Release artifact package selection does not match the release branch.');
+
+          for (const entry of manifest.packages) {
+            const packageJsonPath = path.join('packages', entry.directory, 'package.json');
+            const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+            if (packageJson.name !== entry.name || packageJson.version !== entry.version) {
+              fail(`Merged package metadata does not match the validated artifact: ${entry.name}`);
+            }
+            const distPath = path.join('.release-artifacts', 'packages', entry.directory, 'dist');
+            if (!fs.existsSync(distPath)) fail(`Build output is missing from the release artifact: ${distPath}`);
+            fs.rmSync(path.join('packages', entry.directory, 'dist'), { recursive: true, force: true });
+            fs.cpSync(distPath, path.join('packages', entry.directory, 'dist'), { recursive: true });
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `package_names=${requestedNames.join(' ')}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `npm_tag=${process.env.REQUESTED_NPM_TAG}\n`);
+          NODE
+
+      - name: Install dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
+
+      - name: Check npm versions before tagging
+        env:
+          PACKAGE_NAMES: ${{ steps.artifact.outputs.package_names }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          for name in $PACKAGE_NAMES; do
             version=$(node -p "require('./packages/$name/package.json').version")
-            echo "$name -> $version"
+            if npm view "@ai-primitives-hub/$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              tag="packages/${name}-v${version}"
+              if ! git show-ref --tags --verify --quiet "refs/tags/$tag" || [[ "$(git rev-list -n 1 "$tag")" != "$MERGE_SHA" ]]; then
+                echo "@ai-primitives-hub/$name@$version already exists without the expected release tag." >&2
+                exit 1
+              fi
+              echo "@ai-primitives-hub/$name@$version is already published by this release; retry will leave it unchanged."
+            fi
           done
 
-      - name: Commit and push version bump
-        if: ${{ !inputs.dry_run }}
+      - name: Create and push package tags
+        env:
+          PACKAGE_NAMES: ${{ steps.artifact.outputs.package_names }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
-          git add pnpm-lock.yaml packages/*/package.json
-          git commit -m "chore(release): bump @ai-primitives-hub packages"
-          git push origin "HEAD:${{ github.ref_name }}"
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create and push git tags
-        if: ${{ !inputs.dry_run }}
-        run: |
-          for name in ${{ steps.selector.outputs.names }}; do
+          for name in $PACKAGE_NAMES; do
             version=$(node -p "require('./packages/$name/package.json').version")
             tag="packages/${name}-v${version}"
-            git tag "$tag"
-            git push origin "refs/tags/${tag}:refs/tags/${tag}"
+            if git show-ref --tags --verify --quiet "refs/tags/$tag"; then
+              tag_sha=$(git rev-list -n 1 "$tag")
+              if [[ "$tag_sha" != "$MERGE_SHA" ]]; then
+                echo "Tag $tag already exists at $tag_sha, not $MERGE_SHA." >&2
+                exit 1
+              fi
+              echo "Tag $tag already points at the merged release; leaving it unchanged."
+            else
+              git tag "$tag" "$MERGE_SHA"
+              git push origin "refs/tags/$tag"
+            fi
           done
 
       - name: Publish packages to npmjs
-        if: ${{ !inputs.dry_run }}
+        env:
+          PACKAGE_NAMES: ${{ steps.artifact.outputs.package_names }}
+          NPM_TAG: ${{ steps.artifact.outputs.npm_tag }}
         run: |
-          for name in ${{ steps.selector.outputs.names }}; do
+          set -euo pipefail
+          for name in $PACKAGE_NAMES; do
             echo "Publishing @ai-primitives-hub/$name ..."
+            version=$(node -p "require('./packages/$name/package.json').version")
+            if npm view "@ai-primitives-hub/$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "@ai-primitives-hub/$name@$version is already published; skipping it for an idempotent retry."
+              continue
+            fi
             pnpm --filter "@ai-primitives-hub/$name" publish \
               --access public \
-              --tag "${{ inputs.npm_tag }}" \
+              --tag "$NPM_TAG" \
               --no-git-checks \
+              --ignore-scripts \
               --provenance
           done
