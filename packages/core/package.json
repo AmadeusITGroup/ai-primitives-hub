@@ -1,6 +1,6 @@
 {
   "name": "@ai-primitives-hub/core",
-  "version": "0.0.1-alpha.2",
+  "version": "0.0.1-alpha.3",
   "description": "Core domain types and port interfaces for AI Primitives Hub. No dependency on other @ai-primitives-hub packages.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
