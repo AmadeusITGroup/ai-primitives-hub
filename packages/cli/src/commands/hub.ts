@@ -8,6 +8,7 @@
  *   hub remove <id>       remove a hub
  *   hub sync [<id>]       re-fetch a hub config (default: active)
  *   hub create            scaffold a hub-config.yml skeleton
+ *   hub validate          validate a hub-config.yml offline
  *   hub refresh           sync the active hub (shorthand)
  *
  * Our `HubManager` (`@ai-primitives-hub/app`) names two methods the
@@ -18,10 +19,23 @@
  * failure `reason` string).
  */
 import * as path from 'node:path';
+import {
+  validateHubConfigFile,
+} from '@ai-primitives-hub/app';
+import type {
+  DeepHubConfigValidationResult,
+  HubConfigFileValidationResult,
+  HubValidationProgress,
+} from '@ai-primitives-hub/app';
 import type {
   HttpClient,
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import {
+  defaultTokenProvider,
+  NodeHttpClient,
+  NodeProcessRunner,
+} from '@ai-primitives-hub/infra';
 import {
   Command,
   createHubManager,
@@ -385,6 +399,157 @@ export class HubCreateCommand extends BaseHubCommand {
         + `  ai-primitives-hub hub add --type local --location ${d.outDir}\n`
     });
     return 0;
+  }
+}
+
+const renderHubValidationText = (
+  result: HubConfigFileValidationResult | DeepHubConfigValidationResult
+): string => {
+  const lines = [`Validating ${result.file}`];
+  if (result.valid) {
+    const isDeep = 'deep' in result && result.deep;
+    lines.push(
+      '',
+      isDeep
+        ? '[ OK ] YAML syntax, schema, runtime, source policies, source catalogs, and profile references'
+        : '[ OK ] YAML syntax, schema, runtime checks, and source policies',
+      '',
+      isDeep
+        ? `Hub configuration valid (${result.sources.length} sources checked, ${result.bundlesFound} bundles discovered)`
+        : 'Hub configuration valid'
+    );
+  } else {
+    lines.push('', '[FAIL] Hub configuration invalid');
+    for (const error of result.errors) {
+      lines.push(`  - ${error}`);
+    }
+  }
+  return `${lines.join('\n')}\n`;
+};
+
+const renderHubValidationProgress = (ctx: Context, event: HubValidationProgress): void => {
+  switch (event.phase) {
+    case 'started': {
+      ctx.stderr.write(
+        `Deep validation: checking ${event.sourcesTotal} source(s) and ${event.profilesTotal} profile(s)\n`
+      );
+      return;
+    }
+    case 'source': {
+      const position = `[source ${event.current}/${event.total}]`;
+      if (event.status === 'started') {
+        ctx.stderr.write(`${position} Checking ${event.sourceId} (${event.sourceType})...\n`);
+        return;
+      }
+      const status = event.skipped ? 'skipped' : (event.valid ? 'ok' : 'failed');
+      ctx.stderr.write(
+        `${position} ${event.sourceId}: ${status} (${event.bundlesFound ?? 0} bundle(s))\n`
+      );
+      return;
+    }
+    case 'catalog': {
+      const position = `[source ${event.current}/${event.total}]`;
+      if (event.status === 'started') {
+        ctx.stderr.write(`${position} Discovering bundles...\n`);
+        return;
+      }
+      ctx.stderr.write(`${position} Discovered ${event.bundlesFound ?? 0} bundle(s)\n`);
+      return;
+    }
+    case 'profile': {
+      const position = `[profile ${event.current}/${event.total}]`;
+      if (event.status === 'started') {
+        ctx.stderr.write(`${position} Resolving ${event.profileId}...\n`);
+        return;
+      }
+      const status = event.valid ? 'ok' : 'failed';
+      ctx.stderr.write(
+        `${position} ${event.profileId}: ${status} (${event.bundlesTotal} reference(s))\n`
+      );
+      return;
+    }
+    case 'completed': {
+      ctx.stderr.write(
+        `Deep validation complete: ${event.valid ? 'valid' : 'invalid'} `
+        + `(${event.bundlesFound} bundle(s) discovered)\n`
+      );
+      return;
+    }
+  }
+};
+
+/**
+ * hub validate - validate a repository hub-config YAML file offline.
+ */
+export class HubValidateCommand extends BaseHubCommand {
+  public static readonly paths = [['hub', 'validate']];
+  public static readonly usage = Command.Usage({
+    description: 'Validate hub-config.yml against the schema and hub policies.',
+    category: 'Hub & Discovery',
+    details: `
+      Usage: ai-primitives-hub hub validate [options]
+
+      By default, validates YAML syntax, required fields, source/profile references,
+      source-type configuration, and GitHub bundle ID prefixes without network calls.
+      Use --check-sources to validate source accessibility, discover catalogs,
+      and resolve profile bundle references and versions.
+
+      Options:
+        --config <path>          Hub configuration file (default: hub-config.yml)
+        --check-sources          Contact/scan enabled sources and resolve profiles
+        -v, --verbose            Print deep-validation progress to stderr
+        -o, --output <format>    Output format (text, json, yaml, ndjson)
+
+      Examples:
+        ai-primitives-hub hub validate
+        ai-primitives-hub hub validate --config configs/hub-config.yml -o json
+        ai-primitives-hub hub validate --check-sources
+        ai-primitives-hub hub validate --check-sources --verbose -o json
+    `
+  });
+
+  public config = Option.String('--config');
+  public checkSources = Option.Boolean('--check-sources', false);
+  public verbose = Option.Boolean('-v,--verbose', false);
+
+  public async execute(): Promise<number> {
+    const { ctx, http, tokens } = this.commandContext;
+    const fmt = (this.output ?? 'text') as OutputFormat;
+    const configuredPath = this.config ?? 'hub-config.yml';
+    const configPath = path.isAbsolute(configuredPath)
+      ? configuredPath
+      : path.join(ctx.cwd(), configuredPath);
+    if (this.verbose && !this.checkSources) {
+      ctx.stderr.write('--verbose has no effect without --check-sources; validation remains offline.\n');
+    }
+    const result = await validateHubConfigFile(ctx.fs, configPath, this.checkSources
+      ? {
+        deep: true,
+        onProgress: this.verbose
+          ? (event) => renderHubValidationProgress(ctx, event)
+          : undefined,
+        sourceAdapterDeps: {
+          fs: ctx.fs,
+          clock: ctx.clock,
+          httpClient: http ?? new NodeHttpClient(),
+          processRunner: new NodeProcessRunner(),
+          fallbackTokenProviders: tokens === undefined
+            ? [defaultTokenProvider(ctx.env)]
+            : [tokens]
+        }
+      }
+      : undefined);
+
+    formatOutput({
+      ctx,
+      command: 'hub.validate',
+      output: fmt,
+      status: result.valid ? (result.warnings?.length ? 'warning' : 'ok') : 'error',
+      data: result,
+      warnings: result.warnings,
+      textRenderer: renderHubValidationText
+    });
+    return result.valid ? 0 : 1;
   }
 }
 

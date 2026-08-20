@@ -76,7 +76,7 @@
           },
           "type": {
             "type": "string",
-            "description": "Type of the source repository (github, local, awesome-copilot, local-awesome-copilot, apm, local-apm, skills)",
+            "description": "Type of the source repository (github, local, awesome-copilot, local-awesome-copilot, apm, local-apm, skills, local-skills, azure-devops)",
             "enum": [
               "github",
               "local",
@@ -84,7 +84,9 @@
               "local-awesome-copilot",
               "apm",
               "local-apm",
-              "skills"
+              "skills",
+              "local-skills",
+              "azure-devops"
             ]
           },
           "url": {

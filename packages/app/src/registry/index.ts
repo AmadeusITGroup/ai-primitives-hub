@@ -21,4 +21,5 @@ export * from './search-registry-bundles';
 export * from './uninstall-installed-bundle';
 export * from './update-registry-bundle';
 export * from './user-config-paths';
+export * from './validate-hub-config-file';
 export * from './version-consolidator';

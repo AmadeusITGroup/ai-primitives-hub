@@ -33,6 +33,11 @@ export { default as COLLECTION_SCHEMA } from './public/schemas/collection.schema
 export { default as DEPLOYMENT_MANIFEST_SCHEMA } from './public/schemas/deployment-manifest.schema.json';
 
 /**
+ * Hub configuration schema used by the CLI and other non-extension callers.
+ */
+export { default as HUB_CONFIG_SCHEMA } from './public/schemas/hub-config.schema.json';
+
+/**
  * Phase 1 scaffolding marker, kept until `infra`/`app`/`cli` each have real
  * code of their own to depend on instead of this placeholder re-export
  * chain (see those packages' `src/index.ts`) — removed in Phase 5 once
