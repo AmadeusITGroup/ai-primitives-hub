@@ -236,7 +236,7 @@
   const updateContentTypeButtonText = () => {
     var text = document.querySelector('#contentTypeSelectorText');
     if (selectedContentTypes.length === 0) {
-      text.textContent = 'All Content';
+      text.textContent = 'All Collections';
     } else if (selectedContentTypes.length === 1) {
       var labels = { agents: '🤖 Agents', skills: '🛠️ Skills', prompts: '💬 Prompts', mcpServers: '🔌 MCP Servers', instructions: '📋 Instructions' };
       text.textContent = labels[selectedContentTypes[0]] || selectedContentTypes[0];
@@ -406,7 +406,7 @@
 
     // Reset content type selector
     selectedContentTypes = [];
-    document.querySelector('#contentTypeSelectorText').textContent = 'All Content';
+    document.querySelector('#contentTypeSelectorText').textContent = 'All Collections';
     var contentTypeCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]');
     contentTypeCheckboxes.forEach((cb) => {
       cb.checked = false;

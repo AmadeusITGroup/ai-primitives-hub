@@ -68,6 +68,57 @@ body {
     font-weight: 500;
 }
 
+.content-filter-label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.filter-help {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    cursor: help;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.filter-help:hover,
+.filter-help:focus-visible {
+    color: var(--vscode-foreground);
+}
+
+.filter-help:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+}
+
+.filter-tooltip {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 1001;
+    display: none;
+    width: 240px;
+    padding: 6px 8px;
+    background: var(--vscode-editorHoverWidget-background);
+    color: var(--vscode-editorHoverWidget-foreground);
+    border: 1px solid var(--vscode-editorHoverWidget-border);
+    border-radius: 3px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+}
+
+.filter-help:hover + .filter-tooltip,
+.filter-help:focus-visible + .filter-tooltip {
+    display: block;
+}
+
 .filter-select {
     padding: 4px 8px;
     background: var(--vscode-dropdown-background);
