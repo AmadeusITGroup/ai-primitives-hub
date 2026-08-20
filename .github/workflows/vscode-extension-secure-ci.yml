@@ -464,4 +464,3 @@ jobs:
           echo "- VSIX packages for all platforms" >> $GITHUB_STEP_SUMMARY
           echo "- Security scan reports" >> $GITHUB_STEP_SUMMARY
           echo "- Compliance documentation" >> $GITHUB_STEP_SUMMARY
-# Retrigger build
