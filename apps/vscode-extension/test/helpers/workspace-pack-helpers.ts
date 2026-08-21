@@ -10,7 +10,12 @@ import {
 } from './e2e-test-helpers';
 
 const PACK_TIMEOUT_MS = 60_000;
-const DEFAULT_INSTALL_TIMEOUT_MS = 120_000;
+/**
+ * Install budget. Generous because Windows runners are markedly slower at
+ * this - NTFS plus on-access virus scanning over a `node_modules` tree -
+ * and 120s proved too tight there while being ample on Linux and macOS.
+ */
+const DEFAULT_INSTALL_TIMEOUT_MS = 300_000;
 
 function findWorkspaceRoot(startDir: string): string {
   let directory = startDir;
@@ -140,7 +145,7 @@ export function useLocalWorkspaceBuilds(projectDir: string, tarballs: Map<string
 export interface InstallWorkspaceBuildsOptions {
   /** Scaffolded project to install into. */
   projectDir: string;
-  /** Install timeout in milliseconds. Defaults to 120 seconds. */
+  /** Install timeout in milliseconds. Defaults to 300 seconds. */
   installTimeoutMs?: number;
 }
 
@@ -154,9 +159,11 @@ export function installWorkspaceBuilds(options: InstallWorkspaceBuildsOptions): 
   try {
     const tarballs = packWorkspacePackages(tarballDir);
     useLocalWorkspaceBuilds(options.projectDir, tarballs);
+    // `--no-audit` and `--no-fund` drop network round-trips a test has no
+    // use for, which is both faster and one less thing to hang on.
     runCommand(
       'npm',
-      ['install', '--prefer-offline', '--package-lock=false'],
+      ['install', '--prefer-offline', '--package-lock=false', '--no-audit', '--no-fund'],
       options.projectDir,
       options.installTimeoutMs ?? DEFAULT_INSTALL_TIMEOUT_MS
     );
