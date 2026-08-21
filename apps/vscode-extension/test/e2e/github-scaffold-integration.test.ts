@@ -357,12 +357,16 @@ suite('E2E: GitHub Scaffold Integration Tests', () => {
 
 suite('E2E: Script Execution Tests', () => {
   const templateRoot = path.join(process.cwd(), 'templates/scaffolds/github');
+  const installationRequiredTests = new Set([
+    'E2E: Validation script validates example collection successfully',
+    'E2E: List collections script finds example collection',
+    'E2E: Build script creates bundle with correct structure',
+    'E2E: Compute version script returns valid version'
+  ]);
   let testDir: string;
   let npmInstalled: boolean;
 
   suiteSetup(async function () {
-    // Packing five workspace packages and installing them locally takes
-    // appreciably longer than the previous cached registry install.
     this.timeout(240_000);
 
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scaffold-script-e2e-'));
@@ -372,28 +376,11 @@ suite('E2E: Script Execution Tests', () => {
       projectName: 'script-test-project'
     });
 
-    // Install this repository's builds rather than whatever npm currently
-    // serves. Previously the scaffold installed the *published* CLI, so a
-    // change to `packages/cli/src` was not covered by these tests at all -
-    // and a newer published CLI calling an export that
-    // `@prompt-registry/collection-scripts@1.0.5` does not ship turned this
-    // suite red on unrelated pull requests.
-    //
-    // Only the throwaway copy in `testDir` is rewritten;
-    // `package.template.json` keeps its registry dependency, so a real
-    // user's scaffold is unaffected and never sees a `file:` reference.
     try {
-      installWorkspaceBuilds({
-        projectDir: testDir,
-        tarballDir: path.join(testDir, '..', `${path.basename(testDir)}-tarballs`)
-      });
+      installWorkspaceBuilds({ projectDir: testDir });
       npmInstalled = true;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      // In CI this must never pass quietly: a suite that skips itself looks
-      // green while testing nothing, which is how a broken published CLI
-      // reached users unnoticed. Locally, tolerate a toolchain that cannot
-      // pack (an older default Node, say) but say so plainly.
       if (process.env.CI === 'true') {
         throw new Error(`Scaffold setup failed in CI: ${detail}`);
       }
@@ -402,10 +389,6 @@ suite('E2E: Script Execution Tests', () => {
     }
 
     if (npmInstalled) {
-      // A remote is part of a realistic scaffolded project: the template
-      // declares no `repository` field, so `bundle build` resolves the
-      // source URL from `origin`. Without one it fails with
-      // "Unable to resolve a source repository URL".
       const gitSetup = [
         'git init',
         'git remote add origin https://github.com/test-owner/test-repo.git',
@@ -432,9 +415,10 @@ suite('E2E: Script Execution Tests', () => {
   });
 
   setup(function () {
-    if (!npmInstalled) {
+    if (!npmInstalled && installationRequiredTests.has(this.currentTest?.title ?? '')) {
       this.skip();
     }
+
     // Clean artifacts from previous tests to maintain isolation
     const distDir = path.join(testDir, 'dist');
     rmrfSync(distDir);

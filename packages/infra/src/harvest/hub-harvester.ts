@@ -190,26 +190,9 @@ export interface HubHarvestPipelineOptions {
   concurrency?: number;
   /** Optional token. Otherwise resolved via `resolveGithubToken`. */
   explicitToken?: string;
-  /**
-   * GitHub transport. Defaults to a `GitHubApiClient` over
-   * `NodeHttpClient`.
-   *
-   * Injectable so a caller - a test, above all - can drive the whole
-   * pipeline without touching the network. Without this seam, an
-   * unauthenticated harvest issues real anonymous requests, which are
-   * capped at 60/hour per IP; on shared CI runners that budget is often
-   * already spent, and `GitHubApiClient` then sleeps until the reset
-   * window (up to `maxSleepMs`) and retries, so no test timeout is large
-   * enough to be reliable.
-   */
+  /** Optional GitHub transport. Defaults to `GitHubApiClient`. */
   githubApi?: GitHubApi;
-  /**
-   * Token resolution strategy. Defaults to explicit -> env -> `gh` CLI.
-   *
-   * Injectable so a caller can exercise the "no credentials" path without
-   * mutating `process.env.PATH` to hide the `gh` binary, which makes the
-   * outcome depend on shell lookup and process-spawn timing.
-   */
+  /** Optional token resolver. Defaults to explicit token, environment, then `gh`. */
   tokenResolver?: TokenResolver;
   /** Filter sources to this set of ids (after extra-source injection). */
   sourcesInclude?: string[];

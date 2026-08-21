@@ -468,13 +468,7 @@ items:
     });
 
     it('allows public extra-source harvests to continue anonymously when no token exists', async () => {
-      // Both seams are injected so this stays a unit test: `tokenResolver`
-      // reports "no credentials" without hiding the `gh` binary behind a
-      // doctored PATH, and `githubApi` keeps the harvest off the network.
-      // Driving the real transport here issued anonymous GitHub requests,
-      // which are capped at 60/hour per IP - fine locally, but routinely
-      // exhausted on shared CI runners, where the client then slept until
-      // the reset window and the test timed out.
+      // Keep this test local and deterministic by injecting its boundaries.
       const client = new FakeGitHubApi();
       seedRepo(client, 'octocat', 'hello-world', 'hello-sha', [], new Map());
 
