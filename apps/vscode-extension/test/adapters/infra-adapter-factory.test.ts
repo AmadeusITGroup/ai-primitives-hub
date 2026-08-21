@@ -7,11 +7,20 @@ import nock from 'nock';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  resetAuthReportingState,
+} from '../../src/adapters/auth-event-logger';
+import {
   createRegistryAdapter,
 } from '../../src/adapters/infra-adapter-factory';
 import {
+  VsCodeSessionTokenProvider,
+} from '../../src/adapters/vscode-session-token-provider';
+import {
   RegistrySource,
 } from '../../src/types/registry';
+import {
+  Logger,
+} from '../../src/utils/logger';
 
 function makeSource(overrides: Partial<RegistrySource> = {}): RegistrySource {
   return {
@@ -86,5 +95,92 @@ suite('createRegistryAdapter', () => {
     await adapter.fetchBundles().catch(() => undefined);
 
     assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+  });
+});
+
+suite('createRegistryAdapter auth observability', () => {
+  let sandbox: sinon.SinonSandbox;
+  let infoStub: sinon.SinonStub;
+  let debugStub: sinon.SinonStub;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+    sandbox.stub(vscode.authentication, 'getSession').resolves(undefined);
+    const logger = Logger.getInstance();
+    infoStub = sandbox.stub(logger, 'info');
+    debugStub = sandbox.stub(logger, 'debug');
+    // Reporting is deduplicated process-wide, so a prior suite's outcome
+    // would otherwise suppress the lines under test here.
+    resetAuthReportingState();
+    nock('https://api.github.com').persist().get(/.*/).reply(404);
+    nock('https://raw.githubusercontent.com').persist().get(/.*/).reply(404);
+  });
+
+  teardown(() => {
+    sandbox.restore();
+    nock.cleanAll();
+    VsCodeSessionTokenProvider.clearCache();
+    resetAuthReportingState();
+  });
+
+  const lines = (stub: sinon.SinonStub): string[] => stub.getCalls().map((call) => String(call.args[0]));
+  const authLines = (): string[] => [...lines(infoStub), ...lines(debugStub)].filter((line) => line.startsWith('[Auth]'));
+
+  test('reports the origin that supplied a configured token', async () => {
+    const adapter = createRegistryAdapter(makeSource({
+      id: 'private-hub',
+      type: 'github',
+      url: 'https://github.com/owner/repo',
+      token: 'ghp_configuredToken'
+    }));
+
+    await adapter.validate().catch(() => undefined);
+
+    const resolved = lines(infoStub).filter((line) => line.includes('via=configured-token'));
+    assert.ok(resolved.length > 0, 'expected the configured token to be named');
+    assert.ok(resolved.every((line) => line.includes('type=ghp_')));
+    assert.ok(!resolved.some((line) => line.includes('configuredToken')));
+  });
+
+  test('reports one summary line for a resolution, not a running commentary', async () => {
+    const adapter = createRegistryAdapter(makeSource({
+      id: 'private-hub',
+      type: 'github',
+      url: 'https://github.com/owner/repo',
+      token: 'ghp_configuredToken'
+    }));
+
+    await adapter.validate().catch(() => undefined);
+
+    // A validate() drives several requests through the chain; a per-call
+    // narration is what flooded the output channel.
+    assert.strictEqual(authLines().length, 1, `expected a single line, got:\n${authLines().join('\n')}`);
+  });
+
+  test('reports a shared credential once across sources, not once per source', async () => {
+    for (const id of ['source-a', 'source-b', 'source-c']) {
+      const adapter = createRegistryAdapter(makeSource({
+        id,
+        type: 'github',
+        url: 'https://github.com/owner/repo',
+        token: 'ghp_configuredToken'
+      }));
+      await adapter.validate().catch(() => undefined);
+    }
+
+    assert.strictEqual(authLines().length, 1, `expected one line for three sources, got:\n${authLines().join('\n')}`);
+  });
+
+  test('omits the source id from a success summary, since the credential is shared', async () => {
+    const adapter = createRegistryAdapter(makeSource({
+      id: 'private-hub',
+      type: 'github',
+      url: 'https://github.com/owner/repo',
+      token: 'ghp_configuredToken'
+    }));
+
+    await adapter.validate().catch(() => undefined);
+
+    assert.ok(authLines()[0].startsWith('[Auth] host='), authLines()[0]);
   });
 });

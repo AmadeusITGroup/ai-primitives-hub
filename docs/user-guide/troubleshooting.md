@@ -27,11 +27,40 @@ View logs: `View → Output → AI Primitives Hub`
 
 ### Authentication Fails (404/401)
 
+Start by reading the `[Auth]` lines in the output channel (**View → Output
+→ AI Primitives Hub**). Each completed sign-in attempt logs one line
+naming where the token came from:
+
+```text
+[Auth] source=my-private-hub host=api.github.com via=ide-session type=gho_ scopes=repo,read:user (142ms)
+```
+
+- `via=` is where the token came from: `configured-token` (your
+  `promptregistry.githubToken` setting or the source's own token),
+  `ide-session` (your VS Code GitHub sign-in), or `gh-cli` (`gh auth token`).
+  If this is not the origin you expected, that setting is not taking effect.
+- `scopes=` lists the permissions the token carries. Private repositories
+  need `repo`; without it you get a 403 even though sign-in succeeded.
+  `scopes=unknown` simply means that origin cannot report its scopes, not
+  that the token has none.
+
+When nothing supplies a token, the line lists everything that was tried
+and why each declined:
+
+```text
+[Auth] source=my-private-hub host=api.github.com no token — tried: configured-token(not-set), ide-session(no-session), gh-cli(gh-not-authenticated)
+```
+
+Then work through:
+
 1. Check VS Code GitHub auth (bottom-left avatar)
 2. Try GitHub CLI: `gh auth status`
 3. Add explicit token with `repo` scope
 4. Run: `AI Primitives Hub: Validate Repository Access`
 5. Force refresh authentication: `AI Primitives Hub: Force GitHub Authentication`
+
+For step-by-step detail on each attempt, restart with `LOG_LEVEL=DEBUG`
+set in the environment that launched the editor.
 
 ### Azure DevOps Authentication Fails (401/403)
 

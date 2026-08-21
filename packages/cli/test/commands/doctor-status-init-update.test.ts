@@ -85,6 +85,27 @@ describe('doctor/status/init/update commands', () => {
     }
   });
 
+  /**
+   * As `run`, with extra env vars layered on for auth-origin cases.
+   * @param argv
+   * @param extraEnv
+   */
+  const runWithEnv = (argv: string[], extraEnv: Record<string, string>): ReturnType<typeof runCommand> => runCommand(argv, {
+    commandClasses: COMMAND_CLASSES,
+    context: {
+      cwd: workspace,
+      fs: new NodeFileSystem(),
+      env: {
+        HOME: workspace,
+        USERPROFILE: workspace,
+        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+        AI_PRIMITIVES_HUB_SKIP_NETWORK: '1',
+        ...extraEnv
+      }
+    }
+  });
+
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
   beforeEach(async () => {
@@ -113,6 +134,53 @@ describe('doctor/status/init/update commands', () => {
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{ checks: { logs?: unknown[] }[] }>(result.stdout);
       expect(envelope.data.checks.some((c) => (c.logs?.length ?? 0) > 0)).toBe(true);
+    });
+
+    describe('github-auth origin reporting', () => {
+      type AuthCheck = { checks: { name: string; status: string; detail: string; logs?: { message: string }[] }[] };
+
+      const githubAuthCheck = (stdout: string): AuthCheck['checks'][number] => {
+        const check = parseJson<AuthCheck>(stdout).data.checks.find((c) => c.name === 'github-auth');
+        if (check === undefined) {
+          throw new Error('github-auth check missing from doctor output');
+        }
+        return check;
+      };
+
+      it('names the origin that supplied the token', async () => {
+        const result = await runWithEnv(['doctor', '-o', 'json'], {
+          GITHUB_TOKEN: 'ghp_doctorTestToken',
+          AI_PRIMITIVES_HUB_DISABLE_GH_CLI: '1'
+        });
+
+        const check = githubAuthCheck(result.stdout);
+        expect(check.status).toBe('ok');
+        expect(check.detail).toContain('via env-var');
+        expect(check.detail).toContain('type ghp_');
+        expect(check.detail).not.toContain('doctorTestToken');
+      });
+
+      it('lists what was tried when nothing resolves a token', async () => {
+        const result = await runWithEnv(['doctor', '-o', 'json'], {
+          AI_PRIMITIVES_HUB_DISABLE_GH_CLI: '1'
+        });
+
+        const check = githubAuthCheck(result.stdout);
+        expect(check.status).toBe('warn');
+        expect(check.detail).toContain('Tried: env-var(not-set)');
+      });
+
+      it('records the per-step chain under -v', async () => {
+        const result = await runWithEnv(['doctor', '-v', '-o', 'json'], {
+          GITHUB_TOKEN: 'ghp_doctorTestToken',
+          AI_PRIMITIVES_HUB_DISABLE_GH_CLI: '1'
+        });
+
+        const messages = (githubAuthCheck(result.stdout).logs ?? []).map((line) => line.message);
+        expect(messages).toContainEqual(expect.stringContaining('attempt via=env-var'));
+        expect(messages).toContainEqual(expect.stringContaining('resolved via=env-var'));
+        expect(messages.join('\n')).not.toContain('doctorTestToken');
+      });
     });
   });
 

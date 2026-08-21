@@ -72,6 +72,25 @@ describe('NodeHttpClient', () => {
         res.end('nope');
         return;
       }
+      if (req.url === '/never-responds') {
+        // Accept the connection and then say nothing, reproducing the host
+        // that used to hang until the OS gave up.
+        return;
+      }
+      if (req.url === '/slow-trickle') {
+        // Steady progress, total duration far longer than the timeout.
+        res.writeHead(200);
+        let sent = 0;
+        const interval = setInterval(() => {
+          res.write('chunk');
+          sent += 1;
+          if (sent >= 10) {
+            clearInterval(interval);
+            res.end();
+          }
+        }, 200);
+        return;
+      }
       res.writeHead(200);
       res.end('root');
     });
@@ -143,5 +162,46 @@ describe('NodeHttpClient', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.headers['x-echo']).toBe('token same-origin');
+  });
+
+  describe('request timeout', () => {
+    it('fails with a stated reason instead of waiting on the OS', async () => {
+      const started = Date.now();
+
+      await expect(
+        new NodeHttpClient().fetch({ url: `${baseUrl}/never-responds`, timeoutMs: 300 })
+      ).rejects.toThrow(/timed out after 300ms/);
+
+      // Well under the tens of seconds an unbounded socket would take.
+      expect(Date.now() - started).toBeLessThan(5000);
+    });
+
+    it('names the url that timed out, so the caller can report it', async () => {
+      await expect(
+        new NodeHttpClient().fetch({ url: `${baseUrl}/never-responds`, timeoutMs: 300 })
+      ).rejects.toThrow(new RegExp(`${baseUrl}/never-responds`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    });
+
+    it('leaves a responsive request unaffected', async () => {
+      const response = await new NodeHttpClient().fetch({ url: `${baseUrl}/target`, timeoutMs: 5000 });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('does not abort a slow response that keeps making progress', async () => {
+      // The budget is an *inactivity* timeout, not a cap on total duration:
+      // a large bundle trickling in over minutes must not be killed. This
+      // response takes ~2s in 200ms steps under a 600ms budget, so it would
+      // fail outright if the timeout ever became total.
+      const started = Date.now();
+
+      const response = await new NodeHttpClient().fetch({
+        url: `${baseUrl}/slow-trickle`,
+        timeoutMs: 600
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(Buffer.from(response.body).toString('utf8')).toBe('chunk'.repeat(10));
+      expect(Date.now() - started).toBeGreaterThan(600);
+    });
   });
 });

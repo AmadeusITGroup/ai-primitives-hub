@@ -31,6 +31,9 @@ import type {
   SourceAdapter,
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import type {
+  AuthEventHandler,
+} from '@ai-primitives-hub/infra';
 import {
   ApmAdapter,
   AwesomeCopilotAdapter,
@@ -59,15 +62,23 @@ export interface SourceAdapterFactoryDeps {
    * the CLI itself.
    */
   fallbackTokenProviders: readonly TokenProvider[];
+  /**
+   * Optional observability sink for token resolution (see `infra`'s
+   * `auth/auth-event.ts`). Attached to the chain built here and to the
+   * `StaticTokenProvider` wrapping `source.token`; the caller is
+   * responsible for having attached it to its own
+   * `fallbackTokenProviders`, since it constructs those.
+   */
+  onAuthEvent?: AuthEventHandler;
 }
 
 function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFactoryDeps): TokenProvider {
   const providers: TokenProvider[] = [];
   if (source.token) {
-    providers.push(new StaticTokenProvider(source.token));
+    providers.push(new StaticTokenProvider(source.token, deps.onAuthEvent));
   }
   providers.push(...deps.fallbackTokenProviders);
-  return new CompositeTokenProvider(providers);
+  return new CompositeTokenProvider(providers, deps.onAuthEvent);
 }
 
 function buildGitHubApi(tokenProvider: TokenProvider, deps: SourceAdapterFactoryDeps): GitHubApi {

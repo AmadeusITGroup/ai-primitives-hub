@@ -15,8 +15,8 @@
  * reference branch's manager names differently: `useHub` here is
  * `setActiveHub`, and `removeHub` here is `deleteHub`. There is also no
  * `checkHub(hubId)` convenience — `hub list --check` instead calls
- * `verifyHubAvailability(reference)` per listed hub (boolean only, no
- * failure `reason` string).
+ * `verifyHubAvailability(reference)` per listed hub, which reports both
+ * availability and, when unreachable, the failure `reason`.
  */
 import * as path from 'node:path';
 import {
@@ -100,12 +100,14 @@ export class HubListCommand extends BaseHubCommand {
     const hubs = await mgr.listHubs();
     const active = await mgr.getActiveHub();
 
-    let reachability: Record<string, { status: 'ok' | 'error' }> | undefined;
+    let reachability: Record<string, { status: 'ok' | 'error'; reason?: string }> | undefined;
     if (this.check) {
       reachability = {};
       const results = await Promise.all(hubs.map(async (h) => {
-        const ok = await mgr.verifyHubAvailability(h.reference);
-        return [h.id, { status: ok ? 'ok' as const : 'error' as const }] as const;
+        const availability = await mgr.verifyHubAvailability(h.reference);
+        return [h.id, availability.available
+          ? { status: 'ok' as const }
+          : { status: 'error' as const, reason: availability.reason }] as const;
       }));
       for (const [id, r] of results) {
         reachability[id] = r;

@@ -61,6 +61,7 @@ export const defaultResolver: TokenResolver = {
       // Short timeout: if gh is missing or hangs we fall through to "none".
       exec('gh auth token', { timeout: 5000 }, (err, stdout) => {
         if (err) {
+          console.warn(`gh auth token failed: ${err.message}`);
           resolve(undefined);
           return;
         }

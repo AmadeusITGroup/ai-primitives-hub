@@ -15,6 +15,9 @@
 import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import type {
+  AuthEventHandler,
+} from './auth-event';
 import {
   CompositeTokenProvider,
 } from './composite-token-provider';
@@ -28,14 +31,21 @@ import {
 /**
  * Build the default TokenProvider: env vars first, then `gh` CLI.
  * @param env Process env (typically `ctx.env`).
+ * @param onAuthEvent Optional observability sink, threaded through to
+ * every provider in the chain so a caller such as `doctor` can report
+ * which origin won. See `auth-event.ts`.
  * @returns Composite TokenProvider.
  */
 export const defaultTokenProvider = (
-  env: Readonly<Record<string, string | undefined>>
+  env: Readonly<Record<string, string | undefined>>,
+  onAuthEvent?: AuthEventHandler
 ): TokenProvider => {
-  const envProvider = new EnvTokenProvider(env);
+  const envProvider = new EnvTokenProvider(env, onAuthEvent);
   if (env.AI_PRIMITIVES_HUB_DISABLE_GH_CLI === '1') {
     return envProvider;
   }
-  return new CompositeTokenProvider([envProvider, new GhCliTokenProvider()]);
+  return new CompositeTokenProvider(
+    [envProvider, new GhCliTokenProvider(undefined, onAuthEvent)],
+    onAuthEvent
+  );
 };

@@ -30,6 +30,88 @@ For the VS Code extension, the fallback providers are:
 The GitHub CLI provider has a three-second timeout so a missing or
 unresponsive executable does not block the extension indefinitely.
 
+## Token Origins
+
+Resolution is reported in user-facing terms rather than by implementing
+class, so a log line doubles as a remediation hint. `TokenOrigin`
+(`packages/infra/src/auth/auth-event.ts`) has four values:
+
+| Origin | Source | Provider |
+|---|---|---|
+| `configured-token` | The `promptregistry.githubToken` setting, or a source's own `token` | `StaticTokenProvider` |
+| `env-var` | `GITHUB_TOKEN` or `GH_TOKEN` | `EnvTokenProvider` (CLI only) |
+| `gh-cli` | `gh auth token` | `GhCliTokenProvider` |
+| `ide-session` | The editor's GitHub sign-in | `VsCodeSessionTokenProvider` |
+
+`env-var` is wired into the CLI's `defaultTokenProvider` only. The
+extension has no environment-variable step; users configure
+`promptregistry.githubToken`, which
+`RegistryManager.enrichSourceWithGlobalToken` folds into `source.token`
+so it arrives as `configured-token`.
+
+## Observability
+
+Providers report resolution through an optional `onAuthEvent` handler,
+following the same injected-callback shape as `GitHubApiClient`'s
+`onEvent`. `infra` stays free of any logger dependency; each delivery
+layer formats the events itself.
+
+```mermaid
+flowchart LR
+    subgraph infra["@ai-primitives-hub/infra"]
+        PROVIDERS["Token providers<br/>attempt / resolved / skipped / failed"]
+        CHAIN["CompositeTokenProvider<br/>chain-start / chain-exhausted"]
+        RECORDER["createAuthChainRecorder<br/>pairs origin with reason"]
+    end
+    subgraph delivery["Delivery layers"]
+        EXT["createAuthEventLogger<br/>output channel"]
+        CLI["doctor github-auth check"]
+    end
+
+    PROVIDERS --> CHAIN
+    CHAIN --> RECORDER
+    RECORDER --> EXT
+    RECORDER --> CLI
+```
+
+Events are facts reported as they happen: each origin announces its own
+outcome, and `chain-exhausted` carries only the origins tried. Pairing an
+origin with the reason it declined is the consumer's job, done once in
+`createAuthChainRecorder` and shared by both delivery layers.
+
+The extension logs one INFO line per completed resolution and keeps
+per-step detail at DEBUG (`LOG_LEVEL=DEBUG`):
+
+```text
+[Auth] source=my-private-hub host=api.github.com via=ide-session type=gho_ scopes=repo,read:user (142ms)
+[Auth] source=my-private-hub host=api.github.com no token — tried: configured-token(not-set), ide-session(no-session), gh-cli(gh-not-authenticated)
+```
+
+`scopes` reads `unknown` for every origin except `ide-session`, the only
+one that learns its scopes locally (VS Code supplies them on the session
+object). The others would need GitHub's `x-oauth-scopes` response header.
+
+`GhCliTokenProvider` distinguishes `gh-not-installed`,
+`gh-not-authenticated`, `gh-timeout`, and `gh-empty-output` rather than
+declining silently.
+
+### Construction sites
+
+The extension builds a token chain in four places, each supplying its own
+labelled handler:
+
+| Site | Label |
+|---|---|
+| `src/adapters/infra-adapter-factory.ts` | the source id |
+| `src/services/hub-manager.ts` | `hub-resolution` |
+| `src/services/registry-manager.ts` (revision resolution) | the source id |
+| `src/services/registry-manager.ts` (primitive index) | the source id |
+
+The `hub-manager.ts` chain has no `StaticTokenProvider`, so hub
+resolution does not consult `promptregistry.githubToken`. Its `[Auth]`
+lines make that visible: they report `via=ide-session` or `via=gh-cli`
+where a user who set the token would expect `via=configured-token`.
+
 ## Construction Flow
 
 ```mermaid
@@ -70,7 +152,15 @@ resumed later.
 ## Security Rules
 
 - Do not commit tokens to Hub or collection repositories.
-- Do not log full tokens or token previews.
+- Do not log full tokens or token previews. `describeTokenType` returns a
+  fixed literal from a closed set (`gho_`, `ghp_`, `ghu_`, `ghs_`, `ghr_`,
+  `github_pat_`, `opaque`) - a category, not a fragment of the secret. Do
+  not extend it to report token length or trailing characters. The six
+  prefixes are GitHub's documented set; see
+  [GitHub credential types](https://docs.github.com/en/organizations/managing-programmatic-access-to-your-organization/github-credential-types)
+  for the credential and lifespan behind each.
+- Do not log the account label or any other account identity alongside a
+  resolved token; the origin and its scopes are sufficient for diagnosis.
 - Keep authentication at delivery/infrastructure boundaries; do not import
   VS Code authentication APIs into `core` or `app`.
 - Prefer the user's selected VS Code session or existing GitHub CLI session

@@ -220,17 +220,38 @@ describe('HubManager (app)', () => {
   });
 
   describe('verifyHubAvailability', () => {
-    it('returns true when the reference validates and resolves', async () => {
-      expect(await manager.verifyHubAvailability({ type: 'local', location: '/a.yml' })).toBe(true);
+    it('reports the resolver error as the failure reason', async () => {
+      (resolver.resolve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Failed to fetch hub config: HTTP 404')
+      );
+
+      expect(await manager.verifyHubAvailability({ type: 'local', location: '/a.yml' })).toEqual({
+        available: false,
+        reason: 'Failed to fetch hub config: HTTP 404'
+      });
     });
 
-    it('returns false (never throws) when resolution fails', async () => {
+    it('explains an invalid reference rather than reporting a bare failure', async () => {
+      const result = await manager.verifyHubAvailability({ type: 'github', location: 'bad' });
+
+      expect(result.available).toBe(false);
+      expect(result.reason).toContain('Invalid hub reference');
+    });
+
+    it('reports available, with no reason, when the reference validates and resolves', async () => {
+      expect(await manager.verifyHubAvailability({ type: 'local', location: '/a.yml' })).toEqual({ available: true });
+    });
+
+    it('reports unavailable (never throws) when resolution fails', async () => {
       (resolver.resolve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
-      expect(await manager.verifyHubAvailability({ type: 'local', location: '/a.yml' })).toBe(false);
+      expect(await manager.verifyHubAvailability({ type: 'local', location: '/a.yml' })).toMatchObject({
+        available: false,
+        reason: 'boom'
+      });
     });
 
-    it('returns false for an invalid reference', async () => {
-      expect(await manager.verifyHubAvailability({ type: 'github', location: 'bad' })).toBe(false);
+    it('reports unavailable for an invalid reference', async () => {
+      expect((await manager.verifyHubAvailability({ type: 'github', location: 'bad' })).available).toBe(false);
     });
   });
 

@@ -53,6 +53,23 @@ export interface HubListItem {
   reference: HubReference;
 }
 
+/**
+ * Outcome of probing a hub reference.
+ *
+ * Discriminated on `available` so the failure reason is *required* exactly
+ * where it exists and absent where it would be meaningless - a 404, a
+ * permissions problem, unparseable YAML, and an unresponsive host all
+ * warrant different remediation, so an unavailable result without a reason
+ * should not be constructible.
+ */
+export type HubAvailability =
+  | { readonly available: true }
+  | {
+    readonly available: false;
+    /** Why the hub could not be reached, ready to show a user. */
+    readonly reason: string;
+  };
+
 export interface HubDetailInfo extends HubInfo {
   metadata: {
     name: string;
@@ -273,19 +290,32 @@ export class HubManager {
   /**
    * Probe whether a hub reference is reachable, without importing it.
    * Never throws.
+   *
+   * Reports *why* an unreachable hub is unreachable. This previously
+   * returned a bare `boolean`, which collapsed a 404, a 403, a malformed
+   * `hub-config.yml`, and a black-holed socket into one indistinguishable
+   * `false` - leaving first-run setup able to say only "unavailable". The
+   * underlying resolvers already produce precise messages (see `infra`'s
+   * `hub/hub-resolver.ts`), so the reason only needed to survive the catch.
    * @param reference Hub reference to verify.
-   * @returns true iff the reference validates and the config fetch succeeds.
+   * @returns Availability, plus the failure reason when unavailable.
    */
-  public async verifyHubAvailability(reference: HubReference): Promise<boolean> {
+  public async verifyHubAvailability(reference: HubReference): Promise<HubAvailability> {
     try {
       const refValidation = await this.validateReference(reference);
       if (!refValidation.valid) {
-        return false;
+        const detail = refValidation.errors.length > 0
+          ? refValidation.errors.join('; ')
+          : 'reference did not validate';
+        return { available: false, reason: `Invalid hub reference: ${detail}` };
       }
       await this.deps.resolver.resolve(reference);
-      return true;
-    } catch {
-      return false;
+      return { available: true };
+    } catch (error) {
+      return {
+        available: false,
+        reason: error instanceof Error ? error.message : String(error)
+      };
     }
   }
 

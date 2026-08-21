@@ -148,3 +148,35 @@ describe('CompositeHubResolver', () => {
     expect(url.resolve).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('GitHubHubResolver failure reporting', () => {
+  const status = (statusCode: number): HttpResponse => ({
+    statusCode,
+    body: new Uint8Array(),
+    finalUrl: '',
+    headers: {}
+  });
+
+  it('names the url and reports that a token was attached', async () => {
+    const http = fakeHttpClient(() => status(404));
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider('gho_token'));
+
+    await expect(resolver.resolve({ type: 'github', location: 'o/private' }))
+      .rejects.toThrow(/HTTP 404 for raw\.githubusercontent\.com\/o\/private\/main\/hub-config\.yml \(requested with a token\)/);
+  });
+
+  it('reports when no credential was used', async () => {
+    const http = fakeHttpClient(() => status(500));
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider());
+
+    await expect(resolver.resolve({ type: 'github', location: 'o/r' }))
+      .rejects.toThrow(/HTTP 500 for raw\.githubusercontent\.com\/o\/r\/main\/hub-config\.yml \(requested anonymously\)/);
+  });
+
+  it('omits the cache-busting parameter from the reported url', async () => {
+    const http = fakeHttpClient(() => status(500));
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider());
+
+    await expect(resolver.resolve({ type: 'github', location: 'o/r' })).rejects.toThrow(/hub-config\.yml \(/);
+  });
+});
