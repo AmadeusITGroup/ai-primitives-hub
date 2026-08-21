@@ -59,7 +59,10 @@ export const WORKSPACE_PACKAGES = [
   { dir: 'packages/cli', name: '@ai-primitives-hub/cli' }
 ] as const;
 
-/** Pack the configured workspace packages and return their tarball paths. */
+/**
+ * Pack the configured workspace packages and return their tarball paths.
+ * @param destination
+ */
 export function packWorkspacePackages(destination: string): Map<string, string> {
   fs.mkdirSync(destination, { recursive: true });
   const tarballs = new Map<string, string>();
@@ -84,7 +87,11 @@ export function packWorkspacePackages(destination: string): Map<string, string> 
   return tarballs;
 }
 
-/** Rewrite a temporary project's manifest to use the packed workspace artifacts. */
+/**
+ * Rewrite a temporary project's manifest to use the packed workspace artifacts.
+ * @param projectDir
+ * @param tarballs
+ */
 export function useLocalWorkspaceBuilds(projectDir: string, tarballs: Map<string, string>): void {
   const packageJsonPath = path.join(projectDir, 'package.json');
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
@@ -119,7 +126,10 @@ export interface InstallWorkspaceBuildsOptions {
   installTimeoutMs?: number;
 }
 
-/** Pack, install, and remove local workspace artifacts for a temporary project. */
+/**
+ * Pack, install, and remove local workspace artifacts for a temporary project.
+ * @param options
+ */
 export function installWorkspaceBuilds(options: InstallWorkspaceBuildsOptions): void {
   const tarballDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-primitives-hub-packs-'));
 
