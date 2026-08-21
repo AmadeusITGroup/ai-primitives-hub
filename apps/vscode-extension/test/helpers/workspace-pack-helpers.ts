@@ -5,6 +5,9 @@ import {
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  rmrfSync,
+} from './e2e-test-helpers';
 
 const PACK_TIMEOUT_MS = 60_000;
 const DEFAULT_INSTALL_TIMEOUT_MS = 120_000;
@@ -32,13 +35,28 @@ type CommandError = Error & {
   stderr?: Buffer | string;
 };
 
+const isWindows = process.platform === 'win32';
+
+/**
+ * Quote an argument containing whitespace or quotes for the Windows shell.
+ * @param argument
+ */
+function quoteForShell(argument: string): string {
+  return /[\s"]/.test(argument) ? `"${argument.replace(/"/g, '\\"')}"` : argument;
+}
+
 function runCommand(command: string, args: string[], cwd: string, timeout: number): void {
+  // npm and pnpm are .cmd shims on Windows, which require shell execution.
+  const file = isWindows ? `${command}.cmd` : command;
+  const commandArgs = isWindows ? args.map((argument) => quoteForShell(argument)) : args;
+
   try {
-    execFileSync(command, args, {
+    execFileSync(file, commandArgs, {
       cwd,
       encoding: 'utf8',
       stdio: 'pipe',
-      timeout
+      timeout,
+      shell: isWindows
     });
   } catch (error) {
     const { message, stdout, stderr } = error as CommandError;
@@ -46,7 +64,7 @@ function runCommand(command: string, args: string[], cwd: string, timeout: numbe
       .filter((value): value is Buffer | string => value !== undefined && String(value).trim().length > 0)
       .map((value) => String(value).trim())
       .join('\n');
-    throw new Error(`${command} ${args.join(' ')} failed in ${cwd}${detail.length > 0 ? `:\n${detail}` : ''}`);
+    throw new Error(`${file} ${args.join(' ')} failed in ${cwd}${detail.length > 0 ? `:\n${detail}` : ''}`);
   }
 }
 
@@ -143,6 +161,6 @@ export function installWorkspaceBuilds(options: InstallWorkspaceBuildsOptions): 
       options.installTimeoutMs ?? DEFAULT_INSTALL_TIMEOUT_MS
     );
   } finally {
-    fs.rmSync(tarballDir, { recursive: true, force: true });
+    rmrfSync(tarballDir);
   }
 }
