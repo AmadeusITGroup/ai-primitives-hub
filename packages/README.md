@@ -1,24 +1,14 @@
 # `packages/` — AI Primitives Hub library-centric packages
 
-Ports-and-adapters packages shared by the VS Code extension and the (future)
-`ai-primitives-hub` CLI. See `.tmp/ai-primitives-hub-next-migration-plan.md`
-at the repo root for the full migration plan, architecture rationale, and
-phase-by-phase sequencing this directory is built against.
+Ports-and-adapters packages shared by the two delivery layers: the VS Code
+extension (`apps/vscode-extension`) and the `ai-primitives-hub` CLI
+(`packages/cli`). Dependencies point inward only, so `core` never knows about
+a delivery framework.
 
-## Why a nested pnpm workspace?
-
-This directory is its own pnpm workspace (`packages/pnpm-workspace.yaml`),
-separate from the repository root, which remains npm-managed
-(`package.json` + `package-lock.json`, npm workspaces for `lib/` and
-`github-actions/*`). Running `pnpm install` from `packages/` only ever
-touches `packages/node_modules` and each package's own `node_modules` — it
-never touches the root's existing, npm-managed `node_modules`. This lets the
-new packages adopt pnpm immediately without any risk to the VS Code
-extension's existing, working build.
-
-`apps/vscode-extension` and `lib` join this workspace later, once the
-extension itself is relocated (see migration plan, Phase 6) and the whole
-repository can move to pnpm in one deliberate, reviewed step.
+For the architecture rationale and the decisions behind this layout, see the
+[contributor architecture guide](../docs/contributor-guide/architecture.md),
+[clean architecture](../docs/contributor-guide/architecture/library-centric-architecture/clean-architecture.md),
+and the [ADR index](../docs/contributor-guide/architecture/adr/adr-index.md).
 
 ## Packages
 
@@ -29,7 +19,7 @@ repository can move to pnpm in one deliberate, reviewed step.
 | `app` | Use-case orchestration: install/uninstall pipelines, registry (hub/profile), discovery + search, multi-target content transforms. Also the public SDK surface until a standalone `sdk` package has a real consumer. | `core`, `infra` |
 | `cli` | Thin Clipanion delivery adapter — argument parsing + calling into `app` + formatting output, never business logic. | `core`, `infra`, `app` |
 
-## Planned module boundaries (reserved, not yet populated)
+## Module layout
 
 - `infra/src/{adapters,harvest,search,writers,stores,scaffolding,fs,http}/`
 - `app/src/{install,registry,discovery,search,transform,transform/transformers}/`
@@ -37,10 +27,21 @@ repository can move to pnpm in one deliberate, reviewed step.
 
 ## Commands
 
+These packages are members of the single pnpm workspace defined at the
+repository root, so install from the root — there is no separate install step
+for this directory, and the root `pnpm-lock.yaml` pins every package here.
+
 ```bash
-cd packages
-pnpm install
-pnpm -r build
-pnpm -r lint
-pnpm -r test
+pnpm install                                    # from the repository root
+
+pnpm --filter "@ai-primitives-hub/*" build      # topological: core -> infra -> app -> cli
+pnpm --filter "@ai-primitives-hub/*" lint:fix
+pnpm --filter "@ai-primitives-hub/*" test
+
+pnpm -C packages/infra test                     # a single package
 ```
+
+Prefer the `--filter` form over `pnpm -C packages -r <script>`: `-r` resolves
+against the workspace root, so from here it selects **all** projects in the
+monorepo — the extension and the Docusaurus site included — not just this
+directory.

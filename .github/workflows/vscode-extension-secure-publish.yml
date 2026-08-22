@@ -119,9 +119,14 @@ jobs:
       # .vscodeignore to production. Previously `pnpm run build` (root, which
       # also built the Docusaurus site) and `package:prepare` each ran the same
       # `compile` before vsce ran it a third time.
+      # `prompt-registry^...` = exactly the extension's workspace deps
+      # (app, core, infra, collection-scripts), topologically ordered and
+      # excluding the extension itself. Derived from the manifest, so it stays
+      # correct if a dependency is added or dropped, and it does not build
+      # packages/cli, which the extension does not depend on.
       - name: Build and package extension
         run: |
-          pnpm --filter "@ai-primitives-hub/*" --filter "@prompt-registry/collection-scripts" build
+          pnpm --filter "prompt-registry^..." build
           pnpm -C ${{ env.EXTENSION_DIR }} run ignore:prod
 
           # Package with integrity verification

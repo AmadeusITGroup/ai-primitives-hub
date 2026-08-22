@@ -345,8 +345,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      # Exactly the extension's workspace deps (app, core, infra,
+      # collection-scripts), excluding the extension itself and packages/cli,
+      # which it does not depend on.
       - name: Build workspace packages
-        run: pnpm --filter "@ai-primitives-hub/*" --filter "@prompt-registry/collection-scripts" build
+        run: pnpm --filter "prompt-registry^..." build
 
       - name: Compile extension and tests
         working-directory: ${{ env.EXTENSION_DIR }}
