@@ -113,10 +113,16 @@ jobs:
           severity: "CRITICAL,HIGH"
           skip-dirs: "website,lib"
 
+      # One production webpack build, not three. `vsce package` runs the
+      # extension's `vscode:prepublish` (= `compile`), so this step only has to
+      # build the workspace packages the bundle resolves from dist/ and switch
+      # .vscodeignore to production. Previously `pnpm run build` (root, which
+      # also built the Docusaurus site) and `package:prepare` each ran the same
+      # `compile` before vsce ran it a third time.
       - name: Build and package extension
         run: |
-          pnpm run build
-          pnpm -C ${{ env.EXTENSION_DIR }} run package:prepare
+          pnpm --filter "@ai-primitives-hub/*" --filter "@prompt-registry/collection-scripts" build
+          pnpm -C ${{ env.EXTENSION_DIR }} run ignore:prod
 
           # Package with integrity verification
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then

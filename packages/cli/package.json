@@ -35,7 +35,7 @@
     "test:coverage": "vitest run --coverage",
     "build:sea": "node scripts/build-sea.mjs",
     "build:sea:local": "node scripts/build-sea.mjs --local",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@ai-primitives-hub/app": "workspace:*",

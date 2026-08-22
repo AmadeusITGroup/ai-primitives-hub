@@ -62,10 +62,8 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Security: Pin to specific commit for reproducibility
-          # persist-credentials: false
-          fetch-depth: 0
+        # Shallow clone: the Trivy filesystem scan and the SARIF upload below
+        # never read git history.
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -197,7 +195,11 @@ jobs:
 
       # Builds packages (topological), lib, the GH action and the extension.
       # The website is excluded: it has no workspace dependency and is covered by docs.yml.
-      # The extension's own `build` script is `compile`, so it is not compiled twice.
+      # The extension must be built here even though `vsce package` re-runs
+      # `vscode:prepublish`: the unit tests below need compile's side effects,
+      # namely the expanded schemas/ (schema-validator suites read
+      # process.cwd()/schemas) and dist/webview/** (MarketplaceViewProvider
+      # reads its HTML from disk).
       - name: Build workspace (excluding website)
         run: pnpm --filter "!prompt-registry-docs" build
 
@@ -363,6 +365,8 @@ jobs:
         if: runner.os != 'Windows'
         uses: ./.github/actions/post-compile-fixes
 
+      # test:integration:only skips the compile-tests that the step above
+      # already ran; `test:integration` would repeat it.
       - name: Run VS Code Extension Tests
         env:
           VSCODE_VERSION: ${{ matrix.vscode-version }}
@@ -370,9 +374,9 @@ jobs:
         working-directory: ${{ env.EXTENSION_DIR }}
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
-            xvfb-run -a pnpm run test:integration
+            xvfb-run -a pnpm run test:integration:only
           else
-            pnpm run test:integration
+            pnpm run test:integration:only
           fi
 
   # Security compliance report

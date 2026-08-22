@@ -23,7 +23,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && npm run copy-templates",
+    "build": "tsc && pnpm run copy-templates",
     "watch": "tsc --watch",
     "lint": "eslint src test",
     "lint:fix": "eslint src test --fix",
@@ -31,7 +31,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "copy-templates": "node -e \"const fs=require('fs');fs.mkdirSync('dist/scaffolding',{recursive:true});fs.cpSync('src/scaffolding/templates','dist/scaffolding/templates',{recursive:true,force:true});\"",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@ai-primitives-hub/core": "workspace:*",

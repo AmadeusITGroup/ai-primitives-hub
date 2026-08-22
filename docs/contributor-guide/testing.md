@@ -13,27 +13,27 @@ The project uses a **two-tier** test layout, both running under **Mocha TDD styl
 | Unit / Property / E2E (mocked) | `test/{services,adapters,commands,ui,utils,storage,e2e}/**/*.test.ts` | Node.js with `vscode` mocked via `test/mocha.setup.js` | Pure logic, data flow, multi-component workflows |
 | Integration (real VS Code) | `test/suite/**/*.test.ts` | Electron via `test/runExtensionTests.js` | Extension activation, command registration, UI wiring |
 
-Tests compile to `test-dist/` first (`npm run compile-tests`) — Mocha runs the compiled JS.
+Tests compile to `test-dist/` first (`pnpm run compile-tests`) — Mocha runs the compiled JS.
 
 ## Quick Start
 
 ```bash
 # All tests (unit + integration)
-LOG_LEVEL=ERROR npm test
+LOG_LEVEL=ERROR pnpm test
 
 # Unit / property / e2e only (no VS Code host)
-LOG_LEVEL=ERROR npm run test:unit
+LOG_LEVEL=ERROR pnpm run test:unit
 
 # Integration tests (real VS Code)
-npm run test:integration
+pnpm run test:integration
 
 # Single file (auto-compiles)
-npm run test:one -- test/services/bundle-installer.test.ts
+pnpm run test:one -- test/services/bundle-installer.test.ts
 
 # Coverage
-npm run test:coverage            # all tests
-npm run test:coverage:unit       # unit only, c8 html report
-npm run test:coverage:integration # integration only
+pnpm run test:coverage            # all tests
+pnpm run test:coverage:unit       # unit only, c8 html report
+pnpm run test:coverage:integration # integration only
 ```
 
 Use `LOG_LEVEL=ERROR` to suppress debug output.
@@ -69,16 +69,16 @@ test/
 ## Debugging
 
 ```bash
-LOG_LEVEL=DEBUG npm run test:one -- test/path/to/test.ts
+LOG_LEVEL=DEBUG pnpm run test:one -- test/path/to/test.ts
 
 # Capture for analysis
-LOG_LEVEL=ERROR npm test 2>&1 | tee test.log | tail -20
+LOG_LEVEL=ERROR pnpm test 2>&1 | tee test.log | tail -20
 ```
 
 ## Coverage
 
 ```bash
-npm run test:coverage:unit    # c8 html output in coverage/
+pnpm run test:coverage:unit    # c8 html output in coverage/
 ```
 
 Coverage reports are written to the `coverage/` directory.
