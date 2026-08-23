@@ -3,9 +3,9 @@
  *
  * Reads a hub-config.yml (as produced by the VS Code extension / hub schema)
  * and emits a minimal, normalised list of sources the primitive-index
- * harvester understands. Only `github`, `awesome-copilot` and
- * `awesome-copilot-plugin` source types are supported today; everything
- * else is silently skipped (forward-compat).
+ * harvester/preflight understands. GitHub-backed `github`, `skills`, `apm`,
+ * `awesome-copilot`, and `awesome-copilot-plugin` source types are supported;
+ * everything else is silently skipped in permissive mode (forward-compat).
  *
  * Unknown `config.*` keys are preserved under `rawConfig` so downstream
  * experiments can consume new fields without forcing a schema bump here.
@@ -20,6 +20,14 @@ import type {
   HubSourceSpec,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
+import {
+  parseGitHubRepositoryTarget,
+} from '../http/github-repository-target';
+
+export interface ParseHubConfigOptions {
+  /** Reject enabled non-local entries that cannot be safely classified. */
+  strict?: boolean;
+}
 
 /**
  * Check if the entry type is supported.
@@ -27,7 +35,11 @@ import * as yaml from 'js-yaml';
  * @returns True if type is supported.
  */
 function isSupportedType(type: string | undefined): boolean {
-  return type === 'github' || type === 'awesome-copilot' || type === 'awesome-copilot-plugin';
+  return type === 'github'
+    || type === 'awesome-copilot'
+    || type === 'awesome-copilot-plugin'
+    || type === 'skills'
+    || type === 'apm';
 }
 
 /**
@@ -86,21 +98,31 @@ function extractPluginsPath(config: Record<string, unknown>, type: string | unde
  * Parse a single hub-config entry into a HubSourceSpec.
  * Returns undefined if the entry should be filtered out.
  * @param entry - Raw config entry object.
+ * @param strict
  */
-function parseHubConfigEntry(entry: Record<string, unknown>): HubSourceSpec | undefined {
+function parseHubConfigEntry(entry: Record<string, unknown>, strict: boolean): HubSourceSpec | undefined {
   if (entry.enabled === false) {
     return undefined;
   }
   const type = entry.type as string | undefined;
   if (!isSupportedType(type)) {
+    if (strict && type !== 'local' && type !== 'local-apm' && type !== 'local-skills' && type !== 'local-awesome-copilot' && type !== 'azure-devops') {
+      throw new Error(`Enabled source has unsupported type: ${String(type)}`);
+    }
     return undefined;
   }
   const url = extractUrl(entry);
   if (!url) {
+    if (strict) {
+      throw new Error(`Enabled ${type} source is missing a URL.`);
+    }
     return undefined;
   }
   const ownerRepo = normalizeRepoFromUrl(url);
   if (!ownerRepo) {
+    if (strict) {
+      throw new Error(`Enabled ${type} source has an invalid or non-GitHub repository URL: ${url}`);
+    }
     return undefined;
   }
   const config = (entry.config ?? {}) as Record<string, unknown>;
@@ -110,7 +132,7 @@ function parseHubConfigEntry(entry: Record<string, unknown>): HubSourceSpec | un
   return {
     id: idStr,
     name: nameStr,
-    type: type as 'github' | 'awesome-copilot' | 'awesome-copilot-plugin',
+    type: type as 'github' | 'awesome-copilot' | 'awesome-copilot-plugin' | 'skills' | 'apm',
     url,
     owner: ownerRepo.owner,
     repo: ownerRepo.repo,
@@ -125,12 +147,16 @@ function parseHubConfigEntry(entry: Record<string, unknown>): HubSourceSpec | un
  * Parse a hub-config.yml string (or already-parsed object) into normalised
  * source specs. Disabled sources and non-github hosts are filtered out.
  * @param input - Raw YAML string or already-parsed object.
+ * @param options
  */
-export function parseHubConfig(input: string | Record<string, unknown>): HubSourceSpec[] {
+export function parseHubConfig(
+  input: string | Record<string, unknown>,
+  options: ParseHubConfigOptions = {}
+): HubSourceSpec[] {
   const data = typeof input === 'string' ? (yaml.load(input) as Record<string, unknown>) : input;
   const raw = Array.isArray(data?.sources) ? (data.sources as Record<string, unknown>[]) : [];
   return raw.flatMap((entry) => {
-    const spec = parseHubConfigEntry(entry);
+    const spec = parseHubConfigEntry(entry, options.strict === true);
     return spec ? [spec] : [];
   });
 }
@@ -141,20 +167,10 @@ export function parseHubConfig(input: string | Record<string, unknown>): HubSour
  * @param url - URL to parse.
  */
 export function normalizeRepoFromUrl(url: string): { owner: string; repo: string } | undefined {
-  let u: URL;
   try {
-    u = new URL(url);
+    const target = parseGitHubRepositoryTarget(url);
+    return { owner: target.owner, repo: target.repository };
   } catch {
     return undefined;
   }
-  if (u.hostname !== 'github.com' && u.hostname !== 'www.github.com') {
-    return undefined;
-  }
-  const segments = u.pathname.split('/').filter((s) => s.length > 0);
-  if (segments.length < 2) {
-    return undefined;
-  }
-  const [owner, repoRaw] = segments;
-  const repo = repoRaw.endsWith('.git') ? repoRaw.slice(0, -4) : repoRaw;
-  return { owner, repo };
 }

@@ -34,7 +34,11 @@ import {
 } from '@ai-primitives-hub/app';
 import type {
   BundleResolver,
+  GitHubApi,
+  GitHubRepositoryTarget,
+  GitHubSourceAuthCategory,
   HttpClient,
+  HubSourceSpec,
   RegistrySource,
   Target,
   TokenProvider,
@@ -47,13 +51,17 @@ import {
 import {
   ActiveHubStore,
   AwesomeCopilotBundleResolver,
+  createGitHubSourceAuthRuntime,
   defaultTokenProvider,
   FileSystemLayoutConfigLoader,
   GitHubApiClient,
   GitHubBundleResolver,
+  type GitHubSourceAuthRuntime,
   HttpsBundleDownloader,
   HubStore,
+  isGitHubAppAuthEnabled,
   NodeHttpClient,
+  parseGitHubRepositoryTarget,
   readLocalBundle,
   readTargets,
   type RepositoryCommitMode,
@@ -61,6 +69,7 @@ import {
   RepositoryScopeWriterAdapter,
   resolveUserConfigDir,
   SourceDispatcher,
+  StaticTokenProvider,
   TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
@@ -101,15 +110,142 @@ function extractRepoSlug(url: string): string {
   return url;
 }
 
+export interface SourceAwareInstallDependencies {
+  githubApi: GitHubApi;
+  downloadTokens: TokenProvider;
+  repositoryTarget: GitHubRepositoryTarget;
+  authenticationCategory: Exclude<GitHubSourceAuthCategory, 'unresolved'>;
+}
+
+export interface SourceAwareInstallDependencyCache {
+  get(repoSlug: string, sourceConfig?: RegistrySource): Promise<SourceAwareInstallDependencies>;
+}
+
+function sourceSpecForInstall(
+  repoSlug: string,
+  sourceConfig: RegistrySource | undefined,
+  target: GitHubRepositoryTarget
+): HubSourceSpec {
+  const sourceType = sourceConfig?.type === 'awesome-copilot' ? 'awesome-copilot' : 'github';
+  const config = sourceConfig?.config ?? {};
+  return {
+    id: sourceConfig?.id ?? repoSlug,
+    name: sourceConfig?.name ?? repoSlug,
+    type: sourceType,
+    url: sourceConfig?.url ?? `https://${target.host}/${target.owner}/${target.repository}`,
+    owner: target.owner,
+    repo: target.repository,
+    branch: typeof config.branch === 'string' ? config.branch : 'main',
+    ...(sourceType === 'awesome-copilot'
+      ? { collectionsPath: typeof config.collectionsPath === 'string' ? config.collectionsPath : 'collections' }
+      : {}),
+    rawConfig: config
+  };
+}
+
+async function sourceAwareInstallDependencies(
+  repoSlug: string,
+  sourceConfig: RegistrySource | undefined,
+  http: HttpClient,
+  ctx: Context,
+  runtime: GitHubSourceAuthRuntime = createGitHubSourceAuthRuntime({ env: ctx.env, http })
+): Promise<SourceAwareInstallDependencies> {
+  const sourceUrl = sourceConfig?.url ?? `https://github.com/${repoSlug}`;
+  const repositoryTarget = parseGitHubRepositoryTarget(sourceUrl);
+  const sourceSpec = sourceSpecForInstall(repoSlug, sourceConfig, repositoryTarget);
+  const report = await runtime.preflight([sourceSpec], {
+    includeReleases: sourceConfig === undefined || sourceConfig.type === 'github',
+    onLog: (message) => ctx.stderr.write(`[github preflight] ${message}\n`)
+  });
+  const decision = report.results[0];
+  if (!report.valid || decision === undefined || decision.category === 'unresolved' || decision.target === undefined) {
+    const code = decision?.errorCode ?? 'GH_SOURCE_PREFLIGHT_UNRESOLVED';
+    throw new Error(`GitHub source preflight failed for ${sourceSpec.id}: ${code}`);
+  }
+  const downloadTokens = runtime.tokenProviderFor(decision.category) ?? new StaticTokenProvider('');
+  return {
+    githubApi: runtime.clientFor(decision.target, decision.category),
+    downloadTokens,
+    repositoryTarget: decision.target,
+    authenticationCategory: decision.category
+  };
+}
+
+function sourceAwareInstallDependencyKey(
+  repoSlug: string,
+  sourceConfig: RegistrySource | undefined
+): string {
+  const sourceUrl = sourceConfig?.url ?? `https://github.com/${repoSlug}`;
+  const target = parseGitHubRepositoryTarget(sourceUrl);
+  const config = sourceConfig?.config ?? {};
+  return [
+    target.host.toLowerCase(),
+    target.owner.toLowerCase(),
+    target.repository.toLowerCase(),
+    sourceConfig?.type ?? 'github',
+    typeof config.branch === 'string' ? config.branch : 'main',
+    typeof config.collectionsPath === 'string' ? config.collectionsPath : 'collections'
+  ].join('\u0000');
+}
+
+/**
+ * Create a command-scoped cache for source-aware install dependencies.
+ *
+ * The App token cache is owned by the runtime's shared provider. Keeping the
+ * runtime and preflight promises at command scope prevents every bundle in a
+ * lockfile from repeating the same repository checks and minting a fresh
+ * token for an already-seen source.
+ * @param http HTTP client used by source preflight and resolvers.
+ * @param ctx CLI context.
+ * @param runtime Optional runtime seam for tests or advanced callers.
+ */
+export function createSourceAwareInstallDependencyCache(
+  http: HttpClient,
+  ctx: Context,
+  runtime?: GitHubSourceAuthRuntime
+): SourceAwareInstallDependencyCache {
+  const sharedRuntime = runtime ?? createGitHubSourceAuthRuntime({ env: ctx.env, http });
+  const entries = new Map<string, Promise<SourceAwareInstallDependencies>>();
+  return {
+    get: (repoSlug, sourceConfig) => {
+      const key = sourceAwareInstallDependencyKey(repoSlug, sourceConfig);
+      const existing = entries.get(key);
+      if (existing !== undefined) {
+        return existing;
+      }
+      const dependency = sourceAwareInstallDependencies(
+        repoSlug,
+        sourceConfig,
+        http,
+        ctx,
+        sharedRuntime
+      );
+      entries.set(key, dependency);
+      return dependency;
+    }
+  };
+}
+
 /**
  * Build a `GitHubApi` client shared by every GitHub-backed resolver in
  * a single command invocation.
  * @param http HTTP client.
  * @param tokens Token provider.
+ * @param repositoryTarget
+ * @param authenticationCategory
  * @returns GitHubApiClient instance.
  */
-export function githubApiFor(http: HttpClient, tokens: TokenProvider): GitHubApiClient {
-  return new GitHubApiClient(http, { tokenProvider: tokens });
+export function githubApiFor(
+  http: HttpClient,
+  tokens: TokenProvider,
+  repositoryTarget?: GitHubRepositoryTarget,
+  authenticationCategory?: GitHubSourceAuthCategory
+): GitHubApiClient {
+  return new GitHubApiClient(http, {
+    tokenProvider: tokens,
+    repositoryTarget,
+    authenticationCategory
+  });
 }
 
 /**
@@ -175,6 +311,8 @@ export interface InstallOptions {
    * If provided, SourceDispatcher will select the appropriate resolver.
    */
   sourceConfig?: RegistrySource;
+  /** Reuse source-aware preflight and token providers across bundle requests. */
+  sourceAwareDependencyCache?: SourceAwareInstallDependencyCache;
   /**
    * Verbose mode: show detailed progress and error messages.
    */
@@ -655,13 +793,22 @@ async function installSelectedBundles(
   fmt: OutputFormat
 ): Promise<number> {
   let installedCount = 0;
+  const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
+    ? createSourceAwareInstallDependencyCache(opts.http ?? new NodeHttpClient(), ctx)
+    : undefined;
   for (const bundle of bundles) {
     const source = sourceMap.get(bundle.source);
     if (!source) {
       ctx.stderr.write(`Failed to install ${bundle.id}@${bundle.version}: source "${bundle.source}" not found in hub\n`);
       continue;
     }
-    const bundleOpts = { ...opts, bundle: bundle.id, source: source.url, sourceConfig: source };
+    const bundleOpts = {
+      ...opts,
+      bundle: bundle.id,
+      source: source.url,
+      sourceConfig: source,
+      sourceAwareDependencyCache
+    };
     try {
       const result = await performRemoteInstall(bundleOpts, target, ctx, fmt);
       if (result === 0) {
@@ -820,6 +967,9 @@ async function performLockfileInstall(
   const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
   const writerFactory = createWriterFactory(ctx, opts);
   const writer = writerFactory(effectiveTarget);
+  const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
+    ? createSourceAwareInstallDependencyCache(http, ctx)
+    : undefined;
 
   const { replayed, failures } = await replayLockfileEntries({
     bundleIds,
@@ -829,7 +979,8 @@ async function performLockfileInstall(
     writer,
     target: effectiveTarget,
     ctx,
-    verbose: opts.verbose ?? false
+    verbose: opts.verbose ?? false,
+    sourceAwareDependencyCache
   });
 
   if (replayed.length > 0) {
@@ -898,7 +1049,22 @@ async function performRemoteInstall(
     }
     const http = opts.http ?? new NodeHttpClient();
     const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
-    const githubApi = githubApiFor(http, tokens);
+    let githubApi: GitHubApi;
+    let downloadTokens: TokenProvider;
+    let repositoryTarget: GitHubRepositoryTarget | undefined;
+    let authenticationCategory: Exclude<GitHubSourceAuthCategory, 'unresolved'> | undefined;
+    if (isGitHubAppAuthEnabled(ctx.env)) {
+      const dependencies = opts.sourceAwareDependencyCache === undefined
+        ? await sourceAwareInstallDependencies(repoSlug, opts.sourceConfig, http, ctx)
+        : await opts.sourceAwareDependencyCache.get(repoSlug, opts.sourceConfig);
+      githubApi = dependencies.githubApi;
+      downloadTokens = dependencies.downloadTokens;
+      repositoryTarget = dependencies.repositoryTarget;
+      authenticationCategory = dependencies.authenticationCategory;
+    } else {
+      githubApi = githubApiFor(http, tokens);
+      downloadTokens = tokens;
+    }
 
     // Use SourceDispatcher to select the appropriate resolver based on source config
     let resolver: BundleResolver;
@@ -911,7 +1077,7 @@ async function performRemoteInstall(
       resolver = new GitHubBundleResolver({ repoSlug, githubApi });
     }
 
-    const downloader = new HttpsBundleDownloader(http, tokens);
+    const downloader = new HttpsBundleDownloader(http, downloadTokens, repositoryTarget, authenticationCategory);
     const extractor = new ZipBundleExtractor();
 
     const installable = await resolver.resolve(spec);
@@ -971,7 +1137,7 @@ async function performRemoteInstall(
     let nextLock = upsertBundleEntry(existing, manifest.id, entry);
     const collectionsPath = opts.sourceConfig?.config?.collectionsPath;
     nextLock = upsertSource(nextLock, installable.ref.sourceId, {
-      type: 'github',
+      type: opts.sourceConfig?.type ?? 'github',
       url: `https://github.com/${repoSlug}`,
       ...(collectionsPath ? { collectionsPath } : {})
     });
@@ -1173,12 +1339,23 @@ interface ReplayLockfileEntriesOptions {
   target: Target;
   ctx: Context;
   verbose: boolean;
+  sourceAwareDependencyCache?: SourceAwareInstallDependencyCache;
 }
 
 async function replayLockfileEntries(
   opts: ReplayLockfileEntriesOptions
 ): Promise<{ replayed: string[]; failures: { bundleId: string; reason: string }[] }> {
-  const { bundleIds, lock, http, tokens, writer, target, ctx, verbose } = opts;
+  const {
+    bundleIds,
+    lock,
+    http,
+    tokens,
+    writer,
+    target,
+    ctx,
+    verbose,
+    sourceAwareDependencyCache
+  } = opts;
   const replayed: string[] = [];
   const failures: { bundleId: string; reason: string }[] = [];
 
@@ -1197,7 +1374,8 @@ async function replayLockfileEntries(
       writer,
       target,
       ctx,
-      verbose
+      verbose,
+      sourceAwareDependencyCache
     });
     if (result.success) {
       replayed.push(bundleId);
@@ -1219,19 +1397,40 @@ interface ReplaySingleEntryOptions {
   target: Target;
   ctx: Context;
   verbose: boolean;
+  sourceAwareDependencyCache?: SourceAwareInstallDependencyCache;
 }
 
 async function replaySingleEntry(
   opts: ReplaySingleEntryOptions
 ): Promise<{ success: boolean; reason: string }> {
-  const { bundleId, entry, sources, http, tokens, writer, target, ctx, verbose } = opts;
+  const {
+    bundleId,
+    entry,
+    sources,
+    http,
+    tokens,
+    writer,
+    target,
+    ctx,
+    verbose,
+    sourceAwareDependencyCache
+  } = opts;
   const src = sources[entry.sourceId];
   if (src === undefined) {
     return handleMissingSource(bundleId, entry, verbose, ctx);
   }
 
   try {
-    const files = await fetchFilesForSource(src, bundleId, entry, http, tokens, ctx, verbose);
+    const files = await fetchFilesForSource(
+      src,
+      bundleId,
+      entry,
+      http,
+      tokens,
+      ctx,
+      verbose,
+      sourceAwareDependencyCache
+    );
     if (files === null) {
       return handleFetchFailure(bundleId, src, verbose, ctx);
     }
@@ -1313,6 +1512,7 @@ function handleInstallError(
  * @param tokens Token provider.
  * @param ctx CLI context.
  * @param verbose Whether to write `[verbose]` progress lines to stdout.
+ * @param sourceAwareDependencyCache Optional command-scoped source-aware cache.
  * @returns The extracted files, or `null` if the bundle couldn't be resolved/fetched.
  */
 export async function fetchFilesForSource(
@@ -1322,7 +1522,8 @@ export async function fetchFilesForSource(
   http: HttpClient,
   tokens: TokenProvider,
   ctx: Context,
-  verbose: boolean
+  verbose: boolean,
+  sourceAwareDependencyCache?: SourceAwareInstallDependencyCache
 ): Promise<Map<string, Uint8Array> | null> {
   if (src.type === 'local') {
     if (verbose) {
@@ -1331,11 +1532,39 @@ export async function fetchFilesForSource(
     const files = await readLocalBundle(src.url, ctx.fs);
     return new Map(files);
   }
-  if (src.type === 'github') {
-    const githubApi = githubApiFor(http, tokens);
+  if (src.type === 'github' || src.type === 'skills' || src.type === 'awesome-copilot') {
     // Check if this is an awesome-copilot source (detected by sourceId prefix)
-    const isAwesomeCopilot = bundleId.startsWith('awesome-copilot-') || entry.sourceId.startsWith('awesome-copilot-');
-    const repoSlug = src.url.replace(/^https?:\/\/github\.com\//, '');
+    const isAwesomeCopilot = src.type === 'awesome-copilot'
+      || bundleId.startsWith('awesome-copilot-')
+      || entry.sourceId.startsWith('awesome-copilot-');
+    const sourceConfig: RegistrySource = {
+      id: entry.sourceId,
+      name: entry.sourceId,
+      type: isAwesomeCopilot ? 'awesome-copilot' : (src.type === 'skills' ? 'skills' : 'github'),
+      url: src.url,
+      enabled: true,
+      priority: 0,
+      config: {
+        branch: src.branch,
+        collectionsPath: src.collectionsPath
+      }
+    };
+    const repoSlug = extractRepoSlug(src.url);
+    let githubApi: GitHubApi;
+    let downloadTokens = tokens;
+    let repositoryTarget: GitHubRepositoryTarget | undefined;
+    let authenticationCategory: Exclude<GitHubSourceAuthCategory, 'unresolved'> | undefined;
+    if (isGitHubAppAuthEnabled(ctx.env)) {
+      const dependencies = sourceAwareDependencyCache === undefined
+        ? await sourceAwareInstallDependencies(repoSlug, sourceConfig, http, ctx)
+        : await sourceAwareDependencyCache.get(repoSlug, sourceConfig);
+      githubApi = dependencies.githubApi;
+      downloadTokens = dependencies.downloadTokens;
+      repositoryTarget = dependencies.repositoryTarget;
+      authenticationCategory = dependencies.authenticationCategory;
+    } else {
+      githubApi = githubApiFor(http, tokens);
+    }
     if (verbose) {
       ctx.stdout.write(`[verbose] Resolving ${bundleId}@${entry.version} from ${repoSlug} (${isAwesomeCopilot ? 'awesome-copilot' : 'github'})\n`);
     }
@@ -1362,7 +1591,7 @@ export async function fetchFilesForSource(
 
     // Use GitHub resolver for regular github sources
     const resolver = new GitHubBundleResolver({ repoSlug, githubApi });
-    const downloader = new HttpsBundleDownloader(http, tokens);
+    const downloader = new HttpsBundleDownloader(http, downloadTokens, repositoryTarget, authenticationCategory);
     const installable = await resolver.resolve({ bundleId, bundleVersion: entry.version });
     if (installable === null) {
       if (verbose) {

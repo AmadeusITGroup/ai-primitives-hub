@@ -15,6 +15,11 @@ import {
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type {
+  HttpClient,
+  HttpRequest,
+  HttpResponse,
+} from '@ai-primitives-hub/core';
 import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -36,6 +41,8 @@ import {
   HubValidateCommand,
 } from '../../src/commands/hub';
 import {
+  createTestContext,
+  runCli,
   runCommand,
 } from '../../src/framework';
 
@@ -73,6 +80,31 @@ describe('hub commands', () => {
       }
     }
   });
+
+  const runWithHttp = async (argv: string[], http: HttpClient, env: Record<string, string>): Promise<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  }> => {
+    const ctx = createTestContext({
+      cwd: workspace,
+      fs: new NodeFileSystem(),
+      env
+    });
+    const exitCode = await runCli(argv, {
+      ctx,
+      commandClasses: COMMAND_CLASSES,
+      commands: [],
+      name: 'ai-primitives-hub',
+      version: '0.0.0-test',
+      http
+    });
+    return {
+      exitCode,
+      stdout: ctx.stdout.captured(),
+      stderr: ctx.stderr.captured()
+    };
+  };
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -400,6 +432,76 @@ profiles:
       expect(envelope.data).toMatchObject({ valid: true });
       expect(envelope.data.deep).toBeUndefined();
       expect(result.stderr).toContain('--verbose has no effect without --check-sources');
+    });
+
+    it('returns the complete source preflight report when source-aware validation fails', async () => {
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: private-source
+    name: Private Source
+    type: github
+    url: https://github.com/example-org/example-repository
+    enabled: true
+    priority: 1
+profiles: []
+`
+      );
+      const http: HttpClient = {
+        fetch: async (request: HttpRequest): Promise<HttpResponse> => ({
+          statusCode: 404,
+          body: new TextEncoder().encode('{}'),
+          finalUrl: request.url,
+          headers: {}
+        })
+      };
+
+      const result = await runWithHttp(
+        ['hub', 'validate', '--config', 'hub-config.yml', '--check-sources', '-o', 'json'],
+        http,
+        {
+          AI_PRIMITIVES_HUB_GH_APP_AUTH_ENABLED: 'true',
+          GH_TOKEN: 'test-generic-token'
+        }
+      );
+
+      expect(result.exitCode).toBe(1);
+      const envelope = parseJson<{
+        valid: boolean;
+        sourcePreflight: {
+          valid: boolean;
+          appRoutes: string[];
+          results: {
+            sourceId: string;
+            category: string;
+            errorCode?: string;
+            operations: string[];
+          }[];
+        };
+      }>(result.stdout);
+      expect(envelope.data.valid).toBe(false);
+      expect(envelope.data.sourcePreflight).toEqual({
+        valid: false,
+        appRoutes: ['github.com/example-org/*'],
+        results: [{
+          sourceId: 'private-source',
+          target: {
+            host: 'github.com',
+            owner: 'example-org',
+            repository: 'example-repository'
+          },
+          category: 'unresolved',
+          operations: ['repository metadata'],
+          credentialMode: 'none',
+          errorCode: 'GH_APP_AUTH_CONFIG_MISSING'
+        }]
+      });
     });
   });
 

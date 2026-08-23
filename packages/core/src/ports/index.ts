@@ -12,6 +12,7 @@ export * from './http';
 export * from './github-api';
 export * from './azure-devops-api';
 export * from './process-runner';
+export * from './process-executor';
 export * from './bundle-extractor';
 export * from './target-writer';
 export * from './layout-config-loader';

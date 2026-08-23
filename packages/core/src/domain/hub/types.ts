@@ -237,7 +237,7 @@ export interface PluginManifest {
  * shape (extends `RegistrySource`, tracks `enabled`/`priority` for the
  * extension's registry sync). `HubSourceSpec` is the *harvester's* own
  * narrower, GitHub-specific shape — owner/repo already split out, a
- * closed `type` union of only the three source kinds the harvester
+ * closed `type` union of the remote source kinds the harvester/preflight
  * walks. The two are populated from the same `hub-config.yml`, by two
  * different parsers, for two different consumers.
  */
@@ -246,8 +246,8 @@ export interface HubSourceSpec {
   id: string;
   /** Human-readable name; defaults to the config `id` or the repo segment. */
   name: string;
-  /** Source type tag; only the three listed types are wired today. */
-  type: 'github' | 'awesome-copilot' | 'awesome-copilot-plugin';
+  /** Source type tag for a supported remote GitHub-backed source family. */
+  type: 'github' | 'awesome-copilot' | 'awesome-copilot-plugin' | 'skills' | 'apm';
   /** Original config URL string (used for diagnostics / display). */
   url: string;
   /** GitHub owner segment derived from `url`. */
