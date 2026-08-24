@@ -170,7 +170,6 @@ interface BuildHarvestResultParams {
   sourcePreflight?: GitHubSourcePreflightReport;
 }
 
-
 /** Reported when the transport carries no rate-limit telemetry (e.g. a fake). */
 const NO_RATE_LIMIT_TELEMETRY: GitHubApiClient['lastRateLimit'] = {
   limit: undefined,
