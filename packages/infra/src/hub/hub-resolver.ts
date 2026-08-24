@@ -51,16 +51,27 @@ export interface HubResolver {
  * @param tokens TokenProvider consulted for the target host.
  * @param url Absolute URL to GET.
  */
+/**
+ * Describe a failed fetch in terms a user can act on.
+ * @param url Requested URL.
+ * @param statusCode Status received.
+ * @param authenticated Whether a credential was attached.
+ * @returns A single-line reason.
+ */
+function describeFetchFailure(url: string, statusCode: number, authenticated: boolean): string {
+  const target = url.replace(/^https?:\/\//, '').replace(/\?t=\d+$/, '');
+  const credential = authenticated ? 'with a token' : 'anonymously';
+  return `Failed to fetch hub config: HTTP ${statusCode} for ${target} (requested ${credential})`;
+}
+
 async function fetchYamlConfig(http: HttpClient, tokens: TokenProvider, url: string): Promise<HubConfig> {
-  const headers: Record<string, string> = {};
   const token = await tokens.getToken(new URL(url).hostname);
-  if (token !== undefined) {
-    headers.Authorization = `token ${token}`;
-  }
+  const headers: Record<string, string> = token === undefined ? {} : { Authorization: `token ${token}` };
 
   const res = await http.fetch({ url, headers, maxRedirects: 10 });
+
   if (res.statusCode !== 200) {
-    throw new Error(`Failed to fetch hub config: HTTP ${res.statusCode}`);
+    throw new Error(describeFetchFailure(url, res.statusCode, token !== undefined));
   }
 
   const text = new TextDecoder().decode(res.body);

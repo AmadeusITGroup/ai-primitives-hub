@@ -1506,14 +1506,17 @@ export class PromptRegistryExtension {
     // Verify each hub in parallel but preserve order
     this.logger.info('Verifying default hubs...');
     const verificationResults = await Promise.all(defaultHubs.map(async (hub) => {
-      const isAvailable = await hubManager.verifyHubAvailability(hub.reference);
-      this.logger.debug(`Hub verification result for ${hub.name}: ${isAvailable ? 'available' : 'unavailable'}`);
-      if (isAvailable) {
+      const availability = await hubManager.verifyHubAvailability(hub.reference);
+      if (availability.available) {
         this.logger.info(`✓ Hub verified: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
       } else {
-        this.logger.warn(`✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
+        // Report the cause, not just the verdict: a 404, a permissions
+        // problem, and an unresponsive host need different remediation.
+        this.logger.warn(
+          `✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location}) — ${availability.reason}`
+        );
       }
-      return { ...hub, verified: isAvailable };
+      return { ...hub, verified: availability.available };
     }));
 
     // verificationResults maintains the same order as defaultHubs

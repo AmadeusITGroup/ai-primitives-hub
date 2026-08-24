@@ -18,6 +18,13 @@ import type {
 
 const DEFAULT_MAX_REDIRECTS = 10;
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+/**
+ * Idle timeout per request. Node sets none, leaving an unresponsive host to
+ * the OS TCP stack (75s per connection attempt on macOS, once per resolved
+ * address). Safe for large downloads: received chunks reset it, so only a
+ * silent connection aborts.
+ */
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export class NodeHttpClient implements HttpClient {
   private async fetchFollowingRedirects(
@@ -48,10 +55,12 @@ export class NodeHttpClient implements HttpClient {
     const transport = target.protocol === 'http:' ? http : https;
     const headers = this.ensureUserAgent(request.headers);
 
+    const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
     return new Promise<HttpResponse>((resolve, reject) => {
       const req = transport.request(
         target,
-        { method: request.method ?? 'GET', headers },
+        { method: request.method ?? 'GET', headers, timeout: timeoutMs },
         (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -65,6 +74,11 @@ export class NodeHttpClient implements HttpClient {
           });
         }
       );
+
+      // `timeout` only fires an event; destroy with a reportable reason.
+      req.on('timeout', () => {
+        req.destroy(new Error(`HTTP request to ${url} timed out after ${timeoutMs}ms`));
+      });
 
       req.on('error', (error) => {
         reject(new Error(`HTTP request to ${url} failed: ${error.message}`));

@@ -30,6 +30,12 @@ export interface HttpRequest {
   body?: Uint8Array | string;
   /** Maximum redirect chain length; defaults to the adapter's own default. */
   maxRedirects?: number;
+  /**
+   * Idle timeout in milliseconds, not a cap on total duration: received
+   * bytes reset it, so a slow but progressing download is never cut off.
+   * Defaults to the adapter's own default.
+   */
+  timeoutMs?: number;
 }
 
 /**

@@ -672,6 +672,11 @@
           "default": "",
           "description": "GitHub personal access token for private repositories (generate with 'gh auth token')"
         },
+        "promptregistry.logging.httpTrace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log every outgoing HTTP request (method, URL, status, duration) to the output channel. Failed requests are always logged; enable this to also see successful ones when diagnosing connectivity or authentication problems."
+        },
         "promptregistry.updateCheck.enabled": {
           "type": "boolean",
           "default": true,

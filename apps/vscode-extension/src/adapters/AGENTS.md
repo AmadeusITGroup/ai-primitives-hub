@@ -50,7 +50,16 @@ Resolved in order, via a single `CompositeTokenProvider` built per source by `cr
 3. GitHub CLI (`gh auth token`, `@ai-primitives-hub/infra`'s `GhCliTokenProvider`, the second `fallbackTokenProviders` entry)
 4. No auth (public repos only)
 
-`infra-adapter-factory.ts` builds two fallback chains differing only in the VS Code session step's `createIfNone` policy: `true` (prompts the user to sign in) for every type except `skills`, which passes `false` - matching that one source type's pre-cutover exception.
+`infra-adapter-factory.ts` builds the fallback chain per source in `buildDeps`, with the VS Code session step's `createIfNone` policy set to `true` (prompts the user to sign in) for every type except `skills`, which gets `false` - matching that one source type's pre-cutover exception.
+
+### Auth observability
+
+- Every chain carries a `createAuthEventLogger(source.id)` handler (`auth-event-logger.ts`): one INFO line naming the winning `TokenOrigin`, per-step detail at DEBUG.
+- `buildDeps` is per-source because that handler needs the source id to label its lines.
+- Pass the handler to the providers *and* the `CompositeTokenProvider` - they emit different events; `deps.onAuthEvent` covers the `StaticTokenProvider` built from `source.token`.
+- Never put token material in an event; use `describeTokenType` for the type prefix.
+- Three other chains need the same treatment when touched: `hub-manager.ts` and two in `registry-manager.ts`.
+- Full contract: [authentication](../../../../docs/contributor-guide/architecture/authentication.md).
 
 ## Existing Adapters (live implementation: `packages/infra/src/adapters/`)
 

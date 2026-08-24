@@ -2,6 +2,8 @@
  * Authentication infrastructure barrel export.
  * @module auth
  */
+export * from './auth-chain-recorder';
+export * from './auth-event';
 export * from './composite-token-provider';
 export * from './default-token-provider';
 export * from './env-token-provider';

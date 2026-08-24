@@ -53,6 +53,9 @@ import {
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
+  createAuthEventLogger,
+} from '../adapters/auth-event-logger';
+import {
   createCoreRegistryAdapter,
   createRegistryAdapter,
 } from '../adapters/infra-adapter-factory';
@@ -251,15 +254,16 @@ export class RegistryManager {
         // on one namespaced index instead of creating client-specific copies.
         try {
           const enrichedSource = this.enrichSourceWithGlobalToken(source);
+          const onAuthEvent = createAuthEventLogger(source.id);
           const tokenProviders = [
-            ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token)] : []),
-            new VsCodeSessionTokenProvider(true),
-            new GhCliTokenProvider()
+            ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token, onAuthEvent)] : []),
+            new VsCodeSessionTokenProvider(true, onAuthEvent),
+            new GhCliTokenProvider(undefined, onAuthEvent)
           ];
           const nativeProvider = createRegistrySourceBundleProvider({
             source: enrichedSource,
             client: new GitHubApiClient(new NodeHttpClient(), {
-              tokenProvider: new CompositeTokenProvider(tokenProviders)
+              tokenProvider: new CompositeTokenProvider(tokenProviders, onAuthEvent)
             }),
             cache: blobCache
           });
@@ -1008,15 +1012,16 @@ export class RegistryManager {
         }
         try {
           const enrichedSource = this.enrichSourceWithGlobalToken(source);
+          const onAuthEvent = createAuthEventLogger(source.id);
           const tokenProviders = [
-            ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token)] : []),
-            new VsCodeSessionTokenProvider(true),
-            new GhCliTokenProvider()
+            ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token, onAuthEvent)] : []),
+            new VsCodeSessionTokenProvider(true, onAuthEvent),
+            new GhCliTokenProvider(undefined, onAuthEvent)
           ];
           const nativeProvider = createRegistrySourceBundleProvider({
             source: enrichedSource,
             client: new GitHubApiClient(new NodeHttpClient(), {
-              tokenProvider: new CompositeTokenProvider(tokenProviders)
+              tokenProvider: new CompositeTokenProvider(tokenProviders, onAuthEvent)
             }),
             cache: blobCache
           });

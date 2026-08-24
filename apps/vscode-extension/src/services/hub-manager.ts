@@ -22,6 +22,7 @@ import {
   loadHubSourcesProgressively,
 } from '@ai-primitives-hub/app';
 import type {
+  HubAvailability,
   HubConfigStore,
   LoadHubSourcesOptions,
   LogEvent,
@@ -44,6 +45,14 @@ import {
   UrlHubResolver,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
+import {
+  createAuthEventLogger,
+  resetAuthReportingState,
+} from '../adapters/auth-event-logger';
+import {
+  isHttpTraceEnabled,
+  LoggingHttpClient,
+} from '../adapters/logging-http-client';
 import {
   VsCodeSessionTokenProvider,
 } from '../adapters/vscode-session-token-provider';
@@ -194,8 +203,23 @@ export class HubManager {
     // Fetch/auth wiring: GitHub auth follows the same fallback chain as
     // RegistryManager's source adapters (VS Code session, then `gh` CLI) —
     // see src/adapters/infra-adapter-factory.ts.
-    const httpClient = new NodeHttpClient();
-    const tokenProvider = new CompositeTokenProvider([new VsCodeSessionTokenProvider(true), new GhCliTokenProvider()]);
+    //
+    // Note this chain has no `StaticTokenProvider`, so it does not consult
+    // the `promptregistry.githubToken` setting the way source adapters do
+    // (`RegistryManager.enrichSourceWithGlobalToken`). The `[Auth]` lines
+    // below make that visible - hub resolution reports `via=ide-session`
+    // or `via=gh-cli` where a user who set the token would expect
+    // `via=configured-token`.
+    // Wrapped so a failed hub fetch reports the request that failed. Hub
+    // resolution calls the raw client (not `GitHubApiClient`), so without
+    // this the only record of a 404 or a hung socket is a bare
+    // "unavailable". Successful requests stay quiet unless tracing is on.
+    const httpClient = new LoggingHttpClient(new NodeHttpClient(), { trace: isHttpTraceEnabled() });
+    const onAuthEvent = createAuthEventLogger('hub-resolution');
+    const tokenProvider = new CompositeTokenProvider([
+      new VsCodeSessionTokenProvider(true, onAuthEvent),
+      new GhCliTokenProvider(undefined, onAuthEvent)
+    ], onAuthEvent);
     const resolver = new CompositeHubResolver(
       new GitHubHubResolver(httpClient, tokenProvider),
       new LocalHubResolver(new NodeFileSystem()),
@@ -297,6 +321,9 @@ export class HubManager {
    */
   public clearAuthCache(): void {
     VsCodeSessionTokenProvider.clearCache();
+    // The user explicitly asked to re-authenticate, so the next resolution
+    // should report its outcome even if it matches what was already logged.
+    resetAuthReportingState();
     this.logger.info('[HubManager] Authentication cache cleared');
   }
 
@@ -504,16 +531,20 @@ export class HubManager {
    * Verify if a hub is accessible without importing it
    * Used to validate default hubs before offering them in the first-run selector
    * @param reference Hub reference to verify
-   * @returns true if hub is accessible, false otherwise
+   * @returns Availability, plus the reason when the hub is unreachable
    */
-  public async verifyHubAvailability(reference: HubReference): Promise<boolean> {
-    const available = await this.appHubManager.verifyHubAvailability(reference);
-    if (available) {
+  public async verifyHubAvailability(reference: HubReference): Promise<HubAvailability> {
+    const result = await this.appHubManager.verifyHubAvailability(reference);
+    if (result.available) {
       this.logger.debug(`Hub verification successful: ${reference.type}:${reference.location}`);
     } else {
-      this.logger.debug(`Hub verification failed: ${reference.type}:${reference.location}`);
+      // The reason is the point: "unavailable" alone sends a user hunting
+      // through settings and sign-in state for what is often a 404.
+      this.logger.warn(
+        `Hub verification failed: ${reference.type}:${reference.location} — ${result.reason}`
+      );
     }
-    return available;
+    return result;
   }
 
   /**

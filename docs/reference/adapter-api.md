@@ -78,6 +78,7 @@ interface SourceAdapterFactoryDeps {
   httpClient: HttpClient;
   processRunner: ProcessRunner;
   fallbackTokenProviders: readonly TokenProvider[];
+  onAuthEvent?: AuthEventHandler;
 }
 ```
 
@@ -88,6 +89,12 @@ For sources with credentials, an explicit `source.token` is placed before
 the delivery fallbacks in a `CompositeTokenProvider`. GitHub-hosted adapters
 receive a `GitHubApiClient`; Azure DevOps receives an
 `AzureDevOpsApiClient`.
+
+`onAuthEvent` is optional observability for token resolution: the factory
+attaches it to the chain it builds and to the `StaticTokenProvider` wrapping
+`source.token`. The caller is responsible for attaching it to its own
+`fallbackTokenProviders`, since it constructs those. See
+[Authentication](../contributor-guide/architecture/authentication.md).
 
 ## Adding an Adapter in This Repository
 

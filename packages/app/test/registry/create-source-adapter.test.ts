@@ -8,6 +8,9 @@ import type {
   RegistrySource,
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import type {
+  AuthEvent,
+} from '@ai-primitives-hub/infra';
 import {
   describe,
   expect,
@@ -119,6 +122,45 @@ describe('createSourceAdapter', () => {
       for (const request of httpClient.requests) {
         expect(request.headers?.Authorization).toBe('token explicit-token');
       }
+    });
+
+    it('threads onAuthEvent into the explicit-token provider and the chain', async () => {
+      const events: AuthEvent[] = [];
+      const adapter = createSourceAdapter(
+        makeSource({ type: 'github', url: 'https://github.com/owner/repo', token: 'ghp_explicit' }),
+        makeDeps({ onAuthEvent: (event) => events.push(event) })
+      );
+
+      await adapter.validate();
+
+      // `chain-start` proves the composite got the handler; `resolved` with
+      // the `configured-token` origin proves the StaticTokenProvider did.
+      expect(events.some((event) => event.kind === 'chain-start')).toBe(true);
+      expect(events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'resolved', origin: 'configured-token', tokenType: 'ghp_' })
+      ]));
+      expect(JSON.stringify(events)).not.toContain('explicit');
+    });
+
+    it('reports an exhausted chain when no provider yields a token', async () => {
+      const events: AuthEvent[] = [];
+      const adapter = createSourceAdapter(
+        makeSource({ type: 'github', url: 'https://github.com/owner/repo' }),
+        makeDeps({ onAuthEvent: (event) => events.push(event) })
+      );
+
+      await adapter.validate();
+
+      expect(events.some((event) => event.kind === 'chain-exhausted')).toBe(true);
+    });
+
+    it('stays silent when no onAuthEvent is supplied', async () => {
+      const adapter = createSourceAdapter(
+        makeSource({ type: 'github', url: 'https://github.com/owner/repo', token: 'ghp_explicit' }),
+        makeDeps()
+      );
+
+      await expect(adapter.validate()).resolves.toBeDefined();
     });
 
     it('falls back to the caller-supplied chain when the source has no explicit token', async () => {

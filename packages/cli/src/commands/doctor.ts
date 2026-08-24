@@ -15,8 +15,11 @@ import {
 } from '@ai-primitives-hub/app';
 import {
   ActiveHubStore,
+  createAuthChainRecorder,
   defaultTokenProvider,
+  describeAuthEvent,
   findProjectConfigPath,
+  formatTriedOrigins,
   HubStore,
   NodeHttpClient,
   readTargets,
@@ -556,22 +559,37 @@ const checkActiveHub = async (ctx: Context, verbose: boolean): Promise<DoctorChe
 const checkGitHubAuth = async (ctx: Context, verbose: boolean): Promise<DoctorCheck> => {
   const logs = createLogger(verbose);
   try {
-    const provider = defaultTokenProvider(ctx.env);
+    const recorder = createAuthChainRecorder();
+    const provider = defaultTokenProvider(ctx.env, recorder.onAuthEvent);
     const token = await provider.getToken('api.github.com');
+    const outcome = recorder.outcome();
+
+    for (const event of recorder.events()) {
+      log(logs, 'output', describeAuthEvent(event));
+    }
+
     log(logs, 'output', `tokenResolved: ${token !== undefined && token.length > 0 ? 'true' : 'false'}`);
     if (token !== undefined && token.length > 0) {
       log(logs, 'output', `tokenLength: ${token.length}`);
+      // `outcome` names the origin; fall back only if the chain resolved
+      // without narrating, which would mean an uninstrumented provider.
+      const via = outcome?.kind === 'resolved'
+        ? ` via ${outcome.origin} (type ${outcome.tokenType})`
+        : '';
       return {
         name: 'github-auth',
         status: 'ok',
-        detail: `GitHub token resolved (${token.length} chars). Token is never logged.`,
+        detail: `GitHub token resolved${via} (${token.length} chars). Token is never logged.`,
         logs
       };
     }
+    const tried = outcome?.kind === 'exhausted'
+      ? ` Tried: ${formatTriedOrigins(outcome.tried)}.`
+      : '';
     return {
       name: 'github-auth',
       status: 'warn',
-      detail: 'No GitHub token resolvable. Set GITHUB_TOKEN/GH_TOKEN or run `gh auth login`. '
+      detail: `No GitHub token resolvable.${tried} Set GITHUB_TOKEN/GH_TOKEN or run \`gh auth login\`. `
         + 'Public hubs work without auth (60 req/hour rate limit).',
       logs
     };
