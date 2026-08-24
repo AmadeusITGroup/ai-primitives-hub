@@ -143,9 +143,26 @@ interface BuildHarvestResultParams {
   hubBranch: string;
   sourcesCount: number;
   tokenSource: string;
-  client: GitHubApiClient;
+  client: GitHubApi;
   sourceRevision: string;
   hubId: string;
+}
+
+/** Reported when the transport carries no rate-limit telemetry (e.g. a fake). */
+const NO_RATE_LIMIT_TELEMETRY: GitHubApiClient['lastRateLimit'] = {
+  limit: undefined,
+  remaining: undefined,
+  used: undefined,
+  resetAt: undefined
+};
+
+/**
+ * Read rate-limit telemetry, which only the real client tracks.
+ * @param client - The transport actually used for the harvest.
+ * @returns Telemetry, or all-undefined for a transport that has none.
+ */
+function readRateLimit(client: GitHubApi): GitHubApiClient['lastRateLimit'] {
+  return client instanceof GitHubApiClient ? client.lastRateLimit : NO_RATE_LIMIT_TELEMETRY;
 }
 
 export interface HubHarvestPipelineOptions {
@@ -173,6 +190,10 @@ export interface HubHarvestPipelineOptions {
   concurrency?: number;
   /** Optional token. Otherwise resolved via `resolveGithubToken`. */
   explicitToken?: string;
+  /** Optional GitHub transport. Defaults to `GitHubApiClient`. */
+  githubApi?: GitHubApi;
+  /** Optional token resolver. Defaults to explicit token, environment, then `gh`. */
+  tokenResolver?: TokenResolver;
   /** Filter sources to this set of ids (after extra-source injection). */
   sourcesInclude?: string[];
   /** Filter out these source ids. */
@@ -321,14 +342,14 @@ export const harvestHub = async (
   const hubId = opts.hubId ?? (opts.noHubConfig === true || opts.hubConfigFile !== undefined ? 'local' : hubRepo);
 
   const requiresHubConfig = opts.noHubConfig !== true && opts.hubConfigFile === undefined;
-  let client: GitHubApiClient | undefined;
+  let client: GitHubApi | undefined;
   let resolvedToken: string | undefined;
   let tokenSource = 'none';
 
   if (requiresHubConfig) {
     ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts, env));
   } else {
-    client = createUnauthenticatedClient();
+    client = opts.githubApi ?? createUnauthenticatedClient();
   }
 
   const sources = await resolveHubSources({
@@ -356,7 +377,7 @@ export const harvestHub = async (
 
   // An empty offline harvest must succeed without GitHub credentials.
   // HubHarvester never calls the client when there are no sources.
-  const harvestClient = client ?? new GitHubApiClient(
+  const harvestClient = client ?? opts.githubApi ?? new GitHubApiClient(
     new NodeHttpClient(),
     { tokenProvider: new StaticTokenProvider('') }
   );
@@ -433,13 +454,13 @@ async function createGitHubClient(
   hubRepo: string,
   opts: HubHarvestPipelineOptions,
   env: NodeJS.ProcessEnv,
-  fallbackClient?: GitHubApiClient
+  fallbackClient?: GitHubApi
 ): Promise<{
   resolvedToken: string | undefined;
-  client: GitHubApiClient;
+  client: GitHubApi;
   tokenSource: string;
 }> {
-  const resolver: TokenResolver = {
+  const resolver: TokenResolver = opts.tokenResolver ?? {
     readEnv: (name: string): string | undefined => {
       const value = env[name];
       return value && value.length > 0 ? value : undefined;
@@ -454,7 +475,10 @@ async function createGitHubClient(
     throw new Error('No GitHub token available (tried explicit, env, gh CLI).');
   }
   const resolvedToken: string = token.token;
-  const client = new GitHubApiClient(new NodeHttpClient(), { tokenProvider: new StaticTokenProvider(resolvedToken) });
+  // An injected transport wins over building a real one, so a caller that
+  // supplied a fake never reaches the network even once a token resolves.
+  const client = opts.githubApi
+    ?? new GitHubApiClient(new NodeHttpClient(), { tokenProvider: new StaticTokenProvider(resolvedToken) });
   const [owner, repo] = hubRepo.split('/');
   if (owner === undefined || repo === undefined || owner.length === 0 || repo.length === 0) {
     throw new Error(`Invalid hubRepo: ${hubRepo} (expected "owner/repo").`);
@@ -539,7 +563,7 @@ function buildHarvestResult(params: BuildHarvestResultParams): HubHarvestPipelin
       wallMs: params.result.wallMs
     },
     hub: { repo: params.hubRepo, branch: params.hubBranch, sources: params.sourcesCount },
-    rateLimit: params.client.lastRateLimit,
+    rateLimit: readRateLimit(params.client),
     tokenSource: params.tokenSource,
     sourceRevision: params.sourceRevision,
     hubId: params.hubId,

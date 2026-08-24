@@ -468,40 +468,25 @@ items:
     });
 
     it('allows public extra-source harvests to continue anonymously when no token exists', async () => {
-      const envKeys = ['GITHUB_TOKEN', 'GH_TOKEN'];
-      const saved = new Map<string, string | undefined>();
-      const savedPath = process.env.PATH;
-      for (const key of envKeys) {
-        saved.set(key, process.env[key]);
-        delete process.env[key];
-      }
-      process.env.PATH = path.join(tmp, 'no-gh-path');
+      // Keep this test local and deterministic by injecting its boundaries.
+      const client = new FakeGitHubApi();
+      seedRepo(client, 'octocat', 'hello-world', 'hello-sha', [], new Map());
 
-      try {
-        const result = await harvestHub({
-          noHubConfig: true,
-          dryRun: true,
-          extraSources: ['id=hello,type=github,url=https://github.com/octocat/hello-world'],
-          outFile: path.join(tmp, 'anonymous-index.json'),
-          progressFile: path.join(tmp, 'anonymous-progress.jsonl'),
-          cacheDir: path.join(tmp, 'anonymous-cache')
-        });
-        expect(result.tokenSource).toBe('none');
-      } finally {
-        if (savedPath === undefined) {
-          delete process.env.PATH;
-        } else {
-          process.env.PATH = savedPath;
+      const result = await harvestHub({
+        noHubConfig: true,
+        dryRun: true,
+        extraSources: ['id=hello,type=github,url=https://github.com/octocat/hello-world'],
+        outFile: path.join(tmp, 'anonymous-index.json'),
+        progressFile: path.join(tmp, 'anonymous-progress.jsonl'),
+        cacheDir: path.join(tmp, 'anonymous-cache'),
+        githubApi: client,
+        tokenResolver: {
+          readEnv: () => undefined,
+          readGhCli: () => Promise.resolve(undefined)
         }
-        for (const key of envKeys) {
-          const value = saved.get(key);
-          if (value === undefined) {
-            delete process.env[key];
-          } else {
-            process.env[key] = value;
-          }
-        }
-      }
+      });
+
+      expect(result.tokenSource).toBe('none');
     });
   });
 });
