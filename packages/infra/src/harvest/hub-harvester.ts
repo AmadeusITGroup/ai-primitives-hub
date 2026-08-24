@@ -36,10 +36,12 @@ import {
 import * as path from 'node:path';
 import type {
   GitHubApi,
+  GitHubSourceAuthCategory,
+  HttpClient,
   HubSourceSpec,
   PrimitiveIndexKey,
   PrimitiveIndexStore,
-  TokenProvider,
+  ProcessExecutor,
 } from '@ai-primitives-hub/core';
 import {
   StaticTokenProvider,
@@ -47,6 +49,7 @@ import {
 import {
   GitHubApiClient,
   NodeHttpClient,
+  parseGitHubRepositoryTarget,
 } from '../http';
 import {
   PrimitiveIndex,
@@ -82,6 +85,23 @@ import {
 import {
   parseExtraSource,
 } from './extra-source';
+import {
+  createGitHubSourceAuthRuntime,
+  createGitHubSourceAuthSession,
+  GITHUB_APP_AUTH_KEY_FILE,
+  GITHUB_APP_CLIENT_ID,
+  GITHUB_APP_ID,
+  GITHUB_APP_INSTALLATION_ID,
+  type GitHubSourceAuthRuntime,
+  type GitHubSourceAuthSession,
+  isGitHubAppAuthEnabled,
+} from './github-source-auth-runtime';
+import {
+  GitHubSourcePreflightError,
+} from './github-source-preflight';
+import type {
+  GitHubSourcePreflightReport,
+} from './github-source-preflight';
 import {
   harvestBundle,
 } from './harvester';
@@ -128,6 +148,7 @@ interface ResolveHubSourcesParams {
   onLog: ((msg: string) => void) | undefined;
   sourcesInclude: string[] | undefined;
   sourcesExclude: string[] | undefined;
+  strictSourceParsing: boolean;
 }
 
 /**
@@ -146,6 +167,7 @@ interface BuildHarvestResultParams {
   client: GitHubApi;
   sourceRevision: string;
   hubId: string;
+  sourcePreflight?: GitHubSourcePreflightReport;
 }
 
 /** Reported when the transport carries no rate-limit telemetry (e.g. a fake). */
@@ -221,6 +243,20 @@ export interface HubHarvestPipelineOptions {
   hubId?: string;
   /** Optional shared namespaced index location resolver. */
   indexStore?: PrimitiveIndexStore;
+  /** Optional HTTP boundary for tests and advanced embedding callers. */
+  httpClient?: HttpClient;
+  /** Optional argv-safe process boundary for source-aware App auth. */
+  processExecutor?: ProcessExecutor;
+  /** App ID used to provision an ephemeral source-aware auth session. */
+  githubAppId?: string;
+  /** Alternative App Client ID used to provision an ephemeral auth session. */
+  githubAppClientId?: string;
+  /** Private-key PEM path used only by the explicit setup bootstrap. */
+  githubAppKeyFile?: string;
+  /** Optional installation ID for setup and repository-scoped token minting. */
+  githubAppInstallationId?: string;
+  /** Timeout for the explicit App setup process. */
+  githubAppSetupTimeoutMs?: number;
 }
 
 export interface HubHarvestPipelineResult {
@@ -245,6 +281,8 @@ export interface HubHarvestPipelineResult {
   tokenSource: string;
   sourceRevision: string;
   hubId: string;
+  /** Detailed source-aware classification and operation evidence, when enabled. */
+  sourcePreflight?: GitHubSourcePreflightReport;
   /** Per-source outcomes used by lifecycle adapters to expose index coverage. */
   sourceCoverage: HarvestSourceCoverage[];
 }
@@ -262,7 +300,14 @@ function resolveHubRepo(
 }
 
 async function resolveHubSources(params: ResolveHubSourcesParams): Promise<HubSourceSpec[]> {
-  let sources = await loadBaseSources(params.noHubConfig, params.hubConfigFile, params.hubRepo, params.hubBranch, params.client);
+  let sources = await loadBaseSources(
+    params.noHubConfig,
+    params.hubConfigFile,
+    params.hubRepo,
+    params.hubBranch,
+    params.client,
+    params.strictSourceParsing
+  );
   sources = injectExtraSources(sources, params.extraSources, params.onLog);
   sources = filterSources(sources, params.sourcesInclude, params.sourcesExclude);
   return sources;
@@ -273,10 +318,11 @@ async function loadBaseSources(
   hubConfigFile: string | undefined,
   hubRepo: string,
   hubBranch: string,
-  client: GitHubApi | undefined
+  client: GitHubApi | undefined,
+  strictSourceParsing: boolean
 ): Promise<HubSourceSpec[]> {
   if (hubConfigFile !== undefined) {
-    return parseHubConfig(await readFile(hubConfigFile, 'utf8'));
+    return parseHubConfig(await readFile(hubConfigFile, 'utf8'), { strict: strictSourceParsing });
   }
   if (noHubConfig) {
     return [];
@@ -288,7 +334,7 @@ async function loadBaseSources(
   const yamlText = await client.getText(
     `https://raw.githubusercontent.com/${owner}/${repo}/${hubBranch}/hub-config.yml`
   );
-  return parseHubConfig(yamlText);
+  return parseHubConfig(yamlText, { strict: strictSourceParsing });
 }
 
 function injectExtraSources(
@@ -338,47 +384,145 @@ export const harvestHub = async (
   env: NodeJS.ProcessEnv = process.env
 ): Promise<HubHarvestPipelineResult> => {
   validateHarvestOptions(opts);
+  const appBootstrapRequested = opts.githubAppId !== undefined
+    || opts.githubAppClientId !== undefined
+    || opts.githubAppKeyFile !== undefined
+    || env[GITHUB_APP_AUTH_KEY_FILE] !== undefined;
+  const appSession = appBootstrapRequested
+    ? await createGitHubSourceAuthSession({
+      env,
+      http: opts.httpClient ?? new NodeHttpClient(),
+      processExecutor: opts.processExecutor,
+      appId: opts.githubAppId ?? env[GITHUB_APP_ID],
+      clientId: opts.githubAppClientId ?? env[GITHUB_APP_CLIENT_ID],
+      keyFile: opts.githubAppKeyFile ?? env[GITHUB_APP_AUTH_KEY_FILE] ?? '',
+      installationId: opts.githubAppInstallationId ?? env[GITHUB_APP_INSTALLATION_ID],
+      setupTimeoutMs: opts.githubAppSetupTimeoutMs
+    })
+    : undefined;
+  try {
+    return await harvestHubWithAuth(opts, env, appSession);
+  } finally {
+    await appSession?.cleanup();
+  }
+};
+
+async function harvestHubWithAuth(
+  opts: HubHarvestPipelineOptions,
+  env: NodeJS.ProcessEnv,
+  appSession: GitHubSourceAuthSession | undefined
+): Promise<HubHarvestPipelineResult> {
   const { hubRepo, hubBranch, cacheDir, progressFile, outFile, concurrency } = resolveHarvestPaths(opts, env);
   const hubId = opts.hubId ?? (opts.noHubConfig === true || opts.hubConfigFile !== undefined ? 'local' : hubRepo);
 
   const requiresHubConfig = opts.noHubConfig !== true && opts.hubConfigFile === undefined;
+  const sourceAwareAuthentication = appSession !== undefined || isGitHubAppAuthEnabled(env);
   let client: GitHubApi | undefined;
   let resolvedToken: string | undefined;
   let tokenSource = 'none';
+  let sourcePreflight: GitHubSourcePreflightReport | undefined;
+  let sourcePreflightRevisions: ReadonlyMap<string, string> | undefined;
+  let sourceAuthenticationCategories: ReadonlyMap<string, GitHubSourceAuthCategory> | undefined;
+  const sourceAuth: GitHubSourceAuthRuntime | undefined = appSession ?? (sourceAwareAuthentication
+    ? createGitHubSourceAuthRuntime({
+      env,
+      http: opts.httpClient ?? new NodeHttpClient(),
+      processExecutor: opts.processExecutor
+    })
+    : undefined);
 
   if (requiresHubConfig) {
-    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts, env));
+    if (sourceAwareAuthentication) {
+      const hubTarget = parseGitHubRepositoryTarget(`https://github.com/${hubRepo}`);
+      client = sourceAuth!.clientFor(hubTarget, 'public-generic');
+    } else {
+      ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts, env, undefined, opts.httpClient));
+    }
   } else {
-    client = opts.githubApi ?? createUnauthenticatedClient();
+    client = opts.githubApi ?? createUnauthenticatedClient(opts.httpClient);
   }
 
-  const sources = await resolveHubSources({
-    noHubConfig: opts.noHubConfig === true,
-    hubConfigFile: opts.hubConfigFile,
-    hubRepo,
-    hubBranch,
-    client,
-    extraSources: opts.extraSources,
-    onLog: opts.onLog,
-    sourcesInclude: opts.sourcesInclude,
-    sourcesExclude: opts.sourcesExclude
-  });
+  let sources: HubSourceSpec[];
+  try {
+    sources = await resolveHubSources({
+      noHubConfig: opts.noHubConfig === true,
+      hubConfigFile: opts.hubConfigFile,
+      hubRepo,
+      hubBranch,
+      client,
+      extraSources: opts.extraSources,
+      onLog: opts.onLog,
+      sourcesInclude: opts.sourcesInclude,
+      sourcesExclude: opts.sourcesExclude,
+      strictSourceParsing: sourceAwareAuthentication
+    });
+  } catch (error) {
+    if (!sourceAwareAuthentication || !requiresHubConfig || sourceAuth?.appTokenProvider === undefined || !isAuthenticationFailure(error)) {
+      throw error;
+    }
+    // The hub configuration itself is a runtime input. Retry it with the
+    // repository-scoped App only when authenticated generic loading indicates
+    // that this hub requires authentication; public hubs never receive App
+    // credentials.
+    const hubTarget = parseGitHubRepositoryTarget(`https://github.com/${hubRepo}`);
+    client = sourceAuth.clientFor(hubTarget, 'app-authenticated');
+    sources = await resolveHubSources({
+      noHubConfig: opts.noHubConfig === true,
+      hubConfigFile: opts.hubConfigFile,
+      hubRepo,
+      hubBranch,
+      client,
+      extraSources: opts.extraSources,
+      onLog: opts.onLog,
+      sourcesInclude: opts.sourcesInclude,
+      sourcesExclude: opts.sourcesExclude,
+      strictSourceParsing: sourceAwareAuthentication
+    });
+  }
+  let sourceClientFactory: ((source: HubSourceSpec) => GitHubApi) | undefined;
+  if (sourceAwareAuthentication) {
+    const preflight = await sourceAuth!.preflight(sources, {
+      onLog: (message) => opts.onLog?.(`[github preflight] ${message}`)
+    });
+    sourcePreflight = preflight;
+    if (!preflight.valid) {
+      throw new GitHubSourcePreflightError(preflight);
+    }
+    const decisions = new Map(preflight.results.map((sourceResult) => [sourceResult.sourceId, sourceResult]));
+    sourceClientFactory = (source) => {
+      const decision = decisions.get(source.id);
+      if (decision === undefined || decision.target === undefined || decision.category === 'unresolved') {
+        throw new Error(`GitHub source ${source.id} has no usable preflight decision.`);
+      }
+      return sourceAuth!.clientFor(decision.target, decision.category);
+    };
+    resolvedToken = undefined;
+    tokenSource = 'source-aware';
+    sourceAuthenticationCategories = new Map(
+      preflight.results
+        .filter((sourceResult) => sourceResult.category !== 'unresolved')
+        .map((sourceResult) => [sourceResult.sourceId, sourceResult.category])
+    );
+    sourcePreflightRevisions = new Map(
+      preflight.results
+        .filter((sourceResult): sourceResult is typeof sourceResult & { revision: string } => sourceResult.revision !== undefined)
+        .map((sourceResult) => [sourceResult.sourceId, sourceResult.revision])
+    );
+  }
 
-  // A local hub-config still needs an authenticated client for its GitHub
-  // sources. The unauthenticated client above is only sufficient to read the
-  // local config itself; leaving it in place silently bypasses env/gh token
-  // resolution and throttles every source as an anonymous request.
-  if (!requiresHubConfig && sources.length > 0) {
-    // A local hub-config should still use env/gh credentials when available,
-    // but harvesting public sources must continue to work anonymously when
-    // no token exists. Token resolution is diagnostic here, not mandatory.
-    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts, env, client));
+  // A local hub-config still needs a credentialed client for its GitHub
+  // sources. The empty client above is only sufficient to read the local
+  // config itself; leaving it in place bypasses env/gh token resolution.
+  if (!sourceAwareAuthentication && !requiresHubConfig && sources.length > 0) {
+    // Preserve the normal developer token chain when App mode is disabled.
+    // Source-aware mode has already failed closed before reaching this path.
+    ({ resolvedToken, client, tokenSource } = await createGitHubClient(hubRepo, opts, env, client, opts.httpClient));
   }
 
   // An empty offline harvest must succeed without GitHub credentials.
   // HubHarvester never calls the client when there are no sources.
   const harvestClient = client ?? opts.githubApi ?? new GitHubApiClient(
-    new NodeHttpClient(),
+    opts.httpClient ?? new NodeHttpClient(),
     { tokenProvider: new StaticTokenProvider('') }
   );
 
@@ -386,12 +530,14 @@ export const harvestHub = async (
   const result = await runHarvester(
     sources,
     harvestClient,
-    new StaticTokenProvider(resolvedToken ?? ''),
     cacheDir,
     progressFile,
     concurrency,
     opts,
-    hubId
+    hubId,
+    sourceClientFactory,
+    sourceAuthenticationCategories,
+    sourcePreflightRevisions
   );
   const searchProfileId = opts.searchProfileId ?? 'bm25-v1';
   const indexKey: PrimitiveIndexKey = {
@@ -418,9 +564,15 @@ export const harvestHub = async (
     tokenSource,
     client: harvestClient,
     sourceRevision: result.sourceRevision,
-    hubId
+    hubId,
+    sourcePreflight
   });
-};
+}
+
+function isAuthenticationFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return /\b401\b|\b403\b|\b404\b|authentication failed|access forbidden|not accessible/u.test(message);
+}
 
 function validateHarvestOptions(opts: HubHarvestPipelineOptions): void {
   const noHubConfig = opts.noHubConfig === true;
@@ -454,7 +606,8 @@ async function createGitHubClient(
   hubRepo: string,
   opts: HubHarvestPipelineOptions,
   env: NodeJS.ProcessEnv,
-  fallbackClient?: GitHubApi
+  fallbackClient?: GitHubApi,
+  httpClient?: HttpClient
 ): Promise<{
   resolvedToken: string | undefined;
   client: GitHubApi;
@@ -465,7 +618,9 @@ async function createGitHubClient(
       const value = env[name];
       return value && value.length > 0 ? value : undefined;
     },
-    readGhCli: (): Promise<string | undefined> => defaultResolver.readGhCli()
+    readGhCli: (): Promise<string | undefined> => env.AI_PRIMITIVES_HUB_DISABLE_GH_CLI === '1'
+      ? Promise.resolve(undefined)
+      : defaultResolver.readGhCli()
   };
   const token = await resolveGithubToken({ explicit: opts.explicitToken }, resolver);
   if (token.token === undefined || token.token.length === 0) {
@@ -478,7 +633,7 @@ async function createGitHubClient(
   // An injected transport wins over building a real one, so a caller that
   // supplied a fake never reaches the network even once a token resolves.
   const client = opts.githubApi
-    ?? new GitHubApiClient(new NodeHttpClient(), { tokenProvider: new StaticTokenProvider(resolvedToken) });
+    ?? new GitHubApiClient(httpClient ?? new NodeHttpClient(), { tokenProvider: new StaticTokenProvider(resolvedToken) });
   const [owner, repo] = hubRepo.split('/');
   if (owner === undefined || repo === undefined || owner.length === 0 || repo.length === 0) {
     throw new Error(`Invalid hubRepo: ${hubRepo} (expected "owner/repo").`);
@@ -486,8 +641,8 @@ async function createGitHubClient(
   return { resolvedToken, client, tokenSource: token.source };
 }
 
-function createUnauthenticatedClient(): GitHubApiClient {
-  return new GitHubApiClient(new NodeHttpClient(), { tokenProvider: new StaticTokenProvider('') });
+function createUnauthenticatedClient(httpClient?: HttpClient): GitHubApiClient {
+  return new GitHubApiClient(httpClient ?? new NodeHttpClient(), { tokenProvider: new StaticTokenProvider('') });
 }
 
 function logHarvestStart(
@@ -509,17 +664,21 @@ function logHarvestStart(
 async function runHarvester(
   sources: HubSourceSpec[],
   client: GitHubApi,
-  tokenProvider: TokenProvider,
   cacheDir: string,
   progressFile: string,
   concurrency: number,
   opts: HubHarvestPipelineOptions,
-  hubId: string
+  hubId: string,
+  clientFactory?: (source: HubSourceSpec) => GitHubApi,
+  sourceAuthenticationCategories?: ReadonlyMap<string, GitHubSourceAuthCategory>,
+  sourcePreflightRevisions?: ReadonlyMap<string, string>
 ): Promise<HubHarvestResult> {
   const cache = new BlobCache(path.join(cacheDir, 'blobs'));
   const etagStore = await EtagStore.open(path.join(cacheDir, 'etags.json'));
   const harvester = new HubHarvester({
     sources, client, cache, etagStore,
+    clientFactory,
+    sourceAuthenticationCategories,
     progressFile, concurrency,
     force: opts.force ?? false,
     dryRun: opts.dryRun ?? false,
@@ -528,7 +687,8 @@ async function runHarvester(
     embeddings: opts.embeddings,
     embeddingStrategy: opts.embeddingStrategy,
     searchProfileId: opts.searchProfileId,
-    hubId
+    hubId,
+    sourcePreflightRevisions
   });
   const result = await harvester.run();
   await etagStore.save();
@@ -567,6 +727,7 @@ function buildHarvestResult(params: BuildHarvestResultParams): HubHarvestPipelin
     tokenSource: params.tokenSource,
     sourceRevision: params.sourceRevision,
     hubId: params.hubId,
+    ...(params.sourcePreflight === undefined ? {} : { sourcePreflight: params.sourcePreflight }),
     sourceCoverage: params.result.sourceCoverage
   };
 }
@@ -574,6 +735,12 @@ function buildHarvestResult(params: BuildHarvestResultParams): HubHarvestPipelin
 export interface HubHarvesterOptions {
   sources: HubSourceSpec[];
   client: GitHubApi;
+  /** Optional immutable per-source client factory for repository-aware auth. */
+  clientFactory?: (source: HubSourceSpec) => GitHubApi;
+  /** Optional preflight categories for safe source-level coverage reporting. */
+  sourceAuthenticationCategories?: ReadonlyMap<string, GitHubSourceAuthCategory>;
+  /** Commit revisions already verified by source-aware preflight. */
+  sourcePreflightRevisions?: ReadonlyMap<string, string>;
   cache: BlobCache;
   progressFile: string;
   /** Max number of bundles harvested in parallel. Default 1 (serial). */
@@ -619,6 +786,7 @@ export interface HarvestSourceCoverage {
   primitives?: number;
   revision?: string;
   message?: string;
+  authenticationCategory?: GitHubSourceAuthCategory;
 }
 
 export interface HubHarvestResult extends ProgressSummary {
@@ -638,6 +806,10 @@ export interface HubHarvestResult extends ProgressSummary {
 /* eslint-disable @typescript-eslint/member-ordering -- public API kept at top. */
 export class HubHarvester {
   public constructor(private readonly opts: HubHarvesterOptions) {}
+
+  private clientFor(source: HubSourceSpec): GitHubApi {
+    return this.opts.clientFactory?.(source) ?? this.opts.client;
+  }
 
   public async run(): Promise<HubHarvestResult> {
     const startedAt = Date.now();
@@ -726,7 +898,8 @@ export class HubHarvester {
     this.opts.onEvent?.({ kind: 'source-start', sourceId: spec.id });
     let commitSha: string | undefined;
     try {
-      commitSha = await this.resolveCommitShaForSource(spec);
+      const client = this.clientFor(spec);
+      commitSha = await this.resolveCommitShaForSource(spec, client);
       sourceRevisions.set(spec.id, {
         sourceId: spec.id,
         url: spec.url,
@@ -739,17 +912,19 @@ export class HubHarvester {
           sourceId: spec.id,
           state: 'skipped',
           revision: commitSha,
-          message: skipReason
+          message: skipReason,
+          ...this.authenticationCoverage(spec.id)
         });
         this.opts.onLog?.(`source ${spec.id} skipped`);
         return;
       }
-      const primsTotal = await this.harvestSource(spec, bundleId, commitSha, log, out);
+      const primsTotal = await this.harvestSource(spec, bundleId, commitSha, log, out, client);
       sourceCoverage.set(spec.id, {
         sourceId: spec.id,
         state: 'indexed',
         primitives: primsTotal,
-        revision: commitSha
+        revision: commitSha,
+        ...this.authenticationCoverage(spec.id)
       });
       this.opts.onLog?.(`source ${spec.id} done: ${String(primsTotal)} primitive${primsTotal === 1 ? '' : 's'}`);
       this.opts.onEvent?.({
@@ -774,14 +949,24 @@ export class HubHarvester {
         sourceId: spec.id,
         state: 'failed',
         revision: commitSha,
-        message: msg
+        message: msg,
+        ...this.authenticationCoverage(spec.id)
       });
       this.opts.onEvent?.({ kind: 'source-error', sourceId: spec.id, error: msg });
     }
   }
 
-  private async resolveCommitShaForSource(spec: HubSourceSpec): Promise<string> {
-    return resolveCommitSha(this.opts.client, {
+  private authenticationCoverage(sourceId: string): { authenticationCategory?: GitHubSourceAuthCategory } {
+    const category = this.opts.sourceAuthenticationCategories?.get(sourceId);
+    return category === undefined ? {} : { authenticationCategory: category };
+  }
+
+  private async resolveCommitShaForSource(spec: HubSourceSpec, client: GitHubApi): Promise<string> {
+    const preflightRevision = this.opts.sourcePreflightRevisions?.get(spec.id);
+    if (preflightRevision !== undefined) {
+      return preflightRevision;
+    }
+    return resolveCommitSha(client, {
       owner: spec.owner,
       repo: spec.repo,
       ref: spec.branch,
@@ -827,16 +1012,17 @@ export class HubHarvester {
     bundleId: string,
     commitSha: string,
     log: HarvestProgressLog,
-    out: Primitive[]
+    out: Primitive[],
+    client: GitHubApi
   ): Promise<number> {
     const startedRepo = Date.now();
     if (spec.type === 'awesome-copilot-plugin') {
-      return this.harvestPluginSource(spec, bundleId, commitSha, log, out, startedRepo);
+      return this.harvestPluginSource(spec, bundleId, commitSha, log, out, startedRepo, client);
     }
     if (spec.type === 'awesome-copilot') {
-      return this.harvestAwesomeCopilotSource(spec, bundleId, commitSha, log, out, startedRepo);
+      return this.harvestAwesomeCopilotSource(spec, bundleId, commitSha, log, out, startedRepo, client);
     }
-    return this.harvestGitHubSource(spec, bundleId, commitSha, log, out, startedRepo);
+    return this.harvestGitHubSource(spec, bundleId, commitSha, log, out, startedRepo, client);
   }
 
   private async harvestPluginSource(
@@ -845,10 +1031,11 @@ export class HubHarvester {
     commitSha: string,
     log: HarvestProgressLog,
     out: Primitive[],
-    startedRepo: number
+    startedRepo: number,
+    client: GitHubApi
   ): Promise<number> {
     const provider = new AwesomeCopilotPluginBundleProvider({
-      spec, client: this.opts.client, cache: this.opts.cache,
+      spec, client, cache: this.opts.cache,
       etagStore: this.opts.etagStore
     });
     const refs = await this.collectRefs(provider);
@@ -867,10 +1054,11 @@ export class HubHarvester {
     commitSha: string,
     log: HarvestProgressLog,
     out: Primitive[],
-    startedRepo: number
+    startedRepo: number,
+    client: GitHubApi
   ): Promise<number> {
     const provider = new AwesomeCopilotBundleProvider({
-      spec, client: this.opts.client, cache: this.opts.cache
+      spec, client, cache: this.opts.cache
     });
     const refs = await this.collectRefs(provider);
     const collectionConcurrency = Math.max(1, this.opts.concurrency ?? 4);
@@ -888,11 +1076,12 @@ export class HubHarvester {
     commitSha: string,
     log: HarvestProgressLog,
     out: Primitive[],
-    startedRepo: number
+    startedRepo: number,
+    client: GitHubApi
   ): Promise<number> {
     await log.recordStart({ sourceId: spec.id, bundleId, commitSha });
     const provider = new GitHubSingleBundleProvider({
-      spec, client: this.opts.client, cache: this.opts.cache
+      spec, client, cache: this.opts.cache
     });
     const refs = await this.collectRefs(provider);
     const ref = refs[0];

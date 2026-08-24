@@ -13,6 +13,7 @@ focused on one decision.
 | [0004](./0004-cli-only-rebrand-keep-lockfile-and-extension-identity-stable.md) | CLI-Only Rebrand — Keep Lockfile and Extension Identity Stable | Accepted |
 | [0005](./0005-universal-xdg-based-app-storage.md) | Universal, XDG-Based Application Storage Port | Accepted |
 | [0006](./0006-shared-semantic-cache-and-client-owned-state.md) | Shared Semantic Cache and Client-Owned State | Accepted |
+| [0007](./0007-source-aware-github-app-authentication.md) | Source-Aware GitHub App Authentication for CLI Workflows | Accepted |
 
 ## When to add a new ADR
 

@@ -25,6 +25,8 @@ import type {
   Clock,
   FileSystem,
   GitHubApi,
+  GitHubRepositoryTarget,
+  GitHubSourceAuthCategory,
   HttpClient,
   ProcessRunner,
   RegistrySource,
@@ -43,6 +45,7 @@ import {
   LocalApmAdapter,
   LocalAwesomeCopilotAdapter,
   LocalSkillsAdapter,
+  parseGitHubRepositoryTarget,
   SkillsAdapter,
   StaticTokenProvider,
 } from '@ai-primitives-hub/infra';
@@ -59,9 +62,31 @@ export interface SourceAdapterFactoryDeps {
    * the CLI itself.
    */
   fallbackTokenProviders: readonly TokenProvider[];
+  /** Optional preflight authentication decisions, keyed by source id. */
+  sourceAuthentication?: ReadonlyMap<string, SourceAuthenticationContext>;
+}
+
+export interface SourceAuthenticationContext {
+  category: GitHubSourceAuthCategory;
+  target: GitHubRepositoryTarget;
+  /** Exactly one provider for `public-generic` or `app-authenticated`. */
+  tokenProvider?: TokenProvider;
 }
 
 function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFactoryDeps): TokenProvider {
+  const authentication = deps.sourceAuthentication?.get(source.id);
+  if (authentication !== undefined) {
+    if (authentication.category === 'unresolved') {
+      throw new Error(`Source ${source.id} has unresolved GitHub authentication.`);
+    }
+    if (authentication.category === 'public-anonymous') {
+      return new StaticTokenProvider('');
+    }
+    if (authentication.tokenProvider === undefined) {
+      throw new Error(`Source ${source.id} has no provider for ${authentication.category} authentication.`);
+    }
+    return authentication.tokenProvider;
+  }
   const providers: TokenProvider[] = [];
   if (source.token) {
     providers.push(new StaticTokenProvider(source.token));
@@ -70,8 +95,26 @@ function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFac
   return new CompositeTokenProvider(providers);
 }
 
-function buildGitHubApi(tokenProvider: TokenProvider, deps: SourceAdapterFactoryDeps): GitHubApi {
-  return new GitHubApiClient(deps.httpClient, { tokenProvider });
+function buildGitHubApi(
+  source: RegistrySource,
+  tokenProvider: TokenProvider,
+  deps: SourceAdapterFactoryDeps,
+  authentication?: SourceAuthenticationContext
+): GitHubApi {
+  const repositoryTarget = authentication?.target ?? parseGitHubRepositoryTarget(source.url);
+  if (authentication !== undefined) {
+    const configuredTarget = parseGitHubRepositoryTarget(source.url);
+    if (configuredTarget.host !== repositoryTarget.host
+      || configuredTarget.owner !== repositoryTarget.owner
+      || configuredTarget.repository !== repositoryTarget.repository) {
+      throw new Error(`Source ${source.id} authentication target does not match the configured source.`);
+    }
+  }
+  return new GitHubApiClient(deps.httpClient, {
+    tokenProvider,
+    repositoryTarget,
+    authenticationCategory: authentication?.category
+  });
 }
 
 function buildAzureDevOpsApi(tokenProvider: TokenProvider, deps: SourceAdapterFactoryDeps): AzureDevOpsApi {
@@ -84,6 +127,7 @@ function buildAzureDevOpsApi(tokenProvider: TokenProvider, deps: SourceAdapterFa
  * @param deps - Shared, delivery-context-specific dependencies (Node port implementations + auth fallback chain).
  */
 export function createSourceAdapter(source: RegistrySource, deps: SourceAdapterFactoryDeps): SourceAdapter {
+  const authentication = deps.sourceAuthentication?.get(source.id);
   switch (source.type) {
     case 'local': {
       return new LocalAdapter(source, deps.fs);
@@ -98,17 +142,17 @@ export function createSourceAdapter(source: RegistrySource, deps: SourceAdapterF
       return new LocalSkillsAdapter(source, deps.fs, deps.clock);
     }
     case 'github': {
-      return new GitHubAdapter(source, buildGitHubApi(buildSourceTokenProvider(source, deps), deps));
+      return new GitHubAdapter(source, buildGitHubApi(source, buildSourceTokenProvider(source, deps), deps, authentication));
     }
     case 'skills': {
-      return new SkillsAdapter(source, buildGitHubApi(buildSourceTokenProvider(source, deps), deps), deps.clock);
+      return new SkillsAdapter(source, buildGitHubApi(source, buildSourceTokenProvider(source, deps), deps, authentication), deps.clock);
     }
     case 'awesome-copilot': {
-      return new AwesomeCopilotAdapter(source, buildGitHubApi(buildSourceTokenProvider(source, deps), deps), deps.clock);
+      return new AwesomeCopilotAdapter(source, buildGitHubApi(source, buildSourceTokenProvider(source, deps), deps, authentication), deps.clock);
     }
     case 'apm': {
       const tokenProvider = buildSourceTokenProvider(source, deps);
-      return new ApmAdapter(source, buildGitHubApi(tokenProvider, deps), deps.processRunner, deps.fs, deps.clock, tokenProvider);
+      return new ApmAdapter(source, buildGitHubApi(source, tokenProvider, deps, authentication), deps.processRunner, deps.fs, deps.clock, tokenProvider);
     }
     case 'azure-devops': {
       return new AzureDevOpsAdapter(

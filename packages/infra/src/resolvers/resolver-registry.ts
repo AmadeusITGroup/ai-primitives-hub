@@ -21,8 +21,9 @@
  * dispatch is intentional and stays (list-all-bundles vs resolve-one-spec
  * are different consumer needs — see `github-resolver.ts`'s module doc).
  * What *was* consolidated: every GitHub-backed resolver constructed here
- * now shares the one `GitHubApi` instance passed in, instead of each
- * resolver rebuilding its own raw-HTTP auth/error handling.
+ * uses the injected shared `GitHubApi` by default, or an explicit
+ * source-bound factory when repository-aware authentication is enabled,
+ * instead of rebuilding raw-HTTP auth/error handling.
  * @module resolvers/resolver-registry
  */
 
@@ -32,6 +33,9 @@ import type {
   GitHubApi,
   RegistrySource,
 } from '@ai-primitives-hub/core';
+import {
+  parseGitHubRepositoryTarget,
+} from '../http/github-repository-target';
 import {
   AwesomeCopilotBundleResolver,
 } from './awesome-copilot-resolver';
@@ -47,6 +51,8 @@ import {
 export interface SourceDispatcherOptions {
   /** Shared GitHub API client, reused across every GitHub-backed resolver. */
   githubApi: GitHubApi;
+  /** Optional source-bound client factory; overrides `githubApi` for remote sources. */
+  githubApiFactory?: (source: RegistrySource) => GitHubApi;
   /** Filesystem abstraction for local sources. */
   fs: FileSystem;
 }
@@ -56,10 +62,12 @@ export interface SourceDispatcherOptions {
  */
 export class SourceDispatcher {
   private readonly githubApi: GitHubApi;
+  private readonly githubApiFactory: ((source: RegistrySource) => GitHubApi) | undefined;
   private readonly fs: FileSystem;
 
   public constructor(opts: SourceDispatcherOptions) {
     this.githubApi = opts.githubApi;
+    this.githubApiFactory = opts.githubApiFactory;
     this.fs = opts.fs;
   }
 
@@ -69,10 +77,12 @@ export class SourceDispatcher {
    * @returns Repo slug (e.g., "owner/repo").
    */
   private repoSlug(url: string): string {
-    return url
-      .replace(/^https?:\/\/github\.com\//, '')
-      .replace(/\.git$/, '')
-      .replace(/\/+$/, '');
+    const target = parseGitHubRepositoryTarget(url);
+    return `${target.owner}/${target.repository}`;
+  }
+
+  private apiFor(source: RegistrySource): GitHubApi {
+    return this.githubApiFactory?.(source) ?? this.githubApi;
   }
 
   /**
@@ -85,7 +95,7 @@ export class SourceDispatcher {
       case 'github': {
         return new GitHubBundleResolver({
           repoSlug: this.repoSlug(source.url),
-          githubApi: this.githubApi
+          githubApi: this.apiFor(source)
         });
       }
       case 'awesome-copilot': {
@@ -94,14 +104,14 @@ export class SourceDispatcher {
           repoSlug: this.repoSlug(source.url),
           branch: config.branch,
           collectionsPath: config.collectionsPath,
-          githubApi: this.githubApi
+          githubApi: this.apiFor(source)
         });
       }
       case 'skills': {
         return new SkillsBundleResolver({
           repoSlug: this.repoSlug(source.url),
           ref: (source as { ref?: string }).ref,
-          githubApi: this.githubApi
+          githubApi: this.apiFor(source)
         });
       }
       case 'local-skills': {

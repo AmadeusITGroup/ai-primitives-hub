@@ -10,6 +10,8 @@ export * from './extra-source';
 export * from './extractor';
 export * from './harvester';
 export * from './hub-config-parser';
+export * from './github-source-preflight';
+export * from './github-source-auth-runtime';
 export * from './hub-harvester';
 export * from './integrity';
 export * from './plugin-manifest';

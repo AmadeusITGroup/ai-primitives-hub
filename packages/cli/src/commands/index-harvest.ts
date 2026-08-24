@@ -18,6 +18,7 @@ import {
   ActiveHubStore,
   AppStoragePrimitiveIndexStore,
   harvestHub as defaultHarvestHub,
+  GitHubSourcePreflightError,
   type HubHarvestPipelineOptions,
   type HubHarvestPipelineResult,
   HubStore,
@@ -104,11 +105,20 @@ function applyHubRef(
   cmd.hubConfigFile = hubConfigFile;
 }
 
-const buildHarvestError = (cause: unknown): RegistryError => new RegistryError({
-  code: 'INDEX.HARVEST_FAILED',
-  message: `index harvest failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-  cause: cause instanceof Error ? cause : undefined
-});
+const buildHarvestError = (cause: unknown): RegistryError => {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const stableCode = typeof (cause as { code?: unknown } | undefined)?.code === 'string'
+    ? (cause as { code: string }).code
+    : undefined;
+  return new RegistryError({
+    code: 'INDEX.HARVEST_FAILED',
+    message: `index harvest failed: ${stableCode === undefined ? '' : `${stableCode}: `}${message}`,
+    cause: cause instanceof Error ? cause : undefined,
+    context: cause instanceof GitHubSourcePreflightError
+      ? { sourcePreflight: cause.report }
+      : undefined
+  });
+};
 
 const isHubRefMissing = (noHubConfig: boolean, hubConfigFile: string | undefined, hubRepo: string | undefined): boolean =>
   !noHubConfig && !hubConfigFile && (!hubRepo || hubRepo.length === 0);
@@ -129,6 +139,9 @@ export class IndexHarvestCommand extends Command {
       Options:
         --embed              Embed primitive text using the local ternlight model
         --embed-strategy     Embedding strategy: single (default) or dual
+        --github-app-id      GitHub App ID for automatic source-aware setup
+        --github-app-key-file
+                             PEM path for automatic source-aware setup
 
       Examples:
         ai-primitives-hub index harvest --hub-repo OWNER/REPO
@@ -156,6 +169,11 @@ export class IndexHarvestCommand extends Command {
   public dryRun = Option.Boolean('--dry-run');
   public embed = Option.Boolean('--embed', false);
   public embedStrategy = Option.String('--embed-strategy');
+  public githubAppId = Option.String('--github-app-id');
+  public githubAppClientId = Option.String('--github-app-client-id');
+  public githubAppKeyFile = Option.String('--github-app-key-file');
+  public githubAppInstallationId = Option.String('--github-app-installation-id');
+  public githubAppSetupTimeoutMs = Option.String('--github-app-setup-timeout-ms');
   public verbose = Option.Boolean('--verbose');
   public output = Option.String('-o,--output');
   public commandContext!: { ctx: Context };
@@ -215,7 +233,14 @@ export class IndexHarvestCommand extends Command {
       embeddingStrategy: this.embedStrategy as 'single' | 'dual' | undefined,
       searchProfileId: this.embed
         ? (this.embedStrategy === 'dual' ? 'ternlight-dual-v1' : 'ternlight-single-v1')
-        : 'bm25-v1'
+        : 'bm25-v1',
+      githubAppId: this.githubAppId,
+      githubAppClientId: this.githubAppClientId,
+      githubAppKeyFile: this.githubAppKeyFile,
+      githubAppInstallationId: this.githubAppInstallationId,
+      githubAppSetupTimeoutMs: this.githubAppSetupTimeoutMs === undefined
+        ? undefined
+        : Number.parseInt(this.githubAppSetupTimeoutMs, 10)
     };
 
     const runner = defaultHarvestHub;

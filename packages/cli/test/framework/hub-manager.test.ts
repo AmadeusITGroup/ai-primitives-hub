@@ -57,6 +57,48 @@ describe('createHubManager', () => {
     const mgr = createHubManager({ ctx, http, tokens });
     expect(mgr).toBeDefined();
   });
+
+  it('uses the source-aware generic credential instead of the injected legacy token', async () => {
+    let tokenCalls = 0;
+    const http = {
+      fetch: async (request: { url: string; headers?: Record<string, string> }) => {
+        expect(request.headers?.Authorization).toBe('token generic-token');
+        return {
+          statusCode: 200,
+          body: new TextEncoder().encode(`version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test
+  maintainer: Test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources: []
+profiles: []
+`),
+          finalUrl: request.url,
+          headers: {}
+        };
+      }
+    } as unknown as import('@ai-primitives-hub/core').HttpClient;
+    const tokens = {
+      getToken: async () => {
+        tokenCalls += 1;
+        return 'must-not-be-used';
+      }
+    } as unknown as import('@ai-primitives-hub/core').TokenProvider;
+    const ctx = createTestContext({
+      fs: new NodeFileSystem(),
+      env: {
+        XDG_CONFIG_HOME: path.join(workspace, '.config'),
+        AI_PRIMITIVES_HUB_GH_APP_AUTH_ENABLED: 'true',
+        GH_TOKEN: 'generic-token'
+      }
+    });
+    const mgr = createHubManager({ ctx, http, tokens });
+
+    await mgr.importHub({ type: 'github', location: 'owner/repo' }, 'public-hub');
+
+    expect(tokenCalls).toBe(0);
+  });
 });
 
 describe('createHttpClientAndTokens', () => {

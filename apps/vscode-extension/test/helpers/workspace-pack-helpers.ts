@@ -1,4 +1,11 @@
-/** Pack local workspace artifacts into a temporary scaffold for E2E tests. */
+/**
+ * Pack the current workspace packages into a throwaway scaffold project.
+ *
+ * Scaffold tests must exercise the packages built from this checkout rather
+ * than whatever versions happen to be published in the registry. The helper
+ * rewrites only the temporary project's manifest; the scaffold template stays
+ * suitable for real users.
+ */
 import {
   execFileSync,
 } from 'node:child_process';
@@ -11,9 +18,9 @@ import {
 
 const PACK_TIMEOUT_MS = 60_000;
 /**
- * Install budget. Generous because Windows runners are markedly slower at
- * this - NTFS plus on-access virus scanning over a `node_modules` tree -
- * and 120s proved too tight there while being ample on Linux and macOS.
+ * Windows runners can spend several minutes installing a node_modules tree
+ * because of NTFS and on-access virus scanning; 300s keeps that work from
+ * timing out on CI while remaining ample on Linux and macOS.
  */
 const DEFAULT_INSTALL_TIMEOUT_MS = 300_000;
 
@@ -150,7 +157,7 @@ export interface InstallWorkspaceBuildsOptions {
 }
 
 /**
- * Pack, install, and remove local workspace artifacts for a temporary project.
+ * Pack workspace builds, install them into a temporary project, and clean up.
  * @param options
  */
 export function installWorkspaceBuilds(options: InstallWorkspaceBuildsOptions): void {
@@ -159,8 +166,8 @@ export function installWorkspaceBuilds(options: InstallWorkspaceBuildsOptions): 
   try {
     const tarballs = packWorkspacePackages(tarballDir);
     useLocalWorkspaceBuilds(options.projectDir, tarballs);
-    // `--no-audit` and `--no-fund` drop network round-trips a test has no
-    // use for, which is both faster and one less thing to hang on.
+    // These tests do not need audit/funding requests; avoiding them reduces
+    // network traffic and removes two unrelated sources of flakiness.
     runCommand(
       'npm',
       ['install', '--prefer-offline', '--package-lock=false', '--no-audit', '--no-fund'],

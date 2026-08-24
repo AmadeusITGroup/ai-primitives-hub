@@ -430,5 +430,20 @@ describe('index commands', () => {
       const envelope = parseJson<{ totals: { done: number; error: number } }>(result.stdout);
       expect(envelope.data.totals).toMatchObject({ done: 0, error: 0 });
     });
+
+    it('accepts App bootstrap inputs for an empty offline scope', async () => {
+      const result = await run([
+        'index', 'harvest', '--no-hub-config',
+        '--github-app-id', '123',
+        '--github-app-key-file', '/tmp/app-key.pem',
+        '--out-file', path.join(workspace, 'app-harvest-index.json'),
+        '--progress-file', path.join(workspace, 'app-harvest-progress.jsonl'),
+        '--cache-dir', path.join(workspace, 'app-harvest-cache'),
+        '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ tokenSource: string }>(result.stdout);
+      expect(envelope.data.tokenSource).toBe('source-aware');
+    });
   });
 });

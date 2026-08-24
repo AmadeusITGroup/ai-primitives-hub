@@ -26,7 +26,11 @@ import {
   writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import type {
+  GitHubApi,
+  GitHubRepositoryTarget,
+  GitHubSourceAuthCategory,
   HttpClient,
+  HubSourceSpec,
   Installable,
   RegistrySource,
   SourceType,
@@ -39,17 +43,21 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   ActiveHubStore,
+  createGitHubSourceAuthRuntime,
   defaultTokenProvider,
   FileSystemLayoutConfigLoader,
   GitHubApiClient,
   HttpsBundleDownloader,
+  isGitHubAppAuthEnabled,
   NodeHttpClient,
+  parseGitHubRepositoryTarget,
   readTargets,
   type RepositoryCommitMode,
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
   resolveUserConfigDir,
   SourceDispatcher,
+  StaticTokenProvider,
   TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
@@ -105,6 +113,9 @@ interface UpdateCandidate {
   from: string;
   to: string;
   installable: Installable;
+  repositoryTarget?: GitHubRepositoryTarget;
+  authenticationCategory?: Exclude<GitHubSourceAuthCategory, 'unresolved'>;
+  downloadTokens?: TokenProvider;
 }
 
 interface UpdateContext {
@@ -320,6 +331,57 @@ function toRegistrySource(sourceId: string, src: LockfileSourceEntry): RegistryS
   };
 }
 
+function toHarvestSourceSpec(sourceId: string, src: LockfileSourceEntry): HubSourceSpec {
+  const target = parseGitHubRepositoryTarget(src.url);
+  const type = src.type === 'awesome-copilot' ? 'awesome-copilot' : 'github';
+  return {
+    id: sourceId,
+    name: sourceId,
+    type,
+    url: src.url,
+    owner: target.owner,
+    repo: target.repository,
+    branch: src.branch ?? 'main',
+    ...(type === 'awesome-copilot'
+      ? { collectionsPath: src.collectionsPath ?? 'collections' }
+      : {}),
+    rawConfig: {
+      branch: src.branch,
+      collectionsPath: src.collectionsPath
+    }
+  };
+}
+
+interface SourceAwareUpdateDependencies {
+  githubApi: GitHubApi;
+  repositoryTarget: GitHubRepositoryTarget;
+  authenticationCategory: Exclude<GitHubSourceAuthCategory, 'unresolved'>;
+  downloadTokens: TokenProvider;
+}
+
+async function sourceAwareUpdateDependencies(
+  sourceId: string,
+  src: LockfileSourceEntry,
+  ctx: Context,
+  http: HttpClient
+): Promise<SourceAwareUpdateDependencies> {
+  const runtime = createGitHubSourceAuthRuntime({ env: ctx.env, http });
+  const report = await runtime.preflight([toHarvestSourceSpec(sourceId, src)], {
+    includeReleases: src.type === 'github',
+    onLog: (message) => ctx.stderr.write(`[github preflight] ${message}\n`)
+  });
+  const decision = report.results[0];
+  if (!report.valid || decision === undefined || decision.category === 'unresolved' || decision.target === undefined) {
+    throw new Error(`GitHub source preflight failed for ${sourceId}: ${decision?.errorCode ?? 'GH_SOURCE_PREFLIGHT_UNRESOLVED'}`);
+  }
+  return {
+    githubApi: runtime.clientFor(decision.target, decision.category),
+    repositoryTarget: decision.target,
+    authenticationCategory: decision.category,
+    downloadTokens: runtime.tokenProviderFor(decision.category) ?? new StaticTokenProvider('')
+  };
+}
+
 async function findUpdateCandidates(
   bundleIds: string[],
   lock: Lockfile,
@@ -329,14 +391,26 @@ async function findUpdateCandidates(
 ): Promise<{ candidates: UpdateCandidate[]; skipped: string[] }> {
   const candidates: UpdateCandidate[] = [];
   const skipped: string[] = [];
+  const sourceAware = isGitHubAppAuthEnabled(ctx.env);
   const githubApi = new GitHubApiClient(http, { tokenProvider: tokens });
   const dispatcher = new SourceDispatcher({ githubApi, fs: ctx.fs });
+  const sourceDependencies = new Map<string, SourceAwareUpdateDependencies>();
 
   for (const bundleId of bundleIds) {
     const entry = lock.bundles[bundleId];
     const src = lock.sources[entry.sourceId];
     try {
-      const resolver = dispatcher.resolverFor(toRegistrySource(entry.sourceId, src));
+      let resolverDispatcher = dispatcher;
+      let dependencies: SourceAwareUpdateDependencies | undefined;
+      if (sourceAware) {
+        dependencies = sourceDependencies.get(entry.sourceId);
+        if (dependencies === undefined) {
+          dependencies = await sourceAwareUpdateDependencies(entry.sourceId, src, ctx, http);
+          sourceDependencies.set(entry.sourceId, dependencies);
+        }
+        resolverDispatcher = new SourceDispatcher({ githubApi: dependencies.githubApi, fs: ctx.fs });
+      }
+      const resolver = resolverDispatcher.resolverFor(toRegistrySource(entry.sourceId, src));
       if (resolver === null) {
         skipped.push(bundleId);
         continue;
@@ -348,9 +422,22 @@ async function findUpdateCandidates(
       }
       const latestVersion = installable.ref.bundleVersion;
       if (isNewerVersion(latestVersion, entry.version)) {
-        candidates.push({ bundleId, entry, source: src, from: entry.version, to: latestVersion, installable });
+        candidates.push({
+          bundleId,
+          entry,
+          source: src,
+          from: entry.version,
+          to: latestVersion,
+          installable,
+          repositoryTarget: dependencies?.repositoryTarget,
+          authenticationCategory: dependencies?.authenticationCategory,
+          downloadTokens: dependencies?.downloadTokens
+        });
       }
-    } catch {
+    } catch (error) {
+      if (sourceAware && error instanceof Error && error.message.startsWith('GitHub source preflight failed')) {
+        throw error;
+      }
       skipped.push(bundleId);
     }
   }
@@ -487,7 +574,12 @@ async function applyUpdate(
   http: HttpClient,
   tokens: TokenProvider
 ): Promise<void> {
-  const downloader = new HttpsBundleDownloader(http, tokens);
+  const downloader = new HttpsBundleDownloader(
+    http,
+    candidate.downloadTokens ?? tokens,
+    candidate.repositoryTarget,
+    candidate.authenticationCategory
+  );
   const extractor = new ZipBundleExtractor();
 
   const dl = await downloader.download(candidate.installable);
