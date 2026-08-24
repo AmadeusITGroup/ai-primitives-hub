@@ -170,22 +170,6 @@ interface BuildHarvestResultParams {
   sourcePreflight?: GitHubSourcePreflightReport;
 }
 
-/** Reported when the transport carries no rate-limit telemetry (e.g. a fake). */
-const NO_RATE_LIMIT_TELEMETRY: GitHubApiClient['lastRateLimit'] = {
-  limit: undefined,
-  remaining: undefined,
-  used: undefined,
-  resetAt: undefined
-};
-
-/**
- * Read rate-limit telemetry, which only the real client tracks.
- * @param client - The transport actually used for the harvest.
- * @returns Telemetry, or all-undefined for a transport that has none.
- */
-function readRateLimit(client: GitHubApi): GitHubApiClient['lastRateLimit'] {
-  return client instanceof GitHubApiClient ? client.lastRateLimit : NO_RATE_LIMIT_TELEMETRY;
-}
 
 /** Reported when the transport carries no rate-limit telemetry (e.g. a fake). */
 const NO_RATE_LIMIT_TELEMETRY: GitHubApiClient['lastRateLimit'] = {
