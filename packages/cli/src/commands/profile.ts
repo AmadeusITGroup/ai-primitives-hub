@@ -52,6 +52,7 @@ import {
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
+  isGitHubAppAuthEnabled,
   ProfileActivationStore,
 } from '@ai-primitives-hub/infra';
 import * as yaml from 'js-yaml';
@@ -73,8 +74,10 @@ import {
   RegistryError,
 } from '../framework';
 import {
+  createSourceAwareInstallDependencyCache,
   createWriterFactory,
   fetchFilesForSource,
+  type SourceAwareInstallDependencyCache,
 } from './install';
 import {
   createWriterFactory as createUninstallWriterFactory,
@@ -351,6 +354,7 @@ type ActivateBundleOutcome =
  * @param http HTTP client.
  * @param tokens Token provider.
  * @param ctx CLI context.
+ * @param sourceAwareDependencyCache
  * @returns The written files and lockfile entries on success, or a failure reason.
  */
 async function activateBundleForTarget(
@@ -360,7 +364,8 @@ async function activateBundleForTarget(
   writer: TargetWriter,
   http: HttpClient,
   tokens: TokenProvider,
-  ctx: Context
+  ctx: Context,
+  sourceAwareDependencyCache?: SourceAwareInstallDependencyCache
 ): Promise<ActivateBundleOutcome> {
   const src = sources[bundleRef.source];
   if (!src) {
@@ -383,7 +388,16 @@ async function activateBundleForTarget(
     files: []
   };
   try {
-    const files = await fetchFilesForSource(sourceEntry, bundleRef.id, probeEntry, http, tokens, ctx, false);
+    const files = await fetchFilesForSource(
+      sourceEntry,
+      bundleRef.id,
+      probeEntry,
+      http,
+      tokens,
+      ctx,
+      false,
+      sourceAwareDependencyCache
+    );
     if (files === null) {
       return { ok: false, reason: 'failed to fetch bundle files' };
     }
@@ -502,6 +516,9 @@ export async function runProfileActivation(
   const syncedBundleVersions: Record<string, string> = {};
   const failures: { bundleId: string; target: string; reason: string }[] = [];
   const writtenByTarget: Record<string, string[]> = {};
+  const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
+    ? createSourceAwareInstallDependencyCache(built.http, ctx)
+    : undefined;
 
   for (const target of effectiveTargets) {
     const writer = createWriterFactory(ctx, {})(target);
@@ -510,7 +527,16 @@ export async function runProfileActivation(
     let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
 
     for (const bundleRef of profile.bundles) {
-      const outcome = await activateBundleForTarget(bundleRef, sources, target, writer, built.http, built.tokens, ctx);
+      const outcome = await activateBundleForTarget(
+        bundleRef,
+        sources,
+        target,
+        writer,
+        built.http,
+        built.tokens,
+        ctx,
+        sourceAwareDependencyCache
+      );
       if (!outcome.ok) {
         failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
         continue;

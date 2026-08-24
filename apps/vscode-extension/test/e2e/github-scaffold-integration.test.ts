@@ -381,7 +381,7 @@ suite('E2E: Script Execution Tests', () => {
       npmInstalled = true;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      if (process.env.CI === 'true') {
+      if (process.env.CI === 'true' || process.env.CI === '1') {
         throw new Error(`Scaffold setup failed in CI: ${detail}`);
       }
       console.error(`[e2e] skipping script-execution tests - scaffold setup failed: ${detail}`);

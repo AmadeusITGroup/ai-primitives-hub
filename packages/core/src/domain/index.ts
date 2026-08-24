@@ -14,6 +14,8 @@ export * from './discovery/types';
 export * from './errors';
 export * from './registry-error';
 export * from './source/types';
+export * from './source/github-repository-target';
+export * from './source/github-source-authentication';
 export * from './source-id';
 export * from './install/types';
 export * from './install/target';

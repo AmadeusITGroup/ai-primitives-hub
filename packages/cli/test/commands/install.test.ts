@@ -30,8 +30,10 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
+  createSourceAwareInstallDependencyCache,
   installBundleWithSource,
   InstallCommand,
 } from '../../src/commands/install';
@@ -78,6 +80,46 @@ describe('install command (local --from mode)', () => {
   });
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
+
+  it('shares source-aware dependencies for repeated bundle requests', async () => {
+    const target = { host: 'github.com', owner: 'owner', repository: 'repo' };
+    const preflight = vi.fn(async () => ({
+      valid: true,
+      results: [{
+        sourceId: 'source',
+        target,
+        category: 'public-generic' as const,
+        operations: ['repository metadata'],
+        credentialMode: 'generic' as const
+      }],
+      appRoutes: []
+    }));
+    const clientFor = vi.fn(() => ({}) as import('@ai-primitives-hub/core').GitHubApi);
+    const tokenProviderFor = vi.fn(() => ({ getToken: async () => 'generic-token' }));
+    const runtime = {
+      preflight,
+      clientFor,
+      tokenProviderFor
+    } as unknown as import('@ai-primitives-hub/infra').GitHubSourceAuthRuntime;
+    const ctx = createTestContext({ cwd: workspace });
+    const sourceConfig: RegistrySource = {
+      id: 'source',
+      name: 'Source',
+      type: 'github',
+      url: 'https://github.com/owner/repo',
+      enabled: true,
+      priority: 0
+    };
+    const cache = createSourceAwareInstallDependencyCache({} as HttpClient, ctx, runtime);
+
+    const first = await cache.get('owner/repo', sourceConfig);
+    const second = await cache.get('owner/repo', sourceConfig);
+
+    expect(first).toBe(second);
+    expect(preflight).toHaveBeenCalledTimes(1);
+    expect(clientFor).toHaveBeenCalledTimes(1);
+    expect(tokenProviderFor).toHaveBeenCalledTimes(1);
+  });
 
   beforeEach(async () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-install-test-'));
@@ -406,5 +448,90 @@ describe('install command (local --from mode)', () => {
     ).resolves.toContain('Hello Prompt');
     await expect(readFile(path.join(workspace, '.github', 'README.md'), 'utf8')).rejects.toThrow();
     await expect(readFile(path.join(workspace, '.github', 'LICENSE'), 'utf8')).rejects.toThrow();
+  });
+
+  it('preflights a remote source before an opt-in authenticated install', async () => {
+    const zipBytes = buildZip([
+      {
+        path: 'deployment-manifest.yml',
+        bytes: new TextEncoder().encode(
+          'id: remote-preflight\nversion: 1.0.0\nname: Remote Preflight\nprompts:\n'
+          + '  - id: hello\n    file: prompts/hello.prompt.md\n    type: prompt\n'
+        )
+      },
+      {
+        path: 'prompts/hello.prompt.md',
+        bytes: new TextEncoder().encode('# Hello from a preflighted bundle\n')
+      }
+    ]);
+    const http: HttpClient = {
+      fetch: async (request: HttpRequest): Promise<HttpResponse> => {
+        if (request.url === 'https://api.github.com/repos/owner/repo') {
+          return { statusCode: 200, body: new TextEncoder().encode('{"private":false}'), finalUrl: request.url, headers: {} };
+        }
+        if (request.url === 'https://api.github.com/repos/owner/repo/commits/main') {
+          return { statusCode: 200, body: new TextEncoder().encode('{"sha":"preflight-sha"}'), finalUrl: request.url, headers: {} };
+        }
+        if (request.url === 'https://api.github.com/repos/owner/repo/git/trees/main?recursive=1') {
+          return { statusCode: 200, body: new TextEncoder().encode('{"tree":[],"truncated":false}'), finalUrl: request.url, headers: {} };
+        }
+        if (request.url === 'https://api.github.com/repos/owner/repo/releases') {
+          return {
+            statusCode: 200,
+            body: new TextEncoder().encode(JSON.stringify([{
+              tag_name: 'remote-preflight-v1.0.0',
+              assets: [{ name: 'bundle.zip', url: 'https://api.github.com/assets/remote-preflight' }]
+            }])),
+            finalUrl: request.url,
+            headers: {}
+          };
+        }
+        if (request.url === 'https://api.github.com/assets/remote-preflight') {
+          return { statusCode: 200, body: zipBytes, finalUrl: request.url, headers: {} };
+        }
+        throw new Error(`Unexpected request: ${request.url}`);
+      }
+    };
+    const source: RegistrySource = {
+      id: 'github-source',
+      name: 'GitHub source',
+      type: 'github',
+      url: 'https://github.com/owner/repo',
+      enabled: true,
+      priority: 0
+    };
+    const target: Target = {
+      name: 'repository-copilot',
+      type: 'copilot-cli',
+      scope: 'repository',
+      rootPath: workspace
+    };
+    const ctx = createTestContext({
+      cwd: workspace,
+      fs: new NodeFileSystem(),
+      env: {
+        HOME: workspace,
+        USERPROFILE: workspace,
+        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+        AI_PRIMITIVES_HUB_GH_APP_AUTH_ENABLED: 'true',
+        GH_TOKEN: 'generic-token'
+      }
+    });
+
+    const result = await installBundleWithSource(
+      'remote-preflight',
+      source,
+      target,
+      ctx,
+      http,
+      { getToken: async () => 'must-not-be-used' },
+      'json'
+    );
+
+    expect(result).toBe(0);
+    await expect(
+      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
+    ).resolves.toContain('preflighted bundle');
   });
 });
