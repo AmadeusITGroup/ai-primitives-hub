@@ -261,9 +261,8 @@ jobs:
         shell: bash
         working-directory: ${{ env.EXTENSION_DIR }}
         run: |
-          npm install -g @vscode/vsce
           echo "📦 Creating VSIX package with production .vscodeignore..."
-          vsce package --no-dependencies --out ${{ env.EXTENSION_NAME }}-${{ matrix.os }}-${{ matrix.node-version }}.vsix
+          pnpm exec vsce package --no-dependencies --out ${{ env.EXTENSION_NAME }}-${{ matrix.os }}-${{ matrix.node-version }}.vsix
 
           # Show package size for verification
           if [ -f "${{env.EXTENSION_NAME}}-${{ matrix.os }}-${{ matrix.node-version }}.vsix" ]; then
