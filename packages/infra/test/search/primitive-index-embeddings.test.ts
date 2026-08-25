@@ -67,6 +67,29 @@ describe('PrimitiveIndex embeddings', () => {
     expect(res.hits[0].score).toBeGreaterThan(0);
   });
 
+  it('retrieves a semantically-similar primitive that shares no query keyword', async () => {
+    const idx = await buildEmbeddedIndex();
+    const json = idx.toJSON() as {
+      primitives: { id: string; embedding?: number[] }[];
+    };
+    const target = json.primitives.find((p) => p.embedding && p.embedding.length === 384);
+    expect(target).toBeTruthy();
+
+    // Query text deliberately shares no stemmed token with any document, so
+    // BM25 matches nothing. The query embedding is the target's own vector
+    // (cosine ~= 1), so a working semantic layer must still retrieve it.
+    const queryEmbedding = new Float32Array(target!.embedding!);
+    const res = idx.search({
+      q: 'zzqqxx wvbnkq',
+      ranking: 'hybrid',
+      queryEmbedding,
+      limit: 10
+    });
+
+    const ids = res.hits.map((h) => h.primitive.id);
+    expect(ids).toContain(target!.id);
+  });
+
   it('round-trips embeddings through saveIndex/loadIndex', async () => {
     const idx = await buildEmbeddedIndex();
     const file = path.join(os.tmpdir(), `pi-embed-${Date.now()}.json`);
