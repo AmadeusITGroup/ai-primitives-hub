@@ -113,17 +113,9 @@ jobs:
           severity: "CRITICAL,HIGH"
           skip-dirs: "website,lib"
 
-      # One production webpack build, not three. `vsce package` runs the
-      # extension's `vscode:prepublish` (= `compile`), so this step only has to
-      # build the workspace packages the bundle resolves from dist/ and switch
-      # .vscodeignore to production. Previously `pnpm run build` (root, which
-      # also built the Docusaurus site) and `package:prepare` each ran the same
-      # `compile` before vsce ran it a third time.
-      # `prompt-registry^...` = exactly the extension's workspace deps
-      # (app, core, infra, collection-scripts), topologically ordered and
-      # excluding the extension itself. Derived from the manifest, so it stays
-      # correct if a dependency is added or dropped, and it does not build
-      # packages/cli, which the extension does not depend on.
+      # `vsce package` runs `vscode:prepublish` (= `compile`), so this step
+      # only builds the workspace deps that compile bundles.
+      # `pkg^...` = that package's workspace deps only; excludes cli.
       - name: Build and package extension
         run: |
           pnpm --filter "prompt-registry^..." build

@@ -1,14 +1,13 @@
 # `packages/` — AI Primitives Hub library-centric packages
 
-Ports-and-adapters packages shared by the two delivery layers: the VS Code
-extension (`apps/vscode-extension`) and the `ai-primitives-hub` CLI
-(`packages/cli`). Dependencies point inward only, so `core` never knows about
-a delivery framework.
+Ports-and-adapters packages shared by both delivery layers: the VS Code
+extension (`apps/vscode-extension`) and the CLI (`packages/cli`). Dependencies
+point inward only — `core` knows nothing about a delivery framework.
 
-For the architecture rationale and the decisions behind this layout, see the
-[contributor architecture guide](../docs/contributor-guide/architecture.md),
+Rationale and decisions:
+[architecture guide](../docs/contributor-guide/architecture.md),
 [clean architecture](../docs/contributor-guide/architecture/library-centric-architecture/clean-architecture.md),
-and the [ADR index](../docs/contributor-guide/architecture/adr/adr-index.md).
+[ADR index](../docs/contributor-guide/architecture/adr/adr-index.md).
 
 ## Packages
 
@@ -27,9 +26,8 @@ and the [ADR index](../docs/contributor-guide/architecture/adr/adr-index.md).
 
 ## Commands
 
-These packages are members of the single pnpm workspace defined at the
-repository root, so install from the root — there is no separate install step
-for this directory, and the root `pnpm-lock.yaml` pins every package here.
+Members of the single pnpm workspace at the repo root — install from there, no
+separate install for this directory.
 
 ```bash
 pnpm install                                    # from the repository root
@@ -41,7 +39,6 @@ pnpm --filter "@ai-primitives-hub/*" test
 pnpm -C packages/infra test                     # a single package
 ```
 
-Prefer the `--filter` form over `pnpm -C packages -r <script>`: `-r` resolves
-against the workspace root, so from here it selects **all** projects in the
-monorepo — the extension and the Docusaurus site included — not just this
-directory.
+Use `--filter`, not `pnpm -C packages -r <script>`: `-r` resolves against the
+workspace root, so it selects **all 9** projects — extension and Docusaurus
+site included.
