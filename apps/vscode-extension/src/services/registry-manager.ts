@@ -9,6 +9,7 @@ import {
 import * as path from 'node:path';
 import {
   activateRegistryProfile,
+  remapBundleSource as appRemapBundleSource,
   canonicalizeIndexHubId,
   createLocalProfile,
   deactivateRegistryProfile,
@@ -879,6 +880,44 @@ export class RegistryManager {
 
     this._onSourceRemoved.fire(sourceId);
     this.logger.info(`Source '${sourceId}' removed successfully`);
+  }
+
+  /**
+   * Remap installed bundles from an old source to a new one.
+   *
+   * Thin delegator to `@ai-primitives-hub/app`'s `remapBundleSource`, which
+   * owns the ordering that matters: it resolves the replacement source's
+   * descriptor and rejects before writing anything when that source is
+   * absent, so a failed remap never half-migrates and then lets the caller
+   * delete the orphan.
+   * @param oldSourceId - Source id being retired.
+   * @param newSourceId - Replacement source id.
+   */
+  public async remapBundleSource(oldSourceId: string, newSourceId: string): Promise<void> {
+    // No workspace means no repository in scope, hence no repository-scope
+    // bundles to migrate: the lockfile port is left unwired, which the use
+    // case treats as a valid skip rather than a failure.
+    const workspaceRoot = getWorkspaceRoot();
+
+    await appRemapBundleSource(
+      oldSourceId,
+      newSourceId,
+      {
+        listSources: () => this.storage.getSources(),
+        remapLockfileSourceId: workspaceRoot
+          ? (oldId, newId, descriptor) =>
+            LockfileManager.getInstance(workspaceRoot).remapSourceId(oldId, newId, descriptor)
+          : undefined,
+        getInstalledBundles: (scope) => this.storage.getInstalledBundles(scope),
+        // `core`'s `DeploymentManifest.mcpServers` is intentionally looser
+        // (`Record<string, unknown>`) than this extension's
+        // `McpServersManifest` (see `installBundle`'s identical, documented
+        // cast) — the data itself is always this extension's own shape here,
+        // since it only ever flows back out of `RegistryStorage` above.
+        recordInstallation: (bundle) => this.storage.recordInstallation(bundle as InstalledBundle)
+      },
+      (event) => this.forwardLogEvent(event)
+    );
   }
 
   /**

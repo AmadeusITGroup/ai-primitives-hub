@@ -16,6 +16,7 @@ export * from './source-sync-queue';
 export * from './local-profile-crud';
 export * from './profile-lifecycle';
 export * from './registry-settings';
+export * from './remap-bundle-source';
 export * from './resolve-installation-bundle';
 export * from './search-registry-bundles';
 export * from './uninstall-installed-bundle';

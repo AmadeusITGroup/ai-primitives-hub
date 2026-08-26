@@ -60,6 +60,14 @@ class MockRegistryManager {
     }
   }
 
+  public async removeSource(id: string): Promise<void> {
+    this.sources = this.sources.filter((s) => s.id !== id);
+  }
+
+  public async listInstalledBundles(): Promise<never[]> {
+    return [];
+  }
+
   public reset(): void {
     this.sources = [];
     this.addSourceCalls = [];

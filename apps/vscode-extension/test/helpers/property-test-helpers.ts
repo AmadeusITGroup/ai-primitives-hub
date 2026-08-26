@@ -231,7 +231,7 @@ export const PropertyTestConfig = {
   FAST_CHECK_OPTIONS: {
     verbose: false,
     endOnFailure: true, // Stop on first failure for faster feedback
-    interruptAfterTimeLimit: 1000 // Stop after 1 second per property
+    interruptAfterTimeLimit: 4000 // Stop after 4 seconds per property (Windows CI needs headroom for filesystem I/O)
   }
 };
 

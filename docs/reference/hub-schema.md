@@ -82,10 +82,22 @@ The `sources` array defines bundle sources available in the hub.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string | Unique identifier (alphanumeric, hyphens, underscores; 1-50 chars) |
+| `id` | string | Stable identity of the source, unique within the hub (alphanumeric, hyphens, underscores; 1-50 chars). Stays unchanged once the hub configuration is published — see [Source Identity](#source-identity) |
 | `type` | string | Source type (see below) |
 | `enabled` | boolean | Whether this source is currently active |
 | `priority` | number | Priority order for source resolution (0-100, higher = higher priority) |
+
+### Source Identity
+
+A source's `id` is its identity, not a label. Once a hub configuration is published, that value stays unchanged for the lifetime of the source.
+
+**Renaming a source URL.** Keep the `id` value unchanged and change only the location — `repository` for `github` and `awesome-copilot` sources, `url` for `apm` sources. Because the `id` stayed the same, users who already installed bundles from that source have those bundles migrated to the new location on the next hub sync, so they stay updatable.
+
+**Changing an `id` is a different edit.** It is read as removing one source and adding an unrelated one. The removed source is kept rather than deleted while installed bundles still reference it, so nothing is lost, but those bundles stay pointed at the old location and stop receiving updates from the new one.
+
+**Changing an `id` also breaks profiles**, with or without a URL change. A profile bundle's `source` field names a source `id` (see [Bundle Object](#bundle-object-within-profile)), so every profile entry referencing the old `id` no longer resolves. That consequence is independent of installed-bundle migration.
+
+See [Renaming a Source URL](../author-guide/adding-profile-source-to-hub.md#renaming-a-source-url) in the author guide for the full workflow and its troubleshooting entries.
 
 ### Source Types
 
@@ -187,7 +199,7 @@ The `profiles` array defines predefined bundle collections.
 |-------|------|----------|-------------|
 | `id` | string | Yes | Bundle identifier (1-50 chars) |
 | `version` | string | Yes | Bundle version (semver or `"latest"`) |
-| `source` | string | Yes | Source ID where this bundle is available |
+| `source` | string | Yes | The `id` of a source declared in this hub's `sources` array (see [Source Identity](#source-identity)) |
 | `required` | boolean | Yes | Whether this bundle is mandatory for the profile |
 
 ### Example
@@ -353,5 +365,6 @@ Validation errors are displayed in VS Code notifications and logged to the outpu
 
 - [Profiles and Hubs Guide](../user-guide/profiles-and-hubs.md) — User guide for working with hubs
 - [Creating a Hub](../author-guide/creating-a-hub.md) — End-to-end authoring and publishing
+- [Adding Profiles and Sources to Existing Hubs](../author-guide/adding-profile-source-to-hub.md) — Editing `sources[]`, including renaming a source URL
 - [Collection Schema](../author-guide/collection-schema.md) — Schema for collection YAML files
 - [Settings Reference](./settings.md) — Extension configuration options

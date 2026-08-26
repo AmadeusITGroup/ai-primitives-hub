@@ -10,8 +10,11 @@
  * updates sources that already carry the same stable id (re-import/
  * sync of the same hub), skips true duplicates (same url/type/branch/
  * collectionsPath under a different id — e.g. added independently
- * before hub adoption, or shared across two hubs), and adds
- * everything else as new.
+ * before hub adoption, or shared across two hubs), adds everything
+ * else as new, and prunes orphaned sources — ones this hub previously
+ * contributed that are no longer in its config (e.g. a collection whose
+ * repository URL was renamed, producing a new sourceId while the old
+ * one lingers as a stale duplicate).
  *
  * SourceId format: `generateSourceId(type, url, config)` produces
  * `{type}-{12-char-hash}`, based on source properties rather than the
@@ -35,10 +38,30 @@ import {
   createSourceSyncQueue,
 } from './source-sync-queue';
 
+/**
+ * Why an orphaned source was kept rather than remapped and removed.
+ * Diagnostic only — never persisted; each value appears as the reason marker
+ * in the single keep-alive warning.
+ */
+export type KeepAliveReason =
+  | 'no-candidate'
+  | 'ambiguous-candidates'
+  | 'missing-sticker'
+  | 'remap-failed'
+  | 'port-absent';
+
+/**
+ * The actionable remediation every keep-alive warning ends with: the hub
+ * authoring convention that makes a URL rename provable in the first place.
+ */
+const KEEP_ALIVE_REMEDIATION
+  = 'keep a source\'s `id` stable when changing its `url`';
+
 export interface LoadHubSourcesResult {
   added: number;
   updated: number;
   skipped: number;
+  removed: number;
 }
 
 export interface LoadHubSourcesOptions {
@@ -86,17 +109,38 @@ export function findDuplicateSource(
 /**
  * Sync a hub's declared sources into the registry.
  *
- * Per-source `addSource` failures (e.g. a private repo returning 404)
- * are caught, logged, and skipped rather than failing the whole
- * operation — a hub with one bad source should still get its other
- * sources loaded. `listSources`/`updateSource` failures are not
+ * Per-source `addSource`/`removeSource` failures (e.g. a private repo
+ * returning 404) are caught, logged, and skipped rather than failing
+ * the whole operation — a hub with one bad source should still get its
+ * other sources loaded. `listSources`/`updateSource` failures are not
  * caught here; they propagate to the caller.
+ *
+ * After syncing, any source belonging to this hub (`hubId` match) that
+ * was not represented in the current config is pruned. Manually-added
+ * sources (no `hubId`) and sources contributed by other hubs are never
+ * touched. Disabled sources still count as "represented" — their id is
+ * protected from pruning so `enabled: false` suppresses fetching without
+ * destroying the registry entry.
+ *
+ * Pruning is deliberately conservative to avoid stranding installed
+ * bundles (`removeSource` detaches a source but does not uninstall bundles
+ * or clean lockfile entries, so a pruned source with live consumers can no
+ * longer be updated):
+ * - It is skipped entirely for the whole sync if any `addSource` failed,
+ *   so a transient error on a renamed source's new id cannot delete the
+ *   old id before its replacement lands.
+ * - An orphan with installed bundles still referencing it (via
+ *   `ports.listInstalledBundles`, when provided) is kept and logged as a
+ *   warning rather than removed; deletion only proceeds once those
+ *   consumers are migrated or uninstalled. When `listInstalledBundles` is
+ *   not provided this guard is skipped and a pruned source may leave its
+ *   installed bundles in an unmanaged state.
  * @param hubId Hub identifier the sources belong to.
  * @param hubSources Sources declared in the hub's config.
  * @param ports Registry read/write access.
  * @param onLog Optional sink for diagnostic log events.
  * @param options Optional orchestration settings.
- * @returns Counts of added/updated/skipped sources.
+ * @returns Counts of added/updated/skipped/removed sources.
  */
 export async function loadHubSources(
   hubId: string,
@@ -116,18 +160,53 @@ export async function loadHubSources(
   let added = 0;
   let updated = 0;
   let skipped = 0;
+  let removed = 0;
+
+  // Ids of existing sources still represented in the current hub config
+  // (added, updated, or matched as a duplicate). Any source belonging to
+  // this hub but absent from this set after processing is orphaned and
+  // must be pruned to avoid stale duplicates on URL rename.
+  const protectedSourceIds = new Set<string>();
+
+  // Stored source id -> its `hubSourceId` sticker, for sources storage actually
+  // received this cycle (successful `addSource`/`updateSource` only). Disabled
+  // declarations, failed adds, and matched duplicates stay out: remapping
+  // installed bundles onto an id storage never received would point them at a
+  // phantom source. This is the only pool replacement selection draws from.
+  const registeredThisCycle = new Map<string, string | undefined>();
+
+  // Set when any `addSource` fails this cycle. Orphan pruning is skipped
+  // entirely in that case: a transient failure on a renamed source's new
+  // id would otherwise let us delete the old id (now absent from config)
+  // while the replacement never landed, stranding installed bundles. Better
+  // to keep a stale duplicate than to lose the source outright.
+  let addFailed = false;
 
   const processSource = async (hubSource: HubSource): Promise<void> => {
+    // Generate the stable id up front and protect it from pruning
+    // regardless of the enabled flag. Disabling a source in hub config is a
+    // reversible action (e.g. a collection under maintenance); it must
+    // suppress fetching, not destroy the registry entry and strand any
+    // bundles installed from it.
+    const sourceId = generateSourceId(hubSource.type, hubSource.url, {
+      branch: hubSource.config?.branch,
+      collectionsPath: hubSource.config?.collectionsPath
+    });
+    protectedSourceIds.add(sourceId);
+
+    // The hub-author-assigned declaration id (the "sticker"): persisted as-is
+    // so a later sync can match a pre-rename orphan to its replacement even
+    // though the stored id is derived from the url. Declarations without an id
+    // persist no key at all, keeping pre-feature and manual records untouched.
+    const sticker: Pick<RegistrySource, 'hubSourceId'> = hubSource.id
+      ? { hubSourceId: hubSource.id }
+      : {};
+
     if (!hubSource.enabled) {
       log('debug', `Skipping disabled source: ${hubSource.id}`);
       skipped++;
       return;
     }
-
-    const sourceId = generateSourceId(hubSource.type, hubSource.url, {
-      branch: hubSource.config?.branch,
-      collectionsPath: hubSource.config?.collectionsPath
-    });
 
     const existingSourceById = existingSources.find((s) => s.id === sourceId);
 
@@ -143,8 +222,10 @@ export async function loadHubSources(
         token: hubSource.token,
         metadata: hubSource.metadata,
         config: hubSource.config,
-        hubId
+        hubId,
+        ...sticker
       });
+      registeredThisCycle.set(sourceId, hubSource.id);
       updated++;
       return;
     }
@@ -152,6 +233,7 @@ export async function loadHubSources(
     const duplicateSource = findDuplicateSource(hubSource, existingSources);
 
     if (duplicateSource) {
+      protectedSourceIds.add(duplicateSource.id);
       log(
         'info',
         `Skipping duplicate source: ${hubSource.name} `
@@ -180,11 +262,13 @@ export async function loadHubSources(
       token: hubSource.token,
       metadata: hubSource.metadata,
       config: hubSource.config,
-      hubId
+      hubId,
+      ...sticker
     };
 
     try {
       await ports.addSource(registrySource);
+      registeredThisCycle.set(sourceId, hubSource.id);
       added++;
       try {
         options?.onSourceAdded?.(registrySource);
@@ -195,6 +279,7 @@ export async function loadHubSources(
     } catch (sourceError) {
       const err = sourceError instanceof Error ? sourceError : new Error(String(sourceError));
       log('warn', `Failed to add hub source ${sourceId} (${hubSource.name}): ${err.message}`, err);
+      addFailed = true;
       skipped++;
     }
   };
@@ -212,9 +297,145 @@ export async function loadHubSources(
 
   await Promise.all(Array.from({ length: concurrency }, worker));
 
-  log('info', `Hub source loading complete for ${hubId}: ${added} added, ${updated} updated, ${skipped} skipped`);
+  // Skip pruning entirely if any add failed: the config sync is incomplete,
+  // and deleting an orphan (e.g. the pre-rename id) while its replacement
+  // never landed would strand installed bundles. A stale duplicate is
+  // recoverable on the next successful sync; lost sources are not.
+  if (addFailed) {
+    log(
+      'warn',
+      `Skipping orphaned source pruning for hub ${hubId}: one or more sources failed to add this sync`
+    );
+  } else {
+    // Prune orphaned sources: any source previously linked to this hub that
+    // is no longer represented in the current config (e.g. a renamed URL).
+    const orphanedSources = existingSources.filter(
+      (s) => s.hubId === hubId && !protectedSourceIds.has(s.id)
+    );
 
-  return { added, updated, skipped };
+    const installedBundles = orphanedSources.length > 0
+      ? await ports.listInstalledBundles()
+      : [];
+
+    for (const orphan of orphanedSources) {
+      const consumers = installedBundles.filter((b) => b.sourceId === orphan.id);
+
+      if (consumers.length > 0) {
+        // Find the replacement among the ids storage actually received this
+        // cycle, matching on the hub-author-assigned sticker: a renamed source
+        // keeps its declaration `id` while its url-derived stored id changes,
+        // so the sticker is what ties the pre-rename orphan to its successor.
+        // Ids that were only protected from pruning (disabled declarations,
+        // failed adds, matched duplicates) are not eligible: a remap onto one
+        // of them would strand installed bundles on a source id no store holds.
+        //
+        // An orphan with no sticker matches nothing — `undefined === undefined`
+        // is not evidence of a shared identity. Requiring exactly one candidate
+        // also makes selection independent of the order workers populated the
+        // map in, so `concurrency > 1` picks the same id as `concurrency: 1`.
+        const orphanSticker = orphan.hubSourceId;
+        const candidates = orphanSticker === undefined
+          ? []
+          : [...registeredThisCycle.entries()]
+            .filter(([id, sticker]) => id !== orphan.id && sticker === orphanSticker)
+            .map(([id]) => id);
+
+        // One warning per keep-alive, carrying the orphan id and name, the
+        // number of blocked consumers, the reason marker, and — last, so it is
+        // the line's takeaway — the convention that prevents a recurrence.
+        const keepAlive = (
+          reason: KeepAliveReason,
+          detail: string,
+          error?: Error
+        ): void => {
+          log(
+            'warn',
+            `Keeping orphaned hub source ${orphan.id} (${orphan.name}): `
+            + `${consumers.length} installed bundle(s) still reference it. `
+            + `Reason [${reason}]: ${detail} `
+            + `Remediation: ${KEEP_ALIVE_REMEDIATION}.`,
+            error
+          );
+        };
+
+        if (orphanSticker === undefined) {
+          keepAlive(
+            'missing-sticker',
+            'the stored source carries no hubSourceId, so no replacement can be proven; '
+            + 'it will be backfilled on the next successful sync of this hub.'
+          );
+          continue;
+        }
+
+        if (candidates.length === 0) {
+          keepAlive(
+            'no-candidate',
+            `no source registered this sync carries hubSourceId "${orphanSticker}".`
+          );
+          continue;
+        }
+
+        if (candidates.length > 1) {
+          keepAlive(
+            'ambiguous-candidates',
+            `${candidates.length} sources registered this sync carry hubSourceId `
+            + `"${orphanSticker}" (${candidates.join(', ')}), so the replacement is not unique.`
+          );
+          continue;
+        }
+
+        const replacementId = candidates[0];
+
+        if (!ports.remapBundleSource) {
+          keepAlive(
+            'port-absent',
+            `replacement source ${replacementId} is available but the remapBundleSource `
+            + 'port is not provided by this host.'
+          );
+          continue;
+        }
+
+        try {
+          await ports.remapBundleSource(orphan.id, replacementId);
+          await ports.removeSource(orphan.id);
+          // The single success report: it names the sticker that proved the
+          // match, so a reader can tell *why* these two ids were paired rather
+          // than having to reconstruct it from the hub config.
+          log(
+            'info',
+            `Remapped ${consumers.length} installed bundle record(s) from orphaned source `
+            + `${orphan.id} to ${replacementId} (matched on hubSourceId "${orphanSticker}") `
+            + 'and removed the orphan'
+          );
+          removed++;
+        } catch (remapError) {
+          const err = remapError instanceof Error ? remapError : new Error(String(remapError));
+          keepAlive(
+            'remap-failed',
+            `remapping onto replacement source ${replacementId} failed: ${err.message}.`,
+            err
+          );
+        }
+        continue;
+      }
+
+      try {
+        await ports.removeSource(orphan.id);
+        log('info', `Removed orphaned hub source: ${orphan.id} (${orphan.name}) - no longer present in hub ${hubId}`);
+        removed++;
+      } catch (removeError) {
+        const err = removeError instanceof Error ? removeError : new Error(String(removeError));
+        log('warn', `Failed to remove orphaned hub source ${orphan.id} (${orphan.name}): ${err.message}`, err);
+      }
+    }
+  }
+
+  log(
+    'info',
+    `Hub source loading complete for ${hubId}: ${added} added, ${updated} updated, ${skipped} skipped, ${removed} removed`
+  );
+
+  return { added, updated, skipped, removed };
 }
 
 export interface ProgressiveLoadResult {

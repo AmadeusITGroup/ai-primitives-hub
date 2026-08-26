@@ -20,7 +20,7 @@ Open the hub's YAML configuration file and add a new source to the `sources` arr
 sources:
   # Existing sources...
   
-  - id: "my-new-source"                    # Unique identifier
+  - id: "my-new-source"                    # Stable identity — keep unchanged once published
     type: "github"                         # Source type
     repository: "myorg/new-prompt-bundles" # Repository location
     name: "My New Source"                  # Display name
@@ -62,6 +62,30 @@ The Hub schema accepts priorities from `0` through `100`; higher values win
 when sources conflict. There are no canonical category ranges. Choose values
 relative to the other sources in the same Hub and document any team-specific
 convention in the Hub repository.
+
+## Renaming a Source URL
+
+A source's `id` is its stable identity. Keep the `id` value unchanged and change only the URL — `repository` for `github` and `awesome-copilot` sources, `url` for `apm` sources:
+
+```yaml
+sources:
+  - id: "ml-prompts"                              # Unchanged — this is the identity
+    type: "github"
+    repository: "myorg/ml-prompt-collection-v2"   # Changed — the new location
+    name: "ML Prompt Collection"
+    enabled: true
+    priority: 80
+```
+
+Because the `id` stayed the same, users who already installed bundles from this source keep them attached: on the next hub sync, their installed bundles migrate to the renamed repository and stay updatable.
+
+Changing an `id` means something different. It is read as removing one source and adding an unrelated one. The removed source is kept — not deleted — while installed bundles still reference it, so nothing is lost, but those bundles stay pointed at the old location and stop receiving updates from the new one.
+
+Changing an `id` also breaks profiles, with or without a URL change. A profile bundle's `source` field names a source `id`, so every profile entry referencing the old `id` no longer resolves. That constraint already exists today; keeping the `id` stable is how you avoid it.
+
+### Backfill Window
+
+The registry remembers which hub declaration each installed source came from. Sources that users stored before this tracking existed do not carry that link yet — it is written on the next successful sync of the hub that owns them. If a rename lands before that sync, the pre-rename source is kept alive instead of migrated, and users see a warning in the logs naming the reason. Publish the rename in a separate commit from any other source change so users get one sync to backfill first.
 
 ## Adding a Profile
 
@@ -257,6 +281,12 @@ profiles:
 - Confirm bundle IDs exist in specified sources
 - Check version availability
 - Verify source is enabled and synced
+
+### Installed Bundles Did Not Migrate After a Repository Rename
+- Confirm the source's `id` is byte-identical to what you published before the rename — a changed `id` is read as remove-plus-add, so the old source is kept and its bundles stay on the old location
+- Confirm exactly one source declaration carries that `id`; an ambiguous match is never guessed
+- If users synced the hub for the first time only after the rename, the pre-rename source has no recorded link yet (see [Backfill Window](#backfill-window)); reverting the URL, letting users sync once, then re-applying the rename restores the migration path
+- Ask users to check the extension logs: each kept-alive source is reported with the source id, how many installed bundles reference it, and the reason
 
 ### Permission Issues
 - Ensure you have write access to the hub repository
