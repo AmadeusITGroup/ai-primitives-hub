@@ -84,29 +84,53 @@ function tokenMatches(fields: Record<SearchField, string[]>, token: SearchToken)
   return values.some((value) => value.includes(token.value));
 }
 
+/**
+ * Relevance tiers, highest first. Exact field matches rank above a partial
+ * (substring) match on any structured field, which in turn rank above a mere
+ * description mention. Without the partial-structured tiers a bundle matching
+ * solely via a partial id/tag/env (e.g. "renovate" in the id "renovate-config")
+ * fell through to the floor and sorted below description-only mentions. Mirrors
+ * the webview's scoreSearchMatch so both search entry points rank identically.
+ */
+const SCORE_TIERS: { field: SearchField; kind: 'exact' | 'prefix' | 'substring'; points: number }[] = [
+  { field: 'id', kind: 'exact', points: 120 },
+  { field: 'name', kind: 'exact', points: 100 },
+  { field: 'name', kind: 'prefix', points: 70 },
+  { field: 'tag', kind: 'exact', points: 50 },
+  { field: 'env', kind: 'exact', points: 40 },
+  { field: 'author', kind: 'exact', points: 35 },
+  { field: 'name', kind: 'substring', points: 30 },
+  { field: 'id', kind: 'substring', points: 28 },
+  { field: 'tag', kind: 'substring', points: 26 },
+  { field: 'source', kind: 'exact', points: 25 },
+  { field: 'env', kind: 'substring', points: 24 },
+  { field: 'author', kind: 'substring', points: 22 },
+  { field: 'source', kind: 'substring', points: 18 },
+  { field: 'description', kind: 'substring', points: 8 }
+];
+
+const FLOOR_SCORE = 2;
+
+function tierMatches(values: string[], value: string, kind: 'exact' | 'prefix' | 'substring'): boolean {
+  if (kind === 'exact') {
+    return values.includes(value);
+  }
+  if (kind === 'prefix') {
+    return values.some((candidate) => candidate.startsWith(value));
+  }
+  return values.some((candidate) => candidate.includes(value));
+}
+
+function scoreToken(fields: Record<SearchField, string[]>, value: string): number {
+  const tier = SCORE_TIERS.find((candidate) => tierMatches(fields[candidate.field], value, candidate.kind));
+  return tier ? tier.points : FLOOR_SCORE;
+}
+
 function scoreBundle(fields: Record<SearchField, string[]>, tokens: SearchToken[]): number {
   let score = 0;
   for (const token of tokens) {
-    if (token.excluded) {
-      continue;
-    }
-
-    if (fields.id.includes(token.value)) {
-      score += 120;
-    } else if (fields.name.includes(token.value)) {
-      score += 100;
-    } else if (fields.name.some((value) => value.startsWith(token.value))) {
-      score += 70;
-    } else if (fields.tag.includes(token.value)) {
-      score += 50;
-    } else if (fields.author.includes(token.value)) {
-      score += 35;
-    } else if (fields.name.some((value) => value.includes(token.value))) {
-      score += 30;
-    } else if (fields.description.some((value) => value.includes(token.value))) {
-      score += 15;
-    } else {
-      score += 10;
+    if (!token.excluded) {
+      score += scoreToken(fields, token.value);
     }
   }
   return score;

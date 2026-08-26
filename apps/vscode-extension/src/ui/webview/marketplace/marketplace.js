@@ -407,7 +407,12 @@
       if (token.excluded) {
         continue;
       }
-      // Stricter AND logic: prioritize key fields over description
+      // Stricter AND logic: prioritise key fields over description. Exact
+      // field matches rank highest, then a partial (substring) match on any
+      // structured field, and only then a description mention. Without the
+      // partial-structured tiers a bundle that matches solely via a partial
+      // id/tag/env (e.g. "renovate" in the id "renovate-config") fell through
+      // to the +2 floor and sorted below description-only mentions.
       if (fields.id.includes(token.value)) {
         score += 120;
       } else if (fields.name.includes(token.value)) {
@@ -416,14 +421,24 @@
         score += 70;
       } else if (fields.tag.includes(token.value)) {
         score += 50;
-      } else if (fields.author.includes(token.value)) {
-        score += 35;
       } else if (fields.env.includes(token.value)) {
         score += 40;
-      } else if (fields.source.includes(token.value)) {
-        score += 25;
+      } else if (fields.author.includes(token.value)) {
+        score += 35;
       } else if (fields.name.some((value) => value.includes(token.value))) {
         score += 30;
+      } else if (fields.id.some((value) => value.includes(token.value))) {
+        score += 28;
+      } else if (fields.tag.some((value) => value.includes(token.value))) {
+        score += 26;
+      } else if (fields.source.includes(token.value)) {
+        score += 25;
+      } else if (fields.env.some((value) => value.includes(token.value))) {
+        score += 24;
+      } else if (fields.author.some((value) => value.includes(token.value))) {
+        score += 22;
+      } else if (fields.source.some((value) => value.includes(token.value))) {
+        score += 18;
       } else if (fields.description.some((value) => value.includes(token.value))) {
         score += 8;
       } else {
