@@ -97,7 +97,7 @@ Once connected:
 
 ```bash
 # Build VSIX first (on host)
-npm run package:vsix
+pnpm run package:vsix
 
 # Copy to container
 podman cp prompt-registry-0.0.2.vsix vscode-ssh-test:/home/testuser/

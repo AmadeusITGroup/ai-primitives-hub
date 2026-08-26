@@ -113,10 +113,13 @@ jobs:
           severity: "CRITICAL,HIGH"
           skip-dirs: "website,lib"
 
+      # `vsce package` runs `vscode:prepublish` (= `compile`), so this step
+      # only builds the workspace deps that compile bundles.
+      # `pkg^...` = that package's workspace deps only; excludes cli.
       - name: Build and package extension
         run: |
-          pnpm run build
-          pnpm -C ${{ env.EXTENSION_DIR }} run package:prepare
+          pnpm --filter "prompt-registry^..." build
+          pnpm -C ${{ env.EXTENSION_DIR }} run ignore:prod
 
           # Package with integrity verification
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then

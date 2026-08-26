@@ -3,6 +3,12 @@ node_modules/
 npm-debug.log
 yarn-debug.log
 yarn-error.log
+
+# This repo uses pnpm only so we should not introduce the lock files from other package managers
+package-lock.json
+yarn.lock
+npm-shrinkwrap.json
+
 .DS_Store
 .env
 .env.local
@@ -164,7 +170,6 @@ post-compile-fixes-cross-platform.js
 # Profile files (user-created profiles in workspace)
 /*.json
 !package.json
-!package-lock.json
 !tsconfig*.json
 .c8_output/
 
@@ -178,3 +183,6 @@ post-compile-fixes-cross-platform.js
 scripts/netskope.pem
 scripts/podman-ca-setup.sh
 elastic-start-local/
+.kiro/
+tools/
+aidlc/

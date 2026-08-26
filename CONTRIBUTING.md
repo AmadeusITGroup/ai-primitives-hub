@@ -28,7 +28,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 ### Prerequisites
 
 - **Node.js**: Version 24.x
-- **npm**: Version 8.x or higher
+- **pnpm**: Version 11.x or higher (this repo is a pnpm workspace; `npm install` will not produce a working tree)
 - **VS Code**: Latest stable version
 - **Git**: For version control
 
@@ -43,17 +43,17 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 2. **Install dependencies**
    ```bash
-   npm install
+   pnpm install
    ```
 
 3. **Build the extension**
    ```bash
-   npm run compile
+   pnpm run compile
    ```
 
 4. **Run tests**
    ```bash
-   npm test
+   pnpm test
    ```
 
 5. **Launch in VS Code**
@@ -69,31 +69,31 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 1. **TypeScript Compilation**
    ```bash
    # Watch mode for development
-   npm run watch
+   pnpm run watch
    
    # Single compilation
-   npm run compile
+   pnpm run compile
    ```
 
 2. **Testing**
    ```bash
    # Run all tests
-   npm run test:all
+   pnpm run test:all
    
    # Run unit tests only
-   npm run test:unit
+   pnpm run test:unit
    
    # Run with coverage
-   npm run test:coverage
+   pnpm run test:coverage
    ```
 
 3. **Linting**
    ```bash
    # Check code style
-   npm run lint
+   pnpm run lint
    
    # Auto-fix issues
-   npm run lint -- --fix
+   pnpm run lint:fix
    ```
 
 ### Recommended VS Code Extensions
@@ -157,7 +157,7 @@ The extension includes a scaffolding system for creating new prompt projects:
 
 When contributing to scaffolding:
 - Templates use `{{variable}}` syntax for substitution
-- Test changes with `npm run test:unit` (scaffold tests in `test/commands/`)
+- Test changes with `pnpm run test:unit` (scaffold tests in `test/commands/`)
 - Ensure all generated files are valid and functional
 
 ---
@@ -318,13 +318,13 @@ suite('GitHubAdapter', () => {
 
 ```bash
 # Run specific test file
-npx mocha test-dist/test/adapters/GitHubAdapter.test.js
+pnpm exec mocha test-dist/test/adapters/GitHubAdapter.test.js
 
 # Run with debugger
 # Add breakpoint, then F5 in VS Code with "Extension Tests" config
 
 # Generate coverage report
-npm run test:coverage
+pnpm run test:coverage
 ```
 
 ---
@@ -404,9 +404,9 @@ and error handling.
 
 2. **Run all checks**
    ```bash
-   npm run lint
-   npm run compile
-   npm test
+   pnpm run lint:fix
+   pnpm run compile
+   pnpm test
    ```
 
 3. **Update documentation** if needed
@@ -502,7 +502,7 @@ We use [Semantic Versioning](https://semver.org/):
 ### Common Issues
 
 **Issue**: "Cannot find module 'vscode'"
-- **Solution**: Run `npm install`, ensure you're in VS Code
+- **Solution**: Run `pnpm install`, ensure you're in VS Code
 
 **Issue**: Tests failing with "suite is not defined"
 - **Solution**: Check test file uses correct mocha setup

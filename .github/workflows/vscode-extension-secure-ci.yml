@@ -62,10 +62,7 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Security: Pin to specific commit for reproducibility
-          # persist-credentials: false
-          fetch-depth: 0
+        # Shallow clone: Trivy's fs scan and the SARIF upload need no history.
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -195,9 +192,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      # Builds packages (topological), lib, the GH action and the extension.
-      # The website is excluded: it has no workspace dependency and is covered by docs.yml.
-      # The extension's own `build` script is `compile`, so it is not compiled twice.
+      # test:unit needs compile's output (expanded `schemas/`,
+      # `dist/webview/**`), so this builds the extension too.
+      # Website excluded — docs.yml covers it.
       - name: Build workspace (excluding website)
         run: pnpm --filter "!prompt-registry-docs" build
 
@@ -264,9 +261,8 @@ jobs:
         shell: bash
         working-directory: ${{ env.EXTENSION_DIR }}
         run: |
-          npm install -g @vscode/vsce
           echo "📦 Creating VSIX package with production .vscodeignore..."
-          vsce package --no-dependencies --out ${{ env.EXTENSION_NAME }}-${{ matrix.os }}-${{ matrix.node-version }}.vsix
+          pnpm exec vsce package --no-dependencies --out ${{ env.EXTENSION_NAME }}-${{ matrix.os }}-${{ matrix.node-version }}.vsix
 
           # Show package size for verification
           if [ -f "${{env.EXTENSION_NAME}}-${{ matrix.os }}-${{ matrix.node-version }}.vsix" ]; then
@@ -343,8 +339,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      # `pkg^...` = that package's workspace deps only (app, core, infra,
+      # collection-scripts); excludes the extension itself and cli.
       - name: Build workspace packages
-        run: pnpm --filter "@ai-primitives-hub/*" --filter "@prompt-registry/collection-scripts" build
+        run: pnpm --filter "prompt-registry^..." build
 
       - name: Compile extension and tests
         working-directory: ${{ env.EXTENSION_DIR }}
@@ -363,6 +361,7 @@ jobs:
         if: runner.os != 'Windows'
         uses: ./.github/actions/post-compile-fixes
 
+      # `test:integration:only` skips the compile-tests already run above.
       - name: Run VS Code Extension Tests
         env:
           VSCODE_VERSION: ${{ matrix.vscode-version }}
@@ -370,9 +369,9 @@ jobs:
         working-directory: ${{ env.EXTENSION_DIR }}
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
-            xvfb-run -a pnpm run test:integration
+            xvfb-run -a pnpm run test:integration:only
           else
-            pnpm run test:integration
+            pnpm run test:integration:only
           fi
 
   # Security compliance report

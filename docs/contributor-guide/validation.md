@@ -10,61 +10,61 @@ For validation architecture details, see [Architecture: Validation](./architectu
 |--------|---------|------|----------|
 | `./.github/workflows/scripts/quick-check.sh` | Fast iteration check | ~30s | During development |
 | `./.github/workflows/scripts/validate-locally.sh` | Full CI simulation | ~2-5min | Before pushing |
-| `npm run pretest` | Pre-test setup | ~1min | Before running tests |
-| `npm test` | All tests | ~2min | Verify functionality |
+| `pnpm run pretest` | Pre-test setup | ~1min | Before running tests |
+| `pnpm test` | All tests | ~2min | Verify functionality |
 
 ### Essential Commands
 
 | Command | Purpose | When |
 |---------|---------|------|
-| `npm run lint` | Code style | During development |
-| `npm run compile` | Build | Before testing |
-| `npm run test:unit` | Unit tests | Fast feedback |
-| `npm test` | All tests | Before pushing |
-| `npm run package:full` | Production VSIX | Before release |
+| `pnpm run lint` | Code style | During development |
+| `pnpm run compile` | Build | Before testing |
+| `pnpm run test:unit` | Unit tests | Fast feedback |
+| `pnpm test` | All tests | Before pushing |
+| `pnpm run package:full` | Production VSIX | Before release |
 
 ## 📋 Validation Workflow (Matches GitHub Actions)
 
 ### 1. **Security & Dependencies**
 ```bash
 # Install dependencies with audit
-npm ci --fund=false
-npm audit --omit=dev --audit-level=moderate
+pnpm install --frozen-lockfile
+pnpm audit --prod --audit-level=moderate
 ```
 
 ### 2. **Code Quality**
 ```bash
 # Linting
-npm run lint
+pnpm run lint
 
 # Type checking & compilation
-npm run compile
+pnpm run compile
 ```
 
 ### 3. **Testing**
 ```bash
 # Compile tests
-npm run compile-tests
+pnpm run compile-tests
 
 # Unit tests (fast)
-npm run test:unit
+pnpm run test:unit
 
 # Integration tests (requires display)
-npm run test:integration
+pnpm run test:integration
 
 # All tests
-npm test
+pnpm test
 ```
 
 ### 4. **Packaging**
 ```bash
 # Full production package with optimizations
-npm run package:full
+pnpm run package:full
 
 # Or individual steps:
-npm run package:prepare    # Switch to production config
-npm run package:vsix        # Create VSIX
-npm run package:cleanup     # Restore dev config
+pnpm run package:prepare    # Switch to production config
+pnpm run package:vsix        # Create VSIX
+pnpm run package:cleanup     # Restore dev config
 ```
 
 ### 5. **Validation**
@@ -93,23 +93,23 @@ Runs: Full CI simulation including packaging
 ### Continuous Development
 ```bash
 # Terminal 1: Watch mode for auto-compilation
-npm run watch
+pnpm run watch
 
 # Terminal 2: Watch mode for tests
-npm run watch-tests
+pnpm run watch-tests
 ```
 
 ### Manual Quick Check
 ```bash
-npm run lint && npm run compile && npm run test:unit
+pnpm run lint && pnpm run compile && pnpm run test:unit
 ```
 
 ### Full Manual Validation
 ```bash
-npm run lint
-npm run compile
-npm test
-npm run package:full
+pnpm run lint
+pnpm run compile
+pnpm test
+pnpm run package:full
 ```
 
 ## 📊 Understanding Test Organization
@@ -129,49 +129,49 @@ npm run package:full
 ### Coverage Reports
 ```bash
 # Unit test coverage
-npm run test:coverage:unit
+pnpm run test:coverage:unit
 
 # Full coverage
-npm run test:coverage
+pnpm run test:coverage
 
 # View HTML report
 open coverage/index.html
 ```
 
-## 🎯 npm Script Cheatsheet
+## 🎯 pnpm Script Cheatsheet
 
 ### Essential Commands
 | Command | Description |
 |---------|-------------|
-| `npm run lint` | ESLint validation |
-| `npm run compile` | Production build |
-| `npm run watch` | Dev mode with auto-compile |
-| `npm test` | Run all tests |
-| `npm run test:unit` | Unit tests only |
-| `npm run test:integration` | Integration tests |
-| `npm run package:full` | Create production VSIX |
+| `pnpm run lint` | ESLint validation |
+| `pnpm run compile` | Production build |
+| `pnpm run watch` | Dev mode with auto-compile |
+| `pnpm test` | Run all tests |
+| `pnpm run test:unit` | Unit tests only |
+| `pnpm run test:integration` | Integration tests |
+| `pnpm run package:full` | Create production VSIX |
 
 ### Development Helpers
 | Command | Description |
 |---------|-------------|
-| `npm run dev:setup` | Switch to dev-friendly config |
-| `npm run compile-tests` | Compile test files |
-| `npm run watch-tests` | Auto-compile tests |
-| `npm run coverage:clean` | Clean coverage reports |
+| `pnpm run dev:setup` | Switch to dev-friendly config |
+| `pnpm run compile-tests` | Compile test files |
+| `pnpm run watch-tests` | Auto-compile tests |
+| `pnpm run coverage:clean` | Clean coverage reports |
 
 ### Version Management
 | Command | Description |
 |---------|-------------|
-| `npm run version:bump:patch` | Bump patch version (0.0.X) |
-| `npm run version:bump:minor` | Bump minor version (0.X.0) |
-| `npm run version:bump:major` | Bump major version (X.0.0) |
+| `pnpm run version:bump:patch` | Bump patch version (0.0.X) |
+| `pnpm run version:bump:minor` | Bump minor version (0.X.0) |
+| `pnpm run version:bump:major` | Bump major version (X.0.0) |
 
 ## 🚨 Common Issues & Solutions
 
 ### Issue: Tests fail with "Cannot find module 'vscode'"
 **Solution:**
 ```bash
-npm run compile-tests
+pnpm run compile-tests
 # Ensures test fixtures are copied
 ```
 
@@ -182,14 +182,14 @@ npm run compile-tests
 sudo apt-get install -y xvfb libnss3-dev libatk-bridge2.0-dev
 
 # Run with xvfb
-xvfb-run -a npm run test:integration
+xvfb-run -a pnpm run test:integration
 ```
 
 ### Issue: VSIX package too large
 **Solution:**
 ```bash
 # Use production packaging
-npm run package:full
+pnpm run package:full
 
 # This uses .vscodeignore.production which excludes:
 # - Source files (src/, test/)
@@ -198,17 +198,17 @@ npm run package:full
 # - Documentation
 ```
 
-### Issue: npm audit warnings
+### Issue: audit warnings
 **Solution:**
 ```bash
 # Check what's failing
-npm audit
+pnpm audit
 
 # Fix automatically (if possible)
-npm audit fix
+pnpm audit --fix
 
 # Ignore dev dependencies
-npm audit --omit=dev
+pnpm audit --prod
 ```
 
 ## 🎓 Workflow Examples
@@ -230,8 +230,8 @@ git commit -m "fix: ..."
 git checkout -b feature/new-feature
 
 # 2. Develop with watch mode
-npm run watch        # Terminal 1
-npm run watch-tests  # Terminal 2
+pnpm run watch        # Terminal 1
+pnpm run watch-tests  # Terminal 2
 
 # 3. Update test files
 # 4. Full validation before push
@@ -244,13 +244,13 @@ git push origin feature/new-feature
 ### Example 3: Pre-Release Checklist
 ```bash
 # 1. Bump version
-npm run version:bump:minor
+pnpm run version:bump:minor
 
 # 2. Full validation
 ./.github/workflows/scripts/validate-locally.sh
 
 # 3. Create production package
-npm run package:full
+pnpm run package:full
 
 # 4. Test the VSIX locally
 code --install-extension *.vsix
@@ -278,7 +278,7 @@ When GitHub Actions fails:
 
 1. Check which job failed in GitHub Actions UI
 2. Reproduce locally: `./.github/workflows/scripts/validate-locally.sh`
-3. Check specific step: `npm run lint`, `npm run test:unit`, or `npm run package:full`
+3. Check specific step: `pnpm run lint`, `pnpm run test:unit`, or `pnpm run package:full`
 
 ## 💡 Pro Tips
 

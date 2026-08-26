@@ -154,8 +154,8 @@ code --install-extension prompt-registry-<version>.vsix
 ```bash
 git clone https://github.com/AmadeusITGroup/ai-primitives-hub.git
 cd ai-primitives-hub
-npm install
-npm run package:vsix
+pnpm install
+pnpm run package:vsix
 # Install the VSIX produced by the previous step (the filename includes the current version)
 code --install-extension prompt-registry-<version>.vsix
 ```

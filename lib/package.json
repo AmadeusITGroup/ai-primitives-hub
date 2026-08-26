@@ -21,10 +21,10 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "compile-tests": "tsc -p tsconfig.test.json",
-    "test": "npm run compile-tests && mocha 'dist-test/test/**/*.test.js'",
+    "test": "pnpm run compile-tests && mocha 'dist-test/test/**/*.test.js'",
     "lint": "eslint src test",
     "lint:fix": "eslint src test --fix",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "repository": {
     "type": "git",
