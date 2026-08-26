@@ -31,10 +31,17 @@
   ],
   "packageRules": [
     {
-      "description": "Group non-major npm updates across the workspace",
+      "description": "Group npm minor updates",
       "matchManagers": ["npm"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "pnpm workspace non-major dependencies",
+      "matchUpdateTypes": ["minor"],
+      "groupName": "npm minor dependencies",
+      "automerge": false
+    },
+    {
+      "description": "Group and automerge npm patch updates",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["patch"],
+      "groupName": "npm patch dependencies",
       "automerge": true
     },
     {
@@ -43,7 +50,47 @@
       "matchUpdateTypes": ["major"]
     },
     {
-      "description": "Keep Node.js runtime declarations aligned",
+      "description": "Delay and isolate @types/vscode updates",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["@types/vscode"],
+      "groupName": "@types/vscode",
+      "minimumReleaseAge": "8 months",
+      "prCreation": "not-pending",
+      "automerge": false
+    },
+    {
+      "description": "Keep axios updates separate",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["axios"],
+      "groupName": "axios"
+    },
+    {
+      "description": "Keep ESLint updates separate",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["eslint"],
+      "groupName": "eslint"
+    },
+    {
+      "description": "Keep TypeScript ESLint updates separate",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["typescript-eslint"],
+      "groupName": "typescript-eslint"
+    },
+    {
+      "description": "Keep Otter package updates separate",
+      "matchManagers": ["npm"],
+      "matchPackagePatterns": ["^@o3r/"],
+      "groupName": "Otter packages"
+    },
+    {
+      "description": "Keep pnpm package manager updates separate",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["packageManager"],
+      "matchPackageNames": ["pnpm"],
+      "groupName": "pnpm"
+    },
+    {
+      "description": "Keep Node.js runtime updates separate and aligned",
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["node"],
       "groupName": "Node.js runtime"
