@@ -1,0 +1,77 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 2,
+  "labels": ["dependencies"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "package.json",
+        ".github/workflows/*.yml",
+        ".github/workflows/*.yaml"
+      ],
+      "matchStrings": [
+        "\"node\"\\s*:\\s*\">=(?<currentValue>\\d+\\.\\d+\\.\\d+)\"",
+        "NODE_VERSION:\\s*\"(?<currentValue>\\d+)\""
+      ],
+      "datasourceTemplate": "node-version",
+      "depNameTemplate": "node",
+      "versioningTemplate": "node"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group non-major npm updates across the workspace",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "pnpm workspace non-major dependencies",
+      "automerge": true
+    },
+    {
+      "description": "Keep major updates separate",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["major"]
+    },
+    {
+      "description": "Keep Node.js runtime declarations aligned",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["node"],
+      "groupName": "Node.js runtime"
+    },
+    {
+      "description": "Label package workspace updates",
+      "matchFileNames": ["packages/*/package.json"],
+      "addLabels": ["workspace:packages"]
+    },
+    {
+      "description": "Label application workspace updates",
+      "matchFileNames": ["apps/*/package.json"],
+      "addLabels": ["workspace:apps"]
+    },
+    {
+      "description": "Label GitHub Actions workspace updates",
+      "matchFileNames": ["github-actions/*/package.json"],
+      "addLabels": ["workspace:github-actions"]
+    },
+    {
+      "description": "Label library workspace updates",
+      "matchFileNames": ["lib/package.json"],
+      "addLabels": ["workspace:lib"]
+    },
+    {
+      "description": "Label website workspace updates",
+      "matchFileNames": ["website/package.json"],
+      "addLabels": ["workspace:website"]
+    }
+  ]
+}

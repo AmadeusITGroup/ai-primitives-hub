@@ -170,6 +170,7 @@ post-compile-fixes-cross-platform.js
 # Profile files (user-created profiles in workspace)
 /*.json
 !package.json
+!renovate.json
 !tsconfig*.json
 .c8_output/
 
