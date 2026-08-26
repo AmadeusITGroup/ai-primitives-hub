@@ -47,3 +47,37 @@ export class LeadingTrailingThrottle {
     }
   }
 }
+
+/**
+ * Defers an action until notifications stop arriving for `delayMs`.
+ *
+ * Source synchronization can run for many minutes when a lockfile registers
+ * a large catalog. Views already show cached data, so rendering only after the
+ * batch settles avoids repeatedly restarting their loading state.
+ */
+export class TrailingThrottle {
+  private timer?: NodeJS.Timeout;
+
+  constructor(
+    private readonly action: () => void,
+    private readonly delayMs: number
+  ) {}
+
+  public trigger(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      this.action();
+    }, this.delayMs);
+  }
+
+  public dispose(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+  }
+}

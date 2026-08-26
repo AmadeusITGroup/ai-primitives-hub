@@ -23,7 +23,7 @@ import {
   UI_CONSTANTS,
 } from '../utils/constants';
 import {
-  LeadingTrailingThrottle,
+  TrailingThrottle,
 } from '../utils/leading-trailing-throttle';
 import {
   Logger,
@@ -278,9 +278,9 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
   private readonly logger: Logger;
   private readonly availableUpdates: Map<string, UpdateCheckResult> = new Map();
 
-  private readonly sourceSyncThrottle = new LeadingTrailingThrottle(
+  private readonly sourceSyncThrottle = new TrailingThrottle(
     () => this.refresh(),
-    UI_CONSTANTS.SOURCE_SYNC_DEBOUNCE_MS
+    UI_CONSTANTS.SOURCE_SYNC_BATCH_SETTLE_MS
   );
 
   private disposables: vscode.Disposable[] = [];
@@ -329,8 +329,7 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
   }
 
   /**
-   * Handle source synced event with debouncing
-   * Debounces refresh calls to prevent excessive updates when multiple sources sync
+    * Handle source synced events after the background batch settles.
    * @param event
    * @param event.sourceId
    * @param event.bundleCount

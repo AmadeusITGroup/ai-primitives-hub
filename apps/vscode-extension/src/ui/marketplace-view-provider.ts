@@ -41,6 +41,7 @@ import {
 } from '../utils/filter-utils';
 import {
   LeadingTrailingThrottle,
+  TrailingThrottle,
 } from '../utils/leading-trailing-throttle';
 import {
   Logger,
@@ -110,7 +111,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   private latestBundlesMessage?: BundlesLoadedMessage;
   private readonly logger: Logger;
 
-  private readonly sourceSyncThrottle = new LeadingTrailingThrottle(
+  private readonly sourceSyncThrottle = new TrailingThrottle(
+    () => void this.loadBundles(),
+    UI_CONSTANTS.SOURCE_SYNC_BATCH_SETTLE_MS
+  );
+
+  private readonly readmeRefreshThrottle = new LeadingTrailingThrottle(
     () => void this.loadBundles(),
     UI_CONSTANTS.SOURCE_SYNC_DEBOUNCE_MS
   );
@@ -177,16 +183,15 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       this.registryManager.onBundlesUninstalled((bundleIds) => {
         this.handleBundleEvent('uninstalled', `${bundleIds.length} bundles`, () => this.loadBundles());
       }),
-      // Source sync events with debouncing
+      // Source sync events refresh once after the background batch settles.
       this.registryManager.onSourceSynced((event) => this.handleSourceSynced(event)),
       // Auto-update preference changes
       this.registryManager.onAutoUpdatePreferenceChanged(() => this.loadBundles()),
       // Repository bundle changes (lockfile changes, workspace folder changes)
       this.registryManager.onRepositoryBundlesChanged(() => this.loadBundles()),
-      // README hydration emits one event per completed download batch. Route
-      // those events through the same throttle as source syncs so progressive
-      // hydration cannot start a marketplace load for every batch.
-      this.registryManager.onReadmeDownloaded(() => this.sourceSyncThrottle.trigger())
+      // README hydration remains progressive, unlike the long-running source
+      // synchronization batch.
+      this.registryManager.onReadmeDownloaded(() => this.readmeRefreshThrottle.trigger())
     );
   }
 
@@ -229,9 +234,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Handle source synced event with leading-edge debouncing
-   * Fires immediately on first event, then debounces subsequent events
-   * This ensures progressive loading - UI updates as soon as first source syncs
+    * Handle source synced events after the background batch settles.
    * @param event
    * @param event.sourceId
    * @param event.bundleCount
@@ -1456,6 +1459,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    */
   public dispose(): void {
     this.sourceSyncThrottle.dispose();
+    this.readmeRefreshThrottle.dispose();
 
     // Dispose all event listeners
     this.disposables.forEach((d) => d.dispose());

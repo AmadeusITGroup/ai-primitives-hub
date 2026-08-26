@@ -890,9 +890,6 @@ export class PromptRegistryExtension {
         this.setupStateManager // Pass SetupStateManager for timing check
       );
 
-      // Check for lockfile and prompt activation
-      await this.repositoryActivationService.checkAndPromptActivation();
-
       // Register BundleScopeCommands (requires scope services from RegistryManager)
       const bundleInstaller = this.registryManager.getBundleInstaller();
       const repositoryScopeService = bundleInstaller.createRepositoryScopeService();
@@ -912,6 +909,17 @@ export class PromptRegistryExtension {
       }
 
       this.logger.info('Repository-level installation services initialized successfully');
+
+      // Source and hub detection can await a VS Code prompt. It must not hold
+      // extension activation open because views cannot resolve until activation
+      // settles.
+      void this.repositoryActivationService.checkAndPromptActivation()
+        .then(() => {
+          this.logger.info('Repository lockfile source/hub detection completed');
+        })
+        .catch((error) => {
+          this.logger.warn('Repository lockfile source/hub detection failed', error);
+        });
     } catch (error) {
       this.logger.warn('Failed to initialize repository-level installation services', error);
       // Don't fail extension activation if repository services fail

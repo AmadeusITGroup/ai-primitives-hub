@@ -124,5 +124,11 @@ export const UI_CONSTANTS = {
    * Debounce delay for reacting to source sync events (in milliseconds)
    * - Used by tree and marketplace views to avoid excessive refreshes
    */
-  SOURCE_SYNC_DEBOUNCE_MS: 500
+  SOURCE_SYNC_DEBOUNCE_MS: 500,
+  /**
+   * Quiet period before refreshing views after a background source-sync batch.
+   * A lockfile can enqueue many sources whose completions are seconds apart;
+   * refreshing the complete views for every source keeps them perpetually busy.
+   */
+  SOURCE_SYNC_BATCH_SETTLE_MS: 5_000
 } as const;

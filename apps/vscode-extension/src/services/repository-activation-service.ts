@@ -188,6 +188,8 @@ export class RepositoryActivationService {
    */
   public async checkAndPromptActivation(): Promise<void> {
     try {
+      this.logger.info(`[RepositoryActivation] Starting lockfile source/hub detection for ${this.workspaceRoot}`);
+
       // Check if setup is complete before proceeding
       if (!await this.isSetupComplete()) {
         this.logger.info('First-run setup not complete, deferring source/hub detection');
@@ -195,11 +197,13 @@ export class RepositoryActivationService {
       }
 
       // Check if lockfile exists
+      this.logger.debug('[RepositoryActivation] Reading lockfile');
       const lockfile = await this.lockfileManager.read();
       if (!lockfile) {
         this.logger.debug('No lockfile found, skipping source/hub detection');
         return;
       }
+      this.logger.info(`[RepositoryActivation] Lockfile loaded with ${Object.keys(lockfile.sources).length} source(s)`);
 
       // Check if this repository was previously declined
       const lockfilePath = this.lockfileManager.getLockfilePath();
@@ -212,7 +216,9 @@ export class RepositoryActivationService {
 
       // No longer show activation prompt - files are already in repository
       // Just check for missing sources and hubs
+      this.logger.debug('[RepositoryActivation] Checking for missing sources and hubs');
       await this.checkAndOfferMissingSources(lockfile);
+      this.logger.info('[RepositoryActivation] Lockfile source/hub detection finished');
     } catch (error) {
       this.logger.error('Failed to check and detect sources:', error instanceof Error ? error : undefined);
     }
@@ -267,6 +273,10 @@ export class RepositoryActivationService {
         const totalMissing = result.missingSources.length + result.missingHubs.length;
         const itemType = result.missingHubs.length > 0 ? 'sources and hubs' : 'sources';
 
+        this.logger.info(
+          `[RepositoryActivation] Prompting for ${result.missingSources.length} missing source(s) and ${result.missingHubs.length} missing hub(s)`
+        );
+
         const choice = await vscode.window.showInformationMessage(
           `${totalMissing} ${itemType} from the lockfile are not configured. Would you like to add them?`,
           'Add Sources',
@@ -274,6 +284,7 @@ export class RepositoryActivationService {
         );
 
         result.offeredToAdd = true;
+          this.logger.info(`[RepositoryActivation] Missing source/hub prompt resolved with: ${choice ?? 'dismissed'}`);
 
         if (choice === 'Add Sources') {
           this.logger.info(`User chose to add ${totalMissing} missing ${itemType}`);

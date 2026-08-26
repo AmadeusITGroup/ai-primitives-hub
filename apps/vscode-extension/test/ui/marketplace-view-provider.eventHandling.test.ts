@@ -460,114 +460,34 @@ suite('MarketplaceViewProvider - Throttle on source sync burst', () => {
     }
   };
 
-  test('fires leading-edge refresh immediately on first source-synced event', async () => {
-    // Fire one event — the leading edge must trigger a refresh right away (before any timer)
+  test('refreshes after a source-sync event settles', async () => {
     onSourceSyncedCallback?.({ sourceId: 'test-source', bundleCount: 5 });
-
-    // Drain the microtask queue so the async loadBundles can post its message
     await flushAsync();
 
     const countBeforeTimer = postedMessages.filter((m) => m.type === 'bundlesLoaded').length;
-    assert.ok(countBeforeTimer >= 1, `Expected leading-edge bundlesLoaded message before timer, got ${countBeforeTimer}`);
-  });
+    assert.strictEqual(countBeforeTimer, 0, 'the active sync batch must not refresh the marketplace');
 
-  test('a burst of 5 source-synced events produces ≥2 bundlesLoaded messages (leading + trailing)', async () => {
-    if (!onSourceSyncedCallback) {
-      assert.fail('onSourceSynced callback was not registered');
-    }
-
-    // Fire 5 events in rapid succession (all within the 500ms window)
-    for (let i = 0; i < 5; i++) {
-      onSourceSyncedCallback({ sourceId: 'test-source', bundleCount: i + 1 });
-    }
-
-    // Drain microtasks so the leading-edge loadBundles completes
+    clock.tick(5_000);
     await flushAsync();
 
-    const afterLeading = postedMessages.filter((m) => m.type === 'bundlesLoaded').length;
-    assert.ok(afterLeading >= 1, `Expected at least leading-edge bundlesLoaded, got ${afterLeading}`);
-
-    // Advance past the throttle window to trigger the trailing edge
-    clock.tick(600);
-    await flushAsync();
-
-    const afterTrailing = postedMessages.filter((m) => m.type === 'bundlesLoaded').length;
-    assert.ok(
-      afterTrailing >= 2,
-      `Expected ≥2 bundlesLoaded messages (leading + trailing), got ${afterTrailing}`
-    );
+    assert.strictEqual(postedMessages.filter((m) => m.type === 'bundlesLoaded').length, 1);
   });
 
-  // Gate the FIRST load on a FAKE TIMER (not a hand-resolved promise). This keeps
-  // the entire async chain timer-driven so clock.tickAsync fully controls ordering
-  // and settling — mixing a manually-resolved promise with tickAsync is flaky under
-  // a busy event loop. The gate "releases" at GATE_MS; later calls resolve at once.
-  const GATE_MS = 10_000;
-  const gateFirstLoad = () => {
-    mockSearchBundles.onFirstCall().callsFake(
-      () => new Promise((resolve) => setTimeout(() => resolve([]), GATE_MS))
-    );
-    mockSearchBundles.callsFake(async () => []);
-  };
   const renderCount = () => postedMessages.filter((m) => m.type === 'bundlesLoaded').length;
 
-  test('does not drop the trailing-edge load when the leading-edge load is still in flight', async () => {
+  test('renders once after a sustained source-sync batch settles', async () => {
     if (!onSourceSyncedCallback) {
       assert.fail('onSourceSynced callback was not registered');
     }
 
-    gateFirstLoad();
-
-    // Leading edge: starts the (gated) first load and arms the 500ms throttle timer.
-    onSourceSyncedCallback({ sourceId: 'source-a', bundleCount: 3 });
-
-    // Advance past the 500ms throttle window (but not past the gate) so the trailing
-    // edge fires while the first load is still in flight — the call that was
-    // previously swallowed and never rescheduled.
-    await clock.tickAsync(600);
-
-    assert.strictEqual(renderCount(), 0, 'no render should occur while the first load is still gated');
-
-    // Release the gated first load. The coalesced follow-up must run and render again.
-    await clock.tickAsync(GATE_MS);
-
-    assert.ok(
-      renderCount() >= 2,
-      `expected leading-edge render plus a coalesced trailing-edge render, got ${renderCount()}`
-    );
-    assert.ok(
-      mockSearchBundles.callCount >= 2,
-      `expected the coalesced load to re-query the cache, got ${mockSearchBundles.callCount} calls`
-    );
-  });
-
-  test('collapses multiple mid-flight load requests into a single follow-up render', async () => {
-    if (!onSourceSyncedCallback) {
-      assert.fail('onSourceSynced callback was not registered');
+    for (let source = 0; source < 5; source++) {
+      onSourceSyncedCallback({ sourceId: `source-${source}`, bundleCount: source + 1 });
+      await clock.tickAsync(1_000);
     }
 
-    gateFirstLoad();
-
-    // Leading edge starts the gated load and arms the throttle timer.
-    onSourceSyncedCallback({ sourceId: 'source-a', bundleCount: 1 });
-
-    // Generate several load requests while the first load is still gated: each
-    // trailing edge fires, and a fresh event re-arms the throttle for the next one.
-    await clock.tickAsync(600); // trailing edge #1 → pending
-    onSourceSyncedCallback({ sourceId: 'source-a', bundleCount: 2 }); // re-arms
-    await clock.tickAsync(600); // trailing edge #2 → pending (still just one re-run queued)
-    onSourceSyncedCallback({ sourceId: 'source-a', bundleCount: 3 }); // re-arms
-    await clock.tickAsync(600); // trailing edge #3 → pending
-
-    assert.strictEqual(renderCount(), 0, 'no render should occur while the first load is still gated');
-
-    // Release the gate: exactly one leading render + one coalesced follow-up.
-    await clock.tickAsync(GATE_MS);
-
-    assert.strictEqual(
-      renderCount(),
-      2,
-      `expected exactly leading + one coalesced follow-up render, got ${renderCount()}`
-    );
+    assert.strictEqual(renderCount(), 0, 'the active sync batch must not refresh the marketplace');
+    await clock.tickAsync(4_000);
+    assert.strictEqual(renderCount(), 1, 'the settled batch must refresh the marketplace once');
+    assert.strictEqual(mockSearchBundles.callCount, 1, 'the settled batch must load bundles once');
   });
 });
