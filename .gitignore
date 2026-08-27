@@ -51,6 +51,7 @@ website/node_modules/
 
 # Generated skill references (copied from docs/ at build time)
 resources/skills/prompt-registry-helper/references
+apps/vscode-extension/resources/skills/prompt-registry-helper/references
 
 # Generated schemas (copied from packages/core at build time)
 apps/vscode-extension/schemas/
