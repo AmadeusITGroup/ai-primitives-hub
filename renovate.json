@@ -5,23 +5,23 @@
     ":dependencyDashboard",
     ":semanticCommits"
   ],
-  "prConcurrentLimit": 10,
-  "prHourlyLimit": 2,
-  "labels": ["dependencies"],
+  "labels": [
+    "renovate"
+  ],
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 5am on monday"]
+    "schedule": [
+      "before 5am on monday"
+    ]
   },
   "customManagers": [
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "package.json",
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml"
       ],
       "matchStrings": [
-        "\"node\"\\s*:\\s*\">=(?<currentValue>\\d+\\.\\d+\\.\\d+)\"",
         "NODE_VERSION:\\s*\"(?<currentValue>\\d+)\""
       ],
       "datasourceTemplate": "node-version",
@@ -31,94 +31,154 @@
   ],
   "packageRules": [
     {
-      "description": "Group npm minor updates",
-      "matchManagers": ["npm"],
-      "matchUpdateTypes": ["minor"],
+      "description": "Group all minor dependency updates into a single PR",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
       "groupName": "npm minor dependencies",
       "automerge": false
     },
     {
-      "description": "Group and automerge npm patch updates",
-      "matchManagers": ["npm"],
-      "matchUpdateTypes": ["patch"],
+      "description": "Group and auto-merge all patch dependency updates",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
       "groupName": "npm patch dependencies",
       "automerge": true
     },
     {
-      "description": "Keep major updates separate",
-      "matchManagers": ["npm"],
-      "matchUpdateTypes": ["major"]
+      "description": "Create individual PRs for major updates across all managers to allow careful review",
+      "matchUpdateTypes": [
+        "major"
+      ]
     },
     {
-      "description": "Delay and isolate @types/vscode updates",
-      "matchManagers": ["npm"],
-      "matchPackageNames": ["@types/vscode"],
+      "description": "Delay @types/vscode updates by 8 months to stay aligned with the VS Code engine target",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "@types/vscode"
+      ],
       "groupName": "@types/vscode",
       "minimumReleaseAge": "8 months",
       "prCreation": "not-pending",
       "automerge": false
     },
     {
-      "description": "Keep axios updates separate",
-      "matchManagers": ["npm"],
-      "matchPackageNames": ["axios"],
+      "description": "Isolate axios updates for manual review due to breaking change history",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "axios"
+      ],
       "groupName": "axios"
     },
     {
-      "description": "Keep ESLint updates separate",
-      "matchManagers": ["npm"],
-      "matchPackageNames": ["eslint"],
+      "description": "Isolate ESLint core updates to avoid config breakage",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "eslint"
+      ],
       "groupName": "eslint"
     },
     {
-      "description": "Keep TypeScript ESLint updates separate",
-      "matchManagers": ["npm"],
-      "matchPackageNames": ["typescript-eslint"],
+      "description": "Isolate typescript-eslint updates to review rule changes separately",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "typescript-eslint"
+      ],
       "groupName": "typescript-eslint"
     },
     {
-      "description": "Keep Otter package updates separate",
-      "matchManagers": ["npm"],
-      "matchPackagePatterns": ["^@o3r/"],
+      "description": "Group all @o3r/ Otter packages together since they share a release cadence",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackagePatterns": [
+        "^@o3r/"
+      ],
       "groupName": "Otter packages"
     },
     {
-      "description": "Keep pnpm package manager updates separate",
-      "matchManagers": ["npm"],
-      "matchDepTypes": ["packageManager"],
-      "matchPackageNames": ["pnpm"],
+      "description": "Isolate pnpm package manager updates to validate workspace compatibility",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchDepTypes": [
+        "packageManager"
+      ],
+      "matchPackageNames": [
+        "pnpm"
+      ],
       "groupName": "pnpm"
     },
     {
-      "description": "Keep Node.js runtime updates separate and aligned",
-      "matchManagers": ["custom.regex"],
-      "matchDepNames": ["node"],
+      "description": "Group Node.js runtime version updates across package.json and CI workflows",
+      "matchManagers": [
+        "npm",
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "node"
+      ],
       "groupName": "Node.js runtime"
     },
     {
-      "description": "Label package workspace updates",
-      "matchFileNames": ["packages/*/package.json"],
-      "addLabels": ["workspace:packages"]
+      "description": "Add workspace label for packages/ updates",
+      "matchFileNames": [
+        "packages/*/package.json"
+      ],
+      "addLabels": [
+        "workspace:packages"
+      ]
     },
     {
-      "description": "Label application workspace updates",
-      "matchFileNames": ["apps/*/package.json"],
-      "addLabels": ["workspace:apps"]
+      "description": "Add workspace label for apps/ updates",
+      "matchFileNames": [
+        "apps/*/package.json"
+      ],
+      "addLabels": [
+        "workspace:apps"
+      ]
     },
     {
-      "description": "Label GitHub Actions workspace updates",
-      "matchFileNames": ["github-actions/*/package.json"],
-      "addLabels": ["workspace:github-actions"]
+      "description": "Add workspace label for github-actions/ updates",
+      "matchFileNames": [
+        "github-actions/*/package.json"
+      ],
+      "addLabels": [
+        "workspace:github-actions"
+      ]
     },
     {
-      "description": "Label library workspace updates",
-      "matchFileNames": ["lib/package.json"],
-      "addLabels": ["workspace:lib"]
+      "description": "Add workspace label for lib/ updates",
+      "matchFileNames": [
+        "lib/package.json"
+      ],
+      "addLabels": [
+        "workspace:lib"
+      ]
     },
     {
-      "description": "Label website workspace updates",
-      "matchFileNames": ["website/package.json"],
-      "addLabels": ["workspace:website"]
+      "description": "Add workspace label for website/ updates",
+      "matchFileNames": [
+        "website/package.json"
+      ],
+      "addLabels": [
+        "workspace:website"
+      ]
     }
   ]
 }
