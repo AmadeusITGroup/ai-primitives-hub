@@ -106,6 +106,31 @@ const reportMarkdown = (result: SecurityScanResult): string => {
   return `${lines.join('\n')}\n`;
 };
 
+const displayPath = (value: string, roots: readonly string[]): string => {
+  if (!path.isAbsolute(value)) {
+    return value.replaceAll('\\', '/');
+  }
+  for (const root of roots) {
+    const relative = path.relative(path.resolve(root), value);
+    if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
+      return relative.replaceAll('\\', '/') || path.basename(value);
+    }
+  }
+  return path.basename(value);
+};
+
+const presentResult = (result: SecurityScanResult, roots: readonly string[]): SecurityScanResult => ({
+  ...result,
+  coverage: {
+    ...result.coverage,
+    ignored: result.coverage.ignored.map((file) => ({ ...file, path: displayPath(file.path, roots), source: file.source === undefined ? undefined : displayPath(file.source, roots) })),
+    skipped: result.coverage.skipped.map((file) => ({ ...file, path: displayPath(file.path, roots) })),
+    errors: result.coverage.errors.map((error) => ({ ...error, path: error.path === undefined ? undefined : displayPath(error.path, roots) }))
+  },
+  errors: result.errors.map((error) => ({ ...error, path: error.path === undefined ? undefined : displayPath(error.path, roots) })),
+  suppressed: result.suppressed.map((item) => ({ ...item, sourcePath: displayPath(item.sourcePath, roots) }))
+});
+
 const textResult = (result: SecurityScanResult): string => {
   const counts = result.summary.active.bySeverity;
   return [
@@ -246,18 +271,23 @@ export class SecurityScanCommand extends Command {
         failOn,
         limits: SECURITY_DEFAULT_LIMITS
       });
-      await writeReports(ctx, result, this.outputDirectory, this.outputName, this.reportJson, this.reportMarkdown, this.reportOverwrite);
+      const visibleResult = presentResult(result, roots);
+      await writeReports(ctx, visibleResult, this.outputDirectory, this.outputName, this.reportJson, this.reportMarkdown, this.reportOverwrite);
       if (output === 'ndjson') {
-        writeNdjson(ctx, result);
+        writeNdjson(ctx, visibleResult);
       } else {
-        formatOutput({ ctx, command: 'security.scan', output, status: result.complete && result.summary.policy.passed ? 'ok' : 'warning', data: result, textRenderer: textResult });
+        formatOutput({
+          ctx, command: 'security.scan', output,
+          status: visibleResult.complete && visibleResult.summary.policy.passed ? 'ok' : 'warning',
+          data: visibleResult, textRenderer: textResult
+        });
       }
       if (this.report) {
         if (output !== 'text') {
           ctx.stderr.write('--report can only be used with text output\n');
           return 64;
         }
-        ctx.stdout.write(reportMarkdown(result));
+        ctx.stdout.write(reportMarkdown(visibleResult));
       }
       if (!result.complete) {
         return 65;
