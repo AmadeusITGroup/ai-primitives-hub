@@ -2,7 +2,9 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { SecurityScanService } from '../../src/services/security-scan-service';
+import {
+  SecurityScanService,
+} from '../../src/services/security-scan-service';
 
 suite('SecurityScanService', () => {
   let tempDir: string;
