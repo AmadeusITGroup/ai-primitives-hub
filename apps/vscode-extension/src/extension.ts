@@ -1,10 +1,13 @@
 import * as path from 'node:path';
+import type {
+  SecurityScanResult,
+} from '@ai-primitives-hub/app';
 import {
   getBundleRefKey,
 } from '@ai-primitives-hub/core';
 import type {
-  SecurityScanResult,
-} from '@ai-primitives-hub/app';
+  SecuritySeverity,
+} from '@ai-primitives-hub/core';
 import {
   AppStoragePrimitiveIndexStore,
   XdgAppStorage,
@@ -100,9 +103,6 @@ import {
 import {
   PrimitiveIndexService,
 } from './services/primitive-index-service';
-import type {
-  SecuritySeverity,
-} from '@ai-primitives-hub/core';
 import {
   RegistryManager,
 } from './services/registry-manager';
@@ -110,14 +110,14 @@ import {
   RepositoryActivationService,
 } from './services/repository-activation-service';
 import {
-  SecurityScanService,
-} from './services/security-scan-service';
-import {
   SchemaValidator,
 } from './services/schema-validator';
 import {
   ScopeConflictResolver,
 } from './services/scope-conflict-resolver';
+import {
+  SecurityScanService,
+} from './services/security-scan-service';
 import {
   SetupState,
   SetupStateManager,
@@ -160,36 +160,52 @@ import {
 // Module-level variable to store the extension instance for deactivation
 let extensionInstance: PromptRegistryExtension | undefined;
 
-/**
- * Main extension class that handles activation, deactivation, and command registration
- */
 const securityDiagnosticSeverity = (severity: SecuritySeverity): vscode.DiagnosticSeverity => {
-  if (severity === 'CRITICAL' || severity === 'HIGH') return vscode.DiagnosticSeverity.Error;
-  if (severity === 'MEDIUM') return vscode.DiagnosticSeverity.Warning;
-  if (severity === 'LOW') return vscode.DiagnosticSeverity.Information;
+  if (severity === 'CRITICAL' || severity === 'HIGH') {
+    return vscode.DiagnosticSeverity.Error;
+  }
+  if (severity === 'MEDIUM') {
+    return vscode.DiagnosticSeverity.Warning;
+  }
+  if (severity === 'LOW') {
+    return vscode.DiagnosticSeverity.Information;
+  }
   return vscode.DiagnosticSeverity.Hint;
 };
 
 const applySecurityDiagnostics = (collection: vscode.DiagnosticCollection, result: SecurityScanResult): void => {
   const files = new Set(result.coverage.scanned.map((file) => path.join(file.rootId, file.path)));
   collection.forEach((uri) => {
-    if (!files.has(uri.fsPath)) collection.delete(uri);
+    if (!files.has(uri.fsPath)) {
+      collection.delete(uri);
+    }
   });
   const grouped = new Map<string, vscode.Diagnostic[]>();
   for (const finding of result.findings) {
     const root = finding.rootId ?? result.coverage.scanned.find((file) => file.path === finding.file)?.rootId;
-    if (root === undefined) continue;
+    if (root === undefined) {
+      continue;
+    }
     const uri = vscode.Uri.file(path.join(root, finding.file));
     const line = Math.max(0, (finding.line ?? 1) - 1);
-    const diagnostic = new vscode.Diagnostic(new vscode.Range(line, 0, line, Number.MAX_SAFE_INTEGER), `[${finding.ruleId}] ${finding.title} — Fix: ${finding.recommendedFix}`, securityDiagnosticSeverity(finding.severity));
+    const diagnostic = new vscode.Diagnostic(
+      new vscode.Range(line, 0, line, Number.MAX_SAFE_INTEGER),
+      `[${finding.ruleId}] ${finding.title} — Fix: ${finding.recommendedFix}`,
+      securityDiagnosticSeverity(finding.severity)
+    );
     diagnostic.source = 'AI Primitives Hub Security Scanner';
     diagnostic.code = finding.ruleId;
     const key = uri.toString();
     grouped.set(key, [...(grouped.get(key) ?? []), diagnostic]);
   }
-  for (const [key, diagnostics] of grouped) collection.set(vscode.Uri.parse(key), diagnostics);
+  for (const [key, diagnostics] of grouped) {
+    collection.set(vscode.Uri.parse(key), diagnostics);
+  }
 };
 
+/**
+ * Main extension class that handles activation, deactivation, and command registration
+ */
 export class PromptRegistryExtension {
   private readonly logger: Logger;
   private readonly statusBar: StatusBar;
@@ -643,13 +659,16 @@ export class PromptRegistryExtension {
     this.disposables.push(...commands);
 
     // Add to context subscriptions
-    this.context.subscriptions.push(...commands);
-    this.context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((document) => {
+    this.context.subscriptions.push(...commands, vscode.workspace.onDidSaveTextDocument((document) => {
       const configuration = vscode.workspace.getConfiguration('promptregistry.security');
-      if (!configuration.get<boolean>('scanOnSave', true) || !vscode.workspace.isTrusted || document.uri.scheme !== 'file' || !/\.(md|markdown)$/i.test(document.uri.fsPath)) return;
+      if (!configuration.get<boolean>('scanOnSave', true) || !vscode.workspace.isTrusted || document.uri.scheme !== 'file' || !/\.(md|markdown)$/i.test(document.uri.fsPath)) {
+        return;
+      }
       const key = document.uri.toString();
       const previous = saveTimers.get(key);
-      if (previous !== undefined) clearTimeout(previous);
+      if (previous !== undefined) {
+        clearTimeout(previous);
+      }
       const timer = setTimeout(() => {
         saveTimers.delete(key);
         void securityScanService.scanFile(document.uri.fsPath, securityOptions())
