@@ -43,7 +43,7 @@ const reportJson = (result: SecurityScanResult): string => `${JSON.stringify({
   compatibility: result.compatibility,
   scan_date: result.timing.startedAt,
   scanned_files: result.coverage.scanned.map((file) => file.path),
-  ignored_files: result.coverage.ignored.map((file) => file.path),
+  ignored_files: result.coverage.ignored.map((file) => String(file.path)),
   summary: {
     total_findings: result.summary.active.total,
     suppressed_findings: result.summary.suppressed.total,
