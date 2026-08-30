@@ -16,6 +16,8 @@ focused on one decision.
 | [0007](./0007-source-aware-github-app-authentication.md) | Source-Aware GitHub App Authentication for CLI Workflows | Accepted |
 | [0008](./0008-artifactory-hub-tree-distribution-channel.md) | Generic Artifactory Hub Tree as an Explicit Distribution Channel | Proposed |
 
+Security scanner architecture and lifecycle decisions are documented in [Security Scanner Architecture](../security-scanner.md) and [Security Scanner Maintenance](../../security-scanner-maintenance.md). A dedicated ADR should be added when the scanner engine/rule-pack policy becomes a durable architecture decision beyond the current implementation increment.
+
 ## When to add a new ADR
 
 Add one when a decision would otherwise only live in a chat transcript or a

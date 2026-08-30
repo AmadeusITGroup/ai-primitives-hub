@@ -90,16 +90,17 @@ Important current boundaries:
   `packages/infra`; the extension adapter directory contains compatibility
   wiring for remaining call sites.
 
-See [Core Flows](./core-flows.md) for the current entry points and
-[Installation Flow](./architecture/installation-flow.md) for scope-specific
+See [Core Flows](./core-flows.md) for the current entry points,
+[Security Scanner Architecture](./architecture/security-scanner.md) for scanner
+boundaries and flows, and [Installation Flow](./architecture/installation-flow.md) for scope-specific
 details.
 
 ## CLI
 
 `packages/cli` is an active delivery layer, not scaffolding. It contains
 commands for collections, primitives, bundles, sources, Hubs, profiles,
-targets, discovery/indexing, installation, configuration, completion, and
-diagnostics.
+targets, discovery/indexing, security scanning, installation, configuration,
+completion, and diagnostics.
 
 Commands parse input and format output. Shared business behavior belongs in
 `packages/app`, with ports and domain rules in `core` and concrete adapters in
@@ -183,6 +184,7 @@ existing focused pages rather than repeating it here:
 - [MCP Integration](./architecture/mcp-integration.md)
 - [Scaffolding](./architecture/scaffolding.md)
 - [Validation](./architecture/validation.md)
+- [Security Scanner](./architecture/security-scanner.md)
 - [Library-centric code map](./architecture/library-centric-architecture/codemap.md)
 - [Architecture decisions](./architecture/adr/adr-index.md)
 
