@@ -47,6 +47,7 @@ export interface SecurityFinding {
   severity: SecuritySeverity;
   confidence: SecurityConfidence;
   category: string;
+  rootId?: string;
   file: string;
   line?: number;
   section?: string;

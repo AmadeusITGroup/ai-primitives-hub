@@ -24,6 +24,7 @@ export * from './registry';
 export * from './search';
 export * from './transform';
 export * from './replicate/replicate';
+export * from './security';
 
 /**
  * Phase 1 scaffolding marker, kept until `cli` has real code of its own

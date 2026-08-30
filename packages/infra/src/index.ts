@@ -23,6 +23,7 @@ export * from './resolvers';
 export * from './replicate';
 export * from './scaffolding';
 export * from './search';
+export * from './security';
 export * from './storage';
 export * from './stores';
 export * from './telemetry';
