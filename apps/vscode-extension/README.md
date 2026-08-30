@@ -55,6 +55,7 @@ The extension automatically adds the Awesome Copilot source and syncs your selec
 - **📦 Version Management** — Track versions, detect updates, and enable automatic background updates ([details](./docs/user-guide/configuration.md))
 - **👥 Profiles & Hubs** — Organize bundles by project/team and share configurations across your organization ([details](./docs/user-guide/profiles-and-hubs.md))
 - **🤖 Built-in Copilot Skill** — Ask GitHub Copilot questions about AI Primitives Hub directly in chat — setup, authoring, troubleshooting, and more
+- **🛡️ Security Scanning** — Scan Markdown AI artifacts, review diagnostics, and configure safe CI-oriented scanning ([details](./docs/user-guide/security-scanning.md))
 - **🌍 Cross-Platform** — Works on macOS, Linux, and Windows with all VS Code flavors
 
 ---
