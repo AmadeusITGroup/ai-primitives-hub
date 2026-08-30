@@ -30,7 +30,9 @@ type MutableCancellation = SecurityCancellation & { cancelled: boolean };
 const createCancellation = (): MutableCancellation => ({
   cancelled: false,
   throwIfCancelled(): void {
-    if (this.cancelled) throw new Error('Security scan cancelled');
+    if (this.cancelled) {
+      throw new Error('Security scan cancelled');
+    }
   }
 });
 
@@ -39,21 +41,11 @@ export class SecurityScanService {
   private lastResult?: SecurityScanResult;
   private readonly activeScans = new Map<string, MutableCancellation>();
 
-  public getLastResult(): SecurityScanResult | undefined {
-    return this.lastResult;
-  }
-
-  public scanFile(filePath: string, options: SecurityScanServiceOptions = {}): Promise<SecurityScanResult> {
-    return this.scan(`file:${filePath}`, [filePath], options);
-  }
-
-  public scanWorkspace(root: string, options: SecurityScanServiceOptions = {}): Promise<SecurityScanResult> {
-    return this.scan(`workspace:${root}`, [root], options);
-  }
-
   private async scan(key: string, roots: readonly string[], options: SecurityScanServiceOptions): Promise<SecurityScanResult> {
     const previous = this.activeScans.get(key);
-    if (previous !== undefined) previous.cancelled = true;
+    if (previous !== undefined) {
+      previous.cancelled = true;
+    }
     const cancellation = createCancellation();
     this.activeScans.set(key, cancellation);
     const engine = new RuleBasedSecurityScanEngine();
@@ -84,11 +76,27 @@ export class SecurityScanService {
         failOn: 'none',
         limits: SECURITY_DEFAULT_LIMITS
       });
-      if (this.activeScans.get(key) === cancellation) this.lastResult = result;
+      if (this.activeScans.get(key) === cancellation) {
+        this.lastResult = result;
+      }
       this.logger.info(`Security scan completed: ${String(result.findings.length)} finding(s), ${String(result.coverage.scanned.length)} file(s)`);
       return result;
     } finally {
-      if (this.activeScans.get(key) === cancellation) this.activeScans.delete(key);
+      if (this.activeScans.get(key) === cancellation) {
+        this.activeScans.delete(key);
+      }
     }
+  }
+
+  public getLastResult(): SecurityScanResult | undefined {
+    return this.lastResult;
+  }
+
+  public scanFile(filePath: string, options: SecurityScanServiceOptions = {}): Promise<SecurityScanResult> {
+    return this.scan(`file:${filePath}`, [filePath], options);
+  }
+
+  public scanWorkspace(root: string, options: SecurityScanServiceOptions = {}): Promise<SecurityScanResult> {
+    return this.scan(`workspace:${root}`, [root], options);
   }
 }
