@@ -60,6 +60,8 @@ const secretPatterns = {
   sec018: /\blin_api_[a-zA-Z0-9]{20,}\b/,
   sec019: /\bdapi[a-f0-9]{32}\b/,
   sec020: /\bdop_v1_[a-f0-9]{64}\b/,
+  sec021: /https?:\/\/[^:\s/'"<>@]{1,200}:[^@\s'"<>]{4,200}@[^\s'"<>]+/i,
+  sec022: /\becho\b.{0,60}\$\{?(?:API_KEY|SECRET|TOKEN|PASSWORD|PASS|CREDENTIAL|PRIVATE_KEY)\w*\}?/i,
   sec023: /(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_TOKEN|CF_API_TOKEN|CF_TOKEN)\s*[=:]\s*["']?[A-Za-z0-9_-]{20,}["']?/i,
   sec024: /\bSK[a-f0-9]{32}\b/,
   sec025: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
@@ -74,9 +76,11 @@ const secretRules: PatternRule[] = Object.entries(secretPatterns).map(([key, pat
     '004': 'Hardcoded GitHub Token', '005': 'Hardcoded Stripe Live Key', '006': 'Hardcoded Google API Key',
     '007': 'Hardcoded Slack Token', '008': 'Database Connection String with Credentials', '009': 'Exposed Private Key',
     '010': 'Hardcoded Hugging Face Token', '011': 'Generic Secret Variable with Value', '012': 'SendGrid API Key',
-    '014': 'Out-of-Band / Exfiltration URL', '015': 'Hardcoded xAI API Key', '016': 'Hardcoded Discord Bot Token',
+    '013': 'High-Entropy String — Potential Secret', '014': 'Out-of-Band / Exfiltration URL',
+    '015': 'Hardcoded xAI API Key', '016': 'Hardcoded Discord Bot Token',
     '017': 'Hardcoded npm Access Token', '018': 'Hardcoded Linear API Key', '019': 'Hardcoded Databricks Personal Access Token',
-    '020': 'Hardcoded DigitalOcean Personal Access Token', '023': 'Hardcoded Cloudflare API Token',
+    '020': 'Hardcoded DigitalOcean Personal Access Token', '021': 'URL-Embedded Credentials',
+    '022': 'Sensitive Environment Variable Echoed to Output', '023': 'Hardcoded Cloudflare API Token',
     '024': 'Hardcoded Twilio Auth Token / API Key SID', '025': 'Hardcoded JWT Token', '026': 'Hardcoded Mailchimp API Key',
     '027': 'Credential File Path Reference'
   };
@@ -124,11 +128,63 @@ const hookRules: PatternRule[] = [
   makeRule('HKS-014', 'Privilege Escalation Command', 'CRITICAL', /\b(?:sudo|doas)\s+(?:-n\s+)?(?:sh|bash|python|node|chmod|chown)\b/i, 'hook_injection', OWASP_WEB)
 ];
 
-const allRules = [...secretRules, ...injectionRules, ...markdownRules, ...hookRules];
+const agenticRules: PatternRule[] = [
+  makeRule('AGT-001', 'Wildcard / All Permissions in Agent Config', 'CRITICAL', /permissions?\s*[=:]\s*["']?\*["']?|permissions?\s*[=:]\s*["']?all["']?/i, 'excessive_agency', OWASP_WEB),
+  makeRule(
+    'AGT-002', 'Privilege Escalation Pattern in Agent Definition', 'CRITICAL',
+    /\bgrant\s+(?:yourself|itself|the agent)\b|\bbecome\s+(?:admin|root|superuser)\b/i,
+    'privilege_escalation', OWASP_WEB
+  ),
+  makeRule(
+    'AGT-003', 'Missing Human-in-the-Loop Gate for Destructive Operations', 'HIGH',
+    /\b(?:delete|remove|drop|deploy|publish|execute|run code)\b/i,
+    'excessive_agency', OWASP_WEB
+  ),
+  makeRule(
+    'AGT-004', 'Wildcard Permission Grant in Agent Definition', 'CRITICAL',
+    /\b(?:allow[- ]all|unrestricted|no permission check|required?)\s+(?:tools?|access|commands?)\b/i,
+    'excessive_agency', OWASP_WEB
+  ),
+  makeRule('AGT-005', 'Overly Permissive Tool Allowlist', 'CRITICAL', /(?:allowed-tools|permissions?\.allow).*\b(?:Bash\s*\(\s*\*|sudo)/i, 'excessive_agency', OWASP_WEB),
+  makeRule('AGT-006', 'No Tool Deny List Configured', 'HIGH', /allowed-tools|permissions?\.allow/i, 'excessive_agency', OWASP_WEB),
+  makeRule('AGT-007', 'No PreToolUse Security Hook Configured', 'MEDIUM', /allowed-tools|permissions?\.allow/i, 'excessive_agency', OWASP_WEB),
+  makeRule(
+    'AGT-008', 'Directive Precedence Override', 'CRITICAL',
+    /\b(?:supersede|override)\s+(?:any|all|every|user|conflicting)\b|\babsolut(?:e|ely)\s+(?:authority|directives?|instructions?)\b/i,
+    'agentic_threat', OWASP_WEB
+  ),
+  makeRule('AGT-009', 'Stealth Directive', 'CRITICAL', /\bsilently\s+(?:add|insert|inject|modify|replace|remove|delete)\b|\bAI summarizers?,?\s+please do not\b/i, 'agentic_threat', OWASP_WEB),
+  makeRule('MCP-001', 'MCP Tool Exfiltration Pattern', 'CRITICAL', /(?:tool|callback|webhook).{0,100}(?:exfiltrat|steal|harvest|capture)/i, 'mcp_poisoning', OWASP_WEB),
+  makeRule('MCP-005', 'Unpinned npx MCP Package', 'HIGH', /\bnpx\s+-y\b/i, 'mcp_poisoning', OWASP_WEB),
+  makeRule('SKL-001', 'Remote Shell Pipe in Skill', 'CRITICAL', /\b(?:curl|wget)\b[^\n|]{0,300}\|\s*(?:ba|z|fi)?sh\b/i, 'agentic_skills', OWASP_WEB),
+  makeRule('SKL-002', 'Model Endpoint Override', 'CRITICAL', /ANTHROPIC_BASE_URL\s*=/i, 'agentic_skills', OWASP_WEB),
+  makeRule('SKL-005', 'Unsafe YAML Deserialization Tag', 'CRITICAL', /!!python\/(?:object|module|name|apply)/i, 'agentic_skills', OWASP_WEB),
+  makeRule('SKL-006', 'Host Network Exposure', 'HIGH', /network_mode\s*:\s*["']?host|\b0\.0\.0\.0\b/i, 'agentic_skills', OWASP_WEB),
+  makeRule('SKL-007', 'Unpinned Dependency Version', 'MEDIUM', /(?:[~^]|>=?)\s*\d+\.\d+/i, 'agentic_skills', OWASP_WEB),
+  makeRule('SKL-008', 'Security Scanner Evasion', 'HIGH', /\b(?:disable|skip|bypass|evade|suppress)\s+(?:security\s+)?scann(?:er|ing|s)/i, 'agentic_skills', OWASP_WEB),
+  makeRule('LLM-002', 'Insecure Output Handling', 'HIGH', /(?:innerHTML|dangerouslySetInnerHTML|raw\s+HTML)/i, 'insecure_output', OWASP_WEB),
+  makeRule('LLM-004', 'Unbounded Model Work', 'HIGH', /while\s*\(\s*true\s*\)|for\s*\(\s*;;\s*\)/i, 'model_dos', OWASP_WEB),
+  makeRule('LLM-005', 'Unpinned Package Installation', 'HIGH', /(?:pip|npm|pnpm|yarn)\s+install\b(?![^\n]*@[0-9]+\.[0-9]+)/i, 'supply_chain', OWASP_WEB),
+  makeRule('ASI-003', 'Agent Identity or Privilege Abuse', 'HIGH', /(?:impersonate|assume|forge)\s+(?:another\s+)?(?:agent|identity|user)/i, 'agent_identity', OWASP_WEB),
+  makeRule('ASI-005', 'Unexpected Code Execution', 'CRITICAL', /\b(?:eval|exec|child_process)\s*\(/i, 'code_execution', OWASP_WEB)
+];
+
+const allRules = [...secretRules, ...injectionRules, ...markdownRules, ...hookRules, ...agenticRules];
 const packDigest = `sha256:${createHash('sha256').update(allRules.map((rule) => `${rule.id}:${rule.title}:${rule.pattern.source}`).join('\n')).digest('hex')}`;
 const invisible = /[\u200B-\u200F\uFEFF\u2060-\u2064\u202A-\u202E\u2066-\u2069]/;
 const placeholder = /\{\{[^}]+\}\}|\{[^}]+\}|<(?:user_input|user_message|input|query|prompt)>|\[[A-Z_]{3,}\]/;
 const boundary = /DATA_START|DATA_END|CONTENT_START|CONTENT_END|\[DATA\]|\[INSTRUCTIONS\]|<data>|<user_data>|is\s+(?:NOT\s+instructions?|data\s+only)/i;
+const assignment = /[=:]\s*["']([A-Za-z0-9+/=_-]{25,})["']/g;
+const entropy = (value: string): number => {
+  const frequencies = new Map<string, number>();
+  for (const character of value) {
+    frequencies.set(character, (frequencies.get(character) ?? 0) + 1);
+  }
+  return [...frequencies.values()].reduce((total, count) => {
+    const probability = count / value.length;
+    return total - probability * Math.log2(probability);
+  }, 0);
+};
 
 const createFinding = (
   document: SecurityDocument,
@@ -165,12 +221,48 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
       continue;
     }
     for (const rule of markdown ? allRules : [...secretRules, ...hookRules]) {
+      const agentConfig = parsed.artifactClass === 'skill' || parsed.artifactClass === 'agent_config';
+      if (rule.id === 'AGT-003' && !options.includeLlmControls) {
+        continue;
+      }
+      if (/^AGT-00[1-7]$/.test(rule.id) && !agentConfig) {
+        continue;
+      }
+      if (rule.id === 'AGT-006' || rule.id === 'AGT-007') {
+        continue;
+      }
       if (rule.pattern.test(line.text)) {
         const severity = line.inExample && rule.category === 'secrets' ? 'MEDIUM' : (line.inExample && rule.category === 'prompt_injection' ? 'INFO' : rule.severity);
         findings.push(createFinding(document, rule, index + 1, line.section, line.text.trim(), severity, line.inExample ? 'MEDIUM' : 'HIGH'));
         if (rule.category === 'secrets') {
           break;
         }
+      }
+    }
+  }
+  if (markdown && (parsed.artifactClass === 'skill' || parsed.artifactClass === 'agent_config')) {
+    const allowedTools = /allowed-tools|permissions?\.allow/i.test(document.content);
+    const denyTools = /deny-tools|permissions?\.deny|denied-tools/i.test(document.content);
+    const preToolUse = /PreToolUse/i.test(document.content);
+    if (allowedTools && !denyTools) {
+      const rule = makeRule('AGT-006', 'No Tool Deny List Configured', 'HIGH', /allowed-tools|permissions?\.allow/i, 'excessive_agency', OWASP_WEB);
+      findings.push(createFinding(document, rule, undefined, undefined, 'Allowed tools are declared without a deny list.'));
+    }
+    if (allowedTools && !preToolUse) {
+      const rule = makeRule('AGT-007', 'No PreToolUse Security Hook Configured', 'MEDIUM', /allowed-tools|permissions?\.allow/i, 'excessive_agency', OWASP_WEB);
+      findings.push(createFinding(document, rule, undefined, undefined, 'Allowed tools are declared without a PreToolUse hook.'));
+    }
+  }
+  if (markdown) {
+    const entropyRule = makeRule('SEC-013', 'High-Entropy String — Potential Secret', 'HIGH', assignment, 'secrets', LLM06);
+    for (const [index, line] of parsed.lines.entries()) {
+      assignment.lastIndex = 0;
+      let match = assignment.exec(line.text);
+      while (match !== null) {
+        if (entropy(match[1]) > 4.5 && !/^([0-9a-f]{8}-){4}[0-9a-f]{12}$/i.test(match[1])) {
+          findings.push({ ...createFinding(document, entropyRule, index + 1, line.section, line.text.trim(), 'HIGH', 'MEDIUM') });
+        }
+        match = assignment.exec(line.text);
       }
     }
   }
@@ -207,6 +299,6 @@ export class RuleBasedSecurityScanEngine implements SecurityScanEngine {
   public readonly capabilities: SecurityEngineCapabilities = { contentTypes: ['text/markdown', 'application/json'], locations: 'line', supportsFileMode: false, supportsCancellation: true };
   public scanDocument(document: SecurityDocument, options: SecurityEngineOptions, cancellation: SecurityCancellation): Promise<readonly SecurityFinding[]> {
     const isSettings = document.displayPath.endsWith('/settings.json') || document.displayPath.endsWith('/settings.local.json');
-    return Promise.resolve(scanText(document, options, cancellation, !isSettings));
+    return Promise.resolve().then(() => scanText(document, options, cancellation, !isSettings));
   }
 }
