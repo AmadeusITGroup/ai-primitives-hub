@@ -24,6 +24,16 @@ This document lists all VS Code commands provided by the AI Primitives Hub exten
 
 Primitive search reads only a pre-built local index. It does not synchronize sources or rebuild the index. **Rebuild Primitive Index** is the explicit lifecycle operation that may access configured sources; it reports harvest, indexing, and embedding milestones in the **AI Primitives Hub** output channel and shows a completion or failure notification.
 
+## Security Scanning
+
+| Command | Description |
+|---|---|
+| `ai-primitives-hub security scan [PATH...]` | Scan Markdown AI artifacts and supported Claude settings for security findings |
+
+The command supports text, JSON, YAML, and NDJSON output. Use `--ci` for fail-closed CI defaults and `--ignore-trust none` to prevent repository-controlled ignore files from suppressing findings. Findings are reported with severity, confidence, remediation, and compatible fingerprints. Secret evidence is redacted by default. Report files are opt-in via `--report-json`, `--report-markdown`, or `--output-directory`.
+
+See the security scanner integration documentation and command `--help` for resource limits, `.markdown.ignore` / `.markdown-file.ignore` behavior, and the `--fail-on` policy.
+
 ## Scope Management
 
 Commands for managing bundle installation scope. These are available via context menu on installed bundles in the Registry Explorer.
