@@ -83,6 +83,18 @@ pnpm run test:coverage:unit    # c8 html output in coverage/
 
 Coverage reports are written to the `coverage/` directory.
 
+## Security Scanner Testing
+
+Security scanner changes use layered tests:
+
+- `packages/core/test/domain/security/` covers pure parser, fingerprint, suppression, policy, and rule behavior;
+- `packages/infra/test/security/` covers bounded filesystem discovery, symlinks, worker isolation, and atomic report writes;
+- `packages/app/test/security/` covers orchestration, completeness, suppression, and failure policy;
+- `packages/cli/test/commands/security-scan.test.ts` covers argv parsing, output envelopes, reports, CI trust, and exit codes;
+- `apps/vscode-extension/test/services/security-scan-service.test.ts` covers extension delegation.
+
+When adding a rule, test a minimal positive, a near miss, context/example behavior, redaction, and adversarial long input. Use only synthetic credentials. Run the focused package suite first, then the full package suite. See [Security Scanner Maintenance](./security-scanner-maintenance.md) for the review checklist and [Security Scanner Architecture](./architecture/security-scanner.md) for test boundaries.
+
 ## What These Suites Do Not Cover
 
 Everything above is automated. The paths a person still has to walk by hand — installing the published extension on a clean machine, authenticating against real GitHub, confirming Copilot and Kiro actually recognize what was installed, publishing a collection through a real runner, upgrading from the previous major — are covered manually.

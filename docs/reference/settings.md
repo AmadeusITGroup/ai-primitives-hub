@@ -55,6 +55,13 @@ This document describes all configuration settings available for the AI Primitiv
 - **Default:** `true`
 - **Description:** Include informational missing-control findings when LLM controls are enabled.
 
+### `promptregistry.security.debounceMs`
+
+- **Type:** `number`
+- **Default:** `300`
+- **Range:** `100`–`5000`
+- **Description:** Delay automatic scanning after a save, allowing rapid save events to be coalesced.
+
 ## GitHub Settings
 
 ### `promptregistry.githubToken`

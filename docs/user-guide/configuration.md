@@ -13,6 +13,11 @@ Access: `File → Preferences → Settings → Extensions → AI Primitives Hub`
 | `promptregistry.updateCheck.frequency` | `daily`, `weekly`, `manual` | `daily` |
 | `promptregistry.updateCheck.autoUpdate` | Auto-install updates | `false` |
 | `promptregistry.updateCheck.cacheTTL` | Cache TTL (ms) | `300000` |
+| `promptregistry.security.scanOnSave` | Scan trusted local Markdown files on save | `true` |
+| `promptregistry.security.minimumSeverity` | Minimum diagnostic severity | `INFO` |
+| `promptregistry.security.includeLlmControls` | Enable LLM control checks | `false` |
+| `promptregistry.security.showInfoControls` | Show informational controls | `true` |
+| `promptregistry.security.debounceMs` | Save-scan debounce delay (ms) | `300` |
 
 ## Telemetry
 
@@ -55,4 +60,5 @@ Enabling telemetry helps us understand how the extension is used so we can focus
 ## See Also
 
 - [Settings Reference](../reference/settings.md) — Complete settings list
+- [Security Scanning](./security-scanning.md) — Scanner usage and CI configuration
 - [Troubleshooting](./troubleshooting.md) — Common issues

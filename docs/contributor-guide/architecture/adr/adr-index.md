@@ -15,6 +15,8 @@ focused on one decision.
 | [0006](./0006-shared-semantic-cache-and-client-owned-state.md) | Shared Semantic Cache and Client-Owned State | Accepted |
 | [0007](./0007-source-aware-github-app-authentication.md) | Source-Aware GitHub App Authentication for CLI Workflows | Accepted |
 
+Security scanner architecture and lifecycle decisions are documented in [Security Scanner Architecture](../security-scanner.md) and [Security Scanner Maintenance](../../security-scanner-maintenance.md). A dedicated ADR should be added when the scanner engine/rule-pack policy becomes a durable architecture decision beyond the current implementation increment.
+
 ## When to add a new ADR
 
 Add one when a decision would otherwise only live in a chat transcript or a

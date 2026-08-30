@@ -32,7 +32,16 @@ Primitive search reads only a pre-built local index. It does not synchronize sou
 
 The command supports text, JSON, YAML, and NDJSON output. Use `--ci` for fail-closed CI defaults and `--ignore-trust none` to prevent repository-controlled ignore files from suppressing findings. Findings are reported with severity, confidence, remediation, and compatible fingerprints. Secret evidence is redacted by default. Report files are opt-in via `--report-json`, `--report-markdown`, or `--output-directory`.
 
-See the security scanner integration documentation and command `--help` for resource limits, `.markdown.ignore` / `.markdown-file.ignore` behavior, and the `--fail-on` policy.
+See the [Security Scanner Reference](security-scanner.md) and command `--help` for resource limits, `.markdown.ignore` / `.markdown-file.ignore` behavior, and the `--fail-on` policy.
+
+The extension contributes these commands:
+
+| Command | Title |
+|---|---|
+| `promptregistry.securityScanFile` | Security Scan Current File |
+| `promptregistry.securityScanWorkspace` | Security Scan Workspace |
+| `promptregistry.securityShowLastReport` | Show Last Security Report |
+| `promptregistry.securityClearDiagnostics` | Clear Security Diagnostics |
 
 ## Scope Management
 

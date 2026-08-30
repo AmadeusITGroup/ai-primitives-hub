@@ -13,6 +13,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Profiles and Hubs](user-guide/profiles-and-hubs.md)** — Profile and Hub management
 - **[Configuration](user-guide/configuration.md)** — Extension settings and telemetry
 - **[Troubleshooting](user-guide/troubleshooting.md)** — Common issues
+- **[Security Scanning](user-guide/security-scanning.md)** — Scan artifacts, triage findings, and configure CI
 
 ---
 
@@ -41,6 +42,8 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
   - [MCP Integration](contributor-guide/architecture/mcp-integration.md)
   - [Scaffolding](contributor-guide/architecture/scaffolding.md)
   - [Validation](contributor-guide/architecture/validation.md)
+  - [Security Scanner](contributor-guide/architecture/security-scanner.md)
+- **[Security Scanner Maintenance](contributor-guide/security-scanner-maintenance.md)** — Rule, safety, and delivery maintenance
 - **[Core Flows](contributor-guide/core-flows.md)** — Key system flows
 - **[Testing](contributor-guide/testing.md)** — Testing strategy
 - **[Testing SSH Remote](contributor-guide/testing/ssh-remote.md)** — SSH testing
@@ -58,6 +61,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Settings](reference/settings.md)** — Extension settings
 - **[Adapter API](reference/adapter-api.md)** — Custom adapters
 - **[Hub Schema](reference/hub-schema.md)** — Hub configuration
+- **[Security Scanner](reference/security-scanner.md)** — Scanner options, outputs, rules, and safety limits
 
 ---
 
