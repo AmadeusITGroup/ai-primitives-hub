@@ -182,6 +182,21 @@ const writeReports = async (
   }
 };
 
+const parsePositive = (value: string | undefined, fallback: number): number | undefined => {
+  if (value === undefined) {
+    return fallback;
+  }
+  const match = /^(\d+)(ms|s|m)?$/i.exec(value);
+  if (match === null) {
+    return undefined;
+  }
+  const amount = Number(match[1]);
+  const unit = match[2]?.toLowerCase();
+  const multiplier = unit === 'm' ? 60_000 : (unit === 's' ? 1000 : 1);
+  const parsed = amount * multiplier;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+};
+
 const writeNdjson = (ctx: Context, result: SecurityScanResult): void => {
   const records = [
     { type: 'scan.header', schemaVersion: 1, scanId: result.scanId, complete: result.complete },
@@ -198,7 +213,14 @@ export class SecurityScanCommand extends Command {
   public static readonly paths = [['security', 'scan']];
   public static readonly usage = Command.Usage({
     description: 'Scan AI primitive files for security findings.',
-    category: 'Security'
+    category: 'Security',
+    details: `
+      Usage: ai-primitives-hub security scan [PATH...]
+
+      Use --ci for fail-closed CI defaults, --ignore-trust none to disable repository suppressions,
+      and --fail-on HIGH to gate on high or critical findings. Secret evidence is redacted by default.
+      Reports are opt-in with --report-json, --report-markdown, or --output-directory.
+    `
   });
 
   public output = Option.String('-o,--output');
@@ -221,6 +243,12 @@ export class SecurityScanCommand extends Command {
   public outputDirectory = Option.String('--output-directory');
   public outputName = Option.String('--output-name', 'security-report');
   public reportOverwrite = Option.String('--report-overwrite', 'never');
+  public maxFiles = Option.String('--max-files');
+  public maxFileBytes = Option.String('--max-file-bytes');
+  public maxTotalBytes = Option.String('--max-total-bytes');
+  public maxDepth = Option.String('--max-depth');
+  public maxFindings = Option.String('--max-findings');
+  public timeout = Option.String('--timeout');
   public report = Option.Boolean('--report', false);
   // eslint-disable-next-line new-cap -- Clipanion exposes Rest as a factory function with an uppercase name.
   public rest = Option.Rest({ required: 0 });
@@ -278,6 +306,19 @@ export class SecurityScanCommand extends Command {
       baselineSuppressionPath: this.baselineSuppressions,
       baselineFileIgnorePath: this.baselineFileIgnore
     };
+    const limits = {
+      ...SECURITY_DEFAULT_LIMITS,
+      maxFiles: parsePositive(this.maxFiles, SECURITY_DEFAULT_LIMITS.maxFiles),
+      maxFileBytes: parsePositive(this.maxFileBytes, SECURITY_DEFAULT_LIMITS.maxFileBytes),
+      maxTotalBytes: parsePositive(this.maxTotalBytes, SECURITY_DEFAULT_LIMITS.maxTotalBytes),
+      maxDepth: parsePositive(this.maxDepth, SECURITY_DEFAULT_LIMITS.maxDepth),
+      maxFindings: parsePositive(this.maxFindings, SECURITY_DEFAULT_LIMITS.maxFindings),
+      timeoutMs: parsePositive(this.timeout, SECURITY_DEFAULT_LIMITS.timeoutMs)
+    };
+    if (Object.values(limits).includes(undefined)) {
+      ctx.stderr.write('Security scan limits must be positive integers with optional ms, s, or m suffixes\n');
+      return 64;
+    }
     try {
       const baseEngine = new RuleBasedSecurityScanEngine();
       const result = await runSecurityScan({
@@ -288,7 +329,7 @@ export class SecurityScanCommand extends Command {
         request,
         scanOptions: { includeLlmControls: this.includeLlmControls, skipInfoControls: this.skipInfoControls, selectedSeverities: selected },
         failOn,
-        limits: SECURITY_DEFAULT_LIMITS
+        limits: limits as typeof SECURITY_DEFAULT_LIMITS
       });
       const visibleResult = presentResult(result, roots);
       await writeReports(ctx, visibleResult, this.outputDirectory, this.outputName, this.reportJson, this.reportMarkdown, this.reportOverwrite);
