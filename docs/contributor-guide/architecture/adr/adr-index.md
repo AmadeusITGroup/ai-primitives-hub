@@ -14,8 +14,9 @@ focused on one decision.
 | [0005](./0005-universal-xdg-based-app-storage.md) | Universal, XDG-Based Application Storage Port | Accepted |
 | [0006](./0006-shared-semantic-cache-and-client-owned-state.md) | Shared Semantic Cache and Client-Owned State | Accepted |
 | [0007](./0007-source-aware-github-app-authentication.md) | Source-Aware GitHub App Authentication for CLI Workflows | Accepted |
+| [0008](./0008-native-ports-and-adapters-security-scanning.md) | Native Ports-and-Adapters Security Scanning | Accepted |
 
-Security scanner architecture and lifecycle decisions are documented in [Security Scanner Architecture](../security-scanner.md) and [Security Scanner Maintenance](../../security-scanner-maintenance.md). A dedicated ADR should be added when the scanner engine/rule-pack policy becomes a durable architecture decision beyond the current implementation increment.
+Security scanner architecture and lifecycle details are documented in [Security Scanner Architecture](../security-scanner.md) and [Security Scanner Maintenance](../../security-scanner-maintenance.md).
 
 ## When to add a new ADR
 
