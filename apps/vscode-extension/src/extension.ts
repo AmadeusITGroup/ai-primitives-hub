@@ -1,6 +1,10 @@
+import * as path from 'node:path';
 import {
   getBundleRefKey,
 } from '@ai-primitives-hub/core';
+import type {
+  SecurityScanResult,
+} from '@ai-primitives-hub/app';
 import {
   AppStoragePrimitiveIndexStore,
   XdgAppStorage,
@@ -96,12 +100,18 @@ import {
 import {
   PrimitiveIndexService,
 } from './services/primitive-index-service';
+import type {
+  SecuritySeverity,
+} from '@ai-primitives-hub/core';
 import {
   RegistryManager,
 } from './services/registry-manager';
 import {
   RepositoryActivationService,
 } from './services/repository-activation-service';
+import {
+  SecurityScanService,
+} from './services/security-scan-service';
 import {
   SchemaValidator,
 } from './services/schema-validator';
@@ -153,6 +163,33 @@ let extensionInstance: PromptRegistryExtension | undefined;
 /**
  * Main extension class that handles activation, deactivation, and command registration
  */
+const securityDiagnosticSeverity = (severity: SecuritySeverity): vscode.DiagnosticSeverity => {
+  if (severity === 'CRITICAL' || severity === 'HIGH') return vscode.DiagnosticSeverity.Error;
+  if (severity === 'MEDIUM') return vscode.DiagnosticSeverity.Warning;
+  if (severity === 'LOW') return vscode.DiagnosticSeverity.Information;
+  return vscode.DiagnosticSeverity.Hint;
+};
+
+const applySecurityDiagnostics = (collection: vscode.DiagnosticCollection, result: SecurityScanResult): void => {
+  const files = new Set(result.coverage.scanned.map((file) => path.join(file.rootId, file.path)));
+  collection.forEach((uri) => {
+    if (!files.has(uri.fsPath)) collection.delete(uri);
+  });
+  const grouped = new Map<string, vscode.Diagnostic[]>();
+  for (const finding of result.findings) {
+    const root = finding.rootId ?? result.coverage.scanned.find((file) => file.path === finding.file)?.rootId;
+    if (root === undefined) continue;
+    const uri = vscode.Uri.file(path.join(root, finding.file));
+    const line = Math.max(0, (finding.line ?? 1) - 1);
+    const diagnostic = new vscode.Diagnostic(new vscode.Range(line, 0, line, Number.MAX_SAFE_INTEGER), `[${finding.ruleId}] ${finding.title} — Fix: ${finding.recommendedFix}`, securityDiagnosticSeverity(finding.severity));
+    diagnostic.source = 'AI Primitives Hub Security Scanner';
+    diagnostic.code = finding.ruleId;
+    const key = uri.toString();
+    grouped.set(key, [...(grouped.get(key) ?? []), diagnostic]);
+  }
+  for (const [key, diagnostics] of grouped) collection.set(vscode.Uri.parse(key), diagnostics);
+};
+
 export class PromptRegistryExtension {
   private readonly logger: Logger;
   private readonly statusBar: StatusBar;
@@ -365,6 +402,19 @@ export class PromptRegistryExtension {
     this.validateCollectionsCommand = new ValidateCollectionsCommand(this.context);
     this.validateApmCommand = new ValidateApmCommand(this.context);
     this.createCollectionCommand = new CreateCollectionCommand();
+    const securityScanService = new SecurityScanService();
+    const securityDiagnostics = vscode.languages.createDiagnosticCollection('promptregistry-security');
+    const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    this.context.subscriptions.push(securityDiagnostics);
+    const securityOptions = () => {
+      const configuration = vscode.workspace.getConfiguration('promptregistry.security');
+      const minimum = configuration.get<string>('minimumSeverity', 'INFO').toUpperCase() as SecuritySeverity;
+      return {
+        minimumSeverity: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'].includes(minimum) ? minimum : 'INFO' as SecuritySeverity,
+        includeLlmControls: configuration.get<boolean>('includeLlmControls', false),
+        showInfoControls: configuration.get<boolean>('showInfoControls', true)
+      };
+    };
 
     // Register command handlers
     const commands = [
@@ -486,6 +536,50 @@ export class PromptRegistryExtension {
         await this.createCollectionCommand!.execute();
       }),
 
+      vscode.commands.registerCommand('promptregistry.securityScanFile', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          void vscode.window.showWarningMessage('AI Primitives Hub: No active file to scan.');
+          return;
+        }
+        if (!vscode.workspace.isTrusted) {
+          void vscode.window.showWarningMessage('AI Primitives Hub: automatic security scanning is disabled in an untrusted workspace.');
+        }
+        const result = await securityScanService.scanFile(editor.document.uri.fsPath, securityOptions());
+        applySecurityDiagnostics(securityDiagnostics, result);
+        const total = result.summary.active.total;
+        void (total > 0
+          ? vscode.window.showWarningMessage(`AI Primitives Hub: ${String(total)} security finding(s) in ${path.basename(editor.document.uri.fsPath)}.`)
+          : vscode.window.showInformationMessage('AI Primitives Hub: no security findings.'));
+      }),
+      vscode.commands.registerCommand('promptregistry.securityScanWorkspace', async () => {
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || folders.length === 0) {
+          void vscode.window.showWarningMessage('AI Primitives Hub: no workspace folder to scan.');
+          return;
+        }
+        const options = securityOptions();
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'AI Primitives Hub Security Scan', cancellable: false }, async (progress) => {
+          for (const folder of folders) {
+            progress.report({ message: `Scanning ${folder.name}` });
+            const result = await securityScanService.scanWorkspace(folder.uri.fsPath, options);
+            applySecurityDiagnostics(securityDiagnostics, result);
+          }
+        });
+        void vscode.window.showInformationMessage('AI Primitives Hub: workspace security scan complete.');
+      }),
+      vscode.commands.registerCommand('promptregistry.securityClearDiagnostics', () => {
+        securityDiagnostics.clear();
+      }),
+      vscode.commands.registerCommand('promptregistry.securityShowLastReport', () => {
+        const result = securityScanService.getLastResult();
+        if (result === undefined) {
+          void vscode.window.showInformationMessage('AI Primitives Hub: no security report is available.');
+          return;
+        }
+        void vscode.window.showInformationMessage(`AI Primitives Hub: ${String(result.summary.active.total)} active finding(s), ${String(result.summary.suppressed.total)} suppressed.`);
+      }),
+
       // Command Menu - Show all commands
       vscode.commands.registerCommand('promptRegistry.showCommandMenu', async () => {
         await this.showCommandMenu();
@@ -550,6 +644,20 @@ export class PromptRegistryExtension {
 
     // Add to context subscriptions
     this.context.subscriptions.push(...commands);
+    this.context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((document) => {
+      const configuration = vscode.workspace.getConfiguration('promptregistry.security');
+      if (!configuration.get<boolean>('scanOnSave', true) || !vscode.workspace.isTrusted || document.uri.scheme !== 'file' || !/\.(md|markdown)$/i.test(document.uri.fsPath)) return;
+      const key = document.uri.toString();
+      const previous = saveTimers.get(key);
+      if (previous !== undefined) clearTimeout(previous);
+      const timer = setTimeout(() => {
+        saveTimers.delete(key);
+        void securityScanService.scanFile(document.uri.fsPath, securityOptions())
+          .then((result) => applySecurityDiagnostics(securityDiagnostics, result))
+          .catch((error: unknown) => this.logger.warn('Automatic security scan failed', error));
+      }, configuration.get<number>('debounceMs', 300));
+      saveTimers.set(key, timer);
+    }));
 
     this.logger.debug('Commands registered successfully');
   }
