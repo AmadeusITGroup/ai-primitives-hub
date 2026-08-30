@@ -63,6 +63,42 @@ describe('security scan command', () => {
     }
   });
 
+  it('fails an empty selection unless allow-empty is explicit', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
+    try {
+      const rejected = await runCommand(['security', 'scan', directory], {
+        commandClasses: [SecurityScanCommand],
+        context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(rejected.exitCode).toBe(65);
+      const allowed = await runCommand(['security', 'scan', directory, '--allow-empty'], {
+        commandClasses: [SecurityScanCommand],
+        context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(allowed.exitCode).toBe(0);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects invalid policy and output values as usage errors', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
+    try {
+      const invalidPolicy = await runCommand(['security', 'scan', directory, '--fail-on', 'unknown'], {
+        commandClasses: [SecurityScanCommand],
+        context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(invalidPolicy.exitCode).toBe(64);
+      const invalidOutput = await runCommand(['security', 'scan', directory, '-o', 'xml'], {
+        commandClasses: [SecurityScanCommand],
+        context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(invalidOutput.exitCode).toBe(64);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('does not honor repository suppressions in CI mode', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
     try {

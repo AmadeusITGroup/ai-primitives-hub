@@ -5,7 +5,6 @@ import {
   type SecurityScanResult,
 } from '@ai-primitives-hub/app';
 import {
-  type FailurePolicy,
   RuleBasedSecurityScanEngine,
   type SecurityCancellation,
   type SecuritySeverity,
@@ -229,7 +228,19 @@ export class SecurityScanCommand extends Command {
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
-    const output = (this.output ?? 'text') as OutputFormat;
+    const output = (this.output ?? 'text').toLowerCase() as OutputFormat;
+    if (!['text', 'json', 'yaml', 'ndjson'].includes(output)) {
+      ctx.stderr.write(`Invalid --output value: ${String(this.output)}\n`);
+      return 64;
+    }
+    if (this.report && output !== 'text') {
+      ctx.stderr.write('--report can only be used with text output\n');
+      return 64;
+    }
+    if (this.outputDirectory !== undefined && (this.reportJson !== undefined || this.reportMarkdown !== undefined)) {
+      ctx.stderr.write('--output-directory cannot be combined with explicit report paths\n');
+      return 64;
+    }
     const roots = this.rest.length > 0 ? this.rest : [ctx.cwd()];
     const rawIgnoreTrust = this.ci ? 'none' : (this.ignoreTrust ?? 'repository');
     if (rawIgnoreTrust !== 'repository' && rawIgnoreTrust !== 'none' && rawIgnoreTrust !== 'baseline') {
@@ -237,18 +248,26 @@ export class SecurityScanCommand extends Command {
       return 64;
     }
     const ignoreTrust = rawIgnoreTrust;
-    const rawFailOn = this.ci ? 'HIGH' : this.failOn;
-    if (rawFailOn !== 'none' && rawFailOn !== 'any' && !SEVERITIES.includes(rawFailOn as SecuritySeverity)) {
+    const rawFailOn = (this.ci ? 'HIGH' : this.failOn).toUpperCase();
+    if (rawFailOn !== 'NONE' && rawFailOn !== 'ANY' && !SEVERITIES.includes(rawFailOn as SecuritySeverity)) {
       ctx.stderr.write(`Invalid --fail-on value: ${rawFailOn}\n`);
       return 64;
     }
-    const failOn = rawFailOn as FailurePolicy;
+    const failOn = rawFailOn === 'NONE' ? 'none' : (rawFailOn === 'ANY' ? 'any' : rawFailOn as SecuritySeverity);
     const severityValues = this.severity ?? [];
     const extensionValues = this.ext ?? [];
     const excludeValues = this.exclude ?? [];
     const selected = severityValues.length > 0
       ? severityValues.map((value) => value.toUpperCase() as SecuritySeverity)
       : severitySelection(this.minimumSeverity);
+    if (selected?.some((severity) => !SEVERITIES.includes(severity))) {
+      ctx.stderr.write('Invalid --severity value\n');
+      return 64;
+    }
+    if (this.minimumSeverity !== undefined && severitySelection(this.minimumSeverity) === undefined) {
+      ctx.stderr.write(`Invalid --minimum-severity value: ${this.minimumSeverity}\n`);
+      return 64;
+    }
     const request: SecurityScanRequest = {
       roots,
       extensions: extensionValues.length > 0 ? extensionValues : ['.md', '.markdown'],
@@ -283,13 +302,9 @@ export class SecurityScanCommand extends Command {
         });
       }
       if (this.report) {
-        if (output !== 'text') {
-          ctx.stderr.write('--report can only be used with text output\n');
-          return 64;
-        }
         ctx.stdout.write(reportMarkdown(visibleResult));
       }
-      if (!result.complete) {
+      if (!result.complete || (result.coverage.scanned.length === 0 && !this.allowEmpty)) {
         return 65;
       }
       return result.summary.policy.passed ? 0 : 1;
