@@ -144,6 +144,7 @@ const createFinding = (
   severity,
   confidence,
   category: rule.category,
+  rootId: document.rootId,
   file: document.displayPath,
   line,
   section,
