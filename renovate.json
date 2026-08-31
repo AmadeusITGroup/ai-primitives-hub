@@ -1,9 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
-    ":dependencyDashboard",
-    ":semanticCommits"
+    "local>mvgadagi/renovate-config",
+    "local>mvgadagi/renovate-config:node"
   ],
   "labels": [
     "renovate"
