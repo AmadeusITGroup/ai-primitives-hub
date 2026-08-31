@@ -19,7 +19,7 @@
 const NAMESPACES = [
   'BUNDLE', 'INDEX', 'HUB', 'PRIMITIVE',
   'CONFIG', 'NETWORK', 'AUTH', 'FS',
-  'PLUGIN', 'USAGE', 'INTERNAL'
+  'PLUGIN', 'SECURITY', 'USAGE', 'INTERNAL'
 ] as const;
 
 /**

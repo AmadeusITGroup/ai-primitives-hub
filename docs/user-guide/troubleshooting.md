@@ -74,6 +74,28 @@ If you installed the extension but were never prompted to select a hub:
 2. Run `AI Primitives Hub: Reset First Run` from the Command Palette
 3. Reload VS Code (`Ctrl+R`) — the hub selector should appear
 
+## Security Scan Problems
+
+### The scan reports no files
+
+Directory scans consider `.md` and `.markdown` files and skip README/CHANGELOG by default. Check the path, extension, `--no-recursive`, and `.markdown-file.ignore`. Use `--allow-empty` only when an empty selection is expected; otherwise exit code `65` indicates incomplete or missing input.
+
+### A finding is suppressed unexpectedly
+
+Inspect applicable `.markdown.ignore` files in the scan root and its ancestors. A canonical fingerprint suppresses matching content across files. For CI over pull-request content, use `--ci` or `--ignore-trust none` so repository-controlled suppressions and whole-file ignores are not trusted.
+
+### The scan is incomplete or slow
+
+The scanner enforces bounded file, byte, depth, finding, ignore-file, report, and timeout limits. Reduce the scan path or use explicit limits after reviewing the security consequence. Symbolic links and special files are intentionally skipped. A cancelled or timed-out scan must not be treated as clean.
+
+### The VS Code diagnostics do not appear
+
+Automatic scans require a trusted workspace and local `file:` Markdown document. Virtual and untrusted workspaces require an explicit supported manual command. Check `promptregistry.security.scanOnSave`, `minimumSeverity`, and the AI Primitives Hub output channel.
+
+### A report contains unexpected paths
+
+Reports normalize paths relative to scan roots. Report files are opt-in and should not contain unrelated absolute host paths. Do not enable raw evidence in shared CI artifacts; secret evidence is redacted by default.
+
 ## Useful Commands
 
 Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on

@@ -13,7 +13,7 @@ duplicated implementations of the same domain (bundles, sources, hubs,
 installs), not one domain shared by two delivery mechanisms. This defeats
 the stated purpose of the pattern ("add new delivery mechanisms without
 changing domain") and is the single largest architectural defect identified
-during the migration-plan review (see `.tmp/ai-primitives-hub-next-migration-plan.md` §3.3.1).
+during the migration-plan review.
 
 ## Decision
 

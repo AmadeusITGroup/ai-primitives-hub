@@ -7,7 +7,7 @@ packages.
 
 Status: **active alpha CLI**. The package currently includes commands for
 collections, primitives, bundle building, sources, Hubs, profiles, targets,
-index/search/discovery, installation, configuration, shell completion, and
+index/search/discovery, security scanning, installation, configuration, shell completion, and
 doctor/diagnostics. Run the executable with `--help` for the commands present
 in the installed version.
 
