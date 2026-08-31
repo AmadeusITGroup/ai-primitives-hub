@@ -6,9 +6,12 @@
 
 AI Primitives Hub needs static security analysis for Markdown-based AI artifacts:
 prompts, instructions, agents, skills, hooks, and supported Claude configuration
-files. The existing MD Security Scanner provides the behavioral reference for
-rule families, finding metadata, fingerprints, suppression files, and triage
-workflows.
+files. The behavioral reference for this work is **MD Security Scanner**, an
+internal Amadeus tool that is not publicly disclosed and is not a project
+dependency. Its use here is limited to an approved internal behavioral baseline;
+this repository does not redistribute its source, imply public source
+availability, or link to internal URLs. Shipped code is the independently
+maintained native implementation described by this ADR.
 
 The feature must be delivered through the CLI first, reused by the VS Code
 extension, and later consumed from GitHub Actions through the CLI. A separate
@@ -73,13 +76,23 @@ normalized application contract.
    delivery concerns, not scanner-core behavior.
 
 7. **Maintain the rule pack through reviewed, incremental updates.** The
-   frozen MD Security Scanner `1.10.9` reference commit is the initial parity
+   approved internal MD Security Scanner `1.10.9` behavior is the initial parity
    baseline. Rule families are migrated and tested incrementally. Every
-   intentional difference receives a parity/deviation record, and source,
-   commit, modifications, mappings, remediation, and tests remain traceable.
-   The explicit product-owner assumption recorded in the feature specification
-   authorizes reuse and publication of the reference content under the
-   AI Primitives Hub Apache-2.0 license.
+   intentional difference receives a parity/deviation record, and the private
+   source provenance, modifications, mappings, remediation, and tests remain
+   traceable to authorized maintainers. The internal tool and its source are not
+   redistributed or made public by this project; public code contains only the
+   independently maintained implementation and approved behavior.
+
+8. **Plan a security gate in the installation pipeline.** The current scanner
+   delivery is CLI/VS Code focused, but the intended application architecture
+   includes an optional, policy-controlled scan of extracted bundle content
+   after archive/manifest validation and before any target or MCP write. The
+   gate must scan custom-source content as untrusted input, use the existing
+   normalized scan contract, preserve bounded/no-execution guarantees, and
+   return findings before side effects occur. Initial rollout may support
+   report-only or warning policy while policy defaults and UX are validated;
+   enabling the gate must not silently weaken existing installation checks.
 
 ## Consequences
 
@@ -93,6 +106,9 @@ normalized application contract.
   suppressions.
 - **Positive:** rule-pack updates are versioned, testable, and reviewable rather
   than hidden inside a delivery adapter.
+- **Positive:** a future pre-write installation gate can protect users from
+  ungoverned custom sources without coupling installation to a particular
+  scanner implementation or giving the scanner permission to execute content.
 - **Negative:** the core security package contains a substantial pure rule
   implementation and requires careful ReDoS/resource review.
 - **Negative:** worker isolation and VSIX/CLI packaging must be tested together;
@@ -115,6 +131,21 @@ packages/app/src/security/
 packages/cli/src/commands/security-scan.ts
 apps/vscode-extension/src/services/security-scan-service.ts
 ```
+
+The intended future installation integration is:
+
+```mermaid
+flowchart LR
+    DOWNLOAD["Download archive"] --> EXTRACT["Extract bounded files"]
+    EXTRACT --> VALIDATE["Validate manifest and integrity"]
+    VALIDATE --> SCAN["Security scan custom-source content"]
+    SCAN -->|policy passes| WRITE["Write target and MCP state"]
+    SCAN -->|policy blocks| REPORT["Return findings; perform no writes"]
+```
+
+The scan stage is deliberately before target and MCP side effects. It is a
+planned integration point, not a claim that every current installation path
+already invokes the scanner.
 
 Required verification includes:
 
