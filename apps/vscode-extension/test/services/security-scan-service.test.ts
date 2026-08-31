@@ -23,6 +23,8 @@ suite('SecurityScanService', () => {
     const result = await new SecurityScanService().scanFile(file);
 
     assert.strictEqual(result.coverage.scanned.length, 1);
+    assert.strictEqual(result.coverage.scanned[0]?.rootId, tempDir);
+    assert.strictEqual(result.coverage.scanned[0]?.path, 'SKILL.md');
     assert.ok(result.findings.some((finding) => finding.ruleId === 'SEC-001'));
     assert.strictEqual(result.findings.find((finding) => finding.ruleId === 'SEC-001')?.vulnerableContent, '[REDACTED]');
   });
