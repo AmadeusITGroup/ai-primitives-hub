@@ -418,6 +418,23 @@ export class PrimitiveIndex {
   }
 
   /**
+   * Whether the query carries embedding vectors for semantic ranking.
+   * When true, every filtered candidate must be scored so a semantically
+   * similar primitive can be retrieved even with no lexical token overlap.
+   * @param query Search query.
+   * @returns True if hybrid/multi query embeddings are present.
+   */
+  private hasEmbeddingQuery(query: SearchQuery): boolean {
+    if (query.ranking === 'hybrid') {
+      return !!query.queryEmbedding;
+    }
+    if (query.ranking === 'multi') {
+      return !!query.queryEmbeddings && Object.keys(query.queryEmbeddings).length > 0;
+    }
+    return false;
+  }
+
+  /**
    * Populate zero scores for filtered candidates.
    * @param scores Map of record indices to scores.
    * @param candidates Set of candidate record indices.
@@ -478,7 +495,8 @@ export class PrimitiveIndex {
       for (const name of streams) {
         const weight = providedWeights[name] ?? defaultStreamWeight;
         const qe = query.queryEmbeddings[name];
-        finalScore += weight * cosine(recordEmbeddings[name], qe);
+        // Clamp to [0, 1]: a negative cosine means "unrelated", not "penalise".
+        finalScore += weight * Math.max(0, cosine(recordEmbeddings[name], qe));
       }
       return finalScore;
     }
@@ -489,7 +507,8 @@ export class PrimitiveIndex {
     if (useHybrid) {
       const embedding = recordEmbedding ?? recordEmbeddings?.combined;
       if (embedding && query.queryEmbedding) {
-        hybridScore += (1 - alpha) * cosine(embedding, query.queryEmbedding);
+        // Clamp to [0, 1]: a negative cosine means "unrelated", not "penalise".
+        hybridScore += (1 - alpha) * Math.max(0, cosine(embedding, query.queryEmbedding));
       }
     }
     return hybridScore;
@@ -551,7 +570,12 @@ export class PrimitiveIndex {
     const qTokens = query.q ? tokenize(query.q) : [];
     const { scores, explanations } = this.bm25.score(qTokens, candidates, !!query.explain);
 
-    if (qTokens.length === 0) {
+    // BM25 only inserts docs that matched a query term. For semantic ranking
+    // we must additionally seed every filtered candidate with a zero base
+    // score so a doc that is embedding-similar but shares no lexical token can
+    // still be retrieved — otherwise the dense signal can only re-rank BM25
+    // hits and true semantic recall is impossible.
+    if (qTokens.length === 0 || this.hasEmbeddingQuery(query)) {
       this.populateZeroScores(scores, candidates);
     }
 
