@@ -4,11 +4,15 @@ This guide is for contributors changing rules, parsing, input discovery, reports
 
 ## Source of truth
 
-The preparatory specifications are under `.tmp/features/md-security-scanner-integration/`. The frozen behavioral baseline is MD Security Scanner `1.10.9` at commit `e28be804e69241145951ac2a89e46c6e0a80bb16`.
+The behavioral baseline for this work is **MD Security Scanner `1.10.9`**, an
+internal Amadeus tool that is not publicly disclosed. It is used only by
+authorized maintainers as a private reference. It is not a dependency of this
+repository, its source is not redistributed here, and public documentation must
+not contain internal URLs or references to unavailable source locations.
 
-The production rule pack must record:
+The production rule pack must record in the project’s approved provenance record:
 
-- upstream repository and commit;
+- internal baseline version and authorized provenance reference;
 - imported rule-pack version and digest;
 - rule IDs and variants actually present;
 - material modifications;
@@ -43,6 +47,34 @@ flowchart LR
 - `infra` owns local traversal, file metadata, no-follow checks, worker execution, and report persistence.
 - `app` owns one shared use case and does not define rule meaning.
 - CLI and extension format and present shared results; they do not fork behavior.
+
+## Installation pipeline integration
+
+The scanner is valuable even when a source is not explicitly governed by the
+project. Users can add custom sources, and bundle content may contain prompts,
+skills, hooks, agent instructions, or MCP configuration that has not passed the
+project’s authoring review.
+
+The intended future integration point is after download/extraction and manifest
+integrity validation, but before target files, MCP configuration, lockfiles, or
+installation state are written:
+
+```mermaid
+flowchart LR
+    RESOLVE["Resolve custom source"] --> DOWNLOAD["Download"]
+    DOWNLOAD --> EXTRACT["Extract"]
+    EXTRACT --> VALIDATE["Validate manifest/integrity"]
+    VALIDATE --> SCAN["Run bounded security scan"]
+    SCAN -->|allowed by policy| WRITE["Write installation side effects"]
+    SCAN -->|blocked or incomplete| STOP["Stop; write no target/MCP state"]
+```
+
+This is an intended extension of `InstallPipeline`, not a claim that the
+current installation implementation has already enabled the gate. The eventual
+stage should consume extracted bytes through an input adapter rather than
+re-reading an attacker-controlled path, and should support explicit report-only,
+warning, and blocking policies. Any blocking default requires a migration and
+UX decision because it can affect existing custom sources.
 
 ## Safe filesystem changes
 

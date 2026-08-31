@@ -155,7 +155,42 @@ classDiagram
     SecurityRulePack --> SecurityFinding : describes
 ```
 
-Legacy fingerprints remain compatible with MD Security Scanner. A stronger identity may be added as a new field, but cannot silently replace `.markdown.ignore` compatibility keys.
+Legacy fingerprints remain compatible with the approved internal MD Security Scanner behavior. The internal tool is not publicly disclosed and is not redistributed or linked from this repository. A stronger identity may be added as a new field, but cannot silently replace `.markdown.ignore` compatibility keys.
+
+## Planned installation-pipeline gate
+
+Custom sources are user-controlled inputs and may contain content that has not
+passed the project’s authoring or governance process. The scanner is intended to
+be integrated into `InstallPipeline` after download/extraction and manifest
+integrity validation, but before target files, MCP configuration, lockfiles, or
+installation state are written:
+
+```mermaid
+sequenceDiagram
+    participant S as Custom source
+    participant P as InstallPipeline
+    participant V as Manifest/integrity validation
+    participant G as Security gate
+    participant W as Target/MCP writers
+
+    S->>P: Bundle archive
+    P->>V: Extract and validate
+    V-->>P: Validated files
+    P->>G: Scan extracted content
+    alt Policy passes
+        G-->>P: Allowed
+        P->>W: Perform installation side effects
+    else Finding or incomplete scan
+        G-->>P: Block or warn according to policy
+        P-->>S: Return findings without writes when blocking
+    end
+```
+
+This is an architectural intention, not a claim that all current installation
+paths already invoke the scanner. The future stage should scan extracted bytes
+through an in-memory input adapter and make report-only, warning, and blocking
+policy explicit. The default blocking policy requires a separate rollout and UX
+decision because it can affect existing custom sources.
 
 ## Delivery boundaries
 

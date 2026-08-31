@@ -68,7 +68,7 @@ Finding fields include the rule ID, variant/title, severity, confidence, categor
 
 ## Rule families
 
-The compatibility profile is based on MD Security Scanner `1.10.9` and maintains its rule-family vocabulary:
+The compatibility profile follows the behavior of **MD Security Scanner `1.10.9`**, an internal Amadeus tool that is not publicly disclosed. This repository does not redistribute that tool, depend on it, or publish internal URLs. The native implementation maintains the approved rule-family vocabulary:
 
 | Family | Purpose |
 |---|---|
