@@ -63,6 +63,17 @@ describe('NodeSecurityScanInput', () => {
     expect(read.document?.content).toBe('# a');
   });
 
+  it('uses the containing directory as the root for a direct file input', async () => {
+    const file = join(directory, 'direct.md');
+    await writeFile(file, '# direct');
+
+    const result = await new NodeSecurityScanInput().collect(request(file), SECURITY_DEFAULT_LIMITS, cancellation);
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].rootId).toBe(directory);
+    expect(result.candidates[0].displayPath).toBe('direct.md');
+  });
+
   it('honors hierarchical file and finding ignore files', async () => {
     await mkdir(join(directory, 'nested'));
     await writeFile(join(directory, 'a.md'), '# a');

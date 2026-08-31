@@ -191,7 +191,7 @@ export class NodeSecurityScanInput implements SecurityScanInput {
         continue;
       }
       const rootReal = await realpath(absoluteRoot);
-      const id = rootId(absoluteRoot);
+      const id = rootId(rootStat.isDirectory() ? absoluteRoot : path.dirname(absoluteRoot));
       const inheritedPatterns: IgnorePattern[] = [];
       if (request.ignoreTrust === 'repository') {
         await readAncestors(rootStat.isDirectory() ? absoluteRoot : path.dirname(absoluteRoot), limits, suppressions, inheritedPatterns, warnings);
