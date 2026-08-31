@@ -1,8 +1,7 @@
 # Architecture Decision Records
 
 Lightweight decision log for the `feat/ai-primitives-hub-next` library-centric
-migration (see `.tmp/ai-primitives-hub-next-migration-plan.md` at the repo
-root for the full plan). Each ADR is short, immutable once accepted, and
+migration. Each ADR is short, immutable once accepted, and
 focused on one decision.
 
 | ADR | Title | Status |
