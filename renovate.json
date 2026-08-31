@@ -4,9 +4,6 @@
     "local>mvgadagi/renovate-config",
     "local>mvgadagi/renovate-config:node"
   ],
-  "labels": [
-    "renovate"
-  ],
   "github-actions": {
     "managerFilePatterns": [
       "apps/vscode-extension/templates/scaffolds/**/workflows/*.yml"
@@ -17,56 +14,7 @@
       "apps/vscode-extension/templates/scaffolds/**/package.template.json"
     ]
   },
-  "lockFileMaintenance": {
-    "enabled": true,
-    "schedule": [
-      "before 5am on monday"
-    ]
-  },
-  "customManagers": [
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        ".github/workflows/*.yml",
-        ".github/workflows/*.yaml"
-      ],
-      "matchStrings": [
-        "NODE_VERSION:\\s*\"(?<currentValue>\\d+)\""
-      ],
-      "datasourceTemplate": "node-version",
-      "depNameTemplate": "node",
-      "versioningTemplate": "node"
-    }
-  ],
   "packageRules": [
-    {
-      "description": "Group all minor dependency updates into a single PR",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchUpdateTypes": [
-        "minor"
-      ],
-      "groupName": "npm minor dependencies",
-      "automerge": false
-    },
-    {
-      "description": "Group and auto-merge all patch dependency updates",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchUpdateTypes": [
-        "patch"
-      ],
-      "groupName": "npm patch dependencies",
-      "automerge": true
-    },
-    {
-      "description": "Create individual PRs for major updates across all managers to allow careful review",
-      "matchUpdateTypes": [
-        "major"
-      ]
-    },
     {
       "description": "Delay @types/vscode updates by 8 months to stay aligned with the VS Code engine target",
       "matchManagers": [
@@ -79,70 +27,6 @@
       "minimumReleaseAge": "8 months",
       "prCreation": "not-pending",
       "automerge": false
-    },
-    {
-      "description": "Isolate axios updates for manual review due to breaking change history",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchPackageNames": [
-        "axios"
-      ],
-      "groupName": "axios"
-    },
-    {
-      "description": "Isolate ESLint core updates to avoid config breakage",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchPackageNames": [
-        "eslint"
-      ],
-      "groupName": "eslint"
-    },
-    {
-      "description": "Isolate typescript-eslint updates to review rule changes separately",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchPackageNames": [
-        "typescript-eslint"
-      ],
-      "groupName": "typescript-eslint"
-    },
-    {
-      "description": "Group all @o3r/ Otter packages together since they share a release cadence",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchPackageNames": [
-        "/^@o3r//"
-      ],
-      "groupName": "Otter packages"
-    },
-    {
-      "description": "Isolate pnpm package manager updates to validate workspace compatibility",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchDepTypes": [
-        "packageManager"
-      ],
-      "matchPackageNames": [
-        "pnpm"
-      ],
-      "groupName": "pnpm"
-    },
-    {
-      "description": "Group Node.js runtime version updates across package.json and CI workflows",
-      "matchManagers": [
-        "npm",
-        "custom.regex"
-      ],
-      "matchDepNames": [
-        "node"
-      ],
-      "groupName": "Node.js runtime"
     },
     {
       "description": "Add workspace label for packages/ updates",
@@ -190,15 +74,35 @@
       ]
     },
     {
-      "description": "Group scaffold template updates into their own PR, separate from the repo's own dependencies",
+      "description": "Group non-major scaffold template updates into their own PR, separate from the repo's own dependencies",
       "matchFileNames": [
         "apps/vscode-extension/templates/scaffolds/**"
       ],
-      "groupName": "scaffold templates",
-      "addLabels": [
-        "scaffold-templates"
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest",
+        "lockFileMaintenance"
       ],
-      "automerge": false
+      "groupName": "scaffolds non-major",
+      "addLabels": [
+        "workspace:apps:scaffolds"
+      ]
+    },
+    {
+      "description": "Keep major scaffold template updates as individual PRs (do not group them)",
+      "matchFileNames": [
+        "apps/vscode-extension/templates/scaffolds/**"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "groupName": "scaffolds major",
+      "addLabels": [
+        "workspace:apps:scaffolds"
+      ]
     }
   ]
 }
