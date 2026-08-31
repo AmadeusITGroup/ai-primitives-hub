@@ -8,6 +8,16 @@
   "labels": [
     "renovate"
   ],
+  "github-actions": {
+    "managerFilePatterns": [
+      "apps/vscode-extension/templates/scaffolds/**/workflows/*.yml"
+    ]
+  },
+  "npm": {
+    "managerFilePatterns": [
+      "apps/vscode-extension/templates/scaffolds/**/package.template.json"
+    ]
+  },
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": [
@@ -106,8 +116,8 @@
       "matchManagers": [
         "npm"
       ],
-      "matchPackagePatterns": [
-        "^@o3r/"
+      "matchPackageNames": [
+        "/^@o3r//"
       ],
       "groupName": "Otter packages"
     },
@@ -179,6 +189,17 @@
       "addLabels": [
         "workspace:website"
       ]
+    },
+    {
+      "description": "Group scaffold template updates into their own PR, separate from the repo's own dependencies",
+      "matchFileNames": [
+        "apps/vscode-extension/templates/scaffolds/**"
+      ],
+      "groupName": "scaffold templates",
+      "addLabels": [
+        "scaffold-templates"
+      ],
+      "automerge": false
     }
   ]
 }
