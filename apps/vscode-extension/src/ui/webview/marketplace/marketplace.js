@@ -152,7 +152,7 @@
     var selectAllCheckbox = document.createElement('input');
     selectAllCheckbox.type = 'checkbox';
     selectAllCheckbox.id = 'contentType-selectAll';
-    selectAllCheckbox.checked = selectedContentTypes.length === contentTypes.length;
+    selectAllCheckbox.checked = selectedContentTypes.length === 0 || selectedContentTypes.length === contentTypes.length;
 
     var selectAllLabel = document.createElement('label');
     selectAllLabel.htmlFor = 'contentType-selectAll';
@@ -239,8 +239,8 @@
   const updateSelectedContentTypes = () => {
     var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
     var checkedBoxes = Array.from(allCheckboxes).filter((cb) => cb.checked);
-    // When all types are selected (Select All), treat as no filter so all bundles are shown
-    if (checkedBoxes.length === allCheckboxes.length) {
+    // When all types are selected (or none are selected), treat as no filter so all bundles are shown
+    if (checkedBoxes.length === 0 || checkedBoxes.length === allCheckboxes.length) {
       selectedContentTypes = [];
       document.querySelector('#contentType-selectAll').checked = true;
     } else {
@@ -287,6 +287,7 @@
       // No default
     }
     updateFilterUI();
+    updateContentTypeButtonText();
     updateMarketplaceSummary();
     renderBundles();
   };
@@ -570,7 +571,7 @@
     document.querySelector('#contentTypeSelectorText').textContent = 'Primitives';
     var contentTypeCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]');
     contentTypeCheckboxes.forEach((cb) => {
-      cb.checked = false;
+      cb.checked = true;
     });
 
     selectedSource = 'all';

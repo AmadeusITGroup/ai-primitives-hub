@@ -95,6 +95,7 @@ main { width: 100%; min-width: 0; }
 .tag-selector, .content-type-selector, .source-selector { position: relative; min-width: 0; }
 .filter-row .filter-group, .tag-selector, .content-type-selector, .source-selector { width: 100%; min-width: 0; }
 .tag-selector-btn, .content-type-selector-btn, .source-selector-btn { position: relative; display: flex; width: 100%; align-items: center; justify-content: center; gap: 12px; min-width: 0; max-width: none; padding: 7px 28px 7px 10px; cursor: pointer; font-family: 'Amadeus Neue Web', var(--vscode-font-family); font-size: 12px; font-weight: 500; letter-spacing: .01em; text-align: center; white-space: nowrap; }
+.source-selector-btn #sourceSelectorText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag-selector-btn .dropdown-arrow, .content-type-selector-btn .dropdown-arrow, .source-selector-btn .dropdown-arrow { position: absolute; right: 10px; }
 .tag-selector-btn:hover, .content-type-selector-btn:hover, .source-selector-btn:hover, .filter-toggle:hover, .installed-filter:hover { background: var(--vscode-list-hoverBackground); }
 .dropdown-arrow { color: var(--marketplace-muted); font-size: 11px; }
