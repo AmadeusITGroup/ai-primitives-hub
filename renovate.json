@@ -99,7 +99,7 @@
       "matchUpdateTypes": [
         "major"
       ],
-      "groupName": "scaffolds major",
+      "groupName": null,
       "addLabels": [
         "workspace:apps:scaffolds"
       ]
