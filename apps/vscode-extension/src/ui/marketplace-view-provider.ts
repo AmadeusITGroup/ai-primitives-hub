@@ -36,6 +36,7 @@ import {
   UI_CONSTANTS,
 } from '../utils/constants';
 import {
+  ContentBreakdown,
   extractAllTags,
   extractBundleSources,
 } from '../utils/filter-utils';
@@ -65,17 +66,7 @@ interface WebviewMessage {
   query?: string;
 }
 
-/**
- * Content breakdown showing count of each resource type
- */
-interface ContentBreakdown {
-  prompts: number;
-  instructions: number;
-  chatmodes: number;
-  agents: number;
-  skills: number;
-  mcpServers: number;
-}
+// ContentBreakdown is imported from filter-utils
 
 interface BundlesLoadedMessage {
   type: 'bundlesLoaded';
@@ -1146,12 +1137,15 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const cssUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'bundle-details', 'bundle-details.css')
     );
+    const iconsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'icons.css')
+    );
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'bundle-details', 'bundle-details.js')
     );
 
     // Generate CSP
-    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';`;
 
     // Load HTML template
     const htmlPath = vscode.Uri.joinPath(
@@ -1164,13 +1158,13 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
 
     // Generate dynamic sections
-    const installedBadge = isInstalled ? '<span class="badge">✓ Installed</span>' : '';
+    const installedBadge = isInstalled ? '<span class="badge"><i class="fa-icon fa-circle-check"></i> Installed</span>' : '';
 
     const autoUpdateSection = isInstalled
       ? `
     <div class="auto-update-toggle">
         <div style="flex: 1;">
-            <div class="auto-update-label">🔄 Auto-Update</div>
+            <div class="auto-update-label"><i class="fa-icon fa-arrows-rotate"></i> Auto-Update</div>
             <div class="auto-update-description">Automatically install updates when available</div>
         </div>
         <div class="toggle-switch ${autoUpdateEnabled ? 'enabled' : ''}" id="autoUpdateToggle" data-action="toggleAutoUpdate">
@@ -1182,27 +1176,27 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const breakdownContent = `
         <div class="breakdown">
             <div class="breakdown-item">
-                <div class="breakdown-icon">💬</div>
+                <div class="breakdown-icon fa-icon fa-file-lines"></div>
                 <div class="breakdown-count">${breakdown.prompts}</div>
                 <div class="breakdown-label">Prompts</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon">📋</div>
+                <div class="breakdown-icon fa-icon fa-list-check"></div>
                 <div class="breakdown-count">${breakdown.instructions}</div>
                 <div class="breakdown-label">Instructions</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon">🤖</div>
+                <div class="breakdown-icon fa-icon fa-robot"></div>
                 <div class="breakdown-count">${breakdown.agents}</div>
                 <div class="breakdown-label">Agents</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon">🛠️</div>
+                <div class="breakdown-icon fa-icon fa-puzzle-piece"></div>
                 <div class="breakdown-count">${breakdown.skills}</div>
                 <div class="breakdown-label">Skills</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon">🔌</div>
+                <div class="breakdown-icon fa-icon fa-plug"></div>
                 <div class="breakdown-count">${breakdown.mcpServers}</div>
                 <div class="breakdown-label">MCP Servers</div>
             </div>
@@ -1231,7 +1225,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const tagsSection = bundle.tags && bundle.tags.length > 0
       ? `
     <div class="section">
-        <h2>🏷️ Tags</h2>
+        <h2><i class="fa-icon fa-tags"></i> Tags</h2>
         <div class="tags">
             ${bundle.tags.map((tag) => `<span class="tag">${tag}</span>`).join('')}
         </div>
@@ -1246,6 +1240,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       .replace('{{cspSource}}', cspSource)
       .replaceAll('{{bundleName}}', this.escapeHtml(bundle.name))
       .replace('{{cssUri}}', cssUri.toString())
+      .replace('{{iconsUri}}', iconsUri.toString())
       .replace('{{installedBadge}}', installedBadge)
       .replaceAll('{{author}}', this.escapeHtml(bundle.author || 'Unknown'))
       .replace('{{version}}', bundle.version)
@@ -1392,15 +1387,21 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const cssUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'marketplace', 'marketplace.css')
     );
+    const iconsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'icons.css')
+    );
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'marketplace', 'marketplace.js')
+    );
+    const iconUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'resources', 'activity-bar-icon.png')
     );
 
     // Generate nonce for CSP
     const nonce = this.getNonce();
 
     // Generate CSP
-    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';`;
 
     // Load HTML template from external file
     const htmlPath = vscode.Uri.joinPath(
@@ -1415,6 +1416,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     // Replace placeholders with actual values
     htmlTemplate = htmlTemplate
       .replace('{{cssUri}}', cssUri.toString())
+      .replace('{{iconsUri}}', iconsUri.toString())
+      .replace('{{iconUri}}', iconUri.toString())
       .replace('{{cspSource}}', cspSource)
       .replace('{{nonce}}', nonce)
       .replace('{{scriptUri}}', scriptUri.toString());

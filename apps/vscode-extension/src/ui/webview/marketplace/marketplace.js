@@ -7,10 +7,13 @@
   let filterOptions = { tags: [], sources: [] };
   let selectedSource = 'all';
   let selectedTags = [];
+  let selectedContentTypes = [];
   let showInstalledOnly = false;
   let indexedBundleKeys = null;
   let indexedSearchQuery = null;
   let searchRequestTimer;
+  let selectedTab = 'for-you';
+  let openVersionDropdownId = null;
   let setupState = 'complete'; // Default to complete to avoid showing setup prompt unnecessarily
   let sourcesCount = 0;
 
@@ -24,6 +27,7 @@
       setupState = message.setupState || 'complete';
       sourcesCount = message.sourcesCount || 0;
       updateFilterUI();
+      updateMarketplaceSummary();
       renderBundles();
     }
     if (message.type === 'primitiveSearchResults') {
@@ -75,9 +79,10 @@
         });
         sourceItem.classList.add('active');
         selectedSource = source.id;
-        document.querySelector('#sourceSelectorText').textContent = source.name + ' (' + source.bundleCount + ')';
+        document.querySelector('#sourceSelectorText').textContent = source.name;
         sourceItem.querySelector('input[type="radio"]').checked = true;
         document.querySelector('#sourceDropdown').style.display = 'none';
+        updateMarketplaceSummary();
         renderBundles();
       });
     });
@@ -89,9 +94,10 @@
       });
       allItem.classList.add('active');
       selectedSource = 'all';
-      document.querySelector('#sourceSelectorText').textContent = 'All Sources';
+      document.querySelector('#sourceSelectorText').textContent = 'Sources';
       allItem.querySelector('input[type="radio"]').checked = true;
       document.querySelector('#sourceDropdown').style.display = 'none';
+      updateMarketplaceSummary();
       renderBundles();
     });
 
@@ -126,6 +132,84 @@
 
       tagList.append(tagItem);
     });
+
+    // Populate content type selector
+    var contentTypeList = document.querySelector('#contentTypeList');
+    var contentTypes = [
+      { id: 'agents', label: 'Agents', icon: 'fa-robot' },
+      { id: 'skills', label: 'Skills', icon: 'fa-puzzle-piece' },
+      { id: 'prompts', label: 'Prompts', icon: 'fa-file-lines' },
+      { id: 'mcpServers', label: 'MCP Servers', icon: 'fa-plug' },
+      { id: 'instructions', label: 'Instructions', icon: 'fa-list-check' }
+    ];
+
+    contentTypeList.innerHTML = '';
+
+    // Add "Select All" option at the top
+    var selectAllItem = document.createElement('div');
+    selectAllItem.className = 'content-type-item content-type-select-all';
+
+    var selectAllCheckbox = document.createElement('input');
+    selectAllCheckbox.type = 'checkbox';
+    selectAllCheckbox.id = 'contentType-selectAll';
+    selectAllCheckbox.checked = selectedContentTypes.length === contentTypes.length;
+
+    var selectAllLabel = document.createElement('label');
+    selectAllLabel.htmlFor = 'contentType-selectAll';
+    selectAllLabel.textContent = 'Select All';
+    selectAllLabel.style.cursor = 'pointer';
+    selectAllLabel.style.flex = '1';
+    selectAllLabel.style.fontWeight = '500';
+
+    selectAllItem.append(selectAllCheckbox);
+    selectAllItem.append(selectAllLabel);
+
+    selectAllItem.addEventListener('click', (e) => {
+      if (e.target !== selectAllCheckbox) {
+        selectAllCheckbox.checked = !selectAllCheckbox.checked;
+      }
+      var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
+      allCheckboxes.forEach((cb) => {
+        cb.checked = selectAllCheckbox.checked;
+      });
+      updateSelectedContentTypes();
+    });
+
+    contentTypeList.append(selectAllItem);
+
+    contentTypes.forEach((ct) => {
+      var item = document.createElement('div');
+      item.className = 'content-type-item';
+      item.dataset.contentType = ct.id;
+
+      var checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = 'contentType-' + ct.id;
+      checkbox.value = ct.id;
+      checkbox.checked = selectedContentTypes.includes(ct.id);
+
+      var label = document.createElement('label');
+      label.htmlFor = 'contentType-' + ct.id;
+      label.innerHTML = '<span class="fa-icon ' + ct.icon + '" aria-hidden="true"></span> ' + ct.label;
+      label.style.cursor = 'pointer';
+      label.style.flex = '1';
+
+      item.append(checkbox);
+      item.append(label);
+
+      item.addEventListener('click', (e) => {
+        if (e.target !== checkbox) {
+          checkbox.checked = !checkbox.checked;
+        }
+        // Update "Select All" checkbox state
+        var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
+        var allChecked = Array.from(allCheckboxes).every((cb) => cb.checked);
+        document.querySelector('#contentType-selectAll').checked = allChecked;
+        updateSelectedContentTypes();
+      });
+
+      contentTypeList.append(item);
+    });
   };
 
   // Update selected tags from checkboxes
@@ -135,6 +219,7 @@
       return cb.value;
     });
     updateTagButtonText();
+    updateMarketplaceSummary();
     renderBundles();
   };
 
@@ -142,7 +227,7 @@
   const updateTagButtonText = () => {
     var tagSelectorText = document.querySelector('#tagSelectorText');
     if (selectedTags.length === 0) {
-      tagSelectorText.textContent = 'All Tags';
+      tagSelectorText.textContent = 'Tags';
     } else if (selectedTags.length === 1) {
       tagSelectorText.textContent = selectedTags[0];
     } else {
@@ -150,8 +235,160 @@
     }
   };
 
+  // Update selected content types from checkboxes
+  const updateSelectedContentTypes = () => {
+    var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
+    var checkedBoxes = Array.from(allCheckboxes).filter((cb) => cb.checked);
+    // When all types are selected (Select All), treat as no filter so all bundles are shown
+    if (checkedBoxes.length === allCheckboxes.length) {
+      selectedContentTypes = [];
+      document.querySelector('#contentType-selectAll').checked = true;
+    } else {
+      selectedContentTypes = checkedBoxes.map((cb) => cb.value);
+    }
+    updateContentTypeButtonText();
+    updateMarketplaceSummary();
+    renderBundles();
+  };
+
+  // Keep the compact tab and active-filter strip in sync with the current state.
+  const clearFilter = (filter, value) => {
+    switch (filter) {
+      case 'search': {
+        document.querySelector('#searchBox').value = '';
+
+        break;
+      }
+      case 'source': {
+        selectedSource = 'all';
+        document.querySelector('#sourceSelectorText').textContent = 'Sources';
+
+        break;
+      }
+      case 'tag': {
+        selectedTags = selectedTags.filter((tag) => tag !== value);
+
+        break;
+      }
+      case 'content': {
+        selectedContentTypes = selectedContentTypes.filter((type) => type !== value);
+
+        break;
+      }
+      case 'installed': {
+        showInstalledOnly = false;
+        var installedCheckbox = document.querySelector('#installedCheckbox');
+        if (installedCheckbox) {
+          installedCheckbox.checked = false;
+        }
+
+        break;
+      }
+      // No default
+    }
+    updateFilterUI();
+    updateMarketplaceSummary();
+    renderBundles();
+  };
+
+  const getFilteredBundles = () => {
+    var searchTerm = document.querySelector('#searchBox')?.value || '';
+    var filteredBundles = allBundles;
+
+    if (selectedSource && selectedSource !== 'all') {
+      filteredBundles = filteredBundles.filter((bundle) => bundle.sourceId === selectedSource);
+    }
+    if (showInstalledOnly) {
+      filteredBundles = filteredBundles.filter((bundle) => bundle.installed === true);
+    }
+    if (selectedTags.length > 0) {
+      filteredBundles = filteredBundles.filter((bundle) => bundle.tags && bundle.tags.some((bundleTag) => {
+        return selectedTags.some((selectedTag) => bundleTag.toLowerCase() === selectedTag.toLowerCase());
+      }));
+    }
+    if (selectedContentTypes.length > 0) {
+      filteredBundles = filteredBundles.filter((bundle) =>
+        selectedContentTypes.some((type) => (bundle.contentBreakdown?.[type] || 0) > 0)
+      );
+    }
+    if (searchTerm.trim() !== '') {
+      var term = searchTerm.toLowerCase();
+      filteredBundles = filteredBundles.filter((bundle) => bundle.name.toLowerCase().includes(term)
+        || bundle.description.toLowerCase().includes(term)
+        || (bundle.tags && bundle.tags.some((tag) => tag.toLowerCase().includes(term)))
+        || (bundle.author && bundle.author.toLowerCase().includes(term)));
+    }
+    return filteredBundles;
+  };
+
+  const updateMarketplaceSummary = () => {
+    var chips = document.querySelector('#filterChips');
+    var filterSummary = document.querySelector('#filterSummary');
+    var searchValue = document.querySelector('#searchBox')?.value.trim();
+    var hasActiveFilters = selectedSource !== 'all' || selectedTags.length > 0
+      || selectedContentTypes.length > 0 || showInstalledOnly || Boolean(searchValue);
+    if (filterSummary) {
+      filterSummary.textContent = hasActiveFilters
+        ? getFilteredBundles().length + ' matching bundles'
+        : 'Showing all bundles';
+      filterSummary.classList.toggle('hidden', hasActiveFilters);
+    }
+    if (chips) {
+      var activeFilters = [];
+      if (searchValue) {
+        activeFilters.push({ filter: 'search', label: 'Search: ' + searchValue });
+      }
+      if (selectedSource !== 'all') {
+        activeFilters.push({ filter: 'source', label: 'Source: ' + document.querySelector('#sourceSelectorText').textContent });
+      }
+      selectedTags.forEach((tag) => activeFilters.push({ filter: 'tag', value: tag, label: 'Tag: ' + tag }));
+      selectedContentTypes.forEach((type) => activeFilters.push({ filter: 'content', value: type, label: 'Content: ' + type }));
+      if (showInstalledOnly) {
+        activeFilters.push({ filter: 'installed', label: 'Installed' });
+      }
+      chips.innerHTML = activeFilters.map((activeFilter) => '<span class="filter-chip">'
+        + '<span class="filter-chip-label">' + activeFilter.label + '</span>'
+        + '<button class="filter-chip-remove" type="button" data-filter="' + activeFilter.filter
+        + '" data-value="' + (activeFilter.value || '') + '" aria-label="Remove ' + activeFilter.label + '">×</button>'
+        + '</span>').join('');
+      chips.querySelectorAll('.filter-chip-remove').forEach((button) => {
+        button.addEventListener('click', () => clearFilter(button.dataset.filter, button.dataset.value));
+      });
+    }
+
+    var filteredBundles = getFilteredBundles();
+    var updatesCount = document.querySelector('#updatesCount');
+    if (updatesCount) {
+      updatesCount.textContent = filteredBundles.filter((bundle) => bundle.buttonState === 'update').length;
+    }
+
+    var installedCount = document.querySelector('#installedCount');
+    if (installedCount) {
+      installedCount.textContent = filteredBundles.filter((bundle) => bundle.installed === true).length;
+    }
+
+    var forYouCount = document.querySelector('#forYouCount');
+    if (forYouCount) {
+      forYouCount.textContent = filteredBundles.length;
+    }
+  };
+
+  // Update the content type button text based on selection
+  const updateContentTypeButtonText = () => {
+    var text = document.querySelector('#contentTypeSelectorText');
+    if (selectedContentTypes.length === 0) {
+      text.textContent = 'Primitives';
+    } else if (selectedContentTypes.length === 1) {
+      var labels = { agents: 'Agents', skills: 'Skills', prompts: 'Prompts', mcpServers: 'MCP Servers', instructions: 'Instructions' };
+      text.textContent = labels[selectedContentTypes[0]] || selectedContentTypes[0];
+    } else {
+      text.textContent = selectedContentTypes.length + ' types';
+    }
+  };
+
   // Toggle tag dropdown
-  document.querySelector('#tagSelectorBtn').addEventListener('click', () => {
+  document.querySelector('#tagSelectorBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
     var dropdown = document.querySelector('#tagDropdown');
     dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
 
@@ -181,11 +418,29 @@
     });
   });
 
+  // Content type selector button click
+  document.querySelector('#contentTypeSelectorBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    var dropdown = document.querySelector('#contentTypeDropdown');
+    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+  });
+
+  // Close content type dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    var contentTypeSelector = document.querySelector('.content-type-selector');
+    var dropdown = document.querySelector('#contentTypeDropdown');
+
+    if (contentTypeSelector && !contentTypeSelector.contains(e.target) && dropdown && dropdown.style.display === 'block') {
+      dropdown.style.display = 'none';
+    }
+  });
+
   // Search functionality
   document.querySelector('#searchBox').addEventListener('input', (event) => {
     indexedBundleKeys = null;
     indexedSearchQuery = null;
     renderSearchStatus({ state: 'searching' }, event.target.value);
+    updateMarketplaceSummary();
     renderBundles();
     clearTimeout(searchRequestTimer);
     searchRequestTimer = setTimeout(() => {
@@ -276,36 +531,20 @@
       document.querySelector('#sourceDropdown').style.display = 'none';
 
       // Re-render bundles
+      updateMarketplaceSummary();
       renderBundles();
     });
   });
 
-  // Installed filter checkbox
-  document.querySelector('#installedCheckbox').addEventListener('change', (e) => {
-    showInstalledOnly = e.target.checked;
-    renderBundles();
-  });
-
-  // Make the filter div clickable to toggle checkbox
-  document.querySelector('#installedFilter').addEventListener('click', (e) => {
-    if (e.target.id !== 'installedCheckbox') {
-      var checkbox = document.querySelector('#installedCheckbox');
-      checkbox.checked = !checkbox.checked;
-      showInstalledOnly = checkbox.checked;
-      renderBundles();
-    }
-  });
-
-  // Clear filters button
-  document.querySelector('#clearFiltersBtn').addEventListener('click', () => {
+  // Reset filters from the compact active-filter strip.
+  const resetFilters = () => {
     document.querySelector('#searchBox').value = '';
     document.querySelector('#sourceSearch').value = '';
     document.querySelector('#tagSearch').value = '';
-    document.querySelector('#installedCheckbox').checked = false;
 
     // Reset source selector
     selectedSource = 'all';
-    document.querySelector('#sourceSelectorText').textContent = 'All Sources';
+    document.querySelector('#sourceSelectorText').textContent = 'Sources';
     document.querySelectorAll('.source-item').forEach((item) => {
       item.classList.remove('active');
       if (item.dataset.source === 'all') {
@@ -326,11 +565,52 @@
       item.classList.remove('hidden');
     });
 
+    // Reset content type selector
+    selectedContentTypes = [];
+    document.querySelector('#contentTypeSelectorText').textContent = 'Primitives';
+    var contentTypeCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]');
+    contentTypeCheckboxes.forEach((cb) => {
+      cb.checked = false;
+    });
+
     selectedSource = 'all';
     selectedTags = [];
     showInstalledOnly = false;
+    selectedTab = 'for-you';
+    document.querySelectorAll('.marketplace-tab').forEach((item) => item.classList.toggle('active', item.dataset.tab === selectedTab));
     updateTagButtonText();
+    updateMarketplaceSummary();
     renderBundles();
+  };
+
+  document.querySelector('#clearActiveFilters').addEventListener('click', () => {
+    resetFilters();
+  });
+
+  document.querySelectorAll('.marketplace-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      selectedTab = tab.dataset.tab;
+      document.querySelectorAll('.marketplace-tab').forEach((item) => item.classList.remove('active'));
+      tab.classList.add('active');
+      renderBundles();
+    });
+  });
+
+  document.querySelectorAll('.category-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.category-pill').forEach((item) => item.classList.remove('active'));
+      pill.classList.add('active');
+      document.querySelector('#searchBox').value = pill.textContent === 'All' ? '' : pill.textContent.replace('⌄', '').trim();
+      updateMarketplaceSummary();
+      renderBundles();
+    });
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+      event.preventDefault();
+      document.querySelector('#searchBox').focus();
+    }
   });
 
   // Refresh button
@@ -364,6 +644,12 @@
 
     var filteredBundles = allBundles;
 
+    if (selectedTab === 'installed') {
+      filteredBundles = filteredBundles.filter((bundle) => bundle.installed === true);
+    } else if (selectedTab === 'updates') {
+      filteredBundles = filteredBundles.filter((bundle) => bundle.buttonState === 'update');
+    }
+
     // Apply source filter
     if (selectedSource && selectedSource !== 'all') {
       filteredBundles = filteredBundles.filter((bundle) => {
@@ -392,6 +678,14 @@
       });
     }
 
+    // Apply content type filter (OR logic - bundle matches if it has ANY of the selected types)
+    // NOTE: mirrors filterBundlesByContentType() in src/utils/filter-utils.ts — keep in sync
+    if (selectedContentTypes.length > 0) {
+      filteredBundles = filteredBundles.filter((bundle) =>
+        selectedContentTypes.some((type) => (bundle.contentBreakdown?.[type] || 0) > 0)
+      );
+    }
+
     // Apply search filter
     if (searchTerm && searchTerm.trim() !== '') {
       if (indexedSearchQuery === searchTerm && indexedBundleKeys !== null) {
@@ -412,9 +706,11 @@
       }
     }
 
+    // Reflect the number of collections remaining after the active tab,
+    // search, and filter criteria have been applied.
     if (filteredBundles.length === 0) {
       // Check if we have any bundles at all (before filtering)
-      var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || showInstalledOnly;
+      var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || showInstalledOnly || selectedContentTypes.length > 0;
 
       if (allBundles.length === 0) {
         var hasNoSources = setupState === 'complete' && sourcesCount === 0;
@@ -426,7 +722,7 @@
 
         marketplace.innerHTML = shouldShowSetupPrompt
           ? '<div class="empty-state">'
-          + '<div class="empty-state-icon">⚙️</div>'
+          + '<div class="empty-state-icon fa-icon fa-gear"></div>'
           + '<div class="empty-state-title">Setup Not Complete</div>'
           + '<p>' + setupMessage + '</p>'
           + '<button class="primary-button" data-action="completeSetup">'
@@ -442,14 +738,14 @@
         // Has bundles but filters hide them all
         marketplace.innerHTML =
           '<div class="empty-state">'
-          + '<div class="empty-state-icon">🔍</div>'
+          + '<div class="empty-state-icon fa-icon fa-magnifying-glass"></div>'
           + '<div class="empty-state-title">No bundles match your filters</div>'
           + '<p>Try adjusting your search or filters</p>'
           + '</div>';
       } else {
         marketplace.innerHTML =
           '<div class="empty-state">'
-          + '<div class="empty-state-icon">📦</div>'
+          + '<div class="empty-state-icon fa-icon fa-box"></div>'
           + '<div class="empty-state-title">No bundles found</div>'
           + '<p>Try adjusting your search or filters</p>'
           + '</div>';
@@ -459,8 +755,6 @@
 
     marketplace.innerHTML = filteredBundles.map((bundle) => {
       return '<div class="bundle-card ' + (bundle.installed ? 'installed' : '') + '" data-bundle-id="' + bundle.id + '" data-action="openDetails">'
-        + (bundle.installed && bundle.autoUpdateEnabled ? '<div class="installed-badge">🔄 Auto-Update</div>' : (bundle.installed ? '<div class="installed-badge">✓ Installed</div>' : ''))
-
         + '<div class="bundle-header">'
         + '<div class="bundle-title">' + bundle.name + '</div>'
         + '<div class="bundle-author">by ' + (bundle.author || 'Unknown') + ' • ' + formatVersionLabel(bundle.version) + '</div>'
@@ -471,11 +765,11 @@
         + '</div>'
 
         + '<div class="content-breakdown">'
-        + renderContentItem('💬', 'Prompts', bundle.contentBreakdown ? bundle.contentBreakdown.prompts || 0 : 0)
-        + renderContentItem('📋', 'Instructions', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
-        + renderContentItem('🤖', 'Agents', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
-        + renderContentItem('🛠️', 'Skills', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
-        + renderContentItem('🔌', 'MCP Servers', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
+        + renderContentItem('fa-file-lines', 'Prompts', bundle.contentBreakdown ? bundle.contentBreakdown.prompts || 0 : 0)
+        + renderContentItem('fa-list-check', 'Instructions', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
+        + renderContentItem('fa-robot', 'Agents', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
+        + renderContentItem('fa-puzzle-piece', 'Skills', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
+        + renderContentItem('fa-plug', 'MCP Servers', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
         + '</div>'
 
         + '<div class="bundle-tags">'
@@ -486,17 +780,27 @@
 
         + '<div class="bundle-actions" data-stop-propagation="true">'
         + renderBundleButtons(bundle)
-        + '<button class="btn btn-secondary" data-action="openDetails" data-bundle-id="' + bundle.id + '">Details</button>'
-        + '<button class="btn btn-link" data-action="openSourceRepo" data-bundle-id="' + bundle.id + '" title="Open Source Repository">'
+        + '<button class="btn btn-link source-repo-button" data-action="openSourceRepo" data-bundle-id="' + bundle.id + '" title="Open Source Repository" aria-label="Open Source Repository">'
         + '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">'
         + '<path d="M4.5 3A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13h7a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 1 1 0v2'
         + 'a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 11.5v-7A2.5 2.5 0 0 1 4.5 2h2a.5.5 0 0 1 0 1h-2z'
         + 'M9 2.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V3.707l-5.146 5.147a.5.5 0 0 1-.708-.708L12.293 3H9.5a.5.5 0 0 1-.5-.5z"/>'
         + '</svg>'
+        + '<span>Repository</span>'
         + '</button>'
         + '</div>'
         + '</div>';
     }).join('');
+
+    // Keep an open version menu visible when a background bundle refresh rerenders the cards.
+    if (openVersionDropdownId) {
+      var openDropdown = document.querySelector('#' + CSS.escape('version-dropdown-' + openVersionDropdownId));
+      if (openDropdown) {
+        openDropdown.classList.add('show');
+      } else {
+        openVersionDropdownId = null;
+      }
+    }
   };
 
   const renderBundleButtons = (bundle) => {
@@ -586,7 +890,7 @@
       return '';
     }
     return '<div class="content-item">'
-      + '<span class="content-icon">' + icon + '</span>'
+      + '<span class="content-icon fa-icon ' + icon + '" aria-hidden="true"></span>'
       + '<span class="content-count">' + count + '</span>'
       + '<span>' + label + '</span>'
       + '</div>';
@@ -629,12 +933,15 @@
       }
     });
 
-    // Toggle this dropdown
-    dropdown.classList.toggle('show');
+    // Toggle this dropdown and remember it across background card refreshes.
+    var shouldShow = !dropdown.classList.contains('show');
+    dropdown.classList.toggle('show', shouldShow);
+    openVersionDropdownId = shouldShow ? dropdownId : null;
   };
 
   const installBundleVersion = (bundleId, version) => {
     // Close dropdown
+    openVersionDropdownId = null;
     document.querySelectorAll('.version-dropdown').forEach((d) => {
       d.classList.remove('show');
     });
@@ -649,6 +956,7 @@
   // Close dropdowns when clicking outside
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.version-selector-group')) {
+      openVersionDropdownId = null;
       document.querySelectorAll('.version-dropdown').forEach((d) => {
         d.classList.remove('show');
       });
