@@ -1,8 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "local>mvgadagi/renovate-config",
-    "local>mvgadagi/renovate-config:node"
+    "local>AmadeusITGroup/renovate-config",
+    "local>AmadeusITGroup/renovate-config:node"
   ],
   "github-actions": {
     "managerFilePatterns": [
