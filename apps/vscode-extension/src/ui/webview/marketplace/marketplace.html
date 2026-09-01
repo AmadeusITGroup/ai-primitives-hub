@@ -13,8 +13,21 @@
         <p>Discover and install curated AI primitives for GitHub Copilot</p>
     </div>
 
+    <div class="search-row">
+        <input type="search" class="search-box" id="searchBox"
+            placeholder='Search words, "phrases", tag:security, author:name, -excluded'
+            aria-label="Search bundles">
+        <details class="search-help">
+            <summary>Search help</summary>
+            <div class="search-help-content">
+                <code>two words</code> requires both words. Use <code>"exact phrase"</code>,
+                <code>tag:</code>, <code>author:</code>, <code>env:</code>, <code>source:</code>,
+                <code>name:</code>, or prefix a term with <code>-</code> to exclude it.
+            </div>
+        </details>
+    </div>
+
     <div class="controls">
-        <input type="text" class="search-box" id="searchBox" placeholder="Search bundles...">
         
         <div class="filter-group">
             <label class="filter-label">Source:</label>
@@ -53,6 +66,27 @@
                     </div>
                 </div>
             </div>
+            <select class="filter-select compact-select" id="tagMatchSelect" aria-label="Tag matching mode">
+                <option value="any">Match any</option>
+                <option value="all">Match all</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label class="filter-label" for="environmentSelect">Environment:</label>
+            <select class="filter-select" id="environmentSelect">
+                <option value="all">All environments</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label class="filter-label" for="sortSelect">Sort:</label>
+            <select class="filter-select" id="sortSelect">
+                <option value="relevance">Relevance</option>
+                <option value="name">Name</option>
+                <option value="recent">Recently updated</option>
+                <option value="downloads">Downloads</option>
+            </select>
         </div>
         
         <div class="installed-filter" id="installedFilter">
@@ -64,7 +98,7 @@
         <button class="refresh-btn" id="refreshBtn">Refresh</button>
     </div>
 
-    <div id="searchStatus" class="search-status" role="status" aria-live="polite"></div>
+    <div class="results-summary" id="resultsSummary" aria-live="polite"></div>
 
     <div id="marketplace" class="marketplace-grid">
         <div class="loading">

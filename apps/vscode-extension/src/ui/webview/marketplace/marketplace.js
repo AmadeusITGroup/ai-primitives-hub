@@ -4,13 +4,13 @@
 (() => {
   const vscode = acquireVsCodeApi();
   let allBundles = [];
-  let filterOptions = { tags: [], sources: [] };
+  let filterOptions = { tags: [], sources: [], environments: [] };
   let selectedSource = 'all';
   let selectedTags = [];
+  let tagMatch = 'any';
+  let selectedEnvironment = 'all';
+  let sortBy = 'relevance';
   let showInstalledOnly = false;
-  let indexedBundleKeys = null;
-  let indexedSearchQuery = null;
-  let searchRequestTimer;
   let setupState = 'complete'; // Default to complete to avoid showing setup prompt unnecessarily
   let sourcesCount = 0;
 
@@ -20,20 +20,11 @@
 
     if (message.type === 'bundlesLoaded') {
       allBundles = message.bundles;
-      filterOptions = message.filterOptions || { tags: [], sources: [] };
+      filterOptions = message.filterOptions || { tags: [], sources: [], environments: [] };
       setupState = message.setupState || 'complete';
       sourcesCount = message.sourcesCount || 0;
       updateFilterUI();
       renderBundles();
-    }
-    if (message.type === 'primitiveSearchResults') {
-      var currentQuery = document.querySelector('#searchBox').value;
-      if (message.query === currentQuery) {
-        indexedBundleKeys = message.bundleKeys;
-        indexedSearchQuery = message.bundleKeys === null ? null : currentQuery;
-        renderSearchStatus(message.diagnostics, currentQuery);
-        renderBundles();
-      }
     }
   });
 
@@ -45,6 +36,7 @@
   const updateFilterUI = () => {
     var sourceList = document.querySelector('#sourceList');
     var tagList = document.querySelector('#tagList');
+    var environmentSelect = document.querySelector('#environmentSelect');
 
     // Populate source dropdown with radio buttons
     sourceList.innerHTML = '';
@@ -53,6 +45,7 @@
     var allItem = document.createElement('div');
     allItem.className = 'source-item' + (selectedSource === 'all' ? ' active' : '');
     allItem.dataset.source = 'all';
+    allItem.dataset.sourceName = 'All Sources';
     allItem.innerHTML =
       '<input type="radio" name="source" id="source-all" value="all" ' + (selectedSource === 'all' ? 'checked' : '') + '>'
       + '<label for="source-all">All Sources</label>';
@@ -63,6 +56,7 @@
       var sourceItem = document.createElement('div');
       sourceItem.className = 'source-item' + (selectedSource === source.id ? ' active' : '');
       sourceItem.dataset.source = source.id;
+      sourceItem.dataset.sourceName = source.name;
       sourceItem.innerHTML =
         '<input type="radio" name="source" id="source-' + source.id + '" value="' + source.id + '" ' + (selectedSource === source.id ? 'checked' : '') + '>'
         + '<label for="source-' + source.id + '">' + source.name + ' (' + source.bundleCount + ')</label>';
@@ -97,6 +91,12 @@
 
     // Populate tag list with checkboxes
     tagList.innerHTML = '';
+    var tagCounts = new Map();
+    allBundles.forEach((bundle) => {
+      (bundle.tags || []).forEach((tag) => {
+        tagCounts.set(tag.toLowerCase(), (tagCounts.get(tag.toLowerCase()) || 0) + 1);
+      });
+    });
     filterOptions.tags.forEach((tag) => {
       var tagItem = document.createElement('div');
       tagItem.className = 'tag-item';
@@ -115,6 +115,10 @@
 
       tagItem.append(checkbox);
       tagItem.append(label);
+      var count = document.createElement('span');
+      count.className = 'tag-count';
+      count.textContent = String(tagCounts.get(tag.toLowerCase()) || 0);
+      tagItem.append(count);
 
       // Toggle checkbox on item click
       tagItem.addEventListener('click', (e) => {
@@ -125,6 +129,15 @@
       });
 
       tagList.append(tagItem);
+    });
+
+    environmentSelect.innerHTML = '<option value="all">All environments</option>';
+    (filterOptions.environments || []).forEach((environment) => {
+      var option = document.createElement('option');
+      option.value = environment;
+      option.textContent = environment;
+      option.selected = selectedEnvironment === environment;
+      environmentSelect.append(option);
     });
   };
 
@@ -182,44 +195,9 @@
   });
 
   // Search functionality
-  document.querySelector('#searchBox').addEventListener('input', (event) => {
-    indexedBundleKeys = null;
-    indexedSearchQuery = null;
-    renderSearchStatus({ state: 'searching' }, event.target.value);
+  document.querySelector('#searchBox').addEventListener('input', () => {
     renderBundles();
-    clearTimeout(searchRequestTimer);
-    searchRequestTimer = setTimeout(() => {
-      vscode.postMessage({ type: 'search', query: event.target.value });
-    }, 250);
   });
-
-  const renderSearchStatus = (diagnostics, query) => {
-    var status = document.querySelector('#searchStatus');
-    if (!status) {
-      return;
-    }
-    if (!query || query.trim() === '') {
-      status.textContent = '';
-      status.className = 'search-status';
-      return;
-    }
-    if (diagnostics?.state === 'searching') {
-      status.textContent = 'Semantic search: searching…';
-      status.className = 'search-status searching';
-      return;
-    }
-    if (diagnostics?.ranking === 'unavailable') {
-      status.textContent = 'Semantic search unavailable; using metadata search';
-      status.className = 'search-status unavailable';
-      return;
-    }
-    var embeddingLabel = diagnostics?.embeddings ? 'embeddings on' : 'BM25 only';
-    status.textContent = 'Semantic search: ' + (diagnostics?.profile || 'unknown')
-      + ' • ' + (diagnostics?.ranking || 'unknown')
-      + ' • ' + embeddingLabel
-      + ' • ' + String(diagnostics?.bundleHits ?? 0) + ' bundles';
-    status.className = 'search-status active';
-  };
 
   // Source selector button click
   document.querySelector('#sourceSelectorBtn').addEventListener('click', (e) => {
@@ -248,8 +226,9 @@
     var sourceItems = document.querySelectorAll('.source-item');
 
     sourceItems.forEach((item) => {
-      var sourceName = item.dataset.source.toLowerCase();
-      item.classList.toggle('hidden', !sourceName.includes(searchTerm));
+      var sourceName = (item.dataset.sourceName || item.dataset.source).toLowerCase();
+      var sourceId = item.dataset.source.toLowerCase();
+      item.classList.toggle('hidden', !sourceName.includes(searchTerm) && !sourceId.includes(searchTerm));
     });
   });
 
@@ -286,6 +265,21 @@
     renderBundles();
   });
 
+  document.querySelector('#tagMatchSelect').addEventListener('change', (e) => {
+    tagMatch = e.target.value;
+    renderBundles();
+  });
+
+  document.querySelector('#environmentSelect').addEventListener('change', (e) => {
+    selectedEnvironment = e.target.value;
+    renderBundles();
+  });
+
+  document.querySelector('#sortSelect').addEventListener('change', (e) => {
+    sortBy = e.target.value;
+    renderBundles();
+  });
+
   // Make the filter div clickable to toggle checkbox
   document.querySelector('#installedFilter').addEventListener('click', (e) => {
     if (e.target.id !== 'installedCheckbox') {
@@ -302,6 +296,9 @@
     document.querySelector('#sourceSearch').value = '';
     document.querySelector('#tagSearch').value = '';
     document.querySelector('#installedCheckbox').checked = false;
+    document.querySelector('#tagMatchSelect').value = 'any';
+    document.querySelector('#environmentSelect').value = 'all';
+    document.querySelector('#sortSelect').value = 'relevance';
 
     // Reset source selector
     selectedSource = 'all';
@@ -328,6 +325,9 @@
 
     selectedSource = 'all';
     selectedTags = [];
+    tagMatch = 'any';
+    selectedEnvironment = 'all';
+    sortBy = 'relevance';
     showInstalledOnly = false;
     updateTagButtonText();
     renderBundles();
@@ -358,6 +358,117 @@
     return ' (' + formatVersionLabel(installedVersion) + ' -> ' + formatVersionLabel(latestVersion) + ')';
   };
 
+  const normalizeSearchValue = (value) => {
+    return String(value || '')
+      .normalize('NFKD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase()
+      .trim();
+  };
+
+  const parseSearchTokens = (searchText) => {
+    var tokens = [];
+    var pattern = /(-)?(?:(id|name|description|tag|author|env|source|platform):)?(?:"([^"]+)"|(\S+))/giu;
+    var match;
+    while ((match = pattern.exec(searchText)) !== null) {
+      var value = normalizeSearchValue(match[3] || match[4]);
+      if (value) {
+        tokens.push({ excluded: match[1] === '-', field: match[2], value: value });
+      }
+    }
+    return tokens;
+  };
+
+  const getSearchFields = (bundle) => {
+    return {
+      id: [normalizeSearchValue(bundle.id)],
+      name: [normalizeSearchValue(bundle.name)],
+      description: [normalizeSearchValue(bundle.description)],
+      tag: (bundle.tags || []).map((tag) => normalizeSearchValue(tag)),
+      author: [normalizeSearchValue(bundle.author)],
+      env: (bundle.environments || []).map((environment) => normalizeSearchValue(environment)),
+      source: [normalizeSearchValue(bundle.sourceId)]
+    };
+  };
+
+  const tokenMatches = (fields, token) => {
+    var fieldName = token.field;
+    // Support 'platform' as alias for 'env'
+    if (fieldName === 'platform') {
+      fieldName = 'env';
+    }
+    var values = fieldName ? fields[fieldName] : Object.values(fields).flat();
+    return values.some((value) => value.includes(token.value));
+  };
+
+  const scoreSearchMatch = (fields, tokens) => {
+    let score = 0;
+    for (const token of tokens) {
+      if (token.excluded) {
+        continue;
+      }
+      // Stricter AND logic: prioritise key fields over description. Exact
+      // field matches rank highest, then a partial (substring) match on any
+      // structured field, and only then a description mention. Without the
+      // partial-structured tiers a bundle that matches solely via a partial
+      // id/tag/env (e.g. "renovate" in the id "renovate-config") fell through
+      // to the +2 floor and sorted below description-only mentions.
+      if (fields.id.includes(token.value)) {
+        score += 120;
+      } else if (fields.name.includes(token.value)) {
+        score += 100;
+      } else if (fields.name.some((value) => value.startsWith(token.value))) {
+        score += 70;
+      } else if (fields.tag.includes(token.value)) {
+        score += 50;
+      } else if (fields.env.includes(token.value)) {
+        score += 40;
+      } else if (fields.author.includes(token.value)) {
+        score += 35;
+      } else if (fields.name.some((value) => value.includes(token.value))) {
+        score += 30;
+      } else if (fields.id.some((value) => value.includes(token.value))) {
+        score += 28;
+      } else if (fields.tag.some((value) => value.includes(token.value))) {
+        score += 26;
+      } else if (fields.source.includes(token.value)) {
+        score += 25;
+      } else if (fields.env.some((value) => value.includes(token.value))) {
+        score += 24;
+      } else if (fields.author.some((value) => value.includes(token.value))) {
+        score += 22;
+      } else if (fields.source.some((value) => value.includes(token.value))) {
+        score += 18;
+      } else if (fields.description.some((value) => value.includes(token.value))) {
+        score += 8;
+      } else {
+        score += 2;
+      }
+    }
+    return score;
+  };
+
+  const searchBundles = (bundles, searchText) => {
+    var tokens = parseSearchTokens(searchText);
+    if (tokens.length === 0) {
+      return bundles.map((bundle, index) => ({ bundle: bundle, score: 0, index: index }));
+    }
+    return bundles.map((bundle, index) => {
+      var fields = getSearchFields(bundle);
+      return { bundle: bundle, fields: fields, index: index };
+    }).filter((entry) => {
+      return tokens.every((token) => token.excluded
+        ? !tokenMatches(entry.fields, token)
+        : tokenMatches(entry.fields, token));
+    }).map((entry) => {
+      return {
+        bundle: entry.bundle,
+        score: scoreSearchMatch(entry.fields, tokens),
+        index: entry.index
+      };
+    });
+  };
+
   const renderBundles = () => {
     var marketplace = document.querySelector('#marketplace');
     var searchTerm = document.querySelector('#searchBox').value;
@@ -378,43 +489,55 @@
       });
     }
 
-    // Apply tag filter (OR logic - bundle matches if it has ANY of the selected tags)
+    // Apply tag filter with user-selectable ANY or ALL semantics.
     if (selectedTags.length > 0) {
       filteredBundles = filteredBundles.filter((bundle) => {
         if (!bundle.tags || bundle.tags.length === 0) {
           return false;
         }
-        return bundle.tags.some((bundleTag) => {
-          return selectedTags.some((selectedTag) => {
-            return bundleTag.toLowerCase() === selectedTag.toLowerCase();
-          });
+        var normalizedBundleTags = bundle.tags.map((tag) => tag.toLowerCase());
+        return tagMatch === 'all'
+          ? selectedTags.every((tag) => normalizedBundleTags.includes(tag.toLowerCase()))
+          : selectedTags.some((tag) => normalizedBundleTags.includes(tag.toLowerCase()));
+      });
+    }
+
+    if (selectedEnvironment !== 'all') {
+      filteredBundles = filteredBundles.filter((bundle) => {
+        return (bundle.environments || []).some((environment) => {
+          return environment.toLowerCase() === selectedEnvironment.toLowerCase();
         });
       });
     }
 
-    // Apply search filter
-    if (searchTerm && searchTerm.trim() !== '') {
-      if (indexedSearchQuery === searchTerm && indexedBundleKeys !== null) {
-        var indexedOrder = new Map(indexedBundleKeys.map((key, index) => [key, index]));
-        filteredBundles = filteredBundles
-          .filter((bundle) => indexedOrder.has(bundle.sourceId + '\u0000' + bundle.id))
-          .toSorted((left, right) => indexedOrder.get(left.sourceId + '\u0000' + left.id) - indexedOrder.get(right.sourceId + '\u0000' + right.id));
-      } else {
-        var term = searchTerm.toLowerCase();
-        filteredBundles = filteredBundles.filter((bundle) => {
-          return bundle.name.toLowerCase().includes(term)
-            || bundle.description.toLowerCase().includes(term)
-            || (bundle.tags && bundle.tags.some((tag) => {
-              return tag.toLowerCase().includes(term);
-            }))
-            || (bundle.author && bundle.author.toLowerCase().includes(term));
-        });
+    var searchResults = searchBundles(filteredBundles, searchTerm);
+    switch (sortBy) {
+      case 'name': {
+        searchResults.sort((a, b) => a.bundle.name.localeCompare(b.bundle.name));
+        break;
+      }
+      case 'recent': {
+        searchResults.sort((a, b) => new Date(b.bundle.lastUpdated).getTime() - new Date(a.bundle.lastUpdated).getTime());
+        break;
+      }
+      case 'downloads': {
+        searchResults.sort((a, b) => (b.bundle.downloads || 0) - (a.bundle.downloads || 0));
+        break;
+      }
+      default: {
+        searchResults.sort((a, b) => b.score - a.score || a.index - b.index);
       }
     }
+    filteredBundles = searchResults.map((entry) => entry.bundle);
+
+    document.querySelector('#resultsSummary').textContent = filteredBundles.length === allBundles.length
+      ? allBundles.length + ' bundles'
+      : filteredBundles.length + ' of ' + allBundles.length + ' bundles';
 
     if (filteredBundles.length === 0) {
       // Check if we have any bundles at all (before filtering)
-      var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || showInstalledOnly;
+      var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0
+        || selectedEnvironment !== 'all' || showInstalledOnly;
 
       if (allBundles.length === 0) {
         var hasNoSources = setupState === 'complete' && sourcesCount === 0;
@@ -480,7 +603,9 @@
 
         + '<div class="bundle-tags">'
         + (bundle.tags || []).slice(0, 4).map((tag) => {
-          return '<span class="tag">' + tag + '</span>';
+          return '<button type="button" class="tag" data-action="filterTag" data-tag="'
+            + tag.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            + '">' + tag.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</button>';
         }).join('')
         + '</div>'
 
@@ -671,6 +796,7 @@
       var bundleId = actionElement.dataset.bundleId || (actionElement.closest('[data-bundle-id]') ? actionElement.closest('[data-bundle-id]').dataset.bundleId : null);
       var version = actionElement.dataset.version;
       var dropdownId = actionElement.dataset.dropdownId;
+      var tag = actionElement.dataset.tag;
 
       switch (action) {
         case 'openDetails': {
@@ -718,6 +844,18 @@
           if (dropdownId) {
             e.stopPropagation();
             toggleVersionDropdown(dropdownId);
+          }
+          break;
+        }
+        case 'filterTag': {
+          if (tag) {
+            e.stopPropagation();
+            selectedTags = [tag];
+            document.querySelectorAll('#tagList input[type="checkbox"]').forEach((checkbox) => {
+              checkbox.checked = checkbox.value.toLowerCase() === tag.toLowerCase();
+            });
+            updateTagButtonText();
+            renderBundles();
           }
           break;
         }

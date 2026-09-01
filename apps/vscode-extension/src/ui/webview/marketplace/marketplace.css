@@ -37,10 +37,17 @@ body {
     align-items: center;
 }
 
+.search-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
 .search-box {
     flex: 1;
     min-width: 180px;
-    max-width: 300px;
+    max-width: 720px;
     padding: 6px 10px;
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
@@ -48,6 +55,37 @@ body {
     border-radius: 3px;
     font-size: 13px;
     height: 28px;
+}
+
+.search-help {
+    position: relative;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    padding-top: 6px;
+}
+
+.search-help summary {
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.search-help-content {
+    position: absolute;
+    right: 0;
+    z-index: 1100;
+    width: min(440px, 80vw);
+    margin-top: 6px;
+    padding: 10px;
+    line-height: 1.5;
+    background: var(--vscode-editorWidget-background);
+    color: var(--vscode-editorWidget-foreground);
+    border: 1px solid var(--vscode-editorWidget-border);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.search-help code {
+    color: var(--vscode-textPreformat-foreground);
 }
 
 .search-box:focus {
@@ -103,6 +141,24 @@ body {
 .filter-select:focus {
     outline: 1px solid var(--vscode-focusBorder);
     outline-offset: -1px;
+}
+
+.compact-select {
+    min-width: 94px;
+    max-width: 104px;
+}
+
+.results-summary {
+    min-height: 18px;
+    margin: -8px 0 12px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.tag-count {
+    margin-left: auto;
+    color: var(--vscode-descriptionForeground);
+    font-variant-numeric: tabular-nums;
 }
 
 /* Custom Tag Selector */
@@ -478,10 +534,18 @@ body {
 .tag {
     background: var(--vscode-badge-background);
     color: var(--vscode-badge-foreground);
+    border: none;
     padding: 4px 8px;
     border-radius: 12px;
     font-size: 11px;
     font-weight: 500;
+    cursor: pointer;
+}
+
+.tag:hover,
+.tag:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
 }
 
 .bundle-actions {
