@@ -39,6 +39,7 @@ import {
   findProjectConfigPath,
   getEnabledDefaultHubs,
   harvestHub,
+  isRecommendedDefaultHub,
   readTargets,
   writeTargets,
 } from '@ai-primitives-hub/infra';
@@ -88,22 +89,22 @@ function getTargetTypeDisplayName(type: TargetType): string {
 
 /**
  * Build hub choices for the wizard.
- * Amadeus is always placed first.
+ * The recommended default hub is always placed first.
  * @returns Array of hub choices.
  */
 function buildHubChoices(): { name: string; value: string }[] {
   const defaultHubs = getEnabledDefaultHubs();
   const hubChoices: { name: string; value: string }[] = [];
 
-  // Separate Amadeus from other hubs.
-  const amadeusHub = defaultHubs.find((h) => h.name === 'Amadeus');
-  const otherHubs = defaultHubs.filter((h) => h.name !== 'Amadeus');
+  // Separate the recommended hub from the others.
+  const recommendedHub = defaultHubs.find((h) => isRecommendedDefaultHub(h.reference));
+  const otherHubs = defaultHubs.filter((h) => !isRecommendedDefaultHub(h.reference));
 
-  // Build choices with Amadeus first.
-  if (amadeusHub) {
+  // Build choices with the recommended hub first.
+  if (recommendedHub) {
     hubChoices.push({
-      name: `${amadeusHub.icon} ${amadeusHub.name}${amadeusHub.recommended ? ' ⭐' : ''}`,
-      value: amadeusHub.name
+      name: `${recommendedHub.icon} ${recommendedHub.name}${recommendedHub.recommended ? ' ⭐' : ''}`,
+      value: recommendedHub.name
     });
   }
 

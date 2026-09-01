@@ -1,10 +1,11 @@
 {
-  "$schema": "../schemas/default-hubs-config.schema.json",
+  "$schema": "../../../core/src/public/schemas/default-hubs-config.schema.json",
   "defaultHubs": [
     {
       "name": "Amadeus",
       "description": "Profiles curated by Amadeus",
-      "icon": "cloud",
+      "icon": "☁️",
+      "codicon": "cloud",
       "reference": {
         "type": "github",
         "location": "Amadeus-xDLC/genai.prompt-registry-config",
@@ -15,14 +16,14 @@
     },
     {
       "name": "Prompt Registry Community Hub",
-      "description": "Profiles cureated by the Prompt Registry Community",
-      "icon": "cloud",
+      "description": "Profiles curated by the Prompt Registry Community",
+      "icon": "🌐",
+      "codicon": "cloud",
       "reference": {
         "type": "github",
         "location": "AmadeusITGroup/prompt-registry-config",
         "ref": "main"
       },
-      "recommended": true,
       "enabled": true
     }
   ]
