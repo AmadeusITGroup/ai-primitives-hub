@@ -36,7 +36,7 @@
   "dependencies": {
     "@ai-primitives-hub/core": "workspace:*",
     "@elastic/elasticsearch": "^9.3.4",
-    "@ternlight/mini": "0.1.0",
+    "@ternlight/mini": "0.1.1",
     "adm-zip": "^0.6.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
