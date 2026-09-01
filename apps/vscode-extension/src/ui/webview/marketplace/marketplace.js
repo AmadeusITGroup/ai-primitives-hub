@@ -7,6 +7,7 @@
   let filterOptions = { tags: [], sources: [] };
   let selectedSource = 'all';
   let selectedTags = [];
+  let selectedContentTypes = [];
   let showInstalledOnly = false;
   let indexedBundleKeys = null;
   let indexedSearchQuery = null;
@@ -126,6 +127,84 @@
 
       tagList.append(tagItem);
     });
+
+    // Populate content type selector
+    var contentTypeList = document.querySelector('#contentTypeList');
+    var contentTypes = [
+      { id: 'agents', label: 'Agents', icon: '🤖' },
+      { id: 'skills', label: 'Skills', icon: '🛠️' },
+      { id: 'prompts', label: 'Prompts', icon: '💬' },
+      { id: 'mcpServers', label: 'MCP Servers', icon: '🔌' },
+      { id: 'instructions', label: 'Instructions', icon: '📋' }
+    ];
+
+    contentTypeList.innerHTML = '';
+
+    // Add "Select All" option at the top
+    var selectAllItem = document.createElement('div');
+    selectAllItem.className = 'content-type-item content-type-select-all';
+
+    var selectAllCheckbox = document.createElement('input');
+    selectAllCheckbox.type = 'checkbox';
+    selectAllCheckbox.id = 'contentType-selectAll';
+    selectAllCheckbox.checked = selectedContentTypes.length === contentTypes.length;
+
+    var selectAllLabel = document.createElement('label');
+    selectAllLabel.htmlFor = 'contentType-selectAll';
+    selectAllLabel.textContent = '📦 Select All';
+    selectAllLabel.style.cursor = 'pointer';
+    selectAllLabel.style.flex = '1';
+    selectAllLabel.style.fontWeight = '500';
+
+    selectAllItem.append(selectAllCheckbox);
+    selectAllItem.append(selectAllLabel);
+
+    selectAllItem.addEventListener('click', (e) => {
+      if (e.target !== selectAllCheckbox) {
+        selectAllCheckbox.checked = !selectAllCheckbox.checked;
+      }
+      var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
+      allCheckboxes.forEach((cb) => {
+        cb.checked = selectAllCheckbox.checked;
+      });
+      updateSelectedContentTypes();
+    });
+
+    contentTypeList.append(selectAllItem);
+
+    contentTypes.forEach((ct) => {
+      var item = document.createElement('div');
+      item.className = 'content-type-item';
+      item.dataset.contentType = ct.id;
+
+      var checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = 'contentType-' + ct.id;
+      checkbox.value = ct.id;
+      checkbox.checked = selectedContentTypes.includes(ct.id);
+
+      var label = document.createElement('label');
+      label.htmlFor = 'contentType-' + ct.id;
+      label.textContent = ct.icon + ' ' + ct.label;
+      label.style.cursor = 'pointer';
+      label.style.flex = '1';
+
+      item.append(checkbox);
+      item.append(label);
+
+      item.addEventListener('click', (e) => {
+        if (e.target !== checkbox) {
+          checkbox.checked = !checkbox.checked;
+        }
+        // Update "Select All" checkbox state
+        var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
+        var allChecked = Array.from(allCheckboxes).every((cb) => cb.checked);
+        document.querySelector('#contentType-selectAll').checked = allChecked;
+        updateSelectedContentTypes();
+      });
+
+      contentTypeList.append(item);
+    });
   };
 
   // Update selected tags from checkboxes
@@ -150,8 +229,37 @@
     }
   };
 
+  // Update selected content types from checkboxes
+  const updateSelectedContentTypes = () => {
+    var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
+    var checkedBoxes = Array.from(allCheckboxes).filter((cb) => cb.checked);
+    // When all types are selected (Select All), treat as no filter so all bundles are shown
+    if (checkedBoxes.length === allCheckboxes.length) {
+      selectedContentTypes = [];
+      document.querySelector('#contentType-selectAll').checked = true;
+    } else {
+      selectedContentTypes = checkedBoxes.map((cb) => cb.value);
+    }
+    updateContentTypeButtonText();
+    renderBundles();
+  };
+
+  // Update the content type button text based on selection
+  const updateContentTypeButtonText = () => {
+    var text = document.querySelector('#contentTypeSelectorText');
+    if (selectedContentTypes.length === 0) {
+      text.textContent = 'All Collections';
+    } else if (selectedContentTypes.length === 1) {
+      var labels = { agents: '🤖 Agents', skills: '🛠️ Skills', prompts: '💬 Prompts', mcpServers: '🔌 MCP Servers', instructions: '📋 Instructions' };
+      text.textContent = labels[selectedContentTypes[0]] || selectedContentTypes[0];
+    } else {
+      text.textContent = selectedContentTypes.length + ' types';
+    }
+  };
+
   // Toggle tag dropdown
-  document.querySelector('#tagSelectorBtn').addEventListener('click', () => {
+  document.querySelector('#tagSelectorBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
     var dropdown = document.querySelector('#tagDropdown');
     dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
 
@@ -179,6 +287,23 @@
       var tagName = item.dataset.tag.toLowerCase();
       item.classList.toggle('hidden', !tagName.includes(searchTerm));
     });
+  });
+
+  // Content type selector button click
+  document.querySelector('#contentTypeSelectorBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    var dropdown = document.querySelector('#contentTypeDropdown');
+    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+  });
+
+  // Close content type dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    var contentTypeSelector = document.querySelector('.content-type-selector');
+    var dropdown = document.querySelector('#contentTypeDropdown');
+
+    if (contentTypeSelector && !contentTypeSelector.contains(e.target) && dropdown && dropdown.style.display === 'block') {
+      dropdown.style.display = 'none';
+    }
   });
 
   // Search functionality
@@ -326,6 +451,14 @@
       item.classList.remove('hidden');
     });
 
+    // Reset content type selector
+    selectedContentTypes = [];
+    document.querySelector('#contentTypeSelectorText').textContent = 'All Collections';
+    var contentTypeCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]');
+    contentTypeCheckboxes.forEach((cb) => {
+      cb.checked = false;
+    });
+
     selectedSource = 'all';
     selectedTags = [];
     showInstalledOnly = false;
@@ -392,6 +525,19 @@
       });
     }
 
+    // Apply content type filter (OR logic - bundle matches if it has ANY of the selected types)
+    // NOTE: mirrors filterBundlesByContentType() in src/utils/filter-utils.ts — keep in sync
+    if (selectedContentTypes.length > 0) {
+      filteredBundles = filteredBundles.filter((bundle) => {
+        if (!bundle.contentBreakdown) {
+          return false;
+        }
+        return selectedContentTypes.some((type) => {
+          return (bundle.contentBreakdown[type] || 0) > 0;
+        });
+      });
+    }
+
     // Apply search filter
     if (searchTerm && searchTerm.trim() !== '') {
       if (indexedSearchQuery === searchTerm && indexedBundleKeys !== null) {
@@ -414,7 +560,7 @@
 
     if (filteredBundles.length === 0) {
       // Check if we have any bundles at all (before filtering)
-      var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || showInstalledOnly;
+      var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || showInstalledOnly || selectedContentTypes.length > 0;
 
       if (allBundles.length === 0) {
         var hasNoSources = setupState === 'complete' && sourcesCount === 0;

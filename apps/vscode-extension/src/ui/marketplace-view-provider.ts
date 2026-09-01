@@ -36,6 +36,7 @@ import {
   UI_CONSTANTS,
 } from '../utils/constants';
 import {
+  ContentBreakdown,
   extractAllTags,
   extractBundleSources,
 } from '../utils/filter-utils';
@@ -65,17 +66,7 @@ interface WebviewMessage {
   query?: string;
 }
 
-/**
- * Content breakdown showing count of each resource type
- */
-interface ContentBreakdown {
-  prompts: number;
-  instructions: number;
-  chatmodes: number;
-  agents: number;
-  skills: number;
-  mcpServers: number;
-}
+// ContentBreakdown is imported from filter-utils
 
 interface BundlesLoadedMessage {
   type: 'bundlesLoaded';
