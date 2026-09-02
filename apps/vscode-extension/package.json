@@ -2,7 +2,7 @@
   "name": "prompt-registry",
   "displayName": "AI Primitives Hub",
   "description": "AI Primitives Hub - AI prompt management framework for VSCode and its forks",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "AmadeusITGroup",
   "author": {
     "name": "Amadeus IT Group",

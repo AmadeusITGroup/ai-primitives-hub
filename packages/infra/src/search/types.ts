@@ -58,6 +58,20 @@ export interface SearchQuery {
   limit?: number;
   offset?: number;
   explain?: boolean;
+  /**
+   * Absolute relevance floor in the normalized [0,1] score space. Hits scoring
+   * below this are dropped before the limit is applied. The single best hit is
+   * always retained so a query never returns empty.
+   */
+  minScore?: number;
+  /**
+   * Relevance floor expressed as a fraction of the top hit's score (0–1).
+   * Semantic ranking assigns every candidate some score, so the relevant
+   * matches cluster near the top while noise trails far below; cutting relative
+   * to the best hit removes that tail without hard-coding an absolute scale that
+   * differs per query. Combined with {@link minScore} via the larger of the two.
+   */
+  minRelativeScore?: number;
   ranking?: 'bm25' | 'hybrid' | 'multi';
   /** For hybrid ranking. Must match the embedding provider dimension. */
   queryEmbedding?: Float32Array;

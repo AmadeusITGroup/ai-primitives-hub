@@ -16,6 +16,7 @@ import {
   PrimitiveIndex,
 } from '../../src/search/primitive-index';
 import {
+  clearIndexCache,
   loadIndex,
   saveIndex,
 } from '../../src/stores/json-index-store';
@@ -42,6 +43,27 @@ describe('PrimitiveIndex', () => {
     if (res.hits.length > 0) {
       expect(res.hits[0].primitive.title.toLowerCase()).toMatch(/rust/);
     }
+  });
+
+  it('relevance floors drop the weak tail while always keeping the best hit', async () => {
+    const idx = await buildIndex();
+    const unfiltered = idx.search({ q: 'rust', limit: 50 });
+    // A fixture query must produce a spread of scores for the cut to be visible.
+    expect(unfiltered.hits.length).toBeGreaterThan(1);
+    const topScore = unfiltered.hits[0].score;
+
+    // A relative floor keeps only hits close to the best score.
+    const relative = idx.search({ q: 'rust', limit: 50, minRelativeScore: 0.5 });
+    expect(relative.hits.length).toBeLessThanOrEqual(unfiltered.hits.length);
+    expect(relative.hits[0].score).toBe(topScore);
+    expect(relative.hits.every((h, i) => i === 0 || h.score >= topScore * 0.5)).toBe(true);
+    expect(relative.total).toBe(relative.hits.length);
+
+    // An absolute floor above the top score still returns the single best hit,
+    // so a query never renders empty.
+    const strict = idx.search({ q: 'rust', limit: 50, minScore: topScore + 1 });
+    expect(strict.hits.length).toBe(1);
+    expect(strict.hits[0].score).toBe(topScore);
   });
 
   it('facet filters narrow candidates', async () => {
@@ -133,6 +155,32 @@ describe('PrimitiveIndex', () => {
       expect(loadIndex(file).stats().primitives).toBe(idx.stats().primitives);
       expect(fs.readdirSync(path.dirname(file))).toStrictEqual(['primitive-index.json']);
     } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns a cached parsed index for an unchanged file and refreshes after rewrite', async () => {
+    const idx = await buildIndex();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'primitive-index-cache-'));
+    const file = path.join(dir, 'primitive-index.json');
+    try {
+      saveIndex(idx, file);
+      clearIndexCache(file);
+      const first = loadIndex(file);
+      const second = loadIndex(file);
+      // Same file identity -> same parsed instance, no re-read/parse.
+      expect(second).toBe(first);
+
+      // Rewriting the file (as an index rebuild does) must invalidate the cache
+      // so the next load reflects the new content.
+      const rebuilt = await buildIndex();
+      const extra = rebuilt.createShortlist('rebuilt');
+      saveIndex(rebuilt, file);
+      const third = loadIndex(file);
+      expect(third).not.toBe(first);
+      expect(third.getShortlist(extra.id)?.name).toBe('rebuilt');
+    } finally {
+      clearIndexCache(file);
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

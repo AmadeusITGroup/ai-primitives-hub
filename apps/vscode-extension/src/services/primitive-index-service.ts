@@ -24,9 +24,10 @@ import type {
   PrimitiveIndexKey,
   PrimitiveIndexStore,
 } from '@ai-primitives-hub/core';
-import type {
-  SearchQuery,
-  SearchResult,
+import {
+  type SearchQuery,
+  type SearchResult,
+  tryLoadIndex,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
@@ -196,13 +197,11 @@ export class PrimitiveIndexService {
   }
 
   private async hasPrimitives(indexPath: string): Promise<boolean> {
-    try {
-      const raw = await fs.readFile(indexPath, 'utf8');
-      const parsed = JSON.parse(raw) as { primitives?: unknown[] };
-      return Array.isArray(parsed.primitives) && parsed.primitives.length > 0;
-    } catch {
-      return false;
-    }
+    // Reuse the cached parsed index (see infra `loadIndex`) so this emptiness
+    // check and the subsequent `searchIndex` call share a single read/parse of
+    // what can be a multi-megabyte file, instead of parsing it twice per query.
+    const index = tryLoadIndex(indexPath);
+    return index !== null && index.all().length > 0;
   }
 
   /**
