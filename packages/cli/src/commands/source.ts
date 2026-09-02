@@ -58,10 +58,14 @@ export class SourceAddCommand extends BaseSourceCommand {
     category: 'Hub & Discovery',
     details: `
       Usage: ai-primitives-hub source add --url <ref> [--type <type>] [--id <id>] [--name <name>]
+             [--index-file <path>] [--auth anonymous|bearer] [--credential-ref <env>]
 
       Options:
-        --type <type>   Source type: github (default) or local.
-        --url <ref>     GitHub owner/repo or local path.
+        --type <type>   Source type: github (default), local, or artifactory.
+        --url <ref>     GitHub owner/repo, Artifactory source root, or local path.
+        --index-file    Artifactory index path (relative to source root).
+        --auth          Artifactory auth mode: anonymous or bearer.
+        --credential-ref Artifactory credential environment variable name.
         --id <id>       Source ID (defaults to generated ID).
         --name <name>   Display name (defaults to ID).
         --enabled       Enable the source (default true).
@@ -77,6 +81,9 @@ export class SourceAddCommand extends BaseSourceCommand {
   public sourceId = Option.String('--id');
   public name = Option.String('--name');
   public enabled = Option.Boolean('--enabled');
+  public indexFile = Option.String('--index-file');
+  public auth = Option.String('--auth');
+  public credentialRef = Option.String('--credential-ref');
 
   public async execute() {
     const { ctx, http, tokens } = this.commandContext;
@@ -91,11 +98,37 @@ export class SourceAddCommand extends BaseSourceCommand {
       return 1;
     }
 
-    const type = (this.sourceType ?? 'github') as 'github' | 'local';
-    const id = this.sourceId ?? generateSourceId(type, this.url);
+    const requestedType = this.sourceType ?? 'github';
+    const allowedTypes = new Set(['github', 'local', 'artifactory']);
+    if (!allowedTypes.has(requestedType)) {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: `source add: unsupported --type "${requestedType}"` }), ctx);
+      return 1;
+    }
+    if (requestedType !== 'artifactory' && (this.indexFile || this.auth || this.credentialRef)) {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: 'Artifactory options require --type artifactory' }), ctx);
+      return 1;
+    }
+    if (this.auth !== undefined && this.auth !== 'anonymous' && this.auth !== 'bearer') {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: '--auth must be anonymous or bearer' }), ctx);
+      return 1;
+    }
+    if (requestedType === 'artifactory' && this.auth === 'bearer' && !this.credentialRef) {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: '--credential-ref is required with --auth bearer' }), ctx);
+      return 1;
+    }
+    const type = requestedType as 'github' | 'local' | 'artifactory';
+    const config = type === 'artifactory'
+      ? {
+        ...(this.indexFile ? { indexFile: this.indexFile } : {}),
+        ...(this.auth ? { authMode: this.auth } : {}),
+        ...(this.credentialRef ? { credentialRef: this.credentialRef } : {})
+      }
+      : undefined;
+    const id = this.sourceId ?? generateSourceId(type, this.url, config);
     const added = await mgr.addDetachedSource({
       id, name: this.name ?? id, type, url: this.url,
-      enabled: this.enabled ?? true, priority: 0
+      enabled: this.enabled ?? true, priority: 0,
+      ...(config && Object.keys(config).length > 0 ? { config } : {})
     });
     formatOutput({
       ctx, command: 'source.add', output: fmt, status: 'ok',

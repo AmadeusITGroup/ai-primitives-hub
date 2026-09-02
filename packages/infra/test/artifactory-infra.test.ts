@@ -19,6 +19,7 @@ import {
   it,
 } from 'vitest';
 import {
+  ArtifactoryBundleDownloader,
   ArtifactoryBundleResolver,
   ArtifactoryEnvCredentialProvider,
   ArtifactoryHttpClient,
@@ -159,6 +160,25 @@ describe('Artifactory HTTP client', () => {
       source.url
     );
     await expect(denied.getIndex()).rejects.toMatchObject({ code: 'ARTIFACTORY.ACCESS_DENIED' });
+  });
+});
+
+describe('Artifactory downloader', () => {
+  it('enforces resolver-provided archive integrity', async () => {
+    const downloader = new ArtifactoryBundleDownloader({
+      getBytesAt: async () => archive
+    } as never);
+    const installable = {
+      ref: { sourceId: source.id, sourceType: 'artifactory', bundleId: 'bundle', bundleVersion: '1.0.0', installed: false },
+      downloadUrl: `${source.url}/bundles/bundle/1.0.0/bundle.zip`,
+      integrity: `sha256:${sha256(archive)}`
+    };
+    await expect(downloader.download(installable)).resolves.toMatchObject({ sha256: sha256(archive) });
+
+    const invalid = new ArtifactoryBundleDownloader({
+      getBytesAt: async () => new TextEncoder().encode('tampered')
+    } as never);
+    await expect(invalid.download(installable)).rejects.toMatchObject({ code: 'BUNDLE.ARCHIVE_INTEGRITY_MISMATCH' });
   });
 });
 

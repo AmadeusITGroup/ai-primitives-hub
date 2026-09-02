@@ -45,7 +45,20 @@ export class ArtifactoryHttpClient {
 
   public async getBytes(object: PublishedObject): Promise<Uint8Array> {
     const url = resolveConfinedObject(this.root, object.path);
-    const response = await this.request(url, object.mediaType ?? '*/*', undefined, this.options.maxObjectBytes);
+    return this.getBytesAt(url.href, object.mediaType);
+  }
+
+  /**
+   * Fetch an already-resolved URL while retaining source-root confinement.
+   * @param url
+   * @param mediaType
+   */
+  public async getBytesAt(url: string, mediaType = '*/*'): Promise<Uint8Array> {
+    const target = new URL(url);
+    if (!isWithinSourceRoot(this.root, target)) {
+      throw new RegistryError({ code: 'ARTIFACTORY.PATH_ESCAPE', message: 'Artifactory URL is outside the source root.' });
+    }
+    const response = await this.request(target, mediaType, undefined, this.options.maxObjectBytes);
     return response.body;
   }
 
