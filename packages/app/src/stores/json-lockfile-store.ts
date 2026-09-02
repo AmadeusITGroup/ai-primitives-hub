@@ -105,6 +105,12 @@ export interface LockfileSourceEntry {
   branch?: string;
   /** Optional collections subdirectory, for `awesome-copilot`-type sources. */
   collectionsPath?: string;
+  /** Optional Artifactory index file. */
+  indexFile?: string;
+  /** Optional Artifactory authentication mode. */
+  authMode?: 'anonymous' | 'bearer';
+  /** Optional external Artifactory credential reference; never a secret. */
+  credentialRef?: string;
 }
 
 /**
