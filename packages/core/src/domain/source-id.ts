@@ -61,8 +61,8 @@ const canonicalBranch = (branch?: string): string => {
  * Generate a stable sourceId of the form `{type}-{12hex}`.
  *
  * The hash includes (sourceType, normalizedUrl, branch,
- * collectionsPath) so that the same logical source maps to the same
- * id regardless of how the user typed the URL.
+ * collectionsPath), plus indexFile for Artifactory, so that the same
+ * logical source maps to the same id regardless of how the user typed the URL.
  * @param sourceType e.g. 'github', 'awesome-copilot', 'apm'.
  * @param url Source URL.
  * @param config Optional branch + collections path.
