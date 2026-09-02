@@ -50,6 +50,10 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   ActiveHubStore,
+  AnonymousCredentialProvider,
+  ArtifactoryBundleDownloader,
+  ArtifactoryEnvCredentialProvider,
+  ArtifactoryHttpClient,
   AwesomeCopilotBundleResolver,
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
@@ -1049,11 +1053,15 @@ async function performRemoteInstall(
     }
     const http = opts.http ?? new NodeHttpClient();
     const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
+    const isArtifactory = opts.sourceConfig?.type === 'artifactory';
     let githubApi: GitHubApi;
     let downloadTokens: TokenProvider;
     let repositoryTarget: GitHubRepositoryTarget | undefined;
     let authenticationCategory: Exclude<GitHubSourceAuthCategory, 'unresolved'> | undefined;
-    if (isGitHubAppAuthEnabled(ctx.env)) {
+    if (isArtifactory) {
+      githubApi = githubApiFor(http, tokens);
+      downloadTokens = tokens;
+    } else if (isGitHubAppAuthEnabled(ctx.env)) {
       const dependencies = opts.sourceAwareDependencyCache === undefined
         ? await sourceAwareInstallDependencies(repoSlug, opts.sourceConfig, http, ctx)
         : await opts.sourceAwareDependencyCache.get(repoSlug, opts.sourceConfig);
@@ -1066,18 +1074,31 @@ async function performRemoteInstall(
       downloadTokens = tokens;
     }
 
-    // Use SourceDispatcher to select the appropriate resolver based on source config
+    // Use SourceDispatcher to select the appropriate resolver based on source config.
     let resolver: BundleResolver;
-    if (opts.sourceConfig) {
+    let downloader: HttpsBundleDownloader | ArtifactoryBundleDownloader;
+    if (isArtifactory && opts.sourceConfig !== undefined) {
+      const config = opts.sourceConfig.config ?? {};
+      const credentialRef = typeof config.credentialRef === 'string' ? config.credentialRef : undefined;
+      const credentials = config.authMode === 'bearer' && credentialRef !== undefined
+        ? new ArtifactoryEnvCredentialProvider(ctx.env, credentialRef, opts.sourceConfig.url)
+        : new AnonymousCredentialProvider();
+      const artifactoryHttp = new ArtifactoryHttpClient(http, credentials, opts.sourceConfig.url);
+      const dispatcher = new SourceDispatcher({
+        githubApi, fs: ctx.fs, http,
+        artifactoryCredentialProvider: () => credentials
+      });
+      resolver = dispatcher.resolverFor(opts.sourceConfig) as BundleResolver;
+      downloader = new ArtifactoryBundleDownloader(artifactoryHttp);
+    } else if (opts.sourceConfig) {
       const dispatcher = new SourceDispatcher({ githubApi, fs: ctx.fs });
       const selectedResolver = dispatcher.resolverFor(opts.sourceConfig);
       resolver = selectedResolver ?? new GitHubBundleResolver({ repoSlug, githubApi });
+      downloader = new HttpsBundleDownloader(http, downloadTokens, repositoryTarget, authenticationCategory);
     } else {
-      // Default to GitHub resolver when no source config is provided
       resolver = new GitHubBundleResolver({ repoSlug, githubApi });
+      downloader = new HttpsBundleDownloader(http, downloadTokens, repositoryTarget, authenticationCategory);
     }
-
-    const downloader = new HttpsBundleDownloader(http, downloadTokens, repositoryTarget, authenticationCategory);
     const extractor = new ZipBundleExtractor();
 
     const installable = await resolver.resolve(spec);
@@ -1105,7 +1126,7 @@ async function performRemoteInstall(
           dryRun: true,
           target: effectiveTarget.name,
           bundle: { id: manifest.id, version: manifest.version },
-          source: { type: 'github', repo: repoSlug, downloadUrl: installable.downloadUrl },
+          source: { type: opts.sourceConfig?.type ?? 'github', repo: repoSlug, downloadUrl: installable.downloadUrl },
           sha256: dl.sha256,
           files: [...files.keys()]
         },
@@ -1135,11 +1156,19 @@ async function performRemoteInstall(
       entry.commitMode = commitMode;
     }
     let nextLock = upsertBundleEntry(existing, manifest.id, entry);
-    const collectionsPath = opts.sourceConfig?.config?.collectionsPath;
+    const sourceConfig = opts.sourceConfig;
+    const collectionsPath = sourceConfig?.config?.collectionsPath;
     nextLock = upsertSource(nextLock, installable.ref.sourceId, {
-      type: opts.sourceConfig?.type ?? 'github',
-      url: `https://github.com/${repoSlug}`,
-      ...(collectionsPath ? { collectionsPath } : {})
+      type: sourceConfig?.type ?? 'github',
+      url: sourceConfig?.url ?? `https://github.com/${repoSlug}`,
+      ...(collectionsPath ? { collectionsPath } : {}),
+      ...(sourceConfig?.type === 'artifactory'
+        ? {
+          indexFile: typeof sourceConfig.config?.indexFile === 'string' ? sourceConfig.config.indexFile : undefined,
+          authMode: sourceConfig.config?.authMode === 'bearer' ? 'bearer' : 'anonymous',
+          credentialRef: typeof sourceConfig.config?.credentialRef === 'string' ? sourceConfig.config.credentialRef : undefined
+        }
+        : {})
     });
     await writeLockfile(lockPath, nextLock, ctx.fs);
 
@@ -1151,7 +1180,7 @@ async function performRemoteInstall(
       data: {
         target: effectiveTarget.name,
         bundle: { id: manifest.id, version: manifest.version },
-        source: { type: 'github', repo: repoSlug, sourceId: installable.ref.sourceId },
+        source: { type: opts.sourceConfig?.type ?? 'github', repo: repoSlug, sourceId: installable.ref.sourceId },
         sha256: dl.sha256,
         written: result.written,
         skipped: result.skipped,
@@ -1531,6 +1560,36 @@ export async function fetchFilesForSource(
     }
     const files = await readLocalBundle(src.url, ctx.fs);
     return new Map(files);
+  }
+  if (src.type === 'artifactory') {
+    const sourceConfig: RegistrySource = {
+      id: entry.sourceId, name: entry.sourceId, type: 'artifactory', url: src.url,
+      enabled: true, priority: 0,
+      config: {
+        ...(src.indexFile ? { indexFile: src.indexFile } : {}),
+        ...(src.authMode ? { authMode: src.authMode } : {}),
+        ...(src.credentialRef ? { credentialRef: src.credentialRef } : {})
+      }
+    };
+    const credentialRef = src.credentialRef;
+    const credentials = src.authMode === 'bearer' && credentialRef !== undefined
+      ? new ArtifactoryEnvCredentialProvider(ctx.env, credentialRef, src.url)
+      : new AnonymousCredentialProvider();
+    const artifactoryHttp = new ArtifactoryHttpClient(http, credentials, src.url);
+    const dispatcher = new SourceDispatcher({ githubApi: githubApiFor(http, tokens), fs: ctx.fs, http, artifactoryCredentialProvider: () => credentials });
+    const resolver = dispatcher.resolverFor(sourceConfig);
+    if (resolver === null) {
+      return null;
+    }
+    const installable = await resolver.resolve({ bundleId, bundleVersion: entry.version });
+    if (installable === null) {
+      return null;
+    }
+    const dl = await new ArtifactoryBundleDownloader(artifactoryHttp).download(installable);
+    if (entry.checksum !== undefined && dl.sha256 !== entry.checksum) {
+      return null;
+    }
+    return new Map(await new ZipBundleExtractor().extract(dl.bytes));
   }
   if (src.type === 'github' || src.type === 'skills' || src.type === 'awesome-copilot') {
     // Check if this is an awesome-copilot source (detected by sourceId prefix)

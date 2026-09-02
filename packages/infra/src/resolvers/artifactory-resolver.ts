@@ -5,6 +5,7 @@ import {
   type BundleSpec,
   compareSemVer,
   type Installable,
+  RegistryError,
   type RegistrySource,
   validateArtifactorySourceIndex,
 } from '@ai-primitives-hub/core';
@@ -22,7 +23,10 @@ export class ArtifactoryBundleResolver implements BundleResolver {
     const result = await this.client.getIndex(this.source.config?.indexFile ?? 'index-v1.json');
     const validation = validateArtifactorySourceIndex(result.value, this.source.hubSourceId ? { hubSourceId: this.source.hubSourceId } : undefined);
     if (!validation.valid) {
-      throw new Error(`Invalid Artifactory index: ${validation.errors.join('; ')}`);
+      throw new RegistryError({
+        code: 'ARTIFACTORY.INDEX_INVALID',
+        message: `Invalid Artifactory index: ${validation.errors.join('; ')}`
+      });
     }
     this.index = result.value as ArtifactorySourceIndex;
     return this.index;
