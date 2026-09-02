@@ -8,6 +8,7 @@
  * adapters/ (Phase 3a).
  */
 export * from './adapters';
+export * from './artifactory';
 export * from './auth';
 export * from './clock';
 export * from './downloaders';
