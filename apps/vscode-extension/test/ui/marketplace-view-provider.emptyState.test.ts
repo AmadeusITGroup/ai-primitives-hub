@@ -394,5 +394,20 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
       assert.ok(jsContent.includes('Bundles will appear as sources are synced'),
         'marketplace.js should include explanation about syncing');
     });
+
+    test('external marketplace JS should wait for semantic search results before rendering', () => {
+      const jsPath = path.join(PROJECT_ROOT, 'src', 'ui', 'webview', 'marketplace', 'marketplace.js');
+      if (!fs.existsSync(jsPath)) {
+        return;
+      }
+      const jsContent = fs.readFileSync(jsPath, 'utf8');
+
+      assert.ok(jsContent.includes('let semanticSearchPending = false;'),
+        'marketplace.js should track pending semantic searches');
+      assert.ok(jsContent.includes("if (semanticSearchPending && searchTerm.trim() !== '')"),
+        'marketplace.js should avoid rendering interim metadata search results');
+      assert.ok(jsContent.includes('updateMarketplaceSummary();\n        renderBundles();'),
+        'marketplace.js should refresh counts when final semantic results arrive');
+    });
   });
 });

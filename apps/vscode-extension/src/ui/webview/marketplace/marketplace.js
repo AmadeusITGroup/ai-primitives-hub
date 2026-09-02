@@ -16,6 +16,7 @@
   let openVersionDropdownId = null;
   let setupState = 'complete'; // Default to complete to avoid showing setup prompt unnecessarily
   let sourcesCount = 0;
+  let semanticSearchPending = false;
 
   // Handle messages from extension
   window.addEventListener('message', (event) => {
@@ -33,9 +34,11 @@
     if (message.type === 'primitiveSearchResults') {
       var currentQuery = document.querySelector('#searchBox').value;
       if (message.query === currentQuery) {
+        semanticSearchPending = false;
         indexedBundleKeys = message.bundleKeys;
         indexedSearchQuery = message.bundleKeys === null ? null : currentQuery;
         renderSearchStatus(message.diagnostics, currentQuery);
+        updateMarketplaceSummary();
         renderBundles();
       }
     }
@@ -312,7 +315,10 @@
         selectedContentTypes.some((type) => (bundle.contentBreakdown?.[type] || 0) > 0)
       );
     }
-    if (searchTerm.trim() !== '') {
+    if (indexedSearchQuery === searchTerm && indexedBundleKeys !== null) {
+      var indexedKeys = new Set(indexedBundleKeys);
+      filteredBundles = filteredBundles.filter((bundle) => indexedKeys.has(bundle.sourceId + '\u0000' + bundle.id));
+    } else if (!semanticSearchPending && searchTerm.trim() !== '') {
       var term = searchTerm.toLowerCase();
       filteredBundles = filteredBundles.filter((bundle) => bundle.name.toLowerCase().includes(term)
         || bundle.description.toLowerCase().includes(term)
@@ -440,6 +446,7 @@
   document.querySelector('#searchBox').addEventListener('input', (event) => {
     indexedBundleKeys = null;
     indexedSearchQuery = null;
+    semanticSearchPending = event.target.value.trim() !== '';
     renderSearchStatus({ state: 'searching' }, event.target.value);
     updateMarketplaceSummary();
     renderBundles();
@@ -642,6 +649,14 @@
   const renderBundles = () => {
     var marketplace = document.querySelector('#marketplace');
     var searchTerm = document.querySelector('#searchBox').value;
+
+    if (semanticSearchPending && searchTerm.trim() !== '') {
+      marketplace.innerHTML = '<div class="loading">'
+        + '<div class="spinner"></div>'
+        + '<p>Searching...</p>'
+        + '</div>';
+      return;
+    }
 
     var filteredBundles = allBundles;
 
