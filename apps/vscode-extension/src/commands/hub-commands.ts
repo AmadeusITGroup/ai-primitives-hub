@@ -244,7 +244,7 @@ export class HubCommands {
           await vscode.window.showInformationMessage('The Artifactory hub is publicly readable; no credential is required.');
           return anonymousReference;
         }
-        await vscode.window.showWarningMessage('The hub is not anonymously readable or is unavailable. Configure a Bearer token if this is a private hub.');
+        void vscode.window.showWarningMessage('The hub is not anonymously readable or is unavailable. Configure a Bearer token if this is a private hub.');
         const auth = await vscode.window.showQuickPick(['bearer', 'anonymous'], { placeHolder: 'Artifactory authentication', ignoreFocusOut: true });
         if (!auth) {
           return undefined;
