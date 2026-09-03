@@ -202,8 +202,8 @@ export class HubCommands {
 
       case 'artifactory': {
         const location = await vscode.window.showInputBox({
-          prompt: 'Enter HTTPS Artifactory hub root URL',
-          placeHolder: 'https://artifactory.example/repository/hub/',
+          prompt: 'Enter the Artifactory repository root containing hub-config.yml (do not include hub-config.yml or /ui/native)',
+          placeHolder: 'http://127.0.0.1:8081/artifactory/<repository-key>/<hub-prefix>',
           validateInput: (value) => {
             try {
               const url = new URL(value);
@@ -223,8 +223,22 @@ export class HubCommands {
         if (new URL(location).protocol === 'http:') {
           await vscode.window.showWarningMessage('Loopback HTTP is intended only for local Artifactory testing; use HTTPS for shared or production hubs.');
         }
-        const configFile = await vscode.window.showInputBox({ prompt: 'Config file path', value: 'hub-config.yml', ignoreFocusOut: true });
-        const auth = await vscode.window.showQuickPick(['anonymous', 'bearer'], { placeHolder: 'Artifactory authentication', ignoreFocusOut: true });
+        const configFile = await vscode.window.showInputBox({
+          prompt: 'Hub config path relative to the repository root (usually hub-config.yml)',
+          value: 'hub-config.yml',
+          ignoreFocusOut: true
+        });
+        const root = configFile || 'hub-config.yml';
+        const anonymousReference: HubReference = {
+          type: 'artifactory', location, configFile: root, authMode: 'anonymous'
+        };
+        const publicHub = await this.hubManager.verifyHubAvailability(anonymousReference);
+        if (publicHub) {
+          await vscode.window.showInformationMessage('The Artifactory hub is publicly readable; no credential is required.');
+          return anonymousReference;
+        }
+        await vscode.window.showWarningMessage('The hub is not anonymously readable or is unavailable. Configure a Bearer token if this is a private hub.');
+        const auth = await vscode.window.showQuickPick(['bearer', 'anonymous'], { placeHolder: 'Artifactory authentication', ignoreFocusOut: true });
         if (!auth) {
           return undefined;
         }

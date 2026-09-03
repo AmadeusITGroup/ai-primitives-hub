@@ -167,6 +167,8 @@ export class HubAddCommand extends BaseHubCommand {
       Options:
         --type <type>            Reference type: github (default), local, url, artifactory
         --location <ref>         GitHub owner/repo, local path, URL, or Artifactory hub root
+                                  Example: http://127.0.0.1:8081/artifactory/<repository-key>/<hub-prefix>
+                                  Use the repository API root; omit /ui/native and hub-config.yml.
         --ref <branch>           Git branch, tag, or commit (GitHub only)
         --config-file <path>     Artifactory config path (default: hub-config.yml)
         --auth <mode>            Artifactory auth: anonymous or bearer
