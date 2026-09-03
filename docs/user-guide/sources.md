@@ -21,11 +21,31 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 | `local-apm` | Local APM packages | Active |
 | `skills` | GitHub repository with skills | Active |
 | `local-skills` | Local filesystem skills directory | Active |
+| `artifactory` | Static bundle index and ZIP archives in a generic JFrog Artifactory repository | Active |
+
+### Artifactory sources
+
+An Artifactory source uses a credential-free HTTPS repository root and a static `index-v1.json` file by default. The index references each bundle's manifest and ZIP archive with a relative path, size, and lowercase SHA-256 digest. Custom index paths can be configured with `indexFile`.
+
+Do not put credentials in the source URL, hub configuration, index, or lockfile. For private sources, configure Bearer authentication with a source-scoped credential reference. The CLI resolves that reference as an environment-variable name; the VS Code extension stores the token in SecretStorage. Authentication failures are reported and do not fall back to GitHub.
 
 ## Adding a Source
 
 Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
-macOS) and run **AI Primitives Hub: Add Source**.
+macOS) and run **AI Primitives Hub: Add Source**. Choose **Artifactory** to enter the source root, index file, and optional Bearer token; the token is stored in VS Code SecretStorage.
+
+CLI users can add the same source without storing a token in configuration:
+
+```bash
+export ARTIFACTORY_TOKEN='your-token'
+ai-primitives-hub source add \
+  --type artifactory \
+  --url https://artifactory.example.com/artifactory/prompt-registry \
+  --auth bearer \
+  --credential-ref ARTIFACTORY_TOKEN
+```
+
+Use `--index-file <relative-path>` for an index other than `index-v1.json`. The credential reference is only a name; the token value is read from the environment when the CLI accesses the source.
 
 ## Managing Sources
 
