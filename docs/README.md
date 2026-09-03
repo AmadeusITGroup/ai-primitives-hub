@@ -58,6 +58,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Settings](reference/settings.md)** — Extension settings
 - **[Adapter API](reference/adapter-api.md)** — Custom adapters
 - **[Hub Schema](reference/hub-schema.md)** — Hub configuration
+- **[Hub Replication](reference/hub-replication.md)** — Replicating GitHub release bundles to Artifactory
 
 ---
 

@@ -20,6 +20,7 @@ export * from './http';
 export * from './hub';
 export * from './process';
 export * from './resolvers';
+export * from './replicate';
 export * from './scaffolding';
 export * from './search';
 export * from './storage';
