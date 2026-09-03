@@ -2,6 +2,16 @@
 
 This document lists all VS Code commands provided by the AI Primitives Hub extension.
 
+## Hub Replication (CLI)
+
+`ai-primitives-hub hub replicate --source-hub owner/repo --target-root https://artifactory.example/repo`
+
+Replication reads the source `hub-config.yml` at `--source-ref` and initially processes only enabled `type: github` sources. It resolves release assets containing a deployment manifest and ZIP archive, derives the stable ID `<owner>-<repo>[-<manifest.id>]`, and accepts only SemVer versions. `--mode latest` (the default) selects the newest stable version requested by profiles; `--mode all` retains every verified release. Unresolved profile selections are warnings and are omitted from the generated profiles.
+
+The command is metadata-only by default: it never downloads archives or publishes. Add `--publish --review` to opt into publication. The destination is exactly `<target-root>/sources/replicated`; objects are checked with HEAD and SHA-256 before upload, then `index-v1.json`, then `hub-config.yml` are written. Existing objects with the same digest are resumed/skipped. Conflicting or unverifiable objects fail closed unless `--allow-unverified-existing` is explicitly approved. Only bounded transient HTTP retries are used; rate-limit failures include a rerun/cache diagnostic. Credentials are supplied by the named environment variable (`--target-credential-ref`) and never appear in logs, cache keys, URLs, or generated configuration.
+
+`--cache-dir`, `--workers`, and `--request-budget` control persistent metadata/archive reuse, concurrency, and the GitHub request ceiling. Cache files are atomically written with directory mode 700 and file mode 600. No GitHub fallback client or `gh` CLI is used by production replication.
+
 ## Bundle Management
 
 | Command | Title | Description |

@@ -64,6 +64,9 @@ import {
   HubValidateCommand,
 } from './commands/hub';
 import {
+  HubReplicateCommand,
+} from './commands/hub-replicate';
+import {
   IndexBenchCommand,
 } from './commands/index-bench';
 import {
@@ -195,6 +198,7 @@ async function main(): Promise<number> {
     HubSyncCommand,
     HubRefreshCommand,
     HubValidateCommand,
+    HubReplicateCommand,
     SourceAddCommand,
     SourceListCommand,
     SourceRemoveCommand,
