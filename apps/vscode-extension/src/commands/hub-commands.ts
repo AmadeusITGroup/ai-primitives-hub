@@ -206,6 +206,9 @@ export class HubCommands {
           placeHolder: 'http://127.0.0.1:8081/artifactory/<repository-key>/<hub-prefix>',
           validateInput: (value) => {
             try {
+              if (/\s/u.test(value)) {
+                return 'Remove spaces; use the repository root URL as one continuous value';
+              }
               const url = new URL(value);
               const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
               return url.protocol === 'https:' || (url.protocol === 'http:' && loopback)
@@ -220,7 +223,8 @@ export class HubCommands {
         if (!location) {
           return undefined;
         }
-        if (new URL(location).protocol === 'http:') {
+        const trimmedLocation = location.trim();
+        if (new URL(trimmedLocation).protocol === 'http:') {
           await vscode.window.showWarningMessage('Loopback HTTP is intended only for local Artifactory testing; use HTTPS for shared or production hubs.');
         }
         const configFile = await vscode.window.showInputBox({
@@ -230,9 +234,12 @@ export class HubCommands {
         });
         const root = configFile || 'hub-config.yml';
         const anonymousReference: HubReference = {
-          type: 'artifactory', location, configFile: root, authMode: 'anonymous'
+          type: 'artifactory', location: trimmedLocation, configFile: root, authMode: 'anonymous'
         };
-        const publicHub = await this.hubManager.verifyHubAvailability(anonymousReference);
+        const publicHub = await Promise.race([
+          this.hubManager.verifyHubAvailability(anonymousReference),
+          new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5000))
+        ]);
         if (publicHub) {
           await vscode.window.showInformationMessage('The Artifactory hub is publicly readable; no credential is required.');
           return anonymousReference;
@@ -265,7 +272,7 @@ export class HubCommands {
           }
           await new HubTokenVault(this.context.secrets).set(credentialRef, token);
         }
-        return { type: 'artifactory', location, configFile: configFile || 'hub-config.yml', authMode: auth as 'anonymous' | 'bearer', credentialRef };
+        return { type: 'artifactory', location: trimmedLocation, configFile: root, authMode: auth as 'anonymous' | 'bearer', credentialRef };
       }
 
       case 'url': {
