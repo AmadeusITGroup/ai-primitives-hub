@@ -332,7 +332,10 @@
         }
         var rank = rankByKey.get(bundle.sourceId + SEP + bundle.id);
         if (rank !== undefined) {
-          matched.push({ bundle: bundle, rank: rank });
+          // Keep the semantic rank as the within-tier order, and flag whether
+          // this hit is also a strong literal match (every query term in its
+          // id/name/tags) so it can be promoted above loosely-related hits.
+          matched.push({ bundle: bundle, semanticRank: rank, strong: hasStrongKeywordMatch(fields, tokens) });
           return;
         }
         // Not in the semantic set. Rescue it only if it is an unambiguous
@@ -341,15 +344,30 @@
           strongExtras.push({ bundle: bundle, score: scoreSearchMatch(fields, tokens) });
         }
       });
+      // Promote strong literal matches to the top of the semantic set. The
+      // index's hybrid score can rank a paraphrase above a bundle literally
+      // named/tagged for the query; for the user that reads as "the most
+      // relevant result is not at the top". Tiering strong matches first — while
+      // preserving the index's semantic order *within* each tier — puts the
+      // bundle actually named for the query where it belongs without discarding
+      // the hybrid ranking. This is a stable, deterministic re-order (both keys
+      // are total orders), so there is no jitter between renders.
+      matched.sort((a, b) => {
+        if (a.strong !== b.strong) {
+          return a.strong ? -1 : 1;
+        }
+        return a.semanticRank - b.semanticRank;
+      });
+      var ordered = matched.map((entry, i) => ({ bundle: entry.bundle, rank: i }));
       // Append rescued literal matches after every semantic hit, best keyword
-      // score first. Basing the offset on the full indexed length keeps them
-      // strictly below the semantic hits even when filters hide some of the set.
-      var extrasBase = indexedBundleKeys.length;
+      // score first. Basing the offset on the ordered length keeps them strictly
+      // below the semantic hits.
+      var extrasBase = ordered.length;
       strongExtras.sort((a, b) => b.score - a.score);
       strongExtras.forEach((entry, i) => {
-        matched.push({ bundle: entry.bundle, rank: extrasBase + i });
+        ordered.push({ bundle: entry.bundle, rank: extrasBase + i });
       });
-      return matched;
+      return ordered;
     }
     // Deterministic keyword fallback: rank by the local relevance score (highest
     // first) so the instant results — shown before semantic hits arrive — lead
