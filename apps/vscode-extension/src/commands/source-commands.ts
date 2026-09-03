@@ -143,22 +143,27 @@ export class SourceCommands {
       }
 
       case 'artifactory': {
-        return await vscode.window.showInputBox({
+        const location = await vscode.window.showInputBox({
           prompt: 'Enter credential-free Artifactory source root URL',
           placeHolder: 'https://artifactory.example.com/artifactory/prompt-registry/',
           validateInput: (value) => {
             try {
               const url = new URL(value);
-              if (url.protocol !== 'https:') {
-                return 'Please enter an HTTPS Artifactory source root URL';
+              const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+              if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+                return 'Please enter an HTTPS URL, or loopback HTTP for local testing';
               }
               return undefined;
             } catch {
-              return 'Please enter a valid HTTPS URL';
+              return 'Please enter a valid Artifactory URL';
             }
           },
           ignoreFocusOut: true
         });
+        if (location && new URL(location).protocol === 'http:') {
+          await vscode.window.showWarningMessage('Loopback HTTP is intended only for local Artifactory testing; use HTTPS for shared or production sources.');
+        }
+        return location;
       }
 
       case 'azure-devops': {

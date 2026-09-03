@@ -29,6 +29,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   DEFAULT_LOCAL_HUB_ID,
+  isLoopbackHostname,
   sanitizeHubId,
 } from '@ai-primitives-hub/core';
 import type {
@@ -103,6 +104,7 @@ export class HubManager {
 
   private async validateReference(reference: HubReference): Promise<ValidationResult> {
     const errors: string[] = [];
+    const warnings: string[] = [];
 
     if (!reference.type) {
       errors.push('Reference type is required');
@@ -133,8 +135,12 @@ export class HubManager {
       case 'artifactory': {
         try {
           const url = new URL(reference.location);
-          if (url.protocol !== 'https:') {
+          const loopbackHttp = url.protocol === 'http:' && isLoopbackHostname(url.hostname);
+          if (url.protocol !== 'https:' && !loopbackHttp) {
             errors.push('Only HTTPS URLs are allowed for Artifactory hubs');
+          }
+          if (loopbackHttp) {
+            warnings.push('Loopback HTTP is for local development/testing only; use HTTPS for shared or production Artifactory hubs.');
           }
         } catch {
           errors.push('Invalid Artifactory URL format');
@@ -156,7 +162,7 @@ export class HubManager {
       }
     }
 
-    return Promise.resolve({ valid: errors.length === 0, errors, warnings: [] });
+    return Promise.resolve({ valid: errors.length === 0, errors, warnings });
   }
 
   /**

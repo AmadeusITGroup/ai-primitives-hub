@@ -204,11 +204,24 @@ export class HubCommands {
         const location = await vscode.window.showInputBox({
           prompt: 'Enter HTTPS Artifactory hub root URL',
           placeHolder: 'https://artifactory.example/repository/hub/',
-          validateInput: (value) => value.startsWith('https://') ? null : 'Please enter a valid HTTPS URL',
+          validateInput: (value) => {
+            try {
+              const url = new URL(value);
+              const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+              return url.protocol === 'https:' || (url.protocol === 'http:' && loopback)
+                ? undefined
+                : 'Please enter an HTTPS URL, or loopback HTTP for local testing';
+            } catch {
+              return 'Please enter a valid Artifactory URL';
+            }
+          },
           ignoreFocusOut: true
         });
         if (!location) {
           return undefined;
+        }
+        if (new URL(location).protocol === 'http:') {
+          await vscode.window.showWarningMessage('Loopback HTTP is intended only for local Artifactory testing; use HTTPS for shared or production hubs.');
         }
         const configFile = await vscode.window.showInputBox({ prompt: 'Config file path', value: 'hub-config.yml', ignoreFocusOut: true });
         const auth = await vscode.window.showQuickPick(['anonymous', 'bearer'], { placeHolder: 'Artifactory authentication', ignoreFocusOut: true });

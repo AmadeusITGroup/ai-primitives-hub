@@ -25,7 +25,7 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 
 ### Artifactory sources
 
-An Artifactory source uses a credential-free HTTPS repository root and a static `index-v1.json` file by default. The index references each bundle's manifest and ZIP archive with a relative path, size, and lowercase SHA-256 digest. Custom index paths can be configured with `indexFile`.
+An Artifactory source uses a credential-free HTTPS repository root and a static `index-v1.json` file by default. For local development only, `http://localhost`, `http://127.0.0.1`, and `http://[::1]` are accepted with a warning; non-loopback HTTP remains rejected. The index references each bundle's manifest and ZIP archive with a relative path, size, and lowercase SHA-256 digest. Custom index paths can be configured with `indexFile`.
 
 Do not put credentials in the source URL, hub configuration, index, or lockfile. For private sources, configure Bearer authentication with a source-scoped credential reference. The CLI resolves that reference as an environment-variable name; the VS Code extension stores the token in SecretStorage. Authentication failures are reported and do not fall back to GitHub.
 
