@@ -33,7 +33,7 @@ export class HubProfileCommands {
     const storagePath = context.globalStorageUri.fsPath;
     this.hubStorage = new HubStorage(storagePath);
     const validator = new SchemaValidator(context.extensionPath);
-    this.hubManager = new HubManager(this.hubStorage, validator, context.extensionPath);
+    this.hubManager = new HubManager(this.hubStorage, validator, context.extensionPath, undefined, undefined, context.secrets);
 
     this.registerCommands(context);
   }

@@ -12,6 +12,9 @@ import {
   RegistryManager,
 } from '../services/registry-manager';
 import {
+  HubTokenVault,
+} from '../services/source-token-vault';
+import {
   HubReference,
 } from '../types/hub';
 import {
@@ -24,7 +27,7 @@ import {
 interface HubSourceOption {
   label: string;
   description: string;
-  value: 'github' | 'url' | 'local';
+  value: 'github' | 'url' | 'local' | 'artifactory';
 }
 
 /**
@@ -134,18 +137,18 @@ export class HubCommands {
   /**
    * Select hub source type
    */
-  private async selectSourceType(): Promise<'github' | 'url' | 'local' | undefined> {
+  private async selectSourceType(): Promise<'github' | 'url' | 'local' | 'artifactory' | undefined> {
     const options: HubSourceOption[] = [
       {
         label: '$(github) GitHub Repository',
         description: 'Import from a GitHub repository',
         value: 'github'
       },
-      // {
-      //     label: '$(link) HTTPS URL',
-      //     description: 'Import from a direct URL',
-      //     value: 'url'
-      // },
+      {
+        label: '$(server) Artifactory Hub',
+        description: 'Import a private hub from Artifactory',
+        value: 'artifactory'
+      },
       {
         label: '$(file) Local File',
         description: 'Import from a local hub-config.yml file',
@@ -165,7 +168,7 @@ export class HubCommands {
    * Get hub reference based on source type
    * @param sourceType
    */
-  private async getHubReference(sourceType: 'github' | 'url' | 'local'): Promise<HubReference | undefined> {
+  private async getHubReference(sourceType: 'github' | 'url' | 'local' | 'artifactory'): Promise<HubReference | undefined> {
     switch (sourceType) {
       case 'github': {
         const location = await vscode.window.showInputBox({
@@ -195,6 +198,47 @@ export class HubCommands {
           location,
           ref: ref || undefined
         };
+      }
+
+      case 'artifactory': {
+        const location = await vscode.window.showInputBox({
+          prompt: 'Enter HTTPS Artifactory hub root URL',
+          placeHolder: 'https://artifactory.example/repository/hub/',
+          validateInput: (value) => value.startsWith('https://') ? null : 'Please enter a valid HTTPS URL',
+          ignoreFocusOut: true
+        });
+        if (!location) {
+          return undefined;
+        }
+        const configFile = await vscode.window.showInputBox({ prompt: 'Config file path', value: 'hub-config.yml', ignoreFocusOut: true });
+        const auth = await vscode.window.showQuickPick(['anonymous', 'bearer'], { placeHolder: 'Artifactory authentication', ignoreFocusOut: true });
+        if (!auth) {
+          return undefined;
+        }
+        let credentialRef: string | undefined;
+        if (auth === 'bearer') {
+          credentialRef = await vscode.window.showInputBox({
+            prompt: 'SecretStorage credential reference',
+            placeHolder: 'PRIVATE_HUB',
+            ignoreFocusOut: true,
+            validateInput: (value) => /^[A-Z_][A-Z0-9_]*$/.test(value)
+              ? undefined
+              : 'Use an environment-style name such as PRIVATE_HUB'
+          });
+          if (!credentialRef) {
+            return undefined;
+          }
+          const token = await vscode.window.showInputBox({
+            prompt: 'Enter Artifactory Bearer token',
+            password: true,
+            ignoreFocusOut: true
+          });
+          if (!token) {
+            return undefined;
+          }
+          await new HubTokenVault(this.context.secrets).set(credentialRef, token);
+        }
+        return { type: 'artifactory', location, configFile: configFile || 'hub-config.yml', authMode: auth as 'anonymous' | 'bearer', credentialRef };
       }
 
       case 'url': {

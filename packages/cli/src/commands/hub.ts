@@ -165,9 +165,12 @@ export class HubAddCommand extends BaseHubCommand {
       Usage: ai-primitives-hub hub add --location <ref> [options]
 
       Options:
-        --type <type>            Reference type: github (default), local, url
-        --location <ref>         GitHub owner/repo, local path, or URL
+        --type <type>            Reference type: github (default), local, url, artifactory
+        --location <ref>         GitHub owner/repo, local path, URL, or Artifactory hub root
         --ref <branch>           Git branch, tag, or commit (GitHub only)
+        --config-file <path>     Artifactory config path (default: hub-config.yml)
+        --auth <mode>            Artifactory auth: anonymous or bearer
+        --credential-ref <name>  Environment variable for Artifactory Bearer auth
         --id <id>                Custom hub ID (defaults to repo name)
         --no-sync                Skip syncing after import
         --no-use                 Skip setting as active hub
@@ -182,6 +185,9 @@ export class HubAddCommand extends BaseHubCommand {
   public refType = Option.String('--type');
   public refLocation = Option.String('--location');
   public refRef = Option.String('--ref');
+  public configFile = Option.String('--config-file');
+  public authMode = Option.String('--auth');
+  public credentialRef = Option.String('--credential-ref');
   public hubId = Option.String('--id');
   public noSync = Option.Boolean('--no-sync');
   public noUse = Option.Boolean('--no-use');
@@ -200,7 +206,27 @@ export class HubAddCommand extends BaseHubCommand {
       return 1;
     }
 
-    const refType = (this.refType ?? 'github') as 'github' | 'local' | 'url';
+    const refType = (this.refType ?? 'github') as 'github' | 'local' | 'url' | 'artifactory';
+    if (!['github', 'local', 'url', 'artifactory'].includes(refType)) {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: `hub add: unsupported type '${refType}'` }), ctx);
+      return 1;
+    }
+    if (refType !== 'artifactory' && (this.configFile || this.authMode || this.credentialRef)) {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: 'Artifactory options require --type artifactory' }), ctx);
+      return 1;
+    }
+    if (this.authMode !== undefined && this.authMode !== 'anonymous' && this.authMode !== 'bearer') {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: '--auth must be anonymous or bearer' }), ctx);
+      return 1;
+    }
+    if (refType === 'artifactory' && this.authMode === 'bearer' && !this.credentialRef) {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: '--credential-ref is required with --auth bearer' }), ctx);
+      return 1;
+    }
+    if (this.credentialRef !== undefined && !/^[A-Z_][A-Z0-9_]*$/.test(this.credentialRef)) {
+      renderError(new RegistryError({ code: 'USAGE.INVALID_FLAG', message: '--credential-ref must be an environment variable name' }), ctx);
+      return 1;
+    }
     let location = this.refLocation;
     if (refType === 'local' && !path.isAbsolute(location)) {
       location = path.resolve(ctx.cwd(), location);
@@ -209,7 +235,12 @@ export class HubAddCommand extends BaseHubCommand {
     const id = await mgr.importHub({
       type: refType,
       location,
-      ref: this.refRef
+      ref: this.refRef,
+      configFile: refType === 'artifactory' ? (this.configFile ?? 'hub-config.yml') : undefined,
+      authMode: refType === 'artifactory'
+        ? ((this.authMode ?? 'anonymous'))
+        : undefined,
+      credentialRef: refType === 'artifactory' ? this.credentialRef : undefined
     }, this.hubId);
 
     // F-05: auto-use and auto-sync after import (unless flags disable)

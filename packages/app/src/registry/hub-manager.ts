@@ -130,6 +130,27 @@ export class HubManager {
         // Local path validation is done during fetch.
         break;
       }
+      case 'artifactory': {
+        try {
+          const url = new URL(reference.location);
+          if (url.protocol !== 'https:') {
+            errors.push('Only HTTPS URLs are allowed for Artifactory hubs');
+          }
+        } catch {
+          errors.push('Invalid Artifactory URL format');
+        }
+        const configFile = reference.configFile ?? 'hub-config.yml';
+        if (!configFile || configFile.startsWith('/') || configFile.includes('\\') || configFile.includes('..')) {
+          errors.push('Artifactory configFile must be a confined relative path');
+        }
+        if (reference.authMode !== undefined && reference.authMode !== 'anonymous' && reference.authMode !== 'bearer') {
+          errors.push('Invalid Artifactory authentication mode');
+        }
+        if (reference.authMode === 'bearer' && !reference.credentialRef) {
+          errors.push('Artifactory Bearer authentication requires credentialRef');
+        }
+        break;
+      }
       default: {
         errors.push(`Unsupported reference type: ${String(reference.type)}`);
       }
