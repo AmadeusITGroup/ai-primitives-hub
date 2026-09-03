@@ -25,10 +25,16 @@ export const DEFAULT_LOCAL_HUB_ID = 'default-local';
  * Reference to a hub's location.
  */
 export interface HubReference {
-  type: 'github' | 'local' | 'url';
+  type: 'github' | 'local' | 'url' | 'artifactory';
   location: string;
   /** Git ref for GitHub sources (branch, tag, or commit). */
   ref?: string;
+  /** Relative config path within an Artifactory hub root. */
+  configFile?: string;
+  /** Artifactory authentication mode. */
+  authMode?: 'anonymous' | 'bearer';
+  /** Environment/secret-store credential key; never a raw credential. */
+  credentialRef?: string;
   autoSync?: boolean;
 }
 

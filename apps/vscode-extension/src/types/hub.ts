@@ -25,13 +25,22 @@ export {
  */
 export interface HubReference {
   /** Type of hub source */
-  type: 'github' | 'local' | 'url';
+  type: 'github' | 'local' | 'url' | 'artifactory';
 
   /** Location of the hub (repo, path, or URL) */
   location: string;
 
   /** Git ref for GitHub sources (branch, tag, or commit) */
   ref?: string;
+
+  /** Relative config path within an Artifactory hub root */
+  configFile?: string;
+
+  /** Artifactory authentication mode */
+  authMode?: 'anonymous' | 'bearer';
+
+  /** SecretStorage/environment credential reference, never a raw token */
+  credentialRef?: string;
 
   /** Whether to automatically sync this hub */
   autoSync?: boolean;

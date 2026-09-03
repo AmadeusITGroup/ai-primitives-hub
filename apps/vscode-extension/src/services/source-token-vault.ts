@@ -35,3 +35,24 @@ export class SourceTokenVault {
     return `${SourceTokenVault.KEY_PREFIX}${encodeURIComponent(sourceId)}`;
   }
 }
+
+/** Hub-scoped SecretStorage for Artifactory credentials. */
+export class HubTokenVault {
+  private static readonly KEY_PREFIX = 'promptregistry.hub-token.';
+  public constructor(private readonly secrets: vscode.SecretStorage) {}
+  public async get(credentialRef: string): Promise<string | undefined> {
+    return await this.secrets.get(HubTokenVault.key(credentialRef));
+  }
+
+  public async set(credentialRef: string, token: string): Promise<void> {
+    await this.secrets.store(HubTokenVault.key(credentialRef), token);
+  }
+
+  public async delete(credentialRef: string): Promise<void> {
+    await this.secrets.delete(HubTokenVault.key(credentialRef));
+  }
+
+  public static key(credentialRef: string): string {
+    return `${HubTokenVault.KEY_PREFIX}${encodeURIComponent(credentialRef)}`;
+  }
+}

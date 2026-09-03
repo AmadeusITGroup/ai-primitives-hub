@@ -35,6 +35,7 @@ import {
   SystemClock,
 } from '@ai-primitives-hub/infra';
 import {
+  HubTokenVault,
   SourceTokenVault,
 } from '../services/source-token-vault';
 import type {
@@ -55,6 +56,21 @@ class VaultTokenProvider implements TokenProvider {
 }
 
 /** SecretStorage-backed Artifactory credentials scoped to one source root. */
+export class HubVaultCredentialProvider implements HttpCredentialProvider {
+  public constructor(private readonly vault: HubTokenVault, private readonly credentialRef: string, private readonly sourceRoot: string) {}
+  public async headersFor(url: string, context: SourceRequestContext): Promise<Readonly<Record<string, string>>> {
+    const root = normalizeSourceRoot(this.sourceRoot);
+    const target = new URL(url);
+    if (root.origin !== target.origin || !target.pathname.startsWith(root.pathname)
+      || context.sourceId !== root.href || context.trustedOrigin !== root.origin
+      || context.trustedPathPrefix !== root.pathname) {
+      throw new Error('Credential request is outside the configured hub root.');
+    }
+    const token = await this.vault.get(this.credentialRef);
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+}
+
 export class SourceVaultCredentialProvider implements HttpCredentialProvider {
   public constructor(private readonly vault: SourceTokenVault, private readonly source: RegistrySource) {}
 

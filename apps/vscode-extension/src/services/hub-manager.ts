@@ -34,6 +34,8 @@ import type {
   ProfileLifecycleSync,
 } from '@ai-primitives-hub/core';
 import {
+  AnonymousCredentialProvider,
+  ArtifactoryHubResolver,
   CompositeHubResolver,
   CompositeTokenProvider,
   GhCliTokenProvider,
@@ -44,6 +46,9 @@ import {
   UrlHubResolver,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
+import {
+  HubVaultCredentialProvider,
+} from '../adapters/infra-adapter-factory';
 import {
   VsCodeSessionTokenProvider,
 } from '../adapters/vscode-session-token-provider';
@@ -74,6 +79,9 @@ import {
   SchemaValidator,
   ValidationResult,
 } from './schema-validator';
+import {
+  HubTokenVault,
+} from './source-token-vault';
 
 /**
  * Resolved bundle with its download URL
@@ -154,7 +162,8 @@ export class HubManager {
     validator: SchemaValidator,
     extensionPath: string,
     private readonly bundleInstaller?: any,
-    private readonly registryManager?: any
+    private readonly registryManager?: any,
+    secrets?: vscode.SecretStorage
   ) {
     if (!storage) {
       throw new Error('storage is required');
@@ -199,7 +208,16 @@ export class HubManager {
     const resolver = new CompositeHubResolver(
       new GitHubHubResolver(httpClient, tokenProvider),
       new LocalHubResolver(new NodeFileSystem()),
-      new UrlHubResolver(httpClient, tokenProvider)
+      new UrlHubResolver(httpClient, tokenProvider),
+      new ArtifactoryHubResolver(httpClient, (reference, root) => {
+        if (reference.authMode !== 'bearer') {
+          return new AnonymousCredentialProvider();
+        }
+        if (!secrets || !reference.credentialRef) {
+          throw new Error('Artifactory Bearer authentication requires a SecretStorage credentialRef.');
+        }
+        return new HubVaultCredentialProvider(new HubTokenVault(secrets), reference.credentialRef, root);
+      })
     );
 
     this.appHubManager = new AppHubManager({

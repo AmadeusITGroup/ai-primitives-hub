@@ -230,7 +230,8 @@ export function validateHubReference(ref: HubReference): void {
       }
       break;
     }
-    case 'url': {
+    case 'url':
+    case 'artifactory': {
       let url: URL;
       try {
         url = new URL(ref.location);
@@ -239,6 +240,15 @@ export function validateHubReference(ref: HubReference): void {
       }
       if (!isValidProtocol(url.protocol)) {
         throw new Error('Only HTTPS URLs are allowed for security');
+      }
+      if (ref.type === 'artifactory') {
+        const configFile = ref.configFile ?? 'hub-config.yml';
+        if (!configFile || configFile.startsWith('/') || configFile.includes('\\') || hasPathTraversal(configFile)) {
+          throw new Error('Artifactory configFile must be a confined relative path');
+        }
+        if (ref.authMode !== undefined && ref.authMode !== 'anonymous' && ref.authMode !== 'bearer') {
+          throw new Error('Invalid Artifactory authentication mode');
+        }
       }
       break;
     }

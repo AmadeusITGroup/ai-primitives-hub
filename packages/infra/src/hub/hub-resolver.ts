@@ -228,11 +228,13 @@ export class CompositeHubResolver implements HubResolver {
    * @param github Resolver for `github` references.
    * @param local Resolver for `local` references.
    * @param url Resolver for `url` references.
+   * @param artifactory
    */
   public constructor(
     private readonly github: HubResolver,
     private readonly local: HubResolver,
-    private readonly url: HubResolver
+    private readonly url: HubResolver,
+    private readonly artifactory?: HubResolver
   ) {}
 
   /**
@@ -247,6 +249,14 @@ export class CompositeHubResolver implements HubResolver {
     if (ref.type === 'local') {
       return this.local.resolve(ref);
     }
+    if (ref.type === 'artifactory') {
+      if (this.artifactory === undefined) {
+        throw new Error('No Artifactory hub resolver is configured.');
+      }
+      return this.artifactory.resolve(ref);
+    }
     return this.url.resolve(ref);
   }
 }
+
+export { ArtifactoryHubResolver } from './artifactory-hub-resolver';
