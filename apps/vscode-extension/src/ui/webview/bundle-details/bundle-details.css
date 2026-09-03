@@ -1,9 +1,37 @@
 /* Bundle Details View Styles */
 
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/regular/AmadeusNeueWeb-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/medium/AmadeusNeueWeb-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Amadeus Neue Web';
+    src: url('../fonts/amadeus-neue/bold/AmadeusNeueWeb-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    --df-color-primary: var(--vscode-textLink-foreground);
+    --df-color-success: var(--vscode-testing-iconPassed, var(--vscode-gitDecoration-addedResourceForeground));
+    --df-color-border: var(--vscode-panel-border);
+}
+
 body {
-    font-family: var(--vscode-font-family);
-    color: var(--vscode-foreground);
-    background-color: var(--vscode-editor-background);
+    font-family: 'Amadeus Neue Web', var(--vscode-font-family);
+    color: var(--vscode-foreground, #ffffff);
+    background-color: var(--vscode-editor-background, #1e1e1e);
     padding: 20px;
     line-height: 1.6;
 }
@@ -27,7 +55,7 @@ h1 {
 .badge {
     display: inline-block;
     background: var(--vscode-gitDecoration-addedResourceForeground);
-    color: white;
+    color: var(--vscode-button-foreground, #ffffff);
     padding: 4px 12px;
     border-radius: 12px;
     font-size: 12px;
@@ -70,8 +98,8 @@ h1 {
 }
 
 .toggle-switch.enabled {
-    background: var(--vscode-button-background);
-    border-color: var(--vscode-button-background);
+    background: var(--vscode-button-background, var(--vscode-textLink-foreground, #3794ff));
+    border-color: var(--vscode-button-background, var(--vscode-textLink-foreground, #3794ff));
 }
 
 .toggle-slider {

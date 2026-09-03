@@ -5,22 +5,46 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="{{cspSource}}">
     <title>AI Primitives Hub</title>
+    <link rel="stylesheet" href="{{iconsUri}}">
     <link rel="stylesheet" href="{{cssUri}}">
 </head>
 <body>
-    <div class="header">
-        <h1>🎨 AI Primitives Hub</h1>
-        <p>Discover and install curated AI primitives for GitHub Copilot</p>
-    </div>
+    <header class="header">
+        <img class="brand-mark" src="{{iconUri}}" alt="">
+        <div class="header-copy">
+            <h1>AI Primitives Hub</h1>
+        </div>
+    </header>
 
-    <div class="controls">
-        <input type="text" class="search-box" id="searchBox" placeholder="Search bundles...">
+    <main>
+    <section class="controls" aria-label="Marketplace filters">
+        <div class="search-wrap">
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input type="search" class="search-box" id="searchBox" placeholder="Discover and Install Curated AI Primitives" aria-label="Search Bundles">
+            <button class="search-clear-btn" id="searchClearBtn" type="button" aria-label="Clear search" hidden>×</button>
+            <button
+                class="search-help-btn"
+                id="searchHelpBtn"
+                type="button"
+                aria-label="Search tips"
+                aria-haspopup="true"
+                aria-expanded="false"
+                aria-controls="search-help">?</button>
+            <div class="filter-tooltip search-help-tooltip" id="search-help" role="tooltip">
+                <span class="help-title">Search tips</span>
+                <span class="help-line"><code>code review</code> — all words must match</span>
+                <span class="help-line"><code>"exact phrase"</code> — match a whole phrase</span>
+                <span class="help-line"><code>tag:security</code> <code>author:acme</code> — limit a term to a field <span class="help-muted">(also <code>env:</code>, <code>source:</code>, <code>name:</code>, <code>id:</code>)</span></span>
+                <span class="help-line"><code>-deprecated</code> — exclude matches</span>
+            </div>
+        </div>
         
-        <div class="filter-group">
-            <label class="filter-label">Source:</label>
+        <div class="filter-row" aria-label="Collection filters">
+        <div class="filter-group source-filter">
+            <label class="filter-label" for="sourceSelectorBtn">Source</label>
             <div class="source-selector">
                 <button class="source-selector-btn" id="sourceSelectorBtn">
-                    <span id="sourceSelectorText">All Sources</span>
+                    <span id="sourceSelectorText">Sources</span>
                     <span class="dropdown-arrow">▾</span>
                 </button>
                 <div class="source-dropdown" id="sourceDropdown" style="display: none;">
@@ -38,10 +62,9 @@
         </div>
         
         <div class="filter-group">
-            <label class="filter-label">Tags:</label>
             <div class="tag-selector">
                 <button class="tag-selector-btn" id="tagSelectorBtn">
-                    <span id="tagSelectorText">All Tags</span>
+                    <span id="tagSelectorText">Tags</span>
                     <span class="dropdown-arrow">▾</span>
                 </button>
                 <div class="tag-dropdown" id="tagDropdown" style="display: none;">
@@ -54,24 +77,67 @@
                 </div>
             </div>
         </div>
-        
-        <div class="installed-filter" id="installedFilter">
-            <input type="checkbox" id="installedCheckbox">
-            <label for="installedCheckbox">Installed</label>
+
+        <div class="filter-group content-filter-group">
+            <label class="filter-label content-filter-label">
+                Content
+                <button
+                    class="filter-help"
+                    type="button"
+                    aria-label="About the content filter"
+                    aria-describedby="content-filter-help">ⓘ</button>:
+                <span class="filter-tooltip" id="content-filter-help" role="tooltip">
+                    Shows collections containing at least one selected type. Collections may contain additional types.
+                </span>
+            </label>
+            <div class="content-type-selector">
+                <button class="content-type-selector-btn" id="contentTypeSelectorBtn">
+                    <span id="contentTypeSelectorText">Primitives</span>
+                    <span class="dropdown-arrow">▾</span>
+                </button>
+                <div class="content-type-dropdown" id="contentTypeDropdown" style="display: none;">
+                    <div class="content-type-list" id="contentTypeList">
+                        <!-- Content type options will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
         </div>
         
-        <button class="filter-btn" id="clearFiltersBtn">Clear</button>
-        <button class="refresh-btn" id="refreshBtn">Refresh</button>
+    </section>
+
+    <nav class="marketplace-tabs" aria-label="Marketplace sections">
+        <button class="marketplace-tab active" type="button" data-tab="for-you">For You <span class="tab-count" id="forYouCount">0</span></button>
+        <button class="marketplace-tab" type="button" data-tab="installed">Installed <span class="tab-count" id="installedCount">0</span></button>
+        <button class="marketplace-tab" type="button" data-tab="updates">Updates <span class="tab-count" id="updatesCount">0</span></button>
+    </nav>
+
+    <div class="active-filters" id="activeFilters" aria-live="polite">
+        <span class="sort-summary" id="sortSummary"></span>
+        <div class="filter-chips" id="filterChips"></div>
+        <div class="filter-actions">
+            <div class="sort-control-wrap">
+                <button class="sort-toggle" id="sortToggleBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Sort bundles" title="Sort bundles">
+                    <span class="sort-icon" aria-hidden="true">⇅</span>
+                </button>
+                <div class="sort-popover" id="sortPopover" style="display: none;" role="menu" aria-label="Sort bundles">
+                    <button class="sort-option" type="button" data-sort="relevance" role="menuitemradio" aria-checked="true"><span class="sort-option-label">Relevance</span><span class="sort-dir" aria-hidden="true"></span></button>
+                    <button class="sort-option" type="button" data-sort="name" role="menuitemradio" aria-checked="false"><span class="sort-option-label">Name</span><span class="sort-dir" aria-hidden="true"></span></button>
+                    <button class="sort-option" type="button" data-sort="recent" role="menuitemradio" aria-checked="false"><span class="sort-option-label">Recently updated</span><span class="sort-dir" aria-hidden="true"></span></button>
+                </div>
+            </div>
+            <button type="button" id="clearActiveFilters">× Clear</button>
+        </div>
     </div>
 
-    <div id="searchStatus" class="search-status" role="status" aria-live="polite"></div>
-
-    <div id="marketplace" class="marketplace-grid">
+    <div id="marketplace" class="marketplace-grid" aria-live="polite">
         <div class="loading">
             <div class="spinner"></div>
             <p>Loading bundles...</p>
         </div>
     </div>
+
+    </main>
 
     <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
 </body>
