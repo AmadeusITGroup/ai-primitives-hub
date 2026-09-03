@@ -166,6 +166,17 @@ export async function searchIndex(options: SearchIndexOptions): Promise<SearchRe
     }
   }
 
+  // Apply the profile's default relevance floors so every delivery layer shares
+  // one cut. A caller may still override either floor per query.
+  const relevanceProfile = Object.prototype.hasOwnProperty.call(SEARCH_PROFILES, searchProfileId)
+    ? getSearchProfile(searchProfileId)
+    : undefined;
+  const relevance = relevanceProfile?.relevance;
+  if (relevance) {
+    query.minScore ??= relevance.minScore;
+    query.minRelativeScore ??= relevance.minRelativeScore;
+  }
+
   const result = idx.search(query);
   return {
     ...result,

@@ -42,13 +42,48 @@ export function saveIndex(idx: PrimitiveIndex, filePath: string): void {
 }
 
 /**
+ * Parsed-index cache keyed by absolute path. A persisted index can be tens of
+ * megabytes (dense embeddings), and `fromJSON` rebuilds every `Float32Array`,
+ * so re-reading it on each search made interactive search (one search per
+ * keystroke) noticeably laggy. The cache is invalidated by file identity
+ * (mtime + size): {@link saveIndex} writes to a temp file and renames it into
+ * place, so any rebuild changes the mtime and evicts the stale entry. A CLI
+ * one-shot process simply misses once, with no behavioural change.
+ */
+const indexCache = new Map<string, { mtimeMs: number; size: number; index: PrimitiveIndex }>();
+
+/**
+ * Clear the in-memory parsed-index cache. Primarily for tests and for callers
+ * that must force a fresh read (e.g. after out-of-band file replacement).
+ * @param filePath - Optional path to evict; clears the whole cache when omitted.
+ */
+export function clearIndexCache(filePath?: string): void {
+  if (filePath === undefined) {
+    indexCache.clear();
+    return;
+  }
+  indexCache.delete(filePath);
+}
+
+/**
  * Load an index JSON file from disk; throws on missing file or bad schema.
+ *
+ * Repeated loads of an unchanged file return a cached, parsed index without
+ * re-reading or re-parsing. {@link PrimitiveIndex.search} is read-only, so the
+ * shared instance is safe to reuse across searches.
  * @param filePath - Path to a previously-saved index file.
  * @returns Loaded PrimitiveIndex.
  */
 export function loadIndex(filePath: string): PrimitiveIndex {
+  const stat = fs.statSync(filePath);
+  const cached = indexCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.index;
+  }
   const raw = fs.readFileSync(filePath, 'utf8');
-  return PrimitiveIndex.fromJSON(JSON.parse(raw) as unknown);
+  const index = PrimitiveIndex.fromJSON(JSON.parse(raw) as unknown);
+  indexCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, index });
+  return index;
 }
 
 /**

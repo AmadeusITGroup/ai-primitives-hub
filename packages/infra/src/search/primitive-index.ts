@@ -581,7 +581,7 @@ export class PrimitiveIndex {
 
     const maxScore = this.normalizeScores(scores);
     const hits = this.buildHits(scores, maxScore, query, explanations);
-    const sortedHits = this.sortHits(hits);
+    const sortedHits = this.applyRelevanceThreshold(this.sortHits(hits), query);
 
     const limit = query.limit ?? 20;
     const offset = query.offset ?? 0;
@@ -589,6 +589,41 @@ export class PrimitiveIndex {
       total: sortedHits.length,
       hits: sortedHits.slice(offset, offset + limit)
     };
+  }
+
+  /**
+   * Drop the long tail of weakly-related hits before the limit is applied.
+   *
+   * Semantic ranking seeds every filtered candidate with a base score (so
+   * embedding-similar docs are recalled even without a lexical match), which
+   * means an unfiltered result set is padded with near-zero noise. Callers set
+   * an absolute floor ({@link SearchQuery.minScore}) and/or a floor relative to
+   * the top hit ({@link SearchQuery.minRelativeScore}); the effective cut is the
+   * larger of the two. The single best hit is always kept so a query with any
+   * match never returns empty, and a facet-only listing (top score 0) is left
+   * untouched.
+   * @param sortedHits Hits already ordered best-score-first.
+   * @param query Search query carrying the optional relevance floors.
+   * @returns The hits at or above the effective relevance floor.
+   */
+  private applyRelevanceThreshold(sortedHits: SearchHit[], query: SearchQuery): SearchHit[] {
+    if (query.minScore === undefined && query.minRelativeScore === undefined) {
+      return sortedHits;
+    }
+    if (sortedHits.length === 0) {
+      return sortedHits;
+    }
+    const topScore = sortedHits[0].score;
+    // No relevance signal to threshold against (e.g. a facet-only listing where
+    // every hit scores 0): leave the result set untouched.
+    if (topScore <= 0) {
+      return sortedHits;
+    }
+    const relativeFloor = query.minRelativeScore === undefined
+      ? 0
+      : topScore * query.minRelativeScore;
+    const threshold = Math.max(query.minScore ?? 0, relativeFloor);
+    return sortedHits.filter((hit, index) => index === 0 || hit.score >= threshold);
   }
 
   /**

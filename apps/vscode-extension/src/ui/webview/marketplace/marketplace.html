@@ -20,7 +20,23 @@
     <section class="controls" aria-label="Marketplace filters">
         <div class="search-wrap">
             <span class="search-icon" aria-hidden="true">⌕</span>
-            <input type="text" class="search-box" id="searchBox" placeholder="Discover and install curated AI primitives" aria-label="Search Bundles">
+            <input type="search" class="search-box" id="searchBox" placeholder="Discover and Install Curated AI Primitives" aria-label="Search Bundles">
+            <button class="search-clear-btn" id="searchClearBtn" type="button" aria-label="Clear search" hidden>×</button>
+            <button
+                class="search-help-btn"
+                id="searchHelpBtn"
+                type="button"
+                aria-label="Search tips"
+                aria-haspopup="true"
+                aria-expanded="false"
+                aria-controls="search-help">?</button>
+            <div class="filter-tooltip search-help-tooltip" id="search-help" role="tooltip">
+                <span class="help-title">Search tips</span>
+                <span class="help-line"><code>code review</code> — all words must match</span>
+                <span class="help-line"><code>"exact phrase"</code> — match a whole phrase</span>
+                <span class="help-line"><code>tag:security</code> <code>author:acme</code> — limit a term to a field <span class="help-muted">(also <code>env:</code>, <code>source:</code>, <code>name:</code>, <code>id:</code>)</span></span>
+                <span class="help-line"><code>-deprecated</code> — exclude matches</span>
+            </div>
         </div>
         
         <div class="filter-row" aria-label="Collection filters">
@@ -98,14 +114,22 @@
 
     <div class="active-filters" id="activeFilters" aria-live="polite">
         <span class="filter-summary" id="filterSummary">Showing all bundles</span>
+        <span class="sort-summary" id="sortSummary"></span>
         <div class="filter-chips" id="filterChips"></div>
         <div class="filter-actions">
+            <div class="sort-control-wrap">
+                <button class="sort-toggle" id="sortToggleBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Sort bundles" title="Sort bundles">
+                    <span class="sort-icon" aria-hidden="true">⇅</span>
+                </button>
+                <div class="sort-popover" id="sortPopover" style="display: none;" role="menu" aria-label="Sort bundles">
+                    <button class="sort-option" type="button" data-sort="relevance" role="menuitemradio" aria-checked="true"><span class="sort-option-label">Relevance</span><span class="sort-dir" aria-hidden="true"></span></button>
+                    <button class="sort-option" type="button" data-sort="name" role="menuitemradio" aria-checked="false"><span class="sort-option-label">Name</span><span class="sort-dir" aria-hidden="true"></span></button>
+                    <button class="sort-option" type="button" data-sort="recent" role="menuitemradio" aria-checked="false"><span class="sort-option-label">Recently updated</span><span class="sort-dir" aria-hidden="true"></span></button>
+                </div>
+            </div>
             <button type="button" id="clearActiveFilters">× Clear</button>
-            <button class="refresh-btn" id="refreshBtn" type="button" aria-label="Refresh marketplace">↻</button>
         </div>
     </div>
-
-    <div id="searchStatus" class="search-status" role="status" aria-live="polite"></div>
 
     <div id="marketplace" class="marketplace-grid" aria-live="polite">
         <div class="loading">

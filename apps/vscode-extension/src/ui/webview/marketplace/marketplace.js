@@ -4,19 +4,31 @@
 (() => {
   const vscode = acquireVsCodeApi();
   let allBundles = [];
-  let filterOptions = { tags: [], sources: [] };
+  let filterOptions = { tags: [], sources: [], environments: [] };
   let selectedSource = 'all';
   let selectedTags = [];
   let selectedContentTypes = [];
-  let showInstalledOnly = false;
+  let sortBy = 'relevance';
+  // Natural default direction per field: best/newest first, names A→Z.
+  const SORT_DEFAULT_DIRECTION = { relevance: 'desc', name: 'asc', recent: 'desc' };
+  let sortDirection = SORT_DEFAULT_DIRECTION[sortBy];
+  // Tracks whether the search box currently holds a query. Used to detect the
+  // empty→typing transition so entering a search switches ordering to relevance
+  // ("best match"), the way every marketplace search does — otherwise a lingering
+  // "Recently updated"/"Name" sort re-orders the ranked hits and buries the most
+  // relevant bundles under unrelated recent ones.
+  let searchModeActive = false;
   let indexedBundleKeys = null;
   let indexedSearchQuery = null;
+  // True from the moment a query is typed until its semantic results arrive.
+  // While pending we show a "Searching…" state instead of flashing literal
+  // keyword matches, so the final view is always the index's hybrid ranking.
+  let semanticSearchPending = false;
   let searchRequestTimer;
   let selectedTab = 'for-you';
   let openVersionDropdownId = null;
   let setupState = 'complete'; // Default to complete to avoid showing setup prompt unnecessarily
   let sourcesCount = 0;
-  let semanticSearchPending = false;
 
   // Handle messages from extension
   window.addEventListener('message', (event) => {
@@ -24,7 +36,7 @@
 
     if (message.type === 'bundlesLoaded') {
       allBundles = message.bundles;
-      filterOptions = message.filterOptions || { tags: [], sources: [] };
+      filterOptions = message.filterOptions || { tags: [], sources: [], environments: [] };
       setupState = message.setupState || 'complete';
       sourcesCount = message.sourcesCount || 0;
       updateFilterUI();
@@ -37,7 +49,6 @@
         semanticSearchPending = false;
         indexedBundleKeys = message.bundleKeys;
         indexedSearchQuery = message.bundleKeys === null ? null : currentQuery;
-        renderSearchStatus(message.diagnostics, currentQuery);
         updateMarketplaceSummary();
         renderBundles();
       }
@@ -259,6 +270,7 @@
     switch (filter) {
       case 'search': {
         document.querySelector('#searchBox').value = '';
+        updateSearchClearButton();
 
         break;
       }
@@ -278,15 +290,6 @@
 
         break;
       }
-      case 'installed': {
-        showInstalledOnly = false;
-        var installedCheckbox = document.querySelector('#installedCheckbox');
-        if (installedCheckbox) {
-          installedCheckbox.checked = false;
-        }
-
-        break;
-      }
       // No default
     }
     updateFilterUI();
@@ -295,51 +298,128 @@
     renderBundles();
   };
 
+  // Match bundles against the current search and return them in relevance order
+  // as { bundle, rank } (rank 0 = best). When the extension has semantic results
+  // for this exact query, lead with the index's hybrid ranking (the same the CLI
+  // shows) and honour explicit exclusion tokens (e.g. "-deprecated"). We then
+  // union back any *strong* literal matches — bundles whose query terms appear
+  // in their id/name/tags — that the semantic relevance floor dropped, ranked
+  // just below the semantic hits. The floor exists to cut semantic *noise*
+  // (a query flooding to dozens of loosely-related bundles); it must never
+  // eliminate a bundle literally named/tagged for the query (e.g. a second
+  // "renovate" bundle). Weak, description-only matches stay subject to the floor.
+  // Fall back to literal keyword matching only when the index did not respond
+  // (unavailable/errored), so results still appear.
+  const applySearch = (bundles, searchTerm) => {
+    if (!searchTerm || searchTerm.trim() === '') {
+      return bundles.map((bundle, index) => ({ bundle: bundle, rank: index }));
+    }
+    if (indexedSearchQuery === searchTerm && Array.isArray(indexedBundleKeys)) {
+      var SEP = String.fromCharCode(0);
+      var tokens = parseSearchTokens(searchTerm);
+      var rankByKey = new Map();
+      for (const [i, indexedBundleKey] of indexedBundleKeys.entries()) {
+        if (!rankByKey.has(indexedBundleKey)) {
+          rankByKey.set(indexedBundleKey, i);
+        }
+      }
+      var matched = [];
+      var strongExtras = [];
+      bundles.forEach((bundle) => {
+        var fields = getSearchFields(bundle);
+        if (tokens.some((token) => token.excluded && tokenMatches(fields, token))) {
+          return;
+        }
+        var rank = rankByKey.get(bundle.sourceId + SEP + bundle.id);
+        if (rank !== undefined) {
+          // Keep the semantic rank as the within-tier order, and flag whether
+          // this hit is also a strong literal match (every query term in its
+          // id/name/tags) so it can be promoted above loosely-related hits.
+          matched.push({ bundle: bundle, semanticRank: rank, strong: hasStrongKeywordMatch(fields, tokens) });
+          return;
+        }
+        // Not in the semantic set. Rescue it only if it is an unambiguous
+        // literal match the floor discarded.
+        if (hasStrongKeywordMatch(fields, tokens)) {
+          strongExtras.push({ bundle: bundle, score: scoreSearchMatch(fields, tokens) });
+        }
+      });
+      // Promote strong literal matches to the top of the semantic set. The
+      // index's hybrid score can rank a paraphrase above a bundle literally
+      // named/tagged for the query; for the user that reads as "the most
+      // relevant result is not at the top". Tiering strong matches first — while
+      // preserving the index's semantic order *within* each tier — puts the
+      // bundle actually named for the query where it belongs without discarding
+      // the hybrid ranking. This is a stable, deterministic re-order (both keys
+      // are total orders), so there is no jitter between renders.
+      matched.sort((a, b) => {
+        if (a.strong !== b.strong) {
+          return a.strong ? -1 : 1;
+        }
+        return a.semanticRank - b.semanticRank;
+      });
+      var ordered = matched.map((entry, i) => ({ bundle: entry.bundle, rank: i }));
+      // Append rescued literal matches after every semantic hit, best keyword
+      // score first. Basing the offset on the ordered length keeps them strictly
+      // below the semantic hits.
+      var extrasBase = ordered.length;
+      strongExtras.sort((a, b) => b.score - a.score);
+      strongExtras.forEach((entry, i) => {
+        ordered.push({ bundle: entry.bundle, rank: extrasBase + i });
+      });
+      return ordered;
+    }
+    // Deterministic keyword fallback: rank by the local relevance score (highest
+    // first) so the instant results — shown before semantic hits arrive — lead
+    // with the strongest matches. Ties keep the catalog's original order for a
+    // stable, non-jittery list. Once semantic results land, the branch above
+    // takes over and these ranks are replaced by the index's hybrid ranking.
+    var scored = searchBundles(bundles, searchTerm);
+    scored.sort((a, b) => (b.score - a.score) || (a.index - b.index));
+    return scored.map((entry, index) => ({ bundle: entry.bundle, rank: index }));
+  };
+
   const getFilteredBundles = () => {
     var searchTerm = document.querySelector('#searchBox')?.value || '';
-    var filteredBundles = allBundles;
+    var filteredBundles = applyBaseFilters(allBundles);
 
-    if (selectedSource && selectedSource !== 'all') {
-      filteredBundles = filteredBundles.filter((bundle) => bundle.sourceId === selectedSource);
-    }
-    if (showInstalledOnly) {
-      filteredBundles = filteredBundles.filter((bundle) => bundle.installed === true);
-    }
-    if (selectedTags.length > 0) {
-      filteredBundles = filteredBundles.filter((bundle) => bundle.tags && bundle.tags.some((bundleTag) => {
-        return selectedTags.some((selectedTag) => bundleTag.toLowerCase() === selectedTag.toLowerCase());
-      }));
-    }
-    if (selectedContentTypes.length > 0) {
-      filteredBundles = filteredBundles.filter((bundle) =>
-        selectedContentTypes.some((type) => (bundle.contentBreakdown?.[type] || 0) > 0)
-      );
-    }
-    if (indexedSearchQuery === searchTerm && indexedBundleKeys !== null) {
-      var indexedKeys = new Set(indexedBundleKeys);
-      filteredBundles = filteredBundles.filter((bundle) => indexedKeys.has(bundle.sourceId + '\u0000' + bundle.id));
-    } else if (!semanticSearchPending && searchTerm.trim() !== '') {
-      var term = searchTerm.toLowerCase();
-      filteredBundles = filteredBundles.filter((bundle) => bundle.name.toLowerCase().includes(term)
-        || bundle.description.toLowerCase().includes(term)
-        || (bundle.tags && bundle.tags.some((tag) => tag.toLowerCase().includes(term)))
-        || (bundle.author && bundle.author.toLowerCase().includes(term)));
+    if (searchTerm.trim() !== '') {
+      filteredBundles = applySearch(filteredBundles, searchTerm).map((entry) => entry.bundle);
     }
     return filteredBundles;
   };
 
+  // Sync the Sort control's state. The selection (field + direction) is shown
+  // as a "Sort: <field> <arrow>" label beside the bundle count, and the active
+  // option in the menu carries the same direction arrow (click it again to
+  // flip ascending/descending).
+  const SORT_LABELS = { relevance: 'Relevance', name: 'Name', recent: 'Recently updated' };
+  const directionArrow = (direction) => (direction === 'asc' ? '↑' : '↓');
+  const updateSortControls = () => {
+    // Relevance is not reversible, so it shows no direction arrow; Name and
+    // Recently updated show ↑/↓ for their current direction.
+    var summaryEl = document.querySelector('#sortSummary');
+    if (summaryEl) {
+      var label = SORT_LABELS[sortBy] || SORT_LABELS.relevance;
+      var summaryArrow = sortBy === 'relevance' ? '' : ' ' + directionArrow(sortDirection);
+      summaryEl.textContent = 'Sort: ' + label + summaryArrow;
+    }
+    document.querySelectorAll('.sort-option').forEach((option) => {
+      var active = option.dataset.sort === sortBy;
+      option.setAttribute('aria-checked', String(active));
+      var dirEl = option.querySelector('.sort-dir');
+      if (dirEl) {
+        dirEl.textContent = (active && option.dataset.sort !== 'relevance') ? directionArrow(sortDirection) : '';
+      }
+    });
+  };
+
   const updateMarketplaceSummary = () => {
     var chips = document.querySelector('#filterChips');
-    var filterSummary = document.querySelector('#filterSummary');
     var searchValue = document.querySelector('#searchBox')?.value.trim();
-    var hasActiveFilters = selectedSource !== 'all' || selectedTags.length > 0
-      || selectedContentTypes.length > 0 || showInstalledOnly || Boolean(searchValue);
-    if (filterSummary) {
-      filterSummary.textContent = hasActiveFilters
-        ? getFilteredBundles().length + ' matching bundles'
-        : 'Showing all bundles';
-      filterSummary.classList.toggle('hidden', hasActiveFilters);
-    }
+    // The bundle count in #filterSummary is owned by renderBundles(), which
+    // always runs after this. Here we only refresh the chips and tab counts.
+    updateSortControls();
     if (chips) {
       var activeFilters = [];
       if (searchValue) {
@@ -350,9 +430,6 @@
       }
       selectedTags.forEach((tag) => activeFilters.push({ filter: 'tag', value: tag, label: 'Tag: ' + tag }));
       selectedContentTypes.forEach((type) => activeFilters.push({ filter: 'content', value: type, label: 'Content: ' + type }));
-      if (showInstalledOnly) {
-        activeFilters.push({ filter: 'installed', label: 'Installed' });
-      }
       chips.innerHTML = activeFilters.map((activeFilter) => '<span class="filter-chip">'
         + '<span class="filter-chip-label">' + activeFilter.label + '</span>'
         + '<button class="filter-chip-remove" type="button" data-filter="' + activeFilter.filter
@@ -442,47 +519,61 @@
     }
   });
 
+  // Show the clear (×) button only while the search box holds text.
+  const updateSearchClearButton = () => {
+    var clearBtn = document.querySelector('#searchClearBtn');
+    if (clearBtn) {
+      clearBtn.hidden = document.querySelector('#searchBox').value === '';
+    }
+  };
+
   // Search functionality
   document.querySelector('#searchBox').addEventListener('input', (event) => {
+    var query = event.target.value;
+    updateSearchClearButton();
     indexedBundleKeys = null;
     indexedSearchQuery = null;
-    semanticSearchPending = event.target.value.trim() !== '';
-    renderSearchStatus({ state: 'searching' }, event.target.value);
+    clearTimeout(searchRequestTimer);
+
+    // Entering a search (empty → typing) switches ordering to relevance so the
+    // ranked hits lead. A prior "Recently updated"/"Name" selection otherwise
+    // persists into the search and buries the best matches. Only resets on the
+    // transition, so the user can still re-sort results afterwards.
+    var isSearching = query.trim() !== '';
+    if (isSearching && !searchModeActive && sortBy !== 'relevance') {
+      sortBy = 'relevance';
+      sortDirection = SORT_DEFAULT_DIRECTION[sortBy];
+      updateSortControls();
+    }
+    searchModeActive = isSearching;
+
+    // Structured (advanced-operator) and empty queries are handled entirely by
+    // the keyword engine — no semantic request is issued, so field filters and
+    // quoted phrases keep working exactly as typed.
+    if (query.trim() === '' || hasAdvancedOperators(query)) {
+      semanticSearchPending = false;
+      updateMarketplaceSummary();
+      renderBundles();
+      return;
+    }
+
+    // Free-text query: wait for the index's hybrid results before rendering.
+    semanticSearchPending = true;
     updateMarketplaceSummary();
     renderBundles();
-    clearTimeout(searchRequestTimer);
     searchRequestTimer = setTimeout(() => {
-      vscode.postMessage({ type: 'search', query: event.target.value });
+      vscode.postMessage({ type: 'search', query: query });
     }, 250);
   });
 
-  const renderSearchStatus = (diagnostics, query) => {
-    var status = document.querySelector('#searchStatus');
-    if (!status) {
-      return;
-    }
-    if (!query || query.trim() === '') {
-      status.textContent = '';
-      status.className = 'search-status';
-      return;
-    }
-    if (diagnostics?.state === 'searching') {
-      status.textContent = 'Semantic search: searching…';
-      status.className = 'search-status searching';
-      return;
-    }
-    if (diagnostics?.ranking === 'unavailable') {
-      status.textContent = 'Semantic search unavailable; using metadata search';
-      status.className = 'search-status unavailable';
-      return;
-    }
-    var embeddingLabel = diagnostics?.embeddings ? 'embeddings on' : 'BM25 only';
-    status.textContent = 'Semantic search: ' + (diagnostics?.profile || 'unknown')
-      + ' • ' + (diagnostics?.ranking || 'unknown')
-      + ' • ' + embeddingLabel
-      + ' • ' + String(diagnostics?.bundleHits ?? 0) + ' bundles';
-    status.className = 'search-status active';
-  };
+  // Clear (×) button inside the search box: empty the query and re-run the
+  // input handler so the results and all search state reset consistently.
+  document.querySelector('#searchClearBtn').addEventListener('click', () => {
+    var searchBox = document.querySelector('#searchBox');
+    searchBox.value = '';
+    searchBox.dispatchEvent(new Event('input', { bubbles: true }));
+    searchBox.focus();
+  });
 
   // Source selector button click
   document.querySelector('#sourceSelectorBtn').addEventListener('click', (e) => {
@@ -547,6 +638,7 @@
   // Reset filters from the compact active-filter strip.
   const resetFilters = () => {
     document.querySelector('#searchBox').value = '';
+    updateSearchClearButton();
     document.querySelector('#sourceSearch').value = '';
     document.querySelector('#tagSearch').value = '';
 
@@ -581,9 +673,13 @@
       cb.checked = true;
     });
 
+    // Reset Sort back to Relevance (default direction) and close its popover
+    sortBy = 'relevance';
+    sortDirection = SORT_DEFAULT_DIRECTION[sortBy];
+    closeSortPopover();
+
     selectedSource = 'all';
     selectedTags = [];
-    showInstalledOnly = false;
     selectedTab = 'for-you';
     document.querySelectorAll('.marketplace-tab').forEach((item) => item.classList.toggle('active', item.dataset.tab === selectedTab));
     updateTagButtonText();
@@ -594,6 +690,93 @@
   document.querySelector('#clearActiveFilters').addEventListener('click', () => {
     resetFilters();
   });
+
+  // Sort popover (opened from the Sort button in the active-filters bar)
+  const closeSortPopover = () => {
+    var popover = document.querySelector('#sortPopover');
+    var toggle = document.querySelector('#sortToggleBtn');
+    if (popover) {
+      popover.style.display = 'none';
+    }
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+  };
+
+  document.querySelector('#sortToggleBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    var popover = document.querySelector('#sortPopover');
+    var isOpen = popover.style.display !== 'none';
+    popover.style.display = isOpen ? 'none' : 'block';
+    e.currentTarget.setAttribute('aria-expanded', String(!isOpen));
+  });
+
+  // Close the sort popover on outside click or Escape.
+  document.addEventListener('click', (e) => {
+    var wrap = document.querySelector('.sort-control-wrap');
+    var popover = document.querySelector('#sortPopover');
+    if (wrap && !wrap.contains(e.target) && popover && popover.style.display === 'block') {
+      closeSortPopover();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeSortPopover();
+    }
+  });
+
+  document.querySelectorAll('.sort-option').forEach((option) => {
+    option.addEventListener('click', () => {
+      if (option.disabled) {
+        return;
+      }
+      var nextSort = option.dataset.sort;
+      if (nextSort === sortBy) {
+        // Re-selecting the active field flips ascending ⇄ descending — except
+        // Relevance, which is always best-first (an ascending "least relevant
+        // first" order is meaningless and only confuses the results).
+        if (nextSort !== 'relevance') {
+          sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        }
+      } else {
+        sortBy = nextSort;
+        sortDirection = SORT_DEFAULT_DIRECTION[sortBy] || 'desc';
+      }
+      closeSortPopover();
+      updateMarketplaceSummary();
+      renderBundles();
+    });
+  });
+
+  // Search-tips popover: click the (?) button to pin the tooltip open (it also
+  // still opens on hover/focus via CSS); click outside or press Escape to close.
+  const searchHelpBtn = document.querySelector('#searchHelpBtn');
+  const searchHelpTip = document.querySelector('#search-help');
+  const closeSearchHelp = () => {
+    if (searchHelpTip) {
+      searchHelpTip.classList.remove('is-open');
+    }
+    if (searchHelpBtn) {
+      searchHelpBtn.setAttribute('aria-expanded', 'false');
+    }
+  };
+  if (searchHelpBtn && searchHelpTip) {
+    searchHelpBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      var isOpen = searchHelpTip.classList.toggle('is-open');
+      searchHelpBtn.setAttribute('aria-expanded', String(isOpen));
+    });
+    document.addEventListener('click', (e) => {
+      if (!searchHelpBtn.contains(e.target) && !searchHelpTip.contains(e.target)) {
+        closeSearchHelp();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeSearchHelp();
+      }
+    });
+  }
 
   document.querySelectorAll('.marketplace-tab').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -609,6 +792,7 @@
       document.querySelectorAll('.category-pill').forEach((item) => item.classList.remove('active'));
       pill.classList.add('active');
       document.querySelector('#searchBox').value = pill.textContent === 'All' ? '' : pill.textContent.replace('⌄', '').trim();
+      updateSearchClearButton();
       updateMarketplaceSummary();
       renderBundles();
     });
@@ -619,11 +803,6 @@
       event.preventDefault();
       document.querySelector('#searchBox').focus();
     }
-  });
-
-  // Refresh button
-  document.querySelector('#refreshBtn').addEventListener('click', () => {
-    vscode.postMessage({ type: 'refresh' });
   });
 
   // Shorten hash-based versions for compact UI labels.
@@ -646,87 +825,260 @@
     return ' (' + formatVersionLabel(installedVersion) + ' -> ' + formatVersionLabel(latestVersion) + ')';
   };
 
+  // Compact search syntax shared with the extension host (see filter-utils.ts).
+  // Words combine with AND, quotes preserve phrases, a leading minus excludes a
+  // term, and field prefixes (tag:, author:, env:, source:, name:, id:) scope it.
+  const normalizeSearchValue = (value) => {
+    return String(value || '')
+      .normalize('NFKD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase()
+      .trim();
+  };
+
+  const parseSearchTokens = (searchText) => {
+    var tokens = [];
+    // `\s*` after the field colon tolerates the common `tag: value` habit
+    // (space after the colon), so the field filter still applies instead of the
+    // query silently degrading to a free-text semantic search.
+    var pattern = /(-)?(?:(id|name|description|tag|author|env|source|platform):\s*)?(?:"([^"]+)"|(\S+))/giu;
+    var match;
+    while ((match = pattern.exec(searchText)) !== null) {
+      var value = normalizeSearchValue(match[3] || match[4]);
+      if (value) {
+        // match[3] is the content inside quotes — flag it so a quoted term is
+        // treated as an exact literal even when it is a single word (e.g.
+        // `"security"`), which has no space to detect it by.
+        tokens.push({ excluded: match[1] === '-', field: match[2], value: value, quoted: Boolean(match[3]) });
+      }
+    }
+    return tokens;
+  };
+
+  // A query is "advanced" when it uses structured operators the semantic index
+  // cannot interpret: field filters (tag:, author:, env:, source:, name:, id:),
+  // quoted phrases, or -exclusions. Such queries are matched literally by the
+  // keyword engine and must bypass semantic search entirely — otherwise the
+  // embedding lookup treats e.g. `tag:security` as free text and the field
+  // filter silently stops working.
+  const hasAdvancedOperators = (searchText) => {
+    return parseSearchTokens(searchText).some((token) =>
+      Boolean(token.field) || token.excluded || token.quoted || token.value.includes(' ')
+    );
+  };
+
+  const getSearchFields = (bundle) => {
+    return {
+      id: [normalizeSearchValue(bundle.id)],
+      name: [normalizeSearchValue(bundle.name)],
+      description: [normalizeSearchValue(bundle.description)],
+      tag: (bundle.tags || []).map((tag) => normalizeSearchValue(tag)),
+      author: [normalizeSearchValue(bundle.author)],
+      env: (bundle.environments || []).map((environment) => normalizeSearchValue(environment)),
+      source: [normalizeSearchValue(bundle.sourceId)]
+    };
+  };
+
+  const tokenMatches = (fields, token) => {
+    var fieldName = token.field;
+    // Support 'platform' as alias for 'env'
+    if (fieldName === 'platform') {
+      fieldName = 'env';
+    }
+    var values = fieldName ? fields[fieldName] : Object.values(fields).flat();
+    return values.some((value) => value.includes(token.value));
+  };
+
+  // A "strong" literal match has every query term present in the bundle's id,
+  // name, or tags — not merely its description. These are unambiguous keyword
+  // hits (a bundle literally named/tagged for the query), so they are unioned
+  // back in when the semantic relevance floor drops them (see applySearch);
+  // description-only matches are deliberately excluded to avoid re-flooding on
+  // common words.
+  const STRONG_MATCH_FIELDS = ['id', 'name', 'tag'];
+  const hasStrongKeywordMatch = (fields, tokens) => {
+    var required = tokens.filter((token) => !token.excluded);
+    if (required.length === 0) {
+      return false;
+    }
+    return required.every((token) =>
+      STRONG_MATCH_FIELDS.some((field) => fields[field].some((value) => value.includes(token.value)))
+    );
+  };
+
+  // Relevance tiers mirror scoreBundle() in filter-utils.ts — keep in sync.
+  const scoreSearchMatch = (fields, tokens) => {
+    let score = 0;
+    for (const token of tokens) {
+      if (token.excluded) {
+        continue;
+      }
+      if (fields.id.includes(token.value)) {
+        score += 120;
+      } else if (fields.name.includes(token.value)) {
+        score += 100;
+      } else if (fields.name.some((value) => value.startsWith(token.value))) {
+        score += 70;
+      } else if (fields.tag.includes(token.value)) {
+        score += 50;
+      } else if (fields.env.includes(token.value)) {
+        score += 40;
+      } else if (fields.author.includes(token.value)) {
+        score += 35;
+      } else if (fields.name.some((value) => value.includes(token.value))) {
+        score += 30;
+      } else if (fields.id.some((value) => value.includes(token.value))) {
+        score += 28;
+      } else if (fields.tag.some((value) => value.includes(token.value))) {
+        score += 26;
+      } else if (fields.source.includes(token.value)) {
+        score += 25;
+      } else if (fields.env.some((value) => value.includes(token.value))) {
+        score += 24;
+      } else if (fields.author.some((value) => value.includes(token.value))) {
+        score += 22;
+      } else if (fields.source.some((value) => value.includes(token.value))) {
+        score += 18;
+      } else if (fields.description.some((value) => value.includes(token.value))) {
+        score += 8;
+      } else {
+        score += 2;
+      }
+    }
+    return score;
+  };
+
+  // Filter + relevance-rank a set of bundles using the local search syntax.
+  // Returns an array of { bundle, score, index } entries (unsorted).
+  const searchBundles = (bundles, searchText) => {
+    var tokens = parseSearchTokens(searchText);
+    if (tokens.length === 0) {
+      return bundles.map((bundle, index) => ({ bundle: bundle, score: 0, index: index }));
+    }
+    return bundles.map((bundle, index) => {
+      return { bundle: bundle, fields: getSearchFields(bundle), index: index };
+    }).filter((entry) => {
+      return tokens.every((token) => token.excluded
+        ? !tokenMatches(entry.fields, token)
+        : tokenMatches(entry.fields, token));
+    }).map((entry) => {
+      return { bundle: entry.bundle, score: scoreSearchMatch(entry.fields, tokens), index: entry.index };
+    });
+  };
+
+  // Apply source/installed/tag/content filters (everything except
+  // the free-text search and tab partition). Shared by the tab-count summary.
+  const applyBaseFilters = (bundles) => {
+    var filtered = bundles;
+
+    if (selectedSource && selectedSource !== 'all') {
+      filtered = filtered.filter((bundle) => bundle.sourceId === selectedSource);
+    }
+    if (selectedTags.length > 0) {
+      filtered = filtered.filter((bundle) => {
+        if (!bundle.tags || bundle.tags.length === 0) {
+          return false;
+        }
+        var normalizedBundleTags = bundle.tags.map((tag) => tag.toLowerCase());
+        return selectedTags.some((tag) => normalizedBundleTags.includes(tag.toLowerCase()));
+      });
+    }
+    // NOTE: content-type OR logic mirrors filterBundlesByContentType() in filter-utils.ts — keep in sync
+    if (selectedContentTypes.length > 0) {
+      filtered = filtered.filter((bundle) =>
+        selectedContentTypes.some((type) => (bundle.contentBreakdown?.[type] || 0) > 0)
+      );
+    }
+    return filtered;
+  };
+
   const renderBundles = () => {
     var marketplace = document.querySelector('#marketplace');
     var searchTerm = document.querySelector('#searchBox').value;
-
-    if (semanticSearchPending && searchTerm.trim() !== '') {
-      marketplace.innerHTML = '<div class="loading">'
-        + '<div class="spinner"></div>'
-        + '<p>Searching...</p>'
-        + '</div>';
-      return;
-    }
+    var hasSearch = Boolean(searchTerm && searchTerm.trim() !== '');
 
     var filteredBundles = allBundles;
 
+    // 1. Partition by active tab
     if (selectedTab === 'installed') {
       filteredBundles = filteredBundles.filter((bundle) => bundle.installed === true);
     } else if (selectedTab === 'updates') {
       filteredBundles = filteredBundles.filter((bundle) => bundle.buttonState === 'update');
     }
+    // Total available in the active tab, before filters/search narrow it down.
+    var tabTotal = filteredBundles.length;
 
-    // Apply source filter
-    if (selectedSource && selectedSource !== 'all') {
-      filteredBundles = filteredBundles.filter((bundle) => {
-        return bundle.sourceId === selectedSource;
-      });
-    }
+    // 2. Apply structured filters (source, installed, tags, environment, content)
+    filteredBundles = applyBaseFilters(filteredBundles);
 
-    // Apply installed filter
-    if (showInstalledOnly) {
-      filteredBundles = filteredBundles.filter((bundle) => {
-        return bundle.installed === true;
-      });
-    }
+    // 3. Match against the search. Semantic results (when available) are the
+    //    source of truth — the same hybrid ranking the CLI shows — so we trust
+    //    them as-is with no webview-side score threshold. See applySearch().
+    var results = applySearch(filteredBundles, searchTerm);
 
-    // Apply tag filter (OR logic - bundle matches if it has ANY of the selected tags)
-    if (selectedTags.length > 0) {
-      filteredBundles = filteredBundles.filter((bundle) => {
-        if (!bundle.tags || bundle.tags.length === 0) {
-          return false;
-        }
-        return bundle.tags.some((bundleTag) => {
-          return selectedTags.some((selectedTag) => {
-            return bundleTag.toLowerCase() === selectedTag.toLowerCase();
-          });
-        });
-      });
-    }
-
-    // Apply content type filter (OR logic - bundle matches if it has ANY of the selected types)
-    // NOTE: mirrors filterBundlesByContentType() in src/utils/filter-utils.ts — keep in sync
-    if (selectedContentTypes.length > 0) {
-      filteredBundles = filteredBundles.filter((bundle) =>
-        selectedContentTypes.some((type) => (bundle.contentBreakdown?.[type] || 0) > 0)
-      );
-    }
-
-    // Apply search filter
-    if (searchTerm && searchTerm.trim() !== '') {
-      if (indexedSearchQuery === searchTerm && indexedBundleKeys !== null) {
-        var indexedOrder = new Map(indexedBundleKeys.map((key, index) => [key, index]));
-        filteredBundles = filteredBundles
-          .filter((bundle) => indexedOrder.has(bundle.sourceId + '\u0000' + bundle.id))
-          .toSorted((left, right) => indexedOrder.get(left.sourceId + '\u0000' + left.id) - indexedOrder.get(right.sourceId + '\u0000' + right.id));
-      } else {
-        var term = searchTerm.toLowerCase();
-        filteredBundles = filteredBundles.filter((bundle) => {
-          return bundle.name.toLowerCase().includes(term)
-            || bundle.description.toLowerCase().includes(term)
-            || (bundle.tags && bundle.tags.some((tag) => {
-              return tag.toLowerCase().includes(term);
-            }))
-            || (bundle.author && bundle.author.toLowerCase().includes(term));
-        });
+    // 4. Sort. Relevance is only meaningful while searching; fall back to Name
+    //    when the search box is empty (the button still shows the selection).
+    var effectiveSort = (sortBy === 'relevance' && !hasSearch) ? 'name' : sortBy;
+    var dir = sortDirection === 'asc' ? 1 : -1;
+    switch (effectiveSort) {
+      case 'name': {
+        results.sort((a, b) => dir * a.bundle.name.localeCompare(b.bundle.name));
+        break;
       }
+      case 'recent': {
+        results.sort((a, b) => dir * (new Date(a.bundle.lastUpdated || 0).getTime() - new Date(b.bundle.lastUpdated || 0).getTime()));
+        break;
+      }
+      default: {
+        // By relevance = the index's hybrid rank (0 = best). Always best-first:
+        // relevance has no meaningful ascending ("least relevant first") mode,
+        // so it is not reversible (unlike Name/Recently updated).
+        results.sort((a, b) => a.rank - b.rank);
+      }
+    }
+    filteredBundles = results.map((entry) => entry.bundle);
+
+    // Progressive search: the deterministic keyword pass above renders instantly
+    // on every keystroke, then the semantic hits swap in when they arrive. Only
+    // fall back to a loading state when that instant pass found nothing AND the
+    // index is still working — otherwise a purely-semantic query (no literal
+    // keyword overlap) would flash a misleading "no bundles match" before its
+    // real results land.
+    if (semanticSearchPending && hasSearch && filteredBundles.length === 0) {
+      marketplace.innerHTML = '<div class="loading">'
+        + '<div class="spinner"></div>'
+        + '<p>Searching…</p>'
+        + '</div>';
+      return;
+    }
+
+    // Always show the number of bundles in view. When filters/search narrow the
+    // active tab, show "shown of total"; otherwise just the total. While the
+    // semantic pass is still refining an already-populated list, append a muted
+    // hint so the imminent reorder doesn't look like a glitch.
+    var filterSummary = document.querySelector('#filterSummary');
+    if (filterSummary) {
+      var shownCount = filteredBundles.length;
+      var narrowed = shownCount !== tabTotal;
+      var bundleWord = tabTotal === 1 ? ' bundle' : ' bundles';
+      var summaryText = narrowed
+        ? shownCount + ' of ' + tabTotal + bundleWord
+        : tabTotal + bundleWord;
+      filterSummary.textContent = summaryText;
+      if (semanticSearchPending && hasSearch) {
+        var refining = document.createElement('span');
+        refining.className = 'refining-hint';
+        refining.textContent = ' · refining…';
+        filterSummary.append(refining);
+      }
+      filterSummary.classList.remove('hidden');
     }
 
     // Reflect the number of collections remaining after the active tab,
     // search, and filter criteria have been applied.
     if (filteredBundles.length === 0) {
       // Check if we have any bundles at all (before filtering)
-      var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || showInstalledOnly || selectedContentTypes.length > 0;
+      var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || selectedContentTypes.length > 0;
 
       if (allBundles.length === 0) {
         var hasNoSources = setupState === 'complete' && sourcesCount === 0;

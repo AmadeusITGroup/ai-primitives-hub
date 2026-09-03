@@ -18,6 +18,17 @@ export interface SearchProfile {
   ranking: 'bm25' | 'hybrid' | 'multi';
   embeddingProvider?: string;
   embeddingStrategy?: 'single' | 'dual';
+  /**
+   * Default relevance floors applied to queries run under this profile, so the
+   * CLI and the extension share one cut instead of each layer inventing its own.
+   * Semantic profiles cut the noise tail; a query may still override per call.
+   */
+  relevance?: {
+    /** Absolute floor in the normalized [0,1] score space. */
+    minScore?: number;
+    /** Floor as a fraction of the top hit's score (0–1). */
+    minRelativeScore?: number;
+  };
 }
 
 export const SEARCH_PROFILES = {
@@ -31,13 +42,15 @@ export const SEARCH_PROFILES = {
     id: 'ternlight-single-v1',
     ranking: 'hybrid',
     embeddingProvider: 'ternlight-mini',
-    embeddingStrategy: 'single'
+    embeddingStrategy: 'single',
+    relevance: { minScore: 0.3, minRelativeScore: 0.4 }
   },
   'ternlight-dual-v1': {
     id: 'ternlight-dual-v1',
     ranking: 'multi',
     embeddingProvider: 'ternlight-mini',
-    embeddingStrategy: 'dual'
+    embeddingStrategy: 'dual',
+    relevance: { minScore: 0.3, minRelativeScore: 0.4 }
   }
 } as const satisfies Record<string, SearchProfile>;
 
