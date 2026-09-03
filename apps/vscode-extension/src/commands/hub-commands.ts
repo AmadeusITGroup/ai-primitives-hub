@@ -256,17 +256,24 @@ export class HubCommands {
 
       case 'url': {
         const location = await vscode.window.showInputBox({
-          prompt: 'Enter HTTPS URL to hub-config.yml',
+          prompt: 'Enter HTTPS URL to hub-config.yml (or loopback HTTP for local testing)',
           placeHolder: 'https://example.com/hub-config.yml',
           validateInput: (value) => {
-            if (!value || !value.startsWith('https://')) {
-              return 'Please enter a valid HTTPS URL';
+            try {
+              const url = new URL(value);
+              const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+              return url.protocol === 'https:' || (url.protocol === 'http:' && loopback)
+                ? undefined
+                : 'Please enter an HTTPS URL, or loopback HTTP for local testing';
+            } catch {
+              return 'Please enter a valid hub configuration URL';
             }
-            return null;
           },
           ignoreFocusOut: true
         });
-
+        if (location && new URL(location).protocol === 'http:') {
+          await vscode.window.showWarningMessage('Loopback HTTP is intended only for local hub testing; use HTTPS for shared or production hubs.');
+        }
         return location ? { type: 'url', location } : undefined;
       }
 
