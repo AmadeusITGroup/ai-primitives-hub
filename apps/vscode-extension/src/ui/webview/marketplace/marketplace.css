@@ -129,8 +129,6 @@ main { width: 100%; min-width: 0; }
 .marketplace-tab.active::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--marketplace-accent); content: ''; }
 .tab-count { display: inline-flex; min-width: 28px; height: 18px; align-items: center; justify-content: center; margin-left: 3px; padding: 0 5px; border-radius: 999px; background: var(--marketplace-success); color: var(--vscode-editor-background); font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
 .active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; min-height: 30px; margin: 1px 0 10px; padding: 3px 0; color: var(--marketplace-muted); font-size: 12px; }
-.filter-summary { flex: 0 0 auto; }
-.filter-summary.hidden { display: none; }
 .refining-hint { color: var(--marketplace-muted); font-style: italic; opacity: .8; }
 .sort-summary { flex: 0 0 auto; color: var(--marketplace-muted); font-size: 11px; white-space: nowrap; }
 .sort-summary:empty { display: none; }

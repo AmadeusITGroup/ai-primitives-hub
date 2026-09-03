@@ -395,7 +395,7 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
         'marketplace.js should include explanation about syncing');
     });
 
-    test('external marketplace JS should wait for semantic search results before rendering', () => {
+    test('external marketplace JS should progressively refine semantic search results', () => {
       const jsPath = path.join(PROJECT_ROOT, 'src', 'ui', 'webview', 'marketplace', 'marketplace.js');
       if (!fs.existsSync(jsPath)) {
         return;
@@ -404,10 +404,21 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
 
       assert.ok(jsContent.includes('let semanticSearchPending = false;'),
         'marketplace.js should track pending semantic searches');
-      assert.ok(jsContent.includes("if (semanticSearchPending && searchTerm.trim() !== '')"),
-        'marketplace.js should avoid rendering interim metadata search results');
+      assert.ok(jsContent.includes('if (semanticSearchPending && hasSearch && filteredBundles.length === 0)'),
+        'marketplace.js should show a loading state when semantic results are still pending');
       assert.ok(jsContent.includes('updateMarketplaceSummary();\n        renderBundles();'),
         'marketplace.js should refresh counts when final semantic results arrive');
+    });
+
+    test('external marketplace HTML should not show a separate bundle count summary', () => {
+      const htmlPath = path.join(PROJECT_ROOT, 'src', 'ui', 'webview', 'marketplace', 'marketplace.html');
+      if (!fs.existsSync(htmlPath)) {
+        return;
+      }
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+      assert.ok(!htmlContent.includes('id="filterSummary"'),
+        'marketplace.html should not include a separate bundle count summary');
     });
   });
 });

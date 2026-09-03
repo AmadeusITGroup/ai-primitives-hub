@@ -417,8 +417,8 @@
   const updateMarketplaceSummary = () => {
     var chips = document.querySelector('#filterChips');
     var searchValue = document.querySelector('#searchBox')?.value.trim();
-    // The bundle count in #filterSummary is owned by renderBundles(), which
-    // always runs after this. Here we only refresh the chips and tab counts.
+    // Refresh filter chips and tab counts. Bundle counts are shown only in the
+    // marketplace tabs, not in the active-filters bar.
     updateSortControls();
     if (chips) {
       var activeFilters = [];
@@ -1005,9 +1005,6 @@
     } else if (selectedTab === 'updates') {
       filteredBundles = filteredBundles.filter((bundle) => bundle.buttonState === 'update');
     }
-    // Total available in the active tab, before filters/search narrow it down.
-    var tabTotal = filteredBundles.length;
-
     // 2. Apply structured filters (source, installed, tags, environment, content)
     filteredBundles = applyBaseFilters(filteredBundles);
 
@@ -1050,28 +1047,6 @@
         + '<p>Searching…</p>'
         + '</div>';
       return;
-    }
-
-    // Always show the number of bundles in view. When filters/search narrow the
-    // active tab, show "shown of total"; otherwise just the total. While the
-    // semantic pass is still refining an already-populated list, append a muted
-    // hint so the imminent reorder doesn't look like a glitch.
-    var filterSummary = document.querySelector('#filterSummary');
-    if (filterSummary) {
-      var shownCount = filteredBundles.length;
-      var narrowed = shownCount !== tabTotal;
-      var bundleWord = tabTotal === 1 ? ' bundle' : ' bundles';
-      var summaryText = narrowed
-        ? shownCount + ' of ' + tabTotal + bundleWord
-        : tabTotal + bundleWord;
-      filterSummary.textContent = summaryText;
-      if (semanticSearchPending && hasSearch) {
-        var refining = document.createElement('span');
-        refining.className = 'refining-hint';
-        refining.textContent = ' · refining…';
-        filterSummary.append(refining);
-      }
-      filterSummary.classList.remove('hidden');
     }
 
     // Reflect the number of collections remaining after the active tab,
