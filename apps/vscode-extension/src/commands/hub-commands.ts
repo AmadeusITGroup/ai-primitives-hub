@@ -225,7 +225,7 @@ export class HubCommands {
         }
         const trimmedLocation = location.trim();
         if (new URL(trimmedLocation).protocol === 'http:') {
-          await vscode.window.showWarningMessage('Loopback HTTP is intended only for local Artifactory testing; use HTTPS for shared or production hubs.');
+          void vscode.window.showWarningMessage('Loopback HTTP is intended only for local Artifactory testing; use HTTPS for shared or production hubs.');
         }
         const configFile = await vscode.window.showInputBox({
           prompt: 'Hub config path relative to the repository root (usually hub-config.yml)',
