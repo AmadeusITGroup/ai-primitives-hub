@@ -34,7 +34,7 @@ Important options:
 |---|---|---|
 | `--source-hub` | required | GitHub `owner/repository` containing `hub-config.yml` |
 | `--source-ref` | `main` | GitHub branch/tag/commit |
-| `--target-root` | required | Credential-free Artifactory hub-tree root |
+| `--target-root` | required | Credential-free Artifactory hub-tree root; loopback HTTP is allowed for local testing with a warning |
 | `--mode` | `latest` | Select profile-resolved latest versions or every available version |
 | `--cache-dir` | local cache | Persistent release/manifest/archive cache |
 | `--workers` | `4` | Bounded source-processing concurrency |
