@@ -342,36 +342,3 @@ export function filterBundlesByContentType(
     return contentTypes.some((type) => (bundle.contentBreakdown![type] || 0) > 0);
   });
 }
-
-/**
- * Apply all filters to bundles
- * Combines source, tag, content-type, environment, and search filtering
- * @param bundles - Array of bundles to filter
- * @param options - Filter options
- * @returns Filtered array of bundles
- */
-export function applyFilters(bundles: Bundle[], options: FilterOptions): Bundle[] {
-  let filtered = bundles;
-
-  if (options.sourceId) {
-    filtered = filterBundlesBySource(filtered, options.sourceId);
-  }
-
-  if (options.tags && options.tags.length > 0) {
-    filtered = filterBundlesByTags(filtered, options.tags, options.tagMatch);
-  }
-
-  if (options.contentTypes && options.contentTypes.length > 0) {
-    filtered = filterBundlesByContentType(filtered, options.contentTypes);
-  }
-
-  if (options.environment && options.environment !== 'all') {
-    filtered = filterBundlesByEnvironment(filtered, options.environment);
-  }
-
-  if (options.searchText) {
-    filtered = filterBundlesBySearch(filtered, options.searchText);
-  }
-
-  return filtered;
-}

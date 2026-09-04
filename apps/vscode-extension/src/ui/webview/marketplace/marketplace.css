@@ -201,8 +201,9 @@ main { width: 100%; min-width: 0; }
 .btn-secondary, .btn-link { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 .btn-secondary:hover, .btn-link:hover { background: var(--vscode-button-secondaryHoverBackground); }
 .btn-link { display: flex; min-width: 34px; align-items: center; justify-content: center; padding: 5px 9px; }
-.source-repo-button { order: 2; width: 120px; min-width: 120px; flex: 0 0 120px; gap: 6px; margin-left: auto; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); background: transparent; color: var(--vscode-foreground); }
-.source-repo-button:hover { border-color: color-mix(in srgb, var(--vscode-foreground, #cccccc) 78%, transparent); background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.details-button { order: 2; width: 120px; min-width: 120px; flex: 0 0 120px; margin-left: auto; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); border-radius: 4px; background: transparent; color: var(--vscode-foreground); }
+.details-button:hover, .source-repo-button:hover { border-color: color-mix(in srgb, var(--vscode-foreground, #cccccc) 78%, transparent); background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.source-repo-button { position: absolute; top: 15px; right: 15px; width: 34px; min-width: 34px; height: 30px; flex: 0 0 34px; padding: 5px 0; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); border-radius: 4px; background: transparent; color: var(--vscode-foreground); }
 .btn-danger { border: 1px solid var(--marketplace-danger); background: transparent; color: var(--marketplace-danger); }
 .btn-danger:hover { background: color-mix(in srgb, var(--marketplace-danger) 14%, transparent); }
 .version-selector-group { position: relative; display: flex; width: 120px; min-width: 120px; flex: 0 0 120px; border: 1px solid var(--marketplace-version-border); border-radius: 4px; }
@@ -252,17 +253,17 @@ main { width: 100%; min-width: 0; }
     .marketplace-tabs { justify-content: center; gap: 8px; }
     .marketplace-tab { flex: 1; font-size: 12px; }
     .bundle-card { padding: 13px; }
-    .bundle-header { padding-right: 0; }
+    .bundle-header { padding-right: 54px; }
     .installed-badge { position: static; display: inline-block; margin-bottom: 9px; }
-    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .source-repo-button { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
-    .source-repo-button { margin-left: 0; }
+    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .details-button { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
+    .details-button { margin-left: 0; }
     .bundle-actions .version-selector-group { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
 }
 
 @media (max-width: 340px) {
     .source-selector-btn, .tag-selector-btn { min-width: 0; max-width: 122px; }
     .header-menu { display: none; }
-    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .source-repo-button { width: 100%; flex-basis: 100%; }
+    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .details-button { width: 100%; flex-basis: 100%; }
     .bundle-actions .version-selector-group { width: 100%; min-width: 0; flex-basis: 100%; }
     .category-pills { gap: 5px; }
 }

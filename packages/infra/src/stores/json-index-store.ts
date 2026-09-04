@@ -50,6 +50,7 @@ export function saveIndex(idx: PrimitiveIndex, filePath: string): void {
  * place, so any rebuild changes the mtime and evicts the stale entry. A CLI
  * one-shot process simply misses once, with no behavioural change.
  */
+export const INDEX_CACHE_MAX_ENTRIES = 8;
 const indexCache = new Map<string, { mtimeMs: number; size: number; index: PrimitiveIndex }>();
 
 /**
@@ -78,11 +79,21 @@ export function loadIndex(filePath: string): PrimitiveIndex {
   const stat = fs.statSync(filePath);
   const cached = indexCache.get(filePath);
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    // Refresh the entry's position so frequently used indexes stay cached.
+    indexCache.delete(filePath);
+    indexCache.set(filePath, cached);
     return cached.index;
   }
   const raw = fs.readFileSync(filePath, 'utf8');
   const index = PrimitiveIndex.fromJSON(JSON.parse(raw) as unknown);
   indexCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, index });
+  while (indexCache.size > INDEX_CACHE_MAX_ENTRIES) {
+    const oldestPath = indexCache.keys().next().value;
+    if (oldestPath === undefined) {
+      break;
+    }
+    indexCache.delete(oldestPath);
+  }
   return index;
 }
 

@@ -408,6 +408,20 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
         'marketplace.js should show a loading state when semantic results are still pending');
       assert.ok(jsContent.includes('updateMarketplaceSummary();\n        renderBundles();'),
         'marketplace.js should refresh counts when final semantic results arrive');
+      assert.ok(jsContent.includes('title="Open Details"'),
+        'marketplace.js should expose bundle details through a focusable button');
+      assert.ok(jsContent.includes('title="Open Source Repository"'),
+        'marketplace.js should retain an accessible title for the repository icon');
+      assert.ok(!jsContent.includes('<span>Repository</span>'),
+        'marketplace.js should render the repository action as an icon-only button');
+      assert.ok(jsContent.includes('No installed bundles'),
+        'marketplace.js should explain when the Installed tab is empty');
+      assert.ok(jsContent.includes('All installed bundles are up to date'),
+        'marketplace.js should explain when the Updates tab is empty');
+      assert.ok(jsContent.includes('checkbox.checked = selectedTags.includes(tag);'),
+        'marketplace.js should keep tag checkboxes synchronized with selected tags');
+      assert.ok(jsContent.includes('updateFilterUI();\n    updateTagButtonText();\n    updateContentTypeButtonText();'),
+        'marketplace.js should refresh the tag selector after removing a tag chip');
     });
 
     test('external marketplace HTML should not show a separate bundle count summary', () => {
