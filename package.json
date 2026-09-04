@@ -3,7 +3,7 @@
   "version": "0.0.2",
   "private": true,
   "description": "AI Primitives Hub monorepo workspace root",
-  "packageManager": "pnpm@11.20.0",
+  "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": ">=24.0.0",
     "pnpm": ">=11.0.0"
