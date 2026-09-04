@@ -60,8 +60,8 @@ export interface SearchQuery {
   explain?: boolean;
   /**
    * Absolute relevance floor in the normalized [0,1] score space. Hits scoring
-   * below this are dropped before the limit is applied. The single best hit is
-   * always retained so a query never returns empty.
+   * below this are dropped before the limit is applied. Text searches may
+   * return no hits when none reaches the configured floor.
    */
   minScore?: number;
   /**

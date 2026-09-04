@@ -17,6 +17,7 @@ import {
 } from '../../src/search/primitive-index';
 import {
   clearIndexCache,
+  INDEX_CACHE_MAX_ENTRIES,
   loadIndex,
   saveIndex,
 } from '../../src/stores/json-index-store';
@@ -45,7 +46,7 @@ describe('PrimitiveIndex', () => {
     }
   });
 
-  it('relevance floors drop the weak tail while always keeping the best hit', async () => {
+  it('relevance floors drop the weak tail and can return no text hits', async () => {
     const idx = await buildIndex();
     const unfiltered = idx.search({ q: 'rust', limit: 50 });
     // A fixture query must produce a spread of scores for the cut to be visible.
@@ -59,11 +60,11 @@ describe('PrimitiveIndex', () => {
     expect(relative.hits.every((h, i) => i === 0 || h.score >= topScore * 0.5)).toBe(true);
     expect(relative.total).toBe(relative.hits.length);
 
-    // An absolute floor above the top score still returns the single best hit,
-    // so a query never renders empty.
+    // An absolute floor above the top score allows a text query to return no
+    // results when none of the hits reaches the configured relevance floor.
     const strict = idx.search({ q: 'rust', limit: 50, minScore: topScore + 1 });
-    expect(strict.hits.length).toBe(1);
-    expect(strict.hits[0].score).toBe(topScore);
+    expect(strict.hits).toHaveLength(0);
+    expect(strict.total).toBe(0);
   });
 
   it('facet filters narrow candidates', async () => {
@@ -181,6 +182,53 @@ describe('PrimitiveIndex', () => {
       expect(third.getShortlist(extra.id)?.name).toBe('rebuilt');
     } finally {
       clearIndexCache(file);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('bounds the parsed-index cache and evicts the least recently used entry', async () => {
+    const idx = await buildIndex();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'primitive-index-cache-limit-'));
+    const files = Array.from({ length: INDEX_CACHE_MAX_ENTRIES + 1 }, (_, i) =>
+      path.join(dir, `primitive-index-${i}.json`));
+    try {
+      files.forEach((file) => saveIndex(idx, file));
+      clearIndexCache();
+
+      const loaded = files.slice(0, INDEX_CACHE_MAX_ENTRIES).map((file) => loadIndex(file));
+      // Touch the first entry before adding another file so the second one
+      // becomes the least recently used entry.
+      expect(loadIndex(files[0])).toBe(loaded[0]);
+
+      loadIndex(files[INDEX_CACHE_MAX_ENTRIES]);
+      const reloadedSecond = loadIndex(files[1]);
+      expect(reloadedSecond).not.toBe(loaded[1]);
+      expect(loadIndex(files[0])).toBe(loaded[0]);
+    } finally {
+      clearIndexCache();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refreshes LRU position when a cached index is rewritten', async () => {
+    const idx = await buildIndex();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'primitive-index-cache-rewrite-'));
+    const files = Array.from({ length: INDEX_CACHE_MAX_ENTRIES + 1 }, (_, i) =>
+      path.join(dir, `primitive-index-${i}.json`));
+    try {
+      files.forEach((file) => saveIndex(idx, file));
+      clearIndexCache();
+      files.slice(0, INDEX_CACHE_MAX_ENTRIES).forEach((file) => loadIndex(file));
+
+      const rewritten = await buildIndex();
+      rewritten.createShortlist('rewritten');
+      saveIndex(rewritten, files[0]);
+      const refreshed = loadIndex(files[0]);
+
+      loadIndex(files[INDEX_CACHE_MAX_ENTRIES]);
+      expect(loadIndex(files[0])).toBe(refreshed);
+    } finally {
+      clearIndexCache();
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

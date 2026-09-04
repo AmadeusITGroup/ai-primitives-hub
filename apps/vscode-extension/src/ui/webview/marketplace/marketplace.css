@@ -128,7 +128,7 @@ main { width: 100%; min-width: 0; }
 .marketplace-tab:hover, .marketplace-tab.active { color: var(--vscode-foreground); }
 .marketplace-tab.active::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--marketplace-accent); content: ''; }
 .tab-count { display: inline-flex; min-width: 28px; height: 18px; align-items: center; justify-content: center; margin-left: 3px; padding: 0 5px; border-radius: 999px; background: var(--marketplace-success); color: var(--vscode-editor-background); font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
-.active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; min-height: 30px; margin: 1px 0 10px; padding: 3px 0; color: var(--marketplace-muted); font-size: 12px; }
+.active-filters { display: flex; flex-wrap: nowrap; align-items: center; gap: 9px; min-height: 30px; margin: 1px 0 10px; padding: 3px 0; color: var(--marketplace-muted); font-size: 12px; }
 .refining-hint { color: var(--marketplace-muted); font-style: italic; opacity: .8; }
 .sort-summary { flex: 0 0 auto; color: var(--marketplace-muted); font-size: 11px; white-space: nowrap; }
 .sort-summary:empty { display: none; }
@@ -139,8 +139,8 @@ main { width: 100%; min-width: 0; }
 .filter-chip-remove:hover { color: var(--vscode-foreground); }
 .filter-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; margin-left: auto; }
 .active-filters button { border: 0; background: transparent; color: var(--marketplace-muted); cursor: pointer; }
-.active-filters #clearActiveFilters { font-size: 12px; }
-.active-filters #clearActiveFilters::first-letter { font-size: 16px; line-height: 1; }
+.active-filters #clearActiveFilters { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 0 2px; font-size: 12px; }
+.clear-icon { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; font-size: 17px; font-weight: 400; line-height: 14px; }
 .active-filters button:hover { color: var(--vscode-foreground); }
 
 /* Search-syntax help affordance inside the search field */
@@ -156,12 +156,17 @@ main { width: 100%; min-width: 0; }
 .search-help-tooltip .help-line { display: block; margin-top: 4px; }
 .search-help-tooltip .help-muted { color: var(--marketplace-muted); }
 
+/* Result count and divider in the active-filters bar */
+.results-count { flex: 0 0 auto; color: var(--marketplace-muted); font-size: 12px; white-space: nowrap; }
+.results-count:empty { display: none; }
+.filter-actions-divider { display: inline-block; width: 0; height: 18px; border-left: 1px solid color-mix(in srgb, var(--marketplace-border) 40%, transparent); user-select: none; }
+
 /* Sort control in the active-filters bar */
 .sort-control-wrap { position: relative; flex: 0 0 auto; }
-/* Icon-only trigger in the active-filters bar */
-.sort-toggle { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--marketplace-muted); cursor: pointer; }
-.sort-toggle:hover, .sort-toggle[aria-expanded="true"] { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
-.sort-icon { font-size: 18px; line-height: 1; }
+/* Sort trigger — shows ↑↓ icon + current label + ∨ chevron inline */
+.sort-toggle { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border: 1px solid var(--marketplace-border); border-radius: 5px; background: transparent; color: var(--marketplace-muted); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.sort-toggle:hover, .sort-toggle[aria-expanded="true"] { border-color: color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.sort-icon { font-size: 13px; line-height: 1; }
 .sort-popover { position: absolute; top: calc(100% + 5px); right: 0; z-index: 1000; display: flex; flex-direction: column; min-width: 180px; padding: 4px; border: 1px solid var(--vscode-dropdown-border); border-radius: 6px; background: var(--vscode-dropdown-background); box-shadow: 0 6px 18px rgba(0,0,0,.3); }
 .sort-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 6px 10px; border: none; border-radius: 4px; background: transparent; color: var(--vscode-dropdown-foreground); font-size: 12px; text-align: left; cursor: pointer; }
 .sort-option .sort-dir { color: var(--marketplace-muted); font-size: 12px; }
@@ -201,8 +206,9 @@ main { width: 100%; min-width: 0; }
 .btn-secondary, .btn-link { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 .btn-secondary:hover, .btn-link:hover { background: var(--vscode-button-secondaryHoverBackground); }
 .btn-link { display: flex; min-width: 34px; align-items: center; justify-content: center; padding: 5px 9px; }
-.source-repo-button { order: 2; width: 120px; min-width: 120px; flex: 0 0 120px; gap: 6px; margin-left: auto; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); background: transparent; color: var(--vscode-foreground); }
-.source-repo-button:hover { border-color: color-mix(in srgb, var(--vscode-foreground, #cccccc) 78%, transparent); background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.details-button { order: 2; width: 120px; min-width: 120px; flex: 0 0 120px; margin-left: auto; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); border-radius: 4px; background: transparent; color: var(--vscode-foreground); }
+.details-button:hover, .source-repo-button:hover { border-color: color-mix(in srgb, var(--vscode-foreground, #cccccc) 78%, transparent); background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.source-repo-button { position: absolute; top: 15px; right: 15px; width: 34px; min-width: 34px; height: 30px; flex: 0 0 34px; padding: 5px 0; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); border-radius: 4px; background: transparent; color: var(--vscode-foreground); }
 .btn-danger { border: 1px solid var(--marketplace-danger); background: transparent; color: var(--marketplace-danger); }
 .btn-danger:hover { background: color-mix(in srgb, var(--marketplace-danger) 14%, transparent); }
 .version-selector-group { position: relative; display: flex; width: 120px; min-width: 120px; flex: 0 0 120px; border: 1px solid var(--marketplace-version-border); border-radius: 4px; }
@@ -252,17 +258,17 @@ main { width: 100%; min-width: 0; }
     .marketplace-tabs { justify-content: center; gap: 8px; }
     .marketplace-tab { flex: 1; font-size: 12px; }
     .bundle-card { padding: 13px; }
-    .bundle-header { padding-right: 0; }
+    .bundle-header { padding-right: 54px; }
     .installed-badge { position: static; display: inline-block; margin-bottom: 9px; }
-    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .source-repo-button { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
-    .source-repo-button { margin-left: 0; }
+    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .details-button { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
+    .details-button { margin-left: 0; }
     .bundle-actions .version-selector-group { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
 }
 
 @media (max-width: 340px) {
     .source-selector-btn, .tag-selector-btn { min-width: 0; max-width: 122px; }
     .header-menu { display: none; }
-    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .source-repo-button { width: 100%; flex-basis: 100%; }
+    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .details-button { width: 100%; flex-basis: 100%; }
     .bundle-actions .version-selector-group { width: 100%; min-width: 0; flex-basis: 100%; }
     .category-pills { gap: 5px; }
 }

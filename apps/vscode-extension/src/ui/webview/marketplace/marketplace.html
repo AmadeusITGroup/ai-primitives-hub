@@ -113,12 +113,13 @@
     </nav>
 
     <div class="active-filters" id="activeFilters" aria-live="polite">
-        <span class="sort-summary" id="sortSummary"></span>
+        <span class="results-count" id="resultsCount" aria-live="polite"></span>
         <div class="filter-chips" id="filterChips"></div>
         <div class="filter-actions">
             <div class="sort-control-wrap">
                 <button class="sort-toggle" id="sortToggleBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Sort bundles" title="Sort bundles">
-                    <span class="sort-icon" aria-hidden="true">⇅</span>
+                    <span class="sort-icon" aria-hidden="true">↑↓</span>
+                    <span class="sort-summary" id="sortSummary"></span>
                 </button>
                 <div class="sort-popover" id="sortPopover" style="display: none;" role="menu" aria-label="Sort bundles">
                     <button class="sort-option" type="button" data-sort="relevance" role="menuitemradio" aria-checked="true"><span class="sort-option-label">Relevance</span><span class="sort-dir" aria-hidden="true"></span></button>
@@ -126,7 +127,8 @@
                     <button class="sort-option" type="button" data-sort="recent" role="menuitemradio" aria-checked="false"><span class="sort-option-label">Recently updated</span><span class="sort-dir" aria-hidden="true"></span></button>
                 </div>
             </div>
-            <button type="button" id="clearActiveFilters">× Clear</button>
+            <span class="filter-actions-divider" aria-hidden="true"></span>
+            <button type="button" id="clearActiveFilters"><span class="clear-icon" aria-hidden="true">×</span><span>Clear</span></button>
         </div>
     </div>
 

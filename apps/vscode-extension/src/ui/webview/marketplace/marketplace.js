@@ -126,6 +126,7 @@
       checkbox.type = 'checkbox';
       checkbox.id = 'tag-' + tag;
       checkbox.value = tag;
+      checkbox.checked = selectedTags.includes(tag);
 
       var label = document.createElement('label');
       label.htmlFor = 'tag-' + tag;
@@ -293,6 +294,7 @@
       // No default
     }
     updateFilterUI();
+    updateTagButtonText();
     updateContentTypeButtonText();
     updateMarketplaceSummary();
     renderBundles();
@@ -390,9 +392,8 @@
   };
 
   // Sync the Sort control's state. The selection (field + direction) is shown
-  // as a "Sort: <field> <arrow>" label beside the bundle count, and the active
-  // option in the menu carries the same direction arrow (click it again to
-  // flip ascending/descending).
+  // as "<field> <arrow>" inline on the button, and the active option in the
+  // menu carries the same direction arrow (click it again to flip asc/desc).
   const SORT_LABELS = { relevance: 'Relevance', name: 'Name', recent: 'Recently updated' };
   const directionArrow = (direction) => (direction === 'asc' ? '↑' : '↓');
   const updateSortControls = () => {
@@ -402,7 +403,7 @@
     if (summaryEl) {
       var label = SORT_LABELS[sortBy] || SORT_LABELS.relevance;
       var summaryArrow = sortBy === 'relevance' ? '' : ' ' + directionArrow(sortDirection);
-      summaryEl.textContent = 'Sort: ' + label + summaryArrow;
+      summaryEl.textContent = label + summaryArrow;
     }
     document.querySelectorAll('.sort-option').forEach((option) => {
       var active = option.dataset.sort === sortBy;
@@ -454,6 +455,14 @@
     var forYouCount = document.querySelector('#forYouCount');
     if (forYouCount) {
       forYouCount.textContent = filteredBundles.length;
+    }
+
+    var resultsCount = document.querySelector('#resultsCount');
+    if (resultsCount) {
+      var hasAnyFilter = searchValue || selectedSource !== 'all' || selectedTags.length > 0 || selectedContentTypes.length > 0;
+      resultsCount.textContent = selectedTab === 'for-you' && allBundles.length > 0 && !hasAnyFilter
+        ? 'Showing all bundles'
+        : '';
     }
   };
 
@@ -783,6 +792,7 @@
       selectedTab = tab.dataset.tab;
       document.querySelectorAll('.marketplace-tab').forEach((item) => item.classList.remove('active'));
       tab.classList.add('active');
+      updateMarketplaceSummary();
       renderBundles();
     });
   });
@@ -1077,6 +1087,20 @@
             + '<div class="empty-state-title">Syncing sources...</div>'
             + '<p>Bundles will appear as sources are synced</p>'
             + '</div>';
+      } else if (selectedTab === 'installed' && !allBundles.some((bundle) => bundle.installed === true)) {
+        marketplace.innerHTML =
+          '<div class="empty-state">'
+          + '<div class="empty-state-icon fa-icon fa-box"></div>'
+          + '<div class="empty-state-title">No installed bundles</div>'
+          + '<p>Install a bundle to see it here</p>'
+          + '</div>';
+      } else if (selectedTab === 'updates' && !allBundles.some((bundle) => bundle.buttonState === 'update')) {
+        marketplace.innerHTML =
+          '<div class="empty-state">'
+          + '<div class="empty-state-icon fa-icon fa-check"></div>'
+          + '<div class="empty-state-title">All installed bundles are up to date</div>'
+          + '<p>No updates are currently available</p>'
+          + '</div>';
       } else if (hasFiltersApplied) {
         // Has bundles but filters hide them all
         marketplace.innerHTML =
@@ -1098,6 +1122,15 @@
 
     marketplace.innerHTML = filteredBundles.map((bundle) => {
       return '<div class="bundle-card ' + (bundle.installed ? 'installed' : '') + '" data-bundle-id="' + bundle.id + '" data-action="openDetails">'
+        + '<button class="btn btn-link source-repo-button" data-action="openSourceRepo"'
+        + ' data-bundle-id="' + bundle.id + '" data-stop-propagation="true"'
+        + ' title="Open Source Repository" aria-label="Open Source Repository">'
+        + '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">'
+        + '<path d="M4.5 3A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13h7a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 1 1 0v2'
+        + 'a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 11.5v-7A2.5 2.5 0 0 1 4.5 2h2a.5.5 0 0 1 0 1h-2z'
+        + 'M9 2.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V3.707l-5.146 5.147a.5.5 0 0 1-.708-.708L12.293 3H9.5a.5.5 0 0 1-.5-.5z"/>'
+        + '</svg>'
+        + '</button>'
         + '<div class="bundle-header">'
         + '<div class="bundle-title">' + bundle.name + '</div>'
         + '<div class="bundle-author">by ' + (bundle.author || 'Unknown') + ' • ' + formatVersionLabel(bundle.version) + '</div>'
@@ -1108,11 +1141,11 @@
         + '</div>'
 
         + '<div class="content-breakdown">'
-        + renderContentItem('fa-file-lines', 'Prompts', bundle.contentBreakdown ? bundle.contentBreakdown.prompts || 0 : 0)
-        + renderContentItem('fa-list-check', 'Instructions', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
-        + renderContentItem('fa-robot', 'Agents', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
-        + renderContentItem('fa-puzzle-piece', 'Skills', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
-        + renderContentItem('fa-plug', 'MCP Servers', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
+        + renderContentItem('fa-file-lines', 'Prompt', bundle.contentBreakdown ? bundle.contentBreakdown.prompts || 0 : 0)
+        + renderContentItem('fa-list-check', 'Instruction', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
+        + renderContentItem('fa-robot', 'Agent', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
+        + renderContentItem('fa-puzzle-piece', 'Skill', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
+        + renderContentItem('fa-plug', 'MCP Server', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
         + '</div>'
 
         + '<div class="bundle-tags">'
@@ -1123,14 +1156,7 @@
 
         + '<div class="bundle-actions" data-stop-propagation="true">'
         + renderBundleButtons(bundle)
-        + '<button class="btn btn-link source-repo-button" data-action="openSourceRepo" data-bundle-id="' + bundle.id + '" title="Open Source Repository" aria-label="Open Source Repository">'
-        + '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">'
-        + '<path d="M4.5 3A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13h7a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 1 1 0v2'
-        + 'a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 11.5v-7A2.5 2.5 0 0 1 4.5 2h2a.5.5 0 0 1 0 1h-2z'
-        + 'M9 2.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V3.707l-5.146 5.147a.5.5 0 0 1-.708-.708L12.293 3H9.5a.5.5 0 0 1-.5-.5z"/>'
-        + '</svg>'
-        + '<span>Repository</span>'
-        + '</button>'
+        + '<button class="btn btn-link details-button" data-action="openDetails" data-bundle-id="' + bundle.id + '" title="Open Details" aria-label="Open Details">Details</button>'
         + '</div>'
         + '</div>';
     }).join('');
@@ -1232,10 +1258,11 @@
     if (count === 0) {
       return '';
     }
+    var displayLabel = count === 1 ? label : label + 's';
     return '<div class="content-item">'
       + '<span class="content-icon fa-icon ' + icon + '" aria-hidden="true"></span>'
       + '<span class="content-count">' + count + '</span>'
-      + '<span>' + label + '</span>'
+      + '<span>' + displayLabel + '</span>'
       + '</div>';
   };
 

@@ -599,9 +599,9 @@ export class PrimitiveIndex {
    * means an unfiltered result set is padded with near-zero noise. Callers set
    * an absolute floor ({@link SearchQuery.minScore}) and/or a floor relative to
    * the top hit ({@link SearchQuery.minRelativeScore}); the effective cut is the
-   * larger of the two. The single best hit is always kept so a query with any
-   * match never returns empty, and a facet-only listing (top score 0) is left
-   * untouched.
+   * larger of the two. Text searches may return no hits when none reaches the
+   * configured floor. Queries without text are listings rather than relevance
+   * searches, so their zero-score results are left untouched.
    * @param sortedHits Hits already ordered best-score-first.
    * @param query Search query carrying the optional relevance floors.
    * @returns The hits at or above the effective relevance floor.
@@ -614,16 +614,17 @@ export class PrimitiveIndex {
       return sortedHits;
     }
     const topScore = sortedHits[0].score;
-    // No relevance signal to threshold against (e.g. a facet-only listing where
-    // every hit scores 0): leave the result set untouched.
-    if (topScore <= 0) {
+    // Queries without text or embeddings are facet-only listings, so there is
+    // no relevance signal to threshold against. Text and embedding searches
+    // must be allowed to return no results when every hit is below the floor.
+    if (!query.q?.trim() && !this.hasEmbeddingQuery(query)) {
       return sortedHits;
     }
     const relativeFloor = query.minRelativeScore === undefined
       ? 0
       : topScore * query.minRelativeScore;
     const threshold = Math.max(query.minScore ?? 0, relativeFloor);
-    return sortedHits.filter((hit, index) => index === 0 || hit.score >= threshold);
+    return sortedHits.filter((hit) => hit.score >= threshold);
   }
 
   /**
