@@ -172,7 +172,7 @@ export class HubAddCommand extends BaseHubCommand {
         --ref <branch>           Git branch, tag, or commit (GitHub only)
         --config-file <path>     Artifactory config path (default: hub-config.yml)
         --auth <mode>            Artifactory auth: anonymous or bearer
-        --credential-ref <name>  Environment variable for Artifactory Bearer auth
+        --credential-ref <name>  Environment variable name for Artifactory Bearer auth (CLI only)
         --id <id>                Custom hub ID (defaults to repo name)
         --no-sync                Skip syncing after import
         --no-use                 Skip setting as active hub

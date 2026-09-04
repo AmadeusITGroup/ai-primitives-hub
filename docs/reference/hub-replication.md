@@ -72,6 +72,8 @@ Transient Artifactory failures may be retried with a bounded budget. Authenticat
 
 Source GitHub credentials are supplied through the CLI token provider and are never copied into the target. Artifactory publication uses the environment variable named by `--publisher-credential-ref`. The generated consumer hub config contains only `--target-credential-ref`, never its token value.
 
+For the CLI, each credential reference is an environment-variable name and must be present before the CLI process starts. For VS Code, the same-looking reference is only a SecretStorage label; the extension prompts for the token and stores it in VS Code SecretStorage, so the environment variable does not need to be set before launching VS Code. Artifactory supplies the opaque access-token value through its Administration UI or release-specific Access token API. Pass the complete value without a `Bearer ` prefix; the clients send it as `Authorization: Bearer <token>`. There is no portable token regex or fixed prefix to validate against.
+
 For example:
 
 ```bash

@@ -254,9 +254,9 @@ export class SourceCommands {
       return;
     }
     const token = await vscode.window.showInputBox({
-      prompt: 'Enter access token (leave empty to remove)',
+      prompt: 'Paste access token (leave empty to remove)',
       password: true,
-      placeHolder: 'Access token',
+      placeHolder: 'Token value (stored securely)',
       ignoreFocusOut: true
     });
 

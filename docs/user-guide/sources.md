@@ -27,12 +27,14 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 
 An Artifactory source uses a credential-free HTTPS repository root and a static `index-v1.json` file by default. For local development only, `http://localhost`, `http://127.0.0.1`, and `http://[::1]` are accepted with a warning; non-loopback HTTP remains rejected. The index references each bundle's manifest and ZIP archive with a relative path, size, and lowercase SHA-256 digest. Custom index paths can be configured with `indexFile`.
 
-Do not put credentials in the source URL, hub configuration, index, or lockfile. For private sources, configure Bearer authentication with a source-scoped credential reference. The CLI resolves that reference as an environment-variable name; the VS Code extension stores the token in SecretStorage. Authentication failures are reported and do not fall back to GitHub.
+Do not put credentials in the source URL, hub configuration, index, or lockfile. For private sources, configure Bearer authentication with a source-scoped credential reference. The CLI resolves that reference as an environment-variable name; the VS Code extension treats it only as a label/key and stores the token in SecretStorage. Authentication failures are reported and do not fall back to GitHub.
+
+Artifactory tokens are created in the Artifactory Administration UI (user profile/User Management) or through the Access token API supported by your Artifactory release. Use an access token with repository read permission for consumption. The token is an opaque, release-dependent string: copy the complete value returned by Artifactory, without adding `Bearer `; AI Primitives Hub adds that prefix to the HTTP `Authorization` header. The credential reference is not the token. In VS Code it does not need to exist as an environment variable, and you do not need to restart VS Code after entering the token.
 
 ## Adding a Source
 
 Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
-macOS) and run **AI Primitives Hub: Add Source**. Choose **Artifactory** to enter the source root, index file, and optional Bearer token; the token is stored in VS Code SecretStorage.
+macOS) and run **AI Primitives Hub: Add Source**. Choose **Artifactory** to enter the source root, index file, and token. When prompted, enter a label such as `ARTIFACTORY_READER_TOKEN` first, then paste the Artifactory token value in the password field. The label is only a SecretStorage key; it is not an environment variable and is not the token. The token is stored in VS Code SecretStorage.
 
 CLI users can add the same source without storing a token in configuration:
 

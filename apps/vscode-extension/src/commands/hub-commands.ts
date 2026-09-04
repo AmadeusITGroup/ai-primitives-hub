@@ -252,18 +252,19 @@ export class HubCommands {
         let credentialRef: string | undefined;
         if (auth === 'bearer') {
           credentialRef = await vscode.window.showInputBox({
-            prompt: 'SecretStorage credential reference',
-            placeHolder: 'PRIVATE_HUB',
+            prompt: 'Credential label for VS Code SecretStorage (not an environment variable or token)',
+            placeHolder: 'ARTIFACTORY_READER_TOKEN',
             ignoreFocusOut: true,
             validateInput: (value) => /^[A-Z_][A-Z0-9_]*$/.test(value)
               ? undefined
-              : 'Use an environment-style name such as PRIVATE_HUB'
+              : 'Use an uppercase label such as ARTIFACTORY_READER_TOKEN; do not paste the token here'
           });
           if (!credentialRef) {
             return undefined;
           }
           const token = await vscode.window.showInputBox({
-            prompt: 'Enter Artifactory Bearer token',
+            prompt: 'Paste the Artifactory access token (stored securely in VS Code SecretStorage)',
+            placeHolder: 'Token value only; do not include the Bearer prefix',
             password: true,
             ignoreFocusOut: true
           });

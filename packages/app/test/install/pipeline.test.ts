@@ -73,6 +73,27 @@ describe('InstallPipeline', () => {
     expect(outcome.write.written).toContain('/out/deployment-manifest.yml');
   });
 
+  it('accepts a source-authoritative bundle ID when manifest ID validation is skipped', async () => {
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: {
+        extract: async (): Promise<ExtractedFiles> => new Map([
+          ['deployment-manifest.yml', new TextEncoder().encode('id: workflow-nevio\nversion: 2.0.8\nname: Task Driven Workflow\n')]
+        ])
+      },
+      writerFactory: () => okWriter,
+      skipManifestIdValidation: true
+    });
+
+    const outcome = await pipeline.run({
+      bundleId: 'amadeus-airlines-solutions-workflow-instructions-workflow-nevio',
+      bundleVersion: '2.0.8'
+    }, TARGET);
+
+    expect(outcome.manifest.id).toBe('workflow-nevio');
+  });
+
   it('emits events for every stage in order', async () => {
     const events: PipelineEvent['kind'][] = [];
     const pipeline = new InstallPipeline({

@@ -33,7 +33,7 @@ export interface HubReference {
   configFile?: string;
   /** Artifactory authentication mode. */
   authMode?: 'anonymous' | 'bearer';
-  /** Environment/secret-store credential key; never a raw credential. */
+  /** Credential key: environment variable name in the CLI, SecretStorage key in VS Code; never a raw credential. */
   credentialRef?: string;
   autoSync?: boolean;
 }

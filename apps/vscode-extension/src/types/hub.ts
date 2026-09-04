@@ -39,7 +39,7 @@ export interface HubReference {
   /** Artifactory authentication mode */
   authMode?: 'anonymous' | 'bearer';
 
-  /** SecretStorage/environment credential reference, never a raw token */
+  /** SecretStorage key in VS Code; CLI interprets the same field as an environment variable name. Never a raw token. */
   credentialRef?: string;
 
   /** Whether to automatically sync this hub */
