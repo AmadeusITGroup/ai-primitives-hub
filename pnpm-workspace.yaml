@@ -6,7 +6,7 @@ packages:
   - 'website'
 
 overrides:
-  '@hono/node-server': 2.0.12
+  '@hono/node-server': 2.1.1
   browserslist: ^4.28.7
   fast-uri: ^3.1.6
   js-yaml: ^4.1.1
