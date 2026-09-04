@@ -86,6 +86,7 @@ export function loadIndex(filePath: string): PrimitiveIndex {
   }
   const raw = fs.readFileSync(filePath, 'utf8');
   const index = PrimitiveIndex.fromJSON(JSON.parse(raw) as unknown);
+  indexCache.delete(filePath);
   indexCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, index });
   while (indexCache.size > INDEX_CACHE_MAX_ENTRIES) {
     const oldestPath = indexCache.keys().next().value;

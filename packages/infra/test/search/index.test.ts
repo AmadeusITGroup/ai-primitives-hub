@@ -210,6 +210,29 @@ describe('PrimitiveIndex', () => {
     }
   });
 
+  it('refreshes LRU position when a cached index is rewritten', async () => {
+    const idx = await buildIndex();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'primitive-index-cache-rewrite-'));
+    const files = Array.from({ length: INDEX_CACHE_MAX_ENTRIES + 1 }, (_, i) =>
+      path.join(dir, `primitive-index-${i}.json`));
+    try {
+      files.forEach((file) => saveIndex(idx, file));
+      clearIndexCache();
+      files.slice(0, INDEX_CACHE_MAX_ENTRIES).forEach((file) => loadIndex(file));
+
+      const rewritten = await buildIndex();
+      rewritten.createShortlist('rewritten');
+      saveIndex(rewritten, files[0]);
+      const refreshed = loadIndex(files[0]);
+
+      loadIndex(files[INDEX_CACHE_MAX_ENTRIES]);
+      expect(loadIndex(files[0])).toBe(refreshed);
+    } finally {
+      clearIndexCache();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('refresh reports adds/updates/removes and prunes shortlists', async () => {
     const bundles = createFixtureBundles();
     const provider = new FakeBundleProvider(bundles);

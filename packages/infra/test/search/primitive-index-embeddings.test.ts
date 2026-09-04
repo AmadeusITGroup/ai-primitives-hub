@@ -90,6 +90,26 @@ describe('PrimitiveIndex embeddings', () => {
     expect(ids).toContain(target!.id);
   });
 
+  it('applies relevance floors to embedding-only queries', async () => {
+    const idx = await buildEmbeddedIndex();
+    const json = idx.toJSON() as {
+      primitives: { embedding?: number[] }[];
+    };
+    const target = json.primitives.find((p) => p.embedding && p.embedding.length === 384);
+    expect(target).toBeTruthy();
+
+    const queryEmbedding = new Float32Array(target!.embedding!);
+    const res = idx.search({
+      ranking: 'hybrid',
+      queryEmbedding,
+      limit: 10,
+      minScore: 1
+    });
+
+    expect(res.hits).toHaveLength(0);
+    expect(res.total).toBe(0);
+  });
+
   it('round-trips embeddings through saveIndex/loadIndex', async () => {
     const idx = await buildEmbeddedIndex();
     const file = path.join(os.tmpdir(), `pi-embed-${Date.now()}.json`);

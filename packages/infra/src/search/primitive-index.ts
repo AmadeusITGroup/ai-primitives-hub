@@ -614,10 +614,10 @@ export class PrimitiveIndex {
       return sortedHits;
     }
     const topScore = sortedHits[0].score;
-    // Queries without text are facet-only listings, so there is no relevance
-    // signal to threshold against. Text searches must be allowed to return no
-    // results when every hit is below the configured floor.
-    if (!query.q?.trim()) {
+    // Queries without text or embeddings are facet-only listings, so there is
+    // no relevance signal to threshold against. Text and embedding searches
+    // must be allowed to return no results when every hit is below the floor.
+    if (!query.q?.trim() && !this.hasEmbeddingQuery(query)) {
       return sortedHits;
     }
     const relativeFloor = query.minRelativeScore === undefined
