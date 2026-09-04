@@ -33,18 +33,6 @@ export interface ContentBreakdown {
   mcpServers: number;
 }
 
-/**
- * Filter options for marketplace
- */
-export interface FilterOptions {
-  sourceId?: string;
-  tags?: string[];
-  tagMatch?: 'any' | 'all';
-  searchText?: string;
-  contentTypes?: ContentTypeFilter[];
-  environment?: string;
-}
-
 type SearchField = 'id' | 'name' | 'description' | 'tag' | 'author' | 'env' | 'source';
 
 interface SearchToken {

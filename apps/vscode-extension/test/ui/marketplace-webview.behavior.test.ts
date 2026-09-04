@@ -136,6 +136,7 @@ suite('Marketplace webview behavior', () => {
       (sortSummary as unknown as { click: () => void }).click();
       assert.strictEqual(document.querySelector('#sortPopover')?.getAttribute('style'), 'display: block;');
       sortToggle.click();
+      assert.strictEqual(document.querySelector('#resultsCount')?.textContent, 'Showing all bundles');
 
       const detailsButton = document.querySelector('.details-button') as unknown as { click: () => void };
       const repositoryButton = document.querySelector('.source-repo-button') as unknown as {
@@ -152,10 +153,31 @@ suite('Marketplace webview behavior', () => {
       assert.ok(harness.messages.some((message) => message.type === 'openSourceRepository'));
 
       (document.querySelector('[data-tab="installed"]') as unknown as { click: () => void }).click();
+      assert.strictEqual(document.querySelector('#resultsCount')?.textContent, '');
       assert.match(document.querySelector('#marketplace')?.textContent ?? '', /No installed bundles/);
 
       (document.querySelector('[data-tab="updates"]') as unknown as { click: () => void }).click();
       assert.match(document.querySelector('#marketplace')?.textContent ?? '', /All installed bundles are up to date/);
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('hides the all-bundles status when the catalog is empty', () => {
+    const harness = createHarness();
+    try {
+      const { document } = harness.dom.window;
+      harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+        data: {
+          type: 'bundlesLoaded',
+          bundles: [],
+          filterOptions: { tags: [], sources: [], environments: [] },
+          setupState: 'complete',
+          sourcesCount: 1
+        }
+      }));
+
+      assert.strictEqual(document.querySelector('#resultsCount')?.textContent, '');
     } finally {
       harness.dom.window.close();
     }

@@ -460,7 +460,9 @@
     var resultsCount = document.querySelector('#resultsCount');
     if (resultsCount) {
       var hasAnyFilter = searchValue || selectedSource !== 'all' || selectedTags.length > 0 || selectedContentTypes.length > 0;
-      resultsCount.textContent = hasAnyFilter ? '' : 'Showing all bundles';
+      resultsCount.textContent = selectedTab === 'for-you' && allBundles.length > 0 && !hasAnyFilter
+        ? 'Showing all bundles'
+        : '';
     }
   };
 
@@ -790,6 +792,7 @@
       selectedTab = tab.dataset.tab;
       document.querySelectorAll('.marketplace-tab').forEach((item) => item.classList.remove('active'));
       tab.classList.add('active');
+      updateMarketplaceSummary();
       renderBundles();
     });
   });
