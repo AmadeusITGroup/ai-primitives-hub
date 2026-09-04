@@ -392,9 +392,8 @@
   };
 
   // Sync the Sort control's state. The selection (field + direction) is shown
-  // as a "Sort: <field> <arrow>" label beside the bundle count, and the active
-  // option in the menu carries the same direction arrow (click it again to
-  // flip ascending/descending).
+  // as "<field> <arrow>" inline on the button, and the active option in the
+  // menu carries the same direction arrow (click it again to flip asc/desc).
   const SORT_LABELS = { relevance: 'Relevance', name: 'Name', recent: 'Recently updated' };
   const directionArrow = (direction) => (direction === 'asc' ? '↑' : '↓');
   const updateSortControls = () => {
@@ -404,7 +403,7 @@
     if (summaryEl) {
       var label = SORT_LABELS[sortBy] || SORT_LABELS.relevance;
       var summaryArrow = sortBy === 'relevance' ? '' : ' ' + directionArrow(sortDirection);
-      summaryEl.textContent = 'Sort: ' + label + summaryArrow;
+      summaryEl.textContent = label + summaryArrow;
     }
     document.querySelectorAll('.sort-option').forEach((option) => {
       var active = option.dataset.sort === sortBy;
@@ -456,6 +455,12 @@
     var forYouCount = document.querySelector('#forYouCount');
     if (forYouCount) {
       forYouCount.textContent = filteredBundles.length;
+    }
+
+    var resultsCount = document.querySelector('#resultsCount');
+    if (resultsCount) {
+      var hasAnyFilter = searchValue || selectedSource !== 'all' || selectedTags.length > 0 || selectedContentTypes.length > 0;
+      resultsCount.textContent = hasAnyFilter ? '' : 'Showing all bundles';
     }
   };
 
@@ -1133,11 +1138,11 @@
         + '</div>'
 
         + '<div class="content-breakdown">'
-        + renderContentItem('fa-file-lines', 'Prompts', bundle.contentBreakdown ? bundle.contentBreakdown.prompts || 0 : 0)
-        + renderContentItem('fa-list-check', 'Instructions', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
-        + renderContentItem('fa-robot', 'Agents', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
-        + renderContentItem('fa-puzzle-piece', 'Skills', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
-        + renderContentItem('fa-plug', 'MCP Servers', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
+        + renderContentItem('fa-file-lines', 'Prompt', bundle.contentBreakdown ? bundle.contentBreakdown.prompts || 0 : 0)
+        + renderContentItem('fa-list-check', 'Instruction', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
+        + renderContentItem('fa-robot', 'Agent', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
+        + renderContentItem('fa-puzzle-piece', 'Skill', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
+        + renderContentItem('fa-plug', 'MCP Server', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
         + '</div>'
 
         + '<div class="bundle-tags">'
@@ -1250,10 +1255,11 @@
     if (count === 0) {
       return '';
     }
+    var displayLabel = count === 1 ? label : label + 's';
     return '<div class="content-item">'
       + '<span class="content-icon fa-icon ' + icon + '" aria-hidden="true"></span>'
       + '<span class="content-count">' + count + '</span>'
-      + '<span>' + label + '</span>'
+      + '<span>' + displayLabel + '</span>'
       + '</div>';
   };
 

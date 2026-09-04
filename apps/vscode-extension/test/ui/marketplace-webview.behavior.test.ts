@@ -128,6 +128,15 @@ suite('Marketplace webview behavior', () => {
       loadBundles(harness);
       const { document } = harness.dom.window;
 
+      const sortToggle = document.querySelector('#sortToggleBtn') as unknown as { click: () => void };
+      const sortSummary = document.querySelector('#sortSummary');
+      assert.ok(sortSummary);
+      assert.strictEqual(sortSummary?.parentElement?.id, 'sortToggleBtn');
+      assert.strictEqual(sortSummary?.textContent, 'Relevance');
+      (sortSummary as unknown as { click: () => void }).click();
+      assert.strictEqual(document.querySelector('#sortPopover')?.getAttribute('style'), 'display: block;');
+      sortToggle.click();
+
       const detailsButton = document.querySelector('.details-button') as unknown as { click: () => void };
       const repositoryButton = document.querySelector('.source-repo-button') as unknown as {
         click: () => void;
