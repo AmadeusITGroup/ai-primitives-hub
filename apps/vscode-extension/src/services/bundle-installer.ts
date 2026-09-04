@@ -842,7 +842,8 @@ export class BundleInstaller {
       resolver,
       downloader,
       extractor,
-      writerFactory: () => writer
+      writerFactory: () => writer,
+      skipManifestIdValidation: sourceType === 'artifactory'
     });
 
     try {
