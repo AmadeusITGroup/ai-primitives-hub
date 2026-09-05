@@ -29,7 +29,7 @@ runs:
   using: composite
   steps:
     - name: Collect audit findings and write artifact files
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       env:
         AUDIT_FLAGS: ${{ inputs.audit-flags }}
         MIN_SEVERITY: ${{ inputs.min-severity }}
