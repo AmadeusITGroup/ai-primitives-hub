@@ -19,7 +19,7 @@
     "package:vsix": "pnpm -C apps/vscode-extension run package:vsix"
   },
   "devDependencies": {
-    "@o3r/eslint-config": "^14.4.4",
+    "@o3r/eslint-config": "^15.0.0",
     "eslint": "^9.39.5",
     "globals": "^16.5.0"
   }
