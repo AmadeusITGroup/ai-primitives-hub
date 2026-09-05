@@ -25,7 +25,7 @@ jobs:
 
       - name: Download npm-audit-comment artifact
         id: artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: npm-audit-comment
