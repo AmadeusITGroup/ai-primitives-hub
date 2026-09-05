@@ -88,8 +88,8 @@ importers:
         version: 2.10.0
     devDependencies:
       '@design-factory/styles':
-        specifier: ^21.1.1
-        version: 21.1.1
+        specifier: ^22.0.0
+        version: 22.0.1
       '@eslint-community/eslint-plugin-eslint-comments':
         specifier: ^4.7.2
         version: 4.7.2(eslint@9.39.5(jiti@1.21.7)(supports-color@8.1.1))
@@ -1658,12 +1658,12 @@ packages:
     peerDependencies:
       postcss: ^8.4
 
-  '@design-factory/styles@21.1.1':
-    resolution: {integrity: sha512-f5DcycJKa6kKMRiwFdNe6tXwuDO5HpGviBv3QYv+VE6d0jZLZiV4C75B63y9Gh9bj3hAcCPbAVM19am2uvSGEA==}
+  '@design-factory/styles@22.0.1':
+    resolution: {integrity: sha512-+IpmLqqTBYVxS160qDCxlm7dxFZLVWpa63J348yBHv238wvZOMmeul7JmLawgfHFFf+xBNfQADCMzPBLelXN+g==}
     peerDependencies:
-      '@agnos-ui/core-bootstrap': ~0.10.0
-      '@design-factory/tokens': 21.1.1
-      '@ng-select/ng-select': ^21.0.0
+      '@agnos-ui/core-bootstrap': ~0.11.0
+      '@design-factory/tokens': 22.0.1
+      '@ng-select/ng-select': ^23.0.0
       ag-grid-community: ^35.0.0
       bootstrap: 5.3.8
     peerDependenciesMeta:
@@ -11581,7 +11581,7 @@ snapshots:
     dependencies:
       postcss: 8.5.25
 
-  '@design-factory/styles@21.1.1': {}
+  '@design-factory/styles@22.0.1': {}
 
   '@discoveryjs/json-ext@0.5.7': {}
 
