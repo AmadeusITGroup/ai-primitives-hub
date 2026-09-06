@@ -8,7 +8,7 @@ packages:
 overrides:
   '@hono/node-server': 2.1.1
   browserslist: ^4.28.7
-  fast-uri: ^3.1.6
+  fast-uri: ^4.0.0
   js-yaml: ^4.1.1
   mocha>chokidar: ^5.0.0
   mocha>diff: ^9.0.0
