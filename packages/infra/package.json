@@ -40,12 +40,12 @@
     "adm-zip": "^0.6.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "js-yaml": "^4.3.1"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
-    "@types/archiver": "^7.0.0",
+    "@types/archiver": "^8.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.20.1",
     "@vitest/coverage-v8": "^4.1.10",
