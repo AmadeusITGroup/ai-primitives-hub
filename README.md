@@ -56,6 +56,7 @@ pnpm lint
 | `docs/` | User, author, and contributor documentation |
 | `website/` | Docusaurus documentation site |
 | `packages/infra/src/hub/` | Shared Hub resolution, validation, and default-Hub definitions |
+| `packages/infra/src/config/` | Bundled default Hub configuration |
 
 ## 🏗️ Architecture
 

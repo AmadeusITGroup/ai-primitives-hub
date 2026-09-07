@@ -21,7 +21,12 @@
           },
           "icon": {
             "type": "string",
-            "description": "VS Code codicon name (without $() wrapper)",
+            "description": "Icon for plain-text hosts such as the CLI (emoji or text)",
+            "examples": ["☁️", "🌐"]
+          },
+          "codicon": {
+            "type": "string",
+            "description": "VS Code codicon name (without $() wrapper), used by the extension selector",
             "examples": ["cloud", "organization", "repo", "globe"]
           },
           "reference": {
