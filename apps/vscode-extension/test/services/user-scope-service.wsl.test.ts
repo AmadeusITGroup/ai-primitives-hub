@@ -14,6 +14,9 @@ import {
 import {
   createMockBundleDirectory,
 } from '../helpers/bundle-test-helpers';
+import {
+  buildUserScopeTargetPlan,
+} from '../helpers/target-plan-helpers';
 
 suite('UserScopeService - WSL Support', () => {
   // Use require() instead of import * — Node's cached module object has writable
@@ -58,7 +61,9 @@ suite('UserScopeService - WSL Support', () => {
       basePath: path.join(parentDir, 'bundles'),
       bundleId
     });
-    await service.syncBundle(bundleId, bundlePath);
+    await service.syncBundle(bundleId, bundlePath, {
+      targetPlan: buildUserScopeTargetPlan(service, bundleId, bundlePath)
+    });
     const targetFileName = 'test-prompt.prompt.md';
     const found = findFile(tempDir, targetFileName);
     assert.ok(found, `Expected to find ${targetFileName} under ${tempDir}`);
@@ -175,7 +180,9 @@ suite('UserScopeService - WSL Support', () => {
 
       const mockContext = createMockContext(wslUserDir);
       const service = new UserScopeService(mockContext);
-      await service.syncBundle(bundleId, bundlePath);
+      await service.syncBundle(bundleId, bundlePath, {
+        targetPlan: buildUserScopeTargetPlan(service, bundleId, bundlePath)
+      });
 
       const targetFile = path.join(windowsUserDir, '.copilot', 'prompts', 'my-prompt.prompt.md');
       assert.ok(fs.existsSync(targetFile), 'Target file should exist');
@@ -208,7 +215,9 @@ suite('UserScopeService - WSL Support', () => {
       const mockContext = createMockContext(globalStorageDir);
       const service = new UserScopeService(mockContext);
 
-      await service.syncBundle(bundleId, bundlePath);
+      await service.syncBundle(bundleId, bundlePath, {
+        targetPlan: buildUserScopeTargetPlan(service, bundleId, bundlePath)
+      });
 
       const targetFile = path.join(windowsUserDir, '.copilot', 'prompts', 'my-prompt.prompt.md');
       assert.ok(fs.existsSync(targetFile), 'File should exist after sync');

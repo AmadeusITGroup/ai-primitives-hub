@@ -1,4 +1,5 @@
 import * as assert from 'node:assert';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -47,6 +48,112 @@ suite('UserScopeService - Unsync Bundle Fix', () => {
     } catch (e) {
       console.error('Cleanup failed:', e);
     }
+  });
+
+  const checksum = (contents: string): string =>
+    `sha256:${crypto.createHash('sha256').update(contents).digest('hex')}`;
+
+  test('uses persisted installed records when the bundle cache has already been deleted', async () => {
+    const bundleId = 'test-bundle-installed-records';
+    const bundlePath = path.join(bundlesDir, bundleId);
+    fs.mkdirSync(bundlePath, { recursive: true });
+
+    const linkedSourcePath = path.join(bundlePath, 'linked.prompt.md');
+    const copiedSourcePath = path.join(bundlePath, 'copied.prompt.md');
+    const modifiedSourcePath = path.join(bundlePath, 'modified.prompt.md');
+
+    const linkedTargetPath = path.join(copilotDir, 'linked.prompt.md');
+    const copiedTargetPath = path.join(copilotDir, 'copied.prompt.md');
+    const modifiedTargetPath = path.join(copilotDir, 'modified.prompt.md');
+
+    fs.writeFileSync(linkedSourcePath, '# Linked prompt');
+    fs.writeFileSync(copiedSourcePath, '# Copied prompt');
+    fs.writeFileSync(modifiedSourcePath, '# Original prompt');
+
+    fs.symlinkSync(linkedSourcePath, linkedTargetPath);
+    fs.writeFileSync(copiedTargetPath, '# Copied prompt');
+    fs.writeFileSync(modifiedTargetPath, '# User modified prompt');
+
+    const installedFiles = [
+      {
+        itemId: 'linked',
+        kind: 'prompt' as const,
+        sourcePath: 'linked.prompt.md',
+        destinationPath: linkedTargetPath,
+        destinationRelativePath: 'prompts/linked.prompt.md',
+        installedChecksum: checksum('# Linked prompt')
+      },
+      {
+        itemId: 'copied',
+        kind: 'prompt' as const,
+        sourcePath: 'copied.prompt.md',
+        destinationPath: copiedTargetPath,
+        destinationRelativePath: 'prompts/copied.prompt.md',
+        installedChecksum: checksum('# Copied prompt')
+      },
+      {
+        itemId: 'modified',
+        kind: 'prompt' as const,
+        sourcePath: 'modified.prompt.md',
+        destinationPath: modifiedTargetPath,
+        destinationRelativePath: 'prompts/modified.prompt.md',
+        installedChecksum: checksum('# Original prompt')
+      }
+    ];
+
+    fs.rmSync(bundlePath, { recursive: true, force: true });
+
+    const result = await service.unsyncBundle(bundleId, { installedFiles });
+
+    assert.strictEqual(fs.existsSync(linkedTargetPath), false, 'Broken symlink should be removed using the persisted record');
+    assert.strictEqual(fs.existsSync(copiedTargetPath), false, 'Unmodified copied file should be removed using the persisted record');
+    assert.strictEqual(fs.existsSync(modifiedTargetPath), true, 'Modified copied file should be preserved');
+    assert.deepStrictEqual(result.retained, [installedFiles[2]], 'Modified files should retain their ownership metadata');
+  });
+
+  test('prunes removed skill ancestors while preserving a retained nested file', async () => {
+    const bundleId = 'skill-records';
+    const skillRoot = path.join(tempDir, '.copilot', 'skills', 'review');
+    const skillPath = path.join(skillRoot, 'SKILL.md');
+    const assetPath = path.join(skillRoot, 'assets', 'rubric.json');
+    const retainedPath = path.join(skillRoot, 'scripts', 'check.sh');
+    fs.mkdirSync(path.dirname(assetPath), { recursive: true });
+    fs.mkdirSync(path.dirname(retainedPath), { recursive: true });
+    fs.writeFileSync(skillPath, '# Review');
+    fs.writeFileSync(assetPath, '{}');
+    fs.writeFileSync(retainedPath, 'user edit');
+    const installedFiles = [
+      {
+        itemId: 'review',
+        kind: 'skill' as const,
+        sourcePath: 'skills/review/SKILL.md',
+        destinationPath: skillPath,
+        destinationRelativePath: 'skills/review/SKILL.md',
+        installedChecksum: checksum('# Review')
+      },
+      {
+        itemId: 'review',
+        kind: 'skill' as const,
+        sourcePath: 'skills/review/assets/rubric.json',
+        destinationPath: assetPath,
+        destinationRelativePath: 'skills/review/assets/rubric.json',
+        installedChecksum: checksum('{}')
+      },
+      {
+        itemId: 'review',
+        kind: 'skill' as const,
+        sourcePath: 'skills/review/scripts/check.sh',
+        destinationPath: retainedPath,
+        destinationRelativePath: 'skills/review/scripts/check.sh',
+        installedChecksum: checksum('original script')
+      }
+    ];
+
+    const result = await service.unsyncBundle(bundleId, { installedFiles });
+
+    assert.ok(!fs.existsSync(path.join(skillRoot, 'assets')), 'Empty removed-file ancestors should be pruned');
+    assert.ok(fs.existsSync(retainedPath), 'Modified nested content should remain');
+    assert.deepStrictEqual(result.retained, [installedFiles[2]]);
   });
 
   test('should delete copied file (not symlink) if content matches source', async () => {

@@ -19,24 +19,29 @@ import {
   cleanupOrphanedSource,
   FileTreeTargetWriter,
   type LockfileBundleEntry,
+  lockfileFilesFromInstalledRecords,
   readLockfile,
   removeBundleEntry,
+  removeInstalledFiles,
+  resolveInstalledFilesForLockfileEntry,
+  resolveLayout,
   type TargetWriter,
   TransformerRegistry,
   UninstallPipeline,
+  type UninstallPlan,
   type UninstallResult,
+  upsertBundleEntry,
   writeLockfile,
 } from '@ai-primitives-hub/app';
+import {
+  expandPath,
+} from '@ai-primitives-hub/core';
 import type {
+  RepositoryCommitMode,
   Target,
 } from '@ai-primitives-hub/core';
 import {
-  FileSystemLayoutConfigLoader,
   readTargets,
-  type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   TargetStateStore,
 } from '@ai-primitives-hub/infra';
 import {
@@ -219,9 +224,7 @@ export class UninstallCommand extends BaseUninstallCommand {
 }
 
 /**
- * Create a writer factory that routes to the appropriate writer based on target scope.
- * - user scope → FileTreeTargetWriter
- * - repository scope → RepositoryScopeWriter
+ * Create the shared exact-destination writer factory.
  * @param ctx CLI context.
  * @param opts Uninstall options.
  * @returns Writer factory function.
@@ -235,34 +238,15 @@ export const createWriterFactory = (
   // path that `writer.write()` used (targets with a real, non-identity
   // transformer like Kiro would otherwise resolve the wrong path).
   const transformerRegistry = TransformerRegistry.withBuiltIns();
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-
   return (target: Target): TargetWriter => {
     const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
-    const workspaceRoot = effectiveTarget.rootPath ?? ctx.cwd();
 
-    const copilotLikeTargets = new Set<string>(['vscode', 'vscode-insiders', 'copilot-cli']);
-    if (scope === 'repository' && copilotLikeTargets.has(effectiveTarget.type)) {
-      const writer = new RepositoryScopeWriter({
-        fs: ctx.fs,
-        workspaceRoot,
-        commitMode
-      });
-      return new RepositoryScopeWriterAdapter(writer);
-    }
     // Default to FileTreeTargetWriter for user scope
     const transformer = transformerRegistry.getTransformer(effectiveTarget.type);
     return new FileTreeTargetWriter({
       fs: ctx.fs,
       env: ctx.env,
-      transformer,
-      layoutLoader
+      transformer
     });
   };
 };
@@ -289,25 +273,49 @@ export async function runUserScopeUninstall(
   const lock = await readLockfile(lockPath, ctx.fs);
   const entry = lock?.bundles[bundleId];
   if (lock === null || entry === undefined) {
-    return { bundleId, removed: [], skipped: [] };
+    return { bundleId, removed: [], skipped: [], warnings: [] };
   }
 
-  const removed: string[] = [];
-  const skipped: string[] = [];
-  for (const file of entry.files) {
-    try {
-      await writer.remove(target, file.path);
-      removed.push(file.path);
-    } catch {
-      skipped.push(file.path);
-    }
-  }
+  const layout = resolveLayout(target);
+  const baseDir = path.resolve(expandPath(layout.baseDir, ctx.env));
+  const repositoryPath = path.dirname(lockPath);
+  const resolutionRoot = target.scope === 'repository' ? { repositoryPath } : { baseDir };
+  const resolved = resolveInstalledFilesForLockfileEntry(bundleId, entry, resolutionRoot);
+  const destinationsOwnedByOthers = new Set(
+    Object.entries(lock.bundles)
+      .filter(([otherBundleId]) => otherBundleId !== bundleId)
+      .flatMap(([otherBundleId, otherEntry]) =>
+        resolveInstalledFilesForLockfileEntry(otherBundleId, otherEntry, resolutionRoot).files
+      )
+      .map((file) => path.resolve(file.destinationPath))
+  );
+  const removableFiles = resolved.files.filter(
+    (file) => !destinationsOwnedByOthers.has(path.resolve(file.destinationPath))
+  );
+  const removal = await removeInstalledFiles({
+    fs: ctx.fs,
+    writer,
+    files: removableFiles,
+    repositoryPath: target.scope === 'repository' ? repositoryPath : undefined,
+    commitMode: target.scope === 'repository' ? (entry.commitMode ?? target.commitMode ?? 'commit') : undefined
+  });
 
-  let next = removeBundleEntry(lock, bundleId);
-  next = cleanupOrphanedSource(next, entry.sourceId);
+  const skipped = new Set(removal.skipped);
+  const remainingFiles = resolved.files.filter((file) => skipped.has(file.destinationRelativePath));
+  const next = remainingFiles.length > 0
+    ? upsertBundleEntry(lock, bundleId, {
+      ...entry,
+      files: lockfileFilesFromInstalledRecords(remainingFiles)
+    })
+    : cleanupOrphanedSource(removeBundleEntry(lock, bundleId), entry.sourceId);
   await writeLockfile(lockPath, next, ctx.fs);
 
-  return { bundleId, removed, skipped };
+  return {
+    bundleId,
+    removed: removal.removed,
+    skipped: removal.skipped,
+    warnings: [...resolved.warnings, ...removal.warnings]
+  };
 }
 
 /**
@@ -345,12 +353,12 @@ async function runAllUserScopeUninstall(
  * @param ctx CLI context.
  * @returns The entry if found, else `null`.
  */
-async function findBundleEntry(
+async function findBundlePlan(
   bundleId: string,
   target: Target,
   opts: UninstallOptions,
   ctx: Context
-): Promise<LockfileBundleEntry | null> {
+): Promise<UninstallPlan> {
   if (target.scope === 'repository') {
     const pipeline = new UninstallPipeline({
       fs: ctx.fs,
@@ -358,12 +366,25 @@ async function findBundleEntry(
       repositoryPath: target.rootPath ?? ctx.cwd(),
       writerFactory: createWriterFactory(ctx, opts)
     });
-    const plan = await pipeline.plan(bundleId);
-    return plan.lockfileEntry;
+    return await pipeline.plan(bundleId);
   }
   const lockPath = lockfilePathForTarget(ctx, target);
   const lock = await readLockfile(lockPath, ctx.fs);
-  return lock?.bundles[bundleId] ?? null;
+  const entry = lock?.bundles[bundleId] ?? null;
+  if (entry === null) {
+    return { bundleId, filesToRemove: [], installedFiles: [], lockfileEntry: null, warnings: [] };
+  }
+
+  const layout = resolveLayout(target);
+  const baseDir = path.resolve(expandPath(layout.baseDir, ctx.env));
+  const resolved = resolveInstalledFilesForLockfileEntry(bundleId, entry, { baseDir });
+  return {
+    bundleId,
+    filesToRemove: resolved.files.map((file) => file.destinationRelativePath),
+    installedFiles: resolved.files,
+    lockfileEntry: entry,
+    warnings: resolved.warnings
+  };
 }
 
 /**
@@ -414,7 +435,8 @@ async function performBundleUninstall(
   fmt: OutputFormat
 ): Promise<number> {
   const bundleId = opts.bundle as string;
-  const entry = await findBundleEntry(bundleId, target, opts, ctx);
+  const plan = await findBundlePlan(bundleId, target, opts, ctx);
+  const entry = plan.lockfileEntry;
 
   if (entry === null) {
     formatOutput({
@@ -438,13 +460,14 @@ async function performBundleUninstall(
       ctx,
       command: 'uninstall',
       output: fmt,
-      status: 'ok',
+      status: plan.warnings.length > 0 ? 'warning' : 'ok',
       data: {
         dryRun: true,
         target: target.name,
         bundle: bundleId,
-        files: entry.files.map((f) => f.path)
+        files: plan.filesToRemove
       },
+      warnings: plan.warnings,
       textRenderer: (d) => `[dry-run] Would uninstall bundle "${d.bundle}" from target "${d.target}":\n`
         + `  Files: ${d.files.join(', ')}\n`
         + 'Run without --dry-run to apply.\n'
@@ -456,7 +479,7 @@ async function performBundleUninstall(
   let result: UninstallResult;
   let lockPath: string;
   if (target.scope === 'repository') {
-    const commitMode = entry.commitMode ?? target.commitMode ?? 'commit';
+    const commitMode = plan.commitMode ?? entry.commitMode ?? target.commitMode ?? 'commit';
     lockPath = lockfilePathForTarget(ctx, target, commitMode);
     const pipeline = new UninstallPipeline({
       fs: ctx.fs,
@@ -470,20 +493,23 @@ async function performBundleUninstall(
     result = await runUserScopeUninstall(bundleId, lockPath, target, ctx, writerFactory(target));
   }
 
-  // Update target state
-  await updateTargetState(ctx, target.name, bundleId);
+  if (result.skipped.length === 0) {
+    await updateTargetState(ctx, target.name, bundleId);
+  }
 
   formatOutput({
     ctx,
     command: 'uninstall',
     output: fmt,
-    status: 'ok',
+    status: result.warnings.length > 0 || result.skipped.length > 0 ? 'warning' : 'ok',
     data: {
       target: target.name,
       bundle: bundleId,
       removed: result.removed,
+      skipped: result.skipped,
       lockfile: lockPath
     },
+    warnings: result.warnings,
     textRenderer: (d) => `Uninstalled ${d.bundle} from target "${d.target}" `
       + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'} removed). `
       + `Updated ${d.lockfile}.\n`
@@ -527,12 +553,19 @@ async function performLockfileUninstall(
 
   // Dry-run: show what would be removed without deleting
   if (opts.dryRun === true) {
-    const allFiles = bundleIds.flatMap((id) => lock.bundles[id].files.map((f) => f.path));
+    const warnings: string[] = [];
+    const allFiles = bundleIds.flatMap((id) => {
+      const resolved = resolveInstalledFilesForLockfileEntry(id, lock.bundles[id], target.scope === 'repository'
+        ? { repositoryPath: path.dirname(lockPath) }
+        : { baseDir: path.resolve(expandPath(resolveLayout(target).baseDir, ctx.env)) });
+      warnings.push(...resolved.warnings);
+      return resolved.files.map((file) => file.destinationRelativePath);
+    });
     formatOutput({
       ctx,
       command: 'uninstall',
       output: fmt,
-      status: 'ok',
+      status: warnings.length > 0 ? 'warning' : 'ok',
       data: {
         dryRun: true,
         lockfile: lockPath,
@@ -540,6 +573,7 @@ async function performLockfileUninstall(
         bundles: bundleIds,
         files: allFiles
       },
+      warnings,
       textRenderer: (d) => `[dry-run] Would uninstall ${d.bundles.length} bundle${d.bundles.length === 1 ? '' : 's'} from target "${d.target}" (from ${d.lockfile}):\n`
         + `  Bundles: ${d.bundles.join(', ')}\n`
         + `  Files: ${d.files.length} total\n`
@@ -549,18 +583,7 @@ async function performLockfileUninstall(
   }
 
   const writerFactory = createWriterFactory(ctx, opts);
-  let results: UninstallResult[];
-  if (target.scope === 'repository') {
-    const pipeline = new UninstallPipeline({
-      fs: ctx.fs,
-      target,
-      repositoryPath: path.dirname(lockPath),
-      writerFactory
-    });
-    results = await pipeline.runFromLockfile();
-  } else {
-    results = await runAllUserScopeUninstall(lockPath, target, ctx, writerFactory(target));
-  }
+  const results = await runAllUserScopeUninstall(lockPath, target, ctx, writerFactory(target));
 
   if (results.length === 0) {
     formatOutput({
@@ -578,17 +601,24 @@ async function performLockfileUninstall(
     return 0;
   }
 
+  for (const result of results) {
+    if (result.skipped.length === 0) {
+      await updateTargetState(ctx, target.name, result.bundleId);
+    }
+  }
+
   formatOutput({
     ctx,
     command: 'uninstall',
     output: fmt,
-    status: 'ok',
+    status: results.some((result) => result.warnings.length > 0 || result.skipped.length > 0) ? 'warning' : 'ok',
     data: {
       lockfile: lockPath,
       target: target.name,
       uninstalled: results.length,
-      bundles: results.map((r) => ({ id: r.bundleId, removed: r.removed.length }))
+      bundles: results.map((r) => ({ id: r.bundleId, removed: r.removed.length, skipped: r.skipped.length }))
     },
+    warnings: results.flatMap((result) => result.warnings),
     textRenderer: (d) => `Uninstalled ${d.uninstalled} bundle${d.uninstalled === 1 ? '' : 's'} `
       + `from target "${d.target}" (from ${d.lockfile}).\n`
   });
@@ -614,18 +644,36 @@ async function performAllUninstall(
 
   // Dry-run: show what would be removed without deleting
   if (opts.dryRun === true) {
-    const allFiles = bundleIds.flatMap((id) => entries[id].files.map((f) => f.path));
+    const warnings: string[] = [];
+    const allFiles = target.scope === 'repository'
+      ? (await new UninstallPipeline({
+        fs: ctx.fs,
+        target,
+        repositoryPath: target.rootPath ?? ctx.cwd(),
+        writerFactory: createWriterFactory(ctx, opts)
+      }).planAll()).flatMap((plan) => {
+        warnings.push(...plan.warnings);
+        return plan.filesToRemove;
+      })
+      : bundleIds.flatMap((id) => {
+        const resolved = resolveInstalledFilesForLockfileEntry(id, entries[id], {
+          baseDir: path.resolve(expandPath(resolveLayout(target).baseDir, ctx.env))
+        });
+        warnings.push(...resolved.warnings);
+        return resolved.files.map((file) => file.destinationRelativePath);
+      });
     formatOutput({
       ctx,
       command: 'uninstall',
       output: fmt,
-      status: 'ok',
+      status: warnings.length > 0 ? 'warning' : 'ok',
       data: {
         dryRun: true,
         target: target.name,
         bundles: bundleIds,
         files: allFiles
       },
+      warnings,
       textRenderer: (d) => `[dry-run] Would uninstall all bundles from target "${d.target}":\n`
         + `  Bundles: ${d.bundles.join(', ')}\n`
         + `  Files: ${d.files.length} total\n`
@@ -664,27 +712,23 @@ async function performAllUninstall(
     return 0;
   }
 
-  // Update target state (clear all bundles)
-  const stateStore = new TargetStateStore({
-    fs: ctx.fs,
-    statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json')
-  });
-  await stateStore.save({
-    targetName: target.name,
-    lastInstalledBundles: [],
-    lastUsedAt: new Date().toISOString()
-  });
+  for (const result of results) {
+    if (result.skipped.length === 0) {
+      await updateTargetState(ctx, target.name, result.bundleId);
+    }
+  }
 
   formatOutput({
     ctx,
     command: 'uninstall',
     output: fmt,
-    status: 'ok',
+    status: results.some((result) => result.warnings.length > 0 || result.skipped.length > 0) ? 'warning' : 'ok',
     data: {
       target: target.name,
       uninstalled: results.length,
-      bundles: results.map((r) => ({ id: r.bundleId, removed: r.removed.length }))
+      bundles: results.map((r) => ({ id: r.bundleId, removed: r.removed.length, skipped: r.skipped.length }))
     },
+    warnings: results.flatMap((result) => result.warnings),
     textRenderer: (d) => `Uninstalled ${d.uninstalled} bundle${d.uninstalled === 1 ? '' : 's'} `
       + `from target "${d.target}".\n`
   });

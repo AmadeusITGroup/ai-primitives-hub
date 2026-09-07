@@ -4,6 +4,21 @@ This document provides a comprehensive view of the CLI command structure, user-f
 
 ## CLI Command Hierarchy
 
+### Shared Installation Flow
+
+Every CLI install mode, including remote bundles, `--from`, profile activation,
+and lockfile replay, feeds the same shared stages:
+
+1. Validate the root manifest and build a target-neutral `BundleInstallPlan`.
+2. Resolve the target layout by canonical `PrimitiveKind`.
+3. Build and preflight a `TargetWritePlan`.
+4. Execute exact writes and persist the returned destination records.
+
+The manifest controls item identity, source path, and kind. A source path such
+as `foursight-pr-review/agents/code-review.agent.md` is valid for an `agent`
+item even though it does not begin with `agents/`. The path is not used to infer
+the target route.
+
 ```mermaid
 flowchart LR
     CLI[ai-primitives-hub]

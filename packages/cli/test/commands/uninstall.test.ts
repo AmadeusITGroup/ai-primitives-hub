@@ -7,6 +7,9 @@
  * every call) since uninstall does real file removals + lockfile IO.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   mkdir,
   mkdtemp,
   readFile,
@@ -15,6 +18,9 @@ import {
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  resolveUserConfigPaths,
+} from '@ai-primitives-hub/app';
 import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -51,6 +57,7 @@ const COMMAND_CLASSES = [
 interface JsonEnvelope<T> {
   status: string;
   data: T;
+  warnings?: string[];
 }
 
 describe('uninstall command', () => {
@@ -91,9 +98,10 @@ describe('uninstall command', () => {
     expect((await run([
       'target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'
     ])).exitCode).toBe(0);
-    expect((await run([
+    const installResult = await run([
       'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
-    ])).exitCode).toBe(0);
+    ]);
+    expect(installResult.exitCode).toBe(0);
   });
 
   afterEach(async () => {
@@ -110,6 +118,26 @@ describe('uninstall command', () => {
 
     const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as { bundles: Record<string, unknown> };
     expect(lockContent.bundles).toEqual({});
+  });
+
+  it('preserves a user-scope destination still owned by another bundle', async () => {
+    const lockfilePath = resolveUserConfigPaths({
+      HOME: workspace,
+      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config')
+    }).userLockfile;
+    const lock = JSON.parse(await readFile(lockfilePath, 'utf8')) as {
+      bundles: Record<string, unknown>;
+    };
+    lock.bundles['other-bundle'] = lock.bundles['local-foo'];
+    await writeFile(lockfilePath, JSON.stringify(lock));
+
+    const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(installedFile(), 'utf8')).resolves.toContain('Hello Prompt');
+    const next = JSON.parse(await readFile(lockfilePath, 'utf8')) as { bundles: Record<string, unknown> };
+    expect(next.bundles).not.toHaveProperty('local-foo');
+    expect(next.bundles).toHaveProperty('other-bundle');
   });
 
   it('uninstalls a governed bundle using installable-only lockfile paths', async () => {
@@ -161,7 +189,7 @@ describe('uninstall command', () => {
     ]);
     expect(installResult.exitCode).toBe(0);
 
-    const repositoryFile = path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md');
+    const repositoryFile = path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
     await expect(readFile(repositoryFile, 'utf8')).resolves.toContain('Hello Prompt');
 
     const uninstallResult = await run([
@@ -173,6 +201,102 @@ describe('uninstall command', () => {
     expect(envelope.data.removed.length).toBeGreaterThan(0);
     await expect(readFile(repositoryFile, 'utf8')).rejects.toThrow();
     await expect(readFile(envelope.data.lockfile, 'utf8')).rejects.toThrow();
+  });
+
+  it('uses the supplied physical repository lockfile without rediscovering another file', async () => {
+    const installResult = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot',
+      '--scope', 'repository', '-o', 'json'
+    ]);
+    expect(installResult.exitCode).toBe(0);
+    const standardLockfile = path.join(workspace, 'prompt-registry.lock.json');
+    const customLockfile = path.join(workspace, 'custom.lock.json');
+    await writeFile(customLockfile, await readFile(standardLockfile));
+
+    const result = await run([
+      'uninstall', '--lockfile', customLockfile, '--target', 'copilot',
+      '--scope', 'repository', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const custom = JSON.parse(await readFile(customLockfile, 'utf8')) as { bundles: Record<string, unknown> };
+    const standard = JSON.parse(await readFile(standardLockfile, 'utf8')) as { bundles: Record<string, unknown> };
+    expect(custom.bundles).toEqual({});
+    expect(standard.bundles).toHaveProperty('local-foo');
+  });
+
+  it('warns once and removes a legacy repository lockfile entry using compatibility routing', async () => {
+    const legacyLockfilePath = path.join(workspace, 'prompt-registry.lock.json');
+    const repositoryFile = path.join(workspace, '.github', 'prompts', 'legacy.prompt.md');
+    const legacyContent = '# Legacy Prompt\n';
+    const legacyChecksum = `sha256:${createHash('sha256').update(legacyContent).digest('hex')}`;
+
+    await mkdir(path.dirname(repositoryFile), { recursive: true });
+    await writeFile(repositoryFile, legacyContent);
+    await writeFile(legacyLockfilePath, JSON.stringify({
+      $schema: 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json',
+      version: '2.0.0',
+      generatedAt: '2024-01-01T00:00:00.000Z',
+      generatedBy: 'ai-primitives-hub-cli@2.0.0',
+      bundles: {
+        'legacy-bundle': {
+          version: '1.0.0',
+          sourceId: 'github-legacy',
+          sourceType: 'github',
+          installedAt: '2024-01-01T00:00:00.000Z',
+          files: [{ path: 'prompts/legacy.prompt.md', checksum: legacyChecksum }]
+        }
+      },
+      sources: {
+        'github-legacy': { type: 'github', url: 'https://github.com/owner/repo' }
+      }
+    }, null, 2));
+
+    const result = await run([
+      'uninstall', '--bundle', 'legacy-bundle', '--target', 'copilot', '--scope', 'repository', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const envelope = parseJson<{ removed: string[] }>(result.stdout);
+    expect(envelope.status).toBe('warning');
+    expect(envelope.warnings?.[0]).toContain('legacy repository lockfile paths');
+    expect(envelope.data.removed).toEqual(['.github/prompts/legacy.prompt.md']);
+    await expect(readFile(repositoryFile, 'utf8')).rejects.toThrow();
+  });
+
+  it('preserves modified repository files during uninstall and reports the preserved path', async () => {
+    const installResult = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot',
+      '--scope', 'repository', '-o', 'json'
+    ]);
+    expect(installResult.exitCode).toBe(0);
+
+    const repositoryFile = path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
+    await writeFile(repositoryFile, '# User Modified Prompt\n');
+
+    const uninstallResult = await run([
+      'uninstall', '--bundle', 'local-foo', '--target', 'copilot',
+      '--scope', 'repository', '-o', 'json'
+    ]);
+
+    expect(uninstallResult.exitCode).toBe(0);
+    const envelope = parseJson<{ removed: string[]; skipped: string[]; lockfile: string }>(uninstallResult.stdout);
+    expect(envelope.status).toBe('warning');
+    expect(envelope.data.removed).toEqual([]);
+    expect(envelope.data.skipped).toEqual(['.github/prompts/hello.prompt.md']);
+    expect(envelope.warnings?.join('\n')).toContain('Preserved modified file');
+    await expect(readFile(repositoryFile, 'utf8')).resolves.toContain('User Modified Prompt');
+    const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
+      bundles: Record<string, { files: { path: string }[] }>;
+    };
+    expect(lockContent.bundles['local-foo'].files).toEqual([
+      expect.objectContaining({ path: '.github/prompts/hello.prompt.md' })
+    ]);
+    const targetState = JSON.parse(await readFile(
+      path.join(workspace, '.ai-primitives-hub', 'target-state.json'),
+      'utf8'
+    )) as { targets: Record<string, { lastInstalledBundles: { bundleId: string }[] }> };
+    expect(targetState.targets.copilot.lastInstalledBundles.map((bundle) => bundle.bundleId)).toContain('local-foo');
   });
 
   it('--all removes every installed bundle for the target', async () => {

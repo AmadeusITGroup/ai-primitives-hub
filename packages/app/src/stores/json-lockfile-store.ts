@@ -26,19 +26,14 @@
  * reproducibility/team-sharing use case there), so this store — and
  * the uninstall pipeline that uses it — only applies to
  * `target.scope === 'repository'`. No `target` field exists on
- * `LockfileBundleEntry` for the same reason the extension has none:
- * repository scope always writes to `.github/`, invariant of which
- * IDE type nominally triggered the install (see
- * `writers/repo-scope-writer.ts`'s `RepositoryScopeWriterAdapter`,
- * which ignores its `Target` parameter entirely).
+ * `LockfileBundleEntry` because each file record already stores the exact,
+ * target-resolved repository-relative destination.
  * @module stores/json-lockfile-store
  */
-import {
-  createHash,
-} from 'node:crypto';
 import * as path from 'node:path';
 import type {
-  ExtractedFiles,
+  InstalledFileRecord,
+  PrimitiveKind,
 } from '@ai-primitives-hub/core';
 
 /** Lockfile filename for commit-mode (git-tracked) bundle entries. */
@@ -60,13 +55,38 @@ export interface LockfileFileEntry {
   /** Relative path from repository root. */
   path: string;
   /**
-   * SHA256 of the extracted archive bytes for this path (not the
-   * optionally transformed on-disk result). User-modification checks
-   * compare this against the current file; transformed files will
-   * therefore look modified until an `installedChecksum` field is
-   * added (issue #357 Stage 2).
+   * SHA256 of the canonical installed bytes for this path.
    */
   checksum: string;
+  /**
+   * Primitive kind this file was installed as.
+   *
+   * Persisted so uninstall/update never has to re-derive a kind from the
+   * destination path. Path-prefix inference cannot be correct in general: a
+   * layout override may rename a route (`agent` → `ai-agents/`), which would
+   * silently mis-classify the file and, for skills, stop directory pruning from
+   * firing. Optional only because released CLI 0.1.0 lockfiles predate it — see
+   * `LEGACY_REPOSITORY_PREFIXES`.
+   */
+  kind?: PrimitiveKind;
+  /**
+   * Id of the manifest item that owns this file.
+   *
+   * Persisted for the same reason as `kind`: skill-directory pruning keys on the
+   * owning item id, which cannot be recovered from a renamed route. Optional for
+   * 0.1.0-era lockfiles.
+   */
+  itemId?: string;
+}
+
+export interface ResolveInstalledFilesForLockfileEntryOptions {
+  repositoryPath?: string;
+  baseDir?: string;
+}
+
+export interface ResolvedLockfileEntryFiles {
+  files: InstalledFileRecord[];
+  warnings: string[];
 }
 
 /**
@@ -151,6 +171,32 @@ export interface Lockfile {
 }
 
 const LOCKFILE_SCHEMA_URL = 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json';
+/**
+ * Source prefixes written into `files[].path` by released CLI versions.
+ *
+ * `@ai-primitives-hub/cli@0.1.0` (npm dist-tag `latest`) builds its lockfile
+ * entries with `files: checksumFiles(targetFiles, …)` from
+ * `@ai-primitives-hub/app@0.1.0`, which keys entries by the **archive source
+ * path** (`prompts/foo.prompt.md`) while still stamping `version: '2.0.0'`.
+ * Repository-scope destinations for those bundles were actually written under
+ * `.github/`, so a lockfile produced by that release cannot be resolved without
+ * re-adding the destination prefix. Verified by unpacking both published
+ * tarballs (`dist/commands/install.js` → `checksumFiles`,
+ * `dist/stores/json-lockfile-store.js` → `LOCKFILE_SCHEMA_VERSION = '2.0.0'`).
+ *
+ * This layer is therefore read-only compatibility for released 0.1.0
+ * lockfiles, not defensive scaffolding: it may be deleted once 0.1.0 installs
+ * are no longer supported, since every write path now persists
+ * destination-relative paths.
+ */
+const LEGACY_REPOSITORY_PREFIXES = [
+  'prompts/',
+  'agents/',
+  'instructions/',
+  'skills/',
+  'hooks/',
+  'plugins/'
+] as const;
 
 /**
  * Build an empty lockfile structure with required fields.
@@ -339,35 +385,171 @@ export const cleanupOrphanedSource = (lock: Lockfile, sourceId: string): Lockfil
   return { ...lock, sources };
 };
 
-/**
- * Compute SHA256 checksums for every file in an extracted bundle,
- * producing the `{path, checksum}` pairs `LockfileBundleEntry.files`
- * expects. Excludes `deployment-manifest.yml` — it is bundle metadata,
- * not an installed file — matching every writer's own exclusion of it.
- * @param files - Extracted bundle files (path -> raw bytes).
- * @param includedPaths
- * @returns Per-file checksum entries, manifest excluded.
- */
-export const checksumFiles = (
-  files: ExtractedFiles,
-  includedPaths?: Iterable<string>
-): LockfileFileEntry[] => {
-  const entries: LockfileFileEntry[] = [];
-  const included = includedPaths === undefined ? null : new Set(includedPaths);
-  for (const [filePath, bytes] of files) {
-    if (filePath === 'deployment-manifest.yml') {
-      continue;
-    }
-    if (included !== null && !included.has(filePath)) {
-      continue;
-    }
-    entries.push({
-      path: filePath,
-      checksum: createHash('sha256').update(bytes).digest('hex')
-    });
+export const lockfileFilesFromInstalledRecords = (
+  installed: readonly InstalledFileRecord[]
+): LockfileFileEntry[] =>
+  installed.map((file) => ({
+    path: normalizeLockfilePath(file.destinationRelativePath),
+    checksum: file.installedChecksum,
+    kind: file.kind,
+    itemId: file.itemId
+  }));
+
+export const resolveInstalledFilesForLockfileEntry = (
+  bundleId: string,
+  entry: LockfileBundleEntry,
+  opts: ResolveInstalledFilesForLockfileEntryOptions
+): ResolvedLockfileEntryFiles => {
+  const root = opts.repositoryPath ?? opts.baseDir;
+  if (root === undefined) {
+    throw new Error('resolveInstalledFilesForLockfileEntry requires repositoryPath or baseDir');
   }
-  return entries;
+
+  const warnings: string[] = [];
+  let warnedLegacyRepositoryPaths = false;
+  const files = entry.files.map((file, index) => {
+    let destinationRelativePath = normalizeLockfilePath(file.path);
+    assertSafeLockfilePath(destinationRelativePath);
+    if (opts.repositoryPath !== undefined) {
+      const compatiblePath = resolveRepositoryLockfilePathCompatibility(destinationRelativePath);
+      destinationRelativePath = compatiblePath.path;
+      if (compatiblePath.legacy && !warnedLegacyRepositoryPaths) {
+        warnings.push(
+          `Bundle "${bundleId}" uses legacy repository lockfile paths from CLI 2.0.0. Reinstall or update it to rewrite destination-relative paths in the repository lockfile.`
+        );
+        warnedLegacyRepositoryPaths = true;
+      }
+    }
+    assertSafeLockfilePath(destinationRelativePath);
+    const destinationPath = path.resolve(root, destinationRelativePath);
+    const resolvedRoot = path.resolve(root);
+    if (destinationPath !== resolvedRoot && !destinationPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+      throw new Error(`unsafe lockfile path "${file.path}" escapes target root`);
+    }
+
+    return {
+      itemId: file.itemId ?? inferInstalledItemId(destinationRelativePath, index),
+      kind: file.kind ?? inferInstalledKind(destinationRelativePath),
+      sourcePath: destinationRelativePath,
+      destinationPath,
+      destinationRelativePath,
+      installedChecksum: file.checksum
+    } satisfies InstalledFileRecord;
+  });
+
+  return { files, warnings };
 };
+
+/**
+ * Resolve the installed records of **every** bundle recorded in a lockfile.
+ *
+ * This is the set a `TargetWriter` must treat as managed: a destination
+ * installed by bundle A is still tool-managed when bundle B legitimately
+ * overwrites it, so scoping the writer's `managedFiles` to the bundle being
+ * installed makes shared destinations fail the unmanaged-overwrite guard.
+ * The uninstall pipeline already reasons across all bundles
+ * (`collectFilesUsedByOtherBundles`); this is the write-side counterpart.
+ *
+ * Records are deduplicated by resolved destination path (first entry wins),
+ * and warnings are deduplicated so a legacy lockfile reports once per bundle.
+ * @param lock - Lockfile whose bundle entries should be resolved.
+ * @param opts - Resolution root (`repositoryPath` for repository scope,
+ *   `baseDir` for user scope).
+ * @returns Every bundle's installed records plus any compatibility warnings.
+ */
+export const resolveManagedFilesFromLockfile = (
+  lock: Pick<Lockfile, 'bundles'>,
+  opts: ResolveInstalledFilesForLockfileEntryOptions
+): ResolvedLockfileEntryFiles => {
+  const byDestination = new Map<string, InstalledFileRecord>();
+  const warnings = new Set<string>();
+  for (const [bundleId, entry] of Object.entries(lock.bundles)) {
+    const resolved = resolveInstalledFilesForLockfileEntry(bundleId, entry, opts);
+    for (const warning of resolved.warnings) {
+      warnings.add(warning);
+    }
+    for (const file of resolved.files) {
+      if (!byDestination.has(file.destinationPath)) {
+        byDestination.set(file.destinationPath, file);
+      }
+    }
+  }
+  return { files: [...byDestination.values()], warnings: [...warnings] };
+};
+
+const normalizeLockfilePath = (filePath: string): string => filePath.replaceAll('\\', '/');
+
+const assertSafeLockfilePath = (filePath: string): void => {
+  const segments = filePath.split('/');
+  if (filePath.length === 0 || path.isAbsolute(filePath)
+    || segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+    throw new Error(`unsafe lockfile path "${filePath}"`);
+  }
+};
+
+const resolveRepositoryLockfilePathCompatibility = (filePath: string): { path: string; legacy: boolean } => {
+  const normalized = normalizeLockfilePath(filePath);
+  if (normalized.startsWith('.github/')) {
+    return { path: normalized, legacy: false };
+  }
+  if (LEGACY_REPOSITORY_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return { path: `.github/${normalized}`, legacy: true };
+  }
+  return { path: normalized, legacy: false };
+};
+
+/**
+ * Best-effort kind recovery for lockfile entries that predate `files[].kind`
+ * (released CLI 0.1.0 and the shipped extension's earlier writes).
+ *
+ * This is a heuristic and is knowingly wrong when a layout override renames a
+ * route, which is exactly why `kind` is now persisted. Every entry written by
+ * current code carries its kind, so this only ever runs against historical
+ * lockfiles; file removal itself always uses the exact destination path, so a
+ * mis-inferred kind can only weaken skill-directory pruning, never delete the
+ * wrong file.
+ * @param destinationRelativePath - Destination-relative path from the lockfile.
+ * @returns The inferred primitive kind, defaulting to `prompt`.
+ */
+const inferInstalledKind = (destinationRelativePath: string): PrimitiveKind => {
+  const normalized = stripRepositoryPrefix(destinationRelativePath);
+  if (normalized.startsWith('skills/')) {
+    return 'skill';
+  }
+  if (normalized.startsWith('agents/')) {
+    return 'agent';
+  }
+  if (normalized.startsWith('instructions/')) {
+    return 'instruction';
+  }
+  if (normalized.startsWith('hooks/')) {
+    return 'hook';
+  }
+  if (normalized.startsWith('plugins/')) {
+    return 'plugin';
+  }
+  return 'prompt';
+};
+
+/**
+ * Best-effort item-id recovery for lockfile entries that predate `files[].itemId`.
+ * Same caveats as `inferInstalledKind`.
+ * @param destinationRelativePath - Destination-relative path from the lockfile.
+ * @param index - Entry index, used only to synthesize a unique fallback id.
+ * @returns The inferred owning item id.
+ */
+const inferInstalledItemId = (destinationRelativePath: string, index: number): string => {
+  const normalized = stripRepositoryPrefix(destinationRelativePath);
+  if (normalized.startsWith('skills/') || normalized.startsWith('plugins/')) {
+    return normalized.split('/')[1] ?? `file-${index}`;
+  }
+  return path.basename(normalized, path.extname(normalized));
+};
+
+const stripRepositoryPrefix = (destinationRelativePath: string): string =>
+  destinationRelativePath.startsWith('.github/')
+    ? destinationRelativePath.slice('.github/'.length)
+    : destinationRelativePath;
 
 /**
  * Find a project-scope lockfile by walking up from `startDir`, then

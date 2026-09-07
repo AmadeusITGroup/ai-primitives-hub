@@ -23,7 +23,6 @@ import {
 } from 'vitest';
 import {
   createGovernedReleaseArchive,
-  createLegacyReleaseArchive,
 } from '../../../core/test/fixtures/release-archives';
 import {
   InstallPipeline,
@@ -53,7 +52,10 @@ const okExtractor: BundleExtractor = {
   ])
 };
 const okWriter: TargetWriter = {
-  write: async () => ({ written: ['/out/deployment-manifest.yml'], skipped: [] }),
+  write: async (plan) => ({ installed: plan.operations.map((operation) => ({
+    ...operation,
+    installedChecksum: operation.sourceChecksum
+  })) }),
   remove: async () => {}
 };
 
@@ -70,7 +72,9 @@ describe('InstallPipeline', () => {
 
     expect(outcome.manifest.id).toBe('my-bundle');
     expect(outcome.sha256).toBe('abc123');
-    expect(outcome.write.written).toContain('/out/deployment-manifest.yml');
+    expect(outcome.bundlePlan.items).toHaveLength(0);
+    expect(outcome.targetPlan.operations).toEqual([]);
+    expect(outcome.write.installed).toEqual([]);
   });
 
   it('emits events for every stage in order', async () => {
@@ -92,6 +96,30 @@ describe('InstallPipeline', () => {
       'validate.start', 'validate.done',
       'write.start', 'write.done'
     ]);
+  });
+
+  it('emits a structured warning for identity-only legacy kind inference', async () => {
+    const events: PipelineEvent[] = [];
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: {
+        extract: async (): Promise<ExtractedFiles> => new Map([
+          ['deployment-manifest.yml', new TextEncoder().encode(MANIFEST_YAML)],
+          ['agents/reviewer.agent.md', new TextEncoder().encode('# Reviewer\n')]
+        ])
+      },
+      writerFactory: () => okWriter,
+      onEvent: (event) => events.push(event)
+    });
+
+    await pipeline.run({ bundleId: 'my-bundle' }, TARGET);
+
+    expect(events).toContainEqual({
+      kind: 'warning',
+      code: 'BUNDLE.LEGACY_KIND_INFERENCE',
+      paths: ['agents/reviewer.agent.md']
+    });
   });
 
   it('throws BUNDLE.NOT_FOUND when the resolver returns null', async () => {
@@ -202,55 +230,28 @@ describe('InstallPipeline', () => {
     expect(calledWith).toBe(TARGET);
   });
 
-  it('passes only declared installable content to the target writer for a governed release', async () => {
-    let writerFiles: string[] = [];
+  it('returns shared semantic plans and installed records for a governed release', async () => {
     const pipeline = new InstallPipeline({
       resolver: okResolver,
       downloader: okDownloader,
       extractor: { extract: async () => createGovernedReleaseArchive({ id: 'my-bundle' }) },
       writerFactory: () => ({
-        preflight: async (_target, files) => ({ writable: [...files.keys()], skipped: [] }),
-        write: async (_target, files) => {
-          writerFiles = [...files.keys()];
-          return {
-            written: ['/out/prompts/hello.prompt.md'],
-            skipped: [],
-            writtenBundlePaths: ['prompts/hello.prompt.md']
-          };
-        },
+        write: async (writePlan) => ({
+          installed: writePlan.operations.map((operation) => ({
+            ...operation,
+            installedChecksum: operation.sourceChecksum
+          }))
+        }),
         remove: async () => {}
       })
     });
 
-    await pipeline.run({ bundleId: 'my-bundle' }, TARGET);
+    const outcome = await pipeline.run({ bundleId: 'my-bundle' }, TARGET);
 
-    expect(writerFiles).toEqual([
-      'deployment-manifest.yml',
-      'prompts/hello.prompt.md'
-    ]);
-  });
-
-  it('passes the complete extracted map to legacy writers unchanged', async () => {
-    const legacyFiles = createLegacyReleaseArchive({ id: 'my-bundle' });
-    let writerInput: ExtractedFiles | undefined;
-    const pipeline = new InstallPipeline({
-      resolver: okResolver,
-      downloader: okDownloader,
-      extractor: { extract: async () => legacyFiles },
-      writerFactory: () => ({
-        preflight: async () => ({ writable: [...legacyFiles.keys()], skipped: [] }),
-        write: async (_target, files) => {
-          writerInput = files;
-          return { written: [...files.keys()], skipped: [] };
-        },
-        remove: async () => {}
-      })
-    });
-
-    await pipeline.run({ bundleId: 'my-bundle' }, TARGET);
-
-    expect(writerInput).toBe(legacyFiles);
-    expect([...writerInput!.keys()]).toEqual([...legacyFiles.keys()]);
+    expect(outcome.bundlePlan.items).toHaveLength(1);
+    expect(outcome.targetPlan.operations).toHaveLength(1);
+    expect(outcome.write.installed).toHaveLength(1);
+    expect(outcome.write.installed[0].destinationRelativePath).toBe('prompts/hello.prompt.md');
   });
 
   it('does not construct or invoke a writer when governed validation fails', async () => {

@@ -25,6 +25,17 @@ View logs: `View → Output → AI Primitives Hub`
 - **Invalid Bundle**: Verify bundle has valid manifest
 - Check logs for `[ERROR]` messages
 
+For content compatibility failures, look for `BUNDLE.UNSUPPORTED_CONTENT`.
+The diagnostic identifies the target name, manifest item ID, declared kind, and
+manifest source path. This means a bundle can be corrected from its manifest
+without repackaging it to match a hardcoded `prompts/`, `agents/`, or `skills/`
+archive prefix. Run the CLI with `--verbose` to see validation, planning, and
+write-stage summaries without printing bundle tokens or file contents.
+
+Older identity-only manifests may emit `BUNDLE.LEGACY_KIND_INFERENCE`. The
+bundle remains installable, but publishers should add explicit item kinds and
+paths to remove the deprecated fallback.
+
 ### Authentication Fails (404/401)
 
 1. Check VS Code GitHub auth (bottom-left avatar)

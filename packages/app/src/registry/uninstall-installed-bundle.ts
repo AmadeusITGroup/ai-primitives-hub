@@ -18,6 +18,7 @@
 import type {
   InstallationScope,
   InstalledBundle,
+  InstalledFileRecord,
   LogEvent,
   OnLogEvent,
   RegistrySource,
@@ -34,8 +35,9 @@ export interface UninstallInstalledBundlePorts {
   getInstalledBundle(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined>;
   getRepositoryInstalledBundles(): Promise<InstalledBundle[]>;
   listSources(): Promise<RegistrySource[]>;
-  uninstall(installed: InstalledBundle): Promise<void>;
+  uninstall(installed: InstalledBundle): Promise<readonly InstalledFileRecord[] | void>;
   uninstallSkillSymlink(installed: InstalledBundle): Promise<void>;
+  recordInstallation(installed: InstalledBundle): Promise<void>;
   removeInstallation(bundleId: string, scope: InstallationScope): Promise<void>;
 }
 
@@ -77,15 +79,16 @@ export async function uninstallInstalledBundle(
     source = sources.find((s) => s.id === installed.sourceId);
   }
 
+  let retainedFiles: readonly InstalledFileRecord[] = [];
   if (installed.sourceType === 'local-skills' || source?.type === 'local-skills') {
     log('debug', `Uninstalling local skill symlink: ${bundleId}`);
     await ports.uninstallSkillSymlink(installed);
   } else {
-    await ports.uninstall(installed);
+    retainedFiles = await ports.uninstall(installed) ?? [];
   }
 
   if (scope !== 'repository') {
-    await ports.removeInstallation(installed.bundleId, scope);
+    await (retainedFiles.length > 0 ? ports.recordInstallation({ ...installed, installedFiles: retainedFiles }) : ports.removeInstallation(installed.bundleId, scope));
   }
 
   log('info', `Bundle '${installed.bundleId}' uninstalled successfully`);

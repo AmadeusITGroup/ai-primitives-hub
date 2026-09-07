@@ -42,7 +42,10 @@ describe('installBundle', () => {
       ])
     };
     const writer: TargetWriter = {
-      write: async () => ({ written: ['/out/deployment-manifest.yml'], skipped: [] }),
+      write: async (plan) => ({ installed: plan.operations.map((operation) => ({
+        ...operation,
+        installedChecksum: operation.sourceChecksum
+      })) }),
       remove: async () => {}
     };
 
@@ -52,14 +55,14 @@ describe('installBundle', () => {
     );
 
     expect(outcome.manifest.id).toBe('my-bundle');
-    expect(outcome.write.written).toContain('/out/deployment-manifest.yml');
+    expect(outcome.write.installed).toHaveLength(0);
   });
 
   it('propagates pipeline errors to the caller', async () => {
     const resolver: BundleResolver = { resolve: async () => null };
     const downloader: BundleDownloader = { download: async () => ({ bytes: new Uint8Array(), sha256: 'sha' }) };
     const extractor: BundleExtractor = { extract: async (): Promise<ExtractedFiles> => new Map() };
-    const writer: TargetWriter = { write: async () => ({ written: [], skipped: [] }), remove: async () => {} };
+    const writer: TargetWriter = { write: async () => ({ installed: [] }), remove: async () => {} };
 
     await expect(installBundle(
       { spec: { bundleId: 'missing' }, target: TARGET },
@@ -75,7 +78,7 @@ describe('installBundle', () => {
         ['deployment-manifest.yml', new TextEncoder().encode('id: my-bundle\nversion: 1.0.0\nname: My Bundle\n')]
       ])
     };
-    const writer: TargetWriter = { write: async () => ({ written: [], skipped: [] }), remove: async () => {} };
+    const writer: TargetWriter = { write: async () => ({ installed: [] }), remove: async () => {} };
     const seenKinds: string[] = [];
 
     await installBundle(

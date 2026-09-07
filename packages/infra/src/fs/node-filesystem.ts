@@ -12,10 +12,13 @@
  */
 import {
   access,
+  lstat,
   mkdir,
   readdir,
   readFile,
+  realpath,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from 'node:fs/promises';
@@ -60,6 +63,22 @@ export class NodeFileSystem implements FileSystem {
     }
   }
 
+  public async realpath(path: string): Promise<string> {
+    return await realpath(path);
+  }
+
+  public async lstat(path: string): Promise<{ isSymbolicLink: boolean } | null> {
+    try {
+      const stats = await lstat(path);
+      return { isSymbolicLink: stats.isSymbolicLink() };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   public async mkdir(path: string, opts?: { recursive?: boolean }): Promise<void> {
     await mkdir(path, { recursive: opts?.recursive ?? false });
   }
@@ -85,5 +104,9 @@ export class NodeFileSystem implements FileSystem {
 
   public async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {
     await rm(path, { recursive: opts?.recursive ?? false, force: true });
+  }
+
+  public async removeEmptyDirectory(path: string): Promise<void> {
+    await rmdir(path);
   }
 }

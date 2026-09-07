@@ -45,7 +45,7 @@ describe('BuiltInOnlyLayoutConfigLoader', () => {
     const loader = new BuiltInOnlyLayoutConfigLoader();
     const [builtIn] = await loader.load();
     expect(builtIn.layouts).toHaveProperty('vscode');
-    expect(builtIn.layouts.vscode.user.kindRoutes['prompts/']).toBe('prompts/');
+    expect(builtIn.layouts.vscode.user.kindRoutes.prompt).toBe('prompts/');
   });
 
   it('built-in layer contains all standard target types', async () => {
@@ -62,7 +62,7 @@ describe('BuiltInOnlyLayoutConfigLoader', () => {
     const repo = builtIn.layouts.kiro.repository;
     // The folder lives in baseDir; routes are relative (mirrors user scope).
     expect(repo?.baseDir).toBe('${workspaceRoot}/.kiro');
-    expect(repo?.kindRoutes['prompts/']).toBe('steering/');
+    expect(repo?.kindRoutes.prompt).toBe('steering/');
   });
 });
 
@@ -109,6 +109,32 @@ layouts:
     const layers = await loader.load();
     expect(layers).toHaveLength(2);
     expect(layers[1].layouts.vscode.user.baseDir).toBe('/custom/user/vscode');
+  });
+
+  it('normalizes legacy route keys to canonical kinds at the configuration boundary', async () => {
+    const userFile = `/home/user/.config/ai-primitives-hub/${LAYOUTS_CONFIG_FILE}`;
+    const loader = new FileSystemLayoutConfigLoader({
+      cwd: '/project',
+      fs: makeFs({
+        [userFile]: `
+layouts:
+  vscode:
+    user:
+      baseDir: "/custom/user/vscode"
+      kindRoutes:
+        "prompts/": "custom-prompts/"
+        "agents/": "custom-agents/"
+`
+      }),
+      userConfigDir: '/home/user/.config/ai-primitives-hub'
+    });
+
+    const layers = await loader.load();
+
+    expect(layers[1].layouts.vscode.user.kindRoutes).toEqual({
+      prompt: 'custom-prompts/',
+      agent: 'custom-agents/'
+    });
   });
 
   it('loads project config as third layer', async () => {

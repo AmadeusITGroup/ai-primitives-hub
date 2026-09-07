@@ -10,10 +10,12 @@ import {
   mkdtemp,
   readFile,
   rm,
+  writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
+  FileSystem,
   HttpClient,
   HttpRequest,
   HttpResponse,
@@ -70,6 +72,20 @@ describe('install command (local --from mode)', () => {
     context: {
       cwd: workspace,
       fs: new NodeFileSystem(),
+      env: {
+        HOME: workspace,
+        USERPROFILE: workspace,
+        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+      }
+    }
+  });
+
+  const runWithFileSystem = (argv: string[], fs: FileSystem): ReturnType<typeof runCommand> => runCommand(argv, {
+    commandClasses: COMMAND_CLASSES,
+    context: {
+      cwd: workspace,
+      fs,
       env: {
         HOME: workspace,
         USERPROFILE: workspace,
@@ -158,6 +174,45 @@ describe('install command (local --from mode)', () => {
     expect(lockContent).toContain('local-foo');
   });
 
+  it('rolls back target files when lockfile persistence fails', async () => {
+    class LockfileFailingFileSystem extends NodeFileSystem {
+      public override async writeFile(filePath: string, contents: string): Promise<void> {
+        if (path.basename(filePath) === 'ai-primitives-hub.lock.json') {
+          throw new Error('lockfile write failed');
+        }
+        await super.writeFile(filePath, contents);
+      }
+    }
+
+    const result = await runWithFileSystem([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ], new LockfileFailingFileSystem());
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('lockfile write failed');
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
+  it('uses project layout route overrides when planning destinations', async () => {
+    await writeFile(path.join(workspace, 'ai-primitives-hub-layouts.yml'), `
+layouts:
+  copilot-cli:
+    user:
+      baseDir: "${targetDir}"
+      kindRoutes:
+        prompt: custom-prompts/
+`);
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(path.join(targetDir, 'custom-prompts', 'hello.prompt.md'), 'utf8'))
+      .resolves.toContain('Hello Prompt');
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
   it('does not write or lock governed archive metadata', async () => {
     await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo' }));
 
@@ -195,6 +250,21 @@ describe('install command (local --from mode)', () => {
     ]);
   });
 
+  it('warns when an identity-only manifest requires legacy kind inference', async () => {
+    await writeReleaseArchive(bundleDir, new Map([
+      ['deployment-manifest.yml', 'id: local-foo\nversion: 1.0.0\nname: Local Foo\n'],
+      ['agents/reviewer.agent.md', '# Reviewer\n']
+    ]));
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain('BUNDLE.LEGACY_KIND_INFERENCE');
+    expect(result.stderr).toContain('agents/reviewer.agent.md');
+  });
+
   it('replays a governed archive from its lockfile without restoring metadata evidence', async () => {
     await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo' }));
     const firstInstall = await run([
@@ -217,6 +287,44 @@ describe('install command (local --from mode)', () => {
     await expect(readFile(path.join(targetDir, 'README.md'), 'utf8')).rejects.toThrow();
   });
 
+  it('lockfile dry-run plans replay without writing target files', async () => {
+    const firstInstall = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+    const lockfile = parseJson<{ lockfile: string }>(firstInstall.stdout).data.lockfile;
+    const installedPath = path.join(targetDir, 'prompts', 'hello.prompt.md');
+    await rm(installedPath);
+
+    const replay = await run([
+      'install', '--lockfile', lockfile, '--target', 'copilot', '--dry-run', '-o', 'json'
+    ]);
+
+    expect(replay.exitCode).toBe(0);
+    expect(parseJson<{ dryRun: boolean }>(replay.stdout).data.dryRun).toBe(true);
+    await expect(readFile(installedPath, 'utf8')).rejects.toThrow();
+  });
+
+  it('lockfile replay restores exact local-only repository exclusions', async () => {
+    const firstInstall = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot',
+      '--scope', 'repository', '--commit-mode', 'local-only', '-o', 'json'
+    ]);
+    const lockfile = parseJson<{ lockfile: string }>(firstInstall.stdout).data.lockfile;
+    const installedPath = path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
+    const excludePath = path.join(workspace, '.git', 'info', 'exclude');
+    await rm(installedPath);
+    await rm(excludePath);
+
+    const replay = await run([
+      'install', '--lockfile', lockfile, '--target', 'copilot',
+      '--scope', 'repository', '--commit-mode', 'local-only', '-o', 'json'
+    ]);
+
+    expect(replay.exitCode).toBe(0);
+    await expect(readFile(installedPath, 'utf8')).resolves.toContain('Hello Prompt');
+    await expect(readFile(excludePath, 'utf8')).resolves.toContain('.github/prompts/hello.prompt.md');
+  });
+
   it('dry-run: reports the plan but writes nothing', async () => {
     const result = await run([
       'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '--dry-run', '-o', 'json'
@@ -226,6 +334,21 @@ describe('install command (local --from mode)', () => {
     expect(envelope.data.dryRun).toBe(true);
     expect(envelope.data.bundle.id).toBe('local-foo');
 
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
+  it('dry-run rejects content unsupported by the target', async () => {
+    expect((await run([
+      'target', 'add', 'skills-only', '--type', 'copilot-cli', '--path', targetDir,
+      '--allowed-kinds', 'skill', '-o', 'json'
+    ])).exitCode).toBe(0);
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'skills-only', '--dry-run', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('BUNDLE.UNSUPPORTED_CONTENT');
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
   });
 
@@ -280,8 +403,10 @@ describe('install command (local --from mode)', () => {
     const envelope = parseJson<{ lockfile: string }>(result.stdout);
     expect(envelope.data.lockfile).toBe(path.join(workspace, 'prompt-registry.local.lock.json'));
     await expect(
-      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
+      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello Prompt');
+    await expect(readFile(path.join(workspace, '.git', 'info', 'exclude'), 'utf8'))
+      .resolves.toContain('.github/prompts/hello.prompt.md');
   });
 
   it('uses the effective user scope when it overrides a repository target', async () => {
@@ -300,9 +425,6 @@ describe('install command (local --from mode)', () => {
     await expect(
       readFile(path.join(workspace, '.copilot', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello Prompt');
-    await expect(
-      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
-    ).rejects.toThrow();
   });
 
   it('uses the repository-scope writer for remote installs', async () => {
@@ -375,11 +497,8 @@ describe('install command (local --from mode)', () => {
 
     expect(result).toBe(0);
     await expect(
-      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
-    ).resolves.toContain('Hello from a remote bundle');
-    await expect(
       readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
-    ).rejects.toThrow();
+    ).resolves.toContain('Hello from a remote bundle');
   });
 
   it('installs a governed remote archive without writing its metadata evidence', async () => {
@@ -444,7 +563,7 @@ describe('install command (local --from mode)', () => {
 
     expect(result).toBe(0);
     await expect(
-      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
+      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello Prompt');
     await expect(readFile(path.join(workspace, '.github', 'README.md'), 'utf8')).rejects.toThrow();
     await expect(readFile(path.join(workspace, '.github', 'LICENSE'), 'utf8')).rejects.toThrow();
@@ -531,7 +650,7 @@ describe('install command (local --from mode)', () => {
 
     expect(result).toBe(0);
     await expect(
-      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
+      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('preflighted bundle');
   });
 });

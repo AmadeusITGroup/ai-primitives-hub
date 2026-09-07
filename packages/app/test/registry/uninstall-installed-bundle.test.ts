@@ -59,12 +59,42 @@ function makePorts(overrides: Partial<UninstallInstalledBundlePorts> = {}): Unin
     listSources: async () => [],
     uninstall: async () => {},
     uninstallSkillSymlink: async () => {},
+    recordInstallation: async () => {},
     removeInstallation: async () => {},
     ...overrides
   };
 }
 
 describe('uninstallInstalledBundle', () => {
+  it('retains user installation metadata for files preserved during uninstall', async () => {
+    const retainedFile = {
+      itemId: 'modified',
+      kind: 'prompt' as const,
+      sourcePath: 'modified.prompt.md',
+      destinationPath: '/home/user/.copilot/prompts/modified.prompt.md',
+      destinationRelativePath: 'prompts/modified.prompt.md',
+      installedChecksum: 'sha256:original'
+    };
+    const installed = makeInstalled({ installedFiles: [retainedFile] });
+    let recorded: InstalledBundle | undefined;
+    let removed = false;
+    const ports = makePorts({
+      getInstalledBundle: async () => installed,
+      uninstall: async () => [retainedFile],
+      recordInstallation: async (bundle) => {
+        recorded = bundle;
+      },
+      removeInstallation: async () => {
+        removed = true;
+      }
+    });
+
+    await uninstallInstalledBundle('bundle-1', 'user', ports);
+
+    expect(recorded?.installedFiles).toEqual([retainedFile]);
+    expect(removed).toBe(false);
+  });
+
   it('user/workspace scope locates the installed bundle via the storage port', async () => {
     const installed = makeInstalled({ scope: 'user' });
     let receivedArgs: [string, string] | undefined;

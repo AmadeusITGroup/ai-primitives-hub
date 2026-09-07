@@ -23,6 +23,12 @@ import {
   ScaffoldType,
 } from '../../src/commands/scaffold-command';
 import {
+  ScopeServiceFactory,
+} from '../../src/services/scope-service-factory';
+import {
+  UserScopeService,
+} from '../../src/services/user-scope-service';
+import {
   RegistrySource,
 } from '../../src/types/registry';
 import {
@@ -291,6 +297,9 @@ This is an example prompt for testing.
       const source = createMockSourceWithSkills(sourceId);
       const skillName = 'test-skill';
       const skillPath = `skills/${skillName}/SKILL.md`;
+      sandbox.stub(ScopeServiceFactory, 'create').returns(
+        new UserScopeService(testContext.mockContext, testContext.tempStoragePath)
+      );
 
       // Setup mocks for source with skill
       nock('https://api.github.com')

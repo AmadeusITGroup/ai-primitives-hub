@@ -57,7 +57,7 @@ describe('resolveLayoutFromLayers', () => {
     const result = resolveLayoutFromLayers(target, [cfg]);
     expect(result).not.toBeNull();
     expect(result!.baseDir).toBe('${HOME}/.config/Code/User');
-    expect(result!.kindRoutes['prompts/']).toBe('prompts/');
+    expect(result!.routes.prompt).toBe('prompts/');
   });
 
   it('resolves repository scope using repository def', () => {
@@ -68,7 +68,7 @@ describe('resolveLayoutFromLayers', () => {
     const result = resolveLayoutFromLayers(target, [cfg]);
     expect(result).not.toBeNull();
     expect(result!.baseDir).toBe('/ws');
-    expect(result!.kindRoutes['prompts/']).toBe('.tool/prompts/');
+    expect(result!.routes.prompt).toBe('.tool/prompts/');
   });
 
   it('falls back to user scope when no repository def exists', () => {
@@ -79,7 +79,7 @@ describe('resolveLayoutFromLayers', () => {
     const result = resolveLayoutFromLayers(target, [cfg]);
     expect(result).not.toBeNull();
     expect(result!.baseDir).toBe('${HOME}/.vscode'); // user baseDir, not workspaceRoot
-    expect(result!.kindRoutes['prompts/']).toBe('prompts/');
+    expect(result!.routes.prompt).toBe('prompts/');
   });
 
   it('treats workspace scope like user scope (no reference-branch equivalent)', () => {
@@ -90,7 +90,7 @@ describe('resolveLayoutFromLayers', () => {
     const result = resolveLayoutFromLayers(target, [cfg]);
     expect(result).not.toBeNull();
     expect(result!.baseDir).toBe('${HOME}/.vscode');
-    expect(result!.kindRoutes['prompts/']).toBe('prompts/');
+    expect(result!.routes.prompt).toBe('prompts/');
   });
 
   it('deep-merges kindRoutes across layers', () => {
@@ -118,8 +118,8 @@ describe('resolveLayoutFromLayers', () => {
     const result = resolveLayoutFromLayers(target, [base, override]);
     expect(result).not.toBeNull();
     expect(result!.baseDir).toBe('${HOME}/override');
-    expect(result!.kindRoutes['prompts/']).toBe('prompts/'); // preserved from base
-    expect(result!.kindRoutes['skills/']).toBe('custom-skills/'); // overridden
+    expect(result!.routes.prompt).toBe('prompts/'); // preserved from base
+    expect(result!.routes.skill).toBe('custom-skills/'); // overridden
   });
 
   it('later layer baseDir replaces earlier layer', () => {

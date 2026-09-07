@@ -158,6 +158,34 @@
           "type": "string",
           "description": "SHA256 checksum of the file contents",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Primitive kind this file was installed as. Persisted so uninstall and update never re-derive a kind from the destination path, which is wrong whenever a layout override renames a route. Absent only in lockfiles written before this field existed.",
+          "enum": [
+            "prompt",
+            "instruction",
+            "chat-mode",
+            "agent",
+            "skill",
+            "plugin",
+            "hook",
+            "mcp-server",
+            "steering",
+            "spec",
+            "command",
+            "rule",
+            "output-style",
+            "tool",
+            "power",
+            "knowledge",
+            "playbook"
+          ]
+        },
+        "itemId": {
+          "type": "string",
+          "description": "Id of the manifest item that owns this file. Persisted for skill-directory pruning, which keys on the owning item id. Absent only in lockfiles written before this field existed.",
+          "minLength": 1
         }
       },
       "additionalProperties": false

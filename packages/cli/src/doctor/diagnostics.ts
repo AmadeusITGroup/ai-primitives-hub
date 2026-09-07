@@ -1131,7 +1131,7 @@ export const runDiagnostics = async (
     ], { bundleSubDir: fixtures.governedBundleSubDir });
     await runVerificationStep('verify-governed-install', async () => {
       const targetInstallablePaths = [
-        'prompts/governed.prompt.md',
+        'prompts/governed-prompt.prompt.md',
         'skills/governed-skill/SKILL.md'
       ];
       const targetInstallable = await Promise.all(targetInstallablePaths.map(async (relativePath) => ({
@@ -1175,7 +1175,7 @@ export const runDiagnostics = async (
     ]);
     await runVerificationStep('verify-governed-removed', async () => {
       const pathsToCheck = [
-        'prompts/governed.prompt.md',
+        'prompts/governed-prompt.prompt.md',
         'skills/governed-skill/SKILL.md'
       ];
       const removed = await Promise.all(pathsToCheck.map(async (relativePath) => ({

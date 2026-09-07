@@ -11,15 +11,26 @@
  * approach in install.test.ts/uninstall.test.ts.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   access,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type {
+  FileSystem,
+  HttpClient,
+  HttpRequest,
+  HttpResponse,
+} from '@ai-primitives-hub/core';
 import {
+  buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
@@ -49,6 +60,8 @@ import {
   UpdateCommand,
 } from '../../src/commands/update';
 import {
+  createTestContext,
+  runCli,
   runCommand,
 } from '../../src/framework';
 
@@ -84,6 +97,30 @@ describe('doctor/status/init/update commands', () => {
       }
     }
   });
+
+  const runUpdateWith = async (argv: string[], fs: FileSystem, http: HttpClient) => {
+    const ctx = createTestContext({
+      cwd: workspace,
+      fs,
+      env: {
+        HOME: workspace,
+        USERPROFILE: workspace,
+        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+        AI_PRIMITIVES_HUB_SKIP_NETWORK: '1'
+      }
+    });
+    const exitCode = await runCli(argv, {
+      ctx,
+      commandClasses: COMMAND_CLASSES,
+      commands: [],
+      name: 'ai-primitives-hub',
+      version: '0.0.0-test',
+      http,
+      tokens: { getToken: async () => '' }
+    });
+    return { exitCode, stdout: ctx.stdout.captured(), stderr: ctx.stderr.captured() };
+  };
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -379,6 +416,82 @@ profiles: []
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{ dryRun: boolean; updated: number }>(result.stdout);
       expect(envelope.data).toMatchObject({ dryRun: true, updated: 0 });
+    });
+
+    it('fails and restores target bytes when the lockfile disappears during update', async () => {
+      const targetDir = path.join(workspace, 'target');
+      const installedPath = path.join(targetDir, 'prompts', 'hello.prompt.md');
+      const lockPath = path.join(workspace, 'update.lock.json');
+      await mkdir(path.dirname(installedPath), { recursive: true });
+      await writeFile(installedPath, '# Version 1\n');
+      const checksum = `sha256:${createHash('sha256').update('# Version 1\n').digest('hex')}`;
+      await writeFile(lockPath, JSON.stringify({
+        version: '2.0.0',
+        generatedAt: '2026-01-01T00:00:00.000Z',
+        generatedBy: 'test',
+        bundles: {
+          'remote-foo': {
+            version: '1.0.0',
+            sourceId: 'github-source',
+            sourceType: 'github',
+            installedAt: '2026-01-01T00:00:00.000Z',
+            files: [{ path: 'prompts/hello.prompt.md', checksum }]
+          }
+        },
+        sources: {
+          'github-source': { type: 'github', url: 'https://github.com/owner/repo' }
+        }
+      }));
+      await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json']);
+
+      const archive = buildZip([
+        {
+          path: 'deployment-manifest.yml',
+          bytes: new TextEncoder().encode(
+            'id: remote-foo\nversion: 2.0.0\nname: Remote Foo\nitems:\n'
+            + '  - path: prompts/hello.prompt.md\n    kind: prompt\n'
+          )
+        },
+        { path: 'prompts/hello.prompt.md', bytes: new TextEncoder().encode('# Version 2\n') }
+      ]);
+      const http: HttpClient = {
+        fetch: async (request: HttpRequest): Promise<HttpResponse> => {
+          if (request.url === 'https://api.github.com/repos/owner/repo/releases') {
+            return {
+              statusCode: 200,
+              body: new TextEncoder().encode(JSON.stringify([{
+                tag_name: 'remote-foo-v2.0.0',
+                assets: [{ name: 'bundle.zip', url: 'https://api.github.com/assets/remote-foo-v2' }]
+              }])),
+              finalUrl: request.url,
+              headers: {}
+            };
+          }
+          if (request.url === 'https://api.github.com/assets/remote-foo-v2') {
+            return { statusCode: 200, body: archive, finalUrl: request.url, headers: {} };
+          }
+          throw new Error(`Unexpected request: ${request.url}`);
+        }
+      };
+      class DisappearingLockfileSystem extends NodeFileSystem {
+        private lockfileChecks = 0;
+
+        public override async exists(filePath: string): Promise<boolean> {
+          if (filePath === lockPath && ++this.lockfileChecks === 3) {
+            return false;
+          }
+          return await super.exists(filePath);
+        }
+      }
+
+      const result = await runUpdateWith([
+        'update', '--lockfile', lockPath, '--target', 'copilot', '--no-hub-sync', '-o', 'json'
+      ], new DisappearingLockfileSystem(), http);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Lockfile disappeared during update');
+      await expect(readFile(installedPath, 'utf8')).resolves.toBe('# Version 1\n');
+      await expect(readFile(lockPath, 'utf8')).resolves.toContain('"version":"1.0.0"');
     });
   });
 });

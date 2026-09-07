@@ -21,9 +21,12 @@ import {
   LOCAL_LOCKFILE_NAME,
   LOCKFILE_NAME,
   LOCKFILE_SCHEMA_VERSION,
+  lockfileFilesFromInstalledRecords,
   readLockfile,
   remapSourceId,
   removeBundleEntry,
+  resolveInstalledFilesForLockfileEntry,
+  resolveManagedFilesFromLockfile,
   upsertBundleEntry,
   upsertSource,
   writeLockfile,
@@ -152,6 +155,207 @@ describe('upsertBundleEntry / removeBundleEntry', () => {
     const next = removeBundleEntry(lock, 'my-bundle');
 
     expect(next.bundles).toEqual({});
+  });
+});
+
+describe('lockfileFilesFromInstalledRecords', () => {
+  it('persists destination-relative paths, installed checksums, kind and itemId', () => {
+    const files = lockfileFilesFromInstalledRecords([
+      {
+        itemId: 'hello',
+        kind: 'prompt',
+        sourcePath: 'prompts/source.md',
+        destinationPath: '/repo/.github/prompts/hello.prompt.md',
+        destinationRelativePath: '.github/prompts/hello.prompt.md',
+        installedChecksum: 'sha256:installed'
+      }
+    ]);
+
+    expect(files).toEqual([
+      {
+        path: '.github/prompts/hello.prompt.md',
+        checksum: 'sha256:installed',
+        kind: 'prompt',
+        itemId: 'hello'
+      }
+    ]);
+  });
+
+  it('round-trips kind and itemId through a custom-route destination', () => {
+    // The point of persisting kind: a layout override can rename the route, so
+    // no path prefix identifies the kind any more.
+    const installed = [
+      {
+        itemId: 'reviewer',
+        kind: 'skill' as const,
+        sourcePath: 'skills/reviewer/SKILL.md',
+        destinationPath: '/repo/.github/ai-skills/reviewer/SKILL.md',
+        destinationRelativePath: '.github/ai-skills/reviewer/SKILL.md',
+        installedChecksum: 'sha256:installed'
+      }
+    ];
+
+    const resolved = resolveInstalledFilesForLockfileEntry('my-bundle', {
+      version: '1.0.0',
+      sourceId: 'github-abc',
+      sourceType: 'github',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: lockfileFilesFromInstalledRecords(installed)
+    }, { repositoryPath: '/repo' });
+
+    expect(resolved.files[0]).toMatchObject({ kind: 'skill', itemId: 'reviewer' });
+  });
+
+  it('falls back to path inference for entries written before kind was persisted', () => {
+    const resolved = resolveInstalledFilesForLockfileEntry('my-bundle', {
+      version: '1.0.0',
+      sourceId: 'github-abc',
+      sourceType: 'github',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: [{ path: '.github/skills/reviewer/SKILL.md', checksum: 'sha256:abc' }]
+    }, { repositoryPath: '/repo' });
+
+    expect(resolved.files[0]).toMatchObject({ kind: 'skill', itemId: 'reviewer' });
+  });
+});
+
+describe('resolveInstalledFilesForLockfileEntry', () => {
+  it('keeps canonical destination-relative paths unchanged', () => {
+    const result = resolveInstalledFilesForLockfileEntry('my-bundle', {
+      version: '1.0.0',
+      sourceId: 'github-abc',
+      sourceType: 'github',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: [{ path: '.github/prompts/test.prompt.md', checksum: 'sha256:abc' }]
+    }, { repositoryPath: '/repo' });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.files[0]).toMatchObject({
+      destinationRelativePath: '.github/prompts/test.prompt.md',
+      destinationPath: nodePath.resolve('/repo', '.github/prompts/test.prompt.md'),
+      installedChecksum: 'sha256:abc'
+    });
+  });
+
+  it('interprets legacy repository source-prefix paths through one compatibility warning', () => {
+    const result = resolveInstalledFilesForLockfileEntry('my-bundle', {
+      version: '1.0.0',
+      sourceId: 'github-abc',
+      sourceType: 'github',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: [{ path: 'prompts/test.prompt.md', checksum: 'sha256:abc' }]
+    }, { repositoryPath: '/repo' });
+
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain('legacy repository lockfile paths');
+    expect(result.files[0]).toMatchObject({
+      destinationRelativePath: '.github/prompts/test.prompt.md',
+      destinationPath: nodePath.resolve('/repo', '.github/prompts/test.prompt.md'),
+      installedChecksum: 'sha256:abc'
+    });
+  });
+
+  it('resolves user-scope paths against baseDir', () => {
+    const result = resolveInstalledFilesForLockfileEntry('my-bundle', {
+      version: '1.0.0',
+      sourceId: 'github-abc',
+      sourceType: 'github',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: [{ path: 'prompts/test.prompt.md', checksum: 'sha256:abc' }]
+    }, { baseDir: '/user-target' });
+
+    // User scope has no `.github/` compatibility rewrite: the path is authoritative.
+    expect(result.warnings).toEqual([]);
+    expect(result.files[0]).toMatchObject({
+      destinationRelativePath: 'prompts/test.prompt.md',
+      destinationPath: nodePath.resolve('/user-target', 'prompts/test.prompt.md'),
+      installedChecksum: 'sha256:abc'
+    });
+  });
+
+  it.each([
+    ['repository traversal', '../../outside.md', { repositoryPath: '/repo' }],
+    ['repository absolute path', '/outside.md', { repositoryPath: '/repo' }],
+    ['user traversal', '../outside.md', { baseDir: '/user-target' }],
+    ['user absolute path', '/outside.md', { baseDir: '/user-target' }]
+  ])('rejects unsafe %s lockfile paths', (_label, filePath, options) => {
+    expect(() => resolveInstalledFilesForLockfileEntry('unsafe-bundle', {
+      version: '1.0.0',
+      sourceId: 'github-abc',
+      sourceType: 'github',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: [{ path: filePath, checksum: 'sha256:abc' }]
+    }, options)).toThrow(/unsafe lockfile path/);
+  });
+});
+
+describe('resolveManagedFilesFromLockfile', () => {
+  const entry = (files: { path: string; checksum: string }[]) => ({
+    version: '1.0.0',
+    sourceId: 'github-abc',
+    sourceType: 'github',
+    installedAt: '2024-01-01T00:00:00.000Z',
+    files
+  });
+
+  it('spans every bundle so a destination owned by another bundle stays managed', () => {
+    // Regression: scoping the writer's managed set to the bundle being installed
+    // made a second bundle sharing a destination fail the unmanaged-overwrite guard.
+    let lock = emptyLockfile('cli@1.0.0');
+    lock = upsertBundleEntry(lock, 'bundle-a', entry([
+      { path: '.github/prompts/shared.prompt.md', checksum: 'sha256:aaa' }
+    ]));
+    lock = upsertBundleEntry(lock, 'bundle-b', entry([
+      { path: '.github/agents/only-b.agent.md', checksum: 'sha256:bbb' }
+    ]));
+
+    const result = resolveManagedFilesFromLockfile(lock, { repositoryPath: '/repo' });
+
+    expect(result.files.map((file) => file.destinationRelativePath).toSorted()).toEqual([
+      '.github/agents/only-b.agent.md',
+      '.github/prompts/shared.prompt.md'
+    ]);
+  });
+
+  it('deduplicates a destination claimed by more than one bundle', () => {
+    let lock = emptyLockfile('cli@1.0.0');
+    lock = upsertBundleEntry(lock, 'bundle-a', entry([
+      { path: '.github/prompts/shared.prompt.md', checksum: 'sha256:aaa' }
+    ]));
+    lock = upsertBundleEntry(lock, 'bundle-b', entry([
+      { path: '.github/prompts/shared.prompt.md', checksum: 'sha256:aaa' }
+    ]));
+
+    const result = resolveManagedFilesFromLockfile(lock, { repositoryPath: '/repo' });
+
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0].destinationPath).toBe(nodePath.resolve('/repo', '.github/prompts/shared.prompt.md'));
+  });
+
+  it('returns an empty set for a lockfile with no bundles', () => {
+    const result = resolveManagedFilesFromLockfile(emptyLockfile('cli@1.0.0'), { repositoryPath: '/repo' });
+
+    expect(result).toEqual({ files: [], warnings: [] });
+  });
+
+  it('deduplicates the legacy-path compatibility warning across bundles', () => {
+    let lock = emptyLockfile('cli@1.0.0');
+    lock = upsertBundleEntry(lock, 'bundle-a', entry([
+      { path: 'prompts/a.prompt.md', checksum: 'sha256:aaa' }
+    ]));
+    lock = upsertBundleEntry(lock, 'bundle-b', entry([
+      { path: 'prompts/b.prompt.md', checksum: 'sha256:bbb' }
+    ]));
+
+    const result = resolveManagedFilesFromLockfile(lock, { repositoryPath: '/repo' });
+
+    // One warning per bundle, each naming its own bundle id — no duplicates.
+    expect(result.warnings).toHaveLength(2);
+    expect(new Set(result.warnings).size).toBe(2);
+    expect(result.files.map((file) => file.destinationRelativePath).toSorted()).toEqual([
+      '.github/prompts/a.prompt.md',
+      '.github/prompts/b.prompt.md'
+    ]);
   });
 });
 

@@ -1391,6 +1391,7 @@ export class RegistryManager {
         // only ever flows from `RegistryStorage`/`LockfileManager` above.
         uninstall: (installedBundle) => this.installer.uninstall(installedBundle as InstalledBundle),
         uninstallSkillSymlink: (installedBundle) => this.installer.uninstallSkillSymlink(installedBundle as InstalledBundle),
+        recordInstallation: (installedBundle) => this.storage.recordInstallation(installedBundle as InstalledBundle),
         removeInstallation: (id, s) => this.storage.removeInstallation(id, s)
       },
       (event) => this.forwardLogEvent(event)

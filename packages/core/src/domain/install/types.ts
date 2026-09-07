@@ -8,6 +8,9 @@
  * @module domain/install/types
  */
 import type {
+  InstalledFileRecord,
+} from '../../ports/target-writer';
+import type {
   DeploymentManifest,
 } from '../collection/types';
 
@@ -53,4 +56,6 @@ export interface InstalledBundle {
   commitMode?: RepositoryCommitMode;
   /** Set when a lockfile entry exists but its files are missing on disk (repository scope only). */
   filesMissing?: boolean;
+  /** Exact installed destination records used for uninstall and commit-mode changes. */
+  installedFiles?: readonly InstalledFileRecord[];
 }
