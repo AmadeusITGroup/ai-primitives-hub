@@ -538,6 +538,49 @@ profiles: []
       const result = await run(['hub', 'add', '--type', 'local', '-o', 'json']);
       expect(result.exitCode).toBe(1);
     });
+
+    it('falls back to owner/repo when a full GitHub blob URL is given as --location (#351)', async () => {
+      const requests: HttpRequest[] = [];
+      const http: HttpClient = {
+        fetch: async (request: HttpRequest): Promise<HttpResponse> => {
+          requests.push(request);
+          return {
+            statusCode: 200,
+            body: new TextEncoder().encode(`version: 1.0.0
+metadata:
+  name: Remote Hub
+  description: d
+  maintainer: m
+  updatedAt: '2026-01-01T00:00:00Z'
+sources: []
+profiles: []
+`),
+            finalUrl: request.url,
+            headers: {}
+          };
+        }
+      };
+
+      const result = await runWithHttp(
+        [
+          'hub', 'add',
+          '--location', 'https://github.com/owner/repo/blob/main/hub-config.yml',
+          '--id', 'remote-hub', '-o', 'json'
+        ],
+        http,
+        {
+          HOME: workspace,
+          USERPROFILE: workspace,
+          XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+          XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+        }
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(requests[0]?.url).toMatch(/^https:\/\/raw\.githubusercontent\.com\/owner\/repo\/main\/hub-config\.yml\?t=\d+$/);
+      const envelope = parseJson<{ id: string; location: string }>(result.stdout);
+      expect(envelope.data).toMatchObject({ id: 'remote-hub', location: 'owner/repo' });
+    });
   });
 
   describe('hub list --check', () => {

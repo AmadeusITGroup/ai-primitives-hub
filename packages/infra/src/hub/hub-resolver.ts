@@ -27,8 +27,62 @@ import type {
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import {
+  isGitHubHost,
+} from '../http/github-host';
+import {
   parseGitHubRepositoryTarget,
 } from '../http/github-repository-target';
+
+const GIT_SSH_PATTERN = /^git@([^:]+):(.+)$/u;
+
+/**
+ * Normalize a `github`-type hub location that may be a bare `owner/repo`
+ * slug or a full repository/file URL (e.g. a `/blob/<ref>/hub-config.yml`
+ * link copied from the GitHub UI, or an SSH clone URL) into the
+ * `owner/repo` slug the raw-content fetch expects. A branch/tag/commit
+ * carried by a `/blob/<ref>/...` or `/tree/<ref>` URL is used as the
+ * fallback `ref` only when the caller didn't already supply one
+ * explicitly. Bare slugs are returned unchanged, preserving existing
+ * behavior.
+ * @param location Raw location as entered by the user (slug or URL).
+ * @param explicitRef `ref` already set on the reference, if any — always wins over a URL-derived branch.
+ * @returns Normalized `owner/repo` slug and the resolved branch/tag/commit ref.
+ */
+export function normalizeGitHubHubLocation(
+  location: string,
+  explicitRef?: string
+): { location: string; ref?: string } {
+  const sshMatch = GIT_SSH_PATTERN.exec(location);
+  let url: URL | undefined;
+  try {
+    if (sshMatch !== null) {
+      url = new URL(`https://${sshMatch[1]}/${sshMatch[2]}`);
+    } else if (location.includes('://')) {
+      url = new URL(location);
+    }
+  } catch {
+    return { location, ref: explicitRef };
+  }
+
+  if (url === undefined || !isGitHubHost(url.hostname.toLowerCase())) {
+    return { location, ref: explicitRef };
+  }
+
+  const segments = url.pathname.replace(/^\/+|\/+$/gu, '').split('/');
+  if (segments.length < 2 || segments[0].length === 0 || segments[1].length === 0) {
+    return { location, ref: explicitRef };
+  }
+
+  const [owner, repoSegment, kind, refSegment] = segments;
+  const repository = repoSegment.endsWith('.git') ? repoSegment.slice(0, -4) : repoSegment;
+  const normalizedLocation = `${owner}/${repository}`;
+
+  if ((kind === 'blob' || kind === 'tree') && refSegment !== undefined && refSegment.length > 0) {
+    return { location: normalizedLocation, ref: explicitRef ?? refSegment };
+  }
+
+  return { location: normalizedLocation, ref: explicitRef };
+}
 
 export interface ResolvedHub {
   config: HubConfig;
@@ -178,10 +232,11 @@ export class GitHubHubResolver implements HubResolver {
    * @returns Resolved hub.
    */
   public async resolve(ref: HubReference): Promise<ResolvedHub> {
-    const branch = ref.ref ?? 'main';
+    const { location, ref: normalizedRef } = normalizeGitHubHubLocation(ref.location, ref.ref);
+    const branch = normalizedRef ?? 'main';
     const timestamp = Date.now();
-    const url = `https://raw.githubusercontent.com/${ref.location}/${branch}/hub-config.yml?t=${timestamp}`;
-    const repositoryTarget = parseGitHubRepositoryTarget(ref.location);
+    const url = `https://raw.githubusercontent.com/${location}/${branch}/hub-config.yml?t=${timestamp}`;
+    const repositoryTarget = parseGitHubRepositoryTarget(location);
     if (this.options.sourceAware === undefined) {
       const config = await fetchYamlConfig(this.http, this.tokens, url, repositoryTarget);
       return { config, reference: ref };

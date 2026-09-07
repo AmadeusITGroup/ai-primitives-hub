@@ -44,6 +44,7 @@ import {
   isGitHubAppAuthEnabled,
   NodeHttpClient,
   NodeProcessRunner,
+  normalizeGitHubHubLocation,
   parseHubConfig,
 } from '@ai-primitives-hub/infra';
 import type {
@@ -166,7 +167,7 @@ export class HubAddCommand extends BaseHubCommand {
 
       Options:
         --type <type>            Reference type: github (default), local, url
-        --location <ref>         GitHub owner/repo, local path, or URL
+        --location <ref>         GitHub owner/repo (or full repo/blob URL), local path, or URL
         --ref <branch>           Git branch, tag, or commit (GitHub only)
         --id <id>                Custom hub ID (defaults to repo name)
         --no-sync                Skip syncing after import
@@ -175,6 +176,7 @@ export class HubAddCommand extends BaseHubCommand {
 
       Examples:
         ai-primitives-hub hub add --location amadeus/copilot-hub
+        ai-primitives-hub hub add --location https://github.com/amadeus/copilot-hub
         ai-primitives-hub hub add --type local --location ./my-hub --id local-hub
     `
   });
@@ -202,14 +204,20 @@ export class HubAddCommand extends BaseHubCommand {
 
     const refType = (this.refType ?? 'github') as 'github' | 'local' | 'url';
     let location = this.refLocation;
+    let refRef = this.refRef;
     if (refType === 'local' && !path.isAbsolute(location)) {
       location = path.resolve(ctx.cwd(), location);
+    } else if (refType === 'github') {
+      // Fall back to owner/repo when a full repo/blob URL was passed instead.
+      const normalized = normalizeGitHubHubLocation(location, refRef);
+      location = normalized.location;
+      refRef = normalized.ref;
     }
 
     const id = await mgr.importHub({
       type: refType,
       location,
-      ref: this.refRef
+      ref: refRef
     }, this.hubId);
 
     // F-05: auto-use and auto-sync after import (unless flags disable)
