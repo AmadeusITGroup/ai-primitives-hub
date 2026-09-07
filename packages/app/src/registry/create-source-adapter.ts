@@ -28,13 +28,17 @@ import type {
   GitHubRepositoryTarget,
   GitHubSourceAuthCategory,
   HttpClient,
+  HttpCredentialProvider,
   ProcessRunner,
   RegistrySource,
   SourceAdapter,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  AnonymousCredentialProvider,
   ApmAdapter,
+  ArtifactoryHttpClient,
+  ArtifactorySourceAdapter,
   AwesomeCopilotAdapter,
   AzureDevOpsAdapter,
   AzureDevOpsApiClient,
@@ -62,6 +66,8 @@ export interface SourceAdapterFactoryDeps {
    * the CLI itself.
    */
   fallbackTokenProviders: readonly TokenProvider[];
+  /** Builds a source-scoped Artifactory credential provider; GitHub providers are never used for Artifactory. */
+  artifactoryCredentialFactory?: (source: RegistrySource) => HttpCredentialProvider;
   /** Optional preflight authentication decisions, keyed by source id. */
   sourceAuthentication?: ReadonlyMap<string, SourceAuthenticationContext>;
 }
@@ -160,6 +166,10 @@ export function createSourceAdapter(source: RegistrySource, deps: SourceAdapterF
         buildAzureDevOpsApi(buildSourceTokenProvider(source, deps), deps),
         deps.clock
       );
+    }
+    case 'artifactory': {
+      const credentials = deps.artifactoryCredentialFactory?.(source) ?? new AnonymousCredentialProvider();
+      return new ArtifactorySourceAdapter(source, new ArtifactoryHttpClient(deps.httpClient, credentials, source.url));
     }
     default: {
       throw new Error(`No adapter for source type: ${String(source.type)}`);

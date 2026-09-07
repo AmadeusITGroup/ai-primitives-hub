@@ -29,6 +29,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   DEFAULT_LOCAL_HUB_ID,
+  isLoopbackHostname,
   sanitizeHubId,
 } from '@ai-primitives-hub/core';
 import type {
@@ -103,6 +104,7 @@ export class HubManager {
 
   private async validateReference(reference: HubReference): Promise<ValidationResult> {
     const errors: string[] = [];
+    const warnings: string[] = [];
 
     if (!reference.type) {
       errors.push('Reference type is required');
@@ -130,12 +132,37 @@ export class HubManager {
         // Local path validation is done during fetch.
         break;
       }
+      case 'artifactory': {
+        try {
+          const url = new URL(reference.location);
+          const loopbackHttp = url.protocol === 'http:' && isLoopbackHostname(url.hostname);
+          if (url.protocol !== 'https:' && !loopbackHttp) {
+            errors.push('Only HTTPS URLs are allowed for Artifactory hubs');
+          }
+          if (loopbackHttp) {
+            warnings.push('Loopback HTTP is for local development/testing only; use HTTPS for shared or production Artifactory hubs.');
+          }
+        } catch {
+          errors.push('Invalid Artifactory URL format');
+        }
+        const configFile = reference.configFile ?? 'hub-config.yml';
+        if (!configFile || configFile.startsWith('/') || configFile.includes('\\') || configFile.includes('..')) {
+          errors.push('Artifactory configFile must be a confined relative path');
+        }
+        if (reference.authMode !== undefined && reference.authMode !== 'anonymous' && reference.authMode !== 'bearer') {
+          errors.push('Invalid Artifactory authentication mode');
+        }
+        if (reference.authMode === 'bearer' && !reference.credentialRef) {
+          errors.push('Artifactory Bearer authentication requires credentialRef');
+        }
+        break;
+      }
       default: {
         errors.push(`Unsupported reference type: ${String(reference.type)}`);
       }
     }
 
-    return Promise.resolve({ valid: errors.length === 0, errors, warnings: [] });
+    return Promise.resolve({ valid: errors.length === 0, errors, warnings });
   }
 
   /**

@@ -3,6 +3,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 module.exports = {
+  secrets: {
+    get: async () => undefined,
+    store: async () => undefined,
+    delete: async () => undefined
+  },
   workspace: {
     getConfiguration: (section) => ({
       get: (key, defaultValue) => {

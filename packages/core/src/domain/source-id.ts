@@ -20,6 +20,8 @@ export interface SourceIdConfig {
   branch?: string;
   /** Path to the collections directory. Defaults to 'collections'. */
   collectionsPath?: string;
+  /** Artifactory source index path. Defaults to 'index-v1.json'. */
+  indexFile?: string;
 }
 
 /**
@@ -28,19 +30,18 @@ export interface SourceIdConfig {
  * Falls back to a regex-based normalization when `URL` parsing fails
  * (matches the extension's behaviour for invalid URLs).
  * @param url Raw URL.
+ * @param preservePathCase
  * @returns Normalized URL string.
  */
-export const normalizeUrl = (url: string): string => {
+export const normalizeUrl = (url: string, preservePathCase = false): string => {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
-    const path = u.pathname.toLowerCase().replace(/\/+$/, '');
-    return host + path;
+    const path = u.pathname.replace(/\/+$/, '');
+    return host + (preservePathCase ? path : path.toLowerCase());
   } catch {
-    return url
-      .toLowerCase()
-      .replace(/^https?:\/\//, '')
-      .replace(/\/+$/, '');
+    const withoutProtocol = url.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    return preservePathCase ? withoutProtocol : withoutProtocol.toLowerCase();
   }
 };
 
@@ -60,8 +61,8 @@ const canonicalBranch = (branch?: string): string => {
  * Generate a stable sourceId of the form `{type}-{12hex}`.
  *
  * The hash includes (sourceType, normalizedUrl, branch,
- * collectionsPath) so that the same logical source maps to the same
- * id regardless of how the user typed the URL.
+ * collectionsPath), plus indexFile for Artifactory, so that the same
+ * logical source maps to the same id regardless of how the user typed the URL.
  * @param sourceType e.g. 'github', 'awesome-copilot', 'apm'.
  * @param url Source URL.
  * @param config Optional branch + collections path.
@@ -72,11 +73,15 @@ export const generateSourceId = (
   url: string,
   config?: SourceIdConfig
 ): string => {
-  const normalizedUrl = normalizeUrl(url);
+  const isArtifactory = sourceType === 'artifactory';
+  const normalizedUrl = normalizeUrl(url, isArtifactory);
   const branch = canonicalBranch(config?.branch);
   const collectionsPath = config?.collectionsPath ?? 'collections';
+  const indexFile = config?.indexFile ?? 'index-v1.json';
   const hash = createHash('sha256')
-    .update(`${sourceType}:${normalizedUrl}:${branch}:${collectionsPath}`)
+    .update(isArtifactory
+      ? `${sourceType}:${normalizedUrl}:${branch}:${collectionsPath}:${indexFile}`
+      : `${sourceType}:${normalizedUrl}:${branch}:${collectionsPath}`)
     .digest('hex')
     .substring(0, 12);
   return `${sourceType}-${hash}`;
