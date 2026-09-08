@@ -18,6 +18,9 @@ import {
   ScopeServiceFactory,
 } from '../../src/services/scope-service-factory';
 import {
+  UserScopeService,
+} from '../../src/services/user-scope-service';
+import {
   Bundle,
   InstallOptions,
 } from '../../src/types/registry';
@@ -694,24 +697,22 @@ suite('BundleInstaller', () => {
       const copilotSkillsDir = path.join(tempDir, '.copilot', 'skills');
       fs.mkdirSync(copilotSkillsDir, { recursive: true });
 
-      const originalHome = process.env.HOME;
-      process.env.HOME = tempDir;
+      // Inject the home directory rather than overriding $HOME: `os.homedir()`
+      // only honours $HOME on POSIX, so on Windows the service would resolve
+      // the real user profile instead of the temp directory.
+      sinon.stub(ScopeServiceFactory, 'create').returns(new UserScopeService(mockContext, tempDir));
 
       const bundle: Bundle = { ...mockBundle, id: 'nonstandard-skill-bundle' };
       const zipBuffer = buildSkillsZip(skillId, '.github/skills');
       const options: InstallOptions = { scope: 'user', force: false };
 
-      try {
-        const installed = await installer.installFromBuffer(bundle, zipBuffer, options, 'skills');
+      const installed = await installer.installFromBuffer(bundle, zipBuffer, options, 'skills');
 
-        const installedSkillDir = path.join(copilotSkillsDir, skillId);
-        assert.ok(fs.existsSync(installedSkillDir), 'Skill directory should be installed');
-        assert.ok(fs.existsSync(path.join(installedSkillDir, 'SKILL.md')), 'SKILL.md should be copied');
-        assert.ok(fs.existsSync(path.join(installedSkillDir, 'helper.sh')), 'helper.sh should be copied');
-        assert.strictEqual(installed.installPath, path.join(mockContext.globalStorageUri.fsPath, 'bundles', bundle.id));
-      } finally {
-        process.env.HOME = originalHome;
-      }
+      const installedSkillDir = path.join(copilotSkillsDir, skillId);
+      assert.ok(fs.existsSync(installedSkillDir), 'Skill directory should be installed');
+      assert.ok(fs.existsSync(path.join(installedSkillDir, 'SKILL.md')), 'SKILL.md should be copied');
+      assert.ok(fs.existsSync(path.join(installedSkillDir, 'helper.sh')), 'helper.sh should be copied');
+      assert.strictEqual(installed.installPath, path.join(mockContext.globalStorageUri.fsPath, 'bundles', bundle.id));
     });
   });
 });
