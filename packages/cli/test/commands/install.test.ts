@@ -194,11 +194,13 @@ describe('install command (local --from mode)', () => {
   });
 
   it('uses project layout route overrides when planning destinations', async () => {
+    // `JSON.stringify` keeps the native path a valid YAML double-quoted scalar:
+    // Windows separators (`C:\Users\...`) would otherwise be read as escape sequences.
     await writeFile(path.join(workspace, 'ai-primitives-hub-layouts.yml'), `
 layouts:
   copilot-cli:
     user:
-      baseDir: "${targetDir}"
+      baseDir: ${JSON.stringify(targetDir)}
       kindRoutes:
         prompt: custom-prompts/
 `);
