@@ -3,11 +3,11 @@
  * Provides user interface for importing, listing, syncing, and deleting hubs
  */
 
-import * as yaml from 'js-yaml';
-import * as vscode from 'vscode';
 import {
   normalizeGitHubHubLocation,
 } from '@ai-primitives-hub/infra';
+import * as yaml from 'js-yaml';
+import * as vscode from 'vscode';
 import {
   HubManager,
 } from '../services/hub-manager';
