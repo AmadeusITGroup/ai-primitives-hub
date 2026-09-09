@@ -12,6 +12,8 @@
   // Natural default direction per field: best/newest first, names A→Z.
   const SORT_DEFAULT_DIRECTION = { relevance: 'desc', name: 'asc', recent: 'desc' };
   let sortDirection = SORT_DEFAULT_DIRECTION[sortBy];
+  const filterDropdownIds = ['sourceDropdown', 'tagDropdown', 'contentTypeDropdown'];
+  let openFilterDropdownId;
   // Tracks whether the search box currently holds a query. Used to detect the
   // empty→typing transition so entering a search switches ordering to relevance
   // ("best match"), the way every marketplace search does — otherwise a lingering
@@ -95,7 +97,7 @@
         selectedSource = source.id;
         document.querySelector('#sourceSelectorText').textContent = source.name;
         sourceItem.querySelector('input[type="radio"]').checked = true;
-        document.querySelector('#sourceDropdown').style.display = 'none';
+        closeFilterDropdowns();
         updateMarketplaceSummary();
         renderBundles();
       });
@@ -110,13 +112,27 @@
       selectedSource = 'all';
       document.querySelector('#sourceSelectorText').textContent = 'Sources';
       allItem.querySelector('input[type="radio"]').checked = true;
-      document.querySelector('#sourceDropdown').style.display = 'none';
+      closeFilterDropdowns();
       updateMarketplaceSummary();
       renderBundles();
     });
 
     // Populate tag list with checkboxes
     tagList.innerHTML = '';
+
+    var allTagsItem = document.createElement('div');
+    allTagsItem.className = 'tag-item tag-all' + (selectedTags.length === 0 ? ' active' : '');
+    allTagsItem.innerHTML = '<input type="radio" name="tagMode" id="tag-all" ' + (selectedTags.length === 0 ? 'checked' : '') + '>'
+      + '<label for="tag-all">All tags</label>';
+    allTagsItem.addEventListener('click', () => {
+      selectedTags = [];
+      updateFilterUI();
+      updateTagButtonText();
+      updateMarketplaceSummary();
+      renderBundles();
+    });
+    tagList.append(allTagsItem);
+
     filterOptions.tags.forEach((tag) => {
       var tagItem = document.createElement('div');
       tagItem.className = 'tag-item';
@@ -137,13 +153,14 @@
       tagItem.append(checkbox);
       tagItem.append(label);
 
-      // Toggle checkbox on item click
       tagItem.addEventListener('click', (e) => {
-        if (e.target !== checkbox) {
-          checkbox.checked = !checkbox.checked;
+        if (e.target === checkbox || e.target === label) {
+          return;
         }
+        checkbox.checked = !checkbox.checked;
         updateSelectedTags();
       });
+      checkbox.addEventListener('change', updateSelectedTags);
 
       tagList.append(tagItem);
     });
@@ -160,37 +177,18 @@
 
     contentTypeList.innerHTML = '';
 
-    // Add "Select All" option at the top
-    var selectAllItem = document.createElement('div');
-    selectAllItem.className = 'content-type-item content-type-select-all';
-
-    var selectAllCheckbox = document.createElement('input');
-    selectAllCheckbox.type = 'checkbox';
-    selectAllCheckbox.id = 'contentType-selectAll';
-    selectAllCheckbox.checked = selectedContentTypes.length === 0 || selectedContentTypes.length === contentTypes.length;
-
-    var selectAllLabel = document.createElement('label');
-    selectAllLabel.htmlFor = 'contentType-selectAll';
-    selectAllLabel.textContent = 'Select All';
-    selectAllLabel.style.cursor = 'pointer';
-    selectAllLabel.style.flex = '1';
-    selectAllLabel.style.fontWeight = '500';
-
-    selectAllItem.append(selectAllCheckbox);
-    selectAllItem.append(selectAllLabel);
-
-    selectAllItem.addEventListener('click', (e) => {
-      if (e.target !== selectAllCheckbox) {
-        selectAllCheckbox.checked = !selectAllCheckbox.checked;
-      }
-      var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
-      allCheckboxes.forEach((cb) => {
-        cb.checked = selectAllCheckbox.checked;
-      });
-      updateSelectedContentTypes();
+    var allPrimitivesItem = document.createElement('div');
+    allPrimitivesItem.className = 'content-type-item content-type-all' + (selectedContentTypes.length === 0 ? ' active' : '');
+    allPrimitivesItem.innerHTML = '<input type="radio" name="contentTypeMode" id="contentType-all" ' + (selectedContentTypes.length === 0 ? 'checked' : '') + '>'
+      + '<label for="contentType-all">All primitives</label>';
+    allPrimitivesItem.addEventListener('click', () => {
+      selectedContentTypes = [];
+      updateFilterUI();
+      updateContentTypeButtonText();
+      updateMarketplaceSummary();
+      renderBundles();
     });
-
-    contentTypeList.append(selectAllItem);
+    contentTypeList.append(allPrimitivesItem);
 
     contentTypes.forEach((ct) => {
       var item = document.createElement('div');
@@ -213,15 +211,13 @@
       item.append(label);
 
       item.addEventListener('click', (e) => {
-        if (e.target !== checkbox) {
-          checkbox.checked = !checkbox.checked;
+        if (e.target === checkbox || e.target === label) {
+          return;
         }
-        // Update "Select All" checkbox state
-        var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
-        var allChecked = Array.from(allCheckboxes).every((cb) => cb.checked);
-        document.querySelector('#contentType-selectAll').checked = allChecked;
+        checkbox.checked = !checkbox.checked;
         updateSelectedContentTypes();
       });
+      checkbox.addEventListener('change', updateSelectedContentTypes);
 
       contentTypeList.append(item);
     });
@@ -248,22 +244,6 @@
     } else {
       tagSelectorText.textContent = selectedTags.length + ' tags';
     }
-  };
-
-  // Update selected content types from checkboxes
-  const updateSelectedContentTypes = () => {
-    var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
-    var checkedBoxes = Array.from(allCheckboxes).filter((cb) => cb.checked);
-    // When all types are selected (or none are selected), treat as no filter so all bundles are shown
-    if (checkedBoxes.length === 0 || checkedBoxes.length === allCheckboxes.length) {
-      selectedContentTypes = [];
-      document.querySelector('#contentType-selectAll').checked = true;
-    } else {
-      selectedContentTypes = checkedBoxes.map((cb) => cb.value);
-    }
-    updateContentTypeButtonText();
-    updateMarketplaceSummary();
-    renderBundles();
   };
 
   // Keep the compact tab and active-filter strip in sync with the current state.
@@ -479,31 +459,64 @@
     }
   };
 
+  const updateSelectedContentTypes = () => {
+    var checkedBoxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:checked');
+    selectedContentTypes = Array.from(checkedBoxes).map((checkbox) => checkbox.value);
+    if (selectedContentTypes.length === 5) {
+      selectedContentTypes = [];
+    }
+    updateFilterUI();
+    updateContentTypeButtonText();
+    updateMarketplaceSummary();
+    renderBundles();
+  };
+
+  const closeFilterDropdowns = () => {
+    filterDropdownIds.forEach((dropdownId) => {
+      document.querySelector('#' + dropdownId).style.display = 'none';
+      document.querySelector('[aria-controls="' + dropdownId + '"]').setAttribute('aria-expanded', 'false');
+    });
+    openFilterDropdownId = undefined;
+  };
+
+  const toggleFilterDropdown = (dropdownId) => {
+    openFilterDropdownId = openFilterDropdownId === dropdownId ? undefined : dropdownId;
+    filterDropdownIds.forEach((id) => {
+      var isOpen = id === openFilterDropdownId;
+      document.querySelector('#' + id).style.display = isOpen ? 'block' : 'none';
+      document.querySelector('[aria-controls="' + id + '"]').setAttribute('aria-expanded', String(isOpen));
+    });
+    return openFilterDropdownId === dropdownId;
+  };
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && openFilterDropdownId) {
+      var dropdownId = openFilterDropdownId;
+      closeFilterDropdowns();
+      document.querySelector('[aria-controls="' + dropdownId + '"]')?.focus();
+    }
+  });
+
   // Toggle tag dropdown
   document.querySelector('#tagSelectorBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    var dropdown = document.querySelector('#tagDropdown');
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-
-    if (dropdown.style.display === 'block') {
+    if (toggleFilterDropdown('tagDropdown')) {
       document.querySelector('#tagSearch').focus();
     }
   });
 
-  // Close dropdown when clicking outside
+  // Close filter dropdowns when clicking outside.
   document.addEventListener('click', (e) => {
-    var tagSelector = document.querySelector('.tag-selector');
-    var dropdown = document.querySelector('#tagDropdown');
-
-    if (tagSelector && !tagSelector.contains(e.target) && dropdown && dropdown.style.display === 'block') {
-      dropdown.style.display = 'none';
+    var filterRow = document.querySelector('.filter-row');
+    if (filterRow && !filterRow.contains(e.target)) {
+      closeFilterDropdowns();
     }
   });
 
   // Tag search functionality
   document.querySelector('#tagSearch').addEventListener('input', (e) => {
     var searchTerm = e.target.value.toLowerCase();
-    var tagItems = document.querySelectorAll('.tag-item');
+    var tagItems = document.querySelectorAll('.tag-item[data-tag]');
 
     tagItems.forEach((item) => {
       var tagName = item.dataset.tag.toLowerCase();
@@ -514,18 +527,7 @@
   // Content type selector button click
   document.querySelector('#contentTypeSelectorBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    var dropdown = document.querySelector('#contentTypeDropdown');
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-  });
-
-  // Close content type dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    var contentTypeSelector = document.querySelector('.content-type-selector');
-    var dropdown = document.querySelector('#contentTypeDropdown');
-
-    if (contentTypeSelector && !contentTypeSelector.contains(e.target) && dropdown && dropdown.style.display === 'block') {
-      dropdown.style.display = 'none';
-    }
+    toggleFilterDropdown('contentTypeDropdown');
   });
 
   // Show the clear (×) button only while the search box holds text.
@@ -587,21 +589,8 @@
   // Source selector button click
   document.querySelector('#sourceSelectorBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    var dropdown = document.querySelector('#sourceDropdown');
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-
-    if (dropdown.style.display === 'block') {
+    if (toggleFilterDropdown('sourceDropdown')) {
       document.querySelector('#sourceSearch').focus();
-    }
-  });
-
-  // Close source dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    var sourceSelector = document.querySelector('.source-selector');
-    var dropdown = document.querySelector('#sourceDropdown');
-
-    if (sourceSelector && !sourceSelector.contains(e.target) && dropdown && dropdown.style.display === 'block') {
-      dropdown.style.display = 'none';
     }
   });
 
@@ -637,6 +626,7 @@
 
       // Close dropdown
       document.querySelector('#sourceDropdown').style.display = 'none';
+      openFilterDropdownId = undefined;
 
       // Re-render bundles
       updateMarketplaceSummary();
@@ -689,9 +679,12 @@
 
     selectedSource = 'all';
     selectedTags = [];
+    selectedContentTypes = [];
     selectedTab = 'for-you';
     document.querySelectorAll('.marketplace-tab').forEach((item) => item.classList.toggle('active', item.dataset.tab === selectedTab));
+    updateFilterUI();
     updateTagButtonText();
+    updateContentTypeButtonText();
     updateMarketplaceSummary();
     renderBundles();
   };
