@@ -8,6 +8,13 @@
   let selectedSource = 'all';
   let selectedTags = [];
   let selectedContentTypes = [];
+  const contentTypes = [
+    { id: 'agents', label: 'Agents', icon: 'fa-robot' },
+    { id: 'skills', label: 'Skills', icon: 'fa-puzzle-piece' },
+    { id: 'prompts', label: 'Prompts', icon: 'fa-file-lines' },
+    { id: 'mcpServers', label: 'MCP Servers', icon: 'fa-plug' },
+    { id: 'instructions', label: 'Instructions', icon: 'fa-list-check' }
+  ];
   let sortBy = 'relevance';
   // Natural default direction per field: best/newest first, names A→Z.
   const SORT_DEFAULT_DIRECTION = { relevance: 'desc', name: 'asc', recent: 'desc' };
@@ -167,13 +174,6 @@
 
     // Populate content type selector
     var contentTypeList = document.querySelector('#contentTypeList');
-    var contentTypes = [
-      { id: 'agents', label: 'Agents', icon: 'fa-robot' },
-      { id: 'skills', label: 'Skills', icon: 'fa-puzzle-piece' },
-      { id: 'prompts', label: 'Prompts', icon: 'fa-file-lines' },
-      { id: 'mcpServers', label: 'MCP Servers', icon: 'fa-plug' },
-      { id: 'instructions', label: 'Instructions', icon: 'fa-list-check' }
-    ];
 
     contentTypeList.innerHTML = '';
 
@@ -502,7 +502,7 @@
   const updateSelectedContentTypes = () => {
     var checkedBoxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:checked');
     selectedContentTypes = Array.from(checkedBoxes).map((checkbox) => checkbox.value);
-    if (selectedContentTypes.length === 5) {
+    if (selectedContentTypes.length === contentTypes.length) {
       selectedContentTypes = [];
     }
     syncAllPrimitivesRow();
@@ -645,35 +645,6 @@
     });
   });
 
-  // Source item selection
-  document.querySelectorAll('.source-item').forEach((item) => {
-    item.addEventListener('click', () => {
-      // Update selection
-      document.querySelectorAll('.source-item').forEach((i) => {
-        i.classList.remove('active');
-      });
-      item.classList.add('active');
-
-      // Update selected source
-      selectedSource = item.dataset.source;
-
-      // Update button text
-      var label = item.querySelector('label').textContent;
-      document.querySelector('#sourceSelectorText').textContent = label;
-
-      // Check radio button
-      item.querySelector('input[type="radio"]').checked = true;
-
-      // Close dropdown
-      document.querySelector('#sourceDropdown').style.display = 'none';
-      openFilterDropdownId = undefined;
-
-      // Re-render bundles
-      updateMarketplaceSummary();
-      renderBundles();
-    });
-  });
-
   // Reset filters from the compact active-filter strip.
   const resetFilters = () => {
     document.querySelector('#searchBox').value = '';
@@ -707,10 +678,6 @@
     // Reset content type selector
     selectedContentTypes = [];
     document.querySelector('#contentTypeSelectorText').textContent = 'Primitives';
-    var contentTypeCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]');
-    contentTypeCheckboxes.forEach((cb) => {
-      cb.checked = true;
-    });
 
     // Reset Sort back to Relevance (default direction) and close its popover
     sortBy = 'relevance';

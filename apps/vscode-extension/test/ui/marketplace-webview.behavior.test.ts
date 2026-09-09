@@ -122,6 +122,30 @@ suite('Marketplace webview behavior', () => {
     }
   });
 
+  test('restores the unfiltered primitives state from the All primitives option', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      const { document } = harness.dom.window;
+
+      (document.querySelector('#contentType-agents') as unknown as { click: () => void }).click();
+      (document.querySelector('#contentType-skills') as unknown as { click: () => void }).click();
+
+      assert.strictEqual(document.querySelector('#contentTypeSelectorText')?.textContent, '2 types');
+      assert.strictEqual(document.querySelectorAll('[data-filter="content"]').length, 2);
+
+      (document.querySelector('.content-type-all') as unknown as { click: () => void }).click();
+
+      assert.strictEqual(document.querySelector('#contentTypeSelectorText')?.textContent, 'Primitives');
+      assert.strictEqual(document.querySelectorAll('[data-filter="content"]').length, 0);
+      assert.strictEqual((document.querySelector('#contentType-all') as unknown as { checked: boolean })?.checked, true);
+      assert.strictEqual((document.querySelector('#contentType-agents') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual((document.querySelector('#contentType-skills') as unknown as { checked: boolean })?.checked, false);
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
   test('keeps Details and Repository actions functional and renders tab empty states', () => {
     const harness = createHarness();
     try {
