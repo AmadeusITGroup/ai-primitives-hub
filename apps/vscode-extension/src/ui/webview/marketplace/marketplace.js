@@ -126,7 +126,7 @@
       + '<label for="tag-all">All tags</label>';
     allTagsItem.addEventListener('click', () => {
       selectedTags = [];
-      updateFilterUI();
+      syncAllTagsRow();
       updateTagButtonText();
       updateMarketplaceSummary();
       renderBundles();
@@ -183,7 +183,7 @@
       + '<label for="contentType-all">All primitives</label>';
     allPrimitivesItem.addEventListener('click', () => {
       selectedContentTypes = [];
-      updateFilterUI();
+      syncAllPrimitivesRow();
       updateContentTypeButtonText();
       updateMarketplaceSummary();
       renderBundles();
@@ -223,12 +223,52 @@
     });
   };
 
+  // Keep an "All …" row (the radio at the top of a multi-select dropdown) in sync
+  // with the checkbox rows below it, without rebuilding the list.
+  //
+  // Rebuilding via updateFilterUI() replaces every row element, so any handler or
+  // caller still holding a row reference ends up mutating a detached node while the
+  // state is read back from the freshly rendered list. That is why toggling the rows
+  // in sequence used to end with an empty selection. It also drops focus and scroll
+  // position mid-interaction. The checkbox DOM is already correct at this point, so
+  // only the "All …" row needs updating.
+  // @param listId - Id of the list holding the individual checkbox rows.
+  // @param allRowSelector - Selector for the "All …" row.
+  // @param allInputId - Id of the "All …" radio input.
+  // @param hasSelection - Whether any individual option is currently selected.
+  const syncAllOptionRow = (listId, allRowSelector, allInputId, hasSelection) => {
+    var allRow = document.querySelector(allRowSelector);
+    if (allRow) {
+      allRow.classList.toggle('active', !hasSelection);
+    }
+    var allInput = document.querySelector('#' + allInputId);
+    if (allInput) {
+      allInput.checked = !hasSelection;
+    }
+    if (!hasSelection) {
+      // "All" means no individual option is active, so clear the boxes too. This
+      // also covers the case where selecting every option collapses back to "all".
+      document.querySelectorAll('#' + listId + ' input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+    }
+  };
+
+  const syncAllTagsRow = () => {
+    syncAllOptionRow('tagList', '.tag-all', 'tag-all', selectedTags.length > 0);
+  };
+
+  const syncAllPrimitivesRow = () => {
+    syncAllOptionRow('contentTypeList', '.content-type-all', 'contentType-all', selectedContentTypes.length > 0);
+  };
+
   // Update selected tags from checkboxes
   const updateSelectedTags = () => {
     var checkboxes = document.querySelectorAll('#tagList input[type="checkbox"]:checked');
     selectedTags = Array.from(checkboxes).map((cb) => {
       return cb.value;
     });
+    syncAllTagsRow();
     updateTagButtonText();
     updateMarketplaceSummary();
     renderBundles();
@@ -465,7 +505,7 @@
     if (selectedContentTypes.length === 5) {
       selectedContentTypes = [];
     }
-    updateFilterUI();
+    syncAllPrimitivesRow();
     updateContentTypeButtonText();
     updateMarketplaceSummary();
     renderBundles();
