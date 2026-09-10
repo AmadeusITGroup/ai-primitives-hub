@@ -262,6 +262,49 @@ describe('normalizeGitHubHubLocation', () => {
   it('leaves non-GitHub URLs unchanged', () => {
     expect(normalizeGitHubHubLocation('https://example.com/owner/repo')).toEqual({ location: 'https://example.com/owner/repo', ref: undefined });
   });
+
+  it('normalizes a scheme-less GitHub repo URL (#1)', () => {
+    expect(normalizeGitHubHubLocation('github.com/owner/repo')).toEqual({ location: 'owner/repo', ref: undefined });
+  });
+
+  it('normalizes a scheme-less GitHub blob URL and derives its ref (#1)', () => {
+    expect(normalizeGitHubHubLocation('github.com/owner/repo/blob/develop/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  it('keeps a slash-containing branch name from a blob URL (#2)', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/feature/foo/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'feature/foo' });
+  });
+
+  it('keeps a slash-containing branch name from a tree URL (#2)', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/tree/feature/foo'))
+      .toEqual({ location: 'owner/repo', ref: 'feature/foo' });
+  });
+
+  it('derives the ref from a raw.githubusercontent.com URL (#4)', () => {
+    expect(normalizeGitHubHubLocation('https://raw.githubusercontent.com/owner/repo/develop/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  it('derives the ref from a /raw/ URL (#4)', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/raw/develop/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  it('derives the ref from a blob URL with no file after it', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/develop'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  // Root-only contract (finding 3 deferred): a config nested under a
+  // subdirectory cannot be told apart from a slash-containing branch
+  // client-side, so the subdirectory is folded into the ref. resolve()
+  // still fetches root hub-config.yml, so such a URL will not resolve.
+  it('folds a nested config path into the ref (documents the root-only limit)', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/main/configs/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'main/configs' });
+  });
 });
 
 describe('CompositeHubResolver', () => {
