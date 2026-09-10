@@ -27,8 +27,136 @@ import type {
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import {
+  isGitHubHost,
+} from '../http/github-host';
+import {
   parseGitHubRepositoryTarget,
 } from '../http/github-repository-target';
+
+const RAW_CONTENT_HOSTS = new Set(['raw.githubusercontent.com', 'raw.github.com']);
+
+/**
+ * Normalize a `github`-type hub location that may be a bare `owner/repo`
+ * slug or a full repository/file URL into the `owner/repo` slug the
+ * raw-content fetch expects, together with any branch/tag/commit the URL
+ * carries. Accepts, in addition to bare slugs:
+ *
+ * - HTTPS and scheme-less GitHub URLs (`github.com/owner/repo`);
+ * - SSH clone URLs (`git@github.com:owner/repo.git`);
+ * - `/blob/<ref>/...`, `/tree/<ref>/...`, and `/raw/<ref>/...` links;
+ * - `raw.githubusercontent.com/owner/repo/<ref>/...` links.
+ *
+ * The `owner/repo` slug (SSH form, `.git` suffix, host prefix) is
+ * canonicalized by {@link parseGitHubRepositoryTarget} rather than parsed
+ * again here. A ref carried by the URL is used only as a fallback — an
+ * `explicitRef` supplied by the caller always wins. Branch/tag names that
+ * contain slashes are preserved.
+ *
+ * Config resolution is root-only: the resolver always fetches
+ * `hub-config.yml` at the repository root, so a URL that points at a
+ * config nested under a subdirectory cannot be honored — the
+ * subdirectory is indistinguishable from a slash-containing branch name
+ * and is folded into the ref.
+ *
+ * Anything that is not a recognizable GitHub reference (bare slugs,
+ * non-GitHub hosts, unparseable input) is returned unchanged, preserving
+ * existing behavior.
+ * @param location Raw location as entered by the user (slug or URL).
+ * @param explicitRef `ref` already set on the reference, if any — always wins over a URL-derived branch.
+ * @returns Normalized `owner/repo` slug and the resolved branch/tag/commit ref.
+ */
+export function normalizeGitHubHubLocation(
+  location: string,
+  explicitRef?: string
+): { location: string; ref?: string } {
+  // SSH clone URLs never carry a ref; delegate canonicalization wholesale.
+  if (location.startsWith('git@')) {
+    try {
+      const target = parseGitHubRepositoryTarget(location);
+      return { location: `${target.owner}/${target.repository}`, ref: explicitRef };
+    } catch {
+      return { location, ref: explicitRef };
+    }
+  }
+
+  const url = toGitHubUrl(location);
+  if (url === undefined) {
+    return { location, ref: explicitRef };
+  }
+
+  const segments = url.pathname.replace(/^\/+|\/+$/gu, '').split('/').filter((segment) => segment.length > 0);
+  if (segments.length < 2) {
+    return { location, ref: explicitRef };
+  }
+
+  let normalizedLocation: string;
+  try {
+    // Reuse the shared parser for owner/repo canonicalization (.git strip,
+    // host + id validation) instead of re-implementing it here.
+    const target = parseGitHubRepositoryTarget(`${url.hostname}/${segments[0]}/${segments[1]}`);
+    normalizedLocation = `${target.owner}/${target.repository}`;
+  } catch {
+    return { location, ref: explicitRef };
+  }
+
+  const derivedRef = deriveRefFromSegments(url.hostname, segments);
+  return { location: normalizedLocation, ref: explicitRef ?? derivedRef };
+}
+
+/**
+ * Parse a location as a GitHub URL, tolerating a missing scheme.
+ * @param location Raw location (HTTPS URL, scheme-less URL, or slug).
+ * @returns A `URL` on a GitHub-owned host, or `undefined` otherwise.
+ */
+function toGitHubUrl(location: string): URL | undefined {
+  const candidate = location.includes('://') ? location : `https://${location}`;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return undefined;
+  }
+  return isGitHubHost(url.hostname.toLowerCase()) ? url : undefined;
+}
+
+/**
+ * Derive the branch/tag/commit ref carried by a GitHub URL's path.
+ * @param hostname Host the URL points at (lower-cased by `URL`).
+ * @param segments Non-empty path segments (`owner/repo/...`).
+ * @returns The ref, or `undefined` when the URL carries none.
+ */
+function deriveRefFromSegments(hostname: string, segments: string[]): string | undefined {
+  if (RAW_CONTENT_HOSTS.has(hostname.toLowerCase())) {
+    // raw.githubusercontent.com/owner/repo/<ref...>/<file>
+    return refBeforeTrailingFile(segments.slice(2));
+  }
+  const kind = segments[2];
+  const rest = segments.slice(3);
+  if (kind === 'tree') {
+    // A tree URL points at a directory, so no trailing file to strip.
+    return rest.length > 0 ? rest.join('/') : undefined;
+  }
+  if (kind === 'blob' || kind === 'raw') {
+    return refBeforeTrailingFile(rest);
+  }
+  return undefined;
+}
+
+/**
+ * Extract the ref from `<ref...>/<file>` segments where the last segment
+ * is the (root) config file. Slash-containing refs are preserved.
+ * @param rest Segments following the ref-introducing kind.
+ * @returns The ref, or `undefined` when there are no segments.
+ */
+function refBeforeTrailingFile(rest: string[]): string | undefined {
+  if (rest.length === 0) {
+    return undefined;
+  }
+  if (rest.length === 1) {
+    return rest[0];
+  }
+  return rest.slice(0, -1).join('/');
+}
 
 export interface ResolvedHub {
   config: HubConfig;
@@ -178,10 +306,11 @@ export class GitHubHubResolver implements HubResolver {
    * @returns Resolved hub.
    */
   public async resolve(ref: HubReference): Promise<ResolvedHub> {
-    const branch = ref.ref ?? 'main';
+    const { location, ref: normalizedRef } = normalizeGitHubHubLocation(ref.location, ref.ref);
+    const branch = normalizedRef ?? 'main';
     const timestamp = Date.now();
-    const url = `https://raw.githubusercontent.com/${ref.location}/${branch}/hub-config.yml?t=${timestamp}`;
-    const repositoryTarget = parseGitHubRepositoryTarget(ref.location);
+    const url = `https://raw.githubusercontent.com/${location}/${branch}/hub-config.yml?t=${timestamp}`;
+    const repositoryTarget = parseGitHubRepositoryTarget(location);
     if (this.options.sourceAware === undefined) {
       const config = await fetchYamlConfig(this.http, this.tokens, url, repositoryTarget);
       return { config, reference: ref };

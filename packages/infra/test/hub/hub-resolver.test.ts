@@ -20,6 +20,7 @@ import {
   CompositeHubResolver,
   GitHubHubResolver,
   LocalHubResolver,
+  normalizeGitHubHubLocation,
   UrlHubResolver,
 } from '../../src/hub/hub-resolver';
 import {
@@ -181,6 +182,128 @@ describe('GitHubHubResolver', () => {
     expect(requests).toHaveLength(2);
     expect(requests[0].headers?.Authorization).toBe('token generic-token');
     expect(requests[1].headers?.Authorization).toBe('token app-token');
+  });
+
+  it('falls back to owner/repo when a full blob URL is given as the location (#351)', async () => {
+    const fetchSpy = vi.fn((req: HttpRequest): HttpResponse => ({ statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: req.url, headers: {} }));
+    const http: HttpClient = { fetch: (req): Promise<HttpResponse> => Promise.resolve(fetchSpy(req)) };
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider());
+
+    const ref: HubReference = {
+      type: 'github',
+      location: 'https://github.com/Amadeus-xDLC/genai.prompt-registry-config/blob/main/hub-config.yml'
+    };
+    const resolved = await resolver.resolve(ref);
+
+    expect(resolved.reference).toBe(ref);
+    const calledUrl = fetchSpy.mock.calls[0][0].url;
+    expect(calledUrl).toMatch(/^https:\/\/raw\.githubusercontent\.com\/Amadeus-xDLC\/genai\.prompt-registry-config\/main\/hub-config\.yml\?t=\d+$/);
+  });
+
+  it('falls back to owner/repo when a bare repo URL is given as the location', async () => {
+    const fetchSpy = vi.fn((req: HttpRequest): HttpResponse => ({ statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: req.url, headers: {} }));
+    const http: HttpClient = { fetch: (req): Promise<HttpResponse> => Promise.resolve(fetchSpy(req)) };
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider());
+
+    await resolver.resolve({ type: 'github', location: 'https://github.com/owner/repo' });
+
+    const calledUrl = fetchSpy.mock.calls[0][0].url;
+    expect(calledUrl).toContain('/owner/repo/main/hub-config.yml');
+  });
+
+  it('prefers an explicit ref over the branch carried by a blob URL', async () => {
+    const fetchSpy = vi.fn((req: HttpRequest): HttpResponse => ({ statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: req.url, headers: {} }));
+    const http: HttpClient = { fetch: (req): Promise<HttpResponse> => Promise.resolve(fetchSpy(req)) };
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider());
+
+    await resolver.resolve({
+      type: 'github',
+      location: 'https://github.com/owner/repo/blob/main/hub-config.yml',
+      ref: 'develop'
+    });
+
+    const calledUrl = fetchSpy.mock.calls[0][0].url;
+    expect(calledUrl).toContain('/owner/repo/develop/hub-config.yml');
+  });
+});
+
+describe('normalizeGitHubHubLocation', () => {
+  it('leaves a bare owner/repo slug unchanged', () => {
+    expect(normalizeGitHubHubLocation('owner/repo')).toEqual({ location: 'owner/repo', ref: undefined });
+  });
+
+  it('extracts owner/repo from a plain repo URL', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo')).toEqual({ location: 'owner/repo', ref: undefined });
+  });
+
+  it('extracts owner/repo and branch from a blob URL', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/develop/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  it('extracts owner/repo and branch from a tree URL', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/tree/develop'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  it('strips a trailing .git suffix', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo.git')).toEqual({ location: 'owner/repo', ref: undefined });
+  });
+
+  it('extracts owner/repo from an SSH clone URL', () => {
+    expect(normalizeGitHubHubLocation('git@github.com:owner/repo.git')).toEqual({ location: 'owner/repo', ref: undefined });
+  });
+
+  it('keeps an explicit ref over a URL-derived branch', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/develop/hub-config.yml', 'main'))
+      .toEqual({ location: 'owner/repo', ref: 'main' });
+  });
+
+  it('leaves non-GitHub URLs unchanged', () => {
+    expect(normalizeGitHubHubLocation('https://example.com/owner/repo')).toEqual({ location: 'https://example.com/owner/repo', ref: undefined });
+  });
+
+  it('normalizes a scheme-less GitHub repo URL (#1)', () => {
+    expect(normalizeGitHubHubLocation('github.com/owner/repo')).toEqual({ location: 'owner/repo', ref: undefined });
+  });
+
+  it('normalizes a scheme-less GitHub blob URL and derives its ref (#1)', () => {
+    expect(normalizeGitHubHubLocation('github.com/owner/repo/blob/develop/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  it('keeps a slash-containing branch name from a blob URL (#2)', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/feature/foo/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'feature/foo' });
+  });
+
+  it('keeps a slash-containing branch name from a tree URL (#2)', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/tree/feature/foo'))
+      .toEqual({ location: 'owner/repo', ref: 'feature/foo' });
+  });
+
+  it('derives the ref from a raw.githubusercontent.com URL (#4)', () => {
+    expect(normalizeGitHubHubLocation('https://raw.githubusercontent.com/owner/repo/develop/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  it('derives the ref from a /raw/ URL (#4)', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/raw/develop/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  it('derives the ref from a blob URL with no file after it', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/develop'))
+      .toEqual({ location: 'owner/repo', ref: 'develop' });
+  });
+
+  // Root-only contract (finding 3 deferred): a config nested under a
+  // subdirectory cannot be told apart from a slash-containing branch
+  // client-side, so the subdirectory is folded into the ref. resolve()
+  // still fetches root hub-config.yml, so such a URL will not resolve.
+  it('folds a nested config path into the ref (documents the root-only limit)', () => {
+    expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/main/configs/hub-config.yml'))
+      .toEqual({ location: 'owner/repo', ref: 'main/configs' });
   });
 });
 

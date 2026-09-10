@@ -3,6 +3,9 @@
  * Provides user interface for importing, listing, syncing, and deleting hubs
  */
 
+import {
+  normalizeGitHubHubLocation,
+} from '@ai-primitives-hub/infra';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
 import {
@@ -169,11 +172,11 @@ export class HubCommands {
     switch (sourceType) {
       case 'github': {
         const location = await vscode.window.showInputBox({
-          prompt: 'Enter GitHub repository (e.g., owner/repo)',
-          placeHolder: 'owner/repo',
+          prompt: 'Enter GitHub repository URL or owner/repo',
+          placeHolder: 'https://github.com/owner/repo or owner/repo',
           validateInput: (value) => {
             if (!value || !value.includes('/')) {
-              return 'Please enter a valid GitHub repository (owner/repo)';
+              return 'Please enter a valid GitHub repository URL or owner/repo';
             }
             return null;
           },
@@ -190,10 +193,12 @@ export class HubCommands {
           ignoreFocusOut: true
         });
 
+        // Fall back to owner/repo when a full repo/blob URL was pasted instead.
+        const normalized = normalizeGitHubHubLocation(location, ref || undefined);
         return {
           type: 'github',
-          location,
-          ref: ref || undefined
+          location: normalized.location,
+          ref: normalized.ref
         };
       }
 
