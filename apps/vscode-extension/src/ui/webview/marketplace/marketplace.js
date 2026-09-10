@@ -652,42 +652,22 @@
     document.querySelector('#sourceSearch').value = '';
     document.querySelector('#tagSearch').value = '';
 
-    // Reset source selector
+    // Reset the filters as state only. The render helpers at the end of this function
+    // rebuild the dropdown rows and selector labels from that state, so resetting the
+    // same things imperatively here too would just duplicate them — which is how this
+    // function ended up assigning the same field twice. The source label is the one
+    // exception: it has no state-driven update helper, so it is still set by hand.
     selectedSource = 'all';
-    document.querySelector('#sourceSelectorText').textContent = 'Sources';
-    document.querySelectorAll('.source-item').forEach((item) => {
-      item.classList.remove('active');
-      if (item.dataset.source === 'all') {
-        item.classList.add('active');
-        item.querySelector('input[type="radio"]').checked = true;
-      }
-    });
-
-    // Uncheck all tag checkboxes
-    var checkboxes = document.querySelectorAll('#tagList input[type="checkbox"]');
-    checkboxes.forEach((cb) => {
-      cb.checked = false;
-    });
-
-    // Show all tags
-    var tagItems = document.querySelectorAll('.tag-item');
-    tagItems.forEach((item) => {
-      item.classList.remove('hidden');
-    });
-
-    // Reset content type selector
+    selectedTags = [];
     selectedContentTypes = [];
-    document.querySelector('#contentTypeSelectorText').textContent = 'Primitives';
+    selectedTab = 'for-you';
+    document.querySelector('#sourceSelectorText').textContent = 'Sources';
 
     // Reset Sort back to Relevance (default direction) and close its popover
     sortBy = 'relevance';
     sortDirection = SORT_DEFAULT_DIRECTION[sortBy];
     closeSortPopover();
 
-    selectedSource = 'all';
-    selectedTags = [];
-    selectedContentTypes = [];
-    selectedTab = 'for-you';
     document.querySelectorAll('.marketplace-tab').forEach((item) => item.classList.toggle('active', item.dataset.tab === selectedTab));
     updateFilterUI();
     updateTagButtonText();
