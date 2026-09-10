@@ -119,6 +119,8 @@ export interface ProfileActivationState {
   /** @deprecated Kept for backward compatibility; prefer `syncedBundleVersions`. */
   syncedBundles: string[];
   syncedBundleVersions?: Record<string, string>;
+  /** Targets that received this activation; absent in historical state. */
+  targetNames?: string[];
 }
 
 export interface ProfileActivationOptions {

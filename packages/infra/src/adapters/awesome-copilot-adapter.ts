@@ -344,7 +344,10 @@ export class AwesomeCopilotAdapter extends BaseSourceAdapter {
     for (const item of collection.items) {
       if (item.kind === 'skill') {
         const skillDir = item.path.slice(0, item.path.lastIndexOf('/'));
-        const skillFiles = await this.listDirectoryFilesRecursively(skillDir);
+        const skillFiles = new Set([
+          item.path,
+          ...(await this.listDirectoryFilesRecursively(skillDir))
+        ]);
         for (const filePath of skillFiles) {
           const content = await this.githubApi.download(this.buildRawUrl(filePath));
           archive.append(Buffer.from(content), { name: filePath });

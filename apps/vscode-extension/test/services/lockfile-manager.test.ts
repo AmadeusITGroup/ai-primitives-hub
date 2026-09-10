@@ -636,6 +636,34 @@ suite('LockfileManager', () => {
       assert.ok(updated!.bundles['bundle-0']);
     });
 
+    test('should preserve remaining file ownership metadata when uninstall keeps files', async () => {
+      const manager = LockfileManager.getInstance(tempDir);
+      const options = createTestOptions('bundle-keep');
+      options.files = [
+        { path: '.github/prompts/remove.prompt.md', checksum: 'sha256:remove' },
+        { path: '.github/prompts/keep.prompt.md', checksum: 'sha256:keep' }
+      ];
+      await manager.createOrUpdate(options);
+
+      await (manager as any).remove('bundle-keep', [
+        {
+          itemId: 'keep',
+          kind: 'prompt',
+          sourcePath: 'keep.prompt.md',
+          destinationPath: path.join(tempDir, '.github', 'prompts', 'keep.prompt.md'),
+          destinationRelativePath: '.github/prompts/keep.prompt.md',
+          installedChecksum: 'sha256:keep'
+        }
+      ]);
+
+      const updated = readLockfileFromDisk();
+      assert.ok(updated?.bundles['bundle-keep'], 'Bundle entry should remain when uninstall preserves files');
+      assert.deepStrictEqual(updated?.bundles['bundle-keep'].files, [
+        { path: '.github/prompts/keep.prompt.md', checksum: 'sha256:keep', kind: 'prompt', itemId: 'keep' }
+      ]);
+      assert.ok(updated?.sources['test-source'], 'Source metadata must be retained while the bundle still owns files');
+    });
+
     test('should clean up orphaned sources when bundle removed', async () => {
       // If a source is only referenced by the removed bundle, it should be cleaned up
       const manager = LockfileManager.getInstance(tempDir);
@@ -1710,6 +1738,78 @@ suite('LockfileManager', () => {
 
       // Should display error for each conflict
       assert.strictEqual(showErrorMessageStub.callCount, 2, 'Should display 2 error messages for 2 conflicts');
+    });
+
+    test('should expose exact installed file records derived from lockfile paths', async () => {
+      const mainLockfile = LockfileBuilder.create()
+        .withSource('main-source', 'github', 'https://github.com/main/repo')
+        .withBundle('main-bundle', '1.2.3', 'main-source', {
+          sourceType: 'github',
+          files: [
+            createMockFileEntry('.github/skills/shared-skill/SKILL.md', 'sha256:skill'),
+            createMockFileEntry('.github/skills/shared-skill/nested/helper.md', 'sha256:helper')
+          ]
+        })
+        .build();
+      writeLockfile(mainLockfile);
+
+      const manager = LockfileManager.getInstance(tempDir);
+      const bundles = await manager.getInstalledBundles();
+      const installedFiles = (bundles[0] as any).installedFiles;
+
+      assert.deepStrictEqual(
+        installedFiles.map((file: any) => ({
+          destinationRelativePath: file.destinationRelativePath,
+          destinationPath: file.destinationPath,
+          installedChecksum: file.installedChecksum
+        })),
+        [
+          {
+            destinationRelativePath: '.github/skills/shared-skill/SKILL.md',
+            destinationPath: path.join(tempDir, '.github', 'skills', 'shared-skill', 'SKILL.md'),
+            installedChecksum: 'sha256:skill'
+          },
+          {
+            destinationRelativePath: '.github/skills/shared-skill/nested/helper.md',
+            destinationPath: path.join(tempDir, '.github', 'skills', 'shared-skill', 'nested', 'helper.md'),
+            installedChecksum: 'sha256:helper'
+          }
+        ]
+      );
+    });
+
+    test('should resolve non-GitHub installed records from the repository root', async () => {
+      const mainLockfile = LockfileBuilder.create()
+        .withSource('main-source', 'github', 'https://github.com/main/repo')
+        .withBundle('kiro-bundle', '1.2.3', 'main-source', {
+          sourceType: 'github',
+          files: [createMockFileEntry('.kiro/agents/review.agent.md', 'sha256:agent')]
+        })
+        .build();
+      writeLockfile(mainLockfile);
+
+      const manager = LockfileManager.getInstance(tempDir);
+      const bundles = await manager.getInstalledBundles();
+
+      assert.strictEqual(
+        (bundles[0] as any).installedFiles[0].destinationPath,
+        path.join(tempDir, '.kiro', 'agents', 'review.agent.md')
+      );
+    });
+
+    test('should reject lockfile paths outside the repository root', async () => {
+      const mainLockfile = LockfileBuilder.create()
+        .withSource('main-source', 'github', 'https://github.com/main/repo')
+        .withBundle('unsafe-bundle', '1.2.3', 'main-source', {
+          sourceType: 'github',
+          files: [createMockFileEntry('../../outside.md', 'sha256:outside')]
+        })
+        .build();
+      writeLockfile(mainLockfile);
+
+      const manager = LockfileManager.getInstance(tempDir);
+
+      await assert.rejects(manager.getInstalledBundles(), /unsafe lockfile path/);
     });
 
     test('should preserve bundle metadata when merging', async () => {

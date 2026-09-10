@@ -1,3 +1,10 @@
+import type {
+  InstalledFileRecord,
+  Target,
+  TargetWritePlan,
+  TargetWriteResult,
+} from '@ai-primitives-hub/core';
+
 /**
  * IScopeService Interface
  *
@@ -20,6 +27,22 @@ export interface SyncBundleOptions {
    * Only applicable for RepositoryScopeService.
    */
   commitMode?: 'commit' | 'local-only';
+  /**
+   * Shared target write plan produced by the install pipeline.
+   * When supplied, scope services must execute these exact operations instead
+   * of reparsing the bundle manifest from disk.
+   */
+  targetPlan?: TargetWritePlan;
+  /** Exact records from the installation being replaced, when updating. */
+  installedFiles?: readonly InstalledFileRecord[];
+}
+
+export interface UnsyncBundleOptions {
+  installedFiles?: readonly InstalledFileRecord[];
+}
+
+export interface UnsyncBundleResult {
+  retained: readonly InstalledFileRecord[];
 }
 
 /**
@@ -29,19 +52,22 @@ export interface SyncBundleOptions {
  * are placed based on the installation scope (user vs repository).
  */
 export interface IScopeService {
+  /** Resolve scope-specific target roots before shared target planning. */
+  resolveTarget?(target: Target): Target;
+
   /**
    * Sync a bundle's files to the appropriate Copilot directories.
    * @param bundleId - The unique identifier of the bundle
    * @param bundlePath - The path to the installed bundle directory
    * @param options - Optional sync options (e.g., commitMode for repository scope)
-   * @returns Promise that resolves when sync is complete
+   * @returns The actual installed records written by the scope service
    */
-  syncBundle(bundleId: string, bundlePath: string, options?: SyncBundleOptions): Promise<void>;
+  syncBundle(bundleId: string, bundlePath: string, options?: SyncBundleOptions): Promise<TargetWriteResult>;
 
   /**
    * Remove synced files for a bundle.
    * @param bundleId - The unique identifier of the bundle to unsync
    * @returns Promise that resolves when unsync is complete
    */
-  unsyncBundle(bundleId: string): Promise<void>;
+  unsyncBundle(bundleId: string, options?: UnsyncBundleOptions): Promise<UnsyncBundleResult>;
 }

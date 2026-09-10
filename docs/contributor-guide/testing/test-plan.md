@@ -201,7 +201,7 @@ Layout resolution is well covered by unit tests. What they use is a mocked files
 | # | Scenario | Expected result | Automation → where to focus |
 |---|---|---|---|
 | ⭐ 7.1 | Install at `user` scope for **VS Code** | Lands under `~/.copilot/` per the kind routes | 🟡 Layer resolution covered by `packages/app/test/install/layout-resolver.test.ts`. **Only skills assert a `~/.copilot/` destination**, and `test/services/skills-service.test.ts` compares a path against itself rather than against production code — treat the general kind set as unverified |
-| ⭐ 7.2 | Install at `repository` scope for **VS Code** | Lands under `<workspace>/.github/` | 🟢 `test/e2e/repository-level-installation.test.ts`, `packages/infra/test/writers/repo-scope-writer.test.ts` |
+| ⭐ 7.2 | Install at `repository` scope for **VS Code** | Lands under `<workspace>/.github/` | 🟢 `test/e2e/repository-level-installation.test.ts`, `test/services/repository-scope-service.test.ts`, `packages/app/test/writers/file-tree-writer.test.ts` |
 | ⭐ 7.3 | Install at `user` scope for **Kiro** | Lands under `~/.kiro/` | 🟢 `test/services/user-scope-service.test.ts` writes and asserts `~/.kiro/agents/` on a real temp filesystem. (Note: `kiro-transformer.test.ts` is about agent frontmatter `name` fields, **not** routing) |
 | ⭐ 7.4 | Install at `repository` scope for **Kiro** | Lands under `<workspace>/.kiro/` | 🟢 `test/services/repository-scope-service.test.ts` (`Host-Aware Destinations`) asserts files land under `.kiro/` and *never* `.github/`, plus skills dirs, git-exclude paths and unsync cleanup |
 | 7.5 | Install for Claude Code and Windsurf | Correct per-host transform and layout | 🟢 `packages/app/test/transform/claude-code-transformer.test.ts`, `windsurf-transformer.test.ts` |
@@ -253,7 +253,7 @@ Layout resolution is well covered by unit tests. What they use is a mocked files
 
 - [x] Skills install end to end *(nock + mock vscode)*
 - [x] `prompts/` and `instructions/` both → `.kiro/steering/` *(real fs)*
-- [x] Skill id sanitisation, id override from manifest, unknown item types handled, special characters in paths — `packages/infra/test/writers/repo-scope-writer.test.ts` *(fake port)*
+- [x] Skill id sanitisation, id override from manifest, unknown item types handled, special characters in paths — `packages/app/test/install/target-install-planner.test.ts`, `packages/app/test/writers/file-tree-writer.test.ts` *(fake port)*
 - [x] Prompts, instructions, agents, chatmodes and skills all routed — `test/services/repository-scope-service.test.ts` *(real fs)*
 - [ ] A single collection carrying **all** kinds at once
 - [ ] `chatmodes/` → `agents/` folding on VS Code
@@ -383,7 +383,7 @@ This is the most heavily automated area in the repository — `test/services/loc
 - [x] The two lockfiles stay separate; source, hub and profile sections recorded *(real fs)*
 - [x] Local lockfile added to `.git/info/exclude` on first local-only install, not duplicated on later ones, skipped when `.git` is absent *(real fs)*
 - [x] Repository scope routes through `RepositoryScopeService`, and `LockfileManager` is **not** called for user scope *(mock vscode)*
-- [x] Writer places prompts, instructions, agents and skills, and honours git-exclude only in local-only mode — `packages/infra/test/writers/repo-scope-writer.test.ts` *(fake port)*
+- [x] Shared writer places exact prompt, instruction, agent and skill destinations; repository policy honours git-exclude only in local-only mode — `packages/app/test/writers/file-tree-writer.test.ts` *(fake port)*, `test/services/repository-scope-service.test.ts` *(real fs)*
 - [ ] Behaviour in a repository with an **unusual Git setup** (worktree, submodule, no `.git/info/`, pre-existing exclude section from another tool)
 
 **11.3 — host-aware destination**
