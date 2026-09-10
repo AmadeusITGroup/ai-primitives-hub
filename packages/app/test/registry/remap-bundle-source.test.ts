@@ -90,7 +90,7 @@ function makeInstalled(overrides: Partial<InstalledBundle> = {}): InstalledBundl
 function makePorts(
   sources: RegistrySource[] = [],
   installed: InstalledBundle[] = []
-): BundleSourceRemap & {
+): Omit<BundleSourceRemap, 'listSources' | 'remapLockfileSourceId' | 'getInstalledBundles' | 'recordInstallation'> & {
   listSources: ReturnType<typeof vi.fn>;
   remapLockfileSourceId: ReturnType<typeof vi.fn>;
   getInstalledBundles: ReturnType<typeof vi.fn>;
@@ -129,7 +129,7 @@ describe('remapBundleSource', () => {
 
     await expect(remapBundleSource('source-old', 'source-new', ports)).rejects.toThrow();
 
-    expect(ports.recordInstallation).not.toHaveBeenCalled();
+    expect(vi.mocked(ports.recordInstallation)).not.toHaveBeenCalled();
     expect(ports.records.every((r) => r.sourceId === 'source-old')).toBe(true);
   });
 
@@ -138,7 +138,7 @@ describe('remapBundleSource', () => {
 
     await expect(remapBundleSource('source-old', 'source-new', ports)).rejects.toThrow();
 
-    expect(ports.remapLockfileSourceId).not.toHaveBeenCalled();
+    expect(vi.mocked(ports.remapLockfileSourceId)).not.toHaveBeenCalled();
   });
 });
 
@@ -187,7 +187,7 @@ describe('remapBundleSource — happy path across the three stores', () => {
 
     await remapBundleSource(OLD_ID, NEW_ID, ports);
 
-    expect(ports.remapLockfileSourceId).toHaveBeenCalledWith(OLD_ID, NEW_ID, {
+    expect(vi.mocked(ports.remapLockfileSourceId)).toHaveBeenCalledWith(OLD_ID, NEW_ID, {
       type: 'github',
       url: 'https://github.com/org/renamed',
       branch: 'release',
@@ -203,7 +203,7 @@ describe('remapBundleSource — happy path across the three stores', () => {
 
     await remapBundleSource(OLD_ID, NEW_ID, ports);
 
-    expect(ports.remapLockfileSourceId).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ports.remapLockfileSourceId)).toHaveBeenCalledTimes(1);
   });
 
   it('omits branch and collectionsPath from the descriptor when the replacement carries no config', async () => {
@@ -214,7 +214,7 @@ describe('remapBundleSource — happy path across the three stores', () => {
 
     await remapBundleSource(OLD_ID, NEW_ID, ports);
 
-    expect(ports.remapLockfileSourceId).toHaveBeenCalledWith(OLD_ID, NEW_ID, {
+    expect(vi.mocked(ports.remapLockfileSourceId)).toHaveBeenCalledWith(OLD_ID, NEW_ID, {
       type: 'github',
       url: 'https://github.com/org/renamed',
       branch: undefined,
@@ -405,7 +405,7 @@ describe('remapBundleSource — retry after a partially completed run', () => {
     ports.recordInstallation.mockClear();
     await remapBundleSource(OLD_ID, NEW_ID, ports);
 
-    expect(ports.recordInstallation).not.toHaveBeenCalled();
+    expect(vi.mocked(ports.recordInstallation)).not.toHaveBeenCalled();
   });
 
   it('leaves every record identical across a third invocation', async () => {
