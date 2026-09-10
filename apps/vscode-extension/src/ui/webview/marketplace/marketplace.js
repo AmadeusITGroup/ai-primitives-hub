@@ -8,10 +8,19 @@
   let selectedSource = 'all';
   let selectedTags = [];
   let selectedContentTypes = [];
+  const contentTypes = [
+    { id: 'agents', label: 'Agents', icon: 'fa-robot' },
+    { id: 'skills', label: 'Skills', icon: 'fa-puzzle-piece' },
+    { id: 'prompts', label: 'Prompts', icon: 'fa-file-lines' },
+    { id: 'mcpServers', label: 'MCP Servers', icon: 'fa-plug' },
+    { id: 'instructions', label: 'Instructions', icon: 'fa-list-check' }
+  ];
   let sortBy = 'relevance';
   // Natural default direction per field: best/newest first, names A→Z.
   const SORT_DEFAULT_DIRECTION = { relevance: 'desc', name: 'asc', recent: 'desc' };
   let sortDirection = SORT_DEFAULT_DIRECTION[sortBy];
+  const filterDropdownIds = ['sourceDropdown', 'tagDropdown', 'contentTypeDropdown'];
+  let openFilterDropdownId;
   // Tracks whether the search box currently holds a query. Used to detect the
   // empty→typing transition so entering a search switches ordering to relevance
   // ("best match"), the way every marketplace search does — otherwise a lingering
@@ -95,7 +104,7 @@
         selectedSource = source.id;
         document.querySelector('#sourceSelectorText').textContent = source.name;
         sourceItem.querySelector('input[type="radio"]').checked = true;
-        document.querySelector('#sourceDropdown').style.display = 'none';
+        closeFilterDropdowns();
         updateMarketplaceSummary();
         renderBundles();
       });
@@ -110,13 +119,27 @@
       selectedSource = 'all';
       document.querySelector('#sourceSelectorText').textContent = 'Sources';
       allItem.querySelector('input[type="radio"]').checked = true;
-      document.querySelector('#sourceDropdown').style.display = 'none';
+      closeFilterDropdowns();
       updateMarketplaceSummary();
       renderBundles();
     });
 
     // Populate tag list with checkboxes
     tagList.innerHTML = '';
+
+    var allTagsItem = document.createElement('div');
+    allTagsItem.className = 'tag-item tag-all' + (selectedTags.length === 0 ? ' active' : '');
+    allTagsItem.innerHTML = '<input type="radio" name="tagMode" id="tag-all" ' + (selectedTags.length === 0 ? 'checked' : '') + '>'
+      + '<label for="tag-all">All tags</label>';
+    allTagsItem.addEventListener('click', () => {
+      selectedTags = [];
+      syncAllTagsRow();
+      updateTagButtonText();
+      updateMarketplaceSummary();
+      renderBundles();
+    });
+    tagList.append(allTagsItem);
+
     filterOptions.tags.forEach((tag) => {
       var tagItem = document.createElement('div');
       tagItem.className = 'tag-item';
@@ -137,60 +160,35 @@
       tagItem.append(checkbox);
       tagItem.append(label);
 
-      // Toggle checkbox on item click
       tagItem.addEventListener('click', (e) => {
-        if (e.target !== checkbox) {
-          checkbox.checked = !checkbox.checked;
+        if (e.target === checkbox || e.target === label) {
+          return;
         }
+        checkbox.checked = !checkbox.checked;
         updateSelectedTags();
       });
+      checkbox.addEventListener('change', updateSelectedTags);
 
       tagList.append(tagItem);
     });
 
     // Populate content type selector
     var contentTypeList = document.querySelector('#contentTypeList');
-    var contentTypes = [
-      { id: 'agents', label: 'Agents', icon: 'fa-robot' },
-      { id: 'skills', label: 'Skills', icon: 'fa-puzzle-piece' },
-      { id: 'prompts', label: 'Prompts', icon: 'fa-file-lines' },
-      { id: 'mcpServers', label: 'MCP Servers', icon: 'fa-plug' },
-      { id: 'instructions', label: 'Instructions', icon: 'fa-list-check' }
-    ];
 
     contentTypeList.innerHTML = '';
 
-    // Add "Select All" option at the top
-    var selectAllItem = document.createElement('div');
-    selectAllItem.className = 'content-type-item content-type-select-all';
-
-    var selectAllCheckbox = document.createElement('input');
-    selectAllCheckbox.type = 'checkbox';
-    selectAllCheckbox.id = 'contentType-selectAll';
-    selectAllCheckbox.checked = selectedContentTypes.length === 0 || selectedContentTypes.length === contentTypes.length;
-
-    var selectAllLabel = document.createElement('label');
-    selectAllLabel.htmlFor = 'contentType-selectAll';
-    selectAllLabel.textContent = 'Select All';
-    selectAllLabel.style.cursor = 'pointer';
-    selectAllLabel.style.flex = '1';
-    selectAllLabel.style.fontWeight = '500';
-
-    selectAllItem.append(selectAllCheckbox);
-    selectAllItem.append(selectAllLabel);
-
-    selectAllItem.addEventListener('click', (e) => {
-      if (e.target !== selectAllCheckbox) {
-        selectAllCheckbox.checked = !selectAllCheckbox.checked;
-      }
-      var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
-      allCheckboxes.forEach((cb) => {
-        cb.checked = selectAllCheckbox.checked;
-      });
-      updateSelectedContentTypes();
+    var allPrimitivesItem = document.createElement('div');
+    allPrimitivesItem.className = 'content-type-item content-type-all' + (selectedContentTypes.length === 0 ? ' active' : '');
+    allPrimitivesItem.innerHTML = '<input type="radio" name="contentTypeMode" id="contentType-all" ' + (selectedContentTypes.length === 0 ? 'checked' : '') + '>'
+      + '<label for="contentType-all">All primitives</label>';
+    allPrimitivesItem.addEventListener('click', () => {
+      selectedContentTypes = [];
+      syncAllPrimitivesRow();
+      updateContentTypeButtonText();
+      updateMarketplaceSummary();
+      renderBundles();
     });
-
-    contentTypeList.append(selectAllItem);
+    contentTypeList.append(allPrimitivesItem);
 
     contentTypes.forEach((ct) => {
       var item = document.createElement('div');
@@ -213,18 +211,55 @@
       item.append(label);
 
       item.addEventListener('click', (e) => {
-        if (e.target !== checkbox) {
-          checkbox.checked = !checkbox.checked;
+        if (e.target === checkbox || e.target === label) {
+          return;
         }
-        // Update "Select All" checkbox state
-        var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
-        var allChecked = Array.from(allCheckboxes).every((cb) => cb.checked);
-        document.querySelector('#contentType-selectAll').checked = allChecked;
+        checkbox.checked = !checkbox.checked;
         updateSelectedContentTypes();
       });
+      checkbox.addEventListener('change', updateSelectedContentTypes);
 
       contentTypeList.append(item);
     });
+  };
+
+  // Keep an "All …" row (the radio at the top of a multi-select dropdown) in sync
+  // with the checkbox rows below it, without rebuilding the list.
+  //
+  // Rebuilding via updateFilterUI() replaces every row element, so any handler or
+  // caller still holding a row reference ends up mutating a detached node while the
+  // state is read back from the freshly rendered list. That is why toggling the rows
+  // in sequence used to end with an empty selection. It also drops focus and scroll
+  // position mid-interaction. The checkbox DOM is already correct at this point, so
+  // only the "All …" row needs updating.
+  // @param listId - Id of the list holding the individual checkbox rows.
+  // @param allRowSelector - Selector for the "All …" row.
+  // @param allInputId - Id of the "All …" radio input.
+  // @param hasSelection - Whether any individual option is currently selected.
+  const syncAllOptionRow = (listId, allRowSelector, allInputId, hasSelection) => {
+    var allRow = document.querySelector(allRowSelector);
+    if (allRow) {
+      allRow.classList.toggle('active', !hasSelection);
+    }
+    var allInput = document.querySelector('#' + allInputId);
+    if (allInput) {
+      allInput.checked = !hasSelection;
+    }
+    if (!hasSelection) {
+      // "All" means no individual option is active, so clear the boxes too. This
+      // also covers the case where selecting every option collapses back to "all".
+      document.querySelectorAll('#' + listId + ' input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+    }
+  };
+
+  const syncAllTagsRow = () => {
+    syncAllOptionRow('tagList', '.tag-all', 'tag-all', selectedTags.length > 0);
+  };
+
+  const syncAllPrimitivesRow = () => {
+    syncAllOptionRow('contentTypeList', '.content-type-all', 'contentType-all', selectedContentTypes.length > 0);
   };
 
   // Update selected tags from checkboxes
@@ -233,6 +268,7 @@
     selectedTags = Array.from(checkboxes).map((cb) => {
       return cb.value;
     });
+    syncAllTagsRow();
     updateTagButtonText();
     updateMarketplaceSummary();
     renderBundles();
@@ -248,22 +284,6 @@
     } else {
       tagSelectorText.textContent = selectedTags.length + ' tags';
     }
-  };
-
-  // Update selected content types from checkboxes
-  const updateSelectedContentTypes = () => {
-    var allCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:not(#contentType-selectAll)');
-    var checkedBoxes = Array.from(allCheckboxes).filter((cb) => cb.checked);
-    // When all types are selected (or none are selected), treat as no filter so all bundles are shown
-    if (checkedBoxes.length === 0 || checkedBoxes.length === allCheckboxes.length) {
-      selectedContentTypes = [];
-      document.querySelector('#contentType-selectAll').checked = true;
-    } else {
-      selectedContentTypes = checkedBoxes.map((cb) => cb.value);
-    }
-    updateContentTypeButtonText();
-    updateMarketplaceSummary();
-    renderBundles();
   };
 
   // Keep the compact tab and active-filter strip in sync with the current state.
@@ -479,31 +499,64 @@
     }
   };
 
+  const updateSelectedContentTypes = () => {
+    var checkedBoxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]:checked');
+    selectedContentTypes = Array.from(checkedBoxes).map((checkbox) => checkbox.value);
+    if (selectedContentTypes.length === contentTypes.length) {
+      selectedContentTypes = [];
+    }
+    syncAllPrimitivesRow();
+    updateContentTypeButtonText();
+    updateMarketplaceSummary();
+    renderBundles();
+  };
+
+  const closeFilterDropdowns = () => {
+    filterDropdownIds.forEach((dropdownId) => {
+      document.querySelector('#' + dropdownId).style.display = 'none';
+      document.querySelector('[aria-controls="' + dropdownId + '"]').setAttribute('aria-expanded', 'false');
+    });
+    openFilterDropdownId = undefined;
+  };
+
+  const toggleFilterDropdown = (dropdownId) => {
+    openFilterDropdownId = openFilterDropdownId === dropdownId ? undefined : dropdownId;
+    filterDropdownIds.forEach((id) => {
+      var isOpen = id === openFilterDropdownId;
+      document.querySelector('#' + id).style.display = isOpen ? 'block' : 'none';
+      document.querySelector('[aria-controls="' + id + '"]').setAttribute('aria-expanded', String(isOpen));
+    });
+    return openFilterDropdownId === dropdownId;
+  };
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && openFilterDropdownId) {
+      var dropdownId = openFilterDropdownId;
+      closeFilterDropdowns();
+      document.querySelector('[aria-controls="' + dropdownId + '"]')?.focus();
+    }
+  });
+
   // Toggle tag dropdown
   document.querySelector('#tagSelectorBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    var dropdown = document.querySelector('#tagDropdown');
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-
-    if (dropdown.style.display === 'block') {
+    if (toggleFilterDropdown('tagDropdown')) {
       document.querySelector('#tagSearch').focus();
     }
   });
 
-  // Close dropdown when clicking outside
+  // Close filter dropdowns when clicking outside.
   document.addEventListener('click', (e) => {
-    var tagSelector = document.querySelector('.tag-selector');
-    var dropdown = document.querySelector('#tagDropdown');
-
-    if (tagSelector && !tagSelector.contains(e.target) && dropdown && dropdown.style.display === 'block') {
-      dropdown.style.display = 'none';
+    var filterRow = document.querySelector('.filter-row');
+    if (filterRow && !filterRow.contains(e.target)) {
+      closeFilterDropdowns();
     }
   });
 
   // Tag search functionality
   document.querySelector('#tagSearch').addEventListener('input', (e) => {
     var searchTerm = e.target.value.toLowerCase();
-    var tagItems = document.querySelectorAll('.tag-item');
+    var tagItems = document.querySelectorAll('.tag-item[data-tag]');
 
     tagItems.forEach((item) => {
       var tagName = item.dataset.tag.toLowerCase();
@@ -514,18 +567,7 @@
   // Content type selector button click
   document.querySelector('#contentTypeSelectorBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    var dropdown = document.querySelector('#contentTypeDropdown');
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-  });
-
-  // Close content type dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    var contentTypeSelector = document.querySelector('.content-type-selector');
-    var dropdown = document.querySelector('#contentTypeDropdown');
-
-    if (contentTypeSelector && !contentTypeSelector.contains(e.target) && dropdown && dropdown.style.display === 'block') {
-      dropdown.style.display = 'none';
-    }
+    toggleFilterDropdown('contentTypeDropdown');
   });
 
   // Show the clear (×) button only while the search box holds text.
@@ -587,21 +629,8 @@
   // Source selector button click
   document.querySelector('#sourceSelectorBtn').addEventListener('click', (e) => {
     e.stopPropagation();
-    var dropdown = document.querySelector('#sourceDropdown');
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-
-    if (dropdown.style.display === 'block') {
+    if (toggleFilterDropdown('sourceDropdown')) {
       document.querySelector('#sourceSearch').focus();
-    }
-  });
-
-  // Close source dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    var sourceSelector = document.querySelector('.source-selector');
-    var dropdown = document.querySelector('#sourceDropdown');
-
-    if (sourceSelector && !sourceSelector.contains(e.target) && dropdown && dropdown.style.display === 'block') {
-      dropdown.style.display = 'none';
     }
   });
 
@@ -616,34 +645,6 @@
     });
   });
 
-  // Source item selection
-  document.querySelectorAll('.source-item').forEach((item) => {
-    item.addEventListener('click', () => {
-      // Update selection
-      document.querySelectorAll('.source-item').forEach((i) => {
-        i.classList.remove('active');
-      });
-      item.classList.add('active');
-
-      // Update selected source
-      selectedSource = item.dataset.source;
-
-      // Update button text
-      var label = item.querySelector('label').textContent;
-      document.querySelector('#sourceSelectorText').textContent = label;
-
-      // Check radio button
-      item.querySelector('input[type="radio"]').checked = true;
-
-      // Close dropdown
-      document.querySelector('#sourceDropdown').style.display = 'none';
-
-      // Re-render bundles
-      updateMarketplaceSummary();
-      renderBundles();
-    });
-  });
-
   // Reset filters from the compact active-filter strip.
   const resetFilters = () => {
     document.querySelector('#searchBox').value = '';
@@ -651,47 +652,26 @@
     document.querySelector('#sourceSearch').value = '';
     document.querySelector('#tagSearch').value = '';
 
-    // Reset source selector
+    // Reset the filters as state only. The render helpers at the end of this function
+    // rebuild the dropdown rows and selector labels from that state, so resetting the
+    // same things imperatively here too would just duplicate them — which is how this
+    // function ended up assigning the same field twice. The source label is the one
+    // exception: it has no state-driven update helper, so it is still set by hand.
     selectedSource = 'all';
-    document.querySelector('#sourceSelectorText').textContent = 'Sources';
-    document.querySelectorAll('.source-item').forEach((item) => {
-      item.classList.remove('active');
-      if (item.dataset.source === 'all') {
-        item.classList.add('active');
-        item.querySelector('input[type="radio"]').checked = true;
-      }
-    });
-
-    // Uncheck all tag checkboxes
-    var checkboxes = document.querySelectorAll('#tagList input[type="checkbox"]');
-    checkboxes.forEach((cb) => {
-      cb.checked = false;
-    });
-
-    // Show all tags
-    var tagItems = document.querySelectorAll('.tag-item');
-    tagItems.forEach((item) => {
-      item.classList.remove('hidden');
-    });
-
-    // Reset content type selector
+    selectedTags = [];
     selectedContentTypes = [];
-    document.querySelector('#contentTypeSelectorText').textContent = 'Primitives';
-    var contentTypeCheckboxes = document.querySelectorAll('#contentTypeList input[type="checkbox"]');
-    contentTypeCheckboxes.forEach((cb) => {
-      cb.checked = true;
-    });
+    selectedTab = 'for-you';
+    document.querySelector('#sourceSelectorText').textContent = 'Sources';
 
     // Reset Sort back to Relevance (default direction) and close its popover
     sortBy = 'relevance';
     sortDirection = SORT_DEFAULT_DIRECTION[sortBy];
     closeSortPopover();
 
-    selectedSource = 'all';
-    selectedTags = [];
-    selectedTab = 'for-you';
     document.querySelectorAll('.marketplace-tab').forEach((item) => item.classList.toggle('active', item.dataset.tab === selectedTab));
+    updateFilterUI();
     updateTagButtonText();
+    updateContentTypeButtonText();
     updateMarketplaceSummary();
     renderBundles();
   };

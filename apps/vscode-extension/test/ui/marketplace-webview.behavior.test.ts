@@ -79,6 +79,30 @@ const createHarness = (): WebviewHarness => {
   return { dom, messages };
 };
 
+/** The filter dropdowns sharing the single-open-at-a-time controller, with their triggers. */
+const FILTER_DROPDOWNS = [
+  { trigger: '#sourceSelectorBtn', dropdown: 'sourceDropdown' },
+  { trigger: '#tagSelectorBtn', dropdown: 'tagDropdown' },
+  { trigger: '#contentTypeSelectorBtn', dropdown: 'contentTypeDropdown' }
+];
+
+const visibleDropdowns = (harness: WebviewHarness): string[] => FILTER_DROPDOWNS
+  .map(({ dropdown }) => dropdown)
+  .filter((dropdown) => {
+    const element = harness.dom.window.document.querySelector('#' + dropdown) as unknown as {
+      style: { display: string };
+    } | null;
+
+    return element?.style.display === 'block';
+  });
+
+const pressEscape = (harness: WebviewHarness): void => {
+  harness.dom.window.document.dispatchEvent(new harness.dom.window.KeyboardEvent('keydown', {
+    key: 'Escape',
+    bubbles: true
+  }));
+};
+
 const loadBundles = (harness: WebviewHarness): void => {
   harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
     data: {
@@ -117,6 +141,187 @@ suite('Marketplace webview behavior', () => {
       assert.strictEqual((document.querySelector('#tag-beta') as unknown as { checked: boolean })?.checked, false);
       assert.strictEqual((document.querySelector('#tag-alpha') as unknown as { checked: boolean })?.checked, true);
       assert.strictEqual((document.querySelector('#tag-gamma') as unknown as { checked: boolean })?.checked, true);
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('restores the unfiltered primitives state from the All primitives option', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      const { document } = harness.dom.window;
+
+      (document.querySelector('#contentType-agents') as unknown as { click: () => void }).click();
+      (document.querySelector('#contentType-skills') as unknown as { click: () => void }).click();
+
+      assert.strictEqual(document.querySelector('#contentTypeSelectorText')?.textContent, '2 types');
+      assert.strictEqual(document.querySelectorAll('[data-filter="content"]').length, 2);
+      // As with tags, the "All primitives" radio starts out checked, so assert it is
+      // released here to keep the post-reset assertions meaningful.
+      assert.strictEqual((document.querySelector('#contentType-all') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual(document.querySelector('.content-type-all')?.classList.contains('active'), false);
+
+      (document.querySelector('.content-type-all') as unknown as { click: () => void }).click();
+
+      assert.strictEqual(document.querySelector('#contentTypeSelectorText')?.textContent, 'Primitives');
+      assert.strictEqual(document.querySelectorAll('[data-filter="content"]').length, 0);
+      assert.strictEqual((document.querySelector('#contentType-all') as unknown as { checked: boolean })?.checked, true);
+      assert.strictEqual(document.querySelector('.content-type-all')?.classList.contains('active'), true);
+      assert.strictEqual((document.querySelector('#contentType-agents') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual((document.querySelector('#contentType-skills') as unknown as { checked: boolean })?.checked, false);
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('restores the unfiltered tag state from the All tags option', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      const { document } = harness.dom.window;
+
+      (document.querySelector('#tagSelectorBtn') as unknown as { click: () => void }).click();
+      document.querySelectorAll('.tag-item[data-tag]').forEach((item) => {
+        (item as unknown as { click: () => void }).click();
+      });
+
+      assert.strictEqual(document.querySelector('#tagSelectorText')?.textContent, '3 tags');
+      assert.strictEqual(document.querySelectorAll('[data-filter="tag"]').length, 3);
+      // The "All tags" row must give up both its checked radio and its active styling
+      // while individual tags are selected, otherwise the reset below proves nothing:
+      // the radio starts out checked at render time.
+      assert.strictEqual((document.querySelector('#tag-all') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual(document.querySelector('.tag-all')?.classList.contains('active'), false);
+
+      (document.querySelector('.tag-all') as unknown as { click: () => void }).click();
+
+      assert.strictEqual(document.querySelector('#tagSelectorText')?.textContent, 'Tags');
+      assert.strictEqual(document.querySelectorAll('[data-filter="tag"]').length, 0);
+      assert.strictEqual((document.querySelector('#tag-all') as unknown as { checked: boolean })?.checked, true);
+      assert.strictEqual(document.querySelector('.tag-all')?.classList.contains('active'), true);
+      assert.strictEqual((document.querySelector('#tag-alpha') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual((document.querySelector('#tag-beta') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual((document.querySelector('#tag-gamma') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual(document.querySelectorAll('.bundle-card').length, 1);
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('clears search, tag and primitive filters together from the Clear action', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      const { document } = harness.dom.window;
+      const searchBox = document.querySelector('#searchBox') as unknown as {
+        value: string;
+        dispatchEvent: (event: Event) => boolean;
+      };
+
+      searchBox.value = 'bundle';
+      searchBox.dispatchEvent(new harness.dom.window.Event('input', { bubbles: true }));
+      (document.querySelector('.tag-item[data-tag="alpha"]') as unknown as { click: () => void }).click();
+      (document.querySelector('#contentType-prompts') as unknown as { click: () => void }).click();
+
+      assert.ok(document.querySelectorAll('[data-filter]').length > 0, 'filters should be active before clearing');
+
+      (document.querySelector('#clearActiveFilters') as unknown as { click: () => void }).click();
+
+      assert.strictEqual(searchBox.value, '');
+      assert.strictEqual(document.querySelectorAll('[data-filter]').length, 0);
+      assert.strictEqual(document.querySelector('#tagSelectorText')?.textContent, 'Tags');
+      assert.strictEqual(document.querySelector('#contentTypeSelectorText')?.textContent, 'Primitives');
+      assert.strictEqual(document.querySelector('#sourceSelectorText')?.textContent, 'Sources');
+      // resetFilters resets state and lets updateFilterUI rebuild the rows, so the
+      // rebuilt dropdown rows must come back unchecked and in their "All …" state.
+      assert.strictEqual((document.querySelector('#tag-all') as unknown as { checked: boolean })?.checked, true);
+      assert.strictEqual((document.querySelector('#tag-alpha') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual((document.querySelector('#contentType-all') as unknown as { checked: boolean })?.checked, true);
+      assert.strictEqual((document.querySelector('#contentType-prompts') as unknown as { checked: boolean })?.checked, false);
+      assert.strictEqual((document.querySelector('#source-all') as unknown as { checked: boolean })?.checked, true);
+      assert.strictEqual(document.querySelectorAll('.tag-item.hidden').length, 0, 'tag search filtering should be undone');
+      assert.strictEqual(document.querySelectorAll('.bundle-card').length, 1);
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('keeps the Source, Tags and Primitives dropdowns mutually exclusive', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      const { document } = harness.dom.window;
+
+      FILTER_DROPDOWNS.forEach(({ trigger, dropdown }) => {
+        (document.querySelector(trigger) as unknown as { click: () => void }).click();
+
+        assert.deepStrictEqual(visibleDropdowns(harness), [dropdown], 'only ' + dropdown + ' should be visible');
+        FILTER_DROPDOWNS.forEach((candidate) => {
+          assert.strictEqual(
+            document.querySelector(candidate.trigger)?.getAttribute('aria-expanded'),
+            String(candidate.dropdown === dropdown),
+            candidate.trigger + ' aria-expanded should track its own dropdown'
+          );
+        });
+      });
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('collapses an open filter dropdown when its own trigger is clicked again', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      const { document } = harness.dom.window;
+      const tagTrigger = document.querySelector('#tagSelectorBtn') as unknown as { click: () => void };
+
+      tagTrigger.click();
+      assert.deepStrictEqual(visibleDropdowns(harness), ['tagDropdown']);
+
+      tagTrigger.click();
+
+      assert.deepStrictEqual(visibleDropdowns(harness), []);
+      assert.strictEqual(document.querySelector('#tagSelectorBtn')?.getAttribute('aria-expanded'), 'false');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('closes the open filter dropdown on Escape and restores focus to its trigger', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      const { document } = harness.dom.window;
+
+      FILTER_DROPDOWNS.forEach(({ trigger, dropdown }) => {
+        (document.querySelector(trigger) as unknown as { click: () => void }).click();
+        assert.deepStrictEqual(visibleDropdowns(harness), [dropdown]);
+
+        pressEscape(harness);
+
+        assert.deepStrictEqual(visibleDropdowns(harness), [], dropdown + ' should close on Escape');
+        assert.strictEqual(document.querySelector(trigger)?.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(document.activeElement, document.querySelector(trigger), 'focus should return to ' + trigger);
+      });
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('ignores Escape when no filter dropdown is open', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      const { document } = harness.dom.window;
+      const searchBox = document.querySelector('#searchBox') as unknown as { focus: () => void };
+      searchBox.focus();
+
+      pressEscape(harness);
+
+      assert.deepStrictEqual(visibleDropdowns(harness), []);
+      assert.strictEqual(document.activeElement, document.querySelector('#searchBox'), 'focus should stay where it was');
     } finally {
       harness.dom.window.close();
     }
