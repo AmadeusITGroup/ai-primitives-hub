@@ -6,7 +6,7 @@
     "validate": "node validate-apm.js"
   },
   "devDependencies": {
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^5.0.0"
   },
   "keywords": [
     "apm",
