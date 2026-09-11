@@ -3,7 +3,7 @@ import {
   globalIgnores,
 } from 'eslint/config';
 import globals from 'globals';
-import jsonParser from 'jsonc-eslint-parser';
+import * as jsonParser from 'jsonc-eslint-parser';
 import {
   createSharedConfig,
   temporaryWarnRules,
