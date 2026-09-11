@@ -8,6 +8,7 @@ packages:
 overrides:
   '@hono/node-server': 2.1.1
   browserslist: ^4.28.7
+  eslint-plugin-import-newlines: 2.0.0
   fast-uri: ^4.0.0
   js-yaml: ^4.1.1
   mocha>chokidar: ^5.0.0
