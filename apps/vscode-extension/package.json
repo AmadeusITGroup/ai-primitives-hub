@@ -796,7 +796,7 @@
     "eslint-plugin-unicorn": "^62.0.0",
     "eslint-plugin-unused-imports": "^4.4.1",
     "fast-check": "^3.23.2",
-    "globals": "^16.5.0",
+    "globals": "^17.0.0",
     "jsdom": "^30.0.1",
     "jsonc-eslint-parser": "^2.4.2",
     "mocha": "^11.7.6",
