@@ -135,6 +135,33 @@ profiles: []
     );
   });
 
+  it('imports a private Artifactory hub with a source-scoped Bearer credential', async () => {
+    const requests: HttpRequest[] = [];
+    const http: HttpClient = {
+      fetch: async (request) => {
+        requests.push(request);
+        return {
+          statusCode: 200,
+          body: new Uint8Array(await readFile(hubConfigFile)),
+          finalUrl: request.url,
+          headers: {}
+        };
+      }
+    };
+    const result = await runWithHttp([
+      'hub', 'add', '--type', 'artifactory', '--location', 'https://artifactory.example/repo/hub',
+      '--auth', 'bearer', '--credential-ref', 'PRIVATE_HUB', '--no-sync', '--no-use', '-o', 'json'
+    ], http, {
+      HOME: workspace,
+      PRIVATE_HUB: 'private-test-token'
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].headers?.Authorization).toBe('Bearer private-test-token');
+    expect(result.stdout).not.toContain('private-test-token');
+  });
+
   afterEach(async () => {
     await rm(workspace, { recursive: true, force: true });
   });

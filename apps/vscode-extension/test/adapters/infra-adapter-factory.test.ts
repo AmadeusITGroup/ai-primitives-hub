@@ -8,7 +8,11 @@ import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
   createRegistryAdapter,
+  SourceVaultCredentialProvider,
 } from '../../src/adapters/infra-adapter-factory';
+import {
+  SourceTokenVault,
+} from '../../src/services/source-token-vault';
 import {
   RegistrySource,
 } from '../../src/types/registry';
@@ -53,7 +57,8 @@ suite('createRegistryAdapter', () => {
     ['github', 'https://github.com/owner/repo'],
     ['skills', 'https://github.com/owner/repo'],
     ['awesome-copilot', 'https://github.com/owner/repo'],
-    ['apm', 'https://github.com/owner/repo']
+    ['apm', 'https://github.com/owner/repo'],
+    ['artifactory', 'https://artifactory.example/repository/']
   ];
 
   for (const [type, url] of cases) {
@@ -62,6 +67,25 @@ suite('createRegistryAdapter', () => {
       assert.strictEqual(adapter.type, type);
     });
   }
+
+  test('uses source-scoped Bearer credentials for Artifactory only within the source root', async () => {
+    const secrets = new Map<string, string>([[SourceTokenVault.key('test-source'), 'artifactory-secret']]);
+    const vault = new SourceTokenVault({
+      get: async (key: string) => secrets.get(key),
+      store: async (key: string, value: string) => {
+        secrets.set(key, value);
+      },
+      delete: async (key: string) => {
+        secrets.delete(key);
+      }
+    } as any);
+    const source = makeSource({ type: 'artifactory', url: 'https://artifactory.example/repository' });
+    const provider = new SourceVaultCredentialProvider(vault, source);
+    const context = { sourceId: 'https://artifactory.example/repository/', trustedOrigin: 'https://artifactory.example', trustedPathPrefix: '/repository/' };
+
+    assert.deepStrictEqual(await provider.headersFor(`${source.url}/index.json`, context), { Authorization: 'Bearer artifactory-secret' });
+    await assert.rejects(provider.headersFor('https://artifactory.example/other/index.json', context));
+  });
 
   test('throws a descriptive error for an unknown source type', () => {
     assert.throws(

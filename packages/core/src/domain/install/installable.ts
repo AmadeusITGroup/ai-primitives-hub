@@ -74,7 +74,7 @@ export interface Installable {
    * than serving pre-packaged zips.
    */
   inlineBytes?: Uint8Array;
-  /** Optional integrity hash (e.g., `sha256-base64`). */
+  /** Optional canonical archive integrity (`sha256:<64 lowercase hexadecimal characters>`). */
   integrity?: string;
   /** Optional pre-fetched manifest. */
   manifest?: Record<string, unknown>;

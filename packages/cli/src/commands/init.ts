@@ -59,7 +59,7 @@ import {
 } from '../framework';
 
 type TargetScope = 'user' | 'repository';
-type HubType = 'github' | 'local' | 'url';
+type HubType = 'github' | 'local' | 'url' | 'artifactory';
 
 const DEFAULT_TARGET_NAME = 'copilot';
 const DEFAULT_TARGET_TYPE: TargetType = 'copilot-cli';

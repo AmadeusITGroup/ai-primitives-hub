@@ -112,6 +112,12 @@ describe('validateHubReference', () => {
     );
   });
 
+  it('allows loopback http only for Artifactory development references', () => {
+    expect(() => validateHubReference({ type: 'artifactory', location: 'http://127.0.0.1:8081/artifactory/hub' })).not.toThrow();
+    expect(() => validateHubReference({ type: 'artifactory', location: 'http://localhost:8081/artifactory/hub' })).not.toThrow();
+    expect(() => validateHubReference({ type: 'artifactory', location: 'http://example.com/artifactory/hub' })).toThrow('HTTPS');
+  });
+
   it('rejects a malformed url reference', () => {
     expect(() => validateHubReference({ type: 'url', location: 'not a url' })).toThrow('Invalid URL format');
   });

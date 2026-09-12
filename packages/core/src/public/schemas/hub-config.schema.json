@@ -76,7 +76,7 @@
           },
           "type": {
             "type": "string",
-            "description": "Type of the source repository (github, local, awesome-copilot, local-awesome-copilot, apm, local-apm, skills, local-skills, azure-devops)",
+            "description": "Type of the source repository (github, local, awesome-copilot, local-awesome-copilot, apm, local-apm, skills, local-skills, azure-devops, artifactory)",
             "enum": [
               "github",
               "local",
@@ -86,7 +86,8 @@
               "local-apm",
               "skills",
               "local-skills",
-              "azure-devops"
+              "azure-devops",
+              "artifactory"
             ]
           },
           "url": {
@@ -109,6 +110,10 @@
             "type": "boolean",
             "description": "Whether this source is currently active"
           },
+          "private": {
+            "type": "boolean",
+            "description": "Whether the source requires private credentials"
+          },
           "priority": {
             "type": "number",
             "description": "Priority order for source resolution (higher = higher priority)",
@@ -129,7 +134,17 @@
               },
               "indexFile": {
                 "type": "string",
-                "description": "Index file name (for awesome-copilot sources)"
+                "description": "Index file name (for awesome-copilot and Artifactory sources)"
+              },
+              "authMode": {
+                "type": "string",
+                "enum": ["anonymous", "bearer"],
+                "description": "Artifactory authentication mode"
+              },
+              "credentialRef": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Reference to an external Artifactory credential; never a secret value"
               }
             }
           },

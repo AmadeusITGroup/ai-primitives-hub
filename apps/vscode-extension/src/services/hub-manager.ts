@@ -34,6 +34,8 @@ import type {
   ProfileLifecycleSync,
 } from '@ai-primitives-hub/core';
 import {
+  AnonymousCredentialProvider,
+  ArtifactoryHubResolver,
   CompositeHubResolver,
   CompositeTokenProvider,
   GhCliTokenProvider,
@@ -44,6 +46,9 @@ import {
   UrlHubResolver,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
+import {
+  HubVaultCredentialProvider,
+} from '../adapters/infra-adapter-factory';
 import {
   VsCodeSessionTokenProvider,
 } from '../adapters/vscode-session-token-provider';
@@ -74,6 +79,9 @@ import {
   SchemaValidator,
   ValidationResult,
 } from './schema-validator';
+import {
+  HubTokenVault,
+} from './source-token-vault';
 
 /**
  * Resolved bundle with its download URL
@@ -122,7 +130,27 @@ export interface SetActiveHubOptions {
 
 /**
  * HubManager orchestrates all hub-related operations
+ * @param sources
+ * @param reference
+ * @param secrets
  */
+async function hydrateArtifactorySources(
+  sources: CoreHubConfig['sources'],
+  reference: HubReference,
+  secrets?: vscode.SecretStorage
+): Promise<CoreHubConfig['sources']> {
+  if (reference.type !== 'artifactory' || reference.authMode !== 'bearer'
+    || !reference.credentialRef || !secrets) {
+    return sources;
+  }
+  const token = await new HubTokenVault(secrets).get(reference.credentialRef);
+  return token
+    ? sources.map((source) => source.type === 'artifactory' && !source.token
+      ? { ...source, token }
+      : source)
+    : sources;
+}
+
 export class HubManager {
   private readonly storage: HubStorage;
   private readonly validator: SchemaValidator;
@@ -154,7 +182,8 @@ export class HubManager {
     validator: SchemaValidator,
     extensionPath: string,
     private readonly bundleInstaller?: any,
-    private readonly registryManager?: any
+    private readonly registryManager?: any,
+    private readonly secrets?: vscode.SecretStorage
   ) {
     if (!storage) {
       throw new Error('storage is required');
@@ -199,7 +228,16 @@ export class HubManager {
     const resolver = new CompositeHubResolver(
       new GitHubHubResolver(httpClient, tokenProvider),
       new LocalHubResolver(new NodeFileSystem()),
-      new UrlHubResolver(httpClient, tokenProvider)
+      new UrlHubResolver(httpClient, tokenProvider),
+      new ArtifactoryHubResolver(httpClient, (reference, root) => {
+        if (reference.authMode !== 'bearer') {
+          return new AnonymousCredentialProvider();
+        }
+        if (!secrets || !reference.credentialRef) {
+          throw new Error('Artifactory Bearer authentication requires a SecretStorage credentialRef.');
+        }
+        return new HubVaultCredentialProvider(new HubTokenVault(secrets), reference.credentialRef, root);
+      })
     );
 
     this.appHubManager = new AppHubManager({
@@ -324,14 +362,6 @@ export class HubManager {
     return resolvedHubId;
   }
 
-  /**
-   * Import a hub and immediately start progressive source loading/syncing.
-   * Returns handles so callers can unblock early (`onFirstSettled`) or wait
-   * for the full batch (`onComplete`).
-   * @param reference Hub reference (GitHub, URL, or local path)
-   * @param hubId Optional hub identifier (auto-generated if not provided)
-   * @returns Hub identifier and progressive-load handles
-   */
   public async importHubProgressively(
     reference: HubReference,
     hubId?: string
@@ -347,9 +377,10 @@ export class HubManager {
     }
 
     const hubData = await this.storage.loadHub(resolvedHubId);
+    const sources = await hydrateArtifactorySources(hubData.config.sources ?? [], hubData.reference, this.secrets);
     const result = loadHubSourcesProgressively(
       resolvedHubId,
-      hubData.config.sources ?? [],
+      sources,
       {
         listSources: () => this.registryManager.listSources(),
         addSource: (s) => this.registryManager.addSource(s),
@@ -601,7 +632,7 @@ export class HubManager {
       // the background so the marketplace/tree fill in progressively.
       if (this.registryManager && options?.loadSources !== false) {
         const hubData = await this.storage.loadHub(hubId);
-        const sources = hubData.config.sources ?? [];
+        const sources = await hydrateArtifactorySources(hubData.config.sources ?? [], hubData.reference, this.secrets);
         const { onComplete } = loadHubSourcesProgressively(
           hubId,
           sources,
@@ -662,7 +693,7 @@ export class HubManager {
 
     try {
       const hubData = await this.storage.loadHub(hubId);
-      const hubSources = hubData.config.sources || [];
+      const hubSources = await hydrateArtifactorySources(hubData.config.sources || [], hubData.reference, this.secrets);
 
       await appLoadHubSources(
         hubId,

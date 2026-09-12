@@ -12,6 +12,9 @@ import {
   RegistryManager,
 } from '../services/registry-manager';
 import {
+  HubTokenVault,
+} from '../services/source-token-vault';
+import {
   HubReference,
 } from '../types/hub';
 import {
@@ -24,7 +27,7 @@ import {
 interface HubSourceOption {
   label: string;
   description: string;
-  value: 'github' | 'url' | 'local';
+  value: 'github' | 'url' | 'local' | 'artifactory';
 }
 
 /**
@@ -134,18 +137,18 @@ export class HubCommands {
   /**
    * Select hub source type
    */
-  private async selectSourceType(): Promise<'github' | 'url' | 'local' | undefined> {
+  private async selectSourceType(): Promise<'github' | 'url' | 'local' | 'artifactory' | undefined> {
     const options: HubSourceOption[] = [
       {
         label: '$(github) GitHub Repository',
         description: 'Import from a GitHub repository',
         value: 'github'
       },
-      // {
-      //     label: '$(link) HTTPS URL',
-      //     description: 'Import from a direct URL',
-      //     value: 'url'
-      // },
+      {
+        label: '$(server) Artifactory Hub',
+        description: 'Import a private hub from Artifactory',
+        value: 'artifactory'
+      },
       {
         label: '$(file) Local File',
         description: 'Import from a local hub-config.yml file',
@@ -165,7 +168,7 @@ export class HubCommands {
    * Get hub reference based on source type
    * @param sourceType
    */
-  private async getHubReference(sourceType: 'github' | 'url' | 'local'): Promise<HubReference | undefined> {
+  private async getHubReference(sourceType: 'github' | 'url' | 'local' | 'artifactory'): Promise<HubReference | undefined> {
     switch (sourceType) {
       case 'github': {
         const location = await vscode.window.showInputBox({
@@ -197,19 +200,102 @@ export class HubCommands {
         };
       }
 
-      case 'url': {
+      case 'artifactory': {
         const location = await vscode.window.showInputBox({
-          prompt: 'Enter HTTPS URL to hub-config.yml',
-          placeHolder: 'https://example.com/hub-config.yml',
+          prompt: 'Enter the Artifactory repository root containing hub-config.yml (do not include hub-config.yml or /ui/native)',
+          placeHolder: 'http://127.0.0.1:8081/artifactory/<repository-key>/<hub-prefix>',
           validateInput: (value) => {
-            if (!value || !value.startsWith('https://')) {
-              return 'Please enter a valid HTTPS URL';
+            try {
+              if (/\s/u.test(value)) {
+                return 'Remove spaces; use the repository root URL as one continuous value';
+              }
+              const url = new URL(value);
+              const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+              return url.protocol === 'https:' || (url.protocol === 'http:' && loopback)
+                ? undefined
+                : 'Please enter an HTTPS URL, or loopback HTTP for local testing';
+            } catch {
+              return 'Please enter a valid Artifactory URL';
             }
-            return null;
           },
           ignoreFocusOut: true
         });
+        if (!location) {
+          return undefined;
+        }
+        const trimmedLocation = location.trim();
+        if (new URL(trimmedLocation).protocol === 'http:') {
+          void vscode.window.showWarningMessage('Loopback HTTP is intended only for local Artifactory testing; use HTTPS for shared or production hubs.');
+        }
+        const configFile = await vscode.window.showInputBox({
+          prompt: 'Hub config path relative to the repository root (usually hub-config.yml)',
+          value: 'hub-config.yml',
+          ignoreFocusOut: true
+        });
+        const root = configFile || 'hub-config.yml';
+        const anonymousReference: HubReference = {
+          type: 'artifactory', location: trimmedLocation, configFile: root, authMode: 'anonymous'
+        };
+        const publicHub = await Promise.race([
+          this.hubManager.verifyHubAvailability(anonymousReference),
+          new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5000))
+        ]);
+        if (publicHub) {
+          await vscode.window.showInformationMessage('The Artifactory hub is publicly readable; no credential is required.');
+          return anonymousReference;
+        }
+        void vscode.window.showWarningMessage('The hub is not anonymously readable or is unavailable. Configure a Bearer token if this is a private hub.');
+        const auth = await vscode.window.showQuickPick(['bearer', 'anonymous'], { placeHolder: 'Artifactory authentication', ignoreFocusOut: true });
+        if (!auth) {
+          return undefined;
+        }
+        let credentialRef: string | undefined;
+        if (auth === 'bearer') {
+          credentialRef = await vscode.window.showInputBox({
+            prompt: 'Credential label for VS Code SecretStorage (not an environment variable or token)',
+            placeHolder: 'ARTIFACTORY_READER_TOKEN',
+            ignoreFocusOut: true,
+            validateInput: (value) => /^[A-Z_][A-Z0-9_]*$/.test(value)
+              ? undefined
+              : 'Use an uppercase label such as ARTIFACTORY_READER_TOKEN; do not paste the token here'
+          });
+          if (!credentialRef) {
+            return undefined;
+          }
+          const token = await vscode.window.showInputBox({
+            prompt: 'Paste the Artifactory access token (stored securely in VS Code SecretStorage)',
+            placeHolder: 'Token value only; do not include the Bearer prefix',
+            password: true,
+            ignoreFocusOut: true
+          });
+          if (!token) {
+            return undefined;
+          }
+          await new HubTokenVault(this.context.secrets).set(credentialRef, token);
+        }
+        return { type: 'artifactory', location: trimmedLocation, configFile: root, authMode: auth as 'anonymous' | 'bearer', credentialRef };
+      }
 
+      case 'url': {
+        const location = await vscode.window.showInputBox({
+          prompt: 'Enter HTTPS URL to hub-config.yml (or loopback HTTP for local testing)',
+          placeHolder: 'https://example.com/hub-config.yml',
+          validateInput: (value) => {
+            try {
+              const url = new URL(value);
+              const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+              return url.protocol === 'https:' || (url.protocol === 'http:' && loopback)
+                ? undefined
+                : 'Please enter an HTTPS URL, or loopback HTTP for local testing';
+            } catch {
+              return 'Please enter a valid hub configuration URL';
+            }
+          },
+          ignoreFocusOut: true
+        });
+        if (location && new URL(location).protocol === 'http:') {
+          await vscode.window.showWarningMessage('Loopback HTTP is intended only for local hub testing; use HTTPS for shared or production hubs.');
+        }
         return location ? { type: 'url', location } : undefined;
       }
 
