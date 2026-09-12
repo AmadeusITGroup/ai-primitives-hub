@@ -154,6 +154,23 @@ when the source branch needs to be regenerated.
    - `VSCODE_MARKETPLACE_TOKEN` for VS Code Marketplace
    - `OPEN_VSX_TOKEN` for Open VSX Registry
 
+### Temporary dependency-audit exceptions
+
+The Publishing workflow blocks a release when `pnpm audit --prod` reports a
+moderate-or-higher dependency advisory. To make a temporary exception, run the
+**Publishing** workflow manually and provide `audit_ignore_ghsas` as a
+comma-separated list of GitHub Security Advisory IDs:
+
+```text
+GHSA-xxxx-xxxx-xxxx, GHSA-yyyy-yyyy-yyyy
+```
+
+The exception applies only to that manual workflow run. Do not add an advisory
+to `pnpm-workspace.yaml`, because that would bypass the audit for every local
+and CI run. Before completing the release, manually create a remediation
+backlog issue with the advisory IDs and release context. Track updating,
+replacing, or removing the affected dependency promptly.
+
 ## Pre-release Testing
 
 Test locally before releasing:

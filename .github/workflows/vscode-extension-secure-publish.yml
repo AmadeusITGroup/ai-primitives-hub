@@ -19,6 +19,11 @@ on:
         required: false
         type: string
         default: "vscode-marketplace,open-vsx"
+      audit_ignore_ghsas:
+        description: "GHSAs to ignore for this release only (comma-separated)"
+        required: false
+        type: string
+        default: ""
 
 # Security: Minimal permissions following principle of least privilege
 permissions:
@@ -94,9 +99,24 @@ jobs:
           cache-dependency-path: "pnpm-lock.yaml"
 
       - name: Install workspace dependencies with integrity check
+        env:
+          AUDIT_IGNORE_GHSAS: ${{ inputs.audit_ignore_ghsas }}
         run: |
           pnpm install --frozen-lockfile --prefer-offline
-          pnpm audit --prod --audit-level=moderate
+          audit_args=()
+          IFS=',' read -r -a ignored_ghsas <<< "$AUDIT_IGNORE_GHSAS"
+          for ghsa in "${ignored_ghsas[@]}"; do
+            ghsa="$(printf '%s' "$ghsa" | tr -d '[:space:]')"
+            if [ -z "$ghsa" ]; then
+              continue
+            fi
+            if [[ ! "$ghsa" =~ ^GHSA-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}$ ]]; then
+              echo "Invalid GHSA ID: $ghsa"
+              exit 1
+            fi
+            audit_args+=(--ignore "$ghsa")
+          done
+          pnpm audit --prod --audit-level=moderate "${audit_args[@]}"
 
       - name: Update version in package.json
         working-directory: ${{ env.EXTENSION_DIR }}
