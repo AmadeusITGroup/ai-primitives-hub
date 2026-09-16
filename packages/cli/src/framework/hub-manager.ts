@@ -26,6 +26,9 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   ActiveHubStore,
+  AnonymousCredentialProvider,
+  ArtifactoryEnvCredentialProvider,
+  ArtifactoryHubResolver,
   CompositeHubResolver,
   createGitHubSourceAuthRuntime,
   EnvTokenProvider,
@@ -87,7 +90,16 @@ export const createHubManager = (opts: CreateHubManagerOptions): HubManager => {
         }
       }),
     new LocalHubResolver(ctx.fs),
-    new UrlHubResolver(httpClient, tokenProvider)
+    new UrlHubResolver(httpClient, tokenProvider),
+    new ArtifactoryHubResolver(httpClient, (reference, root) => {
+      if (reference.authMode !== 'bearer') {
+        return new AnonymousCredentialProvider();
+      }
+      if (!reference.credentialRef) {
+        throw new Error('Artifactory Bearer authentication requires credentialRef.');
+      }
+      return new ArtifactoryEnvCredentialProvider(ctx.env, reference.credentialRef, root);
+    })
   );
   return new HubManager({
     store: new HubStore(paths.hubs, ctx.fs),

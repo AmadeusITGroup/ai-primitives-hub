@@ -1,6 +1,8 @@
 import type {
   FileSystem,
   GitHubApi,
+  HttpClient,
+  HttpCredentialProvider,
   RegistrySource,
 } from '@ai-primitives-hub/core';
 import {
@@ -14,6 +16,8 @@ import {
 
 const fs = {} as FileSystem;
 const api = {} as GitHubApi;
+const http = {} as HttpClient;
+const credentials = {} as HttpCredentialProvider;
 
 const source: RegistrySource = {
   id: 'source',
@@ -25,6 +29,22 @@ const source: RegistrySource = {
 };
 
 describe('SourceDispatcher', () => {
+  it('dispatches Artifactory through its HTTP client and source credential provider', () => {
+    const artifactory: RegistrySource = {
+      ...source,
+      type: 'artifactory',
+      url: 'https://artifactory.example/repo'
+    };
+    const dispatcher = new SourceDispatcher({
+      fs,
+      http,
+      artifactoryCredentialProvider: () => credentials
+    });
+
+    expect(dispatcher.resolverFor(artifactory)).not.toBeNull();
+    expect(dispatcher.isRemote('artifactory')).toBe(true);
+  });
+
   it('uses a source-bound API factory for remote resolvers', () => {
     const seen: RegistrySource[] = [];
     const dispatcher = new SourceDispatcher({

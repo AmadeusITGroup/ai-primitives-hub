@@ -26,7 +26,7 @@ export interface HttpRequest {
   /** Absolute URL. */
   url: string;
   /** Defaults to `'GET'`. */
-  method?: 'GET' | 'HEAD' | 'POST';
+  method?: 'GET' | 'HEAD' | 'POST' | 'PUT';
   /** Request headers (case-insensitive). */
   headers?: Record<string, string>;
   /** Request body, for `POST`. */
