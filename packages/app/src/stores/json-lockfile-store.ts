@@ -144,7 +144,7 @@ export interface Lockfile {
   bundles: Record<string, LockfileBundleEntry>;
   /** Map of source IDs to their configuration. */
   sources: Record<string, LockfileSourceEntry>;
-  /** Optional map of hub IDs to their configuration. */
+  /** @deprecated Legacy hub metadata retained when reading existing lockfiles. */
   hubs?: Record<string, LockfileHubEntry>;
   /** Optional map of profile IDs to their configuration. */
   profiles?: Record<string, LockfileProfileEntry>;

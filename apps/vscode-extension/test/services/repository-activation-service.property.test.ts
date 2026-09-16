@@ -420,7 +420,7 @@ suite('RepositoryActivationService - Property Tests (Missing Sources/Hubs)', () 
     );
   });
 
-  test('Property 14: Missing Source/Hub Detection - detects all missing hubs', () => {
+  test('Property 14: Missing Source Detection - ignores legacy hub metadata', () => {
     return fc.assert(
       fc.asyncProperty(
         LockfileGenerators.lockfile({ minBundles: 1, maxBundles: 5, includeHubs: true }),
@@ -428,7 +428,13 @@ suite('RepositoryActivationService - Property Tests (Missing Sources/Hubs)', () 
           resetStubs();
           RepositoryActivationService.resetInstance();
 
-          mockStorage.getSources.resolves([]);
+          const configuredSources = Object.entries(lockfile.sources).map(([id, source]) => ({
+            id,
+            type: source.type,
+            url: source.url,
+            enabled: true
+          }));
+          mockStorage.getSources.resolves(configuredSources as any);
           mockHubManager.listHubs.resolves([]);
 
           const service = new RepositoryActivationService(
@@ -441,14 +447,10 @@ suite('RepositoryActivationService - Property Tests (Missing Sources/Hubs)', () 
           const result = await service.checkAndOfferMissingSources(lockfile);
 
           if (lockfile.hubs) {
-            const lockfileHubIds = Object.keys(lockfile.hubs);
-            assert.strictEqual(result.missingHubs.length, lockfileHubIds.length,
-              'Should detect all missing hubs');
-
-            for (const hubId of lockfileHubIds) {
-              assert.ok(result.missingHubs.includes(hubId),
-                `Should detect missing hub: ${hubId}`);
-            }
+            assert.strictEqual(result.missingHubs.length, 0,
+              'Legacy hub metadata must not affect repository compatibility');
+            assert.strictEqual(result.missingSources.length, 0,
+              'Configured sources remain sufficient even when legacy hub metadata exists');
           }
         }
       ),
@@ -490,7 +492,7 @@ suite('RepositoryActivationService - Property Tests (Missing Sources/Hubs)', () 
     );
   });
 
-  test('Property 14: Missing Source/Hub Detection - does not report configured hubs', () => {
+  test('Property 14: Missing Source Detection - does not compare hub identifiers', () => {
     return fc.assert(
       fc.asyncProperty(
         LockfileGenerators.lockfile({ minBundles: 1, maxBundles: 5, includeHubs: true }),
@@ -502,7 +504,7 @@ suite('RepositoryActivationService - Property Tests (Missing Sources/Hubs)', () 
 
           if (lockfile.hubs) {
             const configuredHubs = Object.keys(lockfile.hubs).map((id) => ({
-              id,
+              id: `${id}-generated-locally`,
               name: lockfile.hubs![id].name,
               description: '',
               reference: { type: 'url' as const, location: lockfile.hubs![id].url }
@@ -522,7 +524,7 @@ suite('RepositoryActivationService - Property Tests (Missing Sources/Hubs)', () 
           const result = await service.checkAndOfferMissingSources(lockfile);
 
           assert.strictEqual(result.missingHubs.length, 0,
-            'Should not report configured hubs as missing');
+            'Local hub identifiers must not affect repository compatibility');
         }
       ),
       { numRuns: PropertyTestConfig.RUNS.THOROUGH }

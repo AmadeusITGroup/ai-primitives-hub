@@ -96,6 +96,12 @@ These files:
 - Store file checksums for modification detection
 - Enable tools like Renovate to propose version updates (main lockfile only)
 
+Lockfiles identify a source by its type, normalized URL, branch, and collection
+path. Hub and profile configuration is local to each extension installation and
+is not part of the repository compatibility contract. Team members who connect
+to the same source URL and branch can use the same committed lockfile even when
+their locally generated hub identifiers differ.
+
 ### Dual-Lockfile Architecture
 
 Bundles are automatically stored in the appropriate lockfile based on their commit mode:
@@ -138,7 +144,7 @@ The local lockfile is automatically added to `.git/info/exclude` when created, e
 
 **Commit the main lockfile** (`prompt-registry.lock.json`) to version control so team members can:
 - See which bundles are installed
-- Get prompted to enable repository bundles when opening the project
+- Get prompted to configure missing repository sources when opening the project
 - Receive automated update PRs via Renovate
 
 The local lockfile (`prompt-registry.local.lock.json`) is automatically excluded from Git and should not be committed.
@@ -173,7 +179,7 @@ Moving a bundle preserves its files and version. The extension handles uninstall
 
 When you open a repository with a lockfile for the first time:
 
-1. A notification appears asking if you want to enable repository bundles
+1. A notification appears if a source referenced by the lockfile is not configured locally
 2. Click **Enable** to:
    - Verify all bundles are installed
    - Download any missing bundles

@@ -96,6 +96,10 @@ export interface CreateOrUpdateOptions {
   commitMode: RepositoryCommitMode;
   files: LockfileFileEntry[];
   source: LockfileSourceEntry;
+  /**
+   * Deprecated compatibility input. Hub configuration is local state and is
+   * never serialized into a repository lockfile.
+   */
   hub?: { id: string; entry: LockfileHubEntry };
   profile?: { id: string; entry: LockfileProfileEntry };
   checksum?: string;
@@ -718,7 +722,6 @@ export class LockfileManager {
       commitMode,
       files,
       source,
-      hub,
       profile,
       checksum
     } = options;
@@ -749,14 +752,6 @@ export class LockfileManager {
 
     // Update source entry
     updatedLockfile = upsertSource(updatedLockfile, sourceId, source);
-
-    // Update hub entry if provided
-    if (hub) {
-      if (!updatedLockfile.hubs) {
-        updatedLockfile.hubs = {};
-      }
-      updatedLockfile.hubs[hub.id] = hub.entry;
-    }
 
     // Update profile entry if provided
     if (profile) {

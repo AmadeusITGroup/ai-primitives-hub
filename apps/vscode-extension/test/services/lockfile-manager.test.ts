@@ -282,8 +282,7 @@ suite('LockfileManager', () => {
     });
 
     suite('Hub Recording', () => {
-      test('should record hub configuration when bundle comes from hub', async () => {
-        // Requirements: 12.2
+      test('should not record installation-local hub configuration', async () => {
         const manager = LockfileManager.getInstance(tempDir);
         const options = createTestOptions('test-bundle');
         options.hub = {
@@ -292,34 +291,7 @@ suite('LockfileManager', () => {
         };
         await manager.createOrUpdate(options);
         const lockfile = readLockfileFromDisk();
-        assert.ok(lockfile!.hubs);
-        assert.ok(lockfile!.hubs['hub-1']);
-      });
-
-      test('should include hub name', async () => {
-        // Requirements: 12.2
-        const manager = LockfileManager.getInstance(tempDir);
-        const options = createTestOptions('test-bundle');
-        options.hub = {
-          id: 'hub-1',
-          entry: createMockHubEntry('My Hub', 'https://hub.example.com/config.yml')
-        };
-        await manager.createOrUpdate(options);
-        const lockfile = readLockfileFromDisk();
-        assert.strictEqual(lockfile!.hubs!['hub-1'].name, 'My Hub');
-      });
-
-      test('should include hub URL', async () => {
-        // Requirements: 12.2
-        const manager = LockfileManager.getInstance(tempDir);
-        const options = createTestOptions('test-bundle');
-        options.hub = {
-          id: 'hub-1',
-          entry: createMockHubEntry('My Hub', 'https://hub.example.com/config.yml')
-        };
-        await manager.createOrUpdate(options);
-        const lockfile = readLockfileFromDisk();
-        assert.strictEqual(lockfile!.hubs!['hub-1'].url, 'https://hub.example.com/config.yml');
+        assert.strictEqual(lockfile!.hubs, undefined);
       });
 
       test('should not include hubs section when no hub provided', async () => {
