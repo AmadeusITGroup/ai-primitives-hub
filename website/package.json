@@ -23,7 +23,7 @@
     "react-dom": "^19.0.0",
     "@docusaurus/module-type-aliases": "^3.10.2",
     "@docusaurus/types": "^3.10.2",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.0"
   },
   "browserslist": {
     "production": [
