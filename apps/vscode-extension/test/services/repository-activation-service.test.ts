@@ -374,7 +374,7 @@ suite('RepositoryActivationService', () => {
       assert.strictEqual(result.missingSources[0], 'mock-source');
     });
 
-    test('should detect missing hubs', async () => {
+    test('should ignore installation-local hub metadata', async () => {
       // Arrange
       const lockfile = createMockLockfile(2, { includeHubs: true });
       mockStorage.getSources.resolves([]);
@@ -384,8 +384,8 @@ suite('RepositoryActivationService', () => {
       const result = await service.checkAndOfferMissingSources(lockfile);
 
       // Assert
-      assert.ok(result.missingHubs.length > 0, 'Should detect missing hubs');
-      assert.strictEqual(result.missingHubs[0], 'mock-hub');
+      assert.strictEqual(result.missingHubs.length, 0, 'Hub metadata must not affect repository compatibility');
+      assert.ok(result.missingSources.length > 0, 'Source detection remains active');
     });
 
     test('should not detect sources that are already configured', async () => {
@@ -403,12 +403,32 @@ suite('RepositoryActivationService', () => {
         'Should not detect configured sources as missing');
     });
 
-    test('should not detect hubs that are already imported', async () => {
+    test('should match a source by canonical descriptor when local IDs differ', async () => {
+      // Arrange
+      const lockfile = createMockLockfile(2);
+      mockStorage.getSources.resolves([
+        {
+          id: 'source-imported-locally',
+          type: 'github',
+          url: 'https://github.com/mock/repo/',
+          config: { branch: 'master' }
+        } as any
+      ]);
+
+      // Act
+      const result = await service.checkAndOfferMissingSources(lockfile);
+
+      // Assert
+      assert.strictEqual(result.missingSources.length, 0,
+        'Equivalent source URL and branch must be compatible across installations');
+    });
+
+    test('should not compare lockfile hub keys with local hub IDs', async () => {
       // Arrange
       const lockfile = createMockLockfile(2, { includeHubs: true });
       mockStorage.getSources.resolves([]);
       mockHubManager.listHubs.resolves([
-        { id: 'mock-hub', name: 'Mock Hub', description: '', reference: { type: 'url', location: '' } }
+        { id: 'mock-hub-imported-locally', name: 'Mock Hub', description: '', reference: { type: 'url', location: '' } }
       ]);
 
       // Act
@@ -416,7 +436,7 @@ suite('RepositoryActivationService', () => {
 
       // Assert
       assert.strictEqual(result.missingHubs.length, 0,
-        'Should not detect imported hubs as missing');
+        'Local hub IDs must not affect repository compatibility');
     });
 
     test('should offer to add missing sources', async () => {
@@ -434,10 +454,12 @@ suite('RepositoryActivationService', () => {
       assert.ok(result.offeredToAdd, 'Should indicate offer was made');
     });
 
-    test('should offer to add missing hubs', async () => {
+    test('should not offer to add hubs without missing sources', async () => {
       // Arrange
       const lockfile = createMockLockfile(2, { includeHubs: true });
-      mockStorage.getSources.resolves([]);
+      mockStorage.getSources.resolves([
+        { id: 'mock-source', type: 'github', url: 'https://github.com/mock/repo' } as any
+      ]);
       mockHubManager.listHubs.resolves([]);
       showInformationMessageStub.resolves('Add Sources');
 
@@ -445,9 +467,7 @@ suite('RepositoryActivationService', () => {
       await service.checkAndOfferMissingSources(lockfile);
 
       // Assert
-      const message = showInformationMessageStub.firstCall.args[0] as string;
-      assert.ok(message.toLowerCase().includes('hub') || message.toLowerCase().includes('source'),
-        'Message should mention missing sources/hubs');
+      assert.ok(!showInformationMessageStub.called, 'Hub metadata alone must not trigger an activation prompt');
     });
 
     test('should return empty arrays when all sources and hubs are configured', async () => {

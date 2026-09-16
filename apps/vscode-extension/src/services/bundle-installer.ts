@@ -182,13 +182,11 @@ export class BundleInstaller {
    * @param bundle
    * @param installed
    * @param options
-   * @param sourceType
    */
   private async updateLockfileOnInstall(
     bundle: Bundle,
     installed: InstalledBundle,
-    options: InstallOptions,
-    sourceType?: string
+    options: InstallOptions
   ): Promise<void> {
     const workspaceRoot = getWorkspaceRoot();
     if (!workspaceRoot) {
@@ -203,17 +201,27 @@ export class BundleInstaller {
       // not from the bundle cache directory
       const files = await this.collectRepositoryFileEntries(workspaceRoot, installed.installPath);
 
-      // Create source entry
+      const registeredSource = (await this.storage.getSources())
+        .find((source) => source.id === bundle.sourceId);
+      if (!registeredSource) {
+        this.logger.warn(`Cannot update lockfile for ${bundle.id}: source ${bundle.sourceId} is not configured`);
+        return;
+      }
+
+      // Serialize the source identity that produced bundle.sourceId. Bundle
+      // download URLs are release artifacts, not reproducible source locations.
       const source: LockfileSourceEntry = {
-        type: sourceType || installed.sourceType || 'unknown',
-        url: bundle.downloadUrl || bundle.manifestUrl || ''
+        type: registeredSource.type,
+        url: registeredSource.url,
+        ...(registeredSource.config?.branch && { branch: registeredSource.config.branch }),
+        ...(registeredSource.config?.collectionsPath && { collectionsPath: registeredSource.config.collectionsPath })
       };
 
       await lockfileManager.createOrUpdate({
         bundleId: bundle.id,
         version: bundle.version,
         sourceId: bundle.sourceId,
-        sourceType: sourceType || installed.sourceType || 'unknown',
+        sourceType: registeredSource.type,
         commitMode: options.commitMode ?? 'commit',
         files,
         source
@@ -883,7 +891,7 @@ export class BundleInstaller {
 
         // Step 11: Update lockfile for repository scope
         if (options.scope === 'repository') {
-          await this.updateLockfileOnInstall(bundle, installed, options, sourceType);
+          await this.updateLockfileOnInstall(bundle, installed, options);
         }
       }
 

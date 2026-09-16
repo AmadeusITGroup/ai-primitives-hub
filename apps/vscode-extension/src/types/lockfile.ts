@@ -27,7 +27,10 @@ export interface Lockfile {
   bundles: Record<string, LockfileBundleEntry>;
   /** Map of source IDs to their configuration */
   sources: Record<string, LockfileSourceEntry>;
-  /** Optional map of hub IDs to their configuration */
+  /**
+   * Deprecated legacy hub metadata. Repository compatibility is determined
+   * solely by `sources`; hub configuration is installation-local.
+   */
   hubs?: Record<string, LockfileHubEntry>;
   /** Optional map of profile IDs to their configuration */
   profiles?: Record<string, LockfileProfileEntry>;
@@ -79,11 +82,11 @@ export interface LockfileSourceEntry {
   url: string;
   /** Optional Git branch for git-based sources */
   branch?: string;
+  /** Optional collections subdirectory for collection-based sources */
+  collectionsPath?: string;
 }
 
-/**
- * Hub configuration entry
- */
+/** @deprecated Legacy hub metadata retained for reading existing lockfiles. */
 export interface LockfileHubEntry {
   /** Display name of the hub */
   name: string;

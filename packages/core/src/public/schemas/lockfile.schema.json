@@ -59,7 +59,7 @@
     },
     "hubs": {
       "type": "object",
-      "description": "Optional map of hub IDs to their configuration",
+      "description": "Deprecated legacy hub metadata. Repository compatibility is determined by sources; hub configuration is installation-local.",
       "additionalProperties": {
         "$ref": "#/definitions/hubEntry"
       }
@@ -190,13 +190,17 @@
         "branch": {
           "type": "string",
           "description": "Optional Git branch for git-based sources"
+        },
+        "collectionsPath": {
+          "type": "string",
+          "description": "Optional collections subdirectory for collection-based sources"
         }
       },
       "additionalProperties": false
     },
     "hubEntry": {
       "type": "object",
-      "description": "Hub configuration entry",
+      "description": "Deprecated legacy hub metadata retained for reading existing lockfiles.",
       "required": [
         "name",
         "url"

@@ -25,7 +25,7 @@ import {
   Logger,
 } from '../utils/logger';
 import {
-  generateLegacyHubSourceId,
+  generateHubSourceId,
 } from '../utils/source-id-utils';
 import {
   HubManager,
@@ -42,6 +42,10 @@ import {
  */
 export interface MissingSourcesResult {
   missingSources: string[];
+  /**
+   * Deprecated compatibility field. Hubs are installation-local and are not
+   * part of repository lockfile detection.
+   */
   missingHubs: string[];
   offeredToAdd: boolean;
 }
@@ -175,6 +179,21 @@ export class RepositoryActivationService {
   }
 
   /**
+   * Determine whether a locally configured source addresses the same
+   * repository dependency as a lockfile source. Local source IDs are not a
+   * portable identity because manually added sources can receive local IDs.
+   */
+  private isCompatibleSource(lockfileSource: Lockfile['sources'][string], source: Awaited<ReturnType<RegistryStorage['getSources']>>[number]): boolean {
+    return generateHubSourceId(lockfileSource.type, lockfileSource.url, {
+      branch: lockfileSource.branch,
+      collectionsPath: lockfileSource.collectionsPath
+    }) === generateHubSourceId(source.type, source.url, {
+      branch: source.config?.branch,
+      collectionsPath: source.config?.collectionsPath
+    });
+  }
+
+  /**
    * Check for lockfile and detect missing sources/hubs.
    * Called on workspace open.
    *
@@ -239,46 +258,26 @@ export class RepositoryActivationService {
     try {
       // Get configured sources
       const configuredSources = await this.storage.getSources();
-      const configuredSourceIds = new Set(configuredSources.map((s) => s.id));
+      // Check for missing sources by their canonical descriptors rather than
+      // installation-local IDs. This also recognizes legacy source-ID formats.
+      // Hub records in older lockfiles are intentionally ignored: hub IDs are
+      // generated per installation and cannot identify a shared repository dependency.
+      result.missingSources = Object.entries(lockfile.sources)
+        .filter(([, lockfileSource]) => !configuredSources.some(
+          (source) => this.isCompatibleSource(lockfileSource, source)
+        ))
+        .map(([sourceId]) => sourceId);
 
-      // @migration-cleanup(sourceId-normalization-v2): Remove legacy ID set once all lockfiles are migrated
-      // Build a set that also includes legacy IDs for each configured source,
-      // so lockfile entries written with old-format IDs are still recognized.
-      const allKnownSourceIds = new Set(configuredSourceIds);
-      for (const source of configuredSources) {
-        const legacyId = generateLegacyHubSourceId(source.type, source.url, {
-          branch: source.config?.branch,
-          collectionsPath: source.config?.collectionsPath
-        });
-        if (legacyId) {
-          allKnownSourceIds.add(legacyId);
-        }
-      }
-
-      // Check for missing sources (check both current and legacy IDs)
-      const lockfileSourceIds = Object.keys(lockfile.sources);
-      result.missingSources = lockfileSourceIds.filter((id) => !allKnownSourceIds.has(id));
-
-      // Check for missing hubs
-      if (lockfile.hubs) {
-        const configuredHubs = await this.hubManager.listHubs();
-        const configuredHubIds = new Set(configuredHubs.map((h) => h.id));
-
-        const lockfileHubIds = Object.keys(lockfile.hubs);
-        result.missingHubs = lockfileHubIds.filter((id) => !configuredHubIds.has(id));
-      }
-
-      // Offer to add missing sources/hubs
-      if (result.missingSources.length > 0 || result.missingHubs.length > 0) {
-        const totalMissing = result.missingSources.length + result.missingHubs.length;
-        const itemType = result.missingHubs.length > 0 ? 'sources and hubs' : 'sources';
+      // Offer to add missing sources.
+      if (result.missingSources.length > 0) {
+        const totalMissing = result.missingSources.length;
 
         this.logger.info(
-          `[RepositoryActivation] Prompting for ${result.missingSources.length} missing source(s) and ${result.missingHubs.length} missing hub(s)`
+          `[RepositoryActivation] Prompting for ${totalMissing} missing source(s)`
         );
 
         const choice = await vscode.window.showInformationMessage(
-          `${totalMissing} ${itemType} from the lockfile are not configured. Would you like to add them?`,
+          `${totalMissing} source(s) from the lockfile are not configured. Would you like to add them?`,
           'Add Sources',
           'Not now'
         );
@@ -287,7 +286,7 @@ export class RepositoryActivationService {
           this.logger.info(`[RepositoryActivation] Missing source/hub prompt resolved with: ${choice ?? 'dismissed'}`);
 
         if (choice === 'Add Sources') {
-          this.logger.info(`User chose to add ${totalMissing} missing ${itemType}`);
+            this.logger.info(`User chose to add ${totalMissing} missing source(s)`);
           // Note: Actual addition would be handled by RegistryManager/HubManager
           // For now, just log the intent
         }
