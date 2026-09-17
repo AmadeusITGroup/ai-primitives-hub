@@ -63,6 +63,28 @@ describe('security scan command', () => {
     }
   });
 
+  it('writes actionable Markdown finding details and suppression suggestions', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
+    try {
+      const target = path.join(directory, 'secret.md');
+      const report = path.join(directory, 'security.md');
+      await writeFile(target, 'token = sk-proj-abcdefghijklmnopqrstuvwxyz');
+      const result = await runCommand(['security', 'scan', target, '--report-markdown', report, '--fail-on', 'none'], {
+        commandClasses: [SecurityScanCommand],
+        context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(result.exitCode).toBe(0);
+      const markdown = await readFile(report, 'utf8');
+      expect(markdown).toContain('Vulnerable content: `[REDACTED]`');
+      expect(markdown).toContain('OWASP: [LLM06:2025 — Sensitive Information Disclosure]');
+      expect(markdown).toContain('.markdown.ignore suggestions:');
+      expect(markdown).toMatch(/[a-f0-9]{32} # Fingerprint — SEC-001/);
+      expect(markdown).toMatch(/[a-f0-9]{32} # Canonical fingerprint — SEC-001/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('fails an empty selection unless allow-empty is explicit', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
     try {
@@ -76,6 +98,24 @@ describe('security scan command', () => {
         context: { cwd: directory, fs: new NodeFileSystem() }
       });
       expect(allowed.exitCode).toBe(0);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('reports only findings at or above the minimum severity', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
+    try {
+      const target = path.join(directory, 'mixed.md');
+      await writeFile(target, 'token = sk-proj-abcdefghijklmnopqrstuvwxyz\n![insecure](http://example.com/image.png)');
+      const result = await runCommand(['security', 'scan', target, '--minimum-severity', 'HIGH', '--fail-on', 'none', '-o', 'json'], {
+        commandClasses: [SecurityScanCommand],
+        context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(result.exitCode).toBe(0);
+      const envelope = JSON.parse(result.stdout) as { data: { findings: { severity: string }[] } };
+      expect(envelope.data.findings.some((finding) => finding.severity === 'LOW')).toBe(false);
+      expect(envelope.data.findings.some((finding) => finding.severity === 'CRITICAL')).toBe(true);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

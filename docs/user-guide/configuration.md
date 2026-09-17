@@ -13,6 +13,7 @@ Access: `File → Preferences → Settings → Extensions → AI Primitives Hub`
 | `promptregistry.updateCheck.frequency` | `daily`, `weekly`, `manual` | `daily` |
 | `promptregistry.updateCheck.autoUpdate` | Auto-install updates | `false` |
 | `promptregistry.updateCheck.cacheTTL` | Cache TTL (ms) | `300000` |
+| `promptregistry.security.scanOnOpen` | Scan trusted local Markdown files when opened | `true` |
 | `promptregistry.security.scanOnSave` | Scan trusted local Markdown files on save | `true` |
 | `promptregistry.security.minimumSeverity` | Minimum diagnostic severity | `INFO` |
 | `promptregistry.security.includeLlmControls` | Enable LLM control checks | `false` |

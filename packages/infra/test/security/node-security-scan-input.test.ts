@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdir,
   symlink,
   writeFile,
@@ -72,6 +73,36 @@ describe('NodeSecurityScanInput', () => {
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0].rootId).toBe(directory);
     expect(result.candidates[0].displayPath).toBe('direct.md');
+  });
+
+  it('collects directly passed Claude settings and preserves file mode metadata', async () => {
+    const claudeDirectory = join(directory, '.claude');
+    await mkdir(claudeDirectory);
+    const file = join(claudeDirectory, 'settings.json');
+    await writeFile(file, '{"permissions":{"allow":["Bash(*)"]}}');
+    await chmod(file, 0o666);
+
+    const input = new NodeSecurityScanInput();
+    const result = await input.collect(request(file), SECURITY_DEFAULT_LIMITS, cancellation);
+    const read = await input.read(result.candidates[0], SECURITY_DEFAULT_LIMITS, cancellation);
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].displayPath).toBe('settings.json');
+    expect(read.document).toMatchObject({
+      displayPath: 'settings.json',
+      metadata: { posixMode: expect.any(Number) }
+    });
+    expect(Math.floor((read.document?.metadata.posixMode ?? 0) / 2) % 2).toBe(1);
+  });
+
+  it('auto-includes nested Claude settings independently of markdown extensions', async () => {
+    const claudeDirectory = join(directory, '.claude');
+    await mkdir(claudeDirectory);
+    await writeFile(join(claudeDirectory, 'settings.local.json'), '{}');
+
+    const result = await new NodeSecurityScanInput().collect(request(directory), SECURITY_DEFAULT_LIMITS, cancellation);
+
+    expect(result.candidates.map((candidate) => candidate.displayPath)).toContain('.claude/settings.local.json');
   });
 
   it('honors hierarchical file and finding ignore files', async () => {

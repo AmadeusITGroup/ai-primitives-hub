@@ -141,6 +141,9 @@ import {
   RegistryTreeProvider,
 } from './ui/registry-tree-provider';
 import {
+  renderSecurityReportHtml,
+} from './ui/security-report';
+import {
   StatusBar,
 } from './ui/status-bar';
 import {
@@ -420,8 +423,30 @@ export class PromptRegistryExtension {
     this.createCollectionCommand = new CreateCollectionCommand();
     const securityScanService = new SecurityScanService();
     const securityDiagnostics = vscode.languages.createDiagnosticCollection('promptregistry-security');
+    const securityStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
+    securityStatus.command = 'promptregistry.securityShowLastReport';
+    securityStatus.text = '$(shield) Security scan';
+    securityStatus.tooltip = 'Show the latest security scan report';
+    securityStatus.show();
     const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-    this.context.subscriptions.push(securityDiagnostics);
+    this.context.subscriptions.push(securityDiagnostics, securityStatus);
+    const showSecurityReport = (result: SecurityScanResult): void => {
+      const panel = vscode.window.createWebviewPanel(
+        'promptregistrySecurityReport',
+        'Security scan report',
+        vscode.ViewColumn.Beside,
+        { enableScripts: false }
+      );
+      panel.webview.html = renderSecurityReportHtml(result);
+    };
+    const updateSecurityPresentation = (result: SecurityScanResult): void => {
+      applySecurityDiagnostics(securityDiagnostics, result);
+      const total = result.summary.active.total;
+      securityStatus.text = total === 0 ? '$(shield) Security scan: clear' : `$(shield) Security scan: ${String(total)}`;
+      securityStatus.tooltip = total === 0
+        ? 'No active security findings. Show the latest report'
+        : `${String(total)} active security finding${total === 1 ? '' : 's'}. Show the latest report`;
+    };
     const securityOptions = () => {
       const configuration = vscode.workspace.getConfiguration('promptregistry.security');
       const minimum = configuration.get<string>('minimumSeverity', 'INFO').toUpperCase() as SecuritySeverity;
@@ -430,6 +455,24 @@ export class PromptRegistryExtension {
         includeLlmControls: configuration.get<boolean>('includeLlmControls', false),
         showInfoControls: configuration.get<boolean>('showInfoControls', true)
       };
+    };
+    const scheduleSecurityDocumentScan = (document: vscode.TextDocument): void => {
+      if (!vscode.workspace.isTrusted || document.uri.scheme !== 'file' || !/\.(md|markdown)$/i.test(document.uri.fsPath)) {
+        return;
+      }
+      const key = document.uri.toString();
+      const previous = saveTimers.get(key);
+      if (previous !== undefined) {
+        clearTimeout(previous);
+      }
+      const configuration = vscode.workspace.getConfiguration('promptregistry.security');
+      const timer = setTimeout(() => {
+        saveTimers.delete(key);
+        void securityScanService.scanFile(document.uri.fsPath, securityOptions())
+          .then(updateSecurityPresentation)
+          .catch((error: unknown) => this.logger.warn('Automatic security scan failed', error));
+      }, configuration.get<number>('debounceMs', 300));
+      saveTimers.set(key, timer);
     };
 
     // Register command handlers
@@ -562,7 +605,7 @@ export class PromptRegistryExtension {
           void vscode.window.showWarningMessage('AI Primitives Hub: automatic security scanning is disabled in an untrusted workspace.');
         }
         const result = await securityScanService.scanFile(editor.document.uri.fsPath, securityOptions());
-        applySecurityDiagnostics(securityDiagnostics, result);
+        updateSecurityPresentation(result);
         const total = result.summary.active.total;
         void (total > 0
           ? vscode.window.showWarningMessage(`AI Primitives Hub: ${String(total)} security finding(s) in ${path.basename(editor.document.uri.fsPath)}.`)
@@ -579,7 +622,7 @@ export class PromptRegistryExtension {
           for (const folder of folders) {
             progress.report({ message: `Scanning ${folder.name}` });
             const result = await securityScanService.scanWorkspace(folder.uri.fsPath, options);
-            applySecurityDiagnostics(securityDiagnostics, result);
+            updateSecurityPresentation(result);
           }
         });
         void vscode.window.showInformationMessage('AI Primitives Hub: workspace security scan complete.');
@@ -593,7 +636,7 @@ export class PromptRegistryExtension {
           void vscode.window.showInformationMessage('AI Primitives Hub: no security report is available.');
           return;
         }
-        void vscode.window.showInformationMessage(`AI Primitives Hub: ${String(result.summary.active.total)} active finding(s), ${String(result.summary.suppressed.total)} suppressed.`);
+        showSecurityReport(result);
       }),
 
       // Command Menu - Show all commands
@@ -659,24 +702,21 @@ export class PromptRegistryExtension {
     this.disposables.push(...commands);
 
     // Add to context subscriptions
-    this.context.subscriptions.push(...commands, vscode.workspace.onDidSaveTextDocument((document) => {
-      const configuration = vscode.workspace.getConfiguration('promptregistry.security');
-      if (!configuration.get<boolean>('scanOnSave', true) || !vscode.workspace.isTrusted || document.uri.scheme !== 'file' || !/\.(md|markdown)$/i.test(document.uri.fsPath)) {
-        return;
-      }
-      const key = document.uri.toString();
-      const previous = saveTimers.get(key);
-      if (previous !== undefined) {
-        clearTimeout(previous);
-      }
-      const timer = setTimeout(() => {
-        saveTimers.delete(key);
-        void securityScanService.scanFile(document.uri.fsPath, securityOptions())
-          .then((result) => applySecurityDiagnostics(securityDiagnostics, result))
-          .catch((error: unknown) => this.logger.warn('Automatic security scan failed', error));
-      }, configuration.get<number>('debounceMs', 300));
-      saveTimers.set(key, timer);
-    }));
+    this.context.subscriptions.push(
+      ...commands,
+      vscode.workspace.onDidOpenTextDocument((document) => {
+        const configuration = vscode.workspace.getConfiguration('promptregistry.security');
+        if (configuration.get<boolean>('scanOnOpen', true)) {
+          scheduleSecurityDocumentScan(document);
+        }
+      }),
+      vscode.workspace.onDidSaveTextDocument((document) => {
+        const configuration = vscode.workspace.getConfiguration('promptregistry.security');
+        if (configuration.get<boolean>('scanOnSave', true)) {
+          scheduleSecurityDocumentScan(document);
+        }
+      })
+    );
 
     this.logger.debug('Commands registered successfully');
   }

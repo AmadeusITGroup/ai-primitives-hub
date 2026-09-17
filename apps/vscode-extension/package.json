@@ -692,6 +692,11 @@
           "default": "",
           "description": "GitHub personal access token for private repositories (generate with 'gh auth token')"
         },
+        "promptregistry.security.scanOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan trusted local Markdown documents when they open. Disabled in untrusted and virtual workspaces."
+        },
         "promptregistry.security.scanOnSave": {
           "type": "boolean",
           "default": true,
