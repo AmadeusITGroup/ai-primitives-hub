@@ -6,6 +6,7 @@ import {
   lstat,
   mkdir,
   open,
+  realpath,
   rename,
   unlink,
 } from 'node:fs/promises';
@@ -17,18 +18,23 @@ import type {
 const mode = 0o600;
 
 const ensureRealDirectory = async (directory: string, createMissing: boolean): Promise<void> => {
-  const components = path.resolve(directory).split(path.sep);
-  let current = components[0] === '' ? path.sep : components[0];
-  for (const component of components.slice(current === path.sep ? 1 : 0)) {
-    current = path.join(current, component);
-    let stat = await lstat(current).catch(() => undefined);
-    if (stat === undefined && createMissing) {
-      await mkdir(current, { mode: 0o700 });
-      stat = await lstat(current);
-    }
-    if (stat === undefined || stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new Error(`Report parent is not a real directory: ${directory}`);
-    }
+  const resolved = path.resolve(directory);
+  let stat = await lstat(resolved).catch(() => undefined);
+  if (stat === undefined && createMissing) {
+    await ensureRealDirectory(path.dirname(resolved), true);
+    await mkdir(resolved, { mode: 0o700 });
+    stat = await lstat(resolved);
+  }
+  if (stat === undefined || stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`Report parent is not a real directory: ${directory}`);
+  }
+
+  // Resolve platform-owned ancestor links such as macOS /var -> /private/var,
+  // while still rejecting a symlink at the actual report parent.
+  const canonical = await realpath(resolved);
+  const canonicalStat = await lstat(canonical);
+  if (!canonicalStat.isDirectory()) {
+    throw new Error(`Report parent is not a real directory: ${directory}`);
   }
 };
 

@@ -10,12 +10,15 @@ import {
   resolve,
 } from 'node:path';
 import {
+  fileURLToPath,
+} from 'node:url';
+import {
   describe,
   expect,
   it,
 } from 'vitest';
 
-const fixtureDirectory = resolve(dirname(new URL(import.meta.url).pathname), '../../fixtures/security');
+const fixtureDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../../fixtures/security');
 
 const expectedFixtures: Record<string, string> = {
   '.markdown.ignore': '60b367466d5bf144c34a8ebcc24f485746b5a6b3c9df2924b926e037ed7161de',
