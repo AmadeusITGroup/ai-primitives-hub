@@ -65,4 +65,17 @@ describe('SecureAtomicSecurityReportStore', () => {
     await new SecureAtomicSecurityReportStore().write({ destination, contents: 'report', overwrite: 'never' });
     expect(await readFile(destination, 'utf8')).toBe('report');
   });
+
+  it('allows real report parents beneath symlinked ancestors', async () => {
+    const realRoot = join(directory, 'real-root');
+    const linkedRoot = join(directory, 'linked-root');
+    const nested = join(realRoot, 'nested');
+    await mkdir(nested, { recursive: true });
+    await symlink(realRoot, linkedRoot);
+
+    const destination = join(linkedRoot, 'nested', 'report.md');
+    await new SecureAtomicSecurityReportStore().write({ destination, contents: 'report', overwrite: 'never' });
+
+    expect(await readFile(join(nested, 'report.md'), 'utf8')).toBe('report');
+  });
 });
