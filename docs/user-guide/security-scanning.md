@@ -142,7 +142,23 @@ The CLI exits with:
 | `70` | Unexpected software failure |
 | `74` | Report or input filesystem failure |
 
-A GitHub Actions job should invoke the released CLI with `--ci`, `--ignore-trust none`, and an explicit `--fail-on` policy. Keep workflow permissions at `contents: read` unless a separate, reviewed reporting job needs more access.
+Use the bundled composite action to scan changed Markdown and Claude settings files, upload reports, and apply an explicit failure policy:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+  - uses: AmadeusITGroup/ai-primitives-hub/github-actions/security-scan@<commit-sha>
+    with:
+      cli-version: 0.1.0
+      fail-on: HIGH
+```
+
+Pin the action to a full commit SHA. Set `pull-requests: write` and `comment-on-pr: 'true'` only when the workflow should add a pull request comment. The action invokes the released CLI with `--ci --ignore-trust none`.
 
 ## VS Code
 
@@ -153,7 +169,9 @@ The AI Primitives Hub extension provides:
 - **Show Last Security Report**;
 - **Clear Security Diagnostics**.
 
-Automatic save scans are enabled by default only for trusted local `file:` workspaces. They are disabled for untrusted or virtual workspaces. Save events are debounced and a newer scan supersedes an older scan for the same file or workspace.
+**Show Last Security Report** opens a detailed report with risks, recommended fixes, and suppression fingerprints. The status bar shows the latest active finding count.
+
+Automatic open and save scans are enabled by default only for trusted local `file:` workspaces. They are disabled for untrusted or virtual workspaces. Automatic scans are debounced, and a newer scan supersedes an older scan for the same file or workspace.
 
 Configure the extension under `promptregistry.security.*`. See the [Settings Reference](../reference/settings.md). The extension uses the shared scanner and does not require Python.
 

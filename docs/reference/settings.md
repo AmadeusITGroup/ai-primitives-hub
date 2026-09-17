@@ -30,6 +30,12 @@ This document describes all configuration settings available for the AI Primitiv
 
 ## Security Scanning Settings
 
+### `promptregistry.security.scanOnOpen`
+
+- **Type:** `boolean`
+- **Default:** `true` in trusted local workspaces
+- **Description:** Scan local Markdown documents when they open. Automatic scanning is disabled in untrusted and virtual workspaces.
+
 ### `promptregistry.security.scanOnSave`
 
 - **Type:** `boolean`

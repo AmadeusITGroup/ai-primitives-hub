@@ -43,6 +43,7 @@ export interface SecurityDocument {
 export interface SecurityFinding {
   ruleId: string;
   variantId?: string;
+  relatedAst?: string;
   title: string;
   severity: SecuritySeverity;
   confidence: SecurityConfidence;

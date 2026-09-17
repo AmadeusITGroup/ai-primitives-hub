@@ -62,9 +62,10 @@ The failure policy and display filter are separate. `--severity` and `--minimum-
 - `text`: concise human summary;
 - `json`: AI Primitives Hub envelope containing a versioned scan result;
 - `yaml`: equivalent structured envelope in YAML;
-- `ndjson`: `scan.header`, `scan.finding`, coverage-error, and `scan.summary` records.
+- `ndjson`: `scan.header`, `scan.finding`, coverage-error, and `scan.summary` records;
+- Markdown reports: review-ready findings with detected content, OWASP mappings, remediation, and copyable exact/canonical suppression suggestions.
 
-Finding fields include the rule ID, variant/title, severity, confidence, category, relative location, remediation, mapping, and legacy exact/canonical fingerprints. Secret evidence is `[REDACTED]` unless a future explicitly reviewed evidence mode permits otherwise.
+Finding fields include the rule ID, variant/title, severity, confidence, category, relative location, remediation, mapping, related AST evidence when applicable, and legacy exact/canonical fingerprints. Secret evidence is `[REDACTED]` unless a future explicitly reviewed evidence mode permits otherwise.
 
 ## Rule families
 

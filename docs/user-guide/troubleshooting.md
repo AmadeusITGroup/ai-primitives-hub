@@ -90,7 +90,7 @@ The scanner enforces bounded file, byte, depth, finding, ignore-file, report, an
 
 ### The VS Code diagnostics do not appear
 
-Automatic scans require a trusted workspace and local `file:` Markdown document. Virtual and untrusted workspaces require an explicit supported manual command. Check `promptregistry.security.scanOnSave`, `minimumSeverity`, and the AI Primitives Hub output channel.
+Automatic scans require a trusted workspace and local `file:` Markdown document. Virtual and untrusted workspaces require an explicit supported manual command. Check `promptregistry.security.scanOnOpen`, `promptregistry.security.scanOnSave`, `minimumSeverity`, and the AI Primitives Hub output channel.
 
 ### A report contains unexpected paths
 

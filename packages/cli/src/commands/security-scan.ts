@@ -34,7 +34,7 @@ const severitySelection = (minimum: string | undefined): SecuritySeverity[] | un
     return undefined;
   }
   const index = SEVERITIES.indexOf(minimum.toUpperCase() as SecuritySeverity);
-  return index === -1 ? undefined : SEVERITIES.slice(0, SEVERITIES.length - index);
+  return index === -1 ? undefined : SEVERITIES.slice(0, index + 1);
 };
 
 const reportJson = (result: SecurityScanResult): string => `${JSON.stringify({
@@ -58,6 +58,7 @@ const reportJson = (result: SecurityScanResult): string => `${JSON.stringify({
     file: finding.file,
     line: finding.line,
     section: finding.section,
+    related_ast: finding.relatedAst,
     vulnerable_content: finding.vulnerableContent,
     risk: finding.risk,
     owasp: finding.owasp,
@@ -92,10 +93,18 @@ const reportMarkdown = (result: SecurityScanResult): string => {
       `- Rule: \`${finding.ruleId}\``,
       `- Location: \`${finding.file}\`${finding.line === undefined ? '' : ` — line ${String(finding.line)}`}`,
       `- Confidence: ${finding.confidence}`,
-      `- Fingerprint: \`${finding.fingerprint}\``,
-      `- Canonical fingerprint: \`${finding.canonicalFingerprint}\``,
+      ...(finding.relatedAst === undefined ? [] : [`- Related AST: ${finding.relatedAst}`]),
+      `- Vulnerable content: \`${finding.vulnerableContent.replaceAll('`', '\\`')}\``,
+      ...(finding.owasp === undefined ? [] : [`- OWASP: [${finding.owasp.id} — ${finding.owasp.name}](${finding.owasp.url})`]),
       `- Risk: ${finding.risk.replaceAll('`', '\\`')}`,
       `- Recommended fix: ${finding.recommendedFix.replaceAll('`', '\\`')}`,
+      '',
+      '**.markdown.ignore suggestions:**',
+      '',
+      '```text',
+      `${finding.fingerprint} # Fingerprint — ${finding.ruleId} — ${finding.file}${finding.line === undefined ? '' : `:${String(finding.line)}`}`,
+      `${finding.canonicalFingerprint} # Canonical fingerprint — ${finding.ruleId} — ${finding.file}${finding.line === undefined ? '' : `:${String(finding.line)}`}`,
+      '```',
       ''
     );
   }
