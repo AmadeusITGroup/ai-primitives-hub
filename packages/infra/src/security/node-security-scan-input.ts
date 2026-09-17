@@ -160,7 +160,7 @@ const extensionAllowed = (file: string, extensions: readonly string[]): boolean 
   return extensions.some((extension) => lower.endsWith(extension.startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`));
 };
 
-const rootId = (root: string): string => normalize(path.resolve(root));
+const rootId = (root: string): string => path.resolve(root);
 
 export class NodeSecurityScanInput implements SecurityScanInput {
   public async collect(request: SecurityInputRequest, limits: SecurityResourceLimits, cancellation: SecurityCancellation): Promise<SecurityInputCollection> {

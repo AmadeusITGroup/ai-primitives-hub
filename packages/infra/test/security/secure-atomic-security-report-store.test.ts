@@ -36,7 +36,9 @@ describe('SecureAtomicSecurityReportStore', () => {
     await new SecureAtomicSecurityReportStore().write({ destination, contents: '{"ok":true}', overwrite: 'never' });
 
     expect(await readFile(destination, 'utf8')).toBe('{"ok":true}');
-    expect((await stat(destination)).mode % 0o100).toBe(0);
+    if (process.platform !== 'win32') {
+      expect((await stat(destination)).mode % 0o100).toBe(0);
+    }
   });
 
   it('rejects replacement unless explicitly enabled', async () => {
