@@ -139,16 +139,34 @@ const presentResult = (result: SecurityScanResult, roots: readonly string[]): Se
   suppressed: result.suppressed.map((item) => ({ ...item, sourcePath: displayPath(item.sourcePath, roots) }))
 });
 
-const textResult = (result: SecurityScanResult): string => {
+const findingLocation = (finding: SecurityScanResult['findings'][number]): string =>
+  `${finding.file}${finding.line === undefined ? '' : `:${String(finding.line)}`}`;
+
+const textResult = (result: SecurityScanResult, quiet: boolean): string => {
   const counts = result.summary.active.bySeverity;
-  return [
+  const lines = [
     `Security scan ${result.complete ? 'complete' : 'incomplete'}`,
     `Scanned ${String(result.coverage.scanned.length)} file(s)`,
-    ...SEVERITIES.map((severity) => `${severity}: ${String(counts[severity] ?? 0)}`),
     `Suppressed: ${String(result.summary.suppressed.total)}`,
     `Policy (${result.summary.policy.failOn}): ${result.summary.policy.passed ? 'passed' : 'failed'}`,
     ...result.errors.map((error) => `Error: ${error.code} — ${error.message}`)
-  ].join('\n') + '\n';
+  ];
+  if (!quiet) {
+    if (result.findings.length === 0) {
+      lines.push('Findings: none');
+    } else {
+      lines.push('Findings:');
+      for (const finding of result.findings) {
+        lines.push(
+          `- [${finding.severity}] ${finding.ruleId} — ${finding.title} (${findingLocation(finding)})`,
+          `  Risk: ${finding.risk}`,
+          `  Fix: ${finding.recommendedFix}`
+        );
+      }
+    }
+  }
+  lines.splice(2, 0, ...SEVERITIES.map((severity) => `${severity}: ${String(counts[severity] ?? 0)}`));
+  return `${lines.join('\n')}\n`;
 };
 
 class StaticCancellation implements SecurityCancellation {
@@ -259,6 +277,7 @@ export class SecurityScanCommand extends Command {
   public maxFindings = Option.String('--max-findings');
   public timeout = Option.String('--timeout');
   public report = Option.Boolean('--report', false);
+  public quiet = Option.Boolean('--quiet', false);
   // eslint-disable-next-line new-cap -- Clipanion exposes Rest as a factory function with an uppercase name.
   public rest = Option.Rest({ required: 0 });
   public commandContext!: { ctx: Context };
@@ -348,7 +367,7 @@ export class SecurityScanCommand extends Command {
         formatOutput({
           ctx, command: 'security.scan', output,
           status: visibleResult.complete && visibleResult.summary.policy.passed ? 'ok' : 'warning',
-          data: visibleResult, textRenderer: textResult
+          data: visibleResult, textRenderer: (value) => textResult(value, this.quiet)
         });
       }
       if (this.report) {

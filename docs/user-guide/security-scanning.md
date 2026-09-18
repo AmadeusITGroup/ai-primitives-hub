@@ -25,11 +25,14 @@ The default directory scan:
 - skips `README.md` and `CHANGELOG.md` unless `--include-doc-files` is used;
 - discovers `.claude/settings.json` and `.claude/settings.local.json`;
 - does not follow symbolic links;
-- prints a summary without creating report files.
+- prints a summary and concise details for each active finding without creating report files;
+- supports `--quiet` when only the summary is needed.
 
 ## Reading results
 
 Each finding has a rule ID, severity, confidence, location, risk explanation, recommended fix, and stable fingerprints.
+
+When no report path is provided, the text output includes each active finding's severity, rule ID, location, risk, and recommended fix. Secret evidence remains redacted. Use `--quiet` to print only the scan summary, for example in a compact CI log.
 
 | Severity | Meaning |
 |---|---|
