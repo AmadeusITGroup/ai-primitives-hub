@@ -109,7 +109,7 @@ describe('RegistryError', () => {
   });
 
   it('accepts all valid namespaces', () => {
-    const validNamespaces = ['BUNDLE', 'INDEX', 'HUB', 'PRIMITIVE', 'CONFIG', 'NETWORK', 'AUTH', 'FS', 'PLUGIN', 'USAGE', 'INTERNAL'];
+    const validNamespaces = ['BUNDLE', 'INDEX', 'HUB', 'PRIMITIVE', 'CONFIG', 'NETWORK', 'AUTH', 'FS', 'PLUGIN', 'SECURITY', 'USAGE', 'INTERNAL'];
     for (const ns of validNamespaces) {
       const error = new RegistryError({
         code: `${ns}.TEST_ERROR`,

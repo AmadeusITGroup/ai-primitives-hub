@@ -1,0 +1,122 @@
+name: AI Primitives Hub security scan
+description: Scan Markdown AI artifacts and upload a security report
+inputs:
+  paths:
+    description: Space-separated files or directories. Pull requests default to changed Markdown files; other events default to the workspace.
+    required: false
+    default: ''
+  cli-version:
+    description: Published @ai-primitives-hub/cli version to run
+    required: false
+    default: '0.1.0'
+  fail-on:
+    description: Minimum severity that fails the scan
+    required: false
+    default: HIGH
+  include-llm-controls:
+    description: Check missing LLM controls and human approval gates
+    required: false
+    default: 'false'
+  comment-on-pr:
+    description: Add the scan summary to the pull request
+    required: false
+    default: 'false'
+outputs:
+  exit-code:
+    description: Scanner exit code
+    value: ${{ steps.scan.outputs.exit-code }}
+  report:
+    description: Markdown report path
+    value: ${{ steps.scan.outputs.report }}
+runs:
+  using: composite
+  steps:
+    - id: targets
+      name: Select files
+      shell: bash
+      env:
+        INPUT_PATHS: ${{ inputs.paths }}
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        target_file="$RUNNER_TEMP/ai-primitives-security-targets.txt"
+        : > "$target_file"
+        if [[ -n "$INPUT_PATHS" ]]; then
+          read -r -a requested <<< "$INPUT_PATHS"
+          printf '%s\n' "${requested[@]}" > "$target_file"
+        elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+          git diff --name-only --diff-filter=AM "$BASE_SHA" "$HEAD_SHA" \
+            | grep -Ei '\.(md|markdown)$|(^|/)\.claude/settings(\.local)?\.json$' \
+            > "$target_file" || true
+        else
+          printf '.\n' > "$target_file"
+        fi
+        echo "file=$target_file" >> "$GITHUB_OUTPUT"
+        if [[ -s "$target_file" ]]; then
+          echo "has-targets=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-targets=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - id: scan
+      name: Scan files
+      if: steps.targets.outputs.has-targets == 'true'
+      shell: bash
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        INCLUDE_CONTROLS: ${{ inputs.include-llm-controls }}
+        TARGET_FILE: ${{ steps.targets.outputs.file }}
+      run: |
+        set -uo pipefail
+        report_dir="$RUNNER_TEMP/ai-primitives-security-report"
+        mkdir -p "$report_dir"
+        mapfile -t targets < "$TARGET_FILE"
+        args=(security scan "${targets[@]}" --ci --ignore-trust none --fail-on "$FAIL_ON" --output-directory "$report_dir" --report-overwrite replace)
+        if [[ "$INCLUDE_CONTROLS" == "true" ]]; then
+          args+=(--include-llm-controls)
+        fi
+        set +e
+        npx --yes "@ai-primitives-hub/cli@$CLI_VERSION" "${args[@]}" | tee "$report_dir/console.txt"
+        exit_code=${PIPESTATUS[0]}
+        set -e
+        echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
+        echo "report=$report_dir/security-report.md" >> "$GITHUB_OUTPUT"
+        exit "$exit_code"
+
+    - name: No files to scan
+      if: steps.targets.outputs.has-targets == 'false'
+      shell: bash
+      run: echo 'No changed Markdown or Claude settings files to scan'
+
+    - name: Upload report
+      if: always() && steps.targets.outputs.has-targets == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ai-primitives-security-report
+        path: ${{ runner.temp }}/ai-primitives-security-report
+        if-no-files-found: warn
+
+    - name: Add pull request summary
+      if: always() && github.event_name == 'pull_request' && inputs.comment-on-pr == 'true' && steps.targets.outputs.has-targets == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPORT_PATH: ${{ steps.scan.outputs.report }}
+      run: |
+        set -euo pipefail
+        body="$RUNNER_TEMP/ai-primitives-security-comment.md"
+        {
+          echo '## AI Primitives Hub security scan'
+          echo
+          if [[ -f "$REPORT_PATH" ]]; then
+            sed -n '1,120p' "$REPORT_PATH"
+          else
+            echo 'The scanner did not create a report. Check the workflow log for details.'
+          fi
+        } > "$body"
+        gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body-file "$body"

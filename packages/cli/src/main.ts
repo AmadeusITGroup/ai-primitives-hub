@@ -122,6 +122,9 @@ import {
   PromptCreateCommand,
 } from './commands/prompt-create';
 import {
+  SecurityScanCommand,
+} from './commands/security-scan';
+import {
   SkillCreateCommand,
 } from './commands/skill-create';
 import {
@@ -175,6 +178,7 @@ async function main(): Promise<number> {
 
   const commandClasses = [
     StatusCommand,
+    SecurityScanCommand,
     InitCommand,
     InstallCommand,
     UninstallCommand,

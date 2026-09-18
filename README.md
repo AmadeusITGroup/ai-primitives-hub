@@ -84,6 +84,7 @@ For extension details, see the [Contributor Architecture Guide](./docs/contribut
 - [Contributor Guide](./docs/contributor-guide/development-setup.md)
 - [Architecture](./docs/contributor-guide/architecture.md)
 - [Reference](./docs/reference/commands.md)
+- [Security Scanning](./docs/user-guide/security-scanning.md)
 
 See the full index: [`docs/README.md`](./docs/README.md).
 

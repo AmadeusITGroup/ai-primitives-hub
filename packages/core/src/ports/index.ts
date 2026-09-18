@@ -24,3 +24,6 @@ export * from './registry-operations';
 export * from './update-store';
 export * from './update-notifier';
 export * from './telemetry';
+export * from './security-scan-engine';
+export * from './security-scan-input';
+export * from './security-report-store';
