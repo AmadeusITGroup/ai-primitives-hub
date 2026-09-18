@@ -16,15 +16,20 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   cleanupOrphanedSource,
+  lockfileFilesFromInstalledRecords,
   readLockfile,
   remapSourceId,
   removeBundleEntry,
+  resolveInstalledFilesForLockfileEntry,
   upsertBundleEntry,
   upsertSource,
 } from '@ai-primitives-hub/app';
 import type {
   LockfileFs,
 } from '@ai-primitives-hub/app';
+import type {
+  InstalledFileRecord,
+} from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
   Lockfile,
@@ -564,23 +569,21 @@ export class LockfileManager {
    * Check if any files in a bundle entry are missing from the filesystem.
    * Uses async file access for consistency with async patterns.
    * Handles I/O errors gracefully by logging a warning and assuming files exist.
-   * @param entry - The lockfile bundle entry to check
+   * @param installedFiles Validated exact installed records to check.
    * @returns true if any file is missing, false otherwise
    *
    * Requirements covered:
    * - 3.1: Verify that bundle files exist in .github/ directories
    * - 3.2: Mark bundle with filesMissing flag if files are missing
    */
-  private async checkFilesMissing(entry: LockfileBundleEntry): Promise<boolean> {
-    if (!entry.files || entry.files.length === 0) {
+  private async checkFilesMissing(installedFiles: readonly InstalledFileRecord[]): Promise<boolean> {
+    if (installedFiles.length === 0) {
       return false;
     }
 
-    for (const file of entry.files) {
-      const filePath = path.join(this.repositoryPath, file.path);
-
+    for (const file of installedFiles) {
       try {
-        await fs.promises.access(filePath, fs.constants.F_OK);
+        await fs.promises.access(file.destinationPath, fs.constants.F_OK);
       } catch (error) {
         // Check if it's a "file not found" error vs other I/O errors
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -588,7 +591,7 @@ export class LockfileManager {
         }
         // Handle other I/O errors gracefully - log warning and assume files exist
         this.logger.warn(
-          `Failed to check file existence for ${file.path}:`,
+          `Failed to check file existence for ${file.destinationRelativePath}:`,
           error instanceof Error ? error : undefined
         );
         // Per requirements: assume files exist on I/O error
@@ -596,6 +599,21 @@ export class LockfileManager {
     }
 
     return false;
+  }
+
+  private async retainBundleFiles(
+    bundleId: string,
+    lockfile: Lockfile,
+    commitMode: RepositoryCommitMode,
+    retainedFiles: readonly InstalledFileRecord[]
+  ): Promise<void> {
+    lockfile.bundles[bundleId] = {
+      ...lockfile.bundles[bundleId],
+      files: lockfileFilesFromInstalledRecords(retainedFiles)
+    };
+    lockfile.generatedAt = new Date().toISOString();
+    await this.writeAtomicToPath(lockfile, this.getLockfilePathForMode(commitMode));
+    this._onLockfileUpdated.fire(lockfile);
   }
 
   /**
@@ -795,11 +813,16 @@ export class LockfileManager {
    * - 5.3: Delete Local_Lockfile when last local-only bundle is removed
    * - 5.4: Remove local lockfile from git exclude when deleted
    * - 5.5: Delete Main_Lockfile when last committed bundle is removed
+   * @param retainedFiles
    */
-  public async remove(bundleId: string): Promise<void> {
+  public async remove(bundleId: string, retainedFiles: readonly InstalledFileRecord[] = []): Promise<void> {
     // First, try to find the bundle in the main lockfile
     const mainLockfile = await this.readLockfileByMode('commit');
     if (mainLockfile && mainLockfile.bundles[bundleId]) {
+      if (retainedFiles.length > 0) {
+        await this.retainBundleFiles(bundleId, mainLockfile, 'commit', retainedFiles);
+        return;
+      }
       await this.removeFromLockfileByMode(bundleId, mainLockfile, 'commit');
       return;
     }
@@ -807,6 +830,10 @@ export class LockfileManager {
     // If not in main lockfile, try the local lockfile
     const localLockfile = await this.readLockfileByMode('local-only');
     if (localLockfile && localLockfile.bundles[bundleId]) {
+      if (retainedFiles.length > 0) {
+        await this.retainBundleFiles(bundleId, localLockfile, 'local-only', retainedFiles);
+        return;
+      }
       await this.removeFromLockfileByMode(bundleId, localLockfile, 'local-only');
       return;
     }
@@ -849,7 +876,7 @@ export class LockfileManager {
         // Calculate current checksum using the utility directly
         const currentChecksum = await calculateFileChecksum(filePath);
 
-        if (currentChecksum !== fileEntry.checksum) {
+        if (!checksumsMatch(currentChecksum, fileEntry.checksum)) {
           modifiedFiles.push({
             path: fileEntry.path,
             originalChecksum: fileEntry.checksum,
@@ -1014,16 +1041,16 @@ export class LockfileManager {
     if (mainLockfile) {
       for (const [bundleId, entry] of Object.entries(mainLockfile.bundles)) {
         seenIds.add(bundleId);
-        const filesMissing = await this.checkFilesMissing(entry);
         // Create bundle with commitMode: 'commit' (from main lockfile)
         // TODO: installPath should point to the bundle cache in global storage, not .github
         // The .github directory is where files are synced, not where the bundle is installed.
         // This is a workaround - BundleInstaller.uninstall() handles this case specially.
         const installedBundle = createInstalledBundleFromLockfile(bundleId, entry, {
           installPath: path.join(this.repositoryPath, '.github'),
-          filesMissing,
+          repositoryPath: this.repositoryPath,
           commitModeOverride: 'commit'
         });
+        installedBundle.filesMissing = await this.checkFilesMissing(installedBundle.installedFiles ?? []);
         bundles.push(installedBundle);
       }
     }
@@ -1040,13 +1067,13 @@ export class LockfileManager {
           );
           continue;
         }
-        const filesMissing = await this.checkFilesMissing(entry);
         // Create bundle with commitMode: 'local-only' (from local lockfile)
         const installedBundle = createInstalledBundleFromLockfile(bundleId, entry, {
           installPath: path.join(this.repositoryPath, '.github'),
-          filesMissing,
+          repositoryPath: this.repositoryPath,
           commitModeOverride: 'local-only'
         });
+        installedBundle.filesMissing = await this.checkFilesMissing(installedBundle.installedFiles ?? []);
         bundles.push(installedBundle);
       }
     }
@@ -1066,12 +1093,19 @@ export class LockfileManager {
   }
 }
 
+function checksumsMatch(actual: string, expected: string): boolean {
+  const normalize = (value: string): string => value.startsWith('sha256:') ? value : `sha256:${value}`;
+  return normalize(actual) === normalize(expected);
+}
+
 /**
  * Options for creating an InstalledBundle from a lockfile entry
  */
 export interface CreateInstalledBundleOptions {
   /** Install path (defaults to empty string if not provided) */
   installPath?: string;
+  /** Repository root used to resolve exact destination-relative records. */
+  repositoryPath?: string;
   /** Deployment manifest (defaults to minimal manifest if not provided) */
   manifest?: DeploymentManifest;
   /** Whether files are missing from the filesystem */
@@ -1096,6 +1130,16 @@ export function createInstalledBundleFromLockfile(
     options?: CreateInstalledBundleOptions
 ): InstalledBundle {
   const manifest = options?.manifest ?? createMinimalManifest(bundleId, bundleEntry.files);
+  const installPath = options?.installPath ?? '';
+  const resolvedFiles = resolveInstalledFilesForLockfileEntry(bundleId, bundleEntry, options?.repositoryPath === undefined
+    ? { baseDir: installPath }
+    : { repositoryPath: options.repositoryPath }).files;
+  const installedFiles = options?.repositoryPath === undefined
+    ? resolvedFiles.map((file) => ({
+      ...file,
+      destinationPath: path.join(installPath, file.destinationRelativePath.replace(/^\.github\//, ''))
+    }))
+    : resolvedFiles;
 
   // Use commitModeOverride if provided, otherwise fall back to entry's commitMode
   // This supports the dual-lockfile pattern where commit mode is implicit based on file location
@@ -1106,12 +1150,13 @@ export function createInstalledBundleFromLockfile(
     version: bundleEntry.version,
     installedAt: bundleEntry.installedAt,
     scope: 'repository',
-    installPath: options?.installPath ?? '',
+    installPath,
     manifest,
     sourceId: bundleEntry.sourceId,
     sourceType: bundleEntry.sourceType,
     commitMode,
-    filesMissing: options?.filesMissing
+    filesMissing: options?.filesMissing,
+    installedFiles
   };
 }
 

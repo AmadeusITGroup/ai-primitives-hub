@@ -21,6 +21,9 @@ import * as path from 'node:path';
 import {
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
+import type {
+  FileSystem,
+} from '@ai-primitives-hub/core';
 import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -92,6 +95,20 @@ describe('profile activate/deactivate', () => {
     }
   });
 
+  const runWithFileSystem = (argv: string[], fs: FileSystem): ReturnType<typeof runCommand> => runCommand(argv, {
+    commandClasses: COMMAND_CLASSES,
+    context: {
+      cwd: workspace,
+      fs,
+      env: {
+        HOME: workspace,
+        USERPROFILE: workspace,
+        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+      }
+    }
+  });
+
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
   beforeEach(async () => {
@@ -124,6 +141,14 @@ profiles:
     description: Test profile
     bundles:
       - id: local-foo
+        version: 1.0.0
+        source: local-foo-src
+        required: true
+  - id: broken
+    name: Broken Profile
+    description: Missing source profile
+    bundles:
+      - id: missing-bundle
         version: 1.0.0
         source: local-foo-src
         required: true
@@ -182,6 +207,78 @@ profiles:
     expect(currentEnvelope.data.active).toEqual({ hubId: 'test-hub', profileId: 'backend' });
   });
 
+  it('rolls back profile target files when lockfile persistence fails', async () => {
+    class LockfileFailingFileSystem extends NodeFileSystem {
+      public override async writeFile(filePath: string, contents: string): Promise<void> {
+        if (path.basename(filePath) === 'ai-primitives-hub.lock.json') {
+          throw new Error('profile lockfile write failed');
+        }
+        await super.writeFile(filePath, contents);
+      }
+    }
+
+    const result = await runWithFileSystem([
+      'profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json'
+    ], new LockfileFailingFileSystem());
+
+    expect(result.exitCode).not.toBe(0);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
+  it('rolls back every target when a later target lockfile fails', async () => {
+    expect((await run([
+      'target', 'add', 'repository', '--type', 'vscode', '--scope', 'repository',
+      '--workspace-root', workspace, '-o', 'json'
+    ])).exitCode).toBe(0);
+    class RepositoryLockfileFailingFileSystem extends NodeFileSystem {
+      public override async writeFile(filePath: string, contents: string): Promise<void> {
+        if (path.basename(filePath) === 'prompt-registry.lock.json') {
+          throw new Error('repository profile lockfile write failed');
+        }
+        await super.writeFile(filePath, contents);
+      }
+    }
+
+    const result = await runWithFileSystem([
+      'profile', 'activate', 'backend', '-o', 'json'
+    ], new RepositoryLockfileFailingFileSystem());
+
+    expect(result.exitCode).not.toBe(0);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+    await expect(readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+    const current = await run(['profile', 'current', '-o', 'json']);
+    expect(parseJson<{ active: null }>(current.stdout).data.active).toBeNull();
+  });
+
+  it('keeps the active profile when replacement preparation fails', async () => {
+    expect((await run(['profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+    const replacement = await run(['profile', 'activate', 'broken', '--target', 'copilot', '-o', 'json']);
+
+    expect(replacement.exitCode).not.toBe(0);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
+      .resolves.toContain('Hello Prompt');
+    const current = await run(['profile', 'current', '-o', 'json']);
+    expect(parseJson<{ active: { profileId: string } }>(current.stdout).data.active.profileId).toBe('backend');
+  });
+
+  it('removes files from prior targets when reactivating on a narrower target set', async () => {
+    expect((await run([
+      'target', 'add', 'repository', '--type', 'vscode', '--scope', 'repository',
+      '--workspace-root', workspace, '-o', 'json'
+    ])).exitCode).toBe(0);
+    expect((await run(['profile', 'activate', 'backend', '-o', 'json'])).exitCode).toBe(0);
+    const repositoryFile = path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
+    await expect(readFile(repositoryFile, 'utf8')).resolves.toContain('Hello Prompt');
+
+    const result = await run(['profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(repositoryFile, 'utf8')).rejects.toThrow();
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
+      .resolves.toContain('Hello Prompt');
+  });
+
   it('activates a governed profile without writing archive metadata or ignored files', async () => {
     await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo' }));
     expect((await run(['hub', 'sync', 'test-hub', '-o', 'json'])).exitCode).toBe(0);
@@ -222,6 +319,20 @@ profiles:
     const currentResult = await run(['profile', 'current', '-o', 'json']);
     const currentEnvelope = parseJson<{ active: null }>(currentResult.stdout);
     expect(currentEnvelope.data.active).toBeNull();
+  });
+
+  it('keeps the profile active when a modified file prevents complete deactivation', async () => {
+    expect((await run(['profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+    const installedPath = path.join(targetDir, 'prompts', 'hello.prompt.md');
+    await writeFile(installedPath, '# User Modified Prompt\n');
+
+    const deactivateResult = await run(['profile', 'deactivate', '-o', 'json']);
+
+    expect(deactivateResult.exitCode).toBe(1);
+    await expect(readFile(installedPath, 'utf8')).resolves.toContain('User Modified Prompt');
+    const currentResult = await run(['profile', 'current', '-o', 'json']);
+    const currentEnvelope = parseJson<{ active: { hubId: string; profileId: string } }>(currentResult.stdout);
+    expect(currentEnvelope.data.active).toEqual({ hubId: 'test-hub', profileId: 'backend' });
   });
 
   it('deactivating with no active profile is a no-op that succeeds', async () => {

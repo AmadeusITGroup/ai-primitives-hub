@@ -120,14 +120,14 @@ suite('BundleInstaller Property Tests', () => {
 
     // Create mock scope services
     mockRepositoryScopeService = {
-      syncBundle: sandbox.stub().resolves(),
+      syncBundle: sandbox.stub().resolves({ installed: [] }),
       unsyncBundle: sandbox.stub().resolves(),
       getTargetPath: sandbox.stub().returns('.github/prompts/test.prompt.md'),
       getStatus: sandbox.stub().resolves({ baseDirectory: '.github', dirExists: true, syncedFiles: 0, files: [] })
     } as any;
 
     mockUserScopeService = {
-      syncBundle: sandbox.stub().resolves(),
+      syncBundle: sandbox.stub().resolves({ installed: [] }),
       unsyncBundle: sandbox.stub().resolves(),
       getTargetPath: sandbox.stub().returns('~/.vscode/prompts/test.prompt.md'),
       getStatus: sandbox.stub().resolves({ baseDirectory: '~/.vscode', dirExists: true, syncedFiles: 0, files: [] })

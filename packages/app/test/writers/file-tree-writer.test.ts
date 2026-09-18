@@ -1,32 +1,28 @@
-/**
- * Tests for app/writers/file-tree-writer.ts.
- *
- * No direct equivalent test existed at this module's current location
- * in the reference branch (the only test found there,
- * `infra/test/writers/file-tree-writer.test.ts.skip`, referenced the
- * module at its *old* pre-refactor `infra` location and stale
- * `infra`-internal import paths — see the module doc for the
- * `default-layouts.json` single-source-of-truth history). Written
- * fresh against this module's actual current behavior.
- */
+import {
+  createHash,
+} from 'node:crypto';
+import {
+  mkdtemp,
+  symlink,
+} from 'node:fs/promises';
+import {
+  tmpdir,
+} from 'node:os';
 import * as path from 'node:path';
 import type {
-  ResourceTransformer,
   Target,
+  TargetWriteOperation,
+  TargetWritePlan,
 } from '@ai-primitives-hub/core';
 import {
-  BuiltInOnlyLayoutConfigLoader,
+  NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
   describe,
   expect,
   it,
 } from 'vitest';
-import type {
-  ManifestPlacementItem,
-} from '../../src/writers/file-tree-writer';
 import {
-  expandPath,
   FileTreeTargetWriter,
   resolveLayout,
   resolveLayoutAsync,
@@ -35,499 +31,355 @@ import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 
-const localPath = (...segments: string[]): string => path.join(...segments);
+const target: Target = { name: 'test', type: 'vscode', scope: 'user' };
 
-class FailAfterFirstWriteFileSystem extends InMemoryFileSystem {
-  private writeCount = 0;
+const checksum = (bytes: Uint8Array): string =>
+  `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 
-  public override async writeFile(filePath: string, contents: string): Promise<void> {
-    this.writeCount += 1;
-    await super.writeFile(filePath, contents);
-    if (this.writeCount === 2) {
-      throw new Error('disk full after write');
-    }
-  }
-}
-
-describe('resolveLayout', () => {
-  it('resolves vscode user scope layout from built-in defaults', () => {
-    const target: Target = { name: 'test', type: 'vscode', scope: 'user', path: '/custom/path' };
-    const layout = resolveLayout(target);
-    expect(layout.baseDir).toBe('/custom/path');
-    expect(layout.kindRoutes).toHaveProperty('prompts/');
-    expect(layout.kindRoutes).toHaveProperty('skills/');
-  });
-
-  it('uses the generic Copilot root for stable and Insiders user targets', () => {
-    for (const type of ['vscode', 'vscode-insiders'] as const) {
-      const layout = resolveLayout({ name: type, type, scope: 'user' });
-      expect(layout.baseDir).toBe('${HOME}/.copilot');
-      expect(layout.kindRoutes['skills/']).toBe('skills/');
-      expect(layout.kindRoutes['agents/']).toBe('agents/');
-    }
-  });
-
-  it('resolves kiro repository scope to baseDir ${workspaceRoot}/.kiro with relative routes', () => {
-    const target: Target = { name: 'test', type: 'kiro', scope: 'repository', rootPath: '/ws' };
-    const layout = resolveLayout(target);
-    // Folder now lives in baseDir; routes are relative (mirrors user scope).
-    expect(layout.baseDir).toBe('/ws/.kiro');
-    expect(layout.kindRoutes['prompts/']).toBe('steering/');
-  });
-
-  it('throws for an unknown target type', () => {
-    const target = { name: 'test', type: 'nonexistent', scope: 'user' } as unknown as Target;
-    expect(() => resolveLayout(target)).toThrow('No layout defined for target type "nonexistent"');
-  });
-
-  it('resolves cursor repository scope to ${workspaceRoot}', () => {
-    const target: Target = { name: 'test', type: 'cursor', scope: 'repository', rootPath: '/ws' };
-    const layout = resolveLayout(target);
-    expect(layout.baseDir).toBe('/ws');
-    expect(layout.kindRoutes).toHaveProperty('.cursor/rules/');
-  });
-
-  it('resolves kiro repository scope with .kiro/steering and .kiro/specs routes', () => {
-    const target: Target = { name: 'test', type: 'kiro', scope: 'repository', rootPath: '/ws' };
-    const layout = resolveLayout(target);
-    expect(layout.baseDir).toBe('/ws/.kiro');
-    expect(layout.kindRoutes['.kiro/steering/']).toBe('steering/');
-    expect(layout.kindRoutes['.kiro/specs/']).toBe('specs/');
-  });
-
-  it('resolves claude-code repository scope with claude commands and output-styles', () => {
-    const target: Target = { name: 'test', type: 'claude-code', scope: 'repository', rootPath: '/ws' };
-    const layout = resolveLayout(target);
-    expect(layout.baseDir).toBe('/ws/.claude');
-    expect(layout.kindRoutes['.claude/commands/']).toBe('commands/');
-    expect(layout.kindRoutes['.claude/output-styles/']).toBe('output-styles/');
-  });
+const operation = (
+  destinationRelativePath: string,
+  bytes: Uint8Array,
+  overrides: Partial<TargetWriteOperation> = {}
+): TargetWriteOperation => ({
+  itemId: 'review',
+  kind: 'agent',
+  sourcePath: 'arbitrary/review.md',
+  destinationPath: path.join('/out', destinationRelativePath),
+  destinationRelativePath,
+  bytes,
+  sourceChecksum: 'sha256:source',
+  ...overrides
 });
 
-describe('resolveLayoutAsync', () => {
-  it('resolves using an injected loader', async () => {
-    const target: Target = { name: 'test', type: 'vscode', scope: 'user' };
-    const layout = await resolveLayoutAsync(target, new BuiltInOnlyLayoutConfigLoader());
-    expect(layout.kindRoutes).toHaveProperty('prompts/');
+const writePlan = (operations: readonly TargetWriteOperation[]): TargetWritePlan => ({
+  target,
+  operations
+});
+
+describe('resolveLayout', () => {
+  it('resolves canonical semantic routes', () => {
+    const layout = resolveLayout(target);
+
+    expect(layout.routes.prompt).toBe('prompts/');
+    expect(layout.routes.agent).toBe('agents/');
+    expect(layout.routes.skill).toBe('skills/');
   });
 
-  it('uses an injected layout loader when writing', async () => {
-    const fs = new InMemoryFileSystem();
-    const target: Target = { name: 'test', type: 'vscode', scope: 'user' };
-    const loader = {
+  it('resolves repository routes and bases', () => {
+    const layout = resolveLayout({
+      name: 'repo',
+      type: 'vscode',
+      scope: 'repository',
+      rootPath: '/workspace'
+    });
+
+    expect(layout.baseDir).toBe('/workspace/.github');
+    expect(layout.routes.agent).toBe('agents/');
+  });
+
+  it('resolves layouts from an injected loader', async () => {
+    const layout = await resolveLayoutAsync(target, {
       load: async () => [{
         layouts: {
           vscode: {
             user: {
               baseDir: '/custom',
-              kindRoutes: { 'prompts/': 'custom-prompts/' },
+              kindRoutes: { prompt: 'custom-prompts/' },
               skipPaths: []
             }
           }
         }
       }]
-    };
-    const writer = new FileTreeTargetWriter({ fs, env: {}, layoutLoader: loader });
+    });
 
-    await writer.write(target, new Map([
-      ['prompts/test.md', new TextEncoder().encode('# Test')]
-    ]));
-
-    expect(await fs.readFile(localPath('/custom', 'custom-prompts', 'test.md'))).toBe('# Test');
-  });
-});
-
-describe('expandPath', () => {
-  it('expands ${VAR} tokens from the env map', () => {
-    expect(expandPath('${HOME}/.config', { HOME: '/home/alice' })).toBe('/home/alice/.config');
-  });
-
-  it('expands a leading ~ using HOME', () => {
-    expect(expandPath('~/.config', { HOME: '/home/alice' })).toBe('/home/alice/.config');
-  });
-
-  it('falls back to USERPROFILE when HOME is unset', () => {
-    expect(expandPath('~/.config', { USERPROFILE: 'C:/Users/alice' })).toBe('C:/Users/alice/.config');
-  });
-
-  it('leaves unmatched tokens blank rather than throwing', () => {
-    expect(expandPath('${UNKNOWN}/x', {})).toBe('/x');
+    expect(layout.baseDir).toBe('/custom');
+    expect(layout.routes.prompt).toBe('custom-prompts/');
   });
 });
 
 describe('FileTreeTargetWriter', () => {
-  const target: Target = { name: 'test', type: 'vscode', scope: 'user', path: '/out' };
-
-  it('writes routed files into the resolved layout', async () => {
+  it('writes exact destination bytes and returns installed records', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['prompts/test.md', new TextEncoder().encode('# Test')]
-    ]);
+    const bytes = new Uint8Array([0, 255, 1]);
 
-    const result = await writer.write(target, files);
+    const result = await writer.write(writePlan([operation('assets/data.bin', bytes)]));
 
-    expect(result.written).toContain(localPath('/out', 'prompts', 'test.md'));
-    expect(result.skipped).toEqual([]);
-    expect(await fs.readFile(localPath('/out', 'prompts', 'test.md'))).toBe('# Test');
+    expect(await fs.readFileBytes('/out/assets/data.bin')).toEqual(bytes);
+    expect(result.installed).toEqual([expect.objectContaining({
+      destinationPath: path.join('/out', 'assets/data.bin'),
+      destinationRelativePath: 'assets/data.bin',
+      installedChecksum: expect.stringMatching(/^sha256:/u)
+    })]);
   });
 
-  it('rolls back files when a filesystem write throws after persisting', async () => {
-    const fs = new FailAfterFirstWriteFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['prompts/first.md', new TextEncoder().encode('# First')],
-      ['prompts/second.md', new TextEncoder().encode('# Second')]
-    ]);
+  it('records transformed text checksums after transformation', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({
+      fs,
+      env: {},
+      transformer: {
+        transform: ({ content }) => ({ content: `${content}!` })
+      }
+    });
 
-    await expect(writer.write(target, files)).rejects.toThrow('disk full after write');
+    const result = await writer.write(writePlan([operation('agents/review.agent.md', new TextEncoder().encode('review'))]));
 
-    expect(await fs.exists(localPath('/out', 'prompts', 'first.md'))).toBe(false);
-    expect(await fs.exists(localPath('/out', 'prompts', 'second.md'))).toBe(false);
+    expect(await fs.readFile('/out/agents/review.agent.md')).toBe('review!');
+    expect(result.installed[0].installedChecksum).not.toBe('sha256:source');
   });
 
-  it('routes the legacy chatmodes path alias to the canonical chat-modes route', async () => {
+  it.each(['../escape.md', '..\\escape.md'])('preflight rejects unsafe operation %s without writing', async (relativePath) => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['chatmodes/review.chatmode.md', new TextEncoder().encode('# Review')]
-    ]);
+    const unsafe = operation(relativePath, new TextEncoder().encode('no'));
 
-    const result = await writer.write(target, files);
-
-    expect(result.written).toContain(localPath('/out', 'agents', 'review.chatmode.md'));
-    expect(result.skipped).toEqual([]);
+    await expect(writer.preflight(writePlan([unsafe]))).rejects.toThrow('unsafe');
+    expect(await fs.exists('/out/escape.md')).toBe(false);
   });
 
-  it('skips files in the layout skipPaths list', async () => {
+  it('rejects unmanaged existing destinations and permits checksum-matching managed replacements', async () => {
     const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['deployment-manifest.yml', new TextEncoder().encode('id: x')]
-    ]);
+    fs.seed('/out/agents/review.agent.md', 'existing');
+    const plan = writePlan([operation('agents/review.agent.md', new TextEncoder().encode('replacement'))]);
 
-    const result = await writer.write(target, files);
+    await expect(new FileTreeTargetWriter({ fs, env: {} }).preflight(plan))
+      .rejects.toThrow('unmanaged existing destination');
 
-    expect(result.written).toEqual([]);
+    const managedWriter = new FileTreeTargetWriter({
+      fs,
+      env: {},
+      managedFiles: [{
+        itemId: 'review',
+        kind: 'agent',
+        sourcePath: 'agents/review.agent.md',
+        destinationPath: '/out/agents/review.agent.md',
+        destinationRelativePath: 'agents/review.agent.md',
+        installedChecksum: checksum(new TextEncoder().encode('existing'))
+      }]
+    });
+    await expect(managedWriter.preflight(plan)).resolves.toBeUndefined();
   });
 
-  it('skips unrouted files without erroring', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['unrouted/thing.bin', new TextEncoder().encode('data')]
-    ]);
-
-    const result = await writer.write(target, files);
-
-    expect(result.written).toEqual([]);
-    expect(result.skipped).toContain('unrouted/thing.bin');
-  });
-
-  it('honors target.allowedKinds by skipping excluded kinds', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const restrictedTarget: Target = { ...target, allowedKinds: ['skill'] };
-    const files = new Map<string, Uint8Array>([
-      ['prompts/test.md', new TextEncoder().encode('# Test')],
-      ['skills/my-skill/SKILL.md', new TextEncoder().encode('# Skill')]
-    ]);
-
-    const result = await writer.write(restrictedTarget, files);
-
-    expect(result.written).toContain(localPath('/out', 'skills', 'my-skill', 'SKILL.md'));
-    expect(result.skipped).toContain('prompts/test.md');
-  });
-
-  it('writes binary files byte-for-byte without applying a transformer (issue #357)', async () => {
-    const fs = new InMemoryFileSystem();
-    const transformer: ResourceTransformer = {
-      transform: (ctx) => ({ content: `${ctx.content}\n<!-- transformed -->`, modified: true })
+  it('rejects writes and removals through a routed symlink outside the target root', async () => {
+    const fs = new NodeFileSystem();
+    const root = await mkdtemp(path.join(tmpdir(), 'file-tree-writer-root-'));
+    const outside = await mkdtemp(path.join(tmpdir(), 'file-tree-writer-outside-'));
+    const externalFile = path.join(outside, 'review.agent.md');
+    await fs.writeFile(externalFile, 'outside');
+    await symlink(outside, path.join(root, 'agents'));
+    const writer = new FileTreeTargetWriter({
+      fs,
+      env: {},
+      managedFiles: [
+        {
+          itemId: 'one', kind: 'prompt', sourcePath: 'one.md',
+          destinationPath: '/out/one.md', destinationRelativePath: 'one.md',
+          installedChecksum: checksum(new TextEncoder().encode('original one'))
+        },
+        {
+          itemId: 'two', kind: 'prompt', sourcePath: 'two.md',
+          destinationPath: '/out/two.md', destinationRelativePath: 'two.md',
+          installedChecksum: checksum(new TextEncoder().encode('original two'))
+        }
+      ]
+    });
+    const unsafeOperation = operation('agents/review.agent.md', new TextEncoder().encode('replacement'), {
+      destinationPath: path.join(root, 'agents', 'review.agent.md')
+    });
+    const unsafeRecord = {
+      itemId: unsafeOperation.itemId,
+      kind: unsafeOperation.kind,
+      sourcePath: unsafeOperation.sourcePath,
+      destinationPath: unsafeOperation.destinationPath,
+      destinationRelativePath: unsafeOperation.destinationRelativePath,
+      installedChecksum: unsafeOperation.sourceChecksum
     };
-    const writer = new FileTreeTargetWriter({ fs, env: {}, transformer });
-    // Invalid UTF-8 sequences: a lossy TextDecoder round-trip would
-    // replace them with U+FFFD and corrupt the asset.
-    const binaryBytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x9D, 0xC7, 0x80]);
-    const files = new Map<string, Uint8Array>([
-      ['skills/deck/assets/template.pptx', binaryBytes]
-    ]);
 
-    const result = await writer.write(target, files);
-
-    const installedPath = localPath('/out', 'skills', 'deck', 'assets', 'template.pptx');
-    expect(result.written).toContain(installedPath);
-    expect(await fs.readFileBytes(installedPath)).toEqual(binaryBytes);
+    try {
+      await expect(writer.preflight(writePlan([unsafeOperation]))).rejects.toThrow('escapes target root');
+      await expect(writer.remove([unsafeRecord])).rejects.toThrow('escapes target root');
+      expect(await fs.readFile(externalFile)).toBe('outside');
+    } finally {
+      await fs.remove(root, { recursive: true });
+      await fs.remove(outside, { recursive: true });
+    }
   });
 
-  it('writes binary skill assets byte-for-byte in writeManifestItems', async () => {
+  it('rolls back all files after a partial write failure', async () => {
     const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const binaryBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0xFF, 0xD8, 0x00, 0xC0]);
-    const files = new Map<string, Uint8Array>([
-      ['skills/deck/SKILL.md', new TextEncoder().encode('# Deck')],
-      ['skills/deck/assets/logo.png', binaryBytes]
-    ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'deck', file: 'skills/deck/SKILL.md', type: 'skill' }
-    ];
-
-    await writer.writeManifestItems(target, files, items);
-
-    expect(await fs.readFileBytes(localPath('/out', 'skills', 'deck', 'assets', 'logo.png'))).toEqual(binaryBytes);
-  });
-
-  it('applies a resource transformer to file content', async () => {
-    const fs = new InMemoryFileSystem();
-    const transformer: ResourceTransformer = {
-      transform: (ctx) => ({ content: `${ctx.content}\n<!-- transformed -->`, modified: true })
-    };
-    const writer = new FileTreeTargetWriter({ fs, env: {}, transformer });
-    const files = new Map<string, Uint8Array>([
-      ['prompts/test.md', new TextEncoder().encode('# Test')]
-    ]);
-
-    await writer.write(target, files);
-
-    expect(await fs.readFile(localPath('/out', 'prompts', 'test.md'))).toBe('# Test\n<!-- transformed -->');
-  });
-
-  it('falls back to original content when the transformer throws', async () => {
-    const fs = new InMemoryFileSystem();
-    const transformer: ResourceTransformer = {
-      transform: () => {
-        throw new Error('boom');
+    const originalWrite = fs.writeFile.bind(fs);
+    let writes = 0;
+    fs.writeFile = async (filePath, contents) => {
+      await originalWrite(filePath, contents);
+      writes += 1;
+      if (writes === 2) {
+        throw new Error('disk full');
       }
     };
-    const writer = new FileTreeTargetWriter({ fs, env: {}, transformer });
-    const files = new Map<string, Uint8Array>([
-      ['prompts/test.md', new TextEncoder().encode('# Test')]
-    ]);
-
-    await writer.write(target, files);
-
-    expect(await fs.readFile(localPath('/out', 'prompts', 'test.md'))).toBe('# Test');
-  });
-
-  it('removes a routed file', async () => {
-    const fs = new InMemoryFileSystem();
-    fs.seed(localPath('/out', 'prompts', 'test.md'), '# Test');
     const writer = new FileTreeTargetWriter({ fs, env: {} });
 
-    await writer.remove(target, 'prompts/test.md');
-
-    expect(await fs.exists(localPath('/out', 'prompts', 'test.md'))).toBe(false);
+    await expect(writer.write(writePlan([
+      operation('one.md', new TextEncoder().encode('one')),
+      operation('two.md', new TextEncoder().encode('two'))
+    ]))).rejects.toThrow('disk full');
+    expect(await fs.exists('/out/one.md')).toBe(false);
+    expect(await fs.exists('/out/two.md')).toBe(false);
   });
 
-  it('no-ops removing an unrouted file', async () => {
+  it('restores pre-existing files after a partial write failure', async () => {
     const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-
-    await expect(writer.remove(target, 'unrouted/thing.bin')).resolves.not.toThrow();
-  });
-
-  it('prefers the most specific route for .kiro/steering/', async () => {
-    const fs = new InMemoryFileSystem();
-    const kiroTarget: Target = { name: 'test', type: 'kiro', scope: 'repository', rootPath: '/ws' };
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['.kiro/steering/api.md', new TextEncoder().encode('# API')]
-    ]);
-
-    const result = await writer.write(kiroTarget, files);
-
-    expect(result.written).toContain(localPath('/ws', '.kiro', 'steering', 'api.md'));
-    expect(result.skipped).toEqual([]);
-  });
-
-  it('routes .cursor/rules/ for cursor repository scope', async () => {
-    const fs = new InMemoryFileSystem();
-    const cursorTarget: Target = { name: 'test', type: 'cursor', scope: 'repository', rootPath: '/ws' };
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['.cursor/rules/backend.mdc', new TextEncoder().encode('# Rules')]
-    ]);
-
-    const result = await writer.write(cursorTarget, files);
-
-    expect(result.written).toContain(localPath('/ws', '.cursor', 'rules', 'backend.mdc'));
-  });
-
-  it('routes knowledge/ and playbooks/ for devin repository scope', async () => {
-    const fs = new InMemoryFileSystem();
-    const devinTarget: Target = { name: 'test', type: 'devin', scope: 'repository', rootPath: '/ws' };
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['knowledge/onboarding.md', new TextEncoder().encode('# Onboarding')],
-      ['playbooks/bug-fix.md', new TextEncoder().encode('# Bug fix')]
-    ]);
-
-    const result = await writer.write(devinTarget, files);
-
-    expect(result.written).toContain(localPath('/ws', '.devin', 'knowledge', 'onboarding.md'));
-    expect(result.written).toContain(localPath('/ws', '.devin', 'playbooks', 'bug-fix.md'));
-  });
-});
-
-describe('FileTreeTargetWriter.writeManifestItems', () => {
-  const repoTarget: Target = { name: 'test', type: 'vscode', scope: 'repository', rootPath: '/ws' };
-
-  it('renames a prompt to {id}.prompt.md under the resolved prompts route', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['some-source-name.md', new TextEncoder().encode('# Hello')]
-    ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-prompt', file: 'some-source-name.md', type: 'prompt' }
-    ];
-
-    const result = await writer.writeManifestItems(repoTarget, files, items);
-
-    expect(result.written).toEqual([localPath('/ws', '.github', 'prompts', 'my-prompt.prompt.md')]);
-    expect(result.skipped).toEqual([]);
-    expect(await fs.readFile(localPath('/ws', '.github', 'prompts', 'my-prompt.prompt.md'))).toBe('# Hello');
-  });
-
-  it('auto-detects the file type from tags when type is omitted', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['guidance.md', new TextEncoder().encode('# Guidance')]
-    ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-instructions', file: 'guidance.md', tags: ['instructions'] }
-    ];
-
-    const result = await writer.writeManifestItems(repoTarget, files, items);
-
-    expect(result.written).toEqual([localPath('/ws', '.github', 'instructions', 'my-instructions.instructions.md')]);
-  });
-
-  it('routes chatmode items alongside agents', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['mode.md', new TextEncoder().encode('# Mode')]
-    ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-mode', file: 'mode.md', type: 'chatmode' }
-    ];
-
-    const result = await writer.writeManifestItems(repoTarget, files, items);
-
-    expect(result.written).toEqual([localPath('/ws', '.github', 'agents', 'my-mode.chatmode.md')]);
-  });
-
-  it('routes agent items to the agents/ directory', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['agent-source.md', new TextEncoder().encode('# Agent')]
-    ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-agent', file: 'agent-source.md', type: 'agent' }
-    ];
-
-    const result = await writer.writeManifestItems(repoTarget, files, items);
-
-    expect(result.written).toEqual([localPath('/ws', '.github', 'agents', 'my-agent.agent.md')]);
-  });
-
-  it('skips items whose kind is excluded by target.allowedKinds', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const restrictedTarget: Target = { ...repoTarget, allowedKinds: ['skill'] };
-    const files = new Map<string, Uint8Array>([
-      ['some-source-name.md', new TextEncoder().encode('# Hello')]
-    ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-prompt', file: 'some-source-name.md', type: 'prompt' }
-    ];
-
-    const result = await writer.writeManifestItems(restrictedTarget, files, items);
-
-    expect(result.written).toEqual([]);
-    expect(result.skipped).toEqual(['some-source-name.md']);
-  });
-
-  it('routes agents into the windsurf layout', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const windsurfTarget: Target = { name: 'test', type: 'windsurf', scope: 'repository', rootPath: '/ws' };
-    const files = new Map<string, Uint8Array>([
-      ['agent-source.md', new TextEncoder().encode('# Agent')]
-    ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-agent', file: 'agent-source.md', type: 'agent' }
-    ];
-
-    const result = await writer.writeManifestItems(windsurfTarget, files, items);
-
-    expect(result.written).toEqual([localPath('/ws', '.windsurf', 'agents', 'my-agent.agent.md')]);
-    expect(result.skipped).toEqual([]);
-  });
-
-  it('skips an item whose source file is missing from the extracted files map', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-prompt', file: 'missing.md', type: 'prompt' }
-    ];
-
-    const result = await writer.writeManifestItems(repoTarget, new Map(), items);
-
-    expect(result.written).toEqual([]);
-    expect(result.skipped).toEqual(['missing.md']);
-  });
-
-  it('applies a resource transformer to renamed file content', async () => {
-    const fs = new InMemoryFileSystem();
-    const transformer: ResourceTransformer = {
-      transform: (ctx) => ({ content: `${ctx.content}\n<!-- transformed -->`, modified: true })
+    fs.seed('/out/one.md', 'original one');
+    fs.seed('/out/two.md', 'original two');
+    const originalWrite = fs.writeFile.bind(fs);
+    let writes = 0;
+    fs.writeFile = async (filePath, contents) => {
+      await originalWrite(filePath, contents);
+      writes += 1;
+      if (writes === 2) {
+        throw new Error('disk full');
+      }
     };
-    const writer = new FileTreeTargetWriter({ fs, env: {}, transformer });
-    const files = new Map<string, Uint8Array>([
-      ['some-source-name.md', new TextEncoder().encode('# Hello')]
-    ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-prompt', file: 'some-source-name.md', type: 'prompt' }
-    ];
+    const writer = new FileTreeTargetWriter({
+      fs,
+      env: {},
+      managedFiles: [
+        {
+          itemId: 'one', kind: 'prompt', sourcePath: 'one.md',
+          destinationPath: '/out/one.md', destinationRelativePath: 'one.md',
+          installedChecksum: checksum(new TextEncoder().encode('original one'))
+        },
+        {
+          itemId: 'two', kind: 'prompt', sourcePath: 'two.md',
+          destinationPath: '/out/two.md', destinationRelativePath: 'two.md',
+          installedChecksum: checksum(new TextEncoder().encode('original two'))
+        }
+      ]
+    });
 
-    await writer.writeManifestItems(repoTarget, files, items);
-
-    expect(await fs.readFile(localPath('/ws', '.github', 'prompts', 'my-prompt.prompt.md'))).toBe('# Hello\n<!-- transformed -->');
+    await expect(writer.write(writePlan([
+      operation('one.md', new TextEncoder().encode('replacement one')),
+      operation('two.md', new TextEncoder().encode('replacement two'))
+    ]))).rejects.toThrow('disk full');
+    expect(await fs.readFile('/out/one.md')).toBe('original one');
+    expect(await fs.readFile('/out/two.md')).toBe('original two');
   });
 
-  it('copies an entire skill directory into {id}/, renaming the directory but preserving relative paths', async () => {
-    const fs = new InMemoryFileSystem();
+  it('prunes empty skill directories after a partial write failure', async () => {
+    const fs = new NodeFileSystem();
+    const root = await mkdtemp(path.join(tmpdir(), 'file-tree-writer-'));
+    const skillRoot = path.join(root, 'skills', 'review');
+    const originalWrite = fs.writeFileBytes.bind(fs);
+    let writes = 0;
+    fs.writeFileBytes = async (filePath, bytes) => {
+      await originalWrite(filePath, bytes);
+      writes += 1;
+      if (writes === 2) {
+        throw new Error('disk full');
+      }
+    };
     const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const files = new Map<string, Uint8Array>([
-      ['skills/source-skill/SKILL.md', new TextEncoder().encode('# Skill')],
-      ['skills/source-skill/scripts/run.sh', new TextEncoder().encode('#!/bin/sh')]
+    const plan = writePlan([
+      operation('skills/review/SKILL.md', new TextEncoder().encode('# Review'), {
+        itemId: 'review',
+        kind: 'skill',
+        destinationPath: path.join(skillRoot, 'SKILL.md')
+      }),
+      operation('skills/review/assets/rubric.json', new TextEncoder().encode('{}'), {
+        itemId: 'review',
+        kind: 'skill',
+        destinationPath: path.join(skillRoot, 'assets', 'rubric.json')
+      })
     ]);
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-skill', file: 'skills/source-skill/SKILL.md', type: 'skill' }
-    ];
 
-    const result = await writer.writeManifestItems(repoTarget, files, items);
-
-    expect(result.written).toContain(localPath('/ws', '.github', 'skills', 'my-skill', 'SKILL.md'));
-    expect(result.written).toContain(localPath('/ws', '.github', 'skills', 'my-skill', 'scripts', 'run.sh'));
-    expect(result.skipped).toEqual([]);
-    expect(await fs.readFile(localPath('/ws', '.github', 'skills', 'my-skill', 'SKILL.md'))).toBe('# Skill');
-    expect(await fs.readFile(localPath('/ws', '.github', 'skills', 'my-skill', 'scripts', 'run.sh'))).toBe('#!/bin/sh');
+    try {
+      await expect(writer.write(plan)).rejects.toThrow('disk full');
+      expect(await fs.exists(skillRoot)).toBe(false);
+    } finally {
+      await fs.remove(root, { recursive: true });
+    }
   });
 
-  it('skips a skill item when no bundle files match its source skill directory', async () => {
+  it('produces deterministic results for repeated input', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });
-    const items: ManifestPlacementItem[] = [
-      { id: 'my-skill', file: 'skills/missing-skill/SKILL.md', type: 'skill' }
-    ];
+    const plan = writePlan([
+      operation('z.md', new TextEncoder().encode('z')),
+      operation('a.md', new TextEncoder().encode('a'))
+    ]);
 
-    const result = await writer.writeManifestItems(repoTarget, new Map(), items);
+    const first = await writer.write(plan);
+    const second = await new FileTreeTargetWriter({ fs, env: {}, managedFiles: first.installed }).write(plan);
 
-    expect(result.written).toEqual([]);
-    expect(result.skipped).toEqual(['skills/missing-skill/SKILL.md']);
+    expect(first.installed.map((file) => file.destinationRelativePath)).toEqual(['z.md', 'a.md']);
+    expect(second.installed).toEqual(first.installed);
+  });
+
+  it('removes exactly the recorded destinations', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const plan = writePlan([operation('keep.md', new TextEncoder().encode('keep'))]);
+    const result = await writer.write(plan);
+    fs.seed('/out/unrelated.md', 'unrelated');
+
+    await writer.remove(result.installed);
+
+    expect(await fs.exists('/out/keep.md')).toBe(false);
+    expect(await fs.exists('/out/unrelated.md')).toBe(true);
+  });
+
+  it('prunes empty managed skill directories without removing unrelated siblings', async () => {
+    const fs = new NodeFileSystem();
+    const root = await mkdtemp(path.join(tmpdir(), 'file-tree-writer-'));
+    const skillRoot = path.join(root, 'skills', 'review');
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const plan = writePlan([
+      operation('skills/review/SKILL.md', new TextEncoder().encode('# Review'), {
+        itemId: 'review',
+        kind: 'skill',
+        destinationPath: path.join(skillRoot, 'SKILL.md')
+      }),
+      operation('skills/review/assets/rubric.json', new TextEncoder().encode('{}'), {
+        itemId: 'review',
+        kind: 'skill',
+        destinationPath: path.join(skillRoot, 'assets', 'rubric.json')
+      })
+    ]);
+
+    try {
+      const result = await writer.write(plan);
+      await fs.writeFile(path.join(root, 'skills', 'unrelated.txt'), 'keep');
+
+      await writer.remove(result.installed);
+
+      expect(await fs.exists(skillRoot)).toBe(false);
+      expect(await fs.exists(path.join(root, 'skills', 'unrelated.txt'))).toBe(true);
+    } finally {
+      await fs.remove(root, { recursive: true });
+    }
+  });
+
+  it('prunes the skill root when the final retained record is nested', async () => {
+    const fs = new NodeFileSystem();
+    const root = await mkdtemp(path.join(tmpdir(), 'file-tree-writer-'));
+    const skillRoot = path.join(root, 'skills', 'review');
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const plan = writePlan([operation('skills/review/assets/notes.md', new TextEncoder().encode('notes'), {
+      itemId: 'review',
+      kind: 'skill',
+      destinationPath: path.join(skillRoot, 'assets', 'notes.md')
+    })]);
+
+    try {
+      const result = await writer.write(plan);
+      await fs.writeFile(path.join(root, 'skills', 'unrelated.txt'), 'keep');
+
+      await writer.remove(result.installed);
+
+      expect(await fs.exists(skillRoot)).toBe(false);
+      expect(await fs.exists(path.join(root, 'skills', 'unrelated.txt'))).toBe(true);
+    } finally {
+      await fs.remove(root, { recursive: true });
+    }
   });
 });

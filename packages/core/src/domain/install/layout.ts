@@ -9,6 +9,9 @@
  * Pure domain: no IO, no framework imports.
  * @module domain/install/layout
  */
+import type {
+  PrimitiveKind,
+} from '../primitive/types';
 
 /**
  * Per-scope layout definition as stored in a layout config file.
@@ -214,13 +217,6 @@ export interface TargetLayoutsConfig {
 }
 
 /**
- * Mapping from a primitive kind to a relative subdirectory.
- * Keys are bundle sub-path prefixes (e.g. `"prompts/"`),
- * values are output sub-paths relative to baseDir.
- */
-export type KindRoutes = Record<string, string>;
-
-/**
  * Resolved target layout consumed by writers.
  * The `baseDir` is already resolved (no `${workspaceRoot}` token);
  * `${HOME}` and other env tokens are still present and expanded by
@@ -229,8 +225,8 @@ export type KindRoutes = Record<string, string>;
 export interface TargetLayout {
   /** Base directory the writer writes into (post-${VAR} expansion). */
   baseDir: string;
-  /** Map: bundle subpath prefix → output subpath under baseDir. */
-  kindRoutes: KindRoutes;
+  /** Map: canonical primitive kind → output subpath under baseDir. */
+  routes: Partial<Record<PrimitiveKind, string>>;
   /** Bundle-relative paths to skip (manifests, READMEs, etc.). */
   skipPaths?: string[];
 }

@@ -106,7 +106,7 @@ suite('BundleInstaller - Repository Scope', () => {
 
     // Create mock scope services
     mockRepositoryScopeService = {
-      syncBundle: sandbox.stub().resolves(),
+      syncBundle: sandbox.stub().resolves({ installed: [] }),
       unsyncBundle: sandbox.stub().resolves(),
       getTargetPath: sandbox.stub().returns('.github/prompts/test.prompt.md'),
       getStatus: sandbox.stub().resolves({ baseDirectory: '.github', dirExists: true, syncedFiles: 0, files: [] }),
@@ -114,7 +114,7 @@ suite('BundleInstaller - Repository Scope', () => {
     } as any;
 
     mockUserScopeService = {
-      syncBundle: sandbox.stub().resolves(),
+      syncBundle: sandbox.stub().resolves({ installed: [] }),
       unsyncBundle: sandbox.stub().resolves(),
       getTargetPath: sandbox.stub().returns('~/.vscode/prompts/test.prompt.md'),
       getStatus: sandbox.stub().resolves({ baseDirectory: '~/.vscode', dirExists: true, syncedFiles: 0, files: [] })
@@ -588,20 +588,28 @@ prompts: []
       }
     });
 
-    test('should handle lockfile write failures gracefully', async () => {
-      // Requirements: 15.6
+    test('rolls back exact installed records when lockfile persistence fails', async () => {
       mockLockfileManager.createOrUpdate.rejects(new Error('Lockfile write failed'));
+      const installedFiles = [{
+        itemId: 'test-prompt',
+        kind: 'prompt' as const,
+        sourcePath: 'test.prompt.md',
+        destinationPath: path.join(tempDir, '.github', 'prompts', 'test.prompt.md'),
+        destinationRelativePath: '.github/prompts/test.prompt.md',
+        installedChecksum: 'sha256:test'
+      }];
+      mockRepositoryScopeService.syncBundle.resolves({ installed: installedFiles });
+      mockRepositoryScopeService.unsyncBundle.resolves({ retained: [] });
 
       const options: InstallOptions = {
         scope: 'repository',
         commitMode: 'commit'
       };
 
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
 id: ${testBundle.id}
 version: ${testBundle.version}
 name: ${testBundle.name}
@@ -609,13 +617,15 @@ description: Test
 author: test
 prompts: []
 `));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
 
-        // After implementation, should either throw or handle gracefully
-      } catch {
-        // Expected - lockfile failure should propagate or be handled
-        assert.ok(true, 'Lockfile failure handled');
-      }
+      await assert.rejects(
+        installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github'),
+        /Lockfile write failed/
+      );
+      assert.deepStrictEqual(
+        mockRepositoryScopeService.unsyncBundle.firstCall.args[1]?.installedFiles,
+        installedFiles
+      );
     });
   });
 

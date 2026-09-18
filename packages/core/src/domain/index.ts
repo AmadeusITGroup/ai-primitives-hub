@@ -19,6 +19,7 @@ export * from './source/github-source-authentication';
 export * from './source-id';
 export * from './install/types';
 export * from './install/target';
+export * from './install';
 export * from './install/installable';
 export * from './install/copilot-file-type';
 export * from './install/layout';

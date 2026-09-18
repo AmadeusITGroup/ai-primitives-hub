@@ -1,48 +1,25 @@
 /**
- * TargetWriter interface + FileTreeTargetWriter.
- *
- * Writer = "given a Target, an Installable's manifest, and the
- * extracted file map, route the bundle's primitive files into the
- * target's filesystem layout".
- *
- * Layout definitions are loaded from a data-driven configuration
- * (see `infra/writers/default-layouts.json`, re-exported through
- * `@ai-primitives-hub/infra`'s barrel as `defaultLayouts` — this
- * module deliberately does not keep its own copy; the reference
- * branch this was ported from had two independently-drifted copies,
- * one in `infra` and one here, which is exactly the defect this
- * single-source-of-truth import avoids). The `resolveLayout` function
- * is a synchronous compatibility shim that uses the built-in defaults
- * only; async callers with a `LayoutConfigLoader` can use
- * `resolveLayoutAsync` for hierarchical overrides (built-in → user →
- * project).
- *
- * The writer is fully context-driven: no Node globals, all IO
- * through the injected `WriterFs`.
+ * FileTreeTargetWriter executes exact operations from the shared target planner.
+ * Layout resolution remains here as a compatibility entry point for delivery
+ * adapters; placement decisions belong to `createTargetWritePlan`.
  * @module writers/file-tree-writer
  */
 import * as path from 'node:path';
 import type {
-  CopilotFileType,
-  ExtractedFiles,
-  KindRoutes,
+  InstalledFileRecord,
   LayoutConfigLoader,
-  PrimitiveKind,
   ResourceTransformer,
   Target,
   TargetLayout,
+  TargetWriteOperation,
   TargetWritePlan,
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
   decodeUtf8Strict,
-  determineFileType,
-  expandPath,
-  getSkillName,
-  getTargetFileName,
-  normalizePrimitiveKind,
-  normalizePromptId,
+  installedChecksum,
+  prunableSkillDirectories,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -53,91 +30,42 @@ import {
 } from '../install/layout-resolver';
 
 export type {
-  ExtractedFiles,
-} from '@ai-primitives-hub/core';
-
-export type {
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 
 export interface WriterFs {
   writeFile(p: string, contents: string): Promise<void>;
-  /**
-   * Write raw bytes verbatim. Required for binary bundle assets
-   * (images, archives, office documents): decoding them through the
-   * string `writeFile` path is lossy and corrupts them (issue #357).
-   */
   writeFileBytes(p: string, bytes: Uint8Array): Promise<void>;
-  /** Byte-level read-back used for post-write integrity verification. */
   readFileBytes(p: string): Promise<Uint8Array>;
   mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;
   remove(p: string): Promise<void>;
+  removeEmptyDirectory?(p: string): Promise<void>;
   exists(p: string): Promise<boolean>;
+  realpath?(p: string): Promise<string>;
+  lstat?(p: string): Promise<{ isSymbolicLink: boolean } | null>;
 }
 
-/**
- * A manifest-driven placement instruction: "this bundle-relative source
- * file/directory is primitive `id` of Copilot type `type`". Used by
- * `FileTreeTargetWriter.writeManifestItems` for targets/scopes (e.g. the
- * VS Code extension's user/repository scopes) whose real on-disk
- * convention renames every file to `{id}.{type-extension}` rather than
- * preserving the bundle's own directory layout — see migration plan
- * §7.5 item 2 for why this is a separate mode from `write()`'s
- * prefix-preserving routing.
- */
-export interface ManifestPlacementItem {
-  /** Manifest item id; used to compute the renamed on-disk file name. */
-  id: string;
-  /** Bundle-relative source path (looked up in the `ExtractedFiles` map). */
-  file: string;
-  /** Copilot file type; auto-detected from `file`/`tags` when omitted. */
-  type?: CopilotFileType;
-  tags?: string[];
+export interface FileTreeTargetWriterOptions {
+  fs: WriterFs;
+  env: Record<string, string | undefined>;
+  transformer?: ResourceTransformer;
+  managedFiles?: readonly InstalledFileRecord[];
 }
 
-/**
- * Maps a `CopilotFileType` to the `default-layouts.json` kindRoutes key
- * whose *value* (the output subdirectory) applies to it. Chatmodes are
- * deliberately routed through the agents key because they are associated
- * with agents at runtime.
- */
-export const KIND_TO_ROUTE_KEY: Record<CopilotFileType, string> = {
-  prompt: 'prompts/',
-  instructions: 'instructions/',
-  chatmode: 'agents/',
-  agent: 'agents/',
-  skill: 'skills/'
-};
-
-/**
- * Result of a remove operation.
- * Contains removed and skipped file paths.
- */
 export interface TargetRemoveResult {
-  /** Absolute paths of files removed. */
   removed: string[];
-  /** Files not found (skipped). */
   skipped: string[];
 }
 
-// Re-export domain types for backward compatibility with existing callers.
-export type { KindRoutes, TargetLayout } from '@ai-primitives-hub/core';
+interface AttemptedWrite {
+  record: InstalledFileRecord;
+  previousBytes?: Uint8Array;
+}
 
-// Satisfy local usage (TypeScript needs the types in scope for the functions below).
-// The re-export above covers external callers.
+export type { TargetLayout } from '@ai-primitives-hub/core';
 
-/**
- * Resolve the layout for a given Target using the built-in defaults.
- * Synchronous; uses the embedded JSON config (no filesystem IO).
- * For hierarchical override support (user + project configs) use
- * `resolveLayoutAsync` instead.
- * @param target - Target to resolve.
- * @returns Resolved TargetLayout.
- */
 export const resolveLayout = (target: Target): TargetLayout => {
-  // Cast needed: TypeScript widens JSON string values to `string`, making
-  // serversKey: string incompatible with McpServersKey. Values are correct at runtime.
   const result = resolveLayoutFromLayers(target, [builtInLayouts]);
   if (result === null) {
     throw new Error(`No layout defined for target type "${target.type}"`);
@@ -145,431 +73,212 @@ export const resolveLayout = (target: Target): TargetLayout => {
   return result;
 };
 
-/**
- * Resolve the layout for a given Target using all available layers
- * (built-in + user config + project config).
- * @param target - Target to resolve.
- * @param loader - Layout config loader (injected for testability).
- * @returns Resolved TargetLayout.
- */
 export const resolveLayoutAsync = async (
   target: Target,
   loader: LayoutConfigLoader
 ): Promise<TargetLayout> => {
-  const layers = await loader.load();
-  const result = resolveLayoutFromLayers(target, layers);
+  const result = resolveLayoutFromLayers(target, await loader.load());
   if (result === null) {
     throw new Error(`No layout defined for target type "${target.type}"`);
   }
   return result;
 };
 
-/**
- * Re-export of `expandPath` (expands `${VAR}` and a leading `~` in a path).
- * @deprecated Import `expandPath` from `@ai-primitives-hub/core` directly. This re-export
- * is kept for backward compatibility and will be removed in a future version.
- */
 export { expandPath } from '@ai-primitives-hub/core';
 
-/**
- * Options for FileTreeTargetWriter.
- */
-export interface FileTreeTargetWriterOptions {
-  fs: WriterFs;
-  /** Process env, used for ${VAR} expansion. */
-  env: Record<string, string | undefined>;
-  /** Optional resource transformer for target-specific content transformations. */
-  transformer?: ResourceTransformer;
-  /** Optional hierarchical layout loader; built-in defaults are used when omitted. */
-  layoutLoader?: LayoutConfigLoader;
-}
-
-/**
- * Generic writer that routes bundle files into a target tree using
- * the layout returned by resolveLayout(target).
- */
-/* eslint-disable @typescript-eslint/member-ordering -- public API kept above helpers. */
 export class FileTreeTargetWriter implements TargetWriter {
-  /**
-   * Construct a FileTreeTargetWriter.
-   * @param opts Writer options including filesystem and environment.
-   */
-  public constructor(private readonly opts: FileTreeTargetWriterOptions) {}
+  private readonly managedFiles: ReadonlyMap<string, InstalledFileRecord>;
 
-  /**
-   * Determine which extracted bundle files this writer can place without
-   * changing the target filesystem.
-   * @param target - Target chosen via `--target <name>`.
-   * @param files - Extracted bundle files.
-   * @returns Deterministic writable/skipped bundle-relative paths.
-   */
-  public async preflight(target: Target, files: ExtractedFiles): Promise<TargetWritePlan> {
-    const layout = await this.resolveLayout(target);
-    const skip = new Set(layout.skipPaths);
-    const allowed = target.allowedKinds === undefined
-      ? null
-      : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
-    const writable: string[] = [];
-    const skipped: string[] = [];
-
-    for (const bundlePath of files.keys()) {
-      if (skip.has(bundlePath)) {
-        continue;
-      }
-      const route = pickRoute(bundlePath, layout.kindRoutes);
-      if (route === null) {
-        skipped.push(bundlePath);
-        continue;
-      }
-      const routeKind = routeToKind(route.prefix);
-      if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
-        skipped.push(bundlePath);
-        continue;
-      }
-      writable.push(bundlePath);
-    }
-
-    return { writable, skipped };
+  public constructor(private readonly opts: FileTreeTargetWriterOptions) {
+    this.managedFiles = new Map(
+      (opts.managedFiles ?? []).map((record) => [path.resolve(record.destinationPath), record])
+    );
   }
 
-  /**
-   * Write the bundle into the target.
-   * @param target - Target chosen via `--target <name>`.
-   * @param files - Extracted bundle files.
-   * @returns TargetWriteResult.
-   */
-  public async write(target: Target, files: ExtractedFiles): Promise<TargetWriteResult> {
-    const layout = await this.resolveLayout(target);
-    const baseDir = expandPath(layout.baseDir, this.opts.env);
-    const skip = new Set(layout.skipPaths);
-    const allowed = target.allowedKinds === undefined
-      ? null
-      : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
-    const written: string[] = [];
-    const writtenBundlePaths: string[] = [];
-    const skipped: string[] = [];
-    let pendingWritePath: string | null = null;
-
-    try {
-      // Eager mkdir of the routed-kind directories; reduces churn over
-      // calling mkdir per file. Per-kind subdir creation is recursive
-      // so root + nested dirs are covered.
-      for (const sub of Object.values(layout.kindRoutes)) {
-        await this.opts.fs.mkdir(path.join(baseDir, sub), { recursive: true });
-      }
-
-      for (const [bundlePath, bytes] of files) {
-        if (skip.has(bundlePath)) {
-          continue;
-        }
-        const route = pickRoute(bundlePath, layout.kindRoutes);
-        if (route === null) {
-          // Unrouted file; not an error (bundles may carry extras).
-          skipped.push(bundlePath);
-          continue;
-        }
-        // Skip when allowedKinds explicitly excludes this kind.
-        const routeKind = routeToKind(route.prefix);
-        if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
-          skipped.push(bundlePath);
-          continue;
-        }
-
-        const outPath = path.join(baseDir, route.outPrefix, route.tail);
-        // Keep the path visible to the catch block before write starts:
-        // a filesystem can persist the file and then throw.
-        pendingWritePath = outPath;
-        await this.writeContent(target, bundlePath, bytes, outPath);
-        pendingWritePath = null;
-        written.push(outPath);
-        writtenBundlePaths.push(bundlePath);
-      }
-    } catch (cause) {
-      const rollbackPaths = pendingWritePath === null
-        ? written
-        : [...written, pendingWritePath];
-      await this.rollback(target, rollbackPaths);
-      throw cause;
-    }
-    return { written, skipped, writtenBundlePaths };
-  }
-
-  /**
-   * Remove files written by a failed or rejected installation.
-   * @param _target - Target chosen via `--target <name>`.
-   * @param written - Absolute paths returned by `write`.
-   */
-  public async rollback(_target: Target, written: readonly string[]): Promise<void> {
-    for (const filePath of written) {
-      try {
-        await this.opts.fs.remove(filePath);
-      } catch {
-        // Rollback is best effort; preserve the original install failure.
-      }
-    }
-  }
-
-  /**
-   * Write one bundle file to its resolved output path, binary-safe
-   * (issue #357).
-   *
-   * Text payloads (strict UTF-8) go through the optional transformer
-   * and are written as strings; anything else is written byte-for-byte
-   * — the previous unconditional `TextDecoder` round-trip replaced
-   * invalid UTF-8 sequences with U+FFFD and corrupted binary assets
-   * such as PPTX files. Every write is verified by re-reading the file
-   * and comparing it against the intended bytes.
-   * @param target - Install target (passed to the transformer).
-   * @param bundlePath - Bundle-relative source path (transformer context).
-   * @param bytes - Raw source bytes from the extracted bundle.
-   * @param outPath - Absolute destination path.
-   */
-  private async writeContent(
-    target: Target,
-    bundlePath: string,
-    bytes: Uint8Array,
-    outPath: string
-  ): Promise<void> {
-    await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-
-    const text = decodeUtf8Strict(bytes);
-    if (text === null) {
-      // Binary payload: write verbatim, never transform.
-      await this.opts.fs.writeFileBytes(outPath, bytes);
-      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+  private async assertOverwriteAllowed(destinationPath: string): Promise<void> {
+    if (!await this.opts.fs.exists(destinationPath)) {
       return;
+    }
+    const managed = this.managedFiles.get(path.resolve(destinationPath));
+    if (managed === undefined) {
+      throw new Error(`Refusing to overwrite unmanaged existing destination: ${destinationPath}`);
+    }
+    const existing = await this.opts.fs.readFileBytes(destinationPath);
+    if (installedChecksum(existing) !== managed.installedChecksum) {
+      throw new Error(`Refusing to overwrite modified managed destination: ${destinationPath}`);
+    }
+  }
+
+  private async resolveRealPath(candidate: string): Promise<string> {
+    if (this.opts.fs.realpath === undefined) {
+      return path.resolve(candidate);
+    }
+    try {
+      return await this.opts.fs.realpath(candidate);
+    } catch {
+      const parent = path.dirname(candidate);
+      if (parent === candidate) {
+        throw new Error(`cannot resolve target path "${candidate}"`);
+      }
+      return path.join(await this.resolveRealPath(parent), path.basename(candidate));
+    }
+  }
+
+  private async assertRealDestinationContained(
+    destinationPath: string,
+    destinationRelativePath: string
+  ): Promise<void> {
+    if (this.opts.fs.realpath === undefined || this.opts.fs.lstat === undefined) {
+      return;
+    }
+    const segments = destinationRelativePath.replaceAll('\\', '/').split('/');
+    const lexicalRoot = segments.reduce((ancestorPath) => path.dirname(ancestorPath), path.resolve(destinationPath));
+    const realRoot = await this.resolveRealPath(lexicalRoot);
+    let current = path.resolve(destinationPath);
+    while (current !== lexicalRoot) {
+      const info = await this.opts.fs.lstat(current);
+      if (info?.isSymbolicLink === true) {
+        let realCurrent: string;
+        try {
+          realCurrent = await this.opts.fs.realpath(current);
+        } catch {
+          throw new Error(`unsafe target destination "${destinationRelativePath}" contains a dangling symlink`);
+        }
+        if (realCurrent !== realRoot && !realCurrent.startsWith(`${realRoot}${path.sep}`)) {
+          throw new Error(`unsafe target destination "${destinationRelativePath}" escapes target root`);
+        }
+      }
+      current = path.dirname(current);
+    }
+    const realDestination = await this.resolveRealPath(destinationPath);
+    if (realDestination !== realRoot && !realDestination.startsWith(`${realRoot}${path.sep}`)) {
+      throw new Error(`unsafe target destination "${destinationRelativePath}" escapes target root`);
+    }
+  }
+
+  private async writeOperation(target: Target, operation: TargetWriteOperation): Promise<Uint8Array> {
+    await this.opts.fs.mkdir(path.dirname(operation.destinationPath), { recursive: true });
+    const text = operation.kind === 'skill' ? null : decodeUtf8Strict(operation.bytes);
+    if (text === null) {
+      await this.opts.fs.writeFileBytes(operation.destinationPath, operation.bytes);
+      await verifyWrittenBytes(this.opts.fs, operation.destinationPath, operation.bytes);
+      return operation.bytes;
     }
 
     let content = text;
     if (this.opts.transformer !== undefined) {
       try {
-        const result = this.opts.transformer.transform({
+        content = this.opts.transformer.transform({
           target,
-          filePath: bundlePath,
+          filePath: operation.sourcePath,
           content
-        });
-        content = result.content;
+        }).content;
       } catch {
-        // Fail-safe: on transformation error, use original content
-        // In production, this would log a warning
+        // Preserve the original content when an optional transformation fails.
       }
     }
-    await this.opts.fs.writeFile(outPath, content);
-    await verifyWrittenBytes(this.opts.fs, outPath, new TextEncoder().encode(content));
+    const installedBytes = new TextEncoder().encode(content);
+    await this.opts.fs.writeFile(operation.destinationPath, content);
+    await verifyWrittenBytes(this.opts.fs, operation.destinationPath, installedBytes);
+    return installedBytes;
   }
 
-  /**
-   * Write bundle files into the target using manifest-driven, ID-based
-   * renaming rather than `write()`'s prefix-preserving routing.
-   *
-   * For each item: the Copilot file type (explicit or auto-detected from
-   * `file`/`tags`) selects the output subdirectory via
-   * {@link KIND_TO_ROUTE_KEY} + the layout's `kindRoutes`, and the output
-   * file name is `{id}.{type-extension}` (via `core`'s `getTargetFileName`)
-   * rather than the source file's own name. Skill items are the exception:
-   * every bundle file under the skill's `skills/<sourceId>/` prefix is
-   * copied, preserving its relative path, into
-   * `{baseDir}/{skillsRoute}/{normalizedId}/`.
-   * @param target - Target chosen via `--target <name>`.
-   * @param files - Extracted bundle files.
-   * @param items - Manifest-derived placement instructions.
-   * @returns TargetWriteResult.
-   */
-  public async writeManifestItems(
-    target: Target,
-    files: ExtractedFiles,
-    items: readonly ManifestPlacementItem[]
-  ): Promise<TargetWriteResult> {
-    const layout = await this.resolveLayout(target);
-    const baseDir = expandPath(layout.baseDir, this.opts.env);
-    const allowed = target.allowedKinds === undefined
-      ? null
-      : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
-    const written: string[] = [];
-    const writtenBundlePaths: string[] = [];
-    const skipped: string[] = [];
-
-    for (const item of items) {
-      const type = item.type ?? determineFileType(item.file, item.tags);
-      const routeKey = KIND_TO_ROUTE_KEY[type];
-      if (allowed !== null && !allowed.has(copilotTypeToPrimitiveKind(type))) {
-        skipped.push(item.file);
-        continue;
-      }
-      const outPrefix = layout.kindRoutes[routeKey];
-      if (outPrefix === undefined) {
-        // Target's layout has no route for this kind at all.
-        skipped.push(item.file);
-        continue;
-      }
-
-      if (type === 'skill') {
-        const wroteAny = await this.writeSkillItem(baseDir, outPrefix, item, files, written);
-        if (wroteAny) {
-          for (const bundlePath of files.keys()) {
-            const sourcePrefix = `${path.posix.dirname(item.file)}/`;
-            if (bundlePath.startsWith(sourcePrefix)) {
-              writtenBundlePaths.push(bundlePath);
-            }
-          }
-        } else {
-          skipped.push(item.file);
-        }
-        continue;
-      }
-
-      const bytes = files.get(item.file);
-      if (bytes === undefined) {
-        skipped.push(item.file);
-        continue;
-      }
-      const outPath = path.join(baseDir, outPrefix, getTargetFileName(item.id, type));
-      await this.writeContent(target, item.file, bytes, outPath);
-      written.push(outPath);
-      writtenBundlePaths.push(item.file);
+  private async pruneEmptySkillDirectories(files: readonly InstalledFileRecord[]): Promise<void> {
+    if (this.opts.fs.removeEmptyDirectory === undefined) {
+      return;
     }
+    const removeEmptyDirectory = this.opts.fs.removeEmptyDirectory.bind(this.opts.fs);
 
-    return { written, skipped, writtenBundlePaths };
+    for (const directory of prunableSkillDirectories(files)) {
+      try {
+        await removeEmptyDirectory(directory);
+      } catch {
+        // A missing or non-empty directory must be preserved.
+      }
+    }
   }
 
-  private async resolveLayout(target: Target): Promise<TargetLayout> {
-    if (this.opts.layoutLoader === undefined) {
-      return resolveLayout(target);
-    }
-    return await resolveLayoutAsync(target, this.opts.layoutLoader);
-  }
-
-  /**
-   * Copy every bundle file under a skill's `skills/<sourceId>/` prefix
-   * into `{baseDir}/{outPrefix}/{normalizedId}/`, preserving each file's
-   * relative path under the skill root.
-   * @param baseDir - Expanded target base directory.
-   * @param outPrefix - Layout output subdirectory for the `skill` kind.
-   * @param item - Skill placement item (its `file` points at the skill's
-   *   manifest file, e.g. `skills/my-skill/SKILL.md`).
-   * @param files - Extracted bundle files.
-   * @param written - Accumulator for written absolute paths.
-   * @returns true if at least one file was written.
-   */
-  private async writeSkillItem(
-    baseDir: string,
-    outPrefix: string,
-    item: ManifestPlacementItem,
-    files: ExtractedFiles,
-    written: string[]
-  ): Promise<boolean> {
-    if (getSkillName(item.file) === null) {
-      return false;
-    }
-    const targetSkillId = normalizePromptId(item.id);
-    const sourcePrefix = `${path.posix.dirname(item.file)}/`;
-    let wroteAny = false;
-
-    for (const [bundlePath, bytes] of files) {
-      if (!bundlePath.startsWith(sourcePrefix)) {
-        continue;
+  private async rollbackAttemptedWrites(attempted: readonly AttemptedWrite[]): Promise<void> {
+    for (const { record, previousBytes } of attempted.toReversed()) {
+      try {
+        await (previousBytes === undefined ? this.opts.fs.remove(record.destinationPath) : this.opts.fs.writeFileBytes(record.destinationPath, previousBytes));
+      } catch {
+        // Preserve the original write error when rollback is best effort.
       }
-      const tail = bundlePath.slice(sourcePrefix.length);
-      const outPath = path.join(baseDir, outPrefix, targetSkillId, tail);
-      // Skill directories carry arbitrary assets (scripts, images,
-      // office documents) — copy byte-for-byte, never transform.
-      await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFileBytes(outPath, bytes);
-      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
-      written.push(outPath);
-      wroteAny = true;
     }
-
-    return wroteAny;
+    await this.pruneEmptySkillDirectories(
+      attempted.filter(({ previousBytes }) => previousBytes === undefined).map(({ record }) => record)
+    );
   }
 
-  /**
-   * Remove a file from the target.
-   * @param target - Target chosen via `--target <name>`.
-   * @param filePath - Relative file path to remove (from bundle root).
-   */
-  public async remove(target: Target, filePath: string): Promise<void> {
-    const layout = await this.resolveLayout(target);
-    const baseDir = expandPath(layout.baseDir, this.opts.env);
-    const route = pickRoute(filePath, layout.kindRoutes);
-    if (route === null) {
-      return; // Unrouted file, nothing to do
+  public async preflight(plan: TargetWritePlan): Promise<void> {
+    for (const operation of plan.operations) {
+      const normalizedRelativePath = operation.destinationRelativePath.replaceAll('\\', '/');
+      if (path.posix.isAbsolute(normalizedRelativePath)
+        || path.win32.isAbsolute(normalizedRelativePath)
+        || normalizedRelativePath.split('/').includes('..')) {
+        throw new Error(`unsafe target destination "${operation.destinationRelativePath}"`);
+      }
+      await this.assertRealDestinationContained(
+        operation.destinationPath,
+        operation.destinationRelativePath
+      );
+      await this.assertOverwriteAllowed(operation.destinationPath);
     }
-    const outPath = path.join(baseDir, route.outPrefix, route.tail);
-    await this.opts.fs.remove(outPath);
+  }
+
+  public async write(plan: TargetWritePlan): Promise<TargetWriteResult> {
+    const attempted: AttemptedWrite[] = [];
+    let pending: AttemptedWrite | undefined;
+    try {
+      for (const operation of plan.operations) {
+        await this.assertRealDestinationContained(
+          operation.destinationPath,
+          operation.destinationRelativePath
+        );
+        await this.assertOverwriteAllowed(operation.destinationPath);
+        const previousBytes = await this.opts.fs.exists(operation.destinationPath)
+          ? await this.opts.fs.readFileBytes(operation.destinationPath)
+          : undefined;
+        pending = {
+          record: {
+            itemId: operation.itemId,
+            kind: operation.kind,
+            sourcePath: operation.sourcePath,
+            destinationPath: operation.destinationPath,
+            destinationRelativePath: operation.destinationRelativePath,
+            installedChecksum: operation.sourceChecksum
+          },
+          previousBytes
+        };
+        const installedBytes = await this.writeOperation(plan.target, operation);
+        pending.record.installedChecksum = installedChecksum(installedBytes);
+        attempted.push(pending);
+        pending = undefined;
+      }
+    } catch (cause) {
+      await this.rollbackAttemptedWrites(pending === undefined ? attempted : [...attempted, pending]);
+      throw cause;
+    }
+    return { installed: attempted.map(({ record }) => record) };
+  }
+
+  public async rollback(installed: readonly InstalledFileRecord[]): Promise<void> {
+    for (const file of installed) {
+      try {
+        await this.opts.fs.remove(file.destinationPath);
+      } catch {
+        // Preserve the original write error when rollback is best effort.
+      }
+    }
+    await this.pruneEmptySkillDirectories(installed);
+  }
+
+  public async remove(files: readonly InstalledFileRecord[]): Promise<void> {
+    for (const file of files) {
+      await this.assertRealDestinationContained(file.destinationPath, file.destinationRelativePath);
+      await this.opts.fs.remove(file.destinationPath);
+    }
+    await this.pruneEmptySkillDirectories(files);
   }
 }
-
-interface PickedRoute {
-  prefix: string;
-  outPrefix: string;
-  tail: string;
-}
-
-const pickRoute = (bundlePath: string, routes: KindRoutes): PickedRoute | null => {
-  const normalizedBundlePath = normalizeBundlePath(bundlePath);
-  const sorted = Object.entries(routes).toSorted((a, b) => b[0].length - a[0].length);
-  for (const [prefix, outPrefix] of sorted) {
-    if (normalizedBundlePath.startsWith(prefix)) {
-      return { prefix, outPrefix, tail: normalizedBundlePath.slice(prefix.length) };
-    }
-  }
-  return null;
-};
-
-/**
- * Normalize legacy bundle directory aliases before route matching.
- *
- * `chatmodes/` was the historical authoring path while the canonical
- * vocabulary uses `chat-modes/`. Keep accepting both on disk without
- * duplicating aliases in every target layout. The original path remains in
- * lockfile/checksum data; only the routing view is normalized.
- * @param bundlePath
- */
-const normalizeBundlePath = (bundlePath: string): string =>
-  bundlePath.startsWith('chatmodes/')
-    ? `chat-modes/${bundlePath.slice('chatmodes/'.length)}`
-    : bundlePath;
-
-/**
- * Map a layout prefix back to the primitive kind it represents.
- * Used to honor `target.allowedKinds`.
- * @param prefix - Layout prefix (e.g., "prompts/").
- * @returns Kind name without trailing slash.
- */
-const ROUTE_PREFIX_KINDS: Record<string, PrimitiveKind> = {
-  '.kiro/steering/': 'steering',
-  '.kiro/specs/': 'spec',
-  '.claude/commands/': 'command',
-  '.claude/output-styles/': 'output-style',
-  '.cursor/rules/': 'rule',
-  '.cursor/agents/': 'agent',
-  '.cursor/skills/': 'skill',
-  '.cursor/commands/': 'command',
-  '.opencode/tools/': 'tool',
-  '.opencode/commands/': 'command',
-  '.opencode/agents/': 'agent',
-  '.opencode/skills/': 'skill',
-  '.opencode/rules/': 'rule',
-  '.opencode/hooks/': 'hook',
-  '.opencode/plugins/': 'plugin',
-  '.devin/knowledge/': 'knowledge',
-  '.devin/playbooks/': 'playbook',
-  '.devin/powers/': 'power',
-  '.devin/prompts/': 'prompt',
-  '.devin/instructions/': 'instruction',
-  '.devin/agents/': 'agent',
-  '.devin/skills/': 'skill',
-  '.devin/hooks/': 'hook',
-  '.devin/plugins/': 'plugin'
-};
-
-const routeToKind = (prefix: string): PrimitiveKind | null => {
-  const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
-  return normalizePrimitiveKind(prefix.replace(/\/$/, ''))
-    ?? ROUTE_PREFIX_KINDS[normalizedPrefix]
-    ?? null;
-};
-
-const copilotTypeToPrimitiveKind = (type: CopilotFileType): PrimitiveKind =>
-  type === 'instructions' ? 'instruction' : (type === 'chatmode' ? 'chat-mode' : type);

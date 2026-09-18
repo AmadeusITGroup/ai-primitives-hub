@@ -17,14 +17,20 @@
  */
 import * as path from 'node:path';
 import {
-  checksumFiles,
+  addInstalledFilesToGitExclude,
+  createTargetWritePlan,
   emptyLockfile,
+  expandPath,
   FileTreeTargetWriter,
   type Lockfile,
   type LockfileBundleEntry,
+  lockfileFilesFromInstalledRecords,
   type LockfileSourceEntry,
   readLockfile,
+  resolveLayoutAsync,
+  resolveManagedFilesFromLockfile,
   resolveUserConfigPaths,
+  runFileTransaction,
   type TargetWriter,
   TransformerRegistry,
   upsertBundleEntry,
@@ -33,18 +39,21 @@ import {
   writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import type {
+  BundleInstallPlan,
   BundleResolver,
   GitHubApi,
   GitHubRepositoryTarget,
   GitHubSourceAuthCategory,
   HttpClient,
   HubSourceSpec,
+  InstalledFileRecord,
   RegistrySource,
+  RepositoryCommitMode,
   Target,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
-  getInstallableBundleFiles,
+  createBundleInstallPlan,
   parseBundleSpec,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -64,9 +73,6 @@ import {
   parseGitHubRepositoryTarget,
   readLocalBundle,
   readTargets,
-  type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
   resolveUserConfigDir,
   SourceDispatcher,
   StaticTokenProvider,
@@ -549,52 +555,46 @@ async function executeInstallMode(
 }
 
 /**
- * Create a writer factory that routes to the appropriate
- * writer based on target scope.
- * - user scope → FileTreeTargetWriter
- * - repository scope → RepositoryScopeWriter
+ * Create the shared target-plan writer factory.
  * @param ctx CLI context.
  * @param opts Install options.
+ * @param managedFiles
  * @returns Writer factory function.
  */
 export const createWriterFactory = (
   ctx: Context,
-  opts: InstallOptions
+  opts: InstallOptions,
+  managedFiles: readonly InstalledFileRecord[] = []
 ): (target: Target) => TargetWriter => {
-  // Create transformer registry and hierarchical layout loader once per command.
+  // Create the transformer registry once per command.
   const transformerRegistry = TransformerRegistry.withBuiltIns();
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
 
   return (target: Target): TargetWriter => {
     const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
-    const workspaceRoot = effectiveTarget.rootPath ?? ctx.cwd();
 
-    // Copilot / VS Code repository scope still writes the .github tree and
-    // supports commitMode / .git/info/exclude. Every other target uses the
-    // data-driven FileTreeTargetWriter with its repository scope layout.
-    const copilotLikeTargets = new Set<string>(['vscode', 'vscode-insiders', 'copilot-cli']);
-    if (scope === 'repository' && copilotLikeTargets.has(effectiveTarget.type)) {
-      const writer = new RepositoryScopeWriter({
-        fs: ctx.fs,
-        workspaceRoot,
-        commitMode
-      });
-      return new RepositoryScopeWriterAdapter(writer);
-    }
     const transformer = transformerRegistry.getTransformer(effectiveTarget.type);
     return new FileTreeTargetWriter({
       fs: ctx.fs,
       env: ctx.env,
       transformer,
-      layoutLoader
+      managedFiles
     });
   };
+};
+
+export const resolveConfiguredLayout = async (ctx: Context, target: Target) =>
+  resolveLayoutAsync(target, new FileSystemLayoutConfigLoader({
+    cwd: ctx.cwd(),
+    fs: ctx.fs,
+    userConfigDir: resolveUserConfigDir(ctx.env)
+  }));
+
+export const reportLegacyKindInference = (ctx: Context, plan: BundleInstallPlan): void => {
+  if (plan.legacyInferredPaths.length > 0) {
+    ctx.stderr.write(
+      `[BUNDLE.LEGACY_KIND_INFERENCE] Deprecated identity-only manifest inferred primitive kinds for: ${plan.legacyInferredPaths.join(', ')}\n`
+    );
+  }
 };
 
 /**
@@ -864,6 +864,15 @@ async function performLocalInstall(
       expectedId: opts.bundle ?? '',
       expectedVersion: undefined
     });
+    const bundlePlan = createBundleInstallPlan(files, manifest);
+    reportLegacyKindInference(ctx, bundlePlan);
+    const layout = await resolveConfiguredLayout(ctx, effectiveTarget);
+    const targetPlan = createTargetWritePlan(
+      bundlePlan,
+      effectiveTarget,
+      layout,
+      ctx.env
+    );
     if (opts.dryRun === true) {
       formatOutput({
         ctx,
@@ -881,34 +890,56 @@ async function performLocalInstall(
       });
       return 0;
     }
-    const writerFactory = createWriterFactory(ctx, opts);
-    const writer = writerFactory(effectiveTarget);
-    const targetFiles = getInstallableBundleFiles(files, manifest);
-    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
-
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
     const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
+    const repositoryPath = effectiveTarget.rootPath ?? ctx.cwd();
     const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-    const localSourceId = `local-${path.basename(opts.from as string)}`;
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: localSourceId,
-      sourceType: 'local',
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
+    // Every lockfile-recorded destination is tool-managed, not just this
+    // bundle's: bundles may legitimately share a destination, and scoping this
+    // to `existing.bundles[manifest.id]` makes the writer's unmanaged-overwrite
+    // guard reject the second bundle to claim it.
+    const managedFiles = resolveManagedFilesFromLockfile(
+      existing,
+      scope === 'repository'
+        ? { repositoryPath }
+        : { baseDir: path.resolve(expandPath(layout.baseDir, ctx.env)) }
+    ).files;
+    const transactionFiles = [
+      ...targetPlan.operations.map((operation) => operation.destinationPath),
+      lockPath,
+      path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json')
+    ];
+    if (scope === 'repository' && commitMode === 'local-only') {
+      transactionFiles.push(path.join(repositoryPath, '.git', 'info', 'exclude'));
     }
-    let nextLock = upsertBundleEntry(existing, manifest.id, entry);
-    nextLock = upsertSource(nextLock, localSourceId, {
-      type: 'local',
-      url: path.resolve(ctx.cwd(), opts.from as string)
+    const result = await runFileTransaction(ctx.fs, transactionFiles, async () => {
+      const writerFactory = createWriterFactory(ctx, opts, managedFiles);
+      const writer = writerFactory(effectiveTarget);
+      const writeResult = await writeTargetSafely(writer, targetPlan);
+      if (scope === 'repository' && commitMode === 'local-only') {
+        await addInstalledFilesToGitExclude(ctx.fs, repositoryPath, writeResult.installed);
+      }
+      const localSourceId = `local-${path.basename(opts.from as string)}`;
+      const entry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: localSourceId,
+        sourceType: 'local',
+        installedAt: new Date().toISOString(),
+        files: lockfileFilesFromInstalledRecords(writeResult.installed)
+      };
+      if (scope === 'repository') {
+        entry.commitMode = commitMode;
+      }
+      let nextLock = upsertBundleEntry(existing, manifest.id, entry);
+      nextLock = upsertSource(nextLock, localSourceId, {
+        type: 'local',
+        url: path.resolve(ctx.cwd(), opts.from as string)
+      });
+      await writeLockfile(lockPath, nextLock, ctx.fs);
+      await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
+      return writeResult;
     });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
-
-    await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
 
     formatOutput({
       ctx,
@@ -918,8 +949,8 @@ async function performLocalInstall(
       data: {
         target: effectiveTarget.name,
         bundle: { id: manifest.id, version: manifest.version },
-        written: result.written,
-        skipped: result.skipped,
+        written: result.installed,
+        skipped: [],
         lockfile: lockPath
       },
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} into target "${d.target}" `
@@ -965,13 +996,19 @@ async function performLockfileInstall(
   const bundleIds = Object.keys(lock.bundles);
   const http = opts.http ?? new NodeHttpClient();
   const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
-  const writerFactory = createWriterFactory(ctx, opts);
+  const layout = await resolveConfiguredLayout(ctx, effectiveTarget);
+  const repositoryPath = effectiveTarget.rootPath ?? ctx.cwd();
+  const resolutionRoot = effectiveTarget.scope === 'repository'
+    ? { repositoryPath }
+    : { baseDir: path.resolve(expandPath(layout.baseDir, ctx.env)) };
+  const managedFiles = resolveManagedFilesFromLockfile(lock, resolutionRoot).files;
+  const writerFactory = createWriterFactory(ctx, opts, managedFiles);
   const writer = writerFactory(effectiveTarget);
   const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
     ? createSourceAwareInstallDependencyCache(http, ctx)
     : undefined;
 
-  const { replayed, failures } = await replayLockfileEntries({
+  const replay = () => replayLockfileEntries({
     bundleIds,
     lock,
     http,
@@ -979,13 +1016,43 @@ async function performLockfileInstall(
     writer,
     target: effectiveTarget,
     ctx,
+    dryRun: opts.dryRun === true,
     verbose: opts.verbose ?? false,
     sourceAwareDependencyCache
   });
-
-  if (replayed.length > 0) {
-    await updateTargetStateFromLockfile(ctx, effectiveTarget.name, lock, replayed);
+  let replayResult: Awaited<ReturnType<typeof replay>>;
+  if (opts.dryRun === true) {
+    replayResult = await replay();
+  } else {
+    let attempted: Awaited<ReturnType<typeof replay>> | undefined;
+    try {
+      replayResult = await runFileTransaction(ctx.fs, [
+        ...managedFiles.map((file) => file.destinationPath),
+        path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json'),
+        ...(effectiveTarget.scope === 'repository' && (effectiveTarget.commitMode ?? 'commit') === 'local-only'
+          ? [path.join(repositoryPath, '.git', 'info', 'exclude')]
+          : [])
+      ], async () => {
+        attempted = await replay();
+        if (attempted.failures.length > 0) {
+          throw new Error('Lockfile replay failed');
+        }
+        if (attempted.replayed.length > 0) {
+          await updateTargetStateFromLockfile(ctx, effectiveTarget.name, lock, attempted.replayed);
+        }
+        if (effectiveTarget.scope === 'repository' && (effectiveTarget.commitMode ?? 'commit') === 'local-only') {
+          await addInstalledFilesToGitExclude(ctx.fs, repositoryPath, attempted.installed);
+        }
+        return attempted;
+      });
+    } catch (error) {
+      if (attempted === undefined || attempted.failures.length === 0) {
+        throw error;
+      }
+      replayResult = { ...attempted, replayed: [], installed: [] };
+    }
   }
+  const { replayed, failures } = replayResult;
 
   const status = failures.length === 0 ? 'ok' : 'warning';
   formatOutput({
@@ -994,6 +1061,7 @@ async function performLockfileInstall(
     output: fmt,
     status,
     data: {
+      dryRun: opts.dryRun === true,
       lockfile: lockPath,
       target: effectiveTarget.name,
       replayPlanned: bundleIds.length,
@@ -1012,7 +1080,8 @@ async function performLockfileInstall(
         suffix = `; ${d.failures.length} failure${plural}:\n`
           + d.failures.map((f) => `  - ${f.bundleId}: ${f.reason}\n`).join('');
       }
-      return `Replay: ${d.replayed.length}/${d.replayPlanned} bundles installed `
+      const action = d.dryRun ? 'would be installed' : 'installed';
+      return `Replay: ${d.replayed.length}/${d.replayPlanned} bundles ${action} `
         + `into target "${d.target}"` + suffix;
     }
   });
@@ -1095,6 +1164,15 @@ async function performRemoteInstall(
       expectedId: opts.sourceConfig === undefined ? spec.bundleId : undefined,
       expectedVersion: spec.bundleVersion === 'latest' ? undefined : spec.bundleVersion
     });
+    const bundlePlan = createBundleInstallPlan(files, manifest);
+    reportLegacyKindInference(ctx, bundlePlan);
+    const layout = await resolveConfiguredLayout(ctx, effectiveTarget);
+    const targetPlan = createTargetWritePlan(
+      bundlePlan,
+      effectiveTarget,
+      layout,
+      ctx.env
+    );
     if (opts.dryRun === true) {
       formatOutput({
         ctx,
@@ -1115,33 +1193,56 @@ async function performRemoteInstall(
       });
       return 0;
     }
-    const writerFactory = createWriterFactory(ctx, opts);
-    const writer = writerFactory(effectiveTarget);
-    const targetFiles = getInstallableBundleFiles(files, manifest);
-    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
     const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
+    const repositoryPath = effectiveTarget.rootPath ?? ctx.cwd();
     const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: installable.ref.sourceId,
-      sourceType: installable.ref.sourceType,
-      checksum: dl.sha256,
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
+    // Every lockfile-recorded destination is tool-managed, not just this
+    // bundle's: bundles may legitimately share a destination, and scoping this
+    // to `existing.bundles[manifest.id]` makes the writer's unmanaged-overwrite
+    // guard reject the second bundle to claim it.
+    const managedFiles = resolveManagedFilesFromLockfile(
+      existing,
+      scope === 'repository'
+        ? { repositoryPath }
+        : { baseDir: path.resolve(expandPath(layout.baseDir, ctx.env)) }
+    ).files;
+    const transactionFiles = [
+      ...targetPlan.operations.map((operation) => operation.destinationPath),
+      lockPath
+    ];
+    if (scope === 'repository' && commitMode === 'local-only') {
+      transactionFiles.push(path.join(repositoryPath, '.git', 'info', 'exclude'));
     }
-    let nextLock = upsertBundleEntry(existing, manifest.id, entry);
-    const collectionsPath = opts.sourceConfig?.config?.collectionsPath;
-    nextLock = upsertSource(nextLock, installable.ref.sourceId, {
-      type: opts.sourceConfig?.type ?? 'github',
-      url: `https://github.com/${repoSlug}`,
-      ...(collectionsPath ? { collectionsPath } : {})
+    const result = await runFileTransaction(ctx.fs, transactionFiles, async () => {
+      const writerFactory = createWriterFactory(ctx, opts, managedFiles);
+      const writer = writerFactory(effectiveTarget);
+      const writeResult = await writeTargetSafely(writer, targetPlan);
+      if (scope === 'repository' && commitMode === 'local-only') {
+        await addInstalledFilesToGitExclude(ctx.fs, repositoryPath, writeResult.installed);
+      }
+      const entry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: installable.ref.sourceId,
+        sourceType: installable.ref.sourceType,
+        checksum: dl.sha256,
+        installedAt: new Date().toISOString(),
+        files: lockfileFilesFromInstalledRecords(writeResult.installed)
+      };
+      if (scope === 'repository') {
+        entry.commitMode = commitMode;
+      }
+      let nextLock = upsertBundleEntry(existing, manifest.id, entry);
+      const collectionsPath = opts.sourceConfig?.config?.collectionsPath;
+      nextLock = upsertSource(nextLock, installable.ref.sourceId, {
+        type: opts.sourceConfig?.type ?? 'github',
+        url: `https://github.com/${repoSlug}`,
+        ...(collectionsPath ? { collectionsPath } : {})
+      });
+      await writeLockfile(lockPath, nextLock, ctx.fs);
+      return writeResult;
     });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
 
     formatOutput({
       ctx,
@@ -1153,8 +1254,8 @@ async function performRemoteInstall(
         bundle: { id: manifest.id, version: manifest.version },
         source: { type: 'github', repo: repoSlug, sourceId: installable.ref.sourceId },
         sha256: dl.sha256,
-        written: result.written,
-        skipped: result.skipped,
+        written: result.installed,
+        skipped: [],
         lockfile: lockPath
       },
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} from ${d.source.repo} `
@@ -1338,13 +1439,18 @@ interface ReplayLockfileEntriesOptions {
   writer: TargetWriter;
   target: Target;
   ctx: Context;
+  dryRun: boolean;
   verbose: boolean;
   sourceAwareDependencyCache?: SourceAwareInstallDependencyCache;
 }
 
 async function replayLockfileEntries(
   opts: ReplayLockfileEntriesOptions
-): Promise<{ replayed: string[]; failures: { bundleId: string; reason: string }[] }> {
+): Promise<{
+  replayed: string[];
+  failures: { bundleId: string; reason: string }[];
+  installed: InstalledFileRecord[];
+}> {
   const {
     bundleIds,
     lock,
@@ -1353,11 +1459,13 @@ async function replayLockfileEntries(
     writer,
     target,
     ctx,
+    dryRun,
     verbose,
     sourceAwareDependencyCache
   } = opts;
   const replayed: string[] = [];
   const failures: { bundleId: string; reason: string }[] = [];
+  const installed: InstalledFileRecord[] = [];
 
   if (verbose) {
     ctx.stdout.write(`[verbose] Planning to replay ${bundleIds.length} bundles\n`);
@@ -1374,17 +1482,19 @@ async function replayLockfileEntries(
       writer,
       target,
       ctx,
+      dryRun,
       verbose,
       sourceAwareDependencyCache
     });
     if (result.success) {
       replayed.push(bundleId);
+      installed.push(...result.installed);
     } else {
       failures.push({ bundleId, reason: result.reason });
     }
   }
 
-  return { replayed, failures };
+  return { replayed, failures, installed };
 }
 
 interface ReplaySingleEntryOptions {
@@ -1396,28 +1506,27 @@ interface ReplaySingleEntryOptions {
   writer: TargetWriter;
   target: Target;
   ctx: Context;
+  dryRun: boolean;
   verbose: boolean;
   sourceAwareDependencyCache?: SourceAwareInstallDependencyCache;
 }
 
 async function replaySingleEntry(
   opts: ReplaySingleEntryOptions
-): Promise<{ success: boolean; reason: string }> {
+): Promise<{ success: boolean; reason: string; installed: readonly InstalledFileRecord[] }> {
   const {
     bundleId,
     entry,
     sources,
     http,
     tokens,
-    writer,
-    target,
     ctx,
     verbose,
     sourceAwareDependencyCache
   } = opts;
   const src = sources[entry.sourceId];
   if (src === undefined) {
-    return handleMissingSource(bundleId, entry, verbose, ctx);
+    return { ...handleMissingSource(bundleId, entry, verbose, ctx), installed: [] };
   }
 
   try {
@@ -1432,32 +1541,40 @@ async function replaySingleEntry(
       sourceAwareDependencyCache
     );
     if (files === null) {
-      return handleFetchFailure(bundleId, src, verbose, ctx);
+      return { ...handleFetchFailure(bundleId, src, verbose, ctx), installed: [] };
     }
-    await validateAndWrite(files, bundleId, entry, writer, target, ctx, verbose);
-    return { success: true, reason: '' };
+    const installed = await validateAndWrite(files, opts);
+    return { success: true, reason: '', installed };
   } catch (cause) {
-    return handleInstallError(bundleId, cause, verbose, ctx);
+    return { ...handleInstallError(bundleId, cause, verbose, ctx), installed: [] };
   }
 }
 
 async function validateAndWrite(
   files: Map<string, Uint8Array>,
-  bundleId: string,
-  entry: LockfileBundleEntry,
-  writer: TargetWriter,
-  target: Target,
-  ctx: Context,
-  verbose: boolean
-): Promise<void> {
+  opts: ReplaySingleEntryOptions
+): Promise<readonly InstalledFileRecord[]> {
+  const { bundleId, entry, writer, target, ctx, dryRun, verbose } = opts;
   const manifest = validateManifest(files, {
     expectedId: bundleId,
     expectedVersion: entry.version
   });
-  await writeTargetSafely(writer, target, getInstallableBundleFiles(files, manifest));
+  const bundlePlan = createBundleInstallPlan(files, manifest);
+  reportLegacyKindInference(ctx, bundlePlan);
+  const targetPlan = createTargetWritePlan(
+    bundlePlan,
+    target,
+    await resolveConfiguredLayout(ctx, target),
+    ctx.env
+  );
+  if (dryRun) {
+    return [];
+  }
+  const result = await writeTargetSafely(writer, targetPlan);
   if (verbose) {
     ctx.stdout.write(`[verbose] Successfully installed ${bundleId}\n`);
   }
+  return result.installed;
 }
 
 function handleMissingSource(

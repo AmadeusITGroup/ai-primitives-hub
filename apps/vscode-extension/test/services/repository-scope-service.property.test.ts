@@ -29,6 +29,9 @@ import {
 import {
   PropertyTestConfig,
 } from '../helpers/property-test-helpers';
+import {
+  buildRepositoryScopeTargetPlan,
+} from '../helpers/target-plan-helpers';
 
 suite('RepositoryScopeService Property Tests', () => {
   let service: RepositoryScopeService;
@@ -112,70 +115,12 @@ suite('RepositoryScopeService Property Tests', () => {
   suite('Property 1: File Type to Directory Mapping', function () {
     this.timeout(PropertyTestConfig.TIMEOUT);
 
-    test('getRepositoryTargetDirectory returns valid .github/ path for any file type', () => {
-      fc.assert(
-        fc.property(fileTypeGen(), (fileType) => {
-          const directory = getRepositoryTargetDirectory(fileType);
-
-          // All paths must start with .github/
-          assert.ok(
-            directory.startsWith('.github/'),
-            `Directory for ${fileType} should start with .github/, got: ${directory}`
-          );
-
-          // All paths must end with /
-          assert.ok(
-            directory.endsWith('/'),
-            `Directory for ${fileType} should end with /, got: ${directory}`
-          );
-
-          return true;
-        }),
-        {
-          ...PropertyTestConfig.FAST_CHECK_OPTIONS,
-          numRuns: PropertyTestConfig.RUNS.STANDARD
-        }
-      );
-    });
-
-    test('getTargetPath returns absolute path within workspace for any file type and name', () => {
-      fc.assert(
-        fc.property(fileTypeGen(), fileNameGen(), (fileType, fileName) => {
-          const targetPath = service.getTargetPath(fileType, fileName);
-
-          // Path must be absolute
-          assert.ok(
-            path.isAbsolute(targetPath),
-            `Target path should be absolute, got: ${targetPath}`
-          );
-
-          // Path must be within workspace root
-          assert.ok(
-            targetPath.startsWith(workspaceRoot),
-            `Target path should be within workspace root, got: ${targetPath}`
-          );
-
-          // Path must include .github/
-          assert.ok(
-            targetPath.includes(path.join('.github', '')),
-            `Target path should include .github/, got: ${targetPath}`
-          );
-
-          return true;
-        }),
-        {
-          ...PropertyTestConfig.FAST_CHECK_OPTIONS,
-          numRuns: PropertyTestConfig.RUNS.STANDARD
-        }
-      );
-    });
-
     test('file type to directory mapping is deterministic', () => {
       fc.assert(
-        fc.property(fileTypeGen(), fileNameGen(), (fileType, fileName) => {
+        fc.property(fileTypeGen(), (fileType) => {
           // Call twice with same inputs
-          const path1 = service.getTargetPath(fileType, fileName);
-          const path2 = service.getTargetPath(fileType, fileName);
+          const path1 = service.getTargetDirectory(fileType);
+          const path2 = service.getTargetDirectory(fileType);
 
           // Results must be identical
           assert.strictEqual(
@@ -604,7 +549,7 @@ prompts:
           mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, bundlePath, 'commit'));
 
           // Install the skill
-          await service.syncBundle(bundleId, bundlePath);
+          await service.syncBundle(bundleId, bundlePath, { targetPlan: buildRepositoryScopeTargetPlan(bundleId, bundlePath, workspaceRoot) });
 
           // Read back installed files
           const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
@@ -666,7 +611,7 @@ prompts:
           mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, bundlePath, 'commit'));
 
           // Install the skill
-          await service.syncBundle(bundleId, bundlePath);
+          await service.syncBundle(bundleId, bundlePath, { targetPlan: buildRepositoryScopeTargetPlan(bundleId, bundlePath, workspaceRoot) });
 
           // Verify skill directory is in correct location
           const expectedDir = path.join(workspaceRoot, '.github', 'skills', skillName);
@@ -712,7 +657,7 @@ prompts:
           mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, bundlePath, 'commit'));
 
           // Install the skill
-          await service.syncBundle(bundleId, bundlePath);
+          await service.syncBundle(bundleId, bundlePath, { targetPlan: buildRepositoryScopeTargetPlan(bundleId, bundlePath, workspaceRoot) });
 
           // Verify directory structure is preserved
           const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);

@@ -10,10 +10,9 @@
  * `onEvent` callback so the install command can render per-step
  * status (verbose mode) or feed the JSON envelope's `meta.events`.
  *
- * Scope-aware routing: callers pass a `writerFactory: (target: Target)
- * => TargetWriter` rather than a single `writer` — routes to
- * `RepositoryScopeWriter` for repository scope, `FileTreeTargetWriter`
- * for user (and workspace) scope.
+ * Callers pass a `writerFactory: (target: Target) => TargetWriter` so
+ * delivery adapters can attach scope-specific execution policy while every
+ * scope consumes the same validated target write plan.
  * @module install/pipeline
  */
 import {
@@ -21,8 +20,9 @@ import {
   type BundleExtractor,
   type BundleResolver,
   type BundleSpec,
-  getInstallableBundleFiles,
+  createBundleInstallPlan,
   type Installable,
+  type LayoutConfigLoader,
   type Target,
   type ValidatedManifest,
   validateManifest,
@@ -31,6 +31,13 @@ import type {
   TargetWriter,
   TargetWriteResult,
 } from '../writers/file-tree-writer';
+import {
+  resolveLayout,
+  resolveLayoutAsync,
+} from '../writers/file-tree-writer';
+import {
+  createTargetWritePlan,
+} from './target-install-planner';
 import {
   TargetWriteRejectedError,
   writeTargetSafely,
@@ -49,6 +56,7 @@ export type PipelineEvent =
   | { kind: 'extract.done'; fileCount: number }
   | { kind: 'validate.start' }
   | { kind: 'validate.done'; manifestId: string; manifestVersion: string }
+  | { kind: 'warning'; code: 'BUNDLE.LEGACY_KIND_INFERENCE'; paths: readonly string[] }
   | { kind: 'write.start'; target: string }
   | { kind: 'write.done'; target: string; written: number; skipped: number };
 
@@ -61,6 +69,7 @@ export interface InstallPipelineOptions {
   extractor: BundleExtractor;
   /** Factory that returns the appropriate writer for a given target. */
   writerFactory: (target: Target) => TargetWriter;
+  layoutLoader?: LayoutConfigLoader;
   onEvent?: (event: PipelineEvent) => void;
 }
 
@@ -70,6 +79,8 @@ export interface InstallPipelineOptions {
 export interface InstallOutcome {
   installable: Installable;
   manifest: ValidatedManifest;
+  bundlePlan: ReturnType<typeof createBundleInstallPlan>;
+  targetPlan: ReturnType<typeof createTargetWritePlan>;
   write: TargetWriteResult;
   sha256: string;
 }
@@ -161,6 +172,7 @@ export class InstallPipeline {
     // 4. Validate manifest.
     emit({ kind: 'validate.start' });
     let manifest;
+    let bundlePlan;
     try {
       manifest = validateManifest(files, {
         expectedId: spec.bundleId,
@@ -174,15 +186,36 @@ export class InstallPipeline {
         'validate'
       );
     }
+    try {
+      bundlePlan = createBundleInstallPlan(files, manifest);
+    } catch (planError) {
+      const e = planError as { code?: string; message: string };
+      throw new InstallPipelineError(
+        e.message,
+        e.code ?? 'BUNDLE.MANIFEST_INVALID',
+        'validate'
+      );
+    }
+    if (bundlePlan.legacyInferredPaths.length > 0) {
+      emit({
+        kind: 'warning',
+        code: 'BUNDLE.LEGACY_KIND_INFERENCE',
+        paths: bundlePlan.legacyInferredPaths
+      });
+    }
     emit({ kind: 'validate.done', manifestId: manifest.id, manifestVersion: manifest.version });
 
     // 5. Write to target.
     emit({ kind: 'write.start', target: target.name });
     let writeResult;
+    let targetPlan;
     try {
+      const layout = this.opts.layoutLoader === undefined
+        ? resolveLayout(target)
+        : await resolveLayoutAsync(target, this.opts.layoutLoader);
+      targetPlan = createTargetWritePlan(bundlePlan, target, layout);
       const writer = this.opts.writerFactory(target);
-      const targetFiles = getInstallableBundleFiles(files, manifest);
-      writeResult = await writeTargetSafely(writer, target, targetFiles);
+      writeResult = await writeTargetSafely(writer, targetPlan);
     } catch (writeError) {
       const code = writeError instanceof TargetWriteRejectedError
         ? writeError.code
@@ -196,13 +229,15 @@ export class InstallPipeline {
     emit({
       kind: 'write.done',
       target: target.name,
-      written: writeResult.written.length,
-      skipped: writeResult.skipped.length
+      written: writeResult.installed.length,
+      skipped: 0
     });
 
     return {
       installable,
       manifest,
+      bundlePlan,
+      targetPlan,
       write: writeResult,
       sha256: download.sha256
     };

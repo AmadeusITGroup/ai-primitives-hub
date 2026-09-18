@@ -44,6 +44,16 @@ describe('built-in default layouts', () => {
     }
   });
 
+  it('keys built-in routes by canonical primitive kind', () => {
+    const routes = defaultLayouts.layouts.vscode.user.kindRoutes;
+
+    expect(routes.agent).toBe('agents/');
+    expect(routes['chat-mode']).toBe('agents/');
+    expect(routes.prompt).toBe('prompts/');
+    expect(routes.skill).toBe('skills/');
+    expect(routes['agents/']).toBeUndefined();
+  });
+
   it('gives every mcpConfig path a token appropriate to its scope', () => {
     // A user path must not be workspace-relative and a repository path must be, or
     // the file would resolve outside the scope the caller asked for.

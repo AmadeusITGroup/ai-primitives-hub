@@ -27,8 +27,16 @@ export {
 } from './pipeline';
 
 export {
+  addInstalledFilesToGitExclude,
+  runFileTransaction,
   TargetWriteRejectedError,
+  updateTargetSafely,
   writeTargetSafely,
+} from './target-write';
+
+export type {
+  UpdateTargetOptions,
+  UpdateTargetResult,
 } from './target-write';
 
 export type {
@@ -38,10 +46,12 @@ export type {
 } from './pipeline';
 
 export {
+  removeInstalledFiles,
   UninstallPipeline,
 } from './uninstall-pipeline';
 
 export type {
+  RemoveInstalledFilesOptions,
   UninstallPipelineOptions,
   UninstallPlan,
   UninstallResult,
@@ -56,3 +66,8 @@ export {
   resolveMcpLayoutConfig,
   WORKSPACE_ROOT_TOKEN,
 } from './layout-resolver';
+
+export {
+  createTargetWritePlan,
+  TargetPlanningError,
+} from './target-install-planner';

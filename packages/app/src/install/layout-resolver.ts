@@ -14,6 +14,7 @@
  */
 import type {
   McpLayoutConfig,
+  PrimitiveKind,
   ScopedLayoutDef,
   Target,
   TargetLayout,
@@ -21,6 +22,7 @@ import type {
   TargetType,
 } from '@ai-primitives-hub/core';
 import {
+  normalizePrimitiveKind,
   WORKSPACE_ROOT_TOKEN,
 } from '@ai-primitives-hub/core';
 
@@ -85,9 +87,32 @@ export function resolveLayoutFromLayers(
 
   return {
     baseDir,
-    kindRoutes: { ...merged.kindRoutes },
+    routes: normalizeRoutes(merged.kindRoutes),
     skipPaths: merged.skipPaths ? [...merged.skipPaths] : undefined
   };
+}
+
+/**
+ * Reduce a config `kindRoutes` map to canonical primitive kinds.
+ *
+ * Keys may be canonical kinds (`prompt`), plurals (`prompts`) or the legacy
+ * source-prefix form (`prompts/`), so the trailing slash is stripped before
+ * normalizing — the same rule `infra`'s `layout-config-store` applies when it
+ * loads user-authored override files. A canonical key wins over a legacy alias
+ * that maps to the same kind, so an override can restate one route explicitly.
+ * Unrecognized keys are dropped: a route with no primitive kind has no writer.
+ * @param kindRoutes - Route map from a merged layout config.
+ * @returns Routes keyed by canonical primitive kind.
+ */
+function normalizeRoutes(kindRoutes: Readonly<Record<string, string>>): Partial<Record<PrimitiveKind, string>> {
+  const routes: Partial<Record<PrimitiveKind, string>> = {};
+  for (const [key, value] of Object.entries(kindRoutes)) {
+    const kind = normalizePrimitiveKind(key.replace(/\/$/u, ''));
+    if (kind !== null && (routes[kind] === undefined || key === kind)) {
+      routes[kind] = value;
+    }
+  }
+  return routes;
 }
 
 /**

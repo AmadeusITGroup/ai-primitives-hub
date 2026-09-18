@@ -1,6 +1,9 @@
 /**
  * Core type definitions for the AI Primitives Hub system
  */
+import type {
+  InstalledFileRecord,
+} from '@ai-primitives-hub/core';
 import {
   McpServersManifest,
   VSCodeMcpInputDefinition,
@@ -116,6 +119,7 @@ export interface InstalledBundle {
   sourceType?: string; // Source type for identity matching (github, local, etc.)
   commitMode?: RepositoryCommitMode; // Commit mode for repository-scoped installations
   filesMissing?: boolean; // Set when lockfile entry exists but files are missing (repository scope only)
+  installedFiles?: readonly InstalledFileRecord[]; // Exact installed destination records for uninstall/switching
 }
 
 /**

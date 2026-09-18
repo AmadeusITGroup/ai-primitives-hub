@@ -25,15 +25,20 @@
  */
 import * as path from 'node:path';
 import {
-  checksumFiles,
+  addInstalledFilesToGitExclude,
+  createTargetWritePlan,
   emptyLockfile,
+  expandPath,
+  getLockfilePathForMode,
   type HubManager,
   type Lockfile,
   type LockfileBundleEntry,
+  lockfileFilesFromInstalledRecords,
   type LockfileSourceEntry,
   readLockfile,
+  resolveInstalledFilesForLockfileEntry,
   resolveUserConfigPaths,
-  type TargetWriter,
+  runFileTransaction,
   UninstallPipeline,
   upsertBundleEntry,
   upsertSource,
@@ -41,13 +46,14 @@ import {
   writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import {
-  getInstallableBundleFiles,
+  createBundleInstallPlan,
   type HttpClient,
   type HubProfile,
   type HubProfileBundle,
   type ProfileActivationState,
   type RegistrySource,
   type Target,
+  type TargetWritePlan,
   type TokenProvider,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -77,6 +83,8 @@ import {
   createSourceAwareInstallDependencyCache,
   createWriterFactory,
   fetchFilesForSource,
+  reportLegacyKindInference,
+  resolveConfiguredLayout,
   type SourceAwareInstallDependencyCache,
 } from './install';
 import {
@@ -339,7 +347,15 @@ export class ProfileCurrentCommand extends BaseProfileCommand {
  * Result of activating a single profile bundle against a single target.
  */
 type ActivateBundleOutcome =
-  | { ok: true; written: string[]; entry: LockfileBundleEntry; sourceEntry: LockfileSourceEntry }
+  | {
+    ok: true;
+    bundleId: string;
+    version: string;
+    sourceId: string;
+    sourceType: string;
+    plan: TargetWritePlan;
+    sourceEntry: LockfileSourceEntry;
+  }
   | { ok: false; reason: string };
 
 /**
@@ -350,7 +366,6 @@ type ActivateBundleOutcome =
  * @param bundleRef Bundle reference from the profile.
  * @param sources Sources configured on the profile's hub, keyed by source id.
  * @param target Target to write into.
- * @param writer Writer for this target (from `createWriterFactory`).
  * @param http HTTP client.
  * @param tokens Token provider.
  * @param ctx CLI context.
@@ -361,7 +376,6 @@ async function activateBundleForTarget(
   bundleRef: HubProfileBundle,
   sources: Record<string, RegistrySource>,
   target: Target,
-  writer: TargetWriter,
   http: HttpClient,
   tokens: TokenProvider,
   ctx: Context,
@@ -405,19 +419,23 @@ async function activateBundleForTarget(
       expectedId: bundleRef.id,
       expectedVersion: bundleRef.version === 'latest' ? undefined : bundleRef.version
     });
-    const targetFiles = getInstallableBundleFiles(files, manifest);
-    const result = await writeTargetSafely(writer, target, targetFiles);
-    const entry: LockfileBundleEntry = {
+    const bundlePlan = createBundleInstallPlan(files, manifest);
+    reportLegacyKindInference(ctx, bundlePlan);
+    const targetPlan = createTargetWritePlan(
+      bundlePlan,
+      target,
+      await resolveConfiguredLayout(ctx, target),
+      ctx.env
+    );
+    return {
+      ok: true,
+      bundleId: bundleRef.id,
       version: manifest.version,
       sourceId: src.id,
       sourceType: src.type,
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
+      plan: targetPlan,
+      sourceEntry
     };
-    if (target.scope === 'repository') {
-      entry.commitMode = target.commitMode ?? 'commit';
-    }
-    return { ok: true, written: result.written, entry, sourceEntry };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
@@ -435,7 +453,12 @@ async function activateBundleForTarget(
  * @param state Activation state recording which bundles were synced.
  * @param targets Targets to remove the profile's bundles from.
  */
-async function deactivateProfileBundles(ctx: Context, state: ProfileActivationState, targets: Target[]): Promise<void> {
+async function deactivateProfileBundles(
+  ctx: Context,
+  state: ProfileActivationState,
+  targets: Target[]
+): Promise<{ bundleId: string; target: string; reason: string }[]> {
+  const failures: { bundleId: string; target: string; reason: string }[] = [];
   for (const configuredTarget of targets) {
     const target = resolveEffectiveTarget(ctx, configuredTarget);
     if (target.scope === 'repository') {
@@ -447,9 +470,12 @@ async function deactivateProfileBundles(ctx: Context, state: ProfileActivationSt
       });
       for (const bundleId of state.syncedBundles) {
         try {
-          await pipeline.run(bundleId);
-        } catch {
-          // Best-effort cleanup.
+          const result = await pipeline.run(bundleId);
+          if (result.skipped.length > 0) {
+            failures.push({ bundleId, target: target.name, reason: `preserved modified files: ${result.skipped.join(', ')}` });
+          }
+        } catch (error) {
+          failures.push({ bundleId, target: target.name, reason: error instanceof Error ? error.message : String(error) });
         }
       }
     } else {
@@ -457,13 +483,17 @@ async function deactivateProfileBundles(ctx: Context, state: ProfileActivationSt
       const writer = createUninstallWriterFactory(ctx, {})(target);
       for (const bundleId of state.syncedBundles) {
         try {
-          await runUserScopeUninstall(bundleId, lockPath, target, ctx, writer);
-        } catch {
-          // Best-effort cleanup.
+          const result = await runUserScopeUninstall(bundleId, lockPath, target, ctx, writer);
+          if (result.skipped.length > 0) {
+            failures.push({ bundleId, target: target.name, reason: `preserved modified files: ${result.skipped.join(', ')}` });
+          }
+        } catch (error) {
+          failures.push({ bundleId, target: target.name, reason: error instanceof Error ? error.message : String(error) });
         }
       }
     }
   }
+  return failures;
 }
 
 /**
@@ -496,74 +526,178 @@ export async function runProfileActivation(
   targets: Target[]
 ): Promise<ProfileActivationResult> {
   const effectiveTargets = targets.map((target) => resolveEffectiveTarget(ctx, target));
-  // Enforce a single globally-active profile: deactivate whatever was
-  // previously active (if anything) before installing the new one.
-  const previouslyActive = await built.activations.listAll();
-  for (const prev of previouslyActive) {
-    await deactivateProfileBundles(ctx, prev, effectiveTargets);
-    await built.activations.delete(prev.hubId, prev.profileId);
-    const prevActiveHub = await built.mgr.getActiveHub();
-    if (prevActiveHub?.id === prev.hubId) {
-      const prevProfile = prevActiveHub.config.profiles.find((p) => p.id === prev.profileId);
-      if (prevProfile) {
-        await built.mgr.addProfile(prev.hubId, { ...prevProfile, active: false, updatedAt: new Date().toISOString() });
-      }
-    }
-  }
-
-  const sources = Object.fromEntries((await built.mgr.listSources(hubId)).map((s) => [s.id, s]));
-  const syncedBundles: string[] = [];
-  const syncedBundleVersions: Record<string, string> = {};
+  const sources = Object.fromEntries((await built.mgr.listSources(hubId)).map((source) => [source.id, source]));
   const failures: { bundleId: string; target: string; reason: string }[] = [];
-  const writtenByTarget: Record<string, string[]> = {};
   const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
     ? createSourceAwareInstallDependencyCache(built.http, ctx)
     : undefined;
-
+  const preparedByTarget = new Map<string, Extract<ActivateBundleOutcome, { ok: true }>[]>();
   for (const target of effectiveTargets) {
-    const writer = createWriterFactory(ctx, {})(target);
-    const written: string[] = [];
-    const lockPath = lockfilePathForTarget(ctx, target);
-    let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-
+    const prepared: Extract<ActivateBundleOutcome, { ok: true }>[] = [];
     for (const bundleRef of profile.bundles) {
       const outcome = await activateBundleForTarget(
         bundleRef,
         sources,
         target,
-        writer,
         built.http,
         built.tokens,
         ctx,
         sourceAwareDependencyCache
       );
-      if (!outcome.ok) {
+      if (outcome.ok) {
+        prepared.push(outcome);
+      } else {
         failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
-        continue;
-      }
-      written.push(...outcome.written);
-      lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
-      lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
-      syncedBundleVersions[bundleRef.id] = outcome.entry.version;
-      if (!syncedBundles.includes(bundleRef.id)) {
-        syncedBundles.push(bundleRef.id);
       }
     }
-    await writeLockfile(lockPath, lock, ctx.fs);
-    writtenByTarget[target.name] = written;
+    preparedByTarget.set(target.name, prepared);
+  }
+  if (failures.length > 0) {
+    throw new RegistryError({
+      code: 'BUNDLE.PROFILE_PREPARATION_FAILED',
+      message: `Cannot activate profile "${profile.id}" because its bundles could not be prepared.`,
+      hint: failures.map((failure) => `${failure.bundleId} (${failure.target}): ${failure.reason}`).join('\n')
+    });
+  }
+  // Enforce a single globally-active profile: deactivate whatever was
+  // previously active (if anything) before installing the new one.
+  const previouslyActive = await built.activations.listAll();
+  const configuredTargets = await loadTargets(ctx);
+  const affectedTargets = new Map<string, Target>(effectiveTargets.map((target) => [target.name, target]));
+  for (const previous of previouslyActive) {
+    const previousTargets = previous.targetNames === undefined
+      ? effectiveTargets
+      : configuredTargets.filter((target) => previous.targetNames?.includes(target.name));
+    for (const target of previousTargets) {
+      const effectiveTarget = resolveEffectiveTarget(ctx, target);
+      affectedTargets.set(effectiveTarget.name, effectiveTarget);
+    }
+  }
+  const transactionFileSet = new Set<string>();
+  for (const prepared of preparedByTarget.values()) {
+    for (const outcome of prepared) {
+      for (const operation of outcome.plan.operations) {
+        transactionFileSet.add(operation.destinationPath);
+      }
+    }
+  }
+  for (const target of affectedTargets.values()) {
+    const repositoryPath = target.rootPath ?? ctx.cwd();
+    const lockPaths = target.scope === 'repository'
+      ? [getLockfilePathForMode(repositoryPath, 'commit'), getLockfilePathForMode(repositoryPath, 'local-only')]
+      : [lockfilePathForTarget(ctx, target)];
+    const layout = target.scope === 'repository' ? undefined : await resolveConfiguredLayout(ctx, target);
+    for (const lockPath of lockPaths) {
+      transactionFileSet.add(lockPath);
+      const lock = await readLockfile(lockPath, ctx.fs);
+      if (lock === null) {
+        continue;
+      }
+      for (const [bundleId, entry] of Object.entries(lock.bundles)) {
+        const resolved = resolveInstalledFilesForLockfileEntry(bundleId, entry, target.scope === 'repository'
+          ? { repositoryPath }
+          : { baseDir: path.resolve(expandPath(layout?.baseDir ?? '', ctx.env)) });
+        for (const file of resolved.files) {
+          transactionFileSet.add(file.destinationPath);
+        }
+      }
+    }
+    if (target.scope === 'repository') {
+      transactionFileSet.add(path.join(repositoryPath, '.git', 'info', 'exclude'));
+    }
+  }
+  const hubsDir = resolveUserConfigPaths(ctx.env).hubs;
+  transactionFileSet.add(path.join(hubsDir, `${hubId}.yml`));
+  transactionFileSet.add(path.join(hubsDir, 'profile-activations', `${hubId}_${profile.id}.json`));
+  for (const previous of previouslyActive) {
+    transactionFileSet.add(path.join(hubsDir, `${previous.hubId}.yml`));
+    transactionFileSet.add(path.join(hubsDir, 'profile-activations', `${previous.hubId}_${previous.profileId}.json`));
   }
 
-  const state: ProfileActivationState = {
-    hubId,
-    profileId: profile.id,
-    activatedAt: new Date().toISOString(),
-    syncedBundles,
-    syncedBundleVersions
-  };
-  await built.activations.save(hubId, profile.id, state);
-  await built.mgr.addProfile(hubId, { ...profile, active: true, updatedAt: new Date().toISOString() });
+  return runFileTransaction(ctx.fs, [...transactionFileSet], async () => {
+    for (const prev of previouslyActive) {
+      const previousTargets = prev.targetNames === undefined
+        ? effectiveTargets
+        : configuredTargets.filter((target) => prev.targetNames?.includes(target.name));
+      const deactivationFailures = await deactivateProfileBundles(ctx, prev, previousTargets);
+      if (deactivationFailures.length > 0) {
+        throw new RegistryError({
+          code: 'BUNDLE.UNINSTALL_INCOMPLETE',
+          message: `Cannot activate profile "${profile.id}" because profile "${prev.profileId}" could not be fully deactivated.`,
+          hint: deactivationFailures.map((failure) => `${failure.bundleId} (${failure.target}): ${failure.reason}`).join('\n')
+        });
+      }
+      await built.activations.delete(prev.hubId, prev.profileId);
+      const prevActiveHub = await built.mgr.getActiveHub();
+      if (prevActiveHub?.id === prev.hubId) {
+        const prevProfile = prevActiveHub.config.profiles.find((p) => p.id === prev.profileId);
+        if (prevProfile) {
+          await built.mgr.addProfile(prev.hubId, { ...prevProfile, active: false, updatedAt: new Date().toISOString() });
+        }
+      }
+    }
 
-  return { state, written: writtenByTarget, failures };
+    const syncedBundles: string[] = [];
+    const syncedBundleVersions: Record<string, string> = {};
+    const writtenByTarget: Record<string, string[]> = {};
+
+    for (const target of effectiveTargets) {
+      const writer = createWriterFactory(ctx, {})(target);
+      const lockPath = lockfilePathForTarget(ctx, target);
+      let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+      const prepared = preparedByTarget.get(target.name) ?? [];
+      const repositoryPath = target.rootPath ?? ctx.cwd();
+      const transactionFiles = [
+        ...prepared.flatMap((outcome) => outcome.plan.operations.map((operation) => operation.destinationPath)),
+        lockPath
+      ];
+      if (target.scope === 'repository' && target.commitMode === 'local-only') {
+        transactionFiles.push(path.join(repositoryPath, '.git', 'info', 'exclude'));
+      }
+      const written = await runFileTransaction(ctx.fs, transactionFiles, async () => {
+        const targetWritten: string[] = [];
+        for (const outcome of prepared) {
+          const result = await writeTargetSafely(writer, outcome.plan);
+          if (target.scope === 'repository' && target.commitMode === 'local-only') {
+            await addInstalledFilesToGitExclude(ctx.fs, repositoryPath, result.installed);
+          }
+          const entry: LockfileBundleEntry = {
+            version: outcome.version,
+            sourceId: outcome.sourceId,
+            sourceType: outcome.sourceType,
+            installedAt: new Date().toISOString(),
+            files: lockfileFilesFromInstalledRecords(result.installed),
+            ...(target.scope === 'repository' ? { commitMode: target.commitMode ?? 'commit' } : {})
+          };
+          targetWritten.push(...result.installed.map((file) => file.destinationPath));
+          lock = upsertBundleEntry(lock, outcome.bundleId, entry);
+          lock = upsertSource(lock, outcome.sourceId, outcome.sourceEntry);
+        }
+        await writeLockfile(lockPath, lock, ctx.fs);
+        return targetWritten;
+      });
+      for (const outcome of prepared) {
+        syncedBundleVersions[outcome.bundleId] = outcome.version;
+        if (!syncedBundles.includes(outcome.bundleId)) {
+          syncedBundles.push(outcome.bundleId);
+        }
+      }
+      writtenByTarget[target.name] = written;
+    }
+
+    const state: ProfileActivationState = {
+      hubId,
+      profileId: profile.id,
+      activatedAt: new Date().toISOString(),
+      syncedBundles,
+      syncedBundleVersions,
+      targetNames: effectiveTargets.map((target) => target.name)
+    };
+    await built.activations.save(hubId, profile.id, state);
+    await built.mgr.addProfile(hubId, { ...profile, active: true, updatedAt: new Date().toISOString() });
+
+    return { state, written: writtenByTarget, failures };
+  });
 }
 
 /**
@@ -735,7 +869,14 @@ export class ProfileDeactivateCommand extends BaseProfileCommand {
     }
 
     const targets = await loadTargets(ctx);
-    await deactivateProfileBundles(ctx, cur, targets);
+    const failures = await deactivateProfileBundles(ctx, cur, targets);
+    if (failures.length > 0) {
+      return failWith(ctx, fmt, 'profile.deactivate', new RegistryError({
+        code: 'BUNDLE.UNINSTALL_INCOMPLETE',
+        message: `Profile "${cur.profileId}" could not be fully deactivated because managed files were preserved.`,
+        hint: failures.map((failure) => `${failure.bundleId} (${failure.target}): ${failure.reason}`).join('\n')
+      }));
+    }
     await built.activations.delete(cur.hubId, cur.profileId);
 
     const activeHub = await built.mgr.getActiveHub();

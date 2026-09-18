@@ -163,7 +163,6 @@ sequenceDiagram
     participant Layout as LayoutResolver
     participant Transform as TransformerRegistry
     participant Writer as FileTreeTargetWriter
-    participant RepoWriter as RepositoryScopeWriter
     participant Lockfile as LockfileStore
     participant State as TargetStateStore
     participant FS as File System
@@ -198,15 +197,9 @@ sequenceDiagram
     CLI->>Transform: getTransformer(target.type)
     Transform-->>CLI: Content transformer
 
-    alt target.scope == user
-        CLI->>Writer: write(target, files, transformer)
-        Writer->>FS: Write prompt/instruction/agent/skill files
-        Writer-->>CLI: Written paths
-    else target.scope == repository
-        CLI->>RepoWriter: write(target, files)
-        RepoWriter->>FS: Write .github/copilot/... files
-        RepoWriter-->>CLI: Written paths
-    end
+    CLI->>Writer: write(targetPlan)
+    Writer->>FS: Write exact target-resolved destinations
+    Writer-->>CLI: Installed destination records
 
     CLI->>Lockfile: upsertBundle(bundleId, manifest)
     Lockfile->>FS: Read prompt-registry.lock.json

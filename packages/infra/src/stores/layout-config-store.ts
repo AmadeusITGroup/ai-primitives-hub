@@ -14,6 +14,7 @@
  */
 import * as path from 'node:path';
 import {
+  normalizePrimitiveKind,
   validateTargetLayoutsConfig,
 } from '@ai-primitives-hub/core';
 import type {
@@ -106,12 +107,37 @@ async function tryLoadFile(
   try {
     const text = await fs.readFile(filePath);
     const raw = parseYaml(text);
-    return validateTargetLayoutsConfig(raw);
+    return normalizeLegacyRouteKeys(validateTargetLayoutsConfig(raw));
   } catch (err) {
     // eslint-disable-next-line no-console -- intentional user-facing warning
     console.warn(`Skipping invalid layout config at ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
+}
+
+function normalizeLegacyRouteKeys(config: TargetLayoutsConfig): TargetLayoutsConfig {
+  const layouts = Object.fromEntries(Object.entries(config.layouts).map(([targetType, definition]) => [
+    targetType,
+    {
+      ...definition,
+      user: normalizeScopedRoutes(definition.user),
+      ...(definition.repository ? { repository: normalizeScopedRoutes(definition.repository) } : {})
+    }
+  ]));
+  return { layouts };
+}
+
+function normalizeScopedRoutes<T extends { kindRoutes: Readonly<Record<string, string>> }>(scope: T): T {
+  const routes: Record<string, string> = {};
+  for (const [key, value] of Object.entries(scope.kindRoutes)) {
+    const kind = normalizePrimitiveKind(key.replace(/\/$/u, ''));
+    if (kind === null) {
+      routes[key] = value;
+    } else if (routes[kind] === undefined || key === kind) {
+      routes[kind] = value;
+    }
+  }
+  return { ...scope, kindRoutes: routes };
 }
 
 /**

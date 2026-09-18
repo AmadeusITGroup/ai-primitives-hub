@@ -17,31 +17,30 @@ import {
 } from 'node:util';
 import {
   FileTreeTargetWriter,
-  KIND_TO_ROUTE_KEY,
+  resolveInstalledFilesForLockfileEntry,
   resolveLayout,
+  resolveManagedFilesFromLockfile,
 } from '@ai-primitives-hub/app';
 import type {
-  ManifestPlacementItem,
+  Lockfile,
   WriterFs,
 } from '@ai-primitives-hub/app';
 import type {
+  InstalledFileRecord,
+  PrimitiveKind,
   Target,
   TargetType,
+  TargetWritePlan,
+  TargetWriteResult,
 } from '@ai-primitives-hub/core';
-import * as yaml from 'js-yaml';
 import {
   RegistryStorage,
 } from '../storage/registry-storage';
 import {
-  DeploymentManifest,
   RepositoryCommitMode,
 } from '../types/registry';
 import {
   CopilotFileType,
-  determineFileType,
-  getSkillName,
-  getTargetFileName,
-  normalizePromptId,
 } from '../utils/copilot-file-type-utils';
 import {
   calculateFileChecksum,
@@ -59,32 +58,26 @@ import {
 import {
   IScopeService,
   SyncBundleOptions,
+  UnsyncBundleOptions,
+  UnsyncBundleResult,
 } from './scope-service';
 
 const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
-const readdir = promisify(fs.readdir);
-const unlink = promisify(fs.unlink);
 const rm = promisify(fs.rm);
 
-/**
- * `WriterFs` adapter backed by Node's `fs` module, so
- * `RepositoryScopeService` can drive the shared
- * `FileTreeTargetWriter.writeManifestItems()` placement/naming logic
- * instead of duplicating it.
- */
+/** `WriterFs` adapter backed by Node's `fs` module. */
 class NodeWriterFs implements WriterFs {
   public async writeFile(p: string, contents: string): Promise<void> {
     await writeFile(p, contents, 'utf8');
   }
 
   public async writeFileBytes(p: string, bytes: Uint8Array): Promise<void> {
-    await fs.promises.writeFile(p, bytes);
+    await writeFile(p, bytes);
   }
 
   public async readFileBytes(p: string): Promise<Uint8Array> {
-    const buffer = await fs.promises.readFile(p);
-    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    return fs.promises.readFile(p);
   }
 
   public async mkdir(p: string, opts?: { recursive?: boolean }): Promise<void> {
@@ -95,8 +88,28 @@ class NodeWriterFs implements WriterFs {
     await rm(p, { recursive: true, force: true });
   }
 
+  public async removeEmptyDirectory(p: string): Promise<void> {
+    await fs.promises.rmdir(p);
+  }
+
   public exists(p: string): Promise<boolean> {
     return Promise.resolve(fs.existsSync(p));
+  }
+
+  public realpath(p: string): Promise<string> {
+    return fs.promises.realpath(p);
+  }
+
+  public async lstat(p: string): Promise<{ isSymbolicLink: boolean } | null> {
+    try {
+      const stats = await fs.promises.lstat(p);
+      return { isSymbolicLink: stats.isSymbolicLink() };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
   }
 }
 
@@ -104,23 +117,6 @@ class NodeWriterFs implements WriterFs {
  * Section header for AI Primitives Hub entries in .git/info/exclude
  */
 const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
-
-/**
- * Primitive kinds AI Primitives Hub manages at repository scope. Their on-disk
- * directories are resolved per host from the layout (e.g. `.github/prompts` on
- * VS Code, `.kiro/steering` on Kiro), so cleanup only ever touches folders this
- * tool created — never the host root (`.github`/`.kiro`) itself.
- */
-const MANAGED_KINDS: readonly CopilotFileType[] = ['prompt', 'instructions', 'agent', 'skill'];
-
-/**
- * Tracks installed files during bundle installation for rollback support
- */
-interface InstallationTracker {
-  relativePaths: string[];
-  absolutePaths: string[];
-  skillDirs: string[];
-}
 
 /**
  * Service to sync bundle files to the host-appropriate repository directories
@@ -196,241 +192,11 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Install files from a bundle to the host-appropriate directories
-   * @param bundlePath - Path to bundle directory
-   * @param manifest - Deployment manifest
-   * @param commitMode - Whether to track in git or exclude
-   * @returns Array of installed file paths (relative to workspace)
-   */
-  private async installFiles(
-    bundlePath: string,
-    manifest: DeploymentManifest,
-    commitMode: RepositoryCommitMode
-  ): Promise<string[]> {
-    const tracker: InstallationTracker = {
-      relativePaths: [],
-      absolutePaths: [],
-      skillDirs: []
-    };
-
-    try {
-      // Copy all bundle files to target directories
-      await this.copyBundleFiles(bundlePath, manifest, tracker);
-
-      // Handle git exclude for local-only mode
-      if (commitMode === 'local-only' && tracker.relativePaths.length > 0) {
-        await this.updateGitExcludeForLocalOnly(tracker.relativePaths);
-      }
-
-      return tracker.relativePaths;
-    } catch (error) {
-      await this.rollbackInstallation(tracker);
-      throw error;
-    }
-  }
-
-  /**
-   * Copy all files from a bundle to their target host-appropriate directories.
-   *
-   * Placement/naming is delegated to the shared
-   * `FileTreeTargetWriter.writeManifestItems()`,
-   * called once per manifest item so this service's own
-   * per-item rollback tracking (see `InstallationTracker`) is preserved
-   * exactly as before.
-   * @param bundlePath
-   * @param manifest
-   * @param tracker
-   */
-  private async copyBundleFiles(
-    bundlePath: string,
-    manifest: DeploymentManifest,
-    tracker: InstallationTracker
-  ): Promise<void> {
-    const target: Target = this.getTarget();
-    const writer = new FileTreeTargetWriter({ fs: new NodeWriterFs(), env: process.env });
-
-    for (const promptDef of manifest.prompts || []) {
-      const promptId = normalizePromptId(promptDef.id);
-
-      await (promptDef.type === 'skill'
-        ? this.installSkillAndTrack(writer, target, bundlePath, promptDef.file, promptId, tracker)
-        : this.installFileAndTrack(writer, target, bundlePath, promptDef, promptId, tracker));
-    }
-  }
-
-  /**
-   * Install a skill directory and track for potential rollback
-   * @param writer - Shared writer that places the skill's files.
-   * @param target - Target describing this workspace's repository scope.
-   * @param bundlePath
-   * @param skillFile
-   * @param skillId
-   * @param tracker
-   */
-  private async installSkillAndTrack(
-    writer: FileTreeTargetWriter,
-    target: Target,
-    bundlePath: string,
-    skillFile: string,
-    skillId: string,
-    tracker: InstallationTracker
-  ): Promise<void> {
-    const sourceSkillName = getSkillName(skillFile);
-    if (!sourceSkillName) {
-      this.logger.warn(`[RepositoryScopeService] Invalid skill path format: ${skillFile}`);
-      return;
-    }
-
-    const sourceDir = path.join(bundlePath, path.dirname(skillFile));
-    if (!fs.existsSync(sourceDir)) {
-      this.logger.warn(`[RepositoryScopeService] Skill directory not found: ${sourceDir}`);
-      return;
-    }
-    if (!fs.statSync(sourceDir).isDirectory()) {
-      this.logger.warn(`[RepositoryScopeService] Skill path is not a directory: ${sourceDir}`);
-      return;
-    }
-
-    const files = await this.readDirectoryIntoMap(sourceDir, path.dirname(skillFile));
-    const item: ManifestPlacementItem = { id: skillId, file: skillFile, type: 'skill' };
-    const result = await writer.writeManifestItems(target, files, [item]);
-
-    if (result.written.length > 0) {
-      const skillDir = path.join(
-        this.workspaceRoot,
-        this.getTargetDirectory('skill'),
-        skillId
-      );
-      tracker.skillDirs.push(skillDir);
-      tracker.relativePaths.push(...result.written.map((p) => this.getRelativePath(p)));
-      tracker.absolutePaths.push(...result.written);
-    }
-
-    this.logger.debug(`[RepositoryScopeService] Installed skill ${skillId}: ${result.written.length} files`);
-  }
-
-  /**
-   * Install a single file and track for potential rollback
-   * @param writer - Shared writer that places the file.
-   * @param target - Target describing this workspace's repository scope.
-   * @param bundlePath
-   * @param promptDef
-   * @param promptDef.file
-   * @param promptDef.type
-   * @param promptDef.tags
-   * @param promptId
-   * @param tracker
-   */
-  private async installFileAndTrack(
-    writer: FileTreeTargetWriter,
-    target: Target,
-    bundlePath: string,
-    promptDef: { file: string; type?: string; tags?: string[] },
-    promptId: string,
-    tracker: InstallationTracker
-  ): Promise<void> {
-    this.logger.debug(`[RepositoryScopeService] installFileAndTrack: bundlePath=${bundlePath}, file=${promptDef.file}, promptId=${promptId}`);
-    const sourcePath = path.join(bundlePath, promptDef.file);
-    this.logger.debug(`[RepositoryScopeService] Source path: ${sourcePath}`);
-    this.logger.debug(`[RepositoryScopeService] Source exists: ${fs.existsSync(sourcePath)}`);
-    if (!fs.existsSync(sourcePath)) {
-      this.logger.warn(`[RepositoryScopeService] Source file not found: ${sourcePath}`);
-      return;
-    }
-
-    const fileType = promptDef.type as CopilotFileType || determineFileType(promptDef.file, promptDef.tags);
-    const files = new Map<string, Uint8Array>([[promptDef.file, await readFile(sourcePath)]]);
-    const item: ManifestPlacementItem = { id: promptId, file: promptDef.file, type: fileType, tags: promptDef.tags };
-    const result = await writer.writeManifestItems(target, files, [item]);
-
-    if (result.written.length === 0) {
-      this.logger.warn(`[RepositoryScopeService] Failed to place file: ${sourcePath}`);
-      return;
-    }
-
-    const targetPath = result.written[0];
-    this.logger.info(`[RepositoryScopeService] File type: ${fileType}, Target path: ${targetPath}`);
-    this.logger.info(`[RepositoryScopeService] ✅ Copied: ${sourcePath} → ${targetPath}`);
-
-    tracker.absolutePaths.push(targetPath);
-    tracker.relativePaths.push(this.getRelativePath(targetPath));
-  }
-
-  /**
-   * Update git exclude for local-only mode, consolidating skill directories
+   * Update git exclude for local-only mode using exact installed paths.
    * @param relativePaths
    */
   private async updateGitExcludeForLocalOnly(relativePaths: string[]): Promise<void> {
-    const pathsForExclude = this.consolidateSkillPathsForGitExclude(relativePaths);
-    await this.addToGitExclude(pathsForExclude);
-  }
-
-  /**
-   * Rollback installation by removing all tracked files and directories
-   * @param tracker
-   */
-  private async rollbackInstallation(tracker: InstallationTracker): Promise<void> {
-    this.logger.error(`[RepositoryScopeService] Installation failed, rolling back...`);
-
-    // Rollback skill directories first
-    for (const skillDir of tracker.skillDirs) {
-      try {
-        if (fs.existsSync(skillDir)) {
-          await rm(skillDir, { recursive: true, force: true });
-          this.logger.debug(`[RepositoryScopeService] Rolled back skill directory: ${skillDir}`);
-        }
-      } catch {
-        this.logger.warn(`[RepositoryScopeService] Failed to rollback skill directory: ${skillDir}`);
-      }
-    }
-
-    // Rollback individual files (skip those in skill directories)
-    for (const absolutePath of tracker.absolutePaths) {
-      const isInSkillDir = tracker.skillDirs.some((dir) => absolutePath.startsWith(dir));
-      if (isInSkillDir) {
-        continue;
-      }
-
-      try {
-        if (fs.existsSync(absolutePath)) {
-          await unlink(absolutePath);
-          this.logger.debug(`[RepositoryScopeService] Rolled back: ${absolutePath}`);
-        }
-      } catch {
-        this.logger.warn(`[RepositoryScopeService] Failed to rollback file: ${absolutePath}`);
-      }
-    }
-  }
-
-  /**
-   * Recursively read a directory's files into an in-memory map keyed by
-   * bundle-relative path (e.g. `skills/my-skill/scripts/run.sh`), for
-   * `FileTreeTargetWriter.writeManifestItems()`'s skill-copy mode, which
-   * expects every file under the skill's bundle-relative prefix to be
-   * present in the `ExtractedFiles` map it's given.
-   * @param sourceDir - Absolute source directory path.
-   * @param relativePrefix - Bundle-relative path prefix used for map keys.
-   * @returns Map of bundle-relative path to file bytes.
-   */
-  private async readDirectoryIntoMap(sourceDir: string, relativePrefix: string): Promise<Map<string, Uint8Array>> {
-    const files = new Map<string, Uint8Array>();
-    const entries = await readdir(sourceDir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const entryPath = path.join(sourceDir, entry.name);
-      const entryPrefix = `${relativePrefix}/${entry.name}`;
-
-      if (entry.isDirectory()) {
-        const nested = await this.readDirectoryIntoMap(entryPath, entryPrefix);
-        for (const [key, value] of nested) {
-          files.set(key, value);
-        }
-      } else if (entry.isFile()) {
-        files.set(entryPrefix, await readFile(entryPath));
-      }
-    }
-
-    return files;
+    await this.addToGitExclude(relativePaths);
   }
 
   /**
@@ -466,150 +232,39 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Collect all file paths used by bundles OTHER than the specified bundle.
-   * Used to prevent removing files that are shared between bundles.
-   * @param excludeBundleId
-   * @param mainLockfile
-   * @param localLockfile
+   * Collect the destination paths owned by bundles OTHER than the specified one,
+   * so `unsyncBundle` never removes a file another bundle still needs.
+   *
+   * Paths are resolved through `resolveInstalledFilesForLockfileEntry` rather
+   * than read raw, so a legacy CLI 0.1.0 lockfile (source-prefix `files[].path`)
+   * yields the same destination-relative form as the records being removed.
+   * @param excludeBundleId - Bundle being uninstalled.
+   * @param lockfiles - Commit-mode and local-only lockfiles.
+   * @returns Destination-relative paths owned by other bundles.
    */
   private collectFilesUsedByOtherBundles(
     excludeBundleId: string,
-    mainLockfile: { bundles?: Record<string, { files?: { path: string }[] }> } | null,
-    localLockfile: { bundles?: Record<string, { files?: { path: string }[] }> } | null
+    lockfiles: readonly (Lockfile | null)[]
   ): Set<string> {
     const usedFiles = new Set<string>();
-
-    // Check main lockfile
-    if (mainLockfile?.bundles) {
-      for (const [bundleId, entry] of Object.entries(mainLockfile.bundles)) {
-        if (bundleId !== excludeBundleId && entry.files) {
-          for (const file of entry.files) {
-            usedFiles.add(file.path);
+    for (const lockfile of lockfiles) {
+      for (const [bundleId, entry] of Object.entries(lockfile?.bundles ?? {})) {
+        if (bundleId === excludeBundleId) {
+          continue;
+        }
+        try {
+          const resolved = resolveInstalledFilesForLockfileEntry(bundleId, entry, {
+            repositoryPath: this.workspaceRoot
+          });
+          for (const file of resolved.files) {
+            usedFiles.add(file.destinationRelativePath);
           }
+        } catch (error) {
+          this.logger.warn(`[RepositoryScopeService] Skipping unreadable lockfile entry "${bundleId}": ${error}`);
         }
       }
     }
-
-    // Check local lockfile
-    if (localLockfile?.bundles) {
-      for (const [bundleId, entry] of Object.entries(localLockfile.bundles)) {
-        if (bundleId !== excludeBundleId && entry.files) {
-          for (const file of entry.files) {
-            usedFiles.add(file.path);
-          }
-        }
-      }
-    }
-
     return usedFiles;
-  }
-
-  /**
-   * Clean up empty AI Primitives Hub subdirectories for the current host.
-   *
-   * Removes only the directories this tool manages, resolved per host from the
-   * layout — e.g. `.github/prompts|agents|instructions|skills` on VS Code, or
-   * `.kiro/steering|agents|skills` on Kiro — and only when they are empty.
-   *
-   * Never removes the host root folder itself (`.github`/`.kiro`), which may
-   * hold unrelated files (workflows, CODEOWNERS, other steering docs, etc.).
-   */
-  private async cleanupEmptyPromptRegistryDirectories(): Promise<void> {
-    const seen = new Set<string>();
-
-    for (const kind of MANAGED_KINDS) {
-      // Host-appropriate managed dir (deduped: e.g. prompt+instructions both
-      // resolve to .kiro/steering on Kiro).
-      const relativeDir = this.getTargetDirectory(kind).replace(/\/+$/, '');
-      if (seen.has(relativeDir)) {
-        continue;
-      }
-      seen.add(relativeDir);
-
-      const dirPath = path.join(this.workspaceRoot, relativeDir);
-      if (!fs.existsSync(dirPath)) {
-        continue;
-      }
-
-      try {
-        // Skills are nested directories; clean their empty subdirs first.
-        if (kind === 'skill') {
-          await this.cleanupEmptySkillDirectories(dirPath);
-        }
-
-        const files = await readdir(dirPath);
-
-        // Only remove if directory is empty
-        if (files.length === 0) {
-          await rm(dirPath, { recursive: true, force: true });
-          this.logger.debug(`[RepositoryScopeService] Removed empty directory: ${this.getRelativePath(dirPath)}`);
-        }
-      } catch {
-        this.logger.warn(`[RepositoryScopeService] Failed to check/remove directory: ${dirPath}`);
-      }
-    }
-  }
-
-  /**
-   * Clean up empty skill directories within the host's skills folder
-   * (e.g. `.github/skills/` or `.kiro/skills/`). Skills are directories, so we
-   * recursively check and remove empty ones.
-   * @param skillsDir
-   */
-  private async cleanupEmptySkillDirectories(skillsDir: string): Promise<void> {
-    if (!fs.existsSync(skillsDir)) {
-      return;
-    }
-
-    try {
-      const entries = await readdir(skillsDir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const skillDir = path.join(skillsDir, entry.name);
-          await this.cleanupEmptyDirectoryRecursive(skillDir);
-        }
-      }
-    } catch {
-      this.logger.warn(`[RepositoryScopeService] Failed to clean up skill directories: ${skillsDir}`);
-    }
-  }
-
-  /**
-   * Recursively clean up empty directories from bottom up.
-   * Removes a directory only if it's empty (after cleaning up its subdirectories).
-   * @param dir
-   */
-  private async cleanupEmptyDirectoryRecursive(dir: string): Promise<boolean> {
-    if (!fs.existsSync(dir)) {
-      return true; // Already removed
-    }
-
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-
-      // First, recursively clean up subdirectories
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          await this.cleanupEmptyDirectoryRecursive(path.join(dir, entry.name));
-        }
-      }
-
-      // Re-read directory after cleaning subdirectories
-      const remainingEntries = await readdir(dir);
-
-      // Remove if empty
-      if (remainingEntries.length === 0) {
-        await rm(dir, { recursive: true, force: true });
-        this.logger.debug(`[RepositoryScopeService] Removed empty directory: ${this.getRelativePath(dir)}`);
-        return true;
-      }
-
-      return false;
-    } catch {
-      this.logger.warn(`[RepositoryScopeService] Failed to clean up directory: ${dir}`);
-      return false;
-    }
   }
 
   /**
@@ -743,17 +398,90 @@ export class RepositoryScopeService implements IScopeService {
     }
   }
 
+  private async writeTargetPlan(
+    bundleId: string,
+    writer: FileTreeTargetWriter,
+    plan: TargetWritePlan,
+    commitMode: RepositoryCommitMode
+  ): Promise<TargetWriteResult> {
+    const result = await writer.write(plan);
+    const installedPaths = result.installed.map((file) => file.destinationRelativePath);
+    if (commitMode === 'local-only' && installedPaths.length > 0) {
+      await this.updateGitExcludeForLocalOnly(installedPaths);
+    }
+
+    this.logger.info(`[RepositoryScopeService] ✅ Synced ${installedPaths.length} files for bundle: ${bundleId}`);
+    return result;
+  }
+
+  private async cleanupRemovedManagedDirectories(files: readonly InstalledFileRecord[]): Promise<void> {
+    const directories = new Set(files.flatMap((file) => {
+      const type = repositoryCopilotFileType(file.kind);
+      return type === null ? [] : [path.join(this.workspaceRoot, this.getTargetDirectory(type))];
+    }));
+    for (const directory of directories) {
+      try {
+        await fs.promises.rmdir(directory);
+      } catch {
+        // Missing or non-empty managed directories must be preserved.
+      }
+    }
+  }
+
   /**
-   * Get the target path for a file of a given type.
-   * Implements IScopeService.getTargetPath
-   * @param fileType - The Copilot file type
-   * @param fileName - The name of the file (without extension)
-   * @returns The full target path where the file should be placed
+   * Resolve every destination already recorded in this repository's lockfiles.
+   *
+   * A destination installed by another bundle is still tool-managed, so it must
+   * be part of the writer's managed set — otherwise installing a second bundle
+   * that legitimately shares a destination trips `FileTreeTargetWriter`'s
+   * unmanaged-overwrite guard. This mirrors `collectFilesUsedByOtherBundles`
+   * on the uninstall side.
+   * @param options - Sync options; `installedFiles` (the records being replaced)
+   *   are always treated as managed even when absent from the lockfiles.
+   * @returns Managed installed records, deduplicated by destination path.
    */
-  public getTargetPath(fileType: CopilotFileType, fileName: string): string {
-    const relativeDir = this.getTargetDirectory(fileType);
-    const targetFileName = getTargetFileName(fileName, fileType);
-    return path.join(this.workspaceRoot, relativeDir, targetFileName);
+  private async resolveManagedFiles(options?: SyncBundleOptions): Promise<InstalledFileRecord[]> {
+    const managed = new Map<string, InstalledFileRecord>();
+    for (const file of options?.installedFiles ?? []) {
+      managed.set(file.destinationPath, file);
+    }
+    for (const lockfile of await this.readBothLockfiles()) {
+      if (lockfile === null) {
+        continue;
+      }
+      try {
+        const resolved = resolveManagedFilesFromLockfile(lockfile, { repositoryPath: this.workspaceRoot });
+        for (const file of resolved.files) {
+          if (!managed.has(file.destinationPath)) {
+            managed.set(file.destinationPath, file);
+          }
+        }
+      } catch (error) {
+        // A malformed lockfile must not block an install; the writer simply sees
+        // a smaller managed set and still refuses unmanaged overwrites.
+        this.logger.warn(`[RepositoryScopeService] Failed to resolve managed files from lockfile: ${error}`);
+      }
+    }
+    return [...managed.values()];
+  }
+
+  /**
+   * Read the commit-mode and local-only lockfiles for this repository.
+   * @returns Both lockfiles; an entry is `null` when absent or unreadable.
+   */
+  private async readBothLockfiles(): Promise<(Lockfile | null)[]> {
+    const lockfileManager = LockfileManager.getInstance(this.workspaceRoot);
+    const main = await lockfileManager.read().catch(() => null);
+    const localPath = lockfileManager.getLocalLockfilePath();
+    let local: Lockfile | null = null;
+    if (fs.existsSync(localPath)) {
+      try {
+        local = JSON.parse(await readFile(localPath, 'utf8')) as Lockfile;
+      } catch {
+        local = null;
+      }
+    }
+    return [main, local];
   }
 
   /**
@@ -766,11 +494,13 @@ export class RepositoryScopeService implements IScopeService {
    */
   public getTargetDirectory(type: CopilotFileType): string {
     const layout = resolveLayout(this.getTarget());
-    const routeKey = KIND_TO_ROUTE_KEY[type];
-    const route = layout.kindRoutes[routeKey];
+    const kind: PrimitiveKind = type === 'instructions'
+      ? 'instruction'
+      : (type === 'chatmode' ? 'chat-mode' : type);
+    const route = layout.routes[kind];
     if (route === undefined) {
       throw new Error(
-        `No repository route defined for file type "${type}" (route key "${routeKey}") in layout "${this.targetType}". Add it to default-layouts.json.`
+        `No repository route defined for file type "${type}" in layout "${this.targetType}". Add it to default-layouts.json.`
       );
     }
     // baseDir is the resolved workspace folder (e.g. `<workspaceRoot>/.github`)
@@ -787,17 +517,25 @@ export class RepositoryScopeService implements IScopeService {
    * Implements IScopeService.syncBundle
    * @param bundleId - The unique identifier of the bundle
    * @param bundlePath - The path to the installed bundle directory
-   * @param options - Optional sync options including commitMode
+   * @param options - Sync options. `targetPlan` is required: destinations are
+   *   planned by the shared install pipeline, never re-derived from a manifest.
    */
-  public async syncBundle(bundleId: string, bundlePath: string, options?: SyncBundleOptions): Promise<void> {
+  public async syncBundle(bundleId: string, bundlePath: string, options?: SyncBundleOptions): Promise<TargetWriteResult> {
     try {
       this.logger.debug(`[RepositoryScopeService] Syncing bundle: ${bundleId}`);
       this.logger.debug(`[RepositoryScopeService] Bundle path: ${bundlePath}`);
       this.logger.debug(`[RepositoryScopeService] Workspace root: ${this.workspaceRoot}`);
 
+      if (options?.targetPlan === undefined) {
+        throw new Error(
+          `syncBundle requires SyncBundleOptions.targetPlan for bundle "${bundleId}": `
+          + 'destinations are planned by the shared install pipeline, and this service never parses a manifest.'
+        );
+      }
+
       // Get commit mode from options first, then fall back to storage lookup
       let commitMode: RepositoryCommitMode;
-      if (options?.commitMode) {
+      if (options.commitMode) {
         commitMode = options.commitMode;
         this.logger.debug(`[RepositoryScopeService] Using commitMode from options: ${commitMode}`);
       } else {
@@ -806,33 +544,13 @@ export class RepositoryScopeService implements IScopeService {
         this.logger.debug(`[RepositoryScopeService] Using commitMode from storage: ${commitMode}`);
       }
 
-      // Read deployment manifest
-      const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
-      this.logger.debug(`[RepositoryScopeService] Looking for manifest at: ${manifestPath}`);
-      if (!fs.existsSync(manifestPath)) {
-        this.logger.warn(`[RepositoryScopeService] No manifest found for bundle: ${bundleId}`);
-        return;
-      }
-      this.logger.debug(`[RepositoryScopeService] Manifest found, reading content...`);
+      const writer = new FileTreeTargetWriter({
+        fs: new NodeWriterFs(),
+        env: process.env,
+        managedFiles: await this.resolveManagedFiles(options)
+      });
 
-      const manifestContent = await readFile(manifestPath, 'utf8');
-      const manifest = yaml.load(manifestContent) as DeploymentManifest;
-      this.logger.debug(`[RepositoryScopeService] Manifest parsed. Keys: ${Object.keys(manifest).join(', ')}`);
-      this.logger.debug(`[RepositoryScopeService] manifest.prompts exists: ${!!manifest.prompts}, length: ${manifest.prompts?.length ?? 'N/A'}`);
-
-      if (!manifest.prompts || manifest.prompts.length === 0) {
-        this.logger.info(`[RepositoryScopeService] Bundle ${bundleId} has no prompts to sync`);
-      } else {
-        this.logger.info(`[RepositoryScopeService] Found ${manifest.prompts.length} prompts to sync`);
-        for (const p of manifest.prompts) {
-          this.logger.info(`[RepositoryScopeService]   - Prompt: id=${p.id}, file=${p.file}, type=${p.type}`);
-        }
-      }
-
-      // Install files (handles empty prompts array gracefully)
-      const installedPaths = await this.installFiles(bundlePath, manifest, commitMode);
-
-      this.logger.info(`[RepositoryScopeService] ✅ Synced ${installedPaths.length} files for bundle: ${bundleId}`);
+      return await this.writeTargetPlan(bundleId, writer, options.targetPlan, commitMode);
     } catch (error) {
       this.logger.error(`[RepositoryScopeService] Failed to sync bundle ${bundleId}`, error as Error);
       throw error;
@@ -850,111 +568,112 @@ export class RepositoryScopeService implements IScopeService {
    *
    * User-created files and modified files are preserved.
    * @param bundleId - The unique identifier of the bundle to unsync
+   * @param options
    */
-  public async unsyncBundle(bundleId: string): Promise<void> {
+  public async unsyncBundle(bundleId: string, options?: UnsyncBundleOptions): Promise<UnsyncBundleResult> {
     try {
       this.logger.debug(`[RepositoryScopeService] Removing files for bundle: ${bundleId}`);
 
-      const lockfileManager = LockfileManager.getInstance(this.workspaceRoot);
-
       // Read both lockfiles to get complete picture
-      const mainLockfile = await lockfileManager.read();
-      const localLockfilePath = lockfileManager.getLocalLockfilePath();
-      let localLockfile = null;
-      if (fs.existsSync(localLockfilePath)) {
-        try {
-          const content = await readFile(localLockfilePath, 'utf8');
-          localLockfile = JSON.parse(content);
-        } catch {
-          // Ignore parse errors
-        }
-      }
+      const [mainLockfile, localLockfile] = await this.readBothLockfiles();
 
       // Find the bundle entry in either lockfile
-      const bundleEntry = mainLockfile?.bundles[bundleId] || localLockfile?.bundles[bundleId];
+      const bundleEntry = mainLockfile?.bundles[bundleId] ?? localLockfile?.bundles[bundleId];
 
-      if (!bundleEntry) {
+      if (bundleEntry === undefined && options?.installedFiles === undefined) {
         this.logger.debug(`[RepositoryScopeService] Bundle ${bundleId} not found in any lockfile`);
-        return;
+        return { retained: [] };
       }
 
-      // Get files tracked by this bundle
-      const bundleFiles = bundleEntry.files || [];
+      const installedFiles = options?.installedFiles
+        ?? (bundleEntry === undefined
+          ? []
+          : resolveInstalledFilesForLockfileEntry(
+            bundleId,
+            bundleEntry,
+            { repositoryPath: this.workspaceRoot }
+          ).files);
 
-      if (bundleFiles.length === 0) {
+      if (installedFiles.length === 0) {
         this.logger.debug(`[RepositoryScopeService] Bundle ${bundleId} has no tracked files in lockfile`);
-        return;
+        return { retained: [] };
       }
 
       // Collect files used by OTHER bundles (to avoid removing shared files)
       const filesUsedByOtherBundles = this.collectFilesUsedByOtherBundles(
         bundleId,
-        mainLockfile,
-        localLockfile
+        [mainLockfile, localLockfile]
       );
 
       const removedPaths: string[] = [];
+      const removedRecords: InstalledFileRecord[] = [];
       const skippedPaths: { path: string; reason: string }[] = [];
+      const writer = new FileTreeTargetWriter({ fs: new NodeWriterFs(), env: process.env });
 
-      // Remove each file tracked in the lockfile
-      for (const fileEntry of bundleFiles) {
-        const targetPath = path.join(this.workspaceRoot, fileEntry.path);
+      for (const installedFile of installedFiles) {
+        const targetPath = installedFile.destinationPath;
+        const relativePath = installedFile.destinationRelativePath;
 
-        // Skip if file doesn't exist
         if (!fs.existsSync(targetPath)) {
-          this.logger.debug(`[RepositoryScopeService] File already removed: ${fileEntry.path}`);
+          this.logger.debug(`[RepositoryScopeService] File already removed: ${relativePath}`);
           continue;
         }
 
-        // Skip if file is used by another bundle
-        if (filesUsedByOtherBundles.has(fileEntry.path)) {
-          skippedPaths.push({ path: fileEntry.path, reason: 'used by another bundle' });
-          this.logger.debug(`[RepositoryScopeService] Skipping file used by another bundle: ${fileEntry.path}`);
+        if (filesUsedByOtherBundles.has(relativePath)) {
+          skippedPaths.push({ path: relativePath, reason: 'used by another bundle' });
+          this.logger.debug(`[RepositoryScopeService] Skipping file used by another bundle: ${relativePath}`);
           continue;
         }
 
-        // Check if file has been modified by user (checksum mismatch)
         try {
           const currentChecksum = await calculateFileChecksum(targetPath);
-          if (currentChecksum !== fileEntry.checksum) {
-            skippedPaths.push({ path: fileEntry.path, reason: 'modified by user' });
-            this.logger.info(`[RepositoryScopeService] Preserving user-modified file: ${fileEntry.path}`);
+          if (!checksumsMatch(currentChecksum, installedFile.installedChecksum)) {
+            skippedPaths.push({ path: relativePath, reason: 'modified by user' });
+            this.logger.info(`[RepositoryScopeService] Preserving user-modified file: ${relativePath}`);
             continue;
           }
         } catch {
-          this.logger.warn(`[RepositoryScopeService] Failed to calculate checksum for: ${fileEntry.path}`);
+          skippedPaths.push({ path: relativePath, reason: 'checksum unavailable' });
+          this.logger.warn(`[RepositoryScopeService] Failed to calculate checksum for: ${relativePath}`);
           continue;
         }
 
-        // Safe to remove - file is tracked, unmodified, and not shared
         try {
-          await unlink(targetPath);
-          removedPaths.push(fileEntry.path);
-          this.logger.debug(`[RepositoryScopeService] Removed: ${fileEntry.path}`);
+          await writer.remove([installedFile]);
+          removedPaths.push(relativePath);
+          removedRecords.push(installedFile);
+          this.logger.debug(`[RepositoryScopeService] Removed: ${relativePath}`);
         } catch {
-          this.logger.warn(`[RepositoryScopeService] Failed to remove file: ${fileEntry.path}`);
+          skippedPaths.push({ path: relativePath, reason: 'removal failed' });
+          this.logger.warn(`[RepositoryScopeService] Failed to remove file: ${relativePath}`);
         }
       }
 
       // Remove from git exclude if needed
       if (removedPaths.length > 0) {
-        // Consolidate skill file paths to skill directory paths for git exclude
-        // (mirrors the logic in updateGitExcludeForLocalOnly)
-        const pathsForExclude = this.consolidateSkillPathsForGitExclude(removedPaths);
-        await this.removeFromGitExclude(pathsForExclude);
-
-        // Clean up empty AI Primitives Hub subdirectories
-        // Only removes directories that are completely empty
-        await this.cleanupEmptyPromptRegistryDirectories();
+        const retainedPaths = skippedPaths.map(({ path: retainedPath }) => retainedPath);
+        const legacySkillDirectories = this.consolidateSkillPathsForGitExclude(removedPaths)
+          .filter((candidate) => !removedPaths.includes(candidate))
+          .filter((candidate) => !retainedPaths.some((retainedPath) => retainedPath.startsWith(`${candidate}/`)))
+          .filter((candidate) => !fs.existsSync(path.join(this.workspaceRoot, candidate)));
+        await this.removeFromGitExclude([...removedPaths, ...legacySkillDirectories]);
       }
+      await this.cleanupRemovedManagedDirectories(removedRecords);
 
       if (skippedPaths.length > 0) {
         this.logger.info(`[RepositoryScopeService] Preserved ${skippedPaths.length} files: ${skippedPaths.map((s) => `${s.path} (${s.reason})`).join(', ')}`);
       }
 
       this.logger.info(`[RepositoryScopeService] ✅ Removed ${removedPaths.length} files for bundle: ${bundleId}`);
+      const installedByPath = new Map(installedFiles.map((file) => [file.destinationRelativePath, file]));
+      return {
+        retained: skippedPaths
+          .filter(({ reason }) => reason !== 'used by another bundle')
+          .map(({ path: retainedPath }) => installedByPath.get(retainedPath)!)
+      };
     } catch (error) {
       this.logger.error(`[RepositoryScopeService] Failed to unsync bundle ${bundleId}`, error as Error);
+      return { retained: options?.installedFiles ?? [] };
     }
   }
 
@@ -984,44 +703,10 @@ export class RepositoryScopeService implements IScopeService {
         return;
       }
 
-      // Find installed files in the host-appropriate managed directories.
-      // The lockfile files point to the bundle cache, not the installed
-      // location, so we scan the host-aware destination dirs (e.g. .github/*
-      // for VS Code, .kiro/* for Kiro) for files that belong to this bundle.
-      const filePaths: string[] = [];
-
-      // Managed primitive kinds; deduped because several kinds may resolve to
-      // the same directory on some hosts (e.g. prompt + instructions ->
-      // .kiro/steering/ on Kiro).
-      const managedKinds: CopilotFileType[] = ['prompt', 'instructions', 'agent', 'skill'];
-      const scannedDirs = new Set<string>();
-
-      for (const kind of managedKinds) {
-        const relativeDir = this.getTargetDirectory(kind).replace(/[/\\]+$/, '');
-        if (scannedDirs.has(relativeDir)) {
-          continue;
-        }
-        scannedDirs.add(relativeDir);
-
-        const absoluteDir = path.join(this.workspaceRoot, relativeDir);
-        if (!fs.existsSync(absoluteDir)) {
-          continue;
-        }
-
-        // Top-level entries: files for prompt/instructions/agent, skill
-        // directories for the skill kind. Both are valid git-exclude targets.
-        const entries = await readdir(absoluteDir);
-        for (const entry of entries) {
-          filePaths.push(path.join(relativeDir, entry));
-        }
-      }
-
-      // Check for the VS Code-specific copilot-instructions.md convention file
-      // (harmless no-op on non-VS-Code hosts, where it will not exist).
-      const copilotInstructionsPath = path.join(this.workspaceRoot, '.github', 'copilot-instructions.md');
-      if (fs.existsSync(copilotInstructionsPath)) {
-        filePaths.push('.github/copilot-instructions.md');
-      }
+      const exactFilePaths = (bundle.installedFiles ?? []).map((file) => file.destinationRelativePath);
+      const filePaths = newMode === 'local-only'
+        ? exactFilePaths
+        : [...exactFilePaths, ...this.consolidateSkillPathsForGitExclude(exactFilePaths)];
 
       this.logger.debug(`[RepositoryScopeService] Found ${filePaths.length} files to update git exclude for`);
 
@@ -1033,4 +718,28 @@ export class RepositoryScopeService implements IScopeService {
       this.logger.error(`[RepositoryScopeService] Failed to switch commit mode for ${bundleId}`, error as Error);
     }
   }
+}
+
+function repositoryCopilotFileType(kind: PrimitiveKind): CopilotFileType | null {
+  switch (kind) {
+    case 'instruction': {
+      return 'instructions';
+    }
+    case 'chat-mode': {
+      return 'chatmode';
+    }
+    case 'prompt':
+    case 'agent':
+    case 'skill': {
+      return kind;
+    }
+    default: {
+      return null;
+    }
+  }
+}
+
+function checksumsMatch(actual: string, expected: string): boolean {
+  const normalize = (value: string): string => value.startsWith('sha256:') ? value : `sha256:${value}`;
+  return normalize(actual) === normalize(expected);
 }

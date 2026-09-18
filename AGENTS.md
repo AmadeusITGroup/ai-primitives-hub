@@ -51,6 +51,8 @@ New domain or use-case logic belongs in `packages/`, not in a delivery layer. Se
 ## Working Rules
 
 - For bug fixes and feature integrations, start with a focused failing test, implement the minimal change, rerun it, then run related coverage.
+- A valid failing test must compile and fail because the expected behavior is absent; import, type, fixture, or setup failures do not count as a red test.
+- Keep suspected causes explicit as hypotheses until the pre-fix behavior is reproduced or a behavioral regression test fails for the intended reason.
 - Search existing implementation, helpers, and neighboring tests before adding code. Reuse instead of duplicating.
 - Tests must verify observable behavior through public entry points; mock external boundaries, not the unit under test.
 - Treat transformed values in failures as a production-path lead before rewriting fixtures.

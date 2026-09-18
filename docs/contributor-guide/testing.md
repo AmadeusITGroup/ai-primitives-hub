@@ -38,6 +38,19 @@ pnpm run test:coverage:integration # integration only
 
 Use `LOG_LEVEL=ERROR` to suppress debug output.
 
+Installation parity tests should assert returned semantic plans and installed
+file records, not writer method calls. Include arbitrary manifest paths,
+recursive skill assets, binary payloads, target capability failures, exact
+destination paths, post-transform checksums, preflight no-mutation behavior,
+and rollback after a partial write. Run the focused package checks before the
+full suites:
+
+```bash
+pnpm -C packages/core test -- test/domain/install/bundle-install-plan.test.ts
+pnpm -C packages/app test -- test/install/target-install-planner.test.ts test/install/pipeline.test.ts test/writers/file-tree-writer.test.ts
+pnpm -C packages/cli test -- test/commands/install.test.ts test/commands/profile.test.ts test/commands/uninstall.test.ts
+```
+
 ## Test Directory Layout
 
 ```

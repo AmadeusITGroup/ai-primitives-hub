@@ -92,7 +92,7 @@ suite('BundleInstaller - Bundle Storage Location', () => {
 
     // Create mock scope service that tracks syncBundle calls
     const mockScopeService: IScopeService = {
-      syncBundle: sandbox.stub().resolves(),
+      syncBundle: sandbox.stub().resolves({ installed: [] }),
       unsyncBundle: sandbox.stub().resolves()
     };
 
