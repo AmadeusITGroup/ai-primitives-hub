@@ -37,6 +37,29 @@ describe('security scan command', () => {
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('CRITICAL: 1');
       expect(result.stdout).toContain('Scanned 2 file(s)');
+      expect(result.stdout).toContain('Findings:');
+      expect(result.stdout).toContain('SEC-001');
+      expect(result.stdout).toContain('secret.md:1');
+      expect(result.stdout).toContain('Risk:');
+      expect(result.stdout).toContain('Fix:');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('supports concise text output without changing the scan policy', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
+    try {
+      const target = path.join(directory, 'secret.md');
+      await writeFile(target, 'token = sk-proj-abcdefghijklmnopqrstuvwxyz');
+      const result = await runCommand(['security', 'scan', target, '--quiet'], {
+        commandClasses: [SecurityScanCommand],
+        context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('CRITICAL: 1');
+      expect(result.stdout).not.toContain('Findings:');
+      expect(result.stdout).not.toContain('SEC-001');
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -42,6 +42,7 @@ With no path, the command scans the current working directory. The native engine
 | `--output-name <NAME>` | Basename used with `--output-directory`; defaults to `security-report`. |
 | `--report-overwrite <MODE>` | `never` or `replace`; defaults to `never`. |
 | `--report` | Print the Markdown report; text output only. |
+| `--quiet` | Keep text output to the scan summary without per-finding details. |
 | `-o, --output <FORMAT>` | `text`, `json`, `yaml`, or `ndjson`. |
 
 ## Exit codes
@@ -59,7 +60,7 @@ The failure policy and display filter are separate. `--severity` and `--minimum-
 
 ## Output formats
 
-- `text`: concise human summary;
+- `text`: human-readable summary with per-finding severity, rule, location, risk, and remediation; use `--quiet` for summary-only output;
 - `json`: AI Primitives Hub envelope containing a versioned scan result;
 - `yaml`: equivalent structured envelope in YAML;
 - `ndjson`: `scan.header`, `scan.finding`, coverage-error, and `scan.summary` records;
