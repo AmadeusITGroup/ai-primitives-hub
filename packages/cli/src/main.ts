@@ -17,6 +17,9 @@ import {
   BundleBuildCommand,
 } from './commands/bundle-build';
 import {
+  BundleExportM365Command,
+} from './commands/bundle-export-m365';
+import {
   BundleManifestCommand,
 } from './commands/bundle-manifest';
 import {
@@ -218,6 +221,7 @@ async function main(): Promise<number> {
     ApplyCommand,
     SkillNewCommand,
     BundleBuildCommand,
+    BundleExportM365Command,
     BundleManifestCommand,
     VersionComputeCommand,
     IndexEvalCommand,
