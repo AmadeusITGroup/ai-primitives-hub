@@ -42,7 +42,7 @@
     "@ai-primitives-hub/core": "workspace:*",
     "@ai-primitives-hub/infra": "workspace:*",
     "@prompt-registry/collection-scripts": "workspace:^",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "clipanion": "4.0.0-rc.4",
     "inquirer": "^14.0.0",
     "js-yaml": "^4.3.1",
@@ -50,7 +50,7 @@
     "typanion": "^3.14.0"
   },
   "devDependencies": {
-    "@types/archiver": "^7.0.0",
+    "@types/archiver": "^8.0.0",
     "@types/inquirer": "^9.0.10",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.20.1",
