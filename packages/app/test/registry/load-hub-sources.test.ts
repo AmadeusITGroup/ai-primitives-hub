@@ -132,6 +132,19 @@ describe('findDuplicateSource', () => {
     const result = findDuplicateSource(makeHubSource({ config: undefined }), existing);
     expect(result).toBe(existing[0]);
   });
+
+  it('does not match Artifactory sources with different index files', () => {
+    const existing = [makeRegistrySource({
+      type: 'artifactory',
+      url: 'https://artifactory.example/repository',
+      config: { indexFile: 'index-v1.json' }
+    })];
+    expect(findDuplicateSource(makeHubSource({
+      type: 'artifactory',
+      url: 'https://artifactory.example/repository',
+      config: { indexFile: 'catalog.json' }
+    }), existing)).toBeUndefined();
+  });
 });
 
 describe('loadHubSources', () => {
@@ -139,6 +152,20 @@ describe('loadHubSources', () => {
 
   beforeEach(() => {
     ports = makePorts();
+  });
+
+  it('includes an Artifactory indexFile in the generated source identity', async () => {
+    const source = makeHubSource({
+      type: 'artifactory',
+      url: 'https://artifactory.example/repository',
+      config: { indexFile: 'catalog.json' }
+    });
+
+    await loadHubSources('hub-a', [source], ports);
+
+    expect(ports.addSource).toHaveBeenCalledWith(expect.objectContaining({
+      id: generateSourceId('artifactory', source.url, { indexFile: 'catalog.json' })
+    }));
   });
 
   it('adds enabled sources as new RegistrySource entries', async () => {

@@ -6,6 +6,7 @@ export * from './apm-adapter';
 export * from './awesome-copilot-adapter';
 export * from './azure-devops-adapter';
 export * from './base-source-adapter';
+export * from './artifactory-adapter';
 export * from './github-adapter';
 export * from './local-adapter';
 export * from './local-apm-adapter';

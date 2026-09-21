@@ -3,6 +3,7 @@
  * @module resolvers
  */
 export * from './local-resolver';
+export * from './artifactory-resolver';
 export * from './github-resolver';
 export * from './awesome-copilot-resolver';
 export * from './skills-resolver';

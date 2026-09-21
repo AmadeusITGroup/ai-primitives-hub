@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/artifactory-source-index.schema.json",
+  "title": "AI Primitives Hub Artifactory source index",
+  "type": "object",
+  "required": ["formatVersion", "source", "bundles"],
+  "properties": {
+    "formatVersion": { "const": 1 },
+    "source": {
+      "type": "object",
+      "required": ["id", "name", "updatedAt"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9-_]+$", "minLength": 1, "maxLength": 50 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "bundles": { "type": "array", "items": { "$ref": "#/definitions/bundle" } }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "relativePath": { "type": "string", "description": "Syntax guard only. Consumers must also enforce source-root confinement.", "minLength": 1, "pattern": "^(?!/)(?!.*%)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))(?![a-zA-Z][a-zA-Z0-9+.-]*:).+$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "object": {
+      "type": "object", "required": ["path", "size", "sha256"],
+      "properties": { "path": { "$ref": "#/definitions/relativePath" }, "size": { "type": "integer", "minimum": 0 }, "sha256": { "$ref": "#/definitions/sha256" }, "mediaType": { "type": "string", "minLength": 1 } },
+      "additionalProperties": false
+    },
+    "dependency": {
+      "type": "object", "required": ["bundleId", "versionRange", "optional"],
+      "properties": { "bundleId": { "type": "string", "minLength": 1 }, "versionRange": { "type": "string", "minLength": 1 }, "optional": { "type": "boolean" } },
+      "additionalProperties": false
+    },
+    "bundle": {
+      "type": "object", "required": ["id", "version", "name", "description", "author", "environments", "tags", "lastUpdated", "dependencies", "license", "manifest", "archive"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[\\w.\\-]+$", "minLength": 1, "maxLength": 200 }, "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$" }, "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "description": { "type": "string", "maxLength": 500 }, "author": { "type": "string" }, "environments": { "type": "array", "items": { "type": "string" } }, "tags": { "type": "array", "items": { "type": "string" } }, "lastUpdated": { "type": "string", "format": "date-time" }, "dependencies": { "type": "array", "items": { "$ref": "#/definitions/dependency" } }, "homepage": { "type": "string", "format": "uri" }, "repository": { "type": "string" }, "license": { "type": "string" }, "manifest": { "$ref": "#/definitions/object" }, "archive": { "allOf": [{ "$ref": "#/definitions/object" }, { "properties": { "mediaType": { "const": "application/zip" } } }] }, "readme": { "$ref": "#/definitions/object" }, "canonicalSource": { "type": "string", "format": "uri" }, "revision": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

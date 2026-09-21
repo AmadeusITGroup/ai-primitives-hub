@@ -22,7 +22,8 @@ export type SourceType =
   | 'local-apm'
   | 'skills'
   | 'local-skills'
-  | 'azure-devops';
+  | 'azure-devops'
+  | 'artifactory';
 
 /**
  * A configured bundle source.
@@ -56,7 +57,7 @@ export interface RegistrySource {
     branch?: string;
     /** Collections directory, for awesome-copilot sources. */
     collectionsPath?: string;
-    /** Index file name, for awesome-copilot sources. */
+    /** Index file name, for awesome-copilot and Artifactory sources. */
     indexFile?: string;
     [key: string]: unknown;
   };

@@ -325,7 +325,7 @@ export class PromptRegistryExtension {
     const hubValidator = new SchemaValidator(this.context.extensionPath);
     // Pass BundleInstaller from RegistryManager to enable bundle installation during profile activation
     const bundleInstaller = this.registryManager.getBundleInstaller();
-    this.hubManager = new HubManager(hubStorage, hubValidator, this.context.extensionPath, bundleInstaller, this.registryManager);
+    this.hubManager = new HubManager(hubStorage, hubValidator, this.context.extensionPath, bundleInstaller, this.registryManager, this.context.secrets);
 
     // Connect HubManager to RegistryManager for profile integration
     this.registryManager.setHubManager(this.hubManager);

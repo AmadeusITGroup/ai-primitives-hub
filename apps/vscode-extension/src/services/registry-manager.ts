@@ -122,6 +122,9 @@ import {
   LockfileManager,
 } from './lockfile-manager';
 import {
+  SourceTokenVault,
+} from './source-token-vault';
+import {
   VersionConsolidator,
 } from './version-consolidator';
 
@@ -164,6 +167,7 @@ export class RegistryManager {
   }
 
   private readonly storage: RegistryStorage;
+  private readonly tokenVault: SourceTokenVault;
   private hubManager?: HubManager;
   private _autoUpdateService?: AutoUpdateService;
   private readonly installer: BundleInstaller;
@@ -216,6 +220,11 @@ export class RegistryManager {
 
   private constructor(private readonly context: vscode.ExtensionContext) {
     this.storage = new RegistryStorage(context);
+    this.tokenVault = new SourceTokenVault(context.secrets ?? {
+      get: async () => undefined,
+      store: async () => undefined,
+      delete: async () => undefined
+    });
     this.installer = new BundleInstaller(context);
     this.logger = Logger.getInstance();
 
@@ -301,6 +310,10 @@ export class RegistryManager {
    * @param source
    */
   private enrichSourceWithGlobalToken(source: RegistrySource): RegistrySource {
+    // The deprecated setting is a GitHub-only compatibility fallback.
+    if (source.type !== 'github') {
+      return source;
+    }
     // If source already has a token, don't override it
     if (source.token && source.token.trim().length > 0) {
       return source;
@@ -331,8 +344,8 @@ export class RegistryManager {
     for (const source of sources) {
       if (source.enabled) {
         try {
-          const enrichedSource = this.enrichSourceWithGlobalToken(source);
-          const adapter = createRegistryAdapter(enrichedSource);
+          const enrichedSource = this.enrichSourceWithGlobalToken({ ...source, token: await this.tokenVault.get(source.id) });
+          const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
           this.adapters.set(source.id, adapter);
         } catch (error) {
           this.logger.error(`Failed to create adapter for source '${source.id}'`, error as Error);
@@ -392,7 +405,7 @@ export class RegistryManager {
 
     if (!adapter) {
       const enrichedSource = this.enrichSourceWithGlobalToken(source);
-      adapter = createRegistryAdapter(enrichedSource);
+      adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
       this.adapters.set(source.id, adapter);
     }
 
@@ -801,6 +814,11 @@ export class RegistryManager {
   public async initialize(): Promise<void> {
     this.logger.info('Initializing AI Primitives Hub...');
     await this.storage.initialize();
+    const config = await this.storage.loadConfig();
+    const sanitizedSources = await this.tokenVault.migrateLegacyTokens(config.sources);
+    if (sanitizedSources.some((source, index) => source.token !== config.sources[index]?.token)) {
+      await this.storage.saveConfig({ ...config, sources: sanitizedSources });
+    }
     await this.loadAdapters();
     this.logger.info('AI Primitives Hub initialized successfully');
   }
@@ -844,23 +862,27 @@ export class RegistryManager {
   public async addSource(source: RegistrySource): Promise<void> {
     this.logger.info(`Adding source: ${source.name}`);
 
-    // Validate source (with global token if applicable)
-    const enrichedSource = this.enrichSourceWithGlobalToken(source);
-    const adapter = createRegistryAdapter(enrichedSource);
+    if (source.token?.trim()) {
+      await this.tokenVault.set(source.id, source.token.trim());
+    }
+    const sourceWithoutToken = { ...source, token: undefined };
+    // Validate source (with global GitHub token compatibility only)
+    const enrichedSource = this.enrichSourceWithGlobalToken(sourceWithoutToken);
+    const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
     const validation = await adapter.validate();
 
     if (!validation.valid) {
       throw new Error(`Source validation failed: ${validation.errors.join(', ')}`);
     }
 
-    await this.storage.addSource(source);
+    await this.storage.addSource(sourceWithoutToken);
     this.adapters.set(source.id, adapter);
 
     // Update cache
     this.sourcesCache = await this.storage.getSources();
     this.invalidatePrimitiveIndexKeyCache();
 
-    this._onSourceAdded.fire(source);
+    this._onSourceAdded.fire(sourceWithoutToken);
     this.logger.info(`Source '${source.name}' added successfully`);
   }
 
@@ -872,6 +894,7 @@ export class RegistryManager {
     this.logger.info(`Removing source: ${sourceId}`);
 
     await this.storage.removeSource(sourceId);
+    await this.tokenVault.delete(sourceId);
     this.adapters.delete(sourceId);
 
     // Update cache
@@ -928,7 +951,11 @@ export class RegistryManager {
   public async updateSource(sourceId: string, updates: Partial<RegistrySource>): Promise<void> {
     this.logger.info(`Updating source: ${sourceId}`);
 
-    await this.storage.updateSource(sourceId, updates);
+    if ('token' in updates) {
+      await (updates.token?.trim() ? this.tokenVault.set(sourceId, updates.token.trim()) : this.tokenVault.delete(sourceId));
+    }
+    const { token: _token, ...persistedUpdates } = updates;
+    await this.storage.updateSource(sourceId, persistedUpdates);
 
     // Reload adapter if source was updated
     this.adapters.delete(sourceId);
@@ -940,7 +967,7 @@ export class RegistryManager {
 
     if (updatedSource && updatedSource.enabled) {
       const enrichedSource = this.enrichSourceWithGlobalToken(updatedSource);
-      const adapter = createRegistryAdapter(enrichedSource);
+      const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
       this.adapters.set(sourceId, adapter);
     }
 
@@ -1065,7 +1092,7 @@ export class RegistryManager {
           return [{
             sourceId: source.id,
             provider: new SourceAdapterBundleProvider({
-              adapter: createCoreRegistryAdapter(enrichedSource),
+              adapter: createCoreRegistryAdapter(enrichedSource, this.tokenVault),
               // Installation state is deliberately applied at query time so the
               // persisted semantic index remains reusable after install changes.
               isInstalled: () => false
@@ -1172,8 +1199,12 @@ export class RegistryManager {
    * @param source
    */
   public async validateSource(source: RegistrySource): Promise<ValidationResult> {
-    const enrichedSource = this.enrichSourceWithGlobalToken(source);
-    const adapter = createRegistryAdapter(enrichedSource);
+    if (source.token?.trim()) {
+      await this.tokenVault.set(source.id, source.token.trim());
+    }
+    const sourceWithoutToken = { ...source, token: undefined };
+    const enrichedSource = this.enrichSourceWithGlobalToken(sourceWithoutToken);
+    const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
     return await adapter.validate();
   }
 

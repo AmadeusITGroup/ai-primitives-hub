@@ -142,9 +142,13 @@ export class RegistryStorage {
   }
 
   private async writeConfig(config: RegistryConfig): Promise<void> {
-    const data = JSON.stringify(config, null, 2);
+    const sanitizedConfig: RegistryConfig = {
+      ...config,
+      sources: config.sources.map(({ token: _token, ...source }) => source)
+    };
+    const data = JSON.stringify(sanitizedConfig, null, 2);
     await writeFile(this.paths.config, data, 'utf8');
-    this.configCache = config;
+    this.configCache = sanitizedConfig;
   }
 
   private async enqueueConfigMutation(mutation: () => Promise<void>): Promise<void> {

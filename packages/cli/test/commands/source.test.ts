@@ -87,6 +87,33 @@ describe('source commands', () => {
       expect(listEnvelope.data.sources.map((s) => s.id)).toContain('local-skills');
     });
 
+    it('adds an Artifactory source with non-secret configuration', async () => {
+      const result = await run([
+        'source', 'add', '--type', 'artifactory', '--url', 'https://artifactory.example/repo',
+        '--index-file', 'index.json', '--auth', 'bearer', '--credential-ref', 'ARTIFACTORY_TOKEN', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ source: { type: string; url: string; config: Record<string, unknown> } }>(result.stdout);
+      expect(envelope.data.source).toMatchObject({ type: 'artifactory', url: 'https://artifactory.example/repo' });
+      expect(envelope.data.source.config).toEqual({ indexFile: 'index.json', authMode: 'bearer', credentialRef: 'ARTIFACTORY_TOKEN' });
+      expect(JSON.stringify(envelope.data.source)).not.toContain('test-token');
+    });
+
+    it('includes a custom Artifactory index path in the generated source ID', async () => {
+      const defaultIndex = await run([
+        'source', 'add', '--type', 'artifactory', '--url', 'https://artifactory.example/repo', '-o', 'json'
+      ]);
+      const customIndex = await run([
+        'source', 'add', '--type', 'artifactory', '--url', 'https://artifactory.example/repo',
+        '--index-file', 'catalog.json', '-o', 'json'
+      ]);
+      expect(defaultIndex.exitCode).toBe(0);
+      expect(customIndex.exitCode).toBe(0);
+      const first = parseJson<{ source: { id: string } }>(defaultIndex.stdout);
+      const second = parseJson<{ source: { id: string } }>(customIndex.stdout);
+      expect(first.data.source.id).not.toBe(second.data.source.id);
+    });
+
     it('fails with a non-zero exit code when --url is missing', async () => {
       const result = await run(['source', 'add', '--type', 'local', '-o', 'json']);
       expect(result.exitCode).not.toBe(0);
