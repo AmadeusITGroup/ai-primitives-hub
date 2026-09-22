@@ -136,13 +136,15 @@ ${renderPathLiterals(paths, '    ')}
 
   local -a __aiph_candidates
   __aiph_candidates=()
+  local -a __aiph_tokens
   local __aiph_path_str
+  local __aiph_match
+  local __aiph_i
+  local __aiph_cand
   for __aiph_path_str in "\${__aiph_paths[@]}"; do
-    local -a __aiph_tokens
     __aiph_tokens=(\${=__aiph_path_str})
     if (( \${#__aiph_tokens} >= CURRENT - 1 )); then
-      local __aiph_match=1
-      local __aiph_i
+      __aiph_match=1
       for (( __aiph_i = 1; __aiph_i <= CURRENT - 2; __aiph_i++ )); do
         if [[ "\${__aiph_tokens[__aiph_i]}" != "\${words[__aiph_i + 1]}" ]]; then
           __aiph_match=0
@@ -150,7 +152,7 @@ ${renderPathLiterals(paths, '    ')}
         fi
       done
       if (( __aiph_match )); then
-        local __aiph_cand="\${__aiph_tokens[CURRENT - 1]}"
+        __aiph_cand="\${__aiph_tokens[CURRENT - 1]}"
         if [[ " \${(j: :)__aiph_candidates} " != *" \${__aiph_cand} "* ]]; then
           __aiph_candidates+=("\${__aiph_cand}")
         fi

@@ -110,6 +110,18 @@ describe('completion command', () => {
     }
   });
 
+  it('declares zsh loop variables outside the path loop', async () => {
+    const result = await runFullRegistry(['completion', '--shell', 'zsh']);
+    expect(result.exitCode).toBe(0);
+    const loopStart = result.stdout.indexOf('for __aiph_path_str');
+    const loopBody = result.stdout.slice(loopStart);
+
+    expect(result.stdout).toContain('  local __aiph_i\n');
+    expect(result.stdout).toContain('  local __aiph_cand\n');
+    expect(loopBody).not.toContain('local __aiph_i');
+    expect(loopBody).not.toContain('local __aiph_cand=');
+  });
+
   it('includes declarative CommandDefinition paths (opts.commands) alongside command classes', async () => {
     const legacyStatus = defineCommand({
       path: ['legacy-status'],
