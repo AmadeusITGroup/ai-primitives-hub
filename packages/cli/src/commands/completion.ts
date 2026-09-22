@@ -20,7 +20,7 @@ export class CompletionCommand extends Command {
     description: 'Generate shell completion script for bash or zsh.',
     category: 'Configure & Debug',
     details: `
-      Usage: ai-primitives-hub completion <shell>
+      Usage: ai-primitives-hub completion --shell <shell>
 
       Generates a shell completion script for the specified shell.
       Output the script to a file and source it in your shell configuration.
@@ -29,9 +29,9 @@ export class CompletionCommand extends Command {
         --shell <shell>          Shell type: bash or zsh (required)
 
       Examples:
-        ai-primitives-hub completion bash > ~/.local/share/bash-completion/completions/ai-primitives-hub
-        ai-primitives-hub completion zsh > ~/.zsh/completion/_ai-primitives-hub
-        source <(ai-primitives-hub completion bash)
+        ai-primitives-hub completion --shell bash > ~/.local/share/bash-completion/completions/ai-primitives-hub
+        ai-primitives-hub completion --shell zsh > ~/.zsh/completion/_ai-primitives-hub
+        source <(ai-primitives-hub completion --shell bash)
     `
   });
 

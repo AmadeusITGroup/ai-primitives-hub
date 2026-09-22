@@ -20,6 +20,14 @@ const run = (argv: string[]): ReturnType<typeof runCommand> =>
   runCommand(argv, { commandClasses: [CompletionCommand] });
 
 describe('completion command', () => {
+  it('documents the required shell option', async () => {
+    const result = await run(['completion', '--help']);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Usage: ai-primitives-hub completion --shell <shell>');
+    expect(result.stdout).toContain('ai-primitives-hub completion --shell bash');
+    expect(result.stdout).not.toContain('ai-primitives-hub completion bash');
+  });
+
   it('generates a bash completion script', async () => {
     const result = await run(['completion', '--shell', 'bash']);
     expect(result.exitCode).toBe(0);
