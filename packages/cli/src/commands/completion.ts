@@ -1,14 +1,41 @@
 /**
  * `ai-primitives-hub completion` — shell completion script generator.
  *
- * Generates bash and zsh completion scripts that can be sourced.
+ * Generates bash and zsh completion scripts that can be sourced. Both
+ * scripts derive their command/subcommand candidates from
+ * `getCommandPaths(this)` — the same command registry (`commands/registry.ts`)
+ * that clipanion dispatches against — so newly registered commands and
+ * subcommands are completed automatically, with no separate list to
+ * keep in sync.
  * @module commands/completion
  */
 import {
   Command,
   getCommandContext,
+  getCommandPaths,
   Option,
 } from '../framework';
+
+/**
+ * Single-quote `text` for safe embedding in POSIX shell source, escaping
+ * any embedded single quotes. Applied to every command-path literal
+ * before it is written into a generated (and later sourced) completion
+ * script — `defineCommand()` is a public framework API, so a path
+ * segment can contain arbitrary text and must never be trusted to be
+ * shell-safe on its own.
+ * @param text Raw text to embed as a shell string literal.
+ * @returns `text` wrapped in single quotes, safe to splice into shell source.
+ */
+const shellQuote = (text: string): string => `'${text.replace(/'/g, String.raw`'\''`)}'`;
+
+/**
+ * Render a flat path list as a shell array literal, one quoted,
+ * space-joined path per line (e.g. `'index shortlist new'`).
+ * @param paths Command paths, e.g. `[['index', 'search'], ['search']]`.
+ * @param indent Leading whitespace applied to each literal line.
+ */
+const renderPathLiterals = (paths: string[][], indent: string): string =>
+  paths.map((path) => `${indent}${shellQuote(path.join(' '))}`).join('\n');
 
 /**
  * Completion command class.
@@ -37,229 +64,107 @@ export class CompletionCommand extends Command {
 
   public shell = Option.String('--shell');
 
-  private generateBashCompletion(): string {
+  /**
+   * Generate a bash completion script.
+   *
+   * The generated script embeds `paths` as a flat array literal and
+   * walks it generically at completion time: for the word currently
+   * being completed (`cword`), it matches every earlier word against
+   * each path's corresponding prefix and offers the next token of any
+   * path that matches. This covers every registered command and
+   * subcommand at any depth without per-command branches.
+   * @param paths Full set of registered command paths.
+   */
+  private generateBashCompletion(paths: string[][]): string {
     return `# bash completion for ai-primitives-hub
 _ai_primitives_hub_completion() {
   local cur words cword
   _init_completion || return
 
-  # Command list
-  local commands="apply collection completion config discover doctor explain hub index init install plugins profile skill source status target uninstall update bundle version"
+  local -a __aiph_paths=(
+${renderPathLiterals(paths, '    ')}
+  )
 
-  # Index subcommands
-  local index_commands="bench build eval export harvest report search shortlist stats"
+  local -a __aiph_candidates=()
+  local __aiph_path_str
+  for __aiph_path_str in "\${__aiph_paths[@]}"; do
+    local -a __aiph_tokens=($__aiph_path_str)
+    if (( \${#__aiph_tokens[@]} >= cword )); then
+      local __aiph_match=1
+      local __aiph_i
+      for (( __aiph_i = 0; __aiph_i < cword - 1; __aiph_i++ )); do
+        if [[ "\${__aiph_tokens[__aiph_i]}" != "\${words[__aiph_i + 1]}" ]]; then
+          __aiph_match=0
+          break
+        fi
+      done
+      if [[ \${__aiph_match} -eq 1 ]]; then
+        local __aiph_cand="\${__aiph_tokens[cword - 1]}"
+        if [[ " \${__aiph_candidates[*]} " != *" \${__aiph_cand} "* ]]; then
+          __aiph_candidates+=("\${__aiph_cand}")
+        fi
+      fi
+    fi
+  done
 
-  # Hub subcommands
-  local hub_commands="add create list refresh remove sync use"
-
-  # Profile subcommands
-  local profile_commands="activate create deactivate list publish show current edit"
-
-  # Source subcommands
-  local source_commands="add list remove"
-
-  # Target subcommands
-  local target_commands="add list remove types"
-
-  # Collection subcommands
-  local collection_commands="affected create list validate"
-
-  # Config subcommands
-  local config_commands="get list"
-
-  # Index shortlist subcommands
-  local shortlist_commands="add list new remove"
-
-  case \${words[0]} in
-    ai-primitives-hub)
-      if [[ \${cword} -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
-      fi
-      ;;
-    index)
-      if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$index_commands" -- "$cur"))
-      fi
-      ;;
-    hub)
-      if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$hub_commands" -- "$cur"))
-      fi
-      ;;
-    profile)
-      if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$profile_commands" -- "$cur"))
-      fi
-      ;;
-    source)
-      if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$source_commands" -- "$cur"))
-      fi
-      ;;
-    target)
-      if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$target_commands" -- "$cur"))
-      fi
-      ;;
-    collection)
-      if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$collection_commands" -- "$cur"))
-      fi
-      ;;
-    config)
-      if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$config_commands" -- "$cur"))
-      fi
-      ;;
-    shortlist)
-      if [[ \${cword} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$shortlist_commands" -- "$cur"))
-      fi
-      ;;
-    *)
-      # File completion for arguments
-      COMPREPLY=($(compgen -f -- "$cur"))
-      ;;
-  esac
+  if (( \${#__aiph_candidates[@]} > 0 )); then
+    COMPREPLY=($(compgen -W "\${__aiph_candidates[*]}" -- "$cur"))
+  else
+    COMPREPLY=($(compgen -f -- "$cur"))
+  fi
 }
 
 complete -F _ai_primitives_hub_completion ai-primitives-hub
 `;
   }
 
-  private generateZshCompletion(): string {
+  /**
+   * Generate a zsh completion script.
+   *
+   * Uses the same path-matching algorithm as the bash generator,
+   * adapted to zsh's 1-based `$words`/`$CURRENT` completion variables.
+   * @param paths Full set of registered command paths.
+   */
+  private generateZshCompletion(paths: string[][]): string {
     return `#compdef ai-primitives-hub
 
 _ai_primitives_hub() {
-  local -a commands
-  commands=(
-    'apply:Idempotent: sync active hub and re-activate profile'
-    'collection:Manage collections'
-    'completion:Generate shell completion script'
-    'config:Read or list config values'
-    'discover:Discover relevant Copilot resources'
-    'doctor:Run environment self-checks'
-    'explain:Print documentation for error codes'
-    'hub:Manage hub configuration'
-    'index:Index and search primitives'
-    'init:Bootstrap a project'
-    'install:Install bundles to targets'
-    'plugins:List ai-primitives-hub plugins'
-    'profile:Manage profiles'
-    'skill:Manage agent skills'
-    'source:Manage sources'
-    'status:Show configuration state'
-    'target:Manage install targets'
-    'uninstall:Remove bundles from targets'
-    'update:Check for bundle updates'
-    'bundle:Build and manage bundles'
-    'version:Compute collection versions'
+  local -a __aiph_paths
+  __aiph_paths=(
+${renderPathLiterals(paths, '    ')}
   )
 
-  if [[ CURRENT -eq 1 ]]; then
-    _describe 'command' commands
-    return
-  fi
+  local -a __aiph_candidates
+  __aiph_candidates=()
+  local -a __aiph_tokens
+  local __aiph_path_str
+  local __aiph_match
+  local __aiph_i
+  local __aiph_cand
+  for __aiph_path_str in "\${__aiph_paths[@]}"; do
+    __aiph_tokens=(\${=__aiph_path_str})
+    if (( \${#__aiph_tokens} >= CURRENT - 1 )); then
+      __aiph_match=1
+      for (( __aiph_i = 1; __aiph_i <= CURRENT - 2; __aiph_i++ )); do
+        if [[ "\${__aiph_tokens[__aiph_i]}" != "\${words[__aiph_i + 1]}" ]]; then
+          __aiph_match=0
+          break
+        fi
+      done
+      if (( __aiph_match )); then
+        __aiph_cand="\${__aiph_tokens[CURRENT - 1]}"
+        if [[ " \${(j: :)__aiph_candidates} " != *" \${__aiph_cand} "* ]]; then
+          __aiph_candidates+=("\${__aiph_cand}")
+        fi
+      fi
+    fi
+  done
 
-  case $words[1] in
-    index)
-      local -a index_commands
-      index_commands=(
-        'bench:Run search microbenchmark'
-        'build:Build primitive index'
-        'eval:Run relevance eval'
-        'export:Export shortlist as profile'
-        'harvest:Fetch and write primitive index'
-        'report:Render harvest report'
-        'search:Search primitive index'
-        'shortlist:Manage shortlists'
-        'stats:Show index statistics'
-      )
-      if [[ CURRENT -eq 2 ]]; then
-        _describe 'index command' index_commands
-      fi
-      ;;
-    hub)
-      local -a hub_commands
-      hub_commands=(
-        'add:Import a hub'
-        'create:Scaffold hub-config.yml'
-        'list:List imported hubs'
-        'refresh:Sync active hub'
-        'remove:Remove a hub'
-        'sync:Re-fetch and sync hub'
-        'use:Set/clear active hub'
-      )
-      if [[ CURRENT -eq 2 ]]; then
-        _describe 'hub command' hub_commands
-      fi
-      ;;
-    profile)
-      local -a profile_commands
-      profile_commands=(
-        'activate:Activate a profile'
-        'create:Create local profile'
-        'current:Show current profile'
-        'deactivate:Deactivate profile'
-        'edit:Edit a profile'
-        'list:List profiles'
-        'publish:Publish profile to hub'
-        'show:Show profile details'
-      )
-      if [[ CURRENT -eq 2 ]]; then
-        _describe 'profile command' profile_commands
-      fi
-      ;;
-    source)
-      local -a source_commands
-      source_commands=(
-        'add:Add detached source'
-        'list:List sources'
-        'remove:Remove source'
-      )
-      if [[ CURRENT -eq 2 ]]; then
-        _describe 'source command' source_commands
-      fi
-      ;;
-    target)
-      local -a target_commands
-      target_commands=(
-        'add:Register install target'
-        'list:List configured targets'
-        'remove:Remove target'
-        'types:List target types'
-      )
-      if [[ CURRENT -eq 2 ]]; then
-        _describe 'target command' target_commands
-      fi
-      ;;
-    collection)
-      local -a collection_commands
-      collection_commands=(
-        'affected:Print overlapping collections'
-        'create:Create collection'
-        'list:List collections'
-        'validate:Validate collections'
-      )
-      if [[ CURRENT -eq 2 ]]; then
-        _describe 'collection command' collection_commands
-      fi
-      ;;
-    config)
-      local -a config_commands
-      config_commands=(
-        'get:Read config value'
-        'list:Print resolved config'
-      )
-      if [[ CURRENT -eq 2 ]]; then
-        _describe 'config command' config_commands
-      fi
-      ;;
-    *)
-      # File completion
-      _files
-      ;;
-  esac
+  if (( \${#__aiph_candidates} > 0 )); then
+    compadd -a __aiph_candidates
+  else
+    _files
+  fi
 }
 
 _ai_primitives_hub
@@ -280,7 +185,8 @@ _ai_primitives_hub
       return Promise.resolve(1);
     }
 
-    const script = shell === 'bash' ? this.generateBashCompletion() : this.generateZshCompletion();
+    const paths = getCommandPaths(this);
+    const script = shell === 'bash' ? this.generateBashCompletion(paths) : this.generateZshCompletion(paths);
     ctx.stdout.write(script);
     return Promise.resolve(0);
   }

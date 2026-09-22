@@ -30,6 +30,9 @@ import {
 import type {
   CommandClass,
 } from 'clipanion';
+import {
+  collectCommandPaths,
+} from './command-paths';
 import type {
   Context,
 } from './context';
@@ -240,9 +243,18 @@ export const runCli = async (argv: string[], opts: RunCliOptions): Promise<numbe
   };
 
   // Inject commandContext for all native clipanion command classes.
-  // Simple commands only read .ctx; hub/profile/source commands also read .http/.tokens.
+  // Simple commands only read .ctx; hub/profile/source commands also read
+  // .http/.tokens; the completion command reads .commandPaths — the full
+  // registered command tree (both native command classes and declarative
+  // `defineCommand`-based CommandDefinitions), derived here so it can
+  // never drift from whatever this run actually registered.
   // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- dynamic property assignment on native clipanion command instance
-  (command as any).commandContext = { ctx: opts.ctx, http: opts.http, tokens: opts.tokens };
+  (command as any).commandContext = {
+    ctx: opts.ctx,
+    http: opts.http,
+    tokens: opts.tokens,
+    commandPaths: collectCommandPaths(opts.commandClasses ?? [], opts.commands.map((def) => def.path))
+  };
 
   // Apply defaultOutput when the command declares an output field but the
   // user did not pass an explicit -o / --output flag.

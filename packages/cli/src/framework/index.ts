@@ -108,6 +108,10 @@ export type {
 export {
   copyCommandPrototype,
 } from './command-class';
+export {
+  collectCommandPaths,
+  getCommandPaths,
+} from './command-paths';
 export type {
   RenderTableOptions,
   TableColumn,
