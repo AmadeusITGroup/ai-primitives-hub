@@ -57,7 +57,21 @@
             "examples": [
               "prompts/my-prompt.prompt.md",
               "instructions/code-style.instructions.md",
-              "skills/my-skill/SKILL.md"
+              "chat-modes/review.chatmode.md",
+              "agents/security.agent.md",
+              "skills/my-skill/SKILL.md",
+              "plugins/my-plugin/plugin.json",
+              "hooks/pre-commit.hook.json",
+              "mcp-servers/github.mcp.json",
+              ".kiro/steering/api-standards.md",
+              ".kiro/specs/feature/requirements.md",
+              ".claude/commands/deploy.md",
+              ".cursor/rules/backend.mdc",
+              ".claude/output-styles/terse.md",
+              ".opencode/tools/database.py",
+              "powers/stripe/POWER.md",
+              "knowledge/onboarding.md",
+              "playbooks/bug-fix.md"
             ]
           },
           "kind": {
@@ -70,7 +84,17 @@
               "agent",
               "skill",
               "plugin",
-              "hook"
+              "hook",
+              "mcp-server",
+              "steering",
+              "spec",
+              "command",
+              "rule",
+              "output-style",
+              "tool",
+              "power",
+              "knowledge",
+              "playbook"
             ]
           },
           "title": {

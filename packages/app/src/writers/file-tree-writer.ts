@@ -27,17 +27,23 @@ import type {
   ExtractedFiles,
   KindRoutes,
   LayoutConfigLoader,
+  PrimitiveKind,
   ResourceTransformer,
   Target,
   TargetLayout,
+  TargetWritePlan,
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  decodeUtf8Strict,
   determineFileType,
+  expandPath,
   getSkillName,
   getTargetFileName,
+  normalizePrimitiveKind,
   normalizePromptId,
+  verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
   defaultLayouts as builtInLayouts,
@@ -57,6 +63,14 @@ export type {
 
 export interface WriterFs {
   writeFile(p: string, contents: string): Promise<void>;
+  /**
+   * Write raw bytes verbatim. Required for binary bundle assets
+   * (images, archives, office documents): decoding them through the
+   * string `writeFile` path is lossy and corrupts them (issue #357).
+   */
+  writeFileBytes(p: string, bytes: Uint8Array): Promise<void>;
+  /** Byte-level read-back used for post-write integrity verification. */
+  readFileBytes(p: string): Promise<Uint8Array>;
   mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;
   remove(p: string): Promise<void>;
   exists(p: string): Promise<boolean>;
@@ -88,7 +102,7 @@ export interface ManifestPlacementItem {
  * deliberately routed through the agents key because they are associated
  * with agents at runtime.
  */
-const KIND_TO_ROUTE_KEY: Record<CopilotFileType, string> = {
+export const KIND_TO_ROUTE_KEY: Record<CopilotFileType, string> = {
   prompt: 'prompts/',
   instructions: 'instructions/',
   chatmode: 'agents/',
@@ -122,6 +136,8 @@ export type { KindRoutes, TargetLayout } from '@ai-primitives-hub/core';
  * @returns Resolved TargetLayout.
  */
 export const resolveLayout = (target: Target): TargetLayout => {
+  // Cast needed: TypeScript widens JSON string values to `string`, making
+  // serversKey: string incompatible with McpServersKey. Values are correct at runtime.
   const result = resolveLayoutFromLayers(target, [builtInLayouts]);
   if (result === null) {
     throw new Error(`No layout defined for target type "${target.type}"`);
@@ -149,20 +165,11 @@ export const resolveLayoutAsync = async (
 };
 
 /**
- * Expand `${VAR}` and leading `~` in a path. Pure; HOME comes from the
- * injected env map.
- * @param p - Path with possible ${VAR} or ~ tokens.
- * @param env - Process env map.
- * @returns Expanded path.
+ * Re-export of `expandPath` (expands `${VAR}` and a leading `~` in a path).
+ * @deprecated Import `expandPath` from `@ai-primitives-hub/core` directly. This re-export
+ * is kept for backward compatibility and will be removed in a future version.
  */
-export const expandPath = (p: string, env: Record<string, string | undefined>): string => {
-  let out = p.replaceAll(/\$\{([A-Z0-9_]+)\}/g, (_m, name: string) => env[name] ?? '');
-  if (out.startsWith('~')) {
-    const home = env.HOME ?? env.USERPROFILE ?? '';
-    out = home + out.slice(1);
-  }
-  return out;
-};
+export { expandPath } from '@ai-primitives-hub/core';
 
 /**
  * Options for FileTreeTargetWriter.
@@ -190,6 +197,42 @@ export class FileTreeTargetWriter implements TargetWriter {
   public constructor(private readonly opts: FileTreeTargetWriterOptions) {}
 
   /**
+   * Determine which extracted bundle files this writer can place without
+   * changing the target filesystem.
+   * @param target - Target chosen via `--target <name>`.
+   * @param files - Extracted bundle files.
+   * @returns Deterministic writable/skipped bundle-relative paths.
+   */
+  public async preflight(target: Target, files: ExtractedFiles): Promise<TargetWritePlan> {
+    const layout = await this.resolveLayout(target);
+    const skip = new Set(layout.skipPaths);
+    const allowed = target.allowedKinds === undefined
+      ? null
+      : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
+    const writable: string[] = [];
+    const skipped: string[] = [];
+
+    for (const bundlePath of files.keys()) {
+      if (skip.has(bundlePath)) {
+        continue;
+      }
+      const route = pickRoute(bundlePath, layout.kindRoutes);
+      if (route === null) {
+        skipped.push(bundlePath);
+        continue;
+      }
+      const routeKind = routeToKind(route.prefix);
+      if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
+        skipped.push(bundlePath);
+        continue;
+      }
+      writable.push(bundlePath);
+    }
+
+    return { writable, skipped };
+  }
+
+  /**
    * Write the bundle into the target.
    * @param target - Target chosen via `--target <name>`.
    * @param files - Extracted bundle files.
@@ -199,57 +242,120 @@ export class FileTreeTargetWriter implements TargetWriter {
     const layout = await this.resolveLayout(target);
     const baseDir = expandPath(layout.baseDir, this.opts.env);
     const skip = new Set(layout.skipPaths);
-    const allowed = target.allowedKinds === undefined ? null : new Set(target.allowedKinds);
+    const allowed = target.allowedKinds === undefined
+      ? null
+      : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
     const written: string[] = [];
+    const writtenBundlePaths: string[] = [];
     const skipped: string[] = [];
+    let pendingWritePath: string | null = null;
 
-    // Eager mkdir of the routed-kind directories; reduces churn over
-    // calling mkdir per file. Per-kind subdir creation is recursive
-    // so root + nested dirs are covered.
-    for (const sub of Object.values(layout.kindRoutes)) {
-      await this.opts.fs.mkdir(path.join(baseDir, sub), { recursive: true });
-    }
-
-    for (const [bundlePath, bytes] of files) {
-      if (skip.has(bundlePath)) {
-        continue;
-      }
-      const route = pickRoute(bundlePath, layout.kindRoutes);
-      if (route === null) {
-        // Unrouted file; not an error (bundles may carry extras).
-        skipped.push(bundlePath);
-        continue;
-      }
-      // Skip when allowedKinds explicitly excludes this kind.
-      if (allowed !== null && !allowed.has(routeToKind(route.prefix))) {
-        skipped.push(bundlePath);
-        continue;
+    try {
+      // Eager mkdir of the routed-kind directories; reduces churn over
+      // calling mkdir per file. Per-kind subdir creation is recursive
+      // so root + nested dirs are covered.
+      for (const sub of Object.values(layout.kindRoutes)) {
+        await this.opts.fs.mkdir(path.join(baseDir, sub), { recursive: true });
       }
 
-      // Decode content
-      let content = new TextDecoder().decode(bytes);
-
-      // Apply transformation if transformer is provided
-      if (this.opts.transformer !== undefined) {
-        try {
-          const result = this.opts.transformer.transform({
-            target,
-            filePath: bundlePath,
-            content
-          });
-          content = result.content;
-        } catch {
-          // Fail-safe: on transformation error, use original content
-          // In production, this would log a warning
+      for (const [bundlePath, bytes] of files) {
+        if (skip.has(bundlePath)) {
+          continue;
         }
-      }
+        const route = pickRoute(bundlePath, layout.kindRoutes);
+        if (route === null) {
+          // Unrouted file; not an error (bundles may carry extras).
+          skipped.push(bundlePath);
+          continue;
+        }
+        // Skip when allowedKinds explicitly excludes this kind.
+        const routeKind = routeToKind(route.prefix);
+        if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
+          skipped.push(bundlePath);
+          continue;
+        }
 
-      const outPath = path.join(baseDir, route.outPrefix, route.tail);
-      await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFile(outPath, content);
-      written.push(outPath);
+        const outPath = path.join(baseDir, route.outPrefix, route.tail);
+        // Keep the path visible to the catch block before write starts:
+        // a filesystem can persist the file and then throw.
+        pendingWritePath = outPath;
+        await this.writeContent(target, bundlePath, bytes, outPath);
+        pendingWritePath = null;
+        written.push(outPath);
+        writtenBundlePaths.push(bundlePath);
+      }
+    } catch (cause) {
+      const rollbackPaths = pendingWritePath === null
+        ? written
+        : [...written, pendingWritePath];
+      await this.rollback(target, rollbackPaths);
+      throw cause;
     }
-    return { written, skipped };
+    return { written, skipped, writtenBundlePaths };
+  }
+
+  /**
+   * Remove files written by a failed or rejected installation.
+   * @param _target - Target chosen via `--target <name>`.
+   * @param written - Absolute paths returned by `write`.
+   */
+  public async rollback(_target: Target, written: readonly string[]): Promise<void> {
+    for (const filePath of written) {
+      try {
+        await this.opts.fs.remove(filePath);
+      } catch {
+        // Rollback is best effort; preserve the original install failure.
+      }
+    }
+  }
+
+  /**
+   * Write one bundle file to its resolved output path, binary-safe
+   * (issue #357).
+   *
+   * Text payloads (strict UTF-8) go through the optional transformer
+   * and are written as strings; anything else is written byte-for-byte
+   * — the previous unconditional `TextDecoder` round-trip replaced
+   * invalid UTF-8 sequences with U+FFFD and corrupted binary assets
+   * such as PPTX files. Every write is verified by re-reading the file
+   * and comparing it against the intended bytes.
+   * @param target - Install target (passed to the transformer).
+   * @param bundlePath - Bundle-relative source path (transformer context).
+   * @param bytes - Raw source bytes from the extracted bundle.
+   * @param outPath - Absolute destination path.
+   */
+  private async writeContent(
+    target: Target,
+    bundlePath: string,
+    bytes: Uint8Array,
+    outPath: string
+  ): Promise<void> {
+    await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
+
+    const text = decodeUtf8Strict(bytes);
+    if (text === null) {
+      // Binary payload: write verbatim, never transform.
+      await this.opts.fs.writeFileBytes(outPath, bytes);
+      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+      return;
+    }
+
+    let content = text;
+    if (this.opts.transformer !== undefined) {
+      try {
+        const result = this.opts.transformer.transform({
+          target,
+          filePath: bundlePath,
+          content
+        });
+        content = result.content;
+      } catch {
+        // Fail-safe: on transformation error, use original content
+        // In production, this would log a warning
+      }
+    }
+    await this.opts.fs.writeFile(outPath, content);
+    await verifyWrittenBytes(this.opts.fs, outPath, new TextEncoder().encode(content));
   }
 
   /**
@@ -276,17 +382,17 @@ export class FileTreeTargetWriter implements TargetWriter {
   ): Promise<TargetWriteResult> {
     const layout = await this.resolveLayout(target);
     const baseDir = expandPath(layout.baseDir, this.opts.env);
-    const allowed = target.allowedKinds === undefined ? null : new Set(target.allowedKinds);
+    const allowed = target.allowedKinds === undefined
+      ? null
+      : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
     const written: string[] = [];
+    const writtenBundlePaths: string[] = [];
     const skipped: string[] = [];
 
     for (const item of items) {
       const type = item.type ?? determineFileType(item.file, item.tags);
       const routeKey = KIND_TO_ROUTE_KEY[type];
-      // `allowedKinds` is keyed on the same vocabulary as `write()`'s
-      // `routeToKind` (plural route-key names, e.g. "skills"/"prompts"),
-      // not on the singular `CopilotFileType` domain vocabulary.
-      if (allowed !== null && !allowed.has(routeToKind(routeKey))) {
+      if (allowed !== null && !allowed.has(copilotTypeToPrimitiveKind(type))) {
         skipped.push(item.file);
         continue;
       }
@@ -299,7 +405,14 @@ export class FileTreeTargetWriter implements TargetWriter {
 
       if (type === 'skill') {
         const wroteAny = await this.writeSkillItem(baseDir, outPrefix, item, files, written);
-        if (!wroteAny) {
+        if (wroteAny) {
+          for (const bundlePath of files.keys()) {
+            const sourcePrefix = `${path.posix.dirname(item.file)}/`;
+            if (bundlePath.startsWith(sourcePrefix)) {
+              writtenBundlePaths.push(bundlePath);
+            }
+          }
+        } else {
           skipped.push(item.file);
         }
         continue;
@@ -311,21 +424,12 @@ export class FileTreeTargetWriter implements TargetWriter {
         continue;
       }
       const outPath = path.join(baseDir, outPrefix, getTargetFileName(item.id, type));
-      let content = new TextDecoder().decode(bytes);
-      if (this.opts.transformer !== undefined) {
-        try {
-          const result = this.opts.transformer.transform({ target, filePath: item.file, content });
-          content = result.content;
-        } catch {
-          // Fail-safe: on transformation error, use original content
-        }
-      }
-      await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFile(outPath, content);
+      await this.writeContent(target, item.file, bytes, outPath);
       written.push(outPath);
+      writtenBundlePaths.push(item.file);
     }
 
-    return { written, skipped };
+    return { written, skipped, writtenBundlePaths };
   }
 
   private async resolveLayout(target: Target): Promise<TargetLayout> {
@@ -367,8 +471,11 @@ export class FileTreeTargetWriter implements TargetWriter {
       }
       const tail = bundlePath.slice(sourcePrefix.length);
       const outPath = path.join(baseDir, outPrefix, targetSkillId, tail);
+      // Skill directories carry arbitrary assets (scripts, images,
+      // office documents) — copy byte-for-byte, never transform.
       await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFile(outPath, new TextDecoder().decode(bytes));
+      await this.opts.fs.writeFileBytes(outPath, bytes);
+      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
       written.push(outPath);
       wroteAny = true;
     }
@@ -400,13 +507,29 @@ interface PickedRoute {
 }
 
 const pickRoute = (bundlePath: string, routes: KindRoutes): PickedRoute | null => {
-  for (const [prefix, outPrefix] of Object.entries(routes)) {
-    if (bundlePath.startsWith(prefix)) {
-      return { prefix, outPrefix, tail: bundlePath.slice(prefix.length) };
+  const normalizedBundlePath = normalizeBundlePath(bundlePath);
+  const sorted = Object.entries(routes).toSorted((a, b) => b[0].length - a[0].length);
+  for (const [prefix, outPrefix] of sorted) {
+    if (normalizedBundlePath.startsWith(prefix)) {
+      return { prefix, outPrefix, tail: normalizedBundlePath.slice(prefix.length) };
     }
   }
   return null;
 };
+
+/**
+ * Normalize legacy bundle directory aliases before route matching.
+ *
+ * `chatmodes/` was the historical authoring path while the canonical
+ * vocabulary uses `chat-modes/`. Keep accepting both on disk without
+ * duplicating aliases in every target layout. The original path remains in
+ * lockfile/checksum data; only the routing view is normalized.
+ * @param bundlePath
+ */
+const normalizeBundlePath = (bundlePath: string): string =>
+  bundlePath.startsWith('chatmodes/')
+    ? `chat-modes/${bundlePath.slice('chatmodes/'.length)}`
+    : bundlePath;
 
 /**
  * Map a layout prefix back to the primitive kind it represents.
@@ -414,4 +537,39 @@ const pickRoute = (bundlePath: string, routes: KindRoutes): PickedRoute | null =
  * @param prefix - Layout prefix (e.g., "prompts/").
  * @returns Kind name without trailing slash.
  */
-const routeToKind = (prefix: string): string => prefix.replace(/\/$/, '');
+const ROUTE_PREFIX_KINDS: Record<string, PrimitiveKind> = {
+  '.kiro/steering/': 'steering',
+  '.kiro/specs/': 'spec',
+  '.claude/commands/': 'command',
+  '.claude/output-styles/': 'output-style',
+  '.cursor/rules/': 'rule',
+  '.cursor/agents/': 'agent',
+  '.cursor/skills/': 'skill',
+  '.cursor/commands/': 'command',
+  '.opencode/tools/': 'tool',
+  '.opencode/commands/': 'command',
+  '.opencode/agents/': 'agent',
+  '.opencode/skills/': 'skill',
+  '.opencode/rules/': 'rule',
+  '.opencode/hooks/': 'hook',
+  '.opencode/plugins/': 'plugin',
+  '.devin/knowledge/': 'knowledge',
+  '.devin/playbooks/': 'playbook',
+  '.devin/powers/': 'power',
+  '.devin/prompts/': 'prompt',
+  '.devin/instructions/': 'instruction',
+  '.devin/agents/': 'agent',
+  '.devin/skills/': 'skill',
+  '.devin/hooks/': 'hook',
+  '.devin/plugins/': 'plugin'
+};
+
+const routeToKind = (prefix: string): PrimitiveKind | null => {
+  const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
+  return normalizePrimitiveKind(prefix.replace(/\/$/, ''))
+    ?? ROUTE_PREFIX_KINDS[normalizedPrefix]
+    ?? null;
+};
+
+const copilotTypeToPrimitiveKind = (type: CopilotFileType): PrimitiveKind =>
+  type === 'instructions' ? 'instruction' : (type === 'chatmode' ? 'chat-mode' : type);

@@ -23,7 +23,7 @@ Cross-team contributors should:
 ## 🛠️ Development Setup
 
 ### Prerequisites
-- Node.js 18+ 
+- Node.js 24+
 - Git
 
 ### Quick Start

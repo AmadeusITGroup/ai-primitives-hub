@@ -7,6 +7,9 @@
  */
 import * as path from 'node:path';
 import {
+  resolveCollectionReadmePath,
+} from '@ai-primitives-hub/app';
+import {
   normalizeRepoRelativePath,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
@@ -66,9 +69,10 @@ interface RawCollection {
   description?: string;
   author?: string;
   tags?: string[];
-  items?: { path?: string; kind?: string }[];
+  readme?: { path?: string };
+  items?: { path?: string; kind?: string; tags?: string[] }[];
   mcpServers?: Record<string, unknown>;
-  mcp?: { items?: Record<string, unknown> };
+  mcp?: { items?: Record<string, unknown>; inputs?: unknown[] };
 }
 
 interface PromptEntry {
@@ -77,7 +81,7 @@ interface PromptEntry {
   description: string;
   file: string;
   type: string;
-  tags: string[];
+  tags?: string[];
 }
 
 /**
@@ -145,33 +149,36 @@ function generateItemId(itemPath: string, kind: string): string {
   return path.basename(itemPath, extension);
 }
 
+function itemTags(item: { tags?: string[] }): string[] | undefined {
+  return Array.isArray(item.tags) && item.tags.length > 0 ? [...item.tags] : undefined;
+}
+
 /**
  * Build a prompt entry for the deployment manifest.
  * @param item Collection item.
  * @param item.path
  * @param item.kind
+ * @param item.tags
  * @param itemPath Item path.
- * @param collection Raw collection.
  * @param itemContent Item markdown content.
  * @returns Prompt entry.
  */
 function buildPromptEntry(
-  item: { path?: string; kind?: string },
+  item: { path?: string; kind?: string; tags?: string[] },
   itemPath: string,
-  collection: RawCollection,
   itemContent: string
 ): PromptEntry {
   const { name, description } = extractItemMetadataByPath(itemContent, itemPath);
   const itemId = generateItemId(itemPath, item.kind || '');
-  const tags = Array.isArray(collection.tags) ? [...collection.tags] : [];
   const type = KIND_TO_TYPE_MAP[item.kind || ''] ?? item.kind ?? '';
+  const tags = itemTags(item);
   return {
     id: itemId,
     name: name || itemId,
     description,
     file: itemPath,
     type,
-    tags
+    ...(tags === undefined ? {} : { tags })
   };
 }
 
@@ -184,7 +191,7 @@ function buildPromptEntry(
  * @returns Array of prompt entries.
  */
 async function processCollectionItems(
-  items: { path?: string; kind?: string }[],
+  items: { path?: string; kind?: string; tags?: string[] }[],
   collection: RawCollection,
   ctx: Context,
   cwd: string
@@ -204,7 +211,7 @@ async function processCollectionItems(
       });
     }
     const itemContent = await ctx.fs.readFile(itemAbs);
-    prompts.push(buildPromptEntry(item, itemPath, collection, itemContent));
+    prompts.push(buildPromptEntry(item, itemPath, itemContent));
   }
   return prompts;
 }
@@ -283,6 +290,8 @@ function buildManifest(
 ): unknown {
   const manifestId = collection.id ?? 'unknown';
   const mcpServers = collection.mcpServers ?? collection.mcp?.items;
+  const mcpInputs = collection.mcp?.inputs;
+  const readmePath = resolveCollectionReadmePath(collection);
   return {
     id: manifestId,
     version,
@@ -295,7 +304,9 @@ function buildManifest(
     repository: '',
     prompts,
     dependencies: [],
-    ...(mcpServers !== undefined && Object.keys(mcpServers).length > 0 ? { mcpServers } : {})
+    ...(readmePath ? { readme: path.basename(readmePath) } : {}),
+    ...(mcpServers !== undefined && Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+    ...(mcpInputs !== undefined && mcpInputs.length > 0 ? { mcpInputs } : {})
   };
 }
 
@@ -306,7 +317,7 @@ function buildManifest(
  * @param explicit Explicit collection file path.
  * @returns Resolved collection file path.
  */
-const resolveCollectionFile = async (
+export const resolveCollectionFile = async (
   ctx: Context,
   cwd: string,
   explicit: string | undefined

@@ -77,8 +77,9 @@ Example interactions demonstrating the skill...
 
 The easiest way to create a new skill is using the scaffold command:
 
-1. Open Command Palette (`Ctrl+Shift+P`)
-2. Run "AI Primitives Hub: Scaffold Project"
+1. Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+   `Cmd+Shift+P` on macOS).
+2. Run **AI Primitives Hub: Scaffold Project**.
 3. Select "Agent Skill"
 4. Choose target directory
 5. Enter skill name and details

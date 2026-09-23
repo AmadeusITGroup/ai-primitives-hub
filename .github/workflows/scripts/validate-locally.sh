@@ -37,34 +37,34 @@ run_step() {
 }
 
 # 1. Clean previous builds
-run_step "Clean build artifacts" "npm run coverage:clean 2>/dev/null || true"
+run_step "Clean build artifacts" "pnpm run coverage:clean 2>/dev/null || true"
 # 2. Clean test-dist
 run_step "Clean test-dist" "rm -rf test-dist"
 # 3. Install dependencies
-run_step "Install dependencies" "npm ci --fund=false"
+run_step "Install dependencies" "pnpm install --frozen-lockfile"
 # 4. Security audit
-run_step "Security audit (npm)" "npm audit --omit=dev --audit-level=moderate || echo 'Audit warnings found'"
+run_step "Security audit (pnpm)" "pnpm audit --prod --audit-level=moderate || echo 'Audit warnings found'"
 # 5. Lint code
-run_step "ESLint validation" "npm run lint"
+run_step "ESLint validation" "pnpm run lint"
 # 6. Type checking & compilation
-run_step "TypeScript compilation" "npm run compile"
+run_step "TypeScript compilation" "pnpm run compile"
 # 7. Compile tests
-run_step "Compile test suite" "npm run compile-tests"
+run_step "Compile test suite" "pnpm run compile-tests"
 # 8. Run unit tests
-run_step "Unit tests" "npm run test:unit"
+run_step "Unit tests" "pnpm run test:unit"
 # 9. Run integration tests (if display available)
 if [ -n "$DISPLAY" ] || command -v xvfb-run &> /dev/null; then
     if command -v xvfb-run &> /dev/null; then
-        run_step "Integration tests (xvfb)" "xvfb-run -a npm run test:integration"
+        run_step "Integration tests (xvfb)" "xvfb-run -a pnpm run test:integration"
     else
-        run_step "Integration tests" "npm run test:integration"
+        run_step "Integration tests" "pnpm run test:integration"
     fi
 else
     echo -e "${YELLOW}⚠ Skipping integration tests (no display available)${NC}"
 fi
 
 # 10. Package VSIX (with production config)
-run_step "Package VSIX (production mode)" "npm run package:full"
+run_step "Package VSIX (production mode)" "pnpm run package:full"
 
 # 11. Validate VSIX contents
 run_step "Validate VSIX package" "
@@ -81,8 +81,8 @@ run_step "Validate VSIX package" "
 "
 
 # 12. License compliance check (optional)
-if command -v npx &> /dev/null; then
-    run_step "License compliance check" "npx license-checker --summary 2>/dev/null || echo 'license-checker not available'"
+if command -v pnpm &> /dev/null; then
+    run_step "License compliance check" "pnpm dlx license-checker --summary 2>/dev/null || echo 'license-checker not available'"
 fi
 
 # Summary

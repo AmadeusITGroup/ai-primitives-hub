@@ -1,4 +1,6 @@
 {
+  "js/ts.tsdk.path": "packages/core/node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
   "eslint.codeActionsOnSave.mode": "all",
   "eslint.format.enable": true,
   "eslint.probe": [

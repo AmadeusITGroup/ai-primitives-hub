@@ -1,0 +1,108 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>AmadeusITGroup/renovate-config",
+    "local>AmadeusITGroup/renovate-config:node"
+  ],
+  "github-actions": {
+    "managerFilePatterns": [
+      "apps/vscode-extension/templates/scaffolds/**/workflows/*.yml"
+    ]
+  },
+  "npm": {
+    "managerFilePatterns": [
+      "apps/vscode-extension/templates/scaffolds/**/package.template.json"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Delay @types/vscode updates by 8 months to stay aligned with the VS Code engine target",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "@types/vscode"
+      ],
+      "groupName": "@types/vscode",
+      "minimumReleaseAge": "8 months",
+      "prCreation": "not-pending",
+      "automerge": false
+    },
+    {
+      "description": "Add workspace label for packages/ updates",
+      "matchFileNames": [
+        "packages/*/package.json"
+      ],
+      "addLabels": [
+        "workspace:packages"
+      ]
+    },
+    {
+      "description": "Add workspace label for apps/ updates",
+      "matchFileNames": [
+        "apps/*/package.json"
+      ],
+      "addLabels": [
+        "workspace:apps"
+      ]
+    },
+    {
+      "description": "Add workspace label for github-actions/ updates",
+      "matchFileNames": [
+        "github-actions/*/package.json"
+      ],
+      "addLabels": [
+        "workspace:github-actions"
+      ]
+    },
+    {
+      "description": "Add workspace label for lib/ updates",
+      "matchFileNames": [
+        "lib/package.json"
+      ],
+      "addLabels": [
+        "workspace:lib"
+      ]
+    },
+    {
+      "description": "Add workspace label for website/ updates",
+      "matchFileNames": [
+        "website/package.json"
+      ],
+      "addLabels": [
+        "workspace:website"
+      ]
+    },
+    {
+      "description": "Group non-major scaffold template updates into their own PR, separate from the repo's own dependencies",
+      "matchFileNames": [
+        "apps/vscode-extension/templates/scaffolds/**"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest",
+        "lockFileMaintenance"
+      ],
+      "groupName": "scaffolds non-major",
+      "addLabels": [
+        "workspace:apps:scaffolds"
+      ]
+    },
+    {
+      "description": "Keep major scaffold template updates as individual PRs (do not group them)",
+      "matchFileNames": [
+        "apps/vscode-extension/templates/scaffolds/**"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "groupName": null,
+      "addLabels": [
+        "workspace:apps:scaffolds"
+      ]
+    }
+  ]
+}

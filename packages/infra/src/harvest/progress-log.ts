@@ -13,7 +13,8 @@
  *   - `shouldResume(sourceId, bundleId, commitSha)` returns false iff the
  *     log already contains a `done` event for that exact tuple. This is
  *     the hook the harvester uses to skip unchanged bundles.
- *   - `summary()` aggregates counts for a human-readable report.
+ *   - `summary()` aggregates counts for the current open invocation only;
+ *     the append-only history remains available through `projectState()`.
  *
  * Uses `node:fs`/`node:fs/promises` directly rather than `core`'s
  * `FileSystem` port: needs an open file handle held across many
@@ -78,6 +79,7 @@ export interface ProgressSummary {
 /* eslint-disable @typescript-eslint/member-ordering -- public API kept above private helpers for readability. */
 export class HarvestProgressLog {
   private readonly state = new Map<string, BundleState>();
+  private readonly runState = new Map<string, BundleState>();
   private fd: fs.promises.FileHandle | undefined;
 
   private constructor(private readonly file: string) {}
@@ -130,7 +132,7 @@ export class HarvestProgressLog {
     let skip = 0;
     let primitives = 0;
     let wallMs = 0;
-    for (const s of this.state.values()) {
+    for (const s of this.runState.values()) {
       switch (s.status) {
         case 'start': {
           start += 1;
@@ -174,11 +176,16 @@ export class HarvestProgressLog {
     const line = JSON.stringify(ev) + '\n';
     await this.fd.write(line);
     this.apply(ev);
+    this.applyTo(this.runState, ev);
   }
 
   private apply(ev: ProgressEvent): void {
+    this.applyTo(this.state, ev);
+  }
+
+  private applyTo(target: Map<string, BundleState>, ev: ProgressEvent): void {
     const k = keyOf(ev.sourceId, ev.bundleId);
-    const prev = this.state.get(k);
+    const prev = target.get(k);
     // Event precedence: done/error/skip overwrite any prior state.
     // `start` only sets state if there wasn't one already (so a replay of
     // an old start cannot undo a done).
@@ -196,7 +203,7 @@ export class HarvestProgressLog {
       error: ev.kind === 'error' ? ev.error : undefined,
       reason: ev.kind === 'skip' ? ev.reason : undefined
     };
-    this.state.set(k, next);
+    target.set(k, next);
   }
 
   private async load(): Promise<void> {

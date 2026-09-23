@@ -59,7 +59,13 @@ export type RepositoryCommitMode = 'commit' | 'local-only';
 export interface LockfileFileEntry {
   /** Relative path from repository root. */
   path: string;
-  /** SHA256 checksum of the file contents. */
+  /**
+   * SHA256 of the extracted archive bytes for this path (not the
+   * optionally transformed on-disk result). User-modification checks
+   * compare this against the current file; transformed files will
+   * therefore look modified until an `installedChecksum` field is
+   * added (issue #357 Stage 2).
+   */
   checksum: string;
 }
 
@@ -283,6 +289,40 @@ export const upsertSource = (
 });
 
 /**
+ * Remap all bundle entries referencing `oldSourceId` to point at
+ * `newSourceId`, and move the source descriptor accordingly. Pure;
+ * doesn't touch disk.
+ * @param lock - Existing Lockfile.
+ * @param oldSourceId - Source id being retired.
+ * @param newSourceId - Replacement source id.
+ * @param newSourceDescriptor - Source descriptor for the replacement.
+ * @returns New Lockfile (input is not mutated).
+ */
+export const remapSourceId = (
+  lock: Lockfile,
+  oldSourceId: string,
+  newSourceId: string,
+  newSourceDescriptor: LockfileSourceEntry
+): Lockfile => {
+  const bundles: Record<string, LockfileBundleEntry> = {};
+  for (const [id, entry] of Object.entries(lock.bundles)) {
+    bundles[id] = entry.sourceId === oldSourceId
+      ? { ...entry, sourceId: newSourceId }
+      : entry;
+  }
+  const sources = { ...lock.sources };
+  delete sources[oldSourceId];
+  sources[newSourceId] = newSourceDescriptor;
+  return {
+    ...lock,
+    version: LOCKFILE_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    bundles,
+    sources
+  };
+};
+
+/**
  * Remove a source descriptor if no remaining bundle references it.
  * Pure; doesn't touch disk.
  * @param lock - Existing Lockfile.
@@ -305,12 +345,20 @@ export const cleanupOrphanedSource = (lock: Lockfile, sourceId: string): Lockfil
  * expects. Excludes `deployment-manifest.yml` — it is bundle metadata,
  * not an installed file — matching every writer's own exclusion of it.
  * @param files - Extracted bundle files (path -> raw bytes).
+ * @param includedPaths
  * @returns Per-file checksum entries, manifest excluded.
  */
-export const checksumFiles = (files: ExtractedFiles): LockfileFileEntry[] => {
+export const checksumFiles = (
+  files: ExtractedFiles,
+  includedPaths?: Iterable<string>
+): LockfileFileEntry[] => {
   const entries: LockfileFileEntry[] = [];
+  const included = includedPaths === undefined ? null : new Set(includedPaths);
   for (const [filePath, bytes] of files) {
     if (filePath === 'deployment-manifest.yml') {
+      continue;
+    }
+    if (included !== null && !included.has(filePath)) {
       continue;
     }
     entries.push({

@@ -182,6 +182,19 @@ suite('TelemetryService', () => {
         assert.strictEqual(doc.data?.sourceType, 'unknown');
       });
 
+      test('should strip version suffix from GitHub bundle IDs in telemetry payloads', () => {
+        const bundle = createMockInstalledBundle('acme-telemetry-v1.2.3', '1.2.3', {
+          scope: 'user',
+          sourceType: 'github'
+        });
+        emitters.bundleInstalled.fire(bundle);
+
+        const doc = mockTransport.last();
+        assert.strictEqual(doc.eventName, 'bundle.installed');
+        assert.strictEqual(doc.data?.bundleId, 'acme-telemetry');
+        assert.strictEqual(doc.data?.version, '1.2.3');
+      });
+
       test('should track bundle.uninstalled with bundleId', () => {
         emitters.bundleUninstalled.fire('my-bundle');
 

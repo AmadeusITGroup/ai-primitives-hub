@@ -71,6 +71,7 @@ export function validateCollectionFile(
     : path.join(repoRoot, collectionFile);
 
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   if (!fs.existsSync(abs)) {
     return { ok: false, errors: [`${rel}: Collection file not found`] };
@@ -106,7 +107,19 @@ export function validateCollectionFile(
     });
   }
 
-  return { ok: errors.length === 0, errors, collection };
+  let readmePath: string | null = null;
+  try {
+    readmePath = resolveCollectionReadmePath(collection);
+  } catch {
+    // Invalid paths are already reported by validateCollectionObject.
+  }
+  if (!collection?.readme?.path) {
+    warnings.push(`${rel}: Collection has no readme. Consider adding a readme to help users understand this collection.`);
+  } else if (readmePath && !fs.existsSync(path.join(repoRoot, readmePath))) {
+    errors.push(`${rel}: readme referenced file not found: ${readmePath}`);
+  }
+
+  return { ok: errors.length === 0, errors, warnings, collection };
 }
 
 /**
@@ -120,6 +133,7 @@ export function validateAllCollections(
   collectionFiles: string[]
 ): AllCollectionsResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const fileResults: ({ file: string } & FileValidationResult)[] = [];
   const seenIds = new Map<string, string>(); // id -> file path
   const seenNames = new Map<string, string>(); // name -> file path
@@ -128,6 +142,7 @@ export function validateAllCollections(
     const result = validateCollectionFile(repoRoot, file);
     fileResults.push({ file, ...result });
     errors.push(...result.errors);
+    warnings.push(...(result.warnings ?? []));
 
     // Check for duplicate IDs and names
     if (result.collection) {
@@ -147,7 +162,7 @@ export function validateAllCollections(
     }
   }
 
-  return { ok: errors.length === 0, errors, fileResults };
+  return { ok: errors.length === 0, errors, warnings, fileResults };
 }
 
 /**
@@ -166,6 +181,14 @@ export function generateMarkdown(result: AllCollectionsResult, totalFiles: numbe
     md += '### Errors\n\n';
     result.errors.forEach((err) => {
       md += `- ${err}\n`;
+    });
+  }
+
+  const warnings = result.warnings;
+  if (warnings.length > 0) {
+    md += '\n### Warnings\n\n';
+    warnings.forEach((warning) => {
+      md += `- ${warning}\n`;
     });
   }
 
@@ -280,4 +303,19 @@ export function resolveCollectionItemPaths(repoRoot: string, collection: Collect
   }
 
   return allPaths;
+}
+
+/**
+ * Resolve the README path declared by a collection.
+ * @param collection Parsed collection.
+ * @param collection.readme
+ * @param collection.readme.path
+ * @returns Normalized repo-relative path or null when no README is declared.
+ * @throws {Error} if the declared path escapes the repository root.
+ */
+export function resolveCollectionReadmePath(collection: { readme?: { path?: string } }): string | null {
+  if (!collection.readme?.path) {
+    return null;
+  }
+  return normalizeRepoRelativePath(collection.readme.path);
 }

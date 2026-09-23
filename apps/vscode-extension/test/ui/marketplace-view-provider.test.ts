@@ -16,6 +16,7 @@ import {
 import {
   extractAllTags,
   extractBundleSources,
+  filterBundlesByContentType,
   filterBundlesBySearch,
   filterBundlesBySource,
   filterBundlesByTags,
@@ -310,6 +311,89 @@ suite('MarketplaceViewProvider - Dynamic Filtering', () => {
       // Should match only bundle1
       assert.strictEqual(filtered.length, 1);
       assert.strictEqual(filtered[0].id, 'bundle1');
+    });
+  });
+
+  suite('Content Type Filtering', () => {
+    let bundlesWithContent: (Bundle & { contentBreakdown?: any })[];
+
+    beforeEach(() => {
+      bundlesWithContent = [
+        {
+          ...mockBundles[0],
+          contentBreakdown: { prompts: 3, instructions: 1, agents: 0, skills: 0, mcpServers: 0 }
+        },
+        {
+          ...mockBundles[1],
+          contentBreakdown: { prompts: 0, instructions: 0, agents: 2, skills: 1, mcpServers: 0 }
+        },
+        {
+          ...mockBundles[2],
+          contentBreakdown: { prompts: 1, instructions: 0, agents: 0, skills: 0, mcpServers: 3 }
+        },
+        {
+          ...mockBundles[3],
+          contentBreakdown: { prompts: 0, instructions: 2, agents: 0, skills: 4, mcpServers: 0 }
+        }
+      ];
+    });
+
+    test('should return all bundles when content types array is empty', () => {
+      const filtered = filterBundlesByContentType(bundlesWithContent, []);
+      assert.strictEqual(filtered.length, 4);
+    });
+
+    test('should filter bundles by single content type', () => {
+      const filtered = filterBundlesByContentType(bundlesWithContent, ['agents']);
+      assert.strictEqual(filtered.length, 1);
+      assert.strictEqual(filtered[0].id, 'bundle2');
+    });
+
+    test('should filter bundles by multiple content types (OR logic)', () => {
+      const filtered = filterBundlesByContentType(bundlesWithContent, ['agents', 'mcpServers']);
+      assert.strictEqual(filtered.length, 2);
+      const ids = filtered.map((b) => b.id);
+      assert.ok(ids.includes('bundle2'));
+      assert.ok(ids.includes('bundle3'));
+    });
+
+    test('should match bundles that have prompts', () => {
+      const filtered = filterBundlesByContentType(bundlesWithContent, ['prompts']);
+      assert.strictEqual(filtered.length, 2);
+      const ids = filtered.map((b) => b.id);
+      assert.ok(ids.includes('bundle1'));
+      assert.ok(ids.includes('bundle3'));
+    });
+
+    test('should match bundles that have skills', () => {
+      const filtered = filterBundlesByContentType(bundlesWithContent, ['skills']);
+      assert.strictEqual(filtered.length, 2);
+      const ids = filtered.map((b) => b.id);
+      assert.ok(ids.includes('bundle2'));
+      assert.ok(ids.includes('bundle4'));
+    });
+
+    test('should exclude bundles with no contentBreakdown', () => {
+      const bundlesWithMissing = [
+        ...bundlesWithContent,
+        { ...mockBundles[0], id: 'bundle-no-breakdown' }
+      ];
+      const filtered = filterBundlesByContentType(bundlesWithMissing, ['prompts']);
+      assert.ok(!filtered.some((b) => b.id === 'bundle-no-breakdown'));
+    });
+
+    test('should return empty array when no bundles match content type', () => {
+      const bundlesNoMcp = bundlesWithContent.filter((b) => b.id !== 'bundle3');
+      const filtered = filterBundlesByContentType(bundlesNoMcp, ['mcpServers']);
+      assert.strictEqual(filtered.length, 0);
+    });
+
+    test('should select all content types and return all bundles with any content', () => {
+      const filtered = filterBundlesByContentType(
+        bundlesWithContent,
+        ['agents', 'skills', 'prompts', 'mcpServers', 'instructions']
+      );
+      assert.strictEqual(filtered.length, 4);
     });
   });
 

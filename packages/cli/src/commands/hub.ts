@@ -8,6 +8,7 @@
  *   hub remove <id>       remove a hub
  *   hub sync [<id>]       re-fetch a hub config (default: active)
  *   hub create            scaffold a hub-config.yml skeleton
+ *   hub validate          validate a hub-config.yml offline
  *   hub refresh           sync the active hub (shorthand)
  *
  * Our `HubManager` (`@ai-primitives-hub/app`) names two methods the
@@ -18,10 +19,38 @@
  * failure `reason` string).
  */
 import * as path from 'node:path';
+import {
+  validateHubConfigFile,
+} from '@ai-primitives-hub/app';
 import type {
+  DeepHubConfigValidationResult,
+  HubConfigFileValidationResult,
+  HubValidationProgress,
+  SourceAuthenticationContext,
+} from '@ai-primitives-hub/app';
+import type {
+  GitHubSourceAuthCategory,
   HttpClient,
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import {
+  createGitHubSourceAuthRuntime,
+  createGitHubSourceAuthSession,
+  defaultTokenProvider,
+  GITHUB_APP_AUTH_KEY_FILE,
+  GITHUB_APP_CLIENT_ID,
+  GITHUB_APP_ID,
+  GITHUB_APP_INSTALLATION_ID,
+  isGitHubAppAuthEnabled,
+  NodeHttpClient,
+  NodeProcessRunner,
+  parseHubConfig,
+} from '@ai-primitives-hub/infra';
+import type {
+  GitHubSourceAuthRuntime,
+  GitHubSourceAuthSession,
+  GitHubSourcePreflightReport,
+} from '@ai-primitives-hub/infra';
 import {
   Command,
   createHubManager,
@@ -385,6 +414,296 @@ export class HubCreateCommand extends BaseHubCommand {
         + `  ai-primitives-hub hub add --type local --location ${d.outDir}\n`
     });
     return 0;
+  }
+}
+
+const renderHubValidationText = (
+  result: HubConfigFileValidationResult | DeepHubConfigValidationResult
+): string => {
+  const lines = [`Validating ${result.file}`];
+  if (result.valid) {
+    const isDeep = 'deep' in result && result.deep;
+    lines.push(
+      '',
+      isDeep
+        ? '[ OK ] YAML syntax, schema, runtime, source policies, source catalogs, and profile references'
+        : '[ OK ] YAML syntax, schema, runtime checks, and source policies',
+      '',
+      isDeep
+        ? `Hub configuration valid (${result.sources.length} sources checked, ${result.bundlesFound} bundles discovered)`
+        : 'Hub configuration valid'
+    );
+  } else {
+    lines.push('', '[FAIL] Hub configuration invalid');
+    for (const error of result.errors) {
+      lines.push(`  - ${error}`);
+    }
+  }
+  return `${lines.join('\n')}\n`;
+};
+
+const renderHubValidationProgress = (ctx: Context, event: HubValidationProgress): void => {
+  switch (event.phase) {
+    case 'started': {
+      ctx.stderr.write(
+        `Deep validation: checking ${event.sourcesTotal} source(s) and ${event.profilesTotal} profile(s)\n`
+      );
+      return;
+    }
+    case 'source': {
+      const position = `[source ${event.current}/${event.total}]`;
+      if (event.status === 'started') {
+        ctx.stderr.write(`${position} Checking ${event.sourceId} (${event.sourceType})...\n`);
+        return;
+      }
+      const status = event.skipped ? 'skipped' : (event.valid ? 'ok' : 'failed');
+      ctx.stderr.write(
+        `${position} ${event.sourceId}: ${status} (${event.bundlesFound ?? 0} bundle(s))\n`
+      );
+      return;
+    }
+    case 'catalog': {
+      const position = `[source ${event.current}/${event.total}]`;
+      if (event.status === 'started') {
+        ctx.stderr.write(`${position} Discovering bundles...\n`);
+        return;
+      }
+      ctx.stderr.write(`${position} Discovered ${event.bundlesFound ?? 0} bundle(s)\n`);
+      return;
+    }
+    case 'profile': {
+      const position = `[profile ${event.current}/${event.total}]`;
+      if (event.status === 'started') {
+        ctx.stderr.write(`${position} Resolving ${event.profileId}...\n`);
+        return;
+      }
+      const status = event.valid ? 'ok' : 'failed';
+      ctx.stderr.write(
+        `${position} ${event.profileId}: ${status} (${event.bundlesTotal} reference(s))\n`
+      );
+      return;
+    }
+    case 'completed': {
+      ctx.stderr.write(
+        `Deep validation complete: ${event.valid ? 'valid' : 'invalid'} `
+        + `(${event.bundlesFound} bundle(s) discovered)\n`
+      );
+      return;
+    }
+  }
+};
+
+interface HubSourceAuthenticationPreparation {
+  sourceAuthentication?: ReadonlyMap<string, SourceAuthenticationContext>;
+  report?: GitHubSourcePreflightReport;
+  errors: string[];
+}
+
+async function prepareHubSourceAuthentication(
+  ctx: Context,
+  configPath: string,
+  verbose: boolean,
+  runtime: GitHubSourceAuthRuntime
+): Promise<HubSourceAuthenticationPreparation> {
+  try {
+    const specs = parseHubConfig(await ctx.fs.readFile(configPath), { strict: true });
+    const report = await runtime.preflight(specs, {
+      onLog: verbose ? (message) => ctx.stderr.write(`[github preflight] ${message}\n`) : undefined
+    });
+    if (!report.valid) {
+      return {
+        report,
+        errors: report.results
+          .filter((result) => result.category === 'unresolved')
+          .map((result) => {
+            const operation = result.operations.at(-1);
+            return `GitHub source preflight failed for ${result.sourceId}: ${result.errorCode ?? 'GH_SOURCE_PREFLIGHT_UNRESOLVED'}`
+              + (operation === undefined ? '' : ` (operation: ${operation})`);
+          })
+      };
+    }
+    return {
+      report,
+      sourceAuthentication: new Map(
+        report.results.map((result) => [result.sourceId, {
+          category: result.category,
+          target: result.target!,
+          tokenProvider: result.category === 'public-anonymous'
+            ? undefined
+            : runtime.tokenProviderFor(result.category as Exclude<GitHubSourceAuthCategory, 'unresolved'>)
+        }])
+      ),
+      errors: []
+    };
+  } catch (error) {
+    const code = typeof (error as { code?: unknown } | undefined)?.code === 'string'
+      ? (error as { code: string }).code
+      : undefined;
+    return {
+      errors: [`GitHub source preflight could not run: ${code === undefined ? '' : `${code}: `}${error instanceof Error ? error.message : String(error)}`]
+    };
+  }
+}
+
+/**
+ * hub validate - validate a repository hub-config YAML file offline.
+ */
+export class HubValidateCommand extends BaseHubCommand {
+  public static readonly paths = [['hub', 'validate']];
+  public static readonly usage = Command.Usage({
+    description: 'Validate hub-config.yml against the schema and hub policies.',
+    category: 'Hub & Discovery',
+    details: `
+      Usage: ai-primitives-hub hub validate [options]
+
+      By default, validates YAML syntax, required fields, source/profile references,
+      source-type configuration, and GitHub bundle ID prefixes without network calls.
+      Use --check-sources to validate source accessibility, discover catalogs,
+      and resolve profile bundle references and versions.
+
+      Options:
+        --config <path>          Hub configuration file (default: hub-config.yml)
+        --check-sources          Contact/scan enabled sources and resolve profiles
+        --github-app-id <id>     App ID for automatic source-aware setup
+        --github-app-key-file <path>
+                                 PEM path for automatic source-aware setup
+        -v, --verbose            Print deep-validation progress to stderr
+        -o, --output <format>    Output format (text, json, yaml, ndjson)
+
+      Examples:
+        ai-primitives-hub hub validate
+        ai-primitives-hub hub validate --config configs/hub-config.yml -o json
+        ai-primitives-hub hub validate --check-sources
+        ai-primitives-hub hub validate --check-sources --verbose -o json
+    `
+  });
+
+  public config = Option.String('--config');
+  public checkSources = Option.Boolean('--check-sources', false);
+  public githubAppId = Option.String('--github-app-id');
+  public githubAppClientId = Option.String('--github-app-client-id');
+  public githubAppKeyFile = Option.String('--github-app-key-file');
+  public githubAppInstallationId = Option.String('--github-app-installation-id');
+  public githubAppSetupTimeoutMs = Option.String('--github-app-setup-timeout-ms');
+  public verbose = Option.Boolean('-v,--verbose', false);
+
+  public async execute(): Promise<number> {
+    const { ctx, http, tokens } = this.commandContext;
+    const fmt = (this.output ?? 'text') as OutputFormat;
+    const configuredPath = this.config ?? 'hub-config.yml';
+    const configPath = path.isAbsolute(configuredPath)
+      ? configuredPath
+      : path.join(ctx.cwd(), configuredPath);
+    if (this.verbose && !this.checkSources) {
+      ctx.stderr.write('--verbose has no effect without --check-sources; validation remains offline.\n');
+    }
+    const appBootstrapRequested = this.githubAppId !== undefined
+      || this.githubAppClientId !== undefined
+      || this.githubAppKeyFile !== undefined
+      || ctx.env[GITHUB_APP_AUTH_KEY_FILE] !== undefined;
+    let appSession: GitHubSourceAuthSession | undefined;
+    try {
+      let sourceAuthentication: ReadonlyMap<string, SourceAuthenticationContext> | undefined;
+      let sourcePreflight: GitHubSourcePreflightReport | undefined;
+      if (this.checkSources && (isGitHubAppAuthEnabled(ctx.env) || appBootstrapRequested)) {
+        const staticResult = await validateHubConfigFile(ctx.fs, configPath);
+        if (!staticResult.valid) {
+          formatOutput({
+            ctx,
+            command: 'hub.validate',
+            output: fmt,
+            status: 'error',
+            data: staticResult,
+            warnings: staticResult.warnings,
+            textRenderer: renderHubValidationText
+          });
+          return 1;
+        }
+        let runtime: GitHubSourceAuthRuntime;
+        if (appBootstrapRequested) {
+          appSession = await createGitHubSourceAuthSession({
+            env: ctx.env,
+            http: http ?? new NodeHttpClient(),
+            appId: this.githubAppId ?? ctx.env[GITHUB_APP_ID],
+            clientId: this.githubAppClientId ?? ctx.env[GITHUB_APP_CLIENT_ID],
+            keyFile: this.githubAppKeyFile ?? ctx.env[GITHUB_APP_AUTH_KEY_FILE] ?? '',
+            installationId: this.githubAppInstallationId ?? ctx.env[GITHUB_APP_INSTALLATION_ID],
+            setupTimeoutMs: this.githubAppSetupTimeoutMs === undefined
+              ? undefined
+              : Number.parseInt(this.githubAppSetupTimeoutMs, 10)
+          });
+          runtime = appSession;
+        } else {
+          runtime = createGitHubSourceAuthRuntime({
+            env: ctx.env,
+            http: http ?? new NodeHttpClient()
+          });
+        }
+        const prepared = await prepareHubSourceAuthentication(
+          ctx,
+          configPath,
+          this.verbose,
+          runtime
+        );
+        sourcePreflight = prepared.report;
+        if (prepared.errors.length > 0) {
+          const preflightResult: HubConfigFileValidationResult = {
+            file: configPath,
+            valid: false,
+            errors: prepared.errors,
+            warnings: []
+          };
+          formatOutput({
+            ctx,
+            command: 'hub.validate',
+            output: fmt,
+            status: 'error',
+            data: {
+              ...preflightResult,
+              sourcePreflight
+            },
+            warnings: preflightResult.warnings,
+            textRenderer: renderHubValidationText
+          });
+          return 1;
+        }
+        sourceAuthentication = prepared.sourceAuthentication;
+      }
+      const result = await validateHubConfigFile(ctx.fs, configPath, this.checkSources
+        ? {
+          deep: true,
+          onProgress: this.verbose
+            ? (event) => renderHubValidationProgress(ctx, event)
+            : undefined,
+          sourceAdapterDeps: {
+            fs: ctx.fs,
+            clock: ctx.clock,
+            httpClient: http ?? new NodeHttpClient(),
+            processRunner: new NodeProcessRunner(),
+            fallbackTokenProviders: tokens === undefined
+              ? [defaultTokenProvider(ctx.env)]
+              : [tokens],
+            sourceAuthentication
+          }
+        }
+        : undefined);
+      const validationData = sourcePreflight === undefined
+        ? result
+        : { ...result, sourcePreflight };
+
+      formatOutput({
+        ctx,
+        command: 'hub.validate',
+        output: fmt,
+        status: result.valid ? (result.warnings?.length ? 'warning' : 'ok') : 'error',
+        data: validationData,
+        warnings: result.warnings,
+        textRenderer: renderHubValidationText
+      });
+      return result.valid ? 0 : 1;
+    } finally {
+      await appSession?.cleanup();
+    }
   }
 }
 

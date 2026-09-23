@@ -2,14 +2,14 @@
  * Core type definitions for the AI Primitives Hub system
  */
 import {
-  McpInputDefinition,
   McpServersManifest,
+  VSCodeMcpInputDefinition,
 } from './mcp';
 
 /**
  * Registry source types
  */
-export type SourceType = 'github' | 'local' | 'awesome-copilot' | 'local-awesome-copilot' | 'apm' | 'local-apm' | 'skills' | 'local-skills';
+export type SourceType = 'github' | 'local' | 'awesome-copilot' | 'local-awesome-copilot' | 'apm' | 'local-apm' | 'skills' | 'local-skills' | 'azure-devops';
 
 /**
  * Installation scope
@@ -39,6 +39,13 @@ export interface RegistrySource {
   private?: boolean;
   token?: string; // Environment variable or secure storage key
   hubId?: string; // Hub identifier if this source is from a curated hub
+  /**
+   * The hub config `sources[].id` this source was provisioned from — the
+   * stable, author-assigned identity that survives a `url` change. Used to
+   * match a pre-rename orphan to its replacement. Absent on manually-added
+   * sources and on hub sources persisted before this field existed.
+   */
+  hubSourceId?: string;
   metadata?: {
     description?: string;
     homepage?: string;
@@ -336,5 +343,5 @@ export interface DeploymentManifest {
     type?: 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill'; // GitHub Copilot file type
   }[];
   mcpServers?: McpServersManifest;
-  mcpInputs?: McpInputDefinition[];
+  mcpInputs?: VSCodeMcpInputDefinition[];
 }

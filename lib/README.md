@@ -119,11 +119,13 @@ import {
 
 ## Development
 
+This package is a member of the repository's pnpm workspace, so install from
+the repository root rather than from `lib/`:
+
 ```bash
-cd lib
-npm install
-npm run build
-npm test
+pnpm install          # from the repository root
+pnpm -C lib build
+pnpm -C lib test
 ```
 
 ### Releasing

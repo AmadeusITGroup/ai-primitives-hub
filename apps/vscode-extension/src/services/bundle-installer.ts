@@ -30,6 +30,7 @@ import type {
   ExtractedFiles,
   Installable,
   Target,
+  TargetType,
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
@@ -56,7 +57,6 @@ import {
 import {
   CopilotFileType,
   determineFileType,
-  getRepositoryTargetDirectory,
   getSkillName,
   getTargetFileName,
   normalizePromptId,
@@ -65,6 +65,9 @@ import {
   calculateFileChecksum,
   ensureDirectory,
 } from '../utils/file-integrity-service';
+import {
+  detectHostApp,
+} from '../utils/host-app';
 import {
   Logger,
 } from '../utils/logger';
@@ -110,12 +113,21 @@ export class BundleInstaller {
   private readonly copilotSync: UserScopeService;
   private readonly mcpManager: McpServerManager;
   private readonly storage: RegistryStorage;
+  private readonly targetType: TargetType;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  /**
+   * Create a new BundleInstaller.
+   * @param context - VS Code extension context.
+   * @param targetType - Host editor target type; detected from the running
+   *   editor by default, injectable for tests. Used to resolve host-aware
+   *   repository-scope destinations when collecting lockfile entries.
+   */
+  constructor(private readonly context: vscode.ExtensionContext, targetType?: TargetType) {
     this.logger = Logger.getInstance();
     this.copilotSync = new UserScopeService(context);
     this.mcpManager = new McpServerManager();
     this.storage = new RegistryStorage(context);
+    this.targetType = targetType ?? detectHostApp();
   }
 
   /**
@@ -128,7 +140,7 @@ export class BundleInstaller {
       if (!workspaceRoot) {
         throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
       }
-      return ScopeServiceFactory.create(scope, this.context, workspaceRoot, this.storage);
+      return ScopeServiceFactory.create(scope, this.context, workspaceRoot, this.storage, this.targetType);
     }
     return ScopeServiceFactory.create(scope, this.context);
   }
@@ -238,11 +250,16 @@ export class BundleInstaller {
         return entries;
       }
 
-      // Collect files from .github/ directories based on manifest
+      // Resolve host-aware destinations via the repository scope service —
+      // the same service (and layout resolution) that wrote the files — so the
+      // lockfile is collected from the actual install location.
+      const repoService = new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
+
+      // Collect files from the host-appropriate directories based on manifest
       for (const promptDef of manifest.prompts) {
         const promptId = normalizePromptId(promptDef.id);
         const fileType = (promptDef.type as CopilotFileType) || determineFileType(promptDef.file, promptDef.tags);
-        const targetDir = getRepositoryTargetDirectory(fileType);
+        const targetDir = repoService.getTargetDirectory(fileType);
 
         if (fileType === 'skill') {
           // For skills, collect all files in the skill directory
@@ -435,6 +452,56 @@ export class BundleInstaller {
    * @param scope
    * @param commitMode
    */
+  /**
+   * Surface an MCP installation failure to the user.
+   *
+   * Bundle installation deliberately continues when MCP setup fails, but the failure
+   * must still be visible: the errors include cases the user has to act on, such as a
+   * bundle whose servers need input values the host cannot prompt for, or a host with
+   * no workspace-level MCP file. Logging alone left those silent, so the bundle
+   * appeared to install cleanly while its MCP servers were missing.
+   * @param bundleId - Bundle being installed.
+   * @param errors - Errors reported by the MCP manager.
+   */
+  private notifyMcpInstallFailure(bundleId: string, errors: string[] | undefined): void {
+    const detail = errors && errors.length > 0 ? errors.join(' ') : 'Unknown error.';
+    this.logger.warn(`MCP server installation had issues: ${detail}`);
+    void vscode.window.showWarningMessage(
+      `MCP servers for "${bundleId}" were not installed. ${detail}`
+    );
+  }
+
+  /**
+   * Surface MCP warnings for an otherwise successful install.
+   *
+   * Only user-actionable warnings (e.g. "host cannot prompt for inputs") are shown
+   * as notifications. Bundle-author concerns (auto-derived declarations) are logged
+   * but not surfaced to the end user.
+   * @param bundleId - Bundle being installed.
+   * @param warnings - Warnings reported by the MCP manager.
+   */
+  private notifyMcpInstallWarnings(bundleId: string, warnings: string[] | undefined): void {
+    if (!warnings || warnings.length === 0) {
+      return;
+    }
+
+    const userActionable: string[] = [];
+    const nonActionable: string[] = [];
+    for (const w of warnings) {
+      (w.includes('auto-derived') ? nonActionable : userActionable).push(w);
+    }
+
+    if (nonActionable.length > 0) {
+      this.logger.warn(`MCP installation: ${nonActionable.join(' ')}`);
+    }
+
+    if (userActionable.length > 0) {
+      const detail = userActionable.join(' ');
+      this.logger.warn(`MCP installation warnings: ${detail}`);
+      void vscode.window.showWarningMessage(`MCP servers for "${bundleId}" ${detail}`);
+    }
+  }
+
   private async installMcpServers(
     bundleId: string,
     bundleVersion: string,
@@ -476,12 +543,10 @@ export class BundleInstaller {
         if (workspaceInstallationResult.success) {
           this.logger.info(`Successfully installed ${workspaceInstallationResult.serversInstalled} MCP servers to workspace`);
         } else {
-          this.logger.warn(`MCP server installation had issues: ${workspaceInstallationResult.errors?.join(', ')}`);
+          this.notifyMcpInstallFailure(bundleId, workspaceInstallationResult.errors);
         }
 
-        if (workspaceInstallationResult.warnings && workspaceInstallationResult.warnings.length > 0) {
-          this.logger.warn(`MCP installation warnings: ${workspaceInstallationResult.warnings.join(', ')}`);
-        }
+        this.notifyMcpInstallWarnings(bundleId, workspaceInstallationResult.warnings);
         return;
       }
 
@@ -503,12 +568,10 @@ export class BundleInstaller {
       if (result.success) {
         this.logger.info(`Successfully installed ${result.serversInstalled} MCP servers`);
       } else {
-        this.logger.warn(`MCP server installation had issues: ${result.errors?.join(', ')}`);
+        this.notifyMcpInstallFailure(bundleId, result.errors);
       }
 
-      if (result.warnings && result.warnings.length > 0) {
-        this.logger.warn(`MCP installation warnings: ${result.warnings.join(', ')}`);
-      }
+      this.notifyMcpInstallWarnings(bundleId, result.warnings);
     } catch (error) {
       this.logger.error(`Failed to install MCP servers for bundle ${bundleId}`, error as Error);
       // Don't fail the entire bundle installation if MCP installation fails
@@ -591,7 +654,7 @@ export class BundleInstaller {
     if (!workspaceRoot) {
       return undefined;
     }
-    return new RepositoryScopeService(workspaceRoot, this.storage);
+    return new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
   }
 
   /**

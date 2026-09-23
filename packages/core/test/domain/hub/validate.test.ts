@@ -4,6 +4,7 @@ import {
   it,
 } from 'vitest';
 import {
+  githubBundlePrefix,
   hasPathTraversal,
   isValidProtocol,
   sanitizeHubId,
@@ -25,6 +26,28 @@ describe('hasPathTraversal', () => {
 
   it('returns false for an empty path', () => {
     expect(hasPathTraversal('')).toBe(false);
+  });
+
+  it('fails closed for malformed URL encoding', () => {
+    expect(hasPathTraversal('%2')).toBe(true);
+  });
+});
+
+describe('githubBundlePrefix', () => {
+  it('derives the owner and repository prefix', () => {
+    expect(githubBundlePrefix('https://github.com/example-org/example-repository'))
+      .toBe('example-org-example-repository-');
+  });
+
+  it('accepts a .git repository suffix', () => {
+    expect(githubBundlePrefix('https://github.com/example-org/example-repository.git'))
+      .toBe('example-org-example-repository-');
+  });
+
+  it('rejects non-canonical GitHub hosts and repository paths', () => {
+    expect(githubBundlePrefix('https://github.com:443/example-org/example-repository')).toBeNull();
+    expect(githubBundlePrefix('https://github.com/example-org/example-repository/tree/main')).toBeNull();
+    expect(githubBundlePrefix('https://git.example.com/example-org/example-repository')).toBeNull();
   });
 });
 

@@ -41,6 +41,23 @@ export {
   resolveCollectionReadmePath,
 } from './collections';
 
+export {
+  createReleaseManifestPlan,
+  createLegacyReleaseManifestPlan,
+  isMissingSourceLicenseError,
+  LEGACY_RELEASE_WARNING,
+  NO_SOURCE_LICENSE_MESSAGE,
+  resolveGitRevision,
+  resolveSourceRepository,
+  serializeReleaseManifest,
+} from './release-manifest';
+export type {
+  CreateReleaseManifestPlanOptions,
+  ReleaseArchiveEntry,
+  ReleaseManifestFileRole,
+  ReleaseManifestPlan,
+} from './release-manifest';
+
 // Bundle ID exports
 export { generateBundleId } from './bundle-id';
 

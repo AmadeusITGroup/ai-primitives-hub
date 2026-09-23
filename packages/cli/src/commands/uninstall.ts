@@ -46,6 +46,7 @@ import {
   loadTargets,
   lockfilePathForTarget,
   Option,
+  resolveEffectiveTarget,
 } from '../framework';
 import {
   type CommandDefinition,
@@ -196,7 +197,8 @@ export class UninstallCommand extends BaseUninstallCommand {
 
     try {
       const targetName = await resolveTargetName(opts.target, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
-      const target = await resolveTarget(targetName, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const configuredTarget = await resolveTarget(targetName, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
       if (opts.all === true) {
         return await performAllUninstall(opts, target, ctx, fmt);
@@ -240,12 +242,13 @@ export const createWriterFactory = (
   });
 
   return (target: Target): TargetWriter => {
-    // Use CLI flags to override target scope if specified
-    const scope = opts.scope ?? target.scope;
-    const commitMode = opts.commitMode ?? target.commitMode ?? 'commit';
-    const workspaceRoot = target.rootPath ?? ctx.cwd();
+    const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
+    const scope = effectiveTarget.scope;
+    const commitMode = effectiveTarget.commitMode ?? 'commit';
+    const workspaceRoot = effectiveTarget.rootPath ?? ctx.cwd();
 
-    if (scope === 'repository') {
+    const copilotLikeTargets = new Set<string>(['vscode', 'vscode-insiders', 'copilot-cli']);
+    if (scope === 'repository' && copilotLikeTargets.has(effectiveTarget.type)) {
       const writer = new RepositoryScopeWriter({
         fs: ctx.fs,
         workspaceRoot,
@@ -254,7 +257,7 @@ export const createWriterFactory = (
       return new RepositoryScopeWriterAdapter(writer);
     }
     // Default to FileTreeTargetWriter for user scope
-    const transformer = transformerRegistry.getTransformer(target.type);
+    const transformer = transformerRegistry.getTransformer(effectiveTarget.type);
     return new FileTreeTargetWriter({
       fs: ctx.fs,
       env: ctx.env,
@@ -348,8 +351,7 @@ async function findBundleEntry(
   opts: UninstallOptions,
   ctx: Context
 ): Promise<LockfileBundleEntry | null> {
-  const scope = opts.scope ?? target.scope;
-  if (scope === 'repository') {
+  if (target.scope === 'repository') {
     const pipeline = new UninstallPipeline({
       fs: ctx.fs,
       target,
@@ -376,8 +378,7 @@ async function findAllBundleEntries(
   opts: UninstallOptions,
   ctx: Context
 ): Promise<Record<string, LockfileBundleEntry>> {
-  const scope = opts.scope ?? target.scope;
-  if (scope === 'repository') {
+  if (target.scope === 'repository') {
     const pipeline = new UninstallPipeline({
       fs: ctx.fs,
       target,
@@ -451,12 +452,11 @@ async function performBundleUninstall(
     return 0;
   }
 
-  const scope = opts.scope ?? target.scope;
   const writerFactory = createWriterFactory(ctx, opts);
   let result: UninstallResult;
   let lockPath: string;
-  if (scope === 'repository') {
-    const commitMode = entry.commitMode ?? opts.commitMode ?? target.commitMode ?? 'commit';
+  if (target.scope === 'repository') {
+    const commitMode = entry.commitMode ?? target.commitMode ?? 'commit';
     lockPath = lockfilePathForTarget(ctx, target, commitMode);
     const pipeline = new UninstallPipeline({
       fs: ctx.fs,
@@ -550,8 +550,7 @@ async function performLockfileUninstall(
 
   const writerFactory = createWriterFactory(ctx, opts);
   let results: UninstallResult[];
-  const scope = opts.scope ?? target.scope;
-  if (scope === 'repository') {
+  if (target.scope === 'repository') {
     const pipeline = new UninstallPipeline({
       fs: ctx.fs,
       target,
@@ -636,9 +635,8 @@ async function performAllUninstall(
   }
 
   const writerFactory = createWriterFactory(ctx, opts);
-  const scope = opts.scope ?? target.scope;
   let results: UninstallResult[];
-  if (scope === 'repository') {
+  if (target.scope === 'repository') {
     const pipeline = new UninstallPipeline({
       fs: ctx.fs,
       target,
@@ -745,7 +743,8 @@ export const createUninstallCommand = (
 
       try {
         const targetName = await resolveTargetName(opts.target, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
-        const target = await resolveTarget(targetName, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+        const configuredTarget = await resolveTarget(targetName, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+        const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
         if (opts.all === true) {
           return await performAllUninstall(opts, target, ctx, fmt);

@@ -1,6 +1,6 @@
 {
   "name": "@prompt-registry/collection-scripts",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Shared scripts for building, validating, and publishing Copilot prompt collections",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,10 +21,10 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "compile-tests": "tsc -p tsconfig.test.json",
-    "test": "npm run compile-tests && mocha 'dist-test/test/**/*.test.js'",
+    "test": "pnpm run compile-tests && mocha 'dist-test/test/**/*.test.js'",
     "lint": "eslint src test",
     "lint:fix": "eslint src test --fix",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "repository": {
     "type": "git",
@@ -56,18 +56,18 @@
   },
   "dependencies": {
     "archiver": "^7.0.1",
-    "js-yaml": "^4.1.0",
-    "semver": "^7.5.4",
-    "yauzl": "^3.1.3"
+    "js-yaml": "^4.3.1",
+    "semver": "^7.8.5",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^22.0.0",
-    "@types/yauzl": "^2.10.3",
-    "mocha": "^11.7.5",
-    "typescript": "^5.3.3"
+    "@types/node": "^22.20.1",
+    "@types/yauzl": "^3.0.0",
+    "mocha": "^11.7.6",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "js-yaml": "^4.0.0"

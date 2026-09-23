@@ -7,13 +7,11 @@
  */
 import type {
   HubProfileReader,
+  LogEvent,
+  OnLogEvent,
   Profile,
   ProfileStore,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 
 function log(onLog: OnLogEvent | undefined, level: LogEvent['level'], message: string, error?: Error): void {
   onLog?.({ level, message, error });

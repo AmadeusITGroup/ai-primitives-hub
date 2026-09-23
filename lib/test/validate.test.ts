@@ -137,10 +137,9 @@ describe('Validation Module', () => {
       assert.strictEqual(result.replacement, 'agent');
     });
 
-    it('should reject deprecated chat-mode', () => {
+    it('should accept canonical chat-mode', () => {
       const result = validateItemKind('chat-mode');
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.deprecated, true);
+      assert.strictEqual(result.valid, true);
     });
 
     it('should reject invalid kind', () => {

@@ -84,7 +84,7 @@ mcp:
       const manifestContent = fs.readFileSync(outFile, 'utf8');
       const manifest = yaml.load(manifestContent) as any;
 
-      // Verify MCP servers are included
+      // Verify MCP servers are included under mcpServers (top-level, as expected by bundle-installer)
       assert.ok(manifest.mcpServers, 'Manifest should include mcpServers field');
       assert.strictEqual(Object.keys(manifest.mcpServers).length, 2, 'Should have 2 MCP servers');
       assert.ok(manifest.mcpServers['test-server'], 'Should include test-server');
@@ -232,6 +232,136 @@ items:
       assert.strictEqual(manifest.name, 'Basic Collection');
       assert.ok(Array.isArray(manifest.prompts));
       assert.strictEqual(manifest.prompts.length, 1);
+    });
+  });
+
+  describe('MCP Inputs', () => {
+    it('should include mcp.inputs in the generated manifest when collection defines them', () => {
+      const collectionYaml = `
+id: mcp-inputs-collection
+name: MCP Inputs Collection
+description: A collection with MCP inputs
+version: "1.0.0"
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+mcp:
+  inputs:
+    - id: ocServer
+      type: promptString
+      description: OpenShift API server URL
+      default: https://api.example.com:6443
+    - id: ocToken
+      type: promptString
+      description: OpenShift access token
+      password: true
+    - id: httpsProxy
+      type: promptString
+      description: Corporate HTTPS proxy URL
+  items:
+    openshift:
+      type: stdio
+      command: podman
+      args:
+        - run
+        - OC_SERVER=\${input:ocServer}
+`;
+
+      writeFile(tempDir, 'collections/mcp-inputs.collection.yml', collectionYaml);
+      writeFile(tempDir, 'prompts/test.prompt.md', '# Test Prompt\n\nTest content');
+
+      const outFile = path.join(tempDir, 'deployment-manifest.yml');
+
+      const result = spawnSync('node', [scriptPath, '1.0.0', '--collection-file', 'collections/mcp-inputs.collection.yml', '--out', outFile], {
+        cwd: tempDir,
+        encoding: 'utf8'
+      });
+
+      assert.strictEqual(result.status, 0, `Script failed: ${result.stderr}`);
+
+      const manifest = yaml.load(fs.readFileSync(outFile, 'utf8')) as any;
+
+      assert.ok(Array.isArray(manifest.mcpInputs), 'mcpInputs should be an array');
+      assert.strictEqual(manifest.mcpInputs.length, 3, 'Should have 3 inputs');
+      assert.strictEqual(manifest.mcpInputs[0].id, 'ocServer');
+      assert.strictEqual(manifest.mcpInputs[0].type, 'promptString');
+      assert.strictEqual(manifest.mcpInputs[1].id, 'ocToken');
+      assert.strictEqual(manifest.mcpInputs[1].password, true);
+      assert.strictEqual(manifest.mcpInputs[2].id, 'httpsProxy');
+      assert.ok(manifest.mcpServers, 'mcpServers should still be present');
+      assert.ok(manifest.mcpServers.openshift, 'openshift server should be present');
+    });
+
+    it('should not include mcp.inputs when collection has mcp.items but no inputs', () => {
+      const collectionYaml = `
+id: no-inputs-collection
+name: No Inputs Collection
+description: A collection with MCP servers but no inputs
+version: "1.0.0"
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+mcp:
+  items:
+    myserver:
+      command: node
+      args: [server.js]
+`;
+
+      writeFile(tempDir, 'collections/no-inputs.collection.yml', collectionYaml);
+      writeFile(tempDir, 'prompts/test.prompt.md', '# Test Prompt\n\nTest content');
+
+      const outFile = path.join(tempDir, 'deployment-manifest.yml');
+
+      const result = spawnSync('node', [scriptPath, '1.0.0', '--collection-file', 'collections/no-inputs.collection.yml', '--out', outFile], {
+        cwd: tempDir,
+        encoding: 'utf8'
+      });
+
+      assert.strictEqual(result.status, 0, `Script failed: ${result.stderr}`);
+
+      const manifest = yaml.load(fs.readFileSync(outFile, 'utf8')) as any;
+
+      assert.ok(manifest.mcpServers, 'mcpServers should be present');
+      assert.ok(manifest.mcpServers.myserver, 'myserver should be present');
+      assert.strictEqual(manifest.mcpInputs, undefined, 'mcpInputs should not be present when not defined');
+    });
+
+    it('should log MCP inputs count when present', () => {
+      const collectionYaml = `
+id: logged-inputs-collection
+name: Logged Inputs Collection
+description: A collection to test inputs logging
+version: "1.0.0"
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+mcp:
+  inputs:
+    - id: param1
+      type: promptString
+      description: First parameter
+    - id: param2
+      type: promptString
+      description: Second parameter
+  items:
+    myserver:
+      command: node
+      args: [server.js]
+`;
+
+      writeFile(tempDir, 'collections/logged-inputs.collection.yml', collectionYaml);
+      writeFile(tempDir, 'prompts/test.prompt.md', '# Test Prompt\n\nTest content');
+
+      const outFile = path.join(tempDir, 'deployment-manifest.yml');
+
+      const result = spawnSync('node', [scriptPath, '1.0.0', '--collection-file', 'collections/logged-inputs.collection.yml', '--out', outFile], {
+        cwd: tempDir,
+        encoding: 'utf8'
+      });
+
+      assert.strictEqual(result.status, 0, `Script failed: ${result.stderr}`);
+      assert.ok(result.stdout.includes('MCP Inputs: 2'), `Should log MCP inputs count, got: ${result.stdout}`);
     });
   });
 

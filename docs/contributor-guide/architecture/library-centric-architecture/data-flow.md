@@ -236,7 +236,7 @@ sequenceDiagram
 
     CLI->>HubMgr: loadHub(hubId)
     HubMgr->>HubStore: read hub config
-    HubStore->>FS: Read .ai-primitives-hub/hubs/<hub-id>/hub.yml
+    HubStore->>FS: Read <app-storage>/hubs/<hub-id>.yml
     FS-->>HubStore: Hub config
     HubStore-->>HubMgr: Hub
     HubMgr-->>CLI: Hub

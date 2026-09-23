@@ -6,6 +6,7 @@ import type {
   HubConfig,
   HubProfile,
   HubReference,
+  LogEvent,
   ProfileActivationState,
   ProfileChanges,
   ProfileLifecycleSync,
@@ -37,9 +38,6 @@ import {
   setProfileActiveFlag,
   syncProfile,
 } from '../../src/registry/profile-lifecycle';
-import type {
-  LogEvent,
-} from '../../src/update/log-event';
 
 function makeProfile(overrides: Partial<HubProfile> = {}): HubProfile {
   return {

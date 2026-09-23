@@ -30,6 +30,9 @@ See the [Author Guide](./docs/author-guide/creating-source-bundle.md).
 
 **As a contributor:**
 
+Requires Node.js 24 or newer and pnpm 11 or newer. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the complete development setup.
+
 ```bash
 git clone https://github.com/AmadeusITGroup/ai-primitives-hub.git
 cd ai-primitives-hub
@@ -52,7 +55,7 @@ pnpm lint
 | `github-actions/validate-collections/` | Reusable GitHub Action for validating collections in CI |
 | `docs/` | User, author, and contributor documentation |
 | `website/` | Docusaurus documentation site |
-| `config/` | Default hubs configuration |
+| `packages/infra/src/hub/` | Shared Hub resolution, validation, and default-Hub definitions |
 
 ## 🏗️ Architecture
 
@@ -69,7 +72,7 @@ flowchart TD
     APP --> CORE[packages/core]
     APP --> INF[packages/infra]
     INF --> CORE
-    INF --> AD[Adapters<br/>GitHub / Local / APM / Skills / Awesome Copilot]
+    INF --> AD[Adapters<br/>GitHub / Local / APM / Skills / Awesome Copilot / Azure DevOps]
 ```
 
 For extension details, see the [Contributor Architecture Guide](./docs/contributor-guide/architecture.md).

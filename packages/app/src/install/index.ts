@@ -26,6 +26,11 @@ export {
   InstallPipelineError,
 } from './pipeline';
 
+export {
+  TargetWriteRejectedError,
+  writeTargetSafely,
+} from './target-write';
+
 export type {
   InstallOutcome,
   InstallPipelineOptions,
@@ -42,6 +47,12 @@ export type {
   UninstallResult,
 } from './uninstall-pipeline';
 
+export type {
+  McpConfigScope,
+} from './layout-resolver';
+
 export {
   resolveLayoutFromLayers,
+  resolveMcpLayoutConfig,
+  WORKSPACE_ROOT_TOKEN,
 } from './layout-resolver';

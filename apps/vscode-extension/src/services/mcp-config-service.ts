@@ -1,9 +1,17 @@
+import type {
+  McpConfigScope,
+} from '@ai-primitives-hub/app';
+import {
+  autoDeriveMissingInputs,
+  mergeInputDeclarations,
+} from '@ai-primitives-hub/app';
+import {
+  collectInputReferences,
+} from '@ai-primitives-hub/core';
 import * as fs from 'fs-extra';
-import * as jsonc from 'jsonc-parser';
 import {
   isRemoteServerConfig,
   McpConfiguration,
-  McpInputDefinition,
   McpInstallOptions,
   McpRemoteServerConfig,
   McpServerConfig,
@@ -11,10 +19,15 @@ import {
   McpStdioServerConfig,
   McpTrackingMetadata,
   McpVariableContext,
+  VSCodeMcpInputDefinition,
 } from '../types/mcp';
 import {
   Logger,
 } from '../utils/logger';
+import {
+  parseMcpConfig,
+  serializeMcpConfig,
+} from '../utils/mcp-config-format';
 import {
   McpConfigLocator,
 } from '../utils/mcp-config-locator';
@@ -100,8 +113,17 @@ export class McpConfigService {
     }
   }
 
+  /**
+   * Map this service's scope vocabulary onto the layout config's scopes.
+   * The layout file uses `repository` for what this service calls `workspace`.
+   * @param scope - Service-level scope.
+   */
+  private static toLayoutScope(scope: 'user' | 'workspace'): McpConfigScope {
+    return scope === 'workspace' ? 'repository' : 'user';
+  }
+
   public async readMcpConfig(scope: 'user' | 'workspace'): Promise<McpConfiguration> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(McpConfigService.toLayoutScope(scope));
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
@@ -112,14 +134,14 @@ export class McpConfigService {
 
     try {
       const content = await fs.readFile(location.configPath, 'utf8');
-      // Use JSONC parser to handle trailing commas and comments (VS Code mcp.json format)
-      const errors: jsonc.ParseError[] = [];
-      const config = jsonc.parse(content, errors) as McpConfiguration;
-      if (errors.length > 0) {
-        const errorMessages = errors.map((e) => `${jsonc.printParseErrorCode(e.error)} at offset ${e.offset}`).join(', ');
-        this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${errorMessages}`);
+      // Shared parse + normalize: tolerates JSONC (comments, trailing commas),
+      // maps the IDE's server key onto the internal 'servers' key and drops the
+      // non-canonical one. See utils/mcp-config-format.
+      const { config, warnings } = parseMcpConfig(content, location.serversKey);
+      if (warnings.length > 0) {
+        this.logger.warn(`JSONC parse warnings in ${location.configPath}: ${warnings.join(', ')}`);
       }
-      return config || { servers: {} };
+      return config;
     } catch (error) {
       this.logger.error(`Failed to read mcp.json from ${location.configPath}`, error as Error);
       throw new Error(`Failed to read MCP configuration: ${(error as Error).message}`);
@@ -127,19 +149,24 @@ export class McpConfigService {
   }
 
   public async writeMcpConfig(config: McpConfiguration, scope: 'user' | 'workspace', createBackup = true): Promise<void> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const layoutScope = McpConfigService.toLayoutScope(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
 
-    await McpConfigLocator.ensureConfigDirectory(scope);
+    await McpConfigLocator.ensureConfigDirectory(layoutScope);
 
     if (createBackup && location.exists) {
       await this.createBackup(location.configPath);
     }
 
     try {
-      const content = JSON.stringify(config, null, 2);
+      // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
+      // The mapping itself comes from default-layouts.json via McpConfigLocator,
+      // so adding an IDE needs no change here.
+      const serialized = serializeMcpConfig(config, location.serversKey);
+      const content = JSON.stringify(serialized, null, 2);
       await fs.writeFile(location.configPath, content, 'utf8');
       this.logger.info(`MCP configuration written to ${location.configPath}`);
     } catch (error) {
@@ -149,7 +176,7 @@ export class McpConfigService {
   }
 
   public async readTrackingMetadata(scope: 'user' | 'workspace'): Promise<McpTrackingMetadata> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(McpConfigService.toLayoutScope(scope));
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
@@ -172,12 +199,13 @@ export class McpConfigService {
   }
 
   public async writeTrackingMetadata(metadata: McpTrackingMetadata, scope: 'user' | 'workspace'): Promise<void> {
-    const location = McpConfigLocator.getMcpConfigLocation(scope);
+    const layoutScope = McpConfigService.toLayoutScope(scope);
+    const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
 
-    await McpConfigLocator.ensureConfigDirectory(scope);
+    await McpConfigLocator.ensureConfigDirectory(layoutScope);
 
     metadata.lastUpdated = new Date().toISOString();
 
@@ -302,38 +330,48 @@ export class McpConfigService {
 
   /**
    * Merge new input definitions into existing ones, deduplicating by id.
-   * Existing inputs with the same id are preserved unchanged.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
    * @param existing - Current inputs array from mcp.json
    * @param incoming - New inputs to add
    */
   public mergeInputs(
-    existing: McpInputDefinition[] | undefined,
-    incoming: McpInputDefinition[] | undefined
-  ): McpInputDefinition[] | undefined {
-    if (!incoming || incoming.length === 0) {
-      return existing;
-    }
-    const merged = existing ? [...existing] : [];
-    const existingIds = new Set(merged.map((i) => i.id));
-    for (const input of incoming) {
-      if (!existingIds.has(input.id)) {
-        merged.push(input);
-        existingIds.add(input.id);
-      }
-    }
-    return merged.length > 0 ? merged : undefined;
+    existing: VSCodeMcpInputDefinition[] | undefined,
+    incoming: VSCodeMcpInputDefinition[] | undefined
+  ): VSCodeMcpInputDefinition[] | undefined {
+    return mergeInputDeclarations(existing, incoming);
   }
 
+  /**
+   * Merge new servers and their input declarations into an existing MCP configuration.
+   * @param existingConfig - Current config read from the host's mcp.json.
+   * @param newServers - Servers to add, already prefixed with their bundle id.
+   * @param options - Install options (conflict handling).
+   * @param newInputs - Input declarations shipped by the bundle manifest.
+   * @param supportsInputs - Whether the target host resolves `${input:id}`. When
+   * false, missing declarations are not auto-derived because the host will never
+   * prompt for them and the entry would only mislead the user.
+   */
   public async mergeServers(
     existingConfig: McpConfiguration,
     newServers: Record<string, McpServerConfig>,
     options: McpInstallOptions,
-    newInputs?: McpInputDefinition[]
+    newInputs?: VSCodeMcpInputDefinition[],
+    supportsInputs = true
   ): Promise<{ config: McpConfiguration; conflicts: string[]; warnings: string[] }> {
+    // Spread `existingConfig` first: hosts such as Claude Code keep unrelated state
+    // (projects, account/OAuth data, preferences) as sibling top-level keys in the
+    // same file. Rebuilding the object from only servers/tasks/inputs would drop all
+    // of it before serialization ever runs, so the preservation guarantee has to start
+    // here, not in serializeMcpConfig.
     const result: McpConfiguration = {
+      ...existingConfig,
       servers: { ...existingConfig.servers },
       tasks: existingConfig.tasks ? { ...existingConfig.tasks } : undefined,
-      inputs: this.mergeInputs(existingConfig.inputs, newInputs)
+      // Hosts without input support must not receive bundle declarations: they
+      // would never prompt, so preserve only input state already in the file.
+      inputs: supportsInputs
+        ? this.mergeInputs(existingConfig.inputs, newInputs)
+        : existingConfig.inputs
     };
     const conflicts: string[] = [];
     const warnings: string[] = [];
@@ -354,44 +392,40 @@ export class McpConfigService {
       }
     }
 
+    // Auto-derive missing input declarations from ${input:id} references in the
+    // newly-installed servers. Delegates to the pure core helper.
+    // Skipped on hosts that do not resolve inputs.
+    if (supportsInputs) {
+      const { inputs: derivedInputs, warnings: derivedWarnings } =
+        this.autoDeriveMissingInputs(newServers, result.inputs);
+      result.inputs = derivedInputs;
+      warnings.push(...derivedWarnings);
+    }
+
     return { config: result, conflicts, warnings };
   }
 
   /**
-   * Collect all ${input:id} references across all server configurations.
-   * @param servers
+   * Auto-derive missing `${input:id}` declarations for newly-installed servers.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
+   * @param servers - Servers to scan for `${input:id}` references.
+   * @param existingInputs - Inputs already declared (merged manifest + existing file).
    */
-  // eslint-disable-next-line @typescript-eslint/member-ordering -- private method added after public ones, ordering is intentional
-  private collectInputReferences(servers: Record<string, McpServerConfig>): Set<string> {
-    const inputPattern = /\$\{input:([^}]+)\}/g;
-    const referenced = new Set<string>();
+  public autoDeriveMissingInputs(
+    servers: Record<string, McpServerConfig>,
+    existingInputs: VSCodeMcpInputDefinition[] | undefined
+  ): { inputs: VSCodeMcpInputDefinition[] | undefined; warnings: string[] } {
+    return autoDeriveMissingInputs(servers, existingInputs);
+  }
 
-    const scan = (value: string | undefined): void => {
-      if (!value) {
-        return;
-      }
-      let match: RegExpExecArray | null;
-      while ((match = inputPattern.exec(value)) !== null) {
-        referenced.add(match[1]);
-      }
-    };
-
-    for (const serverConfig of Object.values(servers)) {
-      if (isRemoteServerConfig(serverConfig)) {
-        scan(serverConfig.url);
-        if (serverConfig.headers) {
-          Object.values(serverConfig.headers).forEach((v) => scan(v));
-        }
-      } else {
-        scan(serverConfig.command);
-        serverConfig.args?.forEach((v) => scan(v));
-        if (serverConfig.env) {
-          Object.values(serverConfig.env).forEach((v) => scan(v));
-        }
-      }
-    }
-
-    return referenced;
+  /**
+   * Collect all `${input:id}` references across the given server configurations.
+   * Delegates to the pure domain helper in `@ai-primitives-hub/core`.
+   * @param servers - Server configurations to scan.
+   * @returns The set of referenced input ids.
+   */
+  public collectInputReferences(servers: Record<string, McpServerConfig>): Set<string> {
+    return collectInputReferences(servers);
   }
 
   /**
@@ -403,7 +437,7 @@ export class McpConfigService {
     if (!config.inputs || config.inputs.length === 0) {
       return config;
     }
-    const referenced = this.collectInputReferences(config.servers);
+    const referenced = collectInputReferences(config.servers);
     const filteredInputs = config.inputs.filter((input) => referenced.has(input.id));
     return {
       ...config,

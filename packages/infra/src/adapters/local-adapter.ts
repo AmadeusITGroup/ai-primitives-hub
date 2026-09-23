@@ -30,6 +30,11 @@ import * as yaml from 'js-yaml';
 import {
   BaseSourceAdapter,
 } from './base-source-adapter';
+import {
+  isValidLocalUrl,
+  resolveLocalPath,
+  toFileUrl,
+} from './local-path';
 
 interface LocalManifest {
   id: string;
@@ -65,7 +70,7 @@ export class LocalAdapter extends BaseSourceAdapter {
   }
 
   private getLocalPath(): string {
-    return path.normalize(stripFileProtocol(this.source.url));
+    return resolveLocalPath(this.source.url);
   }
 
   private async directoryExists(dirPath: string): Promise<boolean> {
@@ -133,7 +138,7 @@ export class LocalAdapter extends BaseSourceAdapter {
    * @param url - Candidate source URL.
    */
   public static isValidLocalUrl(url: string): boolean {
-    return url.startsWith('file://') || path.isAbsolute(url) || url.startsWith('~/') || url.startsWith('./');
+    return isValidLocalUrl(url);
   }
 
   public requiresAuthentication(): boolean {
@@ -141,11 +146,11 @@ export class LocalAdapter extends BaseSourceAdapter {
   }
 
   public getManifestUrl(bundleId: string): string {
-    return `file://${path.join(this.getLocalPath(), bundleId, MANIFEST_FILE_NAME)}`;
+    return toFileUrl(path.join(this.getLocalPath(), bundleId, MANIFEST_FILE_NAME));
   }
 
   public getDownloadUrl(bundleId: string): string {
-    return `file://${path.join(this.getLocalPath(), bundleId)}`;
+    return toFileUrl(path.join(this.getLocalPath(), bundleId));
   }
 
   public async fetchMetadata(): Promise<SourceMetadata> {
@@ -209,8 +214,8 @@ export class LocalAdapter extends BaseSourceAdapter {
           size: declaredSize !== undefined && declaredSize !== '' ? declaredSize : formatSize(size),
           dependencies: manifest.dependencies ?? [],
           license: manifest.license ?? 'Unknown',
-          downloadUrl: `file://${bundleDir}`,
-          manifestUrl: `file://${manifestPath}`
+          downloadUrl: toFileUrl(bundleDir),
+          manifestUrl: toFileUrl(manifestPath)
         });
       } catch {
         // Skip bundles with an unreadable/malformed manifest; other bundles
@@ -237,7 +242,7 @@ export class LocalAdapter extends BaseSourceAdapter {
   }
 
   public async downloadBundle(bundle: Bundle): Promise<Buffer> {
-    const bundlePath = stripFileProtocol(bundle.downloadUrl);
+    const bundlePath = resolveLocalPath(bundle.downloadUrl);
     if (!(await this.directoryExists(bundlePath))) {
       throw new Error(`Bundle directory not found: ${bundlePath}`);
     }
@@ -260,10 +265,6 @@ export class LocalAdapter extends BaseSourceAdapter {
 
     return finished;
   }
-}
-
-function stripFileProtocol(url: string): string {
-  return url.startsWith('file://') ? url.slice('file://'.length) : url;
 }
 
 function formatSize(bytes: number): string {

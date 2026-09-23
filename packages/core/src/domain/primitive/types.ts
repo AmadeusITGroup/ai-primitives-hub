@@ -32,7 +32,16 @@ export const PRIMITIVE_KINDS = [
   'skill',
   'plugin',
   'hook',
-  'mcp-server'
+  'mcp-server',
+  'steering',
+  'spec',
+  'command',
+  'rule',
+  'output-style',
+  'tool',
+  'power',
+  'knowledge',
+  'playbook'
 ] as const;
 
 export type PrimitiveKind = typeof PRIMITIVE_KINDS[number];
@@ -43,6 +52,56 @@ export type PrimitiveKind = typeof PRIMITIVE_KINDS[number];
  */
 export function isPrimitiveKind(value: unknown): value is PrimitiveKind {
   return typeof value === 'string' && (PRIMITIVE_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * Translate legacy route names and manifest aliases into canonical primitive
+ * kinds. Persisted target configuration may contain route names from older
+ * releases, but all runtime comparisons use the semantic vocabulary above.
+ * @param value - Canonical kind or legacy route/manifest alias.
+ * @returns Canonical primitive kind, or null for an unknown value.
+ */
+export function normalizePrimitiveKind(value: unknown): PrimitiveKind | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  const aliases: Record<string, PrimitiveKind> = {
+    prompt: 'prompt',
+    prompts: 'prompt',
+    instruction: 'instruction',
+    instructions: 'instruction',
+    'chat-mode': 'chat-mode',
+    chatmode: 'chat-mode',
+    'chat-modes': 'chat-mode',
+    agent: 'agent',
+    agents: 'agent',
+    skill: 'skill',
+    skills: 'skill',
+    plugin: 'plugin',
+    plugins: 'plugin',
+    hook: 'hook',
+    hooks: 'hook',
+    'mcp-server': 'mcp-server',
+    mcp: 'mcp-server',
+    steering: 'steering',
+    spec: 'spec',
+    specs: 'spec',
+    command: 'command',
+    commands: 'command',
+    rule: 'rule',
+    rules: 'rule',
+    'output-style': 'output-style',
+    'output-styles': 'output-style',
+    tool: 'tool',
+    tools: 'tool',
+    power: 'power',
+    powers: 'power',
+    knowledge: 'knowledge',
+    playbook: 'playbook',
+    playbooks: 'playbook'
+  };
+  return aliases[normalized] ?? null;
 }
 
 /**
@@ -68,6 +127,8 @@ export interface Primitive {
   model?: string;
   /** Short excerpt of the primitive's body, for search result previews. */
   bodyPreview: string;
+  /** Optional longer extractive summary of the primitive's body (~80 words). */
+  bodySummary?: string;
   /** Content hash, for change detection between harvests. */
   contentHash: string;
   rating?: number;

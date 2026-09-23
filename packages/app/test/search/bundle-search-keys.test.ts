@@ -1,0 +1,142 @@
+import {
+  describe,
+  expect,
+  it,
+} from 'vitest';
+import {
+  resolveBundleSearchKeys,
+  resolveScoredBundleSearchKeys,
+} from '../../src/search';
+
+describe('resolveBundleSearchKeys', () => {
+  it('maps source-level index records to catalog bundle identities', () => {
+    const keys = resolveBundleSearchKeys(
+      [
+        { sourceId: 'github-source', bundleId: 'github-source' },
+        { sourceId: 'awesome-source', bundleId: 'collection-b' }
+      ],
+      [
+        { sourceId: 'github-source', bundleId: 'owner-repo-v1.2.3' },
+        { sourceId: 'awesome-source', bundleId: 'collection-a' },
+        { sourceId: 'awesome-source', bundleId: 'collection-b' }
+      ]
+    );
+
+    expect(keys).toEqual([
+      'github-source\u0000owner-repo-v1.2.3',
+      'awesome-source\u0000collection-b'
+    ]);
+  });
+
+  it('preserves ranked order and removes duplicate catalog identities', () => {
+    const keys = resolveBundleSearchKeys(
+      [
+        { sourceId: 'source', bundleId: 'bundle' },
+        { sourceId: 'source', bundleId: 'bundle' }
+      ],
+      [{ sourceId: 'source', bundleId: 'bundle' }]
+    );
+
+    expect(keys).toEqual(['source\u0000bundle']);
+  });
+});
+
+describe('resolveScoredBundleSearchKeys', () => {
+  it('pairs each resolved key with its raw relevance score', () => {
+    const scored = resolveScoredBundleSearchKeys(
+      [
+        { sourceId: 'source', bundleId: 'high', score: 9.5 },
+        { sourceId: 'source', bundleId: 'low', score: 1.2 }
+      ],
+      [
+        { sourceId: 'source', bundleId: 'high' },
+        { sourceId: 'source', bundleId: 'low' }
+      ]
+    );
+
+    expect(scored).toEqual([
+      { key: 'source\u0000high', score: 9.5 },
+      { key: 'source\u0000low', score: 1.2 }
+    ]);
+  });
+
+  it('keeps the first (best-ranked) score for a deduplicated identity', () => {
+    const scored = resolveScoredBundleSearchKeys(
+      [
+        { sourceId: 'source', bundleId: 'bundle', score: 8 },
+        { sourceId: 'source', bundleId: 'bundle', score: 3 }
+      ],
+      [{ sourceId: 'source', bundleId: 'bundle' }]
+    );
+
+    expect(scored).toEqual([{ key: 'source\u0000bundle', score: 8 }]);
+  });
+
+  it('expands a source-level identity to every catalog bundle with the same score', () => {
+    const scored = resolveScoredBundleSearchKeys(
+      [{ sourceId: 'github-source', bundleId: 'github-source', score: 5 }],
+      [
+        { sourceId: 'github-source', bundleId: 'repo-a-v1' },
+        { sourceId: 'github-source', bundleId: 'repo-b-v2' }
+      ]
+    );
+
+    expect(scored).toEqual([
+      { key: 'github-source\u0000repo-a-v1', score: 5 },
+      { key: 'github-source\u0000repo-b-v2', score: 5 }
+    ]);
+  });
+
+  it('attributes a source-level hit only to the catalog bundle containing the matched file', () => {
+    const scored = resolveScoredBundleSearchKeys(
+      [{ sourceId: 'github-source', bundleId: 'github-source', path: 'agents/renovate.agent.md', score: 5 }],
+      [
+        { sourceId: 'github-source', bundleId: 'renovate-toolkit', filePaths: ['agents/renovate.agent.md', 'skills/renovate-config/SKILL.md'] },
+        { sourceId: 'github-source', bundleId: 'test-arsenal', filePaths: ['agents/testing.agent.md'] }
+      ]
+    );
+
+    expect(scored).toEqual([{ key: 'github-source\u0000renovate-toolkit', score: 5 }]);
+  });
+
+  it('drops an unmatched nested-file hit when the source publishes file lists', () => {
+    const scored = resolveScoredBundleSearchKeys(
+      [{ sourceId: 'github-source', bundleId: 'github-source', path: 'skills/renovate-config/references/x.md', score: 5 }],
+      [
+        { sourceId: 'github-source', bundleId: 'renovate-toolkit', filePaths: ['skills/renovate-config/SKILL.md'] },
+        { sourceId: 'github-source', bundleId: 'test-arsenal', filePaths: ['agents/testing.agent.md'] }
+      ]
+    );
+
+    // The nested file is not a top-level member; its bundle surfaces via the
+    // SKILL.md primitive, so this hit resolves to nothing rather than flooding.
+    expect(scored).toEqual([]);
+  });
+
+  it('falls back to whole-source expansion when no catalog bundle exposes the matched file', () => {
+    const scored = resolveScoredBundleSearchKeys(
+      [{ sourceId: 'github-source', bundleId: 'github-source', path: 'agents/renovate.agent.md', score: 5 }],
+      [
+        { sourceId: 'github-source', bundleId: 'repo-a-v1' },
+        { sourceId: 'github-source', bundleId: 'repo-b-v2' }
+      ]
+    );
+
+    expect(scored).toEqual([
+      { key: 'github-source\u0000repo-a-v1', score: 5 },
+      { key: 'github-source\u0000repo-b-v2', score: 5 }
+    ]);
+  });
+
+  it('normalizes path separators and leading ./ when attributing by file', () => {
+    const scored = resolveScoredBundleSearchKeys(
+      [{ sourceId: 'github-source', bundleId: 'github-source', path: './agents/renovate.agent.md', score: 5 }],
+      [
+        { sourceId: 'github-source', bundleId: 'renovate-toolkit', filePaths: ['agents\\renovate.agent.md'] },
+        { sourceId: 'github-source', bundleId: 'other', filePaths: ['agents/other.agent.md'] }
+      ]
+    );
+
+    expect(scored).toEqual([{ key: 'github-source\u0000renovate-toolkit', score: 5 }]);
+  });
+});

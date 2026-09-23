@@ -1,127 +1,190 @@
 # Architecture Overview
 
-VS Code extension providing a marketplace for GitHub Copilot prompt bundles from multiple sources.
+AI Primitives Hub is a pnpm monorepo for discovering, packaging, installing,
+and managing AI primitives. This page describes the implementation in this
+repository today. Architecture Decision Records (ADRs) explain decisions and
+migration direction; they are not evidence that every migration step is
+complete.
 
-## Key Features
+## Current Shape
 
-- Visual Marketplace with search/filter
-- Multi-source support (GitHub, Local, AwesomeCopilot, APM)
-- Bundle management (install, update, uninstall)
-- Auto-sync with GitHub Copilot
-- Cross-platform (macOS, Linux, Windows)
-- MCP server integration
+The repository has two delivery layers over shared packages:
 
-## Architecture Principles
+- The Clipanion CLI under `packages/cli/`
+- The VS Code extension under `apps/vscode-extension/`
 
-1. **Separation of Concerns** — UI / Service / Adapter / Storage layers
-2. **Adapter Pattern** — Unified interface for different sources
-3. **Event-Driven** — React to installations, update UI dynamically
-4. **Cross-Platform** — OS-specific path handling
-
-## Component Architecture
+The CLI delegates most use cases to the shared packages. The extension also
+uses the shared packages, but still owns VS Code-specific commands, UI,
+storage wiring, events, notifications, and several compatibility facades. The
+extension is therefore not yet only a thin shell.
 
 ```mermaid
-graph TD
-    subgraph UI["🎨 UI Layer"]
-        A[Marketplace & Tree Views<br/>StatusBar]
-    end
-    
-    subgraph CMD["⚡ Command Layer"]
-        B[VS Code Commands<br/>Bundle • Source • Profile • Hub]
-    end
-    
-    subgraph SVC["🔧 Service Layer"]
-        C1[RegistryManager<br/>Central Orchestrator]
-        C2[BundleInstaller<br/>Download & Install]
-        C3[UserScopeService<br/>Sync to Copilot]
-        C4[UpdateService<br/>Auto Updates]
-        C5[McpServerManager<br/>MCP Integration]
-    end
-    
-    subgraph ADP["🔌 Adapter Layer"]
-        D[Source Adapters<br/>GitHub • Local • APM]
-    end
-    
-    subgraph STG["💾 Storage Layer"]
-        E[Persistent Storage<br/>Registry & Hub Data]
-    end
-    
-    UI --> CMD
-    CMD --> SVC
-    SVC --> ADP
-    ADP --> STG
-    
-    C1 -.-> C2
-    C1 -.-> C3
-    C1 -.-> C4
-    C1 -.-> C5
+flowchart TD
+    USER["CLI user"] --> CLI["packages/cli"]
+    IDE["VS Code user"] --> EXT["Extension commands and UI"]
+    EXT --> ESVC["Extension services and facades"]
+    CLI --> APP["packages/app"]
+    ESVC --> APP
+    ESVC --> INFRA["packages/infra"]
+    ESVC --> CORE["packages/core"]
+    APP --> INFRA
+    APP --> CORE
+    INFRA --> CORE
 ```
 
-## Component Responsibilities
+## Package Responsibilities
 
-| Component | Responsibility |
-|-----------|---------------|
-| **RegistryManager** | Orchestrates sources, bundles, installations |
-| **BundleInstaller** | Extraction, validation, installation, MCP integration |
-| **UserScopeService** | Syncs bundles to Copilot directories |
-| **UpdateScheduler** | Manages timing of update checks |
-| **UpdateChecker** | Detects available updates |
-| **AutoUpdateService** | Background bundle updates with rollback |
-| **McpServerManager** | MCP server installation/tracking |
-| **McpConfigService** | Reads/writes VS Code's mcp.json |
-| **HubManager** | Hub configuration and profile management |
-| **SchemaValidator** | JSON Schema validation using AJV |
-| **TemplateEngine** | Scaffold template loading and rendering |
-| **NotificationManager** | User notifications and update alerts |
+| Area | Current responsibility |
+|---|---|
+| `packages/core` | Domain types, validation rules, errors, schemas, and ports for external capabilities |
+| `packages/infra` | Implementations of core ports: source adapters, HTTP/GitHub access, stores, search, archives, scaffolding, layout loading, and target writers |
+| `packages/app` | Use-case orchestration for installation, registry/Hub/profile operations, discovery, search, updates, and transforms |
+| `packages/cli` | Clipanion commands, argument parsing, terminal output, and delivery-specific wiring |
+| `apps/vscode-extension` | VS Code commands, views, webviews, progress, notifications, host detection, extension storage wiring, and compatibility facades over shared use cases |
+| `lib` | Legacy collection build, validation, publishing, and release-analysis scripts |
 
-## Copilot Chat Skills
+The package dependency declarations enforce this shared direction:
 
-The extension ships built-in Copilot skills via the `contributes.chatSkills` entry in `package.json`.
-To add a new skill:
+```mermaid
+flowchart LR
+    CLI["CLI"] --> APP["app"]
+    EXT["Extension"] --> APP
+    APP --> INFRA["infra"]
+    APP --> CORE["core"]
+    INFRA --> CORE
+```
 
-1. Create a directory under `resources/skills/<skill-name>/` with a `SKILL.md` file
-2. Register it in `package.json` under `contributes.chatSkills`:
-   ```json
-   "chatSkills": [
-     { "path": "./resources/skills/<skill-name>/SKILL.md" }
-   ]
-   ```
-3. If the skill references docs, add a build step to copy them into the skill's `references/` directory and git-ignore the generated files (see `copy-skill-references` in `package.json` for an example)
-4. Ensure `.vscodeignore` and `.vscodeignore.production` include `!resources/**` so skills ship in the VSIX
+`core` has no dependency on another `@ai-primitives-hub/*` package. `infra`
+depends on `core`; `app` depends on both. The CLI also declares direct
+dependencies on all three because its delivery wiring constructs concrete
+adapters as well as calling application services.
 
-> **Tip:** See `resources/skills/prompt-registry-helper/` for a complete example of a documentation-backed skill with build-time reference copying.
+## VS Code Extension
 
-> **Heads up — build coupling:** The existing `copy-skill-references` npm script is tailored to `prompt-registry-helper`. Adding a new skill that also needs build-time references will likely require updating that script (or adding a new one) in `package.json`, along with corresponding `.gitignore` entries for the generated files.
+The extension currently has its own layered delivery architecture:
 
-> **Heads up — VSIX size:** Skill resources are packaged directly inside the `.vsix`. Be mindful of the size and number of reference files bundled with each skill — large or numerous resources will increase the extension's download and install footprint.
+```mermaid
+flowchart TD
+    VIEW["Tree views and webviews"] --> CMD["Command handlers"]
+    CMD --> REG["RegistryManager and focused services"]
+    REG --> SHARED["Shared app use cases"]
+    REG --> VSC["VS Code-specific storage and events"]
+    SHARED --> ADAPTERS["infra source adapters and writers"]
+```
 
-## Cross-Platform Paths
+Important current boundaries:
 
-| Platform | Copilot Directory |
-|----------|-------------------|
-| macOS | `~/Library/Application Support/Code/User/prompts` |
-| Linux | `~/.config/Code/User/prompts` |
-| Windows | `%APPDATA%/Code/User/prompts` |
+- `RegistryManager` remains the central extension facade. Search,
+  installation, uninstallation, update detection, and profile operations
+  already delegate substantial behavior to `packages/app`.
+- `BundleInstaller` owns extension-specific installation wiring and invokes
+  the shared `InstallPipeline` for the generic download, extraction,
+  validation, cache, and write sequence.
+- `UserScopeService` and `RepositoryScopeService` handle host- and
+  scope-specific synchronization.
+- `McpServerManager` and `McpConfigService` manage MCP configuration as a
+  merge/tracking lifecycle rather than as a normal copied file.
+- `HubManager` is an extension facade over shared Hub resolution, storage,
+  validation, and application operations.
+- Source adapter construction has moved to `packages/app` and
+  `packages/infra`; the extension adapter directory contains compatibility
+  wiring for remaining call sites.
 
-Supports: VS Code Stable, Insiders, Windsurf
+See [Core Flows](./core-flows.md) for the current entry points and
+[Installation Flow](./architecture/installation-flow.md) for scope-specific
+details.
 
-## Glossary
+## CLI
 
-| Term | Definition |
-|------|------------|
-| **Bundle** | Package of prompts, instructions, chat modes, agents |
-| **Source** | Repository/location for fetching bundles |
-| **Adapter** | Implementation for a source type |
-| **Profile** | Collection of bundles grouped by project/team |
-| **Manifest** | YAML file describing bundle contents |
+`packages/cli` is an active delivery layer, not scaffolding. It contains
+commands for collections, primitives, bundles, sources, Hubs, profiles,
+targets, discovery/indexing, installation, configuration, completion, and
+diagnostics.
 
-## Deep Dives
+Commands parse input and format output. Shared business behavior belongs in
+`packages/app`, with ports and domain rules in `core` and concrete adapters in
+`infra`.
 
-- [Adapters](./architecture/adapters.md) — Adapter pattern and implementations
-- [Authentication](./architecture/authentication.md) — Auth chain for private repos
-- [Installation Flow](./architecture/installation-flow.md) — Bundle installation process
-- [Update System](./architecture/update-system.md) — Auto-update architecture
-- [UI Components](./architecture/ui-components.md) — Marketplace and TreeView
-- [MCP Integration](./architecture/mcp-integration.md) — MCP server management
-- [Scaffolding](./architecture/scaffolding.md) — Project templates
-- [Validation](./architecture/validation.md) — Schema validation
+## Main Runtime Flows
+
+### Discovery
+
+```mermaid
+flowchart TD
+    SOURCE["Configured source"] --> FACTORY["app source-adapter factory"]
+    FACTORY --> ADAPTER["infra adapter"]
+    ADAPTER --> REMOTE["GitHub, local, APM, skills, or other source"]
+    ADAPTER --> BUNDLES["Normalized bundle metadata"]
+    BUNDLES --> STORE["Registry/index storage"]
+    STORE --> UI["Extension marketplace or CLI search"]
+```
+
+### Installation
+
+```mermaid
+flowchart TD
+    ACTION["CLI command or extension action"] --> RESOLVE["Resolve bundle and target"]
+    RESOLVE --> DOWNLOAD["Download through source adapter"]
+    DOWNLOAD --> PIPE["Shared InstallPipeline"]
+    PIPE --> EXTRACT["Extract and validate"]
+    EXTRACT --> CACHE["Install/cache content"]
+    CACHE --> WRITE["Write target and scope layout"]
+    WRITE --> MCP["Merge MCP configuration when present"]
+    MCP --> STATE["Record lock and installation state"]
+```
+
+The delivery layers do not yet use identical wiring around every step. The
+shared pipeline is the common generic sequence; the extension adds VS Code
+progress, events, scope services, MCP handling, and its existing storage
+model.
+
+### Hub synchronization
+
+```mermaid
+flowchart TD
+    REF["GitHub, URL, or local Hub reference"] --> RESOLVER["HubResolver"]
+    RESOLVER --> VALIDATE["Parse and validate Hub configuration"]
+    VALIDATE --> STORE["HubStore"]
+    STORE --> ACTIVE["Select active Hub"]
+    ACTIVE --> SYNC["Synchronize enabled sources"]
+    SYNC --> PROFILES["Expose shared profiles and collections"]
+```
+
+A Hub is configuration that distributes sources and profiles. It does not
+contain the primitive files itself. See
+[Creating a Hub](../author-guide/creating-a-hub.md) for the author workflow
+and [Hub Schema](../reference/hub-schema.md) for field definitions.
+
+## Persistence and External Boundaries
+
+| Boundary | Current implementation |
+|---|---|
+| Source content | GitHub, Azure DevOps, URLs, local files, APM, skills, and Awesome Copilot adapters where supported by the relevant source model |
+| Shared application state | `AppStorage` port with the XDG-based infrastructure implementation |
+| Extension state | VS Code extension storage facades plus repository lockfiles |
+| Repository installation state | `prompt-registry.lock.json` and local-only lock/exclusion behavior |
+| Target files | Host- and scope-aware writers/layout resolution |
+| MCP state | Host configuration files plus managed-server tracking |
+
+The existing `prompt-registry` identifiers are retained where changing them
+would break compatibility. See ADR-0004 in the
+[ADR index](./architecture/adr/adr-index.md).
+
+## Documentation Boundaries
+
+Use this page for the current system map. Keep detailed behavior in the
+existing focused pages rather than repeating it here:
+
+- [Adapters](./architecture/adapters.md)
+- [Authentication](./architecture/authentication.md)
+- [Installation Flow](./architecture/installation-flow.md)
+- [Update System](./architecture/update-system.md)
+- [UI Components](./architecture/ui-components.md)
+- [MCP Integration](./architecture/mcp-integration.md)
+- [Scaffolding](./architecture/scaffolding.md)
+- [Validation](./architecture/validation.md)
+- [Library-centric code map](./architecture/library-centric-architecture/codemap.md)
+- [Architecture decisions](./architecture/adr/adr-index.md)
+
+When these pages disagree with executable code, tests, or schemas, treat the
+executable behavior as authoritative and correct the documentation.

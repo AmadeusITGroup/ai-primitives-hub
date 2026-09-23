@@ -25,7 +25,7 @@ jobs:
 
       - name: Download npm-audit-comment artifact
         id: artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: npm-audit-comment
@@ -39,7 +39,7 @@ jobs:
 
       - name: Post or update PR comment
         if: steps.artifact.outcome == 'success'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs')

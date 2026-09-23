@@ -19,12 +19,16 @@
  */
 import type {
   FileSystem,
+  GitHubRepositoryTarget,
   HttpClient,
   HubConfig,
   HubReference,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
+import {
+  parseGitHubRepositoryTarget,
+} from '../http/github-repository-target';
 
 export interface ResolvedHub {
   config: HubConfig;
@@ -43,6 +47,14 @@ export interface HubResolver {
   resolve(ref: HubReference): Promise<ResolvedHub>;
 }
 
+export interface GitHubHubResolverOptions {
+  /** Use generic public auth first, with an App-only retry for private hubs. */
+  sourceAware?: {
+    genericTokenProvider?: TokenProvider;
+    appTokenProvider?: TokenProvider;
+  };
+}
+
 /**
  * Shared GET-and-parse-YAML logic for the `url`/`github` resolvers,
  * mirroring the extension's `fetchFromUrl` (minus manual redirect
@@ -50,10 +62,24 @@ export interface HubResolver {
  * @param http HttpClient to fetch with.
  * @param tokens TokenProvider consulted for the target host.
  * @param url Absolute URL to GET.
+ * @param repositoryTarget
+ * @param requireToken
  */
-async function fetchYamlConfig(http: HttpClient, tokens: TokenProvider, url: string): Promise<HubConfig> {
+async function fetchYamlConfig(
+  http: HttpClient,
+  tokens: TokenProvider | undefined,
+  url: string,
+  repositoryTarget?: GitHubRepositoryTarget,
+  requireToken = false
+): Promise<HubConfig> {
   const headers: Record<string, string> = {};
-  const token = await tokens.getToken(new URL(url).hostname);
+  const token = await tokens?.getToken(new URL(url).hostname, repositoryTarget);
+  if (token === undefined && requireToken) {
+    throw Object.assign(
+      new Error('A generic GitHub token is required to fetch a hub configuration.'),
+      { code: 'GH_PUBLIC_GENERIC_TOKEN_UNAVAILABLE' }
+    );
+  }
   if (token !== undefined) {
     headers.Authorization = `token ${token}`;
   }
@@ -138,10 +164,12 @@ export class GitHubHubResolver implements HubResolver {
    * Construct a GitHubHubResolver instance.
    * @param http HttpClient for the GET request.
    * @param tokens TokenProvider for private repos.
+   * @param options
    */
   public constructor(
     private readonly http: HttpClient,
-    private readonly tokens: TokenProvider
+    private readonly tokens: TokenProvider,
+    private readonly options: GitHubHubResolverOptions = {}
   ) {}
 
   /**
@@ -153,9 +181,41 @@ export class GitHubHubResolver implements HubResolver {
     const branch = ref.ref ?? 'main';
     const timestamp = Date.now();
     const url = `https://raw.githubusercontent.com/${ref.location}/${branch}/hub-config.yml?t=${timestamp}`;
-    const config = await fetchYamlConfig(this.http, this.tokens, url);
-    return { config, reference: ref };
+    const repositoryTarget = parseGitHubRepositoryTarget(ref.location);
+    if (this.options.sourceAware === undefined) {
+      const config = await fetchYamlConfig(this.http, this.tokens, url, repositoryTarget);
+      return { config, reference: ref };
+    }
+    try {
+      const config = await fetchYamlConfig(
+        this.http,
+        this.options.sourceAware.genericTokenProvider,
+        url,
+        repositoryTarget,
+        true
+      );
+      return { config, reference: ref };
+    } catch (error) {
+      if (this.options.sourceAware.appTokenProvider === undefined || !isAuthenticationFailure(error)) {
+        throw error;
+      }
+      const config = await fetchYamlConfig(
+        this.http,
+        this.options.sourceAware.appTokenProvider,
+        url,
+        repositoryTarget
+      );
+      return { config, reference: ref };
+    }
   }
+}
+
+function isAuthenticationFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (/rate.?limit|too many requests|retry-after/u.test(message)) {
+    return false;
+  }
+  return /\b401\b|\b403\b|\b404\b|authentication failed|access forbidden|not accessible/u.test(message);
 }
 
 /**

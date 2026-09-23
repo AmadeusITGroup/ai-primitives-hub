@@ -9,14 +9,20 @@
  */
 import * as path from 'node:path';
 import {
+  canonicalizeIndexHubId,
+  createEmbeddingProvider,
+  getSearchProfile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import {
   ActiveHubStore,
+  AppStoragePrimitiveIndexStore,
   harvestHub as defaultHarvestHub,
+  GitHubSourcePreflightError,
   type HubHarvestPipelineOptions,
   type HubHarvestPipelineResult,
   HubStore,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   Command,
@@ -35,14 +41,15 @@ import {
  * Falls back to the legacy `prompt-registry` config directory so the
  * `ai-primitives-hub` CLI can reuse an active hub configured by the
  * `gh prompt-registry` extension.
- * @param cmd IndexHarvestCommand instance (mutated).
+ * @param cmd Command instance (mutated).
  * @param cmd.hubRepo
+ * @param cmd.hubId
  * @param cmd.hubBranch
  * @param cmd.hubConfigFile
  * @param ctx CLI context.
  */
 async function autoDetectHubFromActive(
-  cmd: { hubRepo?: string; hubBranch?: string; hubConfigFile?: string },
+  cmd: { hubRepo?: string; hubBranch?: string; hubConfigFile?: string; hubId?: string },
   ctx: Context
 ): Promise<void> {
   try {
@@ -63,6 +70,7 @@ async function autoDetectHubFromActive(
       }
       const saved = await new HubStore(candidate.hubs, ctx.fs).load(activeId);
       const hubConfigFile = path.join(candidate.hubs, `${activeId}.yml`);
+      cmd.hubId = cmd.hubId ?? activeId;
       applyHubRef(cmd, saved.reference, hubConfigFile);
       return;
     }
@@ -97,11 +105,20 @@ function applyHubRef(
   cmd.hubConfigFile = hubConfigFile;
 }
 
-const buildHarvestError = (cause: unknown): RegistryError => new RegistryError({
-  code: 'INDEX.HARVEST_FAILED',
-  message: `index harvest failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-  cause: cause instanceof Error ? cause : undefined
-});
+const buildHarvestError = (cause: unknown): RegistryError => {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const stableCode = typeof (cause as { code?: unknown } | undefined)?.code === 'string'
+    ? (cause as { code: string }).code
+    : undefined;
+  return new RegistryError({
+    code: 'INDEX.HARVEST_FAILED',
+    message: `index harvest failed: ${stableCode === undefined ? '' : `${stableCode}: `}${message}`,
+    cause: cause instanceof Error ? cause : undefined,
+    context: cause instanceof GitHubSourcePreflightError
+      ? { sourcePreflight: cause.report }
+      : undefined
+  });
+};
 
 const isHubRefMissing = (noHubConfig: boolean, hubConfigFile: string | undefined, hubRepo: string | undefined): boolean =>
   !noHubConfig && !hubConfigFile && (!hubRepo || hubRepo.length === 0);
@@ -119,14 +136,24 @@ export class IndexHarvestCommand extends Command {
     details: `
       Usage: ai-primitives-hub index harvest [options]
 
+      Options:
+        --embed              Embed primitive text using the local ternlight model
+        --embed-strategy     Embedding strategy: single (default) or dual
+        --github-app-id      GitHub App ID for automatic source-aware setup
+        --github-app-key-file
+                             PEM path for automatic source-aware setup
+
       Examples:
         ai-primitives-hub index harvest --hub-repo OWNER/REPO
+        ai-primitives-hub index harvest --hub-repo OWNER/REPO --embed
+        ai-primitives-hub index harvest --hub-repo OWNER/REPO --embed --embed-strategy dual
         ai-primitives-hub index harvest --hub-config-file hub-config.yml
         ai-primitives-hub index harvest --no-hub-config --extra-source 'local:/path/to/bundles'
     `
   });
 
   public hubRepo = Option.String('--hub-repo');
+  public hubId = Option.String('--hub-id');
   public hubBranch = Option.String('--hub-branch');
   public hubConfigFile = Option.String('--hub-config-file');
   public noHubConfig = Option.Boolean('--no-hub-config');
@@ -140,6 +167,13 @@ export class IndexHarvestCommand extends Command {
   public extraSources = Option.Array('--extra-source');
   public force = Option.Boolean('--force');
   public dryRun = Option.Boolean('--dry-run');
+  public embed = Option.Boolean('--embed', false);
+  public embedStrategy = Option.String('--embed-strategy');
+  public githubAppId = Option.String('--github-app-id');
+  public githubAppClientId = Option.String('--github-app-client-id');
+  public githubAppKeyFile = Option.String('--github-app-key-file');
+  public githubAppInstallationId = Option.String('--github-app-installation-id');
+  public githubAppSetupTimeoutMs = Option.String('--github-app-setup-timeout-ms');
   public verbose = Option.Boolean('--verbose');
   public output = Option.String('-o,--output');
   public commandContext!: { ctx: Context };
@@ -176,6 +210,8 @@ export class IndexHarvestCommand extends Command {
       cacheDir: this.cacheDir,
       progressFile: this.progressFile,
       outFile: this.outFile,
+      indexStore: new AppStoragePrimitiveIndexStore(new XdgAppStorage(ctx.env)),
+      hubId: this.hubId === undefined ? undefined : canonicalizeIndexHubId(this.hubId),
       concurrency: this.concurrency ? Number.parseInt(this.concurrency, 10) : undefined,
       explicitToken,
       sourcesInclude: this.sourcesInclude,
@@ -190,7 +226,21 @@ export class IndexHarvestCommand extends Command {
         : undefined,
       onLog: (msg): void => {
         ctx.stderr.write(`[index harvest] ${msg}\n`);
-      }
+      },
+      embeddings: this.embed
+        ? createEmbeddingProvider(getSearchProfile(this.embedStrategy === 'dual' ? 'ternlight-dual-v1' : 'ternlight-single-v1'))
+        : undefined,
+      embeddingStrategy: this.embedStrategy as 'single' | 'dual' | undefined,
+      searchProfileId: this.embed
+        ? (this.embedStrategy === 'dual' ? 'ternlight-dual-v1' : 'ternlight-single-v1')
+        : 'bm25-v1',
+      githubAppId: this.githubAppId,
+      githubAppClientId: this.githubAppClientId,
+      githubAppKeyFile: this.githubAppKeyFile,
+      githubAppInstallationId: this.githubAppInstallationId,
+      githubAppSetupTimeoutMs: this.githubAppSetupTimeoutMs === undefined
+        ? undefined
+        : Number.parseInt(this.githubAppSetupTimeoutMs, 10)
     };
 
     const runner = defaultHarvestHub;

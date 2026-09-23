@@ -85,6 +85,8 @@ interface DeploymentManifest {
   prompts?: unknown[];
   /** Read only for the Marketplace webview's content-breakdown UI - see this module's own doc. */
   mcpServers?: Record<string, unknown>;
+  /** Read only for the Marketplace webview's content-breakdown UI - see this module's own doc. */
+  mcpInputs?: unknown[];
 }
 
 function isManifestAssetName(name: string): boolean {
@@ -243,6 +245,9 @@ export class GitHubAdapter extends BaseSourceAdapter {
     }
     if (manifest?.mcpServers && typeof manifest.mcpServers === 'object') {
       (bundle as Bundle & { mcpServers?: unknown }).mcpServers = manifest.mcpServers;
+    }
+    if (manifest?.mcpInputs && Array.isArray(manifest.mcpInputs) && manifest.mcpInputs.length > 0) {
+      (bundle as Bundle & { mcpInputs?: unknown[] }).mcpInputs = manifest.mcpInputs;
     }
 
     return bundle;

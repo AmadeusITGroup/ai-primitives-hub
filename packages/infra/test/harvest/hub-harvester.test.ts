@@ -1,7 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type {
+  HttpClient,
+  HttpRequest,
+  HttpResponse,
   HubSourceSpec,
+  ProcessExecutor,
+  ProcessResult,
+  ProcessRunOptions,
 } from '@ai-primitives-hub/core';
 import {
   afterEach,
@@ -82,6 +88,44 @@ function spec(id: string, owner: string, repo: string): HubSourceSpec {
   };
 }
 
+class SourceAwareHarvestHttpClient implements HttpClient {
+  public constructor(
+    private readonly metadataStatus = 200,
+    private readonly repositoryPrivate = false
+  ) {}
+
+  public async fetch(request: HttpRequest): Promise<HttpResponse> {
+    const pathName = new URL(request.url).pathname;
+    let statusCode = 200;
+    let body: unknown = {};
+    if (pathName.endsWith('/owner/repo')) {
+      statusCode = request.headers?.Authorization === 'token generic-token' ? this.metadataStatus : 200;
+      body = { private: this.repositoryPrivate };
+    } else if (pathName.endsWith('/commits/main')) {
+      body = { sha: 'source-aware-sha' };
+    } else if (pathName.includes('/git/trees/')) {
+      body = { tree: [], truncated: false };
+    }
+    return {
+      statusCode,
+      body: new TextEncoder().encode(statusCode === 200 ? JSON.stringify(body) : '{}'),
+      finalUrl: request.url,
+      headers: {}
+    };
+  }
+}
+
+class RecordingAppProcessExecutor implements ProcessExecutor {
+  public readonly calls: { file: string; args: readonly string[]; options: ProcessRunOptions | undefined }[] = [];
+
+  public async execFile(file: string, args: readonly string[], options?: ProcessRunOptions): Promise<ProcessResult> {
+    this.calls.push({ file, args, options });
+    return args.includes('setup')
+      ? { stdout: '', stderr: '' }
+      : { stdout: 'installation-token\n', stderr: '' };
+  }
+}
+
 describe('hub-harvester', () => {
   it('harvests two sources in serial, records progress for each', async () => {
     const promptBytes = Buffer.from('---\ntitle: Hello\ndescription: hi\n---\n\n# Hello\n', 'utf8');
@@ -105,6 +149,53 @@ describe('hub-harvester', () => {
     expect(result.primitives).toBe(2);
     expect(result.totalMs).toBeGreaterThanOrEqual(0);
     expect(result.index.stats().primitives).toBe(2);
+    expect(result.sourceCoverage).toEqual([
+      { sourceId: 'src-1', state: 'indexed', primitives: 1, revision: 'sha-o1r1' },
+      { sourceId: 'src-2', state: 'indexed', primitives: 1, revision: 'sha-o2r2' }
+    ]);
+  });
+
+  it('uses a separate client from the factory for each source', async () => {
+    const promptBytes = Buffer.from('---\ntitle: Hello\n---\n# Hello\n', 'utf8');
+    const promptSha = computeGitBlobSha(promptBytes);
+    const client = new FakeGitHubApi();
+    seedRepo(client, 'o1', 'r1', 'sha-o1r1', [{ path: 'prompts/a.prompt.md', sha: promptSha, size: promptBytes.length }], new Map([[promptSha, promptBytes]]));
+    seedRepo(client, 'o2', 'r2', 'sha-o2r2', [{ path: 'prompts/b.prompt.md', sha: promptSha, size: promptBytes.length }], new Map([[promptSha, promptBytes]]));
+    const created: string[] = [];
+    const cache = new BlobCache(path.join(tmp, 'blobs'));
+
+    const result = await new HubHarvester({
+      sources: [spec('src-1', 'o1', 'r1'), spec('src-2', 'o2', 'r2')],
+      client,
+      clientFactory: (source) => {
+        created.push(source.id);
+        return new RecordingGitHubApi(client);
+      },
+      cache,
+      progressFile: path.join(tmp, 'progress.jsonl'),
+      concurrency: 2
+    }).run();
+
+    expect(result.done).toBe(2);
+    expect(created.toSorted()).toEqual(['src-1', 'src-2']);
+  });
+
+  it('reuses a source-aware preflight commit revision', async () => {
+    const client = new FakeGitHubApi();
+    seedRepo(client, 'o', 'r', 'preflight-sha', [], new Map());
+    const recording = new RecordingGitHubApi(client);
+    const result = await new HubHarvester({
+      sources: [spec('src-1', 'o', 'r')],
+      client: recording,
+      sourcePreflightRevisions: new Map([['src-1', 'preflight-sha']]),
+      cache: new BlobCache(path.join(tmp, 'blobs')),
+      progressFile: path.join(tmp, 'progress.jsonl'),
+      concurrency: 1,
+      dryRun: true
+    }).run();
+
+    expect(result.skip).toBe(1);
+    expect(recording.calls.filter((call) => call.pathOrUrl.includes('/commits/'))).toHaveLength(0);
   });
 
   it('skips unchanged sources on a second run (smart rebuild)', async () => {
@@ -135,6 +226,41 @@ describe('hub-harvester', () => {
     expect(second.skip).toBe(1);
     expect(commitCallCount()).toBe(commitCallsAfterFirst + 1);
     expect(second.index.stats().primitives).toBe(1);
+    expect(second.sourceCoverage).toEqual([
+      { sourceId: 'src-1', state: 'skipped', message: 'already-harvested', revision: 'fixed-sha' }
+    ]);
+  });
+
+  it('retains the last successful source snapshot when a warm run fails', async () => {
+    const promptBytes = Buffer.from('---\ntitle: Hello\n---\n# Hello\n', 'utf8');
+    const promptSha = computeGitBlobSha(promptBytes);
+    const fake = new FakeGitHubApi();
+    seedRepo(fake, 'o', 'r', 'first-sha', [{ path: 'prompts/a.prompt.md', sha: promptSha, size: promptBytes.length }], new Map([[promptSha, promptBytes]]));
+    const cache = new BlobCache(path.join(tmp, 'blobs'));
+    const options = {
+      sources: [spec('src-1', 'o', 'r')],
+      client: fake,
+      cache,
+      progressFile: path.join(tmp, 'progress.jsonl'),
+      concurrency: 1
+    } as const;
+
+    const first = await new HubHarvester(options).run();
+    expect(first.index.stats().primitives).toBe(1);
+
+    // The commit moved, but the subsequent tree request is unavailable. The
+    // warm run must keep the last known-good primitive rather than replacing
+    // the persisted source snapshot with an empty array.
+    fake.seedJson('/repos/o/r/commits/main', { sha: 'second-sha' });
+    const second = await new HubHarvester(options).run();
+    expect(second.error).toBe(1);
+    expect(second.index.stats().primitives).toBe(1);
+    expect(second.sourceCoverage).toHaveLength(1);
+    expect(second.sourceCoverage[0]).toMatchObject({
+      sourceId: 'src-1',
+      state: 'failed',
+      revision: 'second-sha'
+    });
   });
 
   it('harvests an awesome-copilot-plugin source (one bundle per plugin)', async () => {
@@ -414,6 +540,192 @@ items:
         progressFile: path.join(tmp, 'progress.jsonl'),
         cacheDir: path.join(tmp, 'cache')
       })).rejects.toThrow('Invalid hubRepo');
+    });
+
+    it('does not write an index during a dry run', async () => {
+      const outFile = path.join(tmp, 'dry-run-index.json');
+      await harvestHub({
+        noHubConfig: true,
+        dryRun: true,
+        outFile,
+        progressFile: path.join(tmp, 'dry-run-progress.jsonl'),
+        cacheDir: path.join(tmp, 'dry-run-cache')
+      });
+      expect(fs.existsSync(outFile)).toBe(false);
+    });
+
+    it('allows public extra-source harvests to continue anonymously when no token exists', async () => {
+      // Keep this test local and deterministic by injecting its boundaries.
+      const client = new FakeGitHubApi();
+      seedRepo(client, 'octocat', 'hello-world', 'hello-sha', [], new Map());
+
+      const result = await harvestHub({
+        noHubConfig: true,
+        dryRun: true,
+        extraSources: ['id=hello,type=github,url=https://github.com/octocat/hello-world'],
+        outFile: path.join(tmp, 'anonymous-index.json'),
+        progressFile: path.join(tmp, 'anonymous-progress.jsonl'),
+        cacheDir: path.join(tmp, 'anonymous-cache'),
+        githubApi: client,
+        tokenResolver: {
+          readEnv: () => undefined,
+          readGhCli: () => Promise.resolve(undefined)
+        }
+      });
+
+      expect(result.tokenSource).toBe('none');
+    });
+
+    it('runs generic source-aware preflight and harvests with category-bound clients', async () => {
+      const configFile = path.join(tmp, 'hub-config.yml');
+      fs.writeFileSync(configFile, [
+        'sources:',
+        '  - id: public-source',
+        '    type: github',
+        '    url: https://github.com/owner/repo',
+        'profiles: []',
+        ''
+      ].join('\n'));
+
+      const result = await harvestHub({
+        hubConfigFile: configFile,
+        dryRun: true,
+        httpClient: new SourceAwareHarvestHttpClient(),
+        outFile: path.join(tmp, 'source-aware-index.json'),
+        progressFile: path.join(tmp, 'source-aware-progress.jsonl'),
+        cacheDir: path.join(tmp, 'source-aware-cache')
+      }, {
+        AI_PRIMITIVES_HUB_GH_APP_AUTH_ENABLED: 'true',
+        GH_TOKEN: 'generic-token'
+      });
+
+      expect(result.tokenSource).toBe('source-aware');
+      expect(result.totals.error).toBe(0);
+      expect(result).toHaveProperty('sourcePreflight');
+      expect((result as { sourcePreflight?: { valid: boolean; results: { sourceId: string; category: string }[] } }).sourcePreflight).toMatchObject({
+        valid: true,
+        results: [{ sourceId: 'public-source', category: 'public-generic' }]
+      });
+      expect(result.sourceCoverage).toEqual([{
+        sourceId: 'public-source',
+        state: 'skipped',
+        revision: 'source-aware-sha',
+        authenticationCategory: 'public-generic',
+        message: 'dry-run'
+      }]);
+    });
+
+    it('provisions an ephemeral App config from pipeline inputs before authenticated harvest', async () => {
+      const configFile = path.join(tmp, 'private-bootstrap-config.yml');
+      fs.writeFileSync(configFile, [
+        'sources:',
+        '  - id: private-source',
+        '    type: github',
+        '    url: https://github.com/owner/repo',
+        '    owner: owner',
+        '    repo: repo',
+        '    branch: main',
+        'profiles: []',
+        ''
+      ].join('\n'));
+      const executor = new RecordingAppProcessExecutor();
+      const result = await harvestHub({
+        hubConfigFile: configFile,
+        dryRun: true,
+        githubAppId: '123',
+        githubAppKeyFile: '/tmp/app-key.pem',
+        processExecutor: executor,
+        httpClient: new SourceAwareHarvestHttpClient(404),
+        outFile: path.join(tmp, 'private-bootstrap-index.json'),
+        progressFile: path.join(tmp, 'private-bootstrap-progress.jsonl'),
+        cacheDir: path.join(tmp, 'private-bootstrap-cache')
+      }, {
+        GH_TOKEN: 'generic-token'
+      });
+
+      expect(result.tokenSource).toBe('source-aware');
+      expect(result.sourceCoverage).toEqual([{
+        sourceId: 'private-source',
+        state: 'skipped',
+        revision: 'source-aware-sha',
+        authenticationCategory: 'app-authenticated',
+        message: 'dry-run'
+      }]);
+      expect(executor.calls).toHaveLength(2);
+      expect(executor.calls[0]?.args).toContain('github.com/owner/*');
+      expect(executor.calls[1]?.args).toContain('github.com/owner/repo');
+      const configPath = executor.calls[0]?.options?.env?.GH_APP_AUTH_CONFIG;
+      expect(configPath).toBeDefined();
+      expect(fs.existsSync(configPath!)).toBe(false);
+    });
+
+    it('fails source-aware harvest when a private source has no App configuration', async () => {
+      const configFile = path.join(tmp, 'private-hub-config.yml');
+      fs.writeFileSync(configFile, [
+        'sources:',
+        '  - id: private-source',
+        '    type: github',
+        '    url: https://github.com/owner/repo',
+        'profiles: []',
+        ''
+      ].join('\n'));
+
+      await expect(harvestHub({
+        hubConfigFile: configFile,
+        dryRun: true,
+        httpClient: new SourceAwareHarvestHttpClient(404),
+        outFile: path.join(tmp, 'private-index.json'),
+        progressFile: path.join(tmp, 'private-progress.jsonl'),
+        cacheDir: path.join(tmp, 'private-cache')
+      }, {
+        AI_PRIMITIVES_HUB_GH_APP_AUTH_ENABLED: 'true',
+        GH_TOKEN: 'generic-token'
+      })).rejects.toMatchObject({
+        code: 'GH_SOURCE_PREFLIGHT_FAILED',
+        report: {
+          valid: false,
+          results: [{
+            sourceId: 'private-source',
+            errorCode: 'GH_APP_AUTH_CONFIG_MISSING'
+          }]
+        }
+      });
+    });
+
+    it('preserves the complete source preflight report on a fail-closed harvest error', async () => {
+      const configFile = path.join(tmp, 'structured-preflight-config.yml');
+      fs.writeFileSync(configFile, [
+        'sources:',
+        '  - id: private-source',
+        '    type: github',
+        '    url: https://github.com/owner/repo',
+        'profiles: []',
+        ''
+      ].join('\n'));
+
+      await expect(harvestHub({
+        hubConfigFile: configFile,
+        dryRun: true,
+        httpClient: new SourceAwareHarvestHttpClient(404, true),
+        outFile: path.join(tmp, 'structured-preflight-index.json'),
+        progressFile: path.join(tmp, 'structured-preflight-progress.jsonl'),
+        cacheDir: path.join(tmp, 'structured-preflight-cache')
+      }, {
+        AI_PRIMITIVES_HUB_GH_APP_AUTH_ENABLED: 'true',
+        GH_TOKEN: 'generic-token'
+      })).rejects.toMatchObject({
+        code: 'GH_SOURCE_PREFLIGHT_FAILED',
+        report: {
+          valid: false,
+          appRoutes: ['github.com/owner/*'],
+          results: [{
+            sourceId: 'private-source',
+            category: 'unresolved',
+            errorCode: 'GH_APP_AUTH_CONFIG_MISSING',
+            operations: ['repository metadata']
+          }]
+        }
+      });
     });
   });
 });

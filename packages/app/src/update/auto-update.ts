@@ -13,15 +13,13 @@
  */
 import type {
   BundleOperations,
+  LogEvent,
+  OnLogEvent,
   SourceOperations,
   UpdateCheckResult,
   UpdateNotifier,
   UpdatePreferenceStore,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from './log-event';
 
 /** Batch size for concurrent auto-updates — see the extension's `CONCURRENCY_CONSTANTS.BATCH_SIZE` doc for the empirical rationale (GitHub API rate limits, UI responsiveness). */
 const BATCH_SIZE = 3;

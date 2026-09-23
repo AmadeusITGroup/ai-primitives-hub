@@ -199,6 +199,35 @@ describe('validateCollectionObject', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('accepts a collection with a nested README path', () => {
+    const collection = {
+      id: 'my-collection',
+      name: 'My Collection',
+      readme: { path: 'docs/collection-overview.md' },
+      items: []
+    };
+    const result = validateCollectionObject(collection, 'test');
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    ['a non-object README', 'README.md', 'readme must be an object with a "path" property'],
+    ['a null README', null, 'readme must be an object with a "path" property'],
+    ['an empty README object', {}, 'readme.path must be a non-empty string'],
+    ['an empty README path', { path: '' }, 'readme.path must be a non-empty string'],
+    ['a traversal README path', { path: '../README.md' }, 'readme.path has an invalid path']
+  ])('rejects %s', (_label, readme, expectedError) => {
+    const collection = {
+      id: 'my-collection',
+      name: 'My Collection',
+      readme,
+      items: []
+    };
+    const result = validateCollectionObject(collection, 'test');
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.includes(expectedError))).toBe(true);
+  });
+
   it('rejects non-object', () => {
     const result = validateCollectionObject(null, 'test');
     expect(result.ok).toBe(false);

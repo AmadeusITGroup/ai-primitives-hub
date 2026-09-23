@@ -58,14 +58,90 @@ export interface SourceOperations {
 /**
  * Source read/write operations needed to sync a hub's declared sources
  * into the registry: list existing sources to detect duplicates/updates
- * against, add genuinely new ones, and update ones that already came
- * from the same hub. Deliberately narrower than a full source-CRUD
- * port (no `removeSource`) since hub-source syncing never deletes.
+ * against, add genuinely new ones, update ones that already came from the
+ * same hub, and remove ones this hub previously contributed that have
+ * since disappeared from its config (e.g. a collection whose repository
+ * URL was renamed, which yields a new sourceId and would otherwise leave
+ * the old source lingering as a duplicate).
  */
 export interface HubSourceSync {
   listSources(): Promise<RegistrySource[]>;
   addSource(source: RegistrySource): Promise<void>;
   updateSource(sourceId: string, updates: Partial<RegistrySource>): Promise<void>;
+  removeSource(sourceId: string): Promise<void>;
+  /**
+   * Installed bundles across all scopes, used to guard orphan pruning so a
+   * source with still-installed consumers is preserved or remapped rather
+   * than deleted (which would strand those bundles in an unmanaged state —
+   * see `loadHubSources`).
+   */
+  listInstalledBundles(): Promise<InstalledBundle[]>;
+  /**
+   * Optional: remap installed bundles from an old source to a new one
+   * (e.g. after a collection URL rename). Updates lockfile entries and
+   * installation records so consumers seamlessly track the new source.
+   * When omitted, orphans with installed consumers are kept alive with a
+   * warning rather than remapped.
+   */
+  remapBundleSource?(oldSourceId: string, newSourceId: string): Promise<void>;
+}
+
+/**
+ * The replacement source's descriptor, needed to write a repository-scope
+ * lockfile's `sources` map when installed bundles are moved onto it.
+ *
+ * Structurally the `LockfileSourceEntry` shape that `app`'s pure
+ * `remapSourceId` transform (`stores/json-lockfile-store.ts`) already
+ * consumes, declared here rather than imported because `core` sits at the
+ * bottom of the dependency graph and cannot reach `app`. Kept structural —
+ * a plain shape over `type`/`url` — so both sides stay assignable without
+ * either one owning the other's module.
+ */
+export interface LockfileSourceDescriptor {
+  /** Source type (`github`, `local`, `awesome-copilot`, `apm`, ...). */
+  type: string;
+  /** URL of the replacement source. */
+  url: string;
+  /** Git branch, for git-based sources. */
+  branch?: string;
+  /** Collections subdirectory, for `awesome-copilot`-type sources. */
+  collectionsPath?: string;
+}
+
+/**
+ * The external access a bundle-source remap needs: resolve the replacement
+ * source's descriptor before touching anything, then rewrite the
+ * repository-scope lockfile and the user-scope/workspace-scope
+ * installation records onto the new source id.
+ *
+ * Deliberately separate from `HubSourceSync` rather than an extension of
+ * it (interface segregation): a remap never adds, updates, or removes a
+ * source, and `HubSourceSync.remapBundleSource` — which stays optional and
+ * keeps its `(oldSourceId, newSourceId) => Promise<void>` shape — is the
+ * calling side's view of this operation, not its implementation surface.
+ */
+export interface BundleSourceRemap {
+  /** All stored sources, used to resolve the replacement descriptor. */
+  listSources(): Promise<RegistrySource[]>;
+  /**
+   * Remap repository-scope lockfile entries onto the new source id.
+   *
+   * Optional, and absence is a normal condition rather than an error: the
+   * port is left unwired when the host has no repository in scope (no
+   * workspace root, or a CLI invocation outside a repository). Without a
+   * repository in scope there are no repository-scope bundles to migrate,
+   * so skipping this step is correct and the user-scope/workspace-scope
+   * remap must still complete successfully.
+   */
+  remapLockfileSourceId?(
+    oldSourceId: string,
+    newSourceId: string,
+    descriptor: LockfileSourceDescriptor
+  ): Promise<void>;
+  /** Installation records for one non-repository scope. */
+  getInstalledBundles(scope: InstallationScope): Promise<InstalledBundle[]>;
+  /** Persist one installation record (upsert by bundle id + scope). */
+  recordInstallation(bundle: InstalledBundle): Promise<void>;
 }
 
 /**

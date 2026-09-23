@@ -25,6 +25,8 @@ import type {
   HubProfile,
   HubProfileBundle,
   HubReference,
+  LogEvent,
+  OnLogEvent,
   ProfileActivationOptions,
   ProfileActivationResult,
   ProfileActivationState,
@@ -36,10 +38,6 @@ import type {
   LoadHubResult,
   ProfileActivationStore,
 } from '@ai-primitives-hub/infra';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 
 /**
  * Narrow, structural view of `infra`'s `HubStore` — just enough to

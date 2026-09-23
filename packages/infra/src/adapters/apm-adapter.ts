@@ -51,6 +51,7 @@ import type {
   Clock,
   FileSystem,
   GitHubApi,
+  GitHubRepositoryTarget,
   ProcessRunner,
   RegistrySource,
   SourceMetadata,
@@ -425,7 +426,13 @@ export class ApmAdapter extends BaseSourceAdapter {
 
     const status = await this.getRuntimeStatus();
     const commandPrefix = status.installed ? 'apm' : 'uvx apm';
-    const token = await this.tokenProvider?.getToken('github.com');
+    const { owner, repo } = this.parseGitHubUrl();
+    const repositoryTarget: GitHubRepositoryTarget = {
+      host: 'github.com',
+      owner,
+      repository: repo
+    };
+    const token = await this.tokenProvider?.getToken('github.com', repositoryTarget);
 
     try {
       await this.processRunner.exec(`${commandPrefix} install`, {

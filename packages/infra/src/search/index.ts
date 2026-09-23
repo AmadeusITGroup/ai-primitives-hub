@@ -13,3 +13,4 @@ export { PrimitiveIndex } from './primitive-index';
 export * from './tokenizer';
 export * from './tuning';
 export * from './types';
+export { TernlightEmbeddingProvider } from './embedding/ternlight-embedding-provider';

@@ -17,6 +17,8 @@ import type {
   TargetType,
 } from '@ai-primitives-hub/core';
 import {
+  normalizePrimitiveKind,
+  PRIMITIVE_KINDS,
   TARGET_TYPES,
 } from '@ai-primitives-hub/core';
 import {
@@ -130,6 +132,20 @@ function validateTargetInputs(opts: TargetAddOptions): RegistryError | null {
   if (typeError) {
     return typeError;
   }
+  if (opts.allowedKinds !== undefined && opts.allowedKinds.length > 0) {
+    const invalidKinds = opts.allowedKinds
+      .split(',')
+      .map((kind) => kind.trim())
+      .filter((kind) => kind.length > 0 && normalizePrimitiveKind(kind) === null);
+    if (invalidKinds.length > 0) {
+      return new RegistryError({
+        code: 'USAGE.MISSING_FLAG',
+        message: `target add: invalid --allowed-kinds value${invalidKinds.length === 1 ? '' : 's'}: ${invalidKinds.join(', ')}`,
+        hint: `Use canonical primitive kinds: ${PRIMITIVE_KINDS.join(', ')}`,
+        context: { invalidKinds }
+      });
+    }
+  }
   return null;
 }
 
@@ -158,11 +174,14 @@ function buildTargetAddError(cause: unknown, opts: TargetAddOptions): RegistryEr
  * @param allowedKinds Comma-separated kinds.
  * @returns Array of kinds.
  */
-function parseAllowedKinds(allowedKinds: string | undefined): string[] | undefined {
+function parseAllowedKinds(allowedKinds: string | undefined): Target['allowedKinds'] | undefined {
   if (allowedKinds === undefined || allowedKinds.length === 0) {
     return undefined;
   }
-  return allowedKinds.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+  return allowedKinds
+    .split(',')
+    .map((s) => normalizePrimitiveKind(s))
+    .filter((kind): kind is NonNullable<typeof kind> => kind !== null);
 }
 
 /**
@@ -173,7 +192,7 @@ function parseAllowedKinds(allowedKinds: string | undefined): string[] | undefin
  * @param allowedKinds Allowed kinds.
  * @returns Target configuration.
  */
-function buildCopilotCliTarget(opts: TargetAddOptions, type: TargetType, allowedKinds: string[] | undefined): Target {
+function buildCopilotCliTarget(opts: TargetAddOptions, type: TargetType, allowedKinds: Target['allowedKinds']): Target {
   return {
     name: opts.name,
     type,
@@ -192,7 +211,7 @@ function buildCopilotCliTarget(opts: TargetAddOptions, type: TargetType, allowed
  * @param allowedKinds Allowed kinds.
  * @returns Target configuration.
  */
-function buildStandardTarget(opts: TargetAddOptions, type: TargetType, scope: string, allowedKinds: string[] | undefined): Target {
+function buildStandardTarget(opts: TargetAddOptions, type: TargetType, scope: string, allowedKinds: Target['allowedKinds']): Target {
   return {
     name: opts.name,
     type,

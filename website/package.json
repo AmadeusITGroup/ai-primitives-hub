@@ -12,20 +12,18 @@
     "serve": "docusaurus serve",
     "test": "vitest run"
   },
-  "dependencies": {
-    "@docusaurus/core": "^3.10.1",
-    "@docusaurus/preset-classic": "^3.10.1",
+  "devDependencies": {
+    "@docusaurus/core": "^3.10.2",
+    "@docusaurus/preset-classic": "^3.10.2",
     "@easyops-cn/docusaurus-search-local": "^0.55.2",
     "@mdx-js/react": "^3.1.1",
     "clsx": "^2.1.1",
     "prism-react-renderer": "^2.4.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
-    "@docusaurus/module-type-aliases": "^3.10.1",
-    "@docusaurus/types": "^3.10.1",
-    "vitest": "^4.1.9"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@docusaurus/module-type-aliases": "^3.10.2",
+    "@docusaurus/types": "^3.10.2",
+    "vitest": "^5.0.0"
   },
   "browserslist": {
     "production": [
@@ -41,8 +39,5 @@
   },
   "engines": {
     "node": ">=18.0"
-  },
-  "overrides": {
-    "serialize-javascript": "^7.0.5"
   }
 }

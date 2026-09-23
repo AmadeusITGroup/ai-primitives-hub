@@ -20,6 +20,12 @@ import {
   ScaffoldCommand,
   ScaffoldType,
 } from '../../src/commands/scaffold-command';
+import {
+  rmrfSync,
+} from '../helpers/e2e-test-helpers';
+import {
+  installWorkspaceBuilds,
+} from '../helpers/workspace-pack-helpers';
 
 suite('E2E: GitHub Scaffold Integration Tests', () => {
   const templateRoot = path.join(process.cwd(), 'templates/scaffolds/github');
@@ -32,9 +38,7 @@ suite('E2E: GitHub Scaffold Integration Tests', () => {
 
   teardown(() => {
     // Clean up test directory
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-    }
+    rmrfSync(testDir);
   });
 
   suite('Complete Scaffolding Flow', () => {
@@ -353,11 +357,17 @@ suite('E2E: GitHub Scaffold Integration Tests', () => {
 
 suite('E2E: Script Execution Tests', () => {
   const templateRoot = path.join(process.cwd(), 'templates/scaffolds/github');
+  const installationRequiredTests = new Set([
+    'E2E: Validation script validates example collection successfully',
+    'E2E: List collections script finds example collection',
+    'E2E: Build script creates bundle with correct structure',
+    'E2E: Compute version script returns valid version'
+  ]);
   let testDir: string;
   let npmInstalled: boolean;
 
   suiteSetup(async function () {
-    this.timeout(60_000);
+    this.timeout(240_000);
 
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scaffold-script-e2e-'));
 
@@ -367,18 +377,27 @@ suite('E2E: Script Execution Tests', () => {
     });
 
     try {
-      execSync('npm install --prefer-offline', {
-        cwd: testDir,
-        stdio: 'pipe',
-        timeout: 30_000
-      });
+      installWorkspaceBuilds({ projectDir: testDir });
       npmInstalled = true;
-    } catch {
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (process.env.CI === 'true' || process.env.CI === '1') {
+        throw new Error(`Scaffold setup failed in CI: ${detail}`);
+      }
+      console.error(`[e2e] skipping script-execution tests - scaffold setup failed: ${detail}`);
       npmInstalled = false;
     }
 
     if (npmInstalled) {
-      execSync('git init && git config user.email "test@test.com" && git config user.name "Test" && git add -A && git commit -m "initial"', {
+      const gitSetup = [
+        'git init',
+        'git remote add origin https://github.com/test-owner/test-repo.git',
+        'git config user.email "test@test.com"',
+        'git config user.name "Test"',
+        'git add -A',
+        'git commit -m "initial"'
+      ].join(' && ');
+      execSync(gitSetup, {
         cwd: testDir,
         stdio: 'pipe',
         timeout: 10_000
@@ -386,21 +405,23 @@ suite('E2E: Script Execution Tests', () => {
     }
   });
 
-  suiteTeardown(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+  suiteTeardown(function () {
+    // The script-execution suite runs `npm install`, leaving a node_modules/
+    // tree. rmrfSync removes everything except node_modules/ (which may be
+    // locked by orphaned processes on Windows CI) — the CI runner is an
+    // ephemeral VM, so a leftover node_modules/ is harmless.
+    this.timeout(60_000);
+    rmrfSync(testDir);
   });
 
   setup(function () {
-    if (!npmInstalled) {
+    if (!npmInstalled && installationRequiredTests.has(this.currentTest?.title ?? '')) {
       this.skip();
     }
+
     // Clean artifacts from previous tests to maintain isolation
     const distDir = path.join(testDir, 'dist');
-    if (fs.existsSync(distDir)) {
-      fs.rmSync(distDir, { recursive: true, force: true });
-    }
+    rmrfSync(distDir);
   });
 
   /**

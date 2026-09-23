@@ -27,10 +27,12 @@ import type {
 import {
   ActiveHubStore,
   CompositeHubResolver,
+  createGitHubSourceAuthRuntime,
   EnvTokenProvider,
   FavoritesStore,
   GitHubHubResolver,
   HubStore,
+  isGitHubAppAuthEnabled,
   LocalHubResolver,
   NodeHttpClient,
   UrlHubResolver,
@@ -72,8 +74,18 @@ export const createHubManager = (opts: CreateHubManagerOptions): HubManager => {
   const { ctx, http, tokens } = opts;
   const paths = resolveUserConfigPaths(ctx.env);
   const [httpClient, tokenProvider] = createHttpClientAndTokens(http, ctx, tokens);
+  const sourceAuth = isGitHubAppAuthEnabled(ctx.env)
+    ? createGitHubSourceAuthRuntime({ env: ctx.env, http: httpClient })
+    : undefined;
   const resolver = new CompositeHubResolver(
-    new GitHubHubResolver(httpClient, tokenProvider),
+    new GitHubHubResolver(httpClient, tokenProvider, sourceAuth === undefined
+      ? undefined
+      : {
+        sourceAware: {
+          genericTokenProvider: sourceAuth.genericTokenProvider,
+          appTokenProvider: sourceAuth.appTokenProvider
+        }
+      }),
     new LocalHubResolver(ctx.fs),
     new UrlHubResolver(httpClient, tokenProvider)
   );

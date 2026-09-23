@@ -220,14 +220,12 @@ export function hashContent(body: string): string {
 }
 
 /**
- * Build a short, whitespace-normalised preview suitable for BM25 indexing.
- * @param body - Full file body.
- * @param max - Maximum character length of the preview.
- * @returns Body preview text.
+ * Strip common markdown constructs and normalise whitespace.
+ * @param body - Raw markdown body.
+ * @returns Plain-text body suitable for previews/summaries.
  */
-export function buildBodyPreview(body: string, max = 400): string {
-  // Strip markdown emphasis/links/code fences for a cleaner preview.
-  const cleaned = body
+function cleanBodyText(body: string): string {
+  return body
     .replaceAll(/```[\s\S]*?```/g, ' ')
     .replaceAll(/`[^`]+`/g, ' ')
     .replaceAll(/!\[[^\]]*\]\([^)]*\)/g, ' ')
@@ -235,7 +233,33 @@ export function buildBodyPreview(body: string, max = 400): string {
     .replaceAll(/[*_~#>]+/g, ' ')
     .replaceAll(/\s/g, ' ')
     .trim();
+}
+
+function firstWords(text: string, maxWords: number): string {
+  const words = text.split(/\s+/).filter((w) => w.length > 0);
+  return words.slice(0, maxWords).join(' ');
+}
+
+/**
+ * Build a short, whitespace-normalised preview suitable for BM25 indexing.
+ * @param body - Full file body.
+ * @param max - Maximum character length of the preview.
+ * @returns Body preview text.
+ */
+export function buildBodyPreview(body: string, max = 400): string {
+  const cleaned = cleanBodyText(body);
   return cleaned.length > max ? cleaned.slice(0, max - 1) + '…' : cleaned;
+}
+
+/**
+ * Build an extractive body summary targeting a word budget.
+ * @param body - Full file body.
+ * @param maxWords - Maximum word count of the summary.
+ * @returns Body summary text.
+ */
+export function buildBodySummary(body: string, maxWords = 80): string {
+  const cleaned = cleanBodyText(body);
+  return firstWords(cleaned, maxWords);
 }
 
 /**
@@ -319,6 +343,7 @@ export function extractFromFile(
     tools: tools.length > 0 ? tools : undefined,
     model,
     bodyPreview: buildBodyPreview(parsed.body),
+    bodySummary: buildBodySummary(parsed.body),
     contentHash: hashContent(file.content)
   };
 }
@@ -431,6 +456,7 @@ export function extractMcpPrimitives(ctx: ExtractContext): Primitive[] {
       description,
       tags: uniqueStrings([...(ctx.manifest.tags ?? []), 'mcp']),
       bodyPreview: preview,
+      bodySummary: preview,
       contentHash: hashContent(JSON.stringify(cfg))
     });
   }

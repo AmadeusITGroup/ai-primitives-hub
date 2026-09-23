@@ -71,7 +71,9 @@ export class UpdateScheduler {
     private readonly context: vscode.ExtensionContext,
     updateChecker: UpdateChecker,
     bundleNameResolver?: (bundleId: string) => Promise<string>,
-    autoUpdateService?: AutoUpdateService
+    autoUpdateService?: AutoUpdateService,
+    private readonly startupCheckReady?: Promise<void>,
+    private readonly startupSourceSyncRequired: () => boolean = () => true
   ) {
     this.updateChecker = updateChecker;
     this.bundleNotifications = new BundleUpdateNotifications(bundleNameResolver);
@@ -114,8 +116,12 @@ export class UpdateScheduler {
 
     this.startupCheckTimer = setTimeout(async () => {
       try {
+        // The initial hub sync updates the same GitHub source cache used by the
+        // update checker. Wait for it before checking so activation cannot start
+        // a second, overlapping source synchronization pass.
+        await this.startupCheckReady;
         this.logger.info('Performing startup update check');
-        await this.performUpdateCheck();
+        await this.performUpdateCheck(false, this.startupSourceSyncRequired());
       } catch (error) {
         this.logger.error('Startup update check failed', error as Error);
       } finally {
@@ -128,14 +134,15 @@ export class UpdateScheduler {
    * Perform an update check with timeout protection
    * CRITICAL: Triggers notifications when updates are detected
    * @param bypassCache
+   * @param syncSources
    */
-  private async performUpdateCheck(bypassCache = false): Promise<void> {
+  private async performUpdateCheck(bypassCache = false, syncSources = true): Promise<void> {
     let timeoutHandle: NodeJS.Timeout | undefined;
     let checkPromise: Promise<any>;
 
     if (this.isTestEnvironment) {
       // In test environment, avoid creating long-lived timers that can cause test hangs
-      checkPromise = this.updateChecker.checkForUpdates(bypassCache);
+      checkPromise = this.updateChecker.checkForUpdates(bypassCache, syncSources);
     } else {
       // Add timeout protection for update checks in normal operation
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -146,7 +153,7 @@ export class UpdateScheduler {
       });
 
       checkPromise = Promise.race([
-        this.updateChecker.checkForUpdates(bypassCache),
+        this.updateChecker.checkForUpdates(bypassCache, syncSources),
         timeoutPromise
       ]);
     }

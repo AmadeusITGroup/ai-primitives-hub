@@ -15,6 +15,11 @@ import {
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type {
+  HttpClient,
+  HttpRequest,
+  HttpResponse,
+} from '@ai-primitives-hub/core';
 import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -33,8 +38,11 @@ import {
   HubRemoveCommand,
   HubSyncCommand,
   HubUseCommand,
+  HubValidateCommand,
 } from '../../src/commands/hub';
 import {
+  createTestContext,
+  runCli,
   runCommand,
 } from '../../src/framework';
 
@@ -45,7 +53,8 @@ const COMMAND_CLASSES = [
   HubRefreshCommand,
   HubRemoveCommand,
   HubSyncCommand,
-  HubUseCommand
+  HubUseCommand,
+  HubValidateCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -71,6 +80,31 @@ describe('hub commands', () => {
       }
     }
   });
+
+  const runWithHttp = async (argv: string[], http: HttpClient, env: Record<string, string>): Promise<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  }> => {
+    const ctx = createTestContext({
+      cwd: workspace,
+      fs: new NodeFileSystem(),
+      env
+    });
+    const exitCode = await runCli(argv, {
+      ctx,
+      commandClasses: COMMAND_CLASSES,
+      commands: [],
+      name: 'ai-primitives-hub',
+      version: '0.0.0-test',
+      http
+    });
+    return {
+      exitCode,
+      stdout: ctx.stdout.captured(),
+      stderr: ctx.stderr.captured()
+    };
+  };
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -122,6 +156,352 @@ profiles: []
     it('fails with exit 1 when --name is missing', async () => {
       const result = await run(['hub', 'create', '-o', 'json']);
       expect(result.exitCode).toBe(1);
+    });
+  });
+
+  describe('hub validate', () => {
+    it('validates hub-config.yml through the CLI', async () => {
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: github-source
+    type: github
+    url: https://github.com/example-org/example-repository
+    enabled: true
+    priority: 1
+profiles:
+  - id: test-profile
+    name: Test Profile
+    description: Test profile
+    bundles:
+      - id: example-org-example-repository-example-bundle
+        version: latest
+        source: github-source
+        required: true
+`
+      );
+
+      const result = await run(['hub', 'validate', '-o', 'json']);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ valid: boolean; file: string; errors: string[] }>(result.stdout);
+      expect(envelope.data.valid).toBe(true);
+      expect(envelope.data.file).toContain('hub-config.yml');
+      expect(envelope.data.errors).toHaveLength(0);
+    });
+
+    it('returns source-policy errors and a failing exit code', async () => {
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: github-source
+    type: github
+    url: https://github.com/example-org/example-repository
+    enabled: true
+    priority: 1
+    config:
+      branch: main
+profiles: []
+`
+      );
+
+      const result = await run(['hub', 'validate', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      const envelope = parseJson<{ valid: boolean; errors: string[] }>(result.stdout);
+      expect(envelope.data.valid).toBe(false);
+      expect(envelope.data.errors).toContain(
+        "Source 'github-source' has type 'github' and must not define 'config'."
+      );
+    });
+
+    it('keeps the default validation offline', async () => {
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: github-source
+    type: github
+    url: https://github.com/example-org/example-repository-that-does-not-exist
+    enabled: true
+    priority: 1
+profiles: []
+`
+      );
+
+      const result = await run(['hub', 'validate', '-o', 'json']);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ valid: boolean; deep?: boolean }>(result.stdout);
+      expect(envelope.data.valid).toBe(true);
+      expect(envelope.data.deep).toBeUndefined();
+    });
+
+    it('checks local catalogs and reports a missing required profile bundle', async () => {
+      await mkdir(path.join(bundleDir, 'available'), { recursive: true });
+      await writeFile(
+        path.join(bundleDir, 'available', 'deployment-manifest.yml'),
+        `id: available
+name: Available Bundle
+version: 1.0.0
+description: Available bundle
+author: test
+`
+      );
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: local-foo-src
+    name: Local Foo Source
+    type: local
+    url: ${bundleDir}
+    enabled: true
+    priority: 0
+profiles:
+  - id: test-profile
+    name: Test Profile
+    description: Test profile
+    bundles:
+      - id: missing
+        version: latest
+        source: local-foo-src
+        required: true
+`
+      );
+
+      const result = await run(['hub', 'validate', '--check-sources', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).not.toContain('Deep validation:');
+      const envelope = parseJson<{
+        valid: boolean;
+        deep: boolean;
+        sources: { sourceId: string; bundlesFound: number }[];
+        profiles: { profileId: string; valid: boolean }[];
+        errors: string[];
+      }>(result.stdout);
+      expect(envelope.data.deep).toBe(true);
+      expect(envelope.data.valid).toBe(false);
+      expect(envelope.data.sources).toEqual([
+        expect.objectContaining({ sourceId: 'local-foo-src', bundlesFound: 1 })
+      ]);
+      expect(envelope.data.profiles).toEqual([
+        expect.objectContaining({ profileId: 'test-profile', valid: false })
+      ]);
+      expect(envelope.data.errors).toContain(
+        "Profile 'test-profile' references bundle 'missing' from source 'local-foo-src', but no matching bundle was discovered."
+      );
+    });
+
+    it('resolves latest from the discovered local catalog', async () => {
+      await mkdir(path.join(bundleDir, 'v1'), { recursive: true });
+      await mkdir(path.join(bundleDir, 'v2'), { recursive: true });
+      await writeFile(
+        path.join(bundleDir, 'v1', 'deployment-manifest.yml'),
+        `id: versioned
+name: Versioned Bundle
+version: 1.0.0
+description: Version one
+author: test
+`
+      );
+      await writeFile(
+        path.join(bundleDir, 'v2', 'deployment-manifest.yml'),
+        `id: versioned
+name: Versioned Bundle
+version: 2.0.0
+description: Version two
+author: test
+`
+      );
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: local-foo-src
+    name: Local Foo Source
+    type: local
+    url: ${bundleDir}
+    enabled: true
+    priority: 0
+profiles:
+  - id: test-profile
+    name: Test Profile
+    description: Test profile
+    bundles:
+      - id: versioned
+        version: latest
+        source: local-foo-src
+        required: true
+`
+      );
+
+      const result = await run(['hub', 'validate', '--check-sources', '-o', 'json']);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{
+        profiles: { bundles: { resolvedBundle?: { version: string } }[] }[];
+      }>(result.stdout);
+      expect(envelope.data.profiles[0].bundles[0].resolvedBundle?.version).toBe('2.0.0');
+    });
+
+    it('reports verbose deep progress to stderr while keeping JSON stdout parseable', async () => {
+      await mkdir(path.join(bundleDir, 'available'), { recursive: true });
+      await writeFile(
+        path.join(bundleDir, 'available', 'deployment-manifest.yml'),
+        `id: available
+name: Available Bundle
+version: 1.0.0
+description: Available bundle
+author: test
+`
+      );
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: local-foo-src
+    name: Local Foo Source
+    type: local
+    url: ${bundleDir}
+    enabled: true
+    priority: 0
+profiles:
+  - id: test-profile
+    name: Test Profile
+    description: Test profile
+    bundles:
+      - id: available
+        version: latest
+        source: local-foo-src
+        required: true
+`
+      );
+
+      const result = await run([
+        'hub', 'validate', '--check-sources', '--verbose', '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ valid: boolean; deep: boolean }>(result.stdout);
+      expect(envelope.data).toMatchObject({ valid: true, deep: true });
+      expect(result.stderr).toContain('Deep validation: checking 1 source(s) and 1 profile(s)');
+      expect(result.stderr).toContain('[source 1/1] Checking local-foo-src (local)');
+      expect(result.stderr).toContain('[profile 1/1] Resolving test-profile');
+      expect(result.stderr).toContain('Deep validation complete: valid');
+    });
+
+    it('does not enable deep checks when --verbose is used without --check-sources', async () => {
+      const result = await run(['hub', 'validate', '--verbose', '-o', 'json']);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ valid: boolean; deep?: boolean }>(result.stdout);
+      expect(envelope.data).toMatchObject({ valid: true });
+      expect(envelope.data.deep).toBeUndefined();
+      expect(result.stderr).toContain('--verbose has no effect without --check-sources');
+    });
+
+    it('returns the complete source preflight report when source-aware validation fails', async () => {
+      await writeFile(
+        hubConfigFile,
+        `version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Test hub
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: private-source
+    name: Private Source
+    type: github
+    url: https://github.com/example-org/example-repository
+    enabled: true
+    priority: 1
+profiles: []
+`
+      );
+      const http: HttpClient = {
+        fetch: async (request: HttpRequest): Promise<HttpResponse> => ({
+          statusCode: 404,
+          body: new TextEncoder().encode('{}'),
+          finalUrl: request.url,
+          headers: {}
+        })
+      };
+
+      const result = await runWithHttp(
+        ['hub', 'validate', '--config', 'hub-config.yml', '--check-sources', '-o', 'json'],
+        http,
+        {
+          AI_PRIMITIVES_HUB_GH_APP_AUTH_ENABLED: 'true',
+          GH_TOKEN: 'test-generic-token'
+        }
+      );
+
+      expect(result.exitCode).toBe(1);
+      const envelope = parseJson<{
+        valid: boolean;
+        sourcePreflight: {
+          valid: boolean;
+          appRoutes: string[];
+          results: {
+            sourceId: string;
+            category: string;
+            errorCode?: string;
+            operations: string[];
+          }[];
+        };
+      }>(result.stdout);
+      expect(envelope.data.valid).toBe(false);
+      expect(envelope.data.sourcePreflight).toEqual({
+        valid: false,
+        appRoutes: ['github.com/example-org/*'],
+        results: [{
+          sourceId: 'private-source',
+          target: {
+            host: 'github.com',
+            owner: 'example-org',
+            repository: 'example-repository'
+          },
+          category: 'unresolved',
+          operations: ['repository metadata'],
+          credentialMode: 'none',
+          errorCode: 'GH_APP_AUTH_CONFIG_MISSING'
+        }]
+      });
     });
   });
 

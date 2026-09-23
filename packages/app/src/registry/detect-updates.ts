@@ -19,12 +19,10 @@ import {
 import type {
   Bundle,
   BundleUpdate,
-  UpdateDetectionReader,
-} from '@ai-primitives-hub/core';
-import type {
   LogEvent,
   OnLogEvent,
-} from '../update/log-event';
+  UpdateDetectionReader,
+} from '@ai-primitives-hub/core';
 
 /**
  * Compare every installed bundle's version against its source's latest

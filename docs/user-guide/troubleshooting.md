@@ -33,6 +33,13 @@ View logs: `View → Output → AI Primitives Hub`
 4. Run: `AI Primitives Hub: Validate Repository Access`
 5. Force refresh authentication: `AI Primitives Hub: Force GitHub Authentication`
 
+### Azure DevOps Authentication Fails (401/403)
+
+1. Verify the PAT was entered correctly when adding the source
+2. Ensure the PAT has **Code (Read)** permission for the target repository
+3. Check the PAT has not expired (Azure DevOps → User Settings → Personal Access Tokens)
+4. Re-add the source with a fresh PAT via `AI Primitives Hub: Add Source`
+
 ### Source Connection Failed
 
 - Verify repository URL
@@ -48,6 +55,17 @@ If you selected a hub but it doesn't appear in the Registry Explorer:
 3. Run `AI Primitives Hub: Sync Hub` from the Command Palette
 4. If the hub still doesn't appear, run `AI Primitives Hub: Reset First Run`, then reload VS Code (`Ctrl+R`)
 
+### Bundles Stopped Updating After a Hub Renamed a Repository
+
+When a hub changes the URL of one of its sources, installed bundles normally follow the source to its new URL automatically. If they stopped receiving updates instead, the extension could not prove which new source replaced the old one.
+
+Nothing is lost: the pre-rename source is kept rather than deleted, so your installed bundles stay intact and keep working from where they were installed.
+
+1. Check the logs (`View → Output → AI Primitives Hub`) — a warning names the kept source and the reason its replacement could not be determined
+2. Run `AI Primitives Hub: Sync Hub` from the Command Palette to retry the migration
+3. If the bundles still don't update, reinstall them from the renamed source in the Registry Explorer — run `AI Primitives Hub: List Sources` to see both the kept source and its replacement
+4. Report the reason from the log to the hub author: keeping a source `id` stable while changing its `url` lets installed bundles migrate on their own
+
 ### Hub Selector Not Shown on First Launch
 
 If you installed the extension but were never prompted to select a hub:
@@ -58,7 +76,8 @@ If you installed the extension but were never prompted to select a hub:
 
 ## Useful Commands
 
-Access these commands via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
+Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
+macOS) to access these commands:
 
 ### Diagnostic Commands
 - `AI Primitives Hub: Validate Repository Access` - Test GitHub connectivity and permissions

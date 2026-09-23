@@ -160,6 +160,38 @@ describe('GitHubAdapter', () => {
       expect((bundles[0] as unknown as { mcpServers: unknown }).mcpServers).toEqual({ 'example-server': { command: 'node' } });
     });
 
+    it('attaches mcpInputs and mcpServers from their top-level manifest fields', async () => {
+      const manifestYaml = [
+        'id: my-collection',
+        'name: My Bundle',
+        'version: 1.0.0',
+        'mcpInputs:',
+        '  - id: ocToken',
+        '    type: promptString',
+        '    description: Access token',
+        '    password: true',
+        'mcpServers:',
+        '  openshift:',
+        '    command: podman'
+      ].join('\n');
+      const api = new FakeGitHubApi().seedJson(RELEASES_PATH, [makeRelease()]).seedText(MANIFEST_ASSET_URL, manifestYaml);
+
+      const bundles = await new GitHubAdapter(makeSource(), api).fetchBundles();
+
+      const bundle = bundles[0] as unknown as { mcpInputs: { id: string; password?: boolean }[]; mcpServers: unknown };
+      expect(bundle.mcpInputs).toHaveLength(1);
+      expect(bundle.mcpInputs[0].id).toBe('ocToken');
+      expect(bundle.mcpInputs[0].password).toBe(true);
+      expect(bundle.mcpServers).toEqual({ openshift: { command: 'podman' } });
+    });
+
+    it('does not attach mcpInputs when not defined in the manifest', async () => {
+      const api = new FakeGitHubApi().seedJson(RELEASES_PATH, [makeRelease()]).seedText(MANIFEST_ASSET_URL, MANIFEST_YAML);
+      const bundles = await new GitHubAdapter(makeSource(), api).fetchBundles();
+
+      expect(bundles[0]).not.toHaveProperty('mcpInputs');
+    });
+
     it('does not attach prompts/mcpServers when the manifest declares neither', async () => {
       const bundles = await new GitHubAdapter(makeSource(), new FakeGitHubApi().seedJson(RELEASES_PATH, [makeRelease()]).seedText(MANIFEST_ASSET_URL, MANIFEST_YAML)).fetchBundles();
 

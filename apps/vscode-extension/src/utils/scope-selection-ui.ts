@@ -5,11 +5,21 @@
  * Implements Requirements 2.1-2.6, 1.8 for repository-level installation.
  */
 
+import {
+  resolveLayout,
+  WORKSPACE_ROOT_TOKEN,
+} from '@ai-primitives-hub/app';
+import type {
+  Target,
+} from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
   InstallationScope,
   RepositoryCommitMode,
 } from '../types/registry';
+import {
+  detectHostApp,
+} from './host-app';
 
 /**
  * Result of scope selection dialog
@@ -47,14 +57,31 @@ export interface ScopeQuickPickItem extends vscode.QuickPickItem {
 const DISABLED_OPTION_WARNING = '⚠️ Requires an open workspace - please select another option';
 
 /**
+ * Resolve the workspace-relative root folder the current host app installs
+ * repository-scope primitives into (e.g. `.github/` for VS Code, `.kiro/` for
+ * Kiro), derived from the host's repository layout so the UI never hardcodes a
+ * single editor's folder.
+ * @returns The host-appropriate repository root folder, e.g. `.kiro/`.
+ */
+export function getRepositoryRootFolder(): string {
+  const targetType = detectHostApp();
+  // Resolve with the token as the root so baseDir keeps its "${workspaceRoot}/<folder>"
+  // shape; the folder after the token is the host's top-level folder (e.g. ".kiro").
+  const target: Target = { name: targetType, type: targetType, scope: 'repository', rootPath: WORKSPACE_ROOT_TOKEN };
+  const folder = resolveLayout(target).baseDir.split(`${WORKSPACE_ROOT_TOKEN}/`)[1];
+  return folder ? `${folder}/` : '.github/';
+}
+
+/**
  * Creates the QuickPick items for scope selection
  * @param hasWorkspace
  */
 export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPickItem[] {
+  const repoRoot = getRepositoryRootFolder();
   const options: ScopeSelectionOption[] = [
     {
       label: '$(repo) Repository - Commit to Git (Recommended)',
-      description: 'Install in .github/, tracked in version control',
+      description: `Install in ${repoRoot}, tracked in version control`,
       detail: hasWorkspace ? undefined : '(Requires an open workspace)',
       scope: 'repository',
       commitMode: 'commit',
@@ -62,7 +89,7 @@ export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPick
     },
     {
       label: '$(eye-closed) Repository - Local Only',
-      description: 'Install in .github/, excluded via .git/info/exclude',
+      description: `Install in ${repoRoot}, excluded via .git/info/exclude`,
       detail: hasWorkspace ? undefined : '(Requires an open workspace)',
       scope: 'repository',
       commitMode: 'local-only',

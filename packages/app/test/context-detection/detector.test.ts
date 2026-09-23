@@ -7,6 +7,7 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   beforeEach,
@@ -23,7 +24,7 @@ describe('ContextDetector', () => {
 
   beforeEach(async () => {
     // Create a temporary directory for test fixtures
-    tempDir = await fs.mkdtemp(path.join(process.env.TMPDIR ?? '/tmp', 'context-detection-test-'));
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'context-detection-test-'));
   });
 
   it('should detect TypeScript from tsconfig.json', async () => {

@@ -109,9 +109,8 @@ interface TemplateContext {
 
 ## Usage
 
-```bash
-Ctrl+Shift+P → "AI Primitives Hub: Scaffold Project"
-```
+Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
+macOS) and run **AI Primitives Hub: Scaffold Project**.
 
 ## See Also
 

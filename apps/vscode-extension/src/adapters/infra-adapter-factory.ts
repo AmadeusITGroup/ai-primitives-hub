@@ -20,6 +20,9 @@ import {
 import type {
   SourceAdapterFactoryDeps,
 } from '@ai-primitives-hub/app';
+import type {
+  SourceAdapter,
+} from '@ai-primitives-hub/core';
 import {
   GhCliTokenProvider,
   NodeFileSystem,
@@ -65,11 +68,15 @@ const silentDeps: SourceAdapterFactoryDeps = {
  * @param source - The source to build an adapter for.
  */
 export function createRegistryAdapter(source: RegistrySource): IRepositoryAdapter {
+  return createCoreRegistryAdapter(source) as IRepositoryAdapter;
+}
+
+/**
+ * Build the shared core adapter for services that consume the app/infra
+ * ports directly, such as primitive indexing.
+ * @param source - The source to build an adapter for.
+ */
+export function createCoreRegistryAdapter(source: RegistrySource): SourceAdapter {
   const deps = source.type === 'skills' ? silentDeps : promptingDeps;
-  // `core`'s `ValidationResult.warnings` is optional (a stricter-than-necessary
-  // port signature); every concrete `infra` adapter always populates it as a
-  // real array (never omits it), so this narrow cast is safe in practice -
-  // same reasoning/precedent as the `InstalledBundle` cast in
-  // `RegistryManager.listInstalledBundles`.
-  return createSourceAdapter(source, deps) as IRepositoryAdapter;
+  return createSourceAdapter(source, deps);
 }

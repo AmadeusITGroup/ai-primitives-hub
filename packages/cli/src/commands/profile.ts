@@ -38,8 +38,10 @@ import {
   upsertBundleEntry,
   upsertSource,
   writeLockfile,
+  writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import {
+  getInstallableBundleFiles,
   type HttpClient,
   type HubProfile,
   type HubProfileBundle,
@@ -50,6 +52,7 @@ import {
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
+  isGitHubAppAuthEnabled,
   ProfileActivationStore,
 } from '@ai-primitives-hub/infra';
 import * as yaml from 'js-yaml';
@@ -62,6 +65,7 @@ import {
   lockfilePathForTarget,
   Option,
   requireActiveHubOrFail,
+  resolveEffectiveTarget,
 } from '../framework';
 import {
   type Context,
@@ -70,8 +74,10 @@ import {
   RegistryError,
 } from '../framework';
 import {
+  createSourceAwareInstallDependencyCache,
   createWriterFactory,
   fetchFilesForSource,
+  type SourceAwareInstallDependencyCache,
 } from './install';
 import {
   createWriterFactory as createUninstallWriterFactory,
@@ -348,6 +354,7 @@ type ActivateBundleOutcome =
  * @param http HTTP client.
  * @param tokens Token provider.
  * @param ctx CLI context.
+ * @param sourceAwareDependencyCache
  * @returns The written files and lockfile entries on success, or a failure reason.
  */
 async function activateBundleForTarget(
@@ -357,7 +364,8 @@ async function activateBundleForTarget(
   writer: TargetWriter,
   http: HttpClient,
   tokens: TokenProvider,
-  ctx: Context
+  ctx: Context,
+  sourceAwareDependencyCache?: SourceAwareInstallDependencyCache
 ): Promise<ActivateBundleOutcome> {
   const src = sources[bundleRef.source];
   if (!src) {
@@ -380,7 +388,16 @@ async function activateBundleForTarget(
     files: []
   };
   try {
-    const files = await fetchFilesForSource(sourceEntry, bundleRef.id, probeEntry, http, tokens, ctx, false);
+    const files = await fetchFilesForSource(
+      sourceEntry,
+      bundleRef.id,
+      probeEntry,
+      http,
+      tokens,
+      ctx,
+      false,
+      sourceAwareDependencyCache
+    );
     if (files === null) {
       return { ok: false, reason: 'failed to fetch bundle files' };
     }
@@ -388,13 +405,14 @@ async function activateBundleForTarget(
       expectedId: bundleRef.id,
       expectedVersion: bundleRef.version === 'latest' ? undefined : bundleRef.version
     });
-    const result = await writer.write(target, files);
+    const targetFiles = getInstallableBundleFiles(files, manifest);
+    const result = await writeTargetSafely(writer, target, targetFiles);
     const entry: LockfileBundleEntry = {
       version: manifest.version,
       sourceId: src.id,
       sourceType: src.type,
       installedAt: new Date().toISOString(),
-      files: checksumFiles(files)
+      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
     };
     if (target.scope === 'repository') {
       entry.commitMode = target.commitMode ?? 'commit';
@@ -418,7 +436,8 @@ async function activateBundleForTarget(
  * @param targets Targets to remove the profile's bundles from.
  */
 async function deactivateProfileBundles(ctx: Context, state: ProfileActivationState, targets: Target[]): Promise<void> {
-  for (const target of targets) {
+  for (const configuredTarget of targets) {
+    const target = resolveEffectiveTarget(ctx, configuredTarget);
     if (target.scope === 'repository') {
       const pipeline = new UninstallPipeline({
         fs: ctx.fs,
@@ -476,11 +495,12 @@ export async function runProfileActivation(
   profile: HubProfile,
   targets: Target[]
 ): Promise<ProfileActivationResult> {
+  const effectiveTargets = targets.map((target) => resolveEffectiveTarget(ctx, target));
   // Enforce a single globally-active profile: deactivate whatever was
   // previously active (if anything) before installing the new one.
   const previouslyActive = await built.activations.listAll();
   for (const prev of previouslyActive) {
-    await deactivateProfileBundles(ctx, prev, targets);
+    await deactivateProfileBundles(ctx, prev, effectiveTargets);
     await built.activations.delete(prev.hubId, prev.profileId);
     const prevActiveHub = await built.mgr.getActiveHub();
     if (prevActiveHub?.id === prev.hubId) {
@@ -496,15 +516,27 @@ export async function runProfileActivation(
   const syncedBundleVersions: Record<string, string> = {};
   const failures: { bundleId: string; target: string; reason: string }[] = [];
   const writtenByTarget: Record<string, string[]> = {};
+  const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
+    ? createSourceAwareInstallDependencyCache(built.http, ctx)
+    : undefined;
 
-  for (const target of targets) {
+  for (const target of effectiveTargets) {
     const writer = createWriterFactory(ctx, {})(target);
     const written: string[] = [];
     const lockPath = lockfilePathForTarget(ctx, target);
     let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
 
     for (const bundleRef of profile.bundles) {
-      const outcome = await activateBundleForTarget(bundleRef, sources, target, writer, built.http, built.tokens, ctx);
+      const outcome = await activateBundleForTarget(
+        bundleRef,
+        sources,
+        target,
+        writer,
+        built.http,
+        built.tokens,
+        ctx,
+        sourceAwareDependencyCache
+      );
       if (!outcome.ok) {
         failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
         continue;

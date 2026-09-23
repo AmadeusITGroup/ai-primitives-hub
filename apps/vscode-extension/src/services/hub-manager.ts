@@ -22,7 +22,6 @@ import {
   loadHubSourcesProgressively,
 } from '@ai-primitives-hub/app';
 import type {
-  HubAvailabilityResult,
   HubConfigStore,
   LoadHubSourcesOptions,
   LogEvent,
@@ -297,6 +296,7 @@ export class HubManager {
    * fresh token on every call, so there is no cache left to clear.
    */
   public clearAuthCache(): void {
+    VsCodeSessionTokenProvider.clearCache();
     this.logger.info('[HubManager] Authentication cache cleared');
   }
 
@@ -353,7 +353,10 @@ export class HubManager {
       {
         listSources: () => this.registryManager.listSources(),
         addSource: (s) => this.registryManager.addSource(s),
-        updateSource: (id, u) => this.registryManager.updateSource(id, u)
+        updateSource: (id, u) => this.registryManager.updateSource(id, u),
+        removeSource: (id) => this.registryManager.removeSource(id),
+        listInstalledBundles: () => this.registryManager.listInstalledBundles(),
+        remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
       },
       this.translateLogEvent,
       {
@@ -507,25 +510,13 @@ export class HubManager {
    * @returns true if hub is accessible, false otherwise
    */
   public async verifyHubAvailability(reference: HubReference): Promise<boolean> {
-    const result = await this.verifyHubAvailabilityDetailed(reference);
-    return result.available;
-  }
-
-  /**
-   * Verify a hub and preserve the failure reason for first-run notifications.
-   * @param reference Hub reference to verify
-   * @returns Availability and an optional failure reason
-   */
-  public async verifyHubAvailabilityDetailed(reference: HubReference): Promise<HubAvailabilityResult> {
-    const result = await this.appHubManager.verifyHubAvailabilityDetailed(reference);
-    if (result.available) {
+    const available = await this.appHubManager.verifyHubAvailability(reference);
+    if (available) {
       this.logger.debug(`Hub verification successful: ${reference.type}:${reference.location}`);
     } else {
-      this.logger.warn(
-        `Hub verification failed: ${reference.type}:${reference.location} — ${result.reason ?? 'Unknown reason'}`
-      );
+      this.logger.debug(`Hub verification failed: ${reference.type}:${reference.location}`);
     }
-    return result;
+    return available;
   }
 
   /**
@@ -617,7 +608,10 @@ export class HubManager {
           {
             listSources: () => this.registryManager.listSources(),
             addSource: (s) => this.registryManager.addSource(s),
-            updateSource: (id, u) => this.registryManager.updateSource(id, u)
+            updateSource: (id, u) => this.registryManager.updateSource(id, u),
+            removeSource: (id) => this.registryManager.removeSource(id),
+            listInstalledBundles: () => this.registryManager.listInstalledBundles(),
+            remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
           },
           this.translateLogEvent,
           {
@@ -676,7 +670,10 @@ export class HubManager {
         {
           listSources: () => this.registryManager.listSources(),
           addSource: (source) => this.registryManager.addSource(source),
-          updateSource: (sourceId, updates) => this.registryManager.updateSource(sourceId, updates)
+          updateSource: (sourceId, updates) => this.registryManager.updateSource(sourceId, updates),
+          removeSource: (sourceId) => this.registryManager.removeSource(sourceId),
+          listInstalledBundles: () => this.registryManager.listInstalledBundles(),
+          remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
         },
         this.translateLogEvent,
         options

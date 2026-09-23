@@ -1,16 +1,16 @@
 /**
- * Shared local-path resolution for `local-*` source adapters.
+ * Shared path/URL resolution utilities for all local-based source adapters,
+ * including `LocalAdapter` and the `local-*` adapter variants.
  *
- * `LocalAdapter` (ported earlier) has its own inline equivalent and is
- * deliberately left untouched here — this module exists for the three
- * `local-*` adapters landing together in one later commit, which need
- * the `~/` expansion that `LocalAdapter`'s own `getLocalPath` doesn't
- * currently perform (a pre-existing gap in already-shipped code, out of
- * scope for this change).
+ * Handles `file://` URL-to-path conversion, `~/` home-directory expansion,
+ * and path normalization.
  * @module adapters/local-path
  */
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  fileURLToPath,
+} from 'node:url';
 
 /**
  * True for a `file://` URL, an absolute path, or a `~/`/`./`-relative path.
@@ -27,9 +27,27 @@ export function isValidLocalUrl(url: string): boolean {
  * @param url - Source URL to resolve.
  */
 export function resolveLocalPath(url: string): string {
-  let localPath = url.startsWith('file://') ? url.slice('file://'.length) : url;
+  let localPath = url;
+  if (url.startsWith('file://')) {
+    try {
+      localPath = fileURLToPath(url);
+    } catch {
+      // POSIX-style file URLs without a drive letter are valid source
+      // identifiers in portable configurations, including test fixtures.
+      localPath = url.slice('file://'.length);
+    }
+  }
   if (localPath.startsWith('~/')) {
     localPath = path.join(os.homedir(), localPath.slice(2));
   }
   return path.normalize(localPath);
+}
+
+/**
+ * Serializes a local filesystem path as a cross-platform `file://` URL.
+ * @param localPath - Local filesystem path, using either native separator style.
+ */
+export function toFileUrl(localPath: string): string {
+  const urlPath = localPath.replaceAll('\\', '/');
+  return `file://${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
 }

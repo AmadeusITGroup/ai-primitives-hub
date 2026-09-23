@@ -35,6 +35,17 @@ const config = {
       }
     ]
   },
+  optimization: {
+    // Webpack's unused-export elision rewrites `module.exports.x = <expr>` into bare
+    // expression statements without a terminating semicolon. When a dependency has an
+    // export assignment whose value starts with `(`, the next line is parsed as a call
+    // instead of a new statement (ASI hazard). This corrupts undici's index.js in
+    // `--mode production`, turning its exports into `ping(WebSocketStream, undefined)(...)`,
+    // which throws "Cannot read private member #handler" while `dist/extension.js` is
+    // being required — so `activate()` never runs and no command is registered.
+    // Disabling usedExports keeps the assignments intact. Cost is ~50 KB of bundle size.
+    usedExports: false
+  },
   devtool: 'nosources-source-map',
   infrastructureLogging: {
     level: "log", // enables logging required for problem matchers

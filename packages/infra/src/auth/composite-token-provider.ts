@@ -18,15 +18,16 @@
  * @module auth/composite-token-provider
  */
 import type {
+  GitHubRepositoryTarget,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 
 export class CompositeTokenProvider implements TokenProvider {
   public constructor(private readonly providers: readonly TokenProvider[]) {}
 
-  public async getToken(host: string): Promise<string | undefined> {
+  public async getToken(host: string, target?: GitHubRepositoryTarget): Promise<string | undefined> {
     for (const provider of this.providers) {
-      const token = await provider.getToken(host);
+      const token = await provider.getToken(host, target);
       if (token !== undefined) {
         return token;
       }

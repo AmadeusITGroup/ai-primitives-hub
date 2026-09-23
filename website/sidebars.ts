@@ -24,6 +24,7 @@ const sidebars: SidebarsConfig = {
       items: [
         { type: "doc", id: "author-guide/creating-source-bundle", label: "Creating Collections" },
         { type: "doc", id: "author-guide/creating-skills", label: "Creating Skills" },
+        { type: "doc", id: "author-guide/creating-a-hub", label: "Creating a Hub" },
         { type: "doc", id: "author-guide/collection-scripts", label: "Collection Scripts" },
         { type: "doc", id: "author-guide/collection-schema", label: "Collection Schema" },
         { type: "doc", id: "author-guide/agentic-primitives-guide", label: "Agentic Primitives" },
@@ -56,7 +57,15 @@ const sidebars: SidebarsConfig = {
         },
         { type: "doc", id: "contributor-guide/core-flows", label: "Core Flows" },
         { type: "doc", id: "contributor-guide/testing", label: "Testing" },
-        { type: "doc", id: "contributor-guide/testing-ssh-remote", label: "Testing SSH Remote" },
+        {
+          type: "category",
+          label: "Testing Details",
+          items: [
+            { type: "doc", id: "contributor-guide/testing/golden-path", label: "Golden Path Test Cases" },
+            { type: "doc", id: "contributor-guide/testing/test-plan", label: "Full Test Plan" },
+            { type: "doc", id: "contributor-guide/testing/ssh-remote", label: "Testing SSH Remote" },
+          ],
+        },
         { type: "doc", id: "contributor-guide/validation", label: "Validation" },
         { type: "doc", id: "contributor-guide/coding-standards", label: "Coding Standards" },
         { type: "doc", id: "contributor-guide/spec-collection-scripts-lib", label: "Collection Scripts Spec" },

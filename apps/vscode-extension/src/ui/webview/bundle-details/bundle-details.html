@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="{{cspSource}}">
     <title>{{bundleName}}</title>
+    <link rel="stylesheet" href="{{iconsUri}}">
     <link rel="stylesheet" href="{{cssUri}}">
 </head>
 <body>
     <div class="header">
         <h1>
-            📦 {{bundleName}}
+            <i class="fa-icon fa-box-open"></i> {{bundleName}}
             {{installedBadge}}
         </h1>
         <div class="meta">
@@ -28,13 +29,13 @@
     {{detailsSection}}
 
     <div class="section">
-        <h2>📊 Content Breakdown</h2>
+        <h2><i class="fa-icon fa-layer-group"></i> Content Breakdown</h2>
         {{breakdownContent}}
     </div>
 
 
     <div class="section">
-        <h2>ℹ️ Information</h2>
+        <h2><i class="fa-icon fa-circle-info"></i> Information</h2>
         <div class="info-grid">
             <div class="info-row">
                 <div class="info-label">Bundle ID:</div>

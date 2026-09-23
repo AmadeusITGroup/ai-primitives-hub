@@ -18,12 +18,10 @@
 import type {
   InstallationScope,
   InstalledBundle,
-  RegistrySource,
-} from '@ai-primitives-hub/core';
-import type {
   LogEvent,
   OnLogEvent,
-} from '../update/log-event';
+  RegistrySource,
+} from '@ai-primitives-hub/core';
 
 /**
  * Read/write access `uninstallInstalledBundle` needs: locating the

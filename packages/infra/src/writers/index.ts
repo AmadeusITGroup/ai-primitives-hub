@@ -10,5 +10,10 @@ export * from './repo-scope-writer';
  * `FileTreeTargetWriter` consumes this via the package barrel instead
  * of keeping its own copy, avoiding the two-divergent-copies defect
  * found during the reference branch's port).
+ *
+ * Exported as a typed value so consumers do not each cast the raw JSON import.
  */
-export { default as defaultLayouts } from './default-layouts.json';
+export {
+  defaultLayouts,
+  validateBuiltInLayouts,
+} from './default-layouts';

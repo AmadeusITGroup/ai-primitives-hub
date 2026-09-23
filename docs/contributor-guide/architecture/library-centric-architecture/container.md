@@ -198,8 +198,8 @@ IDE extension that exposes the same domain through VS Code UI:
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
 | Language | TypeScript | Type safety, VS Code ecosystem |
-| Runtime | Node.js 22+ | Matches CI and pnpm toolchain |
-| Package Manager | pnpm 11.5.0 | Workspace protocol and lockfile stability |
+| Runtime | Node.js 24+ | Matches CI and pnpm toolchain |
+| Package Manager | pnpm 11.20.0 | Workspace protocol and lockfile stability |
 | Monorepo | pnpm workspace (`packages/*`, `apps/*`, `github-actions/*`, `lib`) | Isolated package builds with shared tooling |
 | CLI Framework | Clipanion 4.0.0-rc.4 (exact pin) | Modern CLI framework with TypeScript support; RC pin accepted as a deliberate decision (ADR-0002) |
 | Search | Hand-rolled BM25 | Zero deps, deterministic, inspectable |

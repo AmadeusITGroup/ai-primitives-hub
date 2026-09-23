@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import {
   buildBodyPreview,
+  buildBodySummary,
   computePrimitiveId,
   detectKindFromPath,
   type ExtractContext,
@@ -185,6 +186,27 @@ describe('buildBodyPreview', () => {
   });
 });
 
+describe('buildBodySummary', () => {
+  it('returns the first maxWords words of the cleaned body', () => {
+    const body = 'One two three four five six seven eight nine ten.';
+    const summary = buildBodySummary(body, 5);
+    expect(summary).toBe('One two three four five');
+  });
+
+  it('strips markdown before counting words', () => {
+    const body = '# Heading\n\n```js\nconst x = 1;\n```\n\nThis is a sample body with enough words to count beyond the default summary budget so the cleaner is exercised.';
+    const summary = buildBodySummary(body, 10);
+    expect(summary).not.toContain('```');
+    expect(summary.split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(10);
+  });
+
+  it('returns fewer words when the body is short', () => {
+    const body = 'Short body.';
+    const summary = buildBodySummary(body, 80);
+    expect(summary).toBe('Short body.');
+  });
+});
+
 describe('extractFromFile', () => {
   const ref: BundleRef = {
     sourceId: 'source123',
@@ -212,6 +234,8 @@ describe('extractFromFile', () => {
       expect(result.title).toBe('Test');
       expect(result.description).toBe('A test');
       expect(result.tags).toEqual(['test', 'example']);
+      expect(result.bodySummary).toBeDefined();
+      expect(result.bodySummary).toContain('Body content');
     }
   });
 

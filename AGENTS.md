@@ -16,17 +16,19 @@ The extension lives in `apps/vscode-extension/src/`: adapters fetch sources, ser
 
 ## Commands
 
-Use Node 22+ and pnpm 11+.
+Use Node 24+ and pnpm 11+.
 
 ```bash
 pnpm install
 pnpm run compile
 pnpm run test:unit
-pnpm run lint
+pnpm run lint:fix
 pnpm run package:vsix
 ```
 
-`lib/` has its own test cycle: `cd lib && npm test`. For package work, run `pnpm -C packages -r build`, `pnpm -C packages -r lint`, or `pnpm -C packages -r test`.
+`lib/` has its own test cycle: `pnpm -C lib test`. For package work, run `pnpm -C packages -r build`, `pnpm -C packages -r lint:fix`, or `pnpm -C packages -r test`.
+
+Always run linting with its `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation.
 
 ## Architecture
 
