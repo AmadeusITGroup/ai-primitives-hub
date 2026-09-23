@@ -72,6 +72,20 @@ export const defaultResolver: TokenResolver = {
 };
 
 /**
+ * Create a resolver backed by a caller-supplied environment.
+ * @param env Environment variables to inspect.
+ */
+export function createTokenResolver(env: NodeJS.ProcessEnv = process.env): TokenResolver {
+  return {
+    readEnv: (name: string): string | undefined => {
+      const value = env[name];
+      return value && value.length > 0 ? value : undefined;
+    },
+    readGhCli: (): Promise<string | undefined> => defaultResolver.readGhCli()
+  };
+}
+
+/**
  * Resolve a GitHub token via explicit -> env -> gh CLI, short-circuiting as
  * soon as a non-empty value is found.
  * @param opts - `explicit` forwards a token from the extension host; takes highest precedence.

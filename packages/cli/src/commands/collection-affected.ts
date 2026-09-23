@@ -13,6 +13,7 @@ import {
   listCollectionFiles,
   readCollection,
   resolveCollectionItemPaths,
+  resolveCollectionReadmePath,
 } from '@ai-primitives-hub/app';
 import {
   Command,
@@ -87,9 +88,14 @@ export class CollectionAffectedCommand extends Command {
     for (const file of collectionFiles) {
       const collection = readCollection(cwd, file);
       const itemPaths = resolveCollectionItemPaths(cwd, collection).map((p) => normalize(p));
+      const readmePath = resolveCollectionReadmePath(collection);
       const itemPathsSet = new Set(itemPaths);
       const normalizedFile = normalize(file);
       if (changedSet.has(normalizedFile)) {
+        affected.push({ id: collection.id, file });
+        continue;
+      }
+      if (readmePath && changedSet.has(normalize(readmePath))) {
         affected.push({ id: collection.id, file });
         continue;
       }

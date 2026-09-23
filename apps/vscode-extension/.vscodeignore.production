@@ -135,6 +135,7 @@ INTEGRATION_TEST_*.md
 !icon.png
 !dist/extension.js
 !dist/extension.js.LICENSE.txt
+!dist/tern_engine_bg.wasm
 !dist/webview/
 !dist/webview/**
 

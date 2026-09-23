@@ -6,4 +6,7 @@ export * from './composite-token-provider';
 export * from './default-token-provider';
 export * from './env-token-provider';
 export * from './gh-cli-token-provider';
+export * from './gh-app-token-provider';
+export * from './gh-app-auth-setup-manager';
+export * from './generic-public-token-provider';
 export * from './static-token-provider';

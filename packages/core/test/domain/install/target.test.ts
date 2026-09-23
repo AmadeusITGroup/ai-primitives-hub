@@ -30,6 +30,47 @@ describe('isTarget', () => {
     ).toBe(true);
   });
 
+  it('accepts canonical primitive kinds in an allowlist', () => {
+    expect(
+      isTarget({
+        name: 'restricted-vscode',
+        type: 'vscode',
+        scope: 'user',
+        allowedKinds: ['prompt', 'skill', 'mcp-server']
+      })
+    ).toBe(true);
+  });
+
+  it('rejects legacy route aliases and unknown kinds in an allowlist', () => {
+    expect(
+      isTarget({
+        name: 'legacy-vscode',
+        type: 'vscode',
+        scope: 'user',
+        allowedKinds: ['skills']
+      })
+    ).toBe(false);
+    expect(
+      isTarget({
+        name: 'unknown-vscode',
+        type: 'vscode',
+        scope: 'user',
+        allowedKinds: ['not-a-kind']
+      })
+    ).toBe(false);
+  });
+
+  it('rejects a non-array allowlist', () => {
+    expect(
+      isTarget({
+        name: 'invalid-vscode',
+        type: 'vscode',
+        scope: 'user',
+        allowedKinds: 'prompt'
+      })
+    ).toBe(false);
+  });
+
   it('rejects a missing or empty name', () => {
     expect(isTarget({ type: 'vscode' })).toBe(false);
     expect(isTarget({ name: '', type: 'vscode' })).toBe(false);

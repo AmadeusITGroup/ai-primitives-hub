@@ -32,6 +32,8 @@
 import type {
   EtaggedResult,
   GitHubApi,
+  GitHubRepositoryTarget,
+  GitHubSourceAuthCategory,
   HttpClient,
   HttpResponse,
   TokenProvider,
@@ -77,6 +79,10 @@ export interface GitHubApiClientOptions {
   userAgent?: string;
   /** Resolves a bearer token for each request; omit for unauthenticated access. */
   tokenProvider?: TokenProvider;
+  /** Source repository used when a token provider mints repository-scoped credentials. */
+  repositoryTarget?: GitHubRepositoryTarget;
+  /** Preflight category controlling whether this client may resolve credentials. */
+  authenticationCategory?: GitHubSourceAuthCategory;
   /** Max retries after a transient failure. Default 4. */
   maxRetries?: number;
   /** Initial backoff (ms). Each retry doubles it. Default 250. */
@@ -160,8 +166,23 @@ export class GitHubApiClient implements GitHubApi {
       Accept: accept,
       ...extraHeaders
     };
+    if (this.options.authenticationCategory === 'public-anonymous') {
+      return headers;
+    }
     const host = new URL(url).hostname;
-    const token = await this.options.tokenProvider?.getToken(host);
+    const token = await this.options.tokenProvider?.getToken(host, this.options.repositoryTarget);
+    if (token === undefined && this.options.authenticationCategory === 'public-generic') {
+      throw authenticationRequiredError(
+        'GH_PUBLIC_GENERIC_TOKEN_UNAVAILABLE',
+        'A generic GitHub token is required for public source access.'
+      );
+    }
+    if (token === undefined && this.options.authenticationCategory === 'app-authenticated') {
+      throw authenticationRequiredError(
+        'GH_APP_AUTH_TOKEN_UNAVAILABLE',
+        'A repository-scoped GitHub App token is required for source access.'
+      );
+    }
     if (token) {
       headers.Authorization = `token ${token}`;
     }
@@ -266,10 +287,17 @@ export class GitHubApiClient implements GitHubApi {
   }
 
   public async getJson<T>(pathOrUrl: string, extraHeaders?: Record<string, string>): Promise<T> {
+    return (await this.getJsonWithHeaders<T>(pathOrUrl, extraHeaders)).value;
+  }
+
+  public async getJsonWithHeaders<T>(pathOrUrl: string, extraHeaders?: Record<string, string>): Promise<{
+    value: T;
+    headers: Record<string, string>;
+  }> {
     const response = await this.request(pathOrUrl, 'application/json', extraHeaders);
     const text = Buffer.from(response.body).toString('utf8');
     try {
-      return JSON.parse(text) as T;
+      return { value: JSON.parse(text) as T, headers: response.headers };
     } catch (error) {
       throw new Error(`Failed to parse GitHub response as JSON: ${error instanceof Error ? error.message : error}`);
     }
@@ -305,16 +333,29 @@ export class GitHubApiClient implements GitHubApi {
   }
 }
 
+function authenticationRequiredError(code: string, message: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code });
+}
+
 function describeError(response: HttpResponse, url: string): string {
   switch (response.statusCode) {
     case 401: {
       return `GitHub API error: 401 - Authentication failed. Token may be invalid or expired. (${url})`;
     }
     case 403: {
+      if (response.headers['x-ratelimit-remaining'] === '0') {
+        return `GitHub API error: 403 - GitHub primary rate limit exceeded. (${url})`;
+      }
+      if (response.headers['retry-after'] !== undefined) {
+        return `GitHub API error: 403 - GitHub secondary rate limit exceeded. (${url})`;
+      }
       return `GitHub API error: 403 - Access forbidden. Token may lack required scopes (repo). (${url})`;
     }
     case 404: {
       return `GitHub API error: 404 - Not found or not accessible. Check authentication. (${url})`;
+    }
+    case 429: {
+      return `GitHub API error: 429 - GitHub rate limit exceeded. (${url})`;
     }
     default: {
       return `GitHub API error: ${response.statusCode} (${url})`;

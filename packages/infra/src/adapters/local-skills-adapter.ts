@@ -45,6 +45,7 @@ import {
 import {
   isValidLocalUrl,
   resolveLocalPath,
+  toFileUrl,
 } from './local-path';
 
 const SKILL_ENVIRONMENTS = ['claude', 'vscode', 'claude-code'];
@@ -338,12 +339,12 @@ export class LocalSkillsAdapter extends BaseSourceAdapter {
 
   public getManifestUrl(bundleId: string): string {
     const skillId = this.skillIdFromBundleId(bundleId);
-    return `file://${path.join(this.getLocalPath(), 'skills', skillId, 'SKILL.md')}`;
+    return toFileUrl(path.join(this.getLocalPath(), 'skills', skillId, 'SKILL.md'));
   }
 
   public getDownloadUrl(bundleId: string): string {
     const skillId = this.skillIdFromBundleId(bundleId);
-    return `file://${path.join(this.getLocalPath(), 'skills', skillId)}`;
+    return toFileUrl(path.join(this.getLocalPath(), 'skills', skillId));
   }
 
   public async validate(): Promise<ValidationResult> {

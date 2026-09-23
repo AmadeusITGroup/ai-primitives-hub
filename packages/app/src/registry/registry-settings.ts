@@ -10,12 +10,10 @@ import type {
   ExportedSettings,
   ExportFormat,
   ImportStrategy,
-  RegistrySettingsOperations,
-} from '@ai-primitives-hub/core';
-import type {
   LogEvent,
   OnLogEvent,
-} from '../update/log-event';
+  RegistrySettingsOperations,
+} from '@ai-primitives-hub/core';
 
 const SETTINGS_SCHEMA_VERSION = '1.0.0';
 

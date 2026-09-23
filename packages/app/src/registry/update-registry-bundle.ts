@@ -15,6 +15,8 @@ import type {
   Bundle,
   InstallationScope,
   InstalledBundle,
+  LogEvent,
+  OnLogEvent,
   RegistrySource,
   SourceAdapter,
   SourceType,
@@ -22,10 +24,6 @@ import type {
 import {
   extractBundleIdentity,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 
 /** Read/write access `updateRegistryBundle` needs. */
 export interface UpdateRegistryBundlePorts {

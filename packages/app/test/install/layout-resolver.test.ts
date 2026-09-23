@@ -5,6 +5,7 @@
  * over different target/layer configurations.
  */
 import type {
+  McpLayoutConfig,
   Target,
   TargetLayoutsConfig,
 } from '@ai-primitives-hub/core';
@@ -15,6 +16,7 @@ import {
 } from 'vitest';
 import {
   resolveLayoutFromLayers,
+  resolveMcpLayoutConfig,
 } from '../../src/install/layout-resolver';
 
 const minimalConfig = (
@@ -222,5 +224,126 @@ describe('resolveLayoutFromLayers', () => {
     const cfg = minimalConfig('vscode', '${HOME}/.vscode', '/absolute/path');
     const result = resolveLayoutFromLayers(target, [cfg]);
     expect(result!.baseDir).toBe('/absolute/path');
+  });
+
+  it('substitutes ${workspaceRoot} inside a longer baseDir (e.g. "${workspaceRoot}/.github")', () => {
+    const target: Target = { name: 't', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const cfg = minimalConfig('vscode', '${HOME}/.vscode', '${workspaceRoot}/.github');
+    const result = resolveLayoutFromLayers(target, [cfg]);
+    expect(result!.baseDir).toBe('/ws/.github');
+  });
+
+  it('substitutes ${workspaceRoot} for a .kiro repository baseDir', () => {
+    const target: Target = { name: 't', type: 'kiro', scope: 'repository', rootPath: '/ws' };
+    const cfg = minimalConfig('kiro', '${HOME}/.kiro', '${workspaceRoot}/.kiro');
+    const result = resolveLayoutFromLayers(target, [cfg]);
+    expect(result!.baseDir).toBe('/ws/.kiro');
+  });
+
+  it('does not recurse when the resolved workspaceRoot itself contains the token text', () => {
+    // Defensive: split/join substitutes once and never re-scans the inserted
+    // value, so a workspaceRoot that literally contains "${workspaceRoot}"
+    // stays intact rather than being re-substituted.
+    const target: Target = {
+      name: 't', type: 'vscode', scope: 'repository', rootPath: '/home/${workspaceRoot}/proj'
+    };
+    const cfg = minimalConfig('vscode', '${HOME}/.vscode', '${workspaceRoot}/.github');
+    const result = resolveLayoutFromLayers(target, [cfg]);
+    expect(result!.baseDir).toBe('/home/${workspaceRoot}/proj/.github');
+  });
+});
+
+describe('resolveMcpLayoutConfig', () => {
+  const scoped = (baseDir: string, mcpConfig?: McpLayoutConfig) => ({
+    baseDir,
+    kindRoutes: { 'prompts/': 'prompts/' },
+    skipPaths: [],
+    ...(mcpConfig === undefined ? {} : { mcpConfig })
+  });
+
+  // Layer with an optional mcpConfig on each scope independently.
+  const mcpLayer = (
+    type: string,
+    userMcp?: McpLayoutConfig,
+    repoMcp?: McpLayoutConfig,
+    withRepositoryScope = true
+  ): TargetLayoutsConfig => ({
+    layouts: {
+      [type]: {
+        user: scoped(`\${HOME}/.${type}`, userMcp),
+        ...(withRepositoryScope
+          ? { repository: scoped(`\${workspaceRoot}/.${type}`, repoMcp) }
+          : {})
+      }
+    }
+  });
+
+  const kiroUserMcp: McpLayoutConfig = {
+    path: '${HOME}/.kiro/settings/mcp.json',
+    serversKey: 'mcpServers'
+  };
+
+  const kiroRepoMcp: McpLayoutConfig = {
+    path: '${workspaceRoot}/.kiro/settings/mcp.json',
+    serversKey: 'mcpServers'
+  };
+
+  const vscodeUserMcp: McpLayoutConfig = {
+    path: '${vscodeUserDir}/mcp.json',
+    serversKey: 'servers'
+  };
+
+  it('returns undefined when there are no layers', () => {
+    expect(resolveMcpLayoutConfig('kiro', 'user', [])).toBeUndefined();
+  });
+
+  it('returns undefined for a target type no layer defines', () => {
+    expect(resolveMcpLayoutConfig('emacs', 'user', [mcpLayer('kiro', kiroUserMcp)])).toBeUndefined();
+  });
+
+  it('returns undefined when the scope defines no mcpConfig', () => {
+    expect(resolveMcpLayoutConfig('kiro', 'user', [mcpLayer('kiro')])).toBeUndefined();
+  });
+
+  it('returns the mcpConfig for the requested scope', () => {
+    const layers = [mcpLayer('kiro', kiroUserMcp, kiroRepoMcp)];
+    expect(resolveMcpLayoutConfig('kiro', 'user', layers)).toEqual(kiroUserMcp);
+    expect(resolveMcpLayoutConfig('kiro', 'repository', layers)).toEqual(kiroRepoMcp);
+  });
+
+  it('does NOT fall back from repository to user scope', () => {
+    // Windsurf and Copilot CLI have no workspace-level MCP file. Inheriting the
+    // user entry would make a repository-scope install write into the user's
+    // home config, so absence must stay meaningful.
+    const layers = [mcpLayer('kiro', kiroUserMcp, undefined)];
+    expect(resolveMcpLayoutConfig('kiro', 'repository', layers)).toBeUndefined();
+    expect(resolveMcpLayoutConfig('kiro', 'user', layers)).toEqual(kiroUserMcp);
+  });
+
+  it('returns undefined for repository scope when the target has no repository branch', () => {
+    const layers = [mcpLayer('kiro', kiroUserMcp, undefined, false)];
+    expect(resolveMcpLayoutConfig('kiro', 'repository', layers)).toBeUndefined();
+  });
+
+  it('lets a later layer override an earlier one entirely', () => {
+    const result = resolveMcpLayoutConfig('kiro', 'user', [
+      mcpLayer('kiro', kiroUserMcp),
+      mcpLayer('kiro', vscodeUserMcp)
+    ]);
+    expect(result).toEqual(vscodeUserMcp);
+  });
+
+  it('keeps the earlier layer when a later layer omits mcpConfig', () => {
+    const result = resolveMcpLayoutConfig('kiro', 'user', [
+      mcpLayer('kiro', kiroUserMcp),
+      mcpLayer('kiro')
+    ]);
+    expect(result).toEqual(kiroUserMcp);
+  });
+
+  it('resolves each target type independently', () => {
+    const layers = [mcpLayer('kiro', kiroUserMcp), mcpLayer('vscode', vscodeUserMcp)];
+    expect(resolveMcpLayoutConfig('kiro', 'user', layers)).toEqual(kiroUserMcp);
+    expect(resolveMcpLayoutConfig('vscode', 'user', layers)).toEqual(vscodeUserMcp);
   });
 });

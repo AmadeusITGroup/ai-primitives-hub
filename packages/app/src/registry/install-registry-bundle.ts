@@ -18,6 +18,8 @@ import type {
   InstallationScope,
   InstalledBundle,
   InstallOptions,
+  LogEvent,
+  OnLogEvent,
   RegistrySource,
   SourceAdapter,
   SourceType,
@@ -26,10 +28,6 @@ import {
   extractBundleIdentity,
   isSameBundleIdentity,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 import type {
   ResolveInstallationBundlePorts,
 } from './resolve-installation-bundle';

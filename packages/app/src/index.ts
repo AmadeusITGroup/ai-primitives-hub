@@ -16,12 +16,14 @@ export * from './collection';
 export * from './context-detection';
 export * from './discovery';
 export * from './install';
+export * from './mcp';
 export * from './writers';
 export * from './stores';
 export * from './update';
 export * from './registry';
 export * from './search';
 export * from './transform';
+export * from './replicate/replicate';
 
 /**
  * Phase 1 scaffolding marker, kept until `cli` has real code of its own

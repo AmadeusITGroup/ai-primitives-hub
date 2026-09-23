@@ -7,6 +7,9 @@
  * (`@ai-primitives-hub/infra`, Phase 3) wraps the real HTTP client.
  * @module ports/http
  */
+import type {
+  GitHubRepositoryTarget,
+} from '../domain/source/github-repository-target';
 
 export interface HttpResponse {
   /** Status code after redirect handling. */
@@ -23,7 +26,7 @@ export interface HttpRequest {
   /** Absolute URL. */
   url: string;
   /** Defaults to `'GET'`. */
-  method?: 'GET' | 'HEAD' | 'POST';
+  method?: 'GET' | 'HEAD' | 'POST' | 'PUT';
   /** Request headers (case-insensitive). */
   headers?: Record<string, string>;
   /** Request body, for `POST`. */
@@ -32,6 +35,7 @@ export interface HttpRequest {
   timeoutMs?: number;
   /** Maximum redirect chain length; defaults to the adapter's own default. */
   maxRedirects?: number;
+  followRedirects?: boolean;
 }
 
 /**
@@ -59,5 +63,5 @@ export interface HttpClient {
  * needing its own retry-on-401 logic.
  */
 export interface TokenProvider {
-  getToken(host: string): Promise<string | undefined>;
+  getToken(host: string, repositoryTarget?: GitHubRepositoryTarget): Promise<string | undefined>;
 }

@@ -4,11 +4,15 @@ import {
   Profile,
   RegistrySource,
   SourceSyncedEvent,
+  SourceType,
 } from '../types/registry';
 import {
   TelemetryDocument,
   TelemetryTransport,
 } from '../types/telemetry';
+import {
+  VersionManager,
+} from '../utils/version-manager';
 import {
   RegistryManager,
 } from './registry-manager';
@@ -62,11 +66,16 @@ export class TelemetryService {
   }
 
   private trackBundleEvent(eventName: string, bundle: InstalledBundle): void {
+    const sourceType = (bundle.sourceType as SourceType | undefined) ?? 'unknown';
+    const normalizedBundleId = sourceType === 'github'
+      ? VersionManager.extractBundleIdentity(bundle.bundleId, 'github')
+      : bundle.bundleId;
+
     this.telemetryLogger.logUsage(eventName, {
-      bundleId: bundle.bundleId,
+      bundleId: normalizedBundleId,
       version: bundle.version,
       scope: bundle.scope,
-      sourceType: bundle.sourceType ?? 'unknown'
+      sourceType
     });
   }
 

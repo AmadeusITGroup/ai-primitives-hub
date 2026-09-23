@@ -3,3 +3,4 @@
  * @module process
  */
 export * from './node-process-runner';
+export * from './node-process-executor';

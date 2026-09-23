@@ -1,0 +1,41 @@
+/* Minimal Design Factory Font Awesome subset used by the webviews. */
+@font-face {
+    font-family: 'Font Awesome 6 Pro';
+    src: url('font-awesome/fa-light-300.woff2') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: block;
+}
+@font-face {
+    font-family: 'Font Awesome 6 Pro';
+    src: url('font-awesome/fa-solid-900.woff2') format('woff2');
+    font-weight: 900;
+    font-style: normal;
+    font-display: block;
+}
+
+.fa-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Font Awesome 6 Pro', sans-serif;
+    font-weight: 900;
+    font-style: normal;
+    line-height: 1;
+    -webkit-font-smoothing: antialiased;
+}
+
+.fa-box-open::before { content: '\f49e'; }
+.fa-arrows-rotate::before { content: '\f021'; }
+.fa-circle-check::before { content: '\f058'; }
+.fa-file-lines::before { content: '\f15c'; }
+.fa-list-check::before { content: '\f0ae'; }
+.fa-robot::before { content: '\f544'; }
+.fa-puzzle-piece::before { content: '\f12e'; }
+.fa-plug::before { content: '\f1e6'; }
+.fa-layer-group::before { content: '\f5fd'; }
+.fa-circle-info::before { content: '\f05a'; }
+.fa-tags::before { content: '\f02c'; }
+.fa-gear::before { content: '\f013'; }
+.fa-magnifying-glass::before { content: '\f002'; }
+.fa-box::before { content: '\f466'; }

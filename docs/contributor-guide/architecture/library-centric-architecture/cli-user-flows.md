@@ -303,8 +303,11 @@ flowchart LR
 
 **Commands:**
 - `index harvest` (auto-detects active hub)
+- `index harvest --embed` (harvest and embed primitive text for hybrid search)
 - `index build --root <path> --out <file>`
+- `index build --root <path> --out <file> --embed` (build and embed primitive text)
 - `index search --query <text> [--kinds <kinds>] [--sources <ids>] [--tags <tags>]`
+- `index search --query <text> --ranking hybrid` (requires an embedded index)
 - `index search --query <text> --install` (interactive install)
 
 ---
@@ -614,9 +617,9 @@ flowchart LR
 ### Index Commands
 | Command | Purpose | Key Options |
 |---------|---------|------------|
-| `index build` | Build index | `--root <path>`, `--out <file>`, `--source-id <id>` |
-| `index harvest` | Harvest from hub | `--hub-repo <repo>`, `--hub-config-file <file>`, `--dry-run` |
-| `index search` | Search primitives | `--query <text>`, `--index <file>`, `--kinds <kinds>`, `--sources <ids>`, `--bundles <ids>`, `--tags <tags>`, `--limit <n>`, `--offset <n>`, `--installed-only`, `--install` |
+| `index build` | Build index | `--root <path>`, `--out <file>`, `--source-id <id>`, `--embed` |
+| `index harvest` | Harvest from hub | `--hub-repo <repo>`, `--hub-config-file <file>`, `--dry-run`, `--embed` |
+| `index search` | Search primitives | `--query <text>`, `--index <file>`, `--kinds <kinds>`, `--sources <ids>`, `--bundles <ids>`, `--tags <tags>`, `--limit <n>`, `--offset <n>`, `--installed-only`, `--install`, `--ranking <bm25\|hybrid>` |
 | `search` | Search alias | Same as `index search` |
 | `index shortlist new` | Create shortlist | `--name <name>`, `--index <file>` |
 | `index shortlist add` | Add to shortlist | `--id <shortlist-id>`, `--primitive <primitive-id>`, `--index <file>` |

@@ -2,6 +2,7 @@
  * Tests for infra/hub/hub-resolver.ts.
  */
 import type {
+  GitHubRepositoryTarget,
   HttpClient,
   HttpRequest,
   HttpResponse,
@@ -16,6 +17,7 @@ import {
   vi,
 } from 'vitest';
 import {
+  ArtifactoryHubResolver,
   CompositeHubResolver,
   GitHubHubResolver,
   LocalHubResolver,
@@ -38,6 +40,17 @@ function fakeHttpClient(responses: (req: HttpRequest) => HttpResponse): HttpClie
 
 function fakeTokenProvider(token: string | undefined = undefined): TokenProvider {
   return { getToken: (): Promise<string | undefined> => Promise.resolve(token) };
+}
+
+function recordingTokenProvider(
+  targetRef: { value: GitHubRepositoryTarget | undefined }
+): TokenProvider {
+  return {
+    getToken: (_host: string, target?: GitHubRepositoryTarget): Promise<string | undefined> => {
+      targetRef.value = target;
+      return Promise.resolve('token');
+    }
+  };
 }
 
 describe('LocalHubResolver', () => {
@@ -129,6 +142,78 @@ describe('GitHubHubResolver', () => {
 
     const calledUrl = fetchSpy.mock.calls[0][0].url;
     expect(calledUrl).toContain('/owner/repo/develop/hub-config.yml');
+  });
+
+  it('passes the hub repository target separately from the raw-content request host', async () => {
+    const http = fakeHttpClient(() => ({ statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: '', headers: {} }));
+    const targetRef: { value: GitHubRepositoryTarget | undefined } = { value: undefined };
+    const resolver = new GitHubHubResolver(http, recordingTokenProvider(targetRef));
+
+    await resolver.resolve({ type: 'github', location: 'owner/repo' });
+
+    expect(targetRef.value).toEqual({ host: 'github.com', owner: 'owner', repository: 'repo' });
+  });
+
+  it('tries the generic hub read before repository-scoped App authentication', async () => {
+    const requests: HttpRequest[] = [];
+    let genericAttempt = true;
+    const http: HttpClient = {
+      fetch: (request): Promise<HttpResponse> => {
+        requests.push(request);
+        if (genericAttempt) {
+          genericAttempt = false;
+          return Promise.resolve({ statusCode: 404, body: new Uint8Array(), finalUrl: request.url, headers: {} });
+        }
+        return Promise.resolve({ statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: request.url, headers: {} });
+      }
+    };
+    const appProvider: TokenProvider = {
+      getToken: async (_host, target) => target === undefined ? undefined : 'app-token'
+    };
+    const resolver = new GitHubHubResolver(http, fakeTokenProvider('generic-token'), {
+      sourceAware: {
+        genericTokenProvider: fakeTokenProvider('generic-token'),
+        appTokenProvider: appProvider
+      }
+    });
+
+    await resolver.resolve({ type: 'github', location: 'owner/repo' });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0].headers?.Authorization).toBe('token generic-token');
+    expect(requests[1].headers?.Authorization).toBe('token app-token');
+  });
+});
+
+describe('ArtifactoryHubResolver', () => {
+  it('reads the confined config file with bearer credentials and never falls back', async () => {
+    const requests: HttpRequest[] = [];
+    const http: HttpClient = {
+      fetch: async (request) => {
+        requests.push(request);
+        return { statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: request.url, headers: {} };
+      }
+    };
+    const resolver = new ArtifactoryHubResolver(http, {
+      headersFor: async () => ({ Authorization: 'Bearer private-token' })
+    }, 'https://artifactory.example/repo/hub');
+
+    const ref: HubReference = { type: 'artifactory', location: 'https://artifactory.example/repo/hub', configFile: 'hub-config.yml', authMode: 'bearer', credentialRef: 'PRIVATE_HUB' };
+    await resolver.resolve(ref);
+
+    expect(requests[0].url).toBe('https://artifactory.example/repo/hub/hub-config.yml');
+    expect(requests[0].headers?.Authorization).toBe('Bearer private-token');
+    expect(JSON.stringify(ref)).not.toContain('private-token');
+  });
+
+  it('rejects config path traversal', async () => {
+    const resolver = new ArtifactoryHubResolver(
+      fakeHttpClient(() => ({ statusCode: 200, body: new Uint8Array(), finalUrl: '', headers: {} })),
+      { headersFor: async () => ({}) },
+      'https://artifactory.example/repo/hub'
+    );
+    await expect(resolver.resolve({ type: 'artifactory', location: 'https://artifactory.example/repo/hub', configFile: '../secret.yml' }))
+      .rejects.toThrow(/confined|path/i);
   });
 });
 

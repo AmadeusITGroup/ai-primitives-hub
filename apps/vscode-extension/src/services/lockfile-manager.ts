@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import {
   cleanupOrphanedSource,
   readLockfile,
+  remapSourceId,
   removeBundleEntry,
   upsertBundleEntry,
   upsertSource,
@@ -950,6 +951,41 @@ export class LockfileManager {
 
     // Emit event with the target lockfile
     this._onLockfileUpdated.fire(updatedTargetLockfile);
+  }
+
+  /**
+   * Remap all bundle entries referencing oldSourceId to newSourceId in both
+   * lockfiles (commit + local-only). Used when a hub collection URL is renamed
+   * so that existing installations track the new source seamlessly.
+   * @param oldSourceId - Source id being retired.
+   * @param newSourceId - Replacement source id.
+   * @param newSourceDescriptor - Source descriptor for the replacement.
+   */
+  public async remapSourceId(
+    oldSourceId: string,
+    newSourceId: string,
+    newSourceDescriptor: LockfileSourceEntry
+  ): Promise<void> {
+    for (const mode of ['commit', 'local-only'] as const) {
+      const lockfile = await this.readLockfileByMode(mode);
+      if (!lockfile) {
+        continue;
+      }
+
+      const hasAffectedBundles = Object.values(lockfile.bundles)
+        .some((b) => b.sourceId === oldSourceId);
+      if (!hasAffectedBundles) {
+        continue;
+      }
+
+      const updated = remapSourceId(lockfile, oldSourceId, newSourceId, newSourceDescriptor);
+      updated.generatedAt = new Date().toISOString();
+      await this.writeAtomicToPath(updated, this.getLockfilePathForMode(mode));
+      this._onLockfileUpdated.fire(updated);
+      this.logger.info(
+        `Remapped source ${oldSourceId} -> ${newSourceId} in ${mode} lockfile`
+      );
+    }
   }
 
   /**

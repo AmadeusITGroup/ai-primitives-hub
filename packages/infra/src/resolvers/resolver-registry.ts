@@ -21,8 +21,9 @@
  * dispatch is intentional and stays (list-all-bundles vs resolve-one-spec
  * are different consumer needs — see `github-resolver.ts`'s module doc).
  * What *was* consolidated: every GitHub-backed resolver constructed here
- * now shares the one `GitHubApi` instance passed in, instead of each
- * resolver rebuilding its own raw-HTTP auth/error handling.
+ * uses the injected shared `GitHubApi` by default, or an explicit
+ * source-bound factory when repository-aware authentication is enabled,
+ * instead of rebuilding raw-HTTP auth/error handling.
  * @module resolvers/resolver-registry
  */
 
@@ -30,8 +31,22 @@ import type {
   BundleResolver,
   FileSystem,
   GitHubApi,
+  HttpClient,
+  HttpCredentialProvider,
   RegistrySource,
 } from '@ai-primitives-hub/core';
+import {
+  AnonymousCredentialProvider,
+} from '../artifactory/credentials';
+import {
+  ArtifactoryHttpClient,
+} from '../artifactory/http-client';
+import {
+  parseGitHubRepositoryTarget,
+} from '../http/github-repository-target';
+import {
+  ArtifactoryBundleResolver,
+} from './artifactory-resolver';
 import {
   AwesomeCopilotBundleResolver,
 } from './awesome-copilot-resolver';
@@ -46,7 +61,13 @@ import {
 
 export interface SourceDispatcherOptions {
   /** Shared GitHub API client, reused across every GitHub-backed resolver. */
-  githubApi: GitHubApi;
+  githubApi?: GitHubApi;
+  /** Optional source-bound client factory; overrides `githubApi` for remote sources. */
+  githubApiFactory?: (source: RegistrySource) => GitHubApi;
+  /** HTTP transport used by non-GitHub remote sources. */
+  http?: HttpClient;
+  /** Source-scoped credentials for Artifactory; defaults to anonymous. */
+  artifactoryCredentialProvider?: (source: RegistrySource) => HttpCredentialProvider;
   /** Filesystem abstraction for local sources. */
   fs: FileSystem;
 }
@@ -55,12 +76,18 @@ export interface SourceDispatcherOptions {
  * Dispatcher that selects the appropriate resolver based on source type.
  */
 export class SourceDispatcher {
-  private readonly githubApi: GitHubApi;
+  private readonly githubApi: GitHubApi | undefined;
+  private readonly githubApiFactory: ((source: RegistrySource) => GitHubApi) | undefined;
   private readonly fs: FileSystem;
+  private readonly http: HttpClient | undefined;
+  private readonly artifactoryCredentialProvider: (source: RegistrySource) => HttpCredentialProvider;
 
   public constructor(opts: SourceDispatcherOptions) {
     this.githubApi = opts.githubApi;
+    this.githubApiFactory = opts.githubApiFactory;
     this.fs = opts.fs;
+    this.http = opts.http;
+    this.artifactoryCredentialProvider = opts.artifactoryCredentialProvider ?? (() => new AnonymousCredentialProvider());
   }
 
   /**
@@ -69,10 +96,16 @@ export class SourceDispatcher {
    * @returns Repo slug (e.g., "owner/repo").
    */
   private repoSlug(url: string): string {
-    return url
-      .replace(/^https?:\/\/github\.com\//, '')
-      .replace(/\.git$/, '')
-      .replace(/\/+$/, '');
+    const target = parseGitHubRepositoryTarget(url);
+    return `${target.owner}/${target.repository}`;
+  }
+
+  private apiFor(source: RegistrySource): GitHubApi {
+    const api = this.githubApiFactory?.(source) ?? this.githubApi;
+    if (api === undefined) {
+      throw new Error(`A GitHub API is required for source type: ${source.type}`);
+    }
+    return api;
   }
 
   /**
@@ -82,10 +115,19 @@ export class SourceDispatcher {
    */
   public resolverFor(source: RegistrySource): BundleResolver | null {
     switch (source.type) {
+      case 'artifactory': {
+        if (this.http === undefined) {
+          throw new Error('An HttpClient is required for Artifactory sources.');
+        }
+        return new ArtifactoryBundleResolver(
+          source,
+          new ArtifactoryHttpClient(this.http, this.artifactoryCredentialProvider(source), source.url)
+        );
+      }
       case 'github': {
         return new GitHubBundleResolver({
           repoSlug: this.repoSlug(source.url),
-          githubApi: this.githubApi
+          githubApi: this.apiFor(source)
         });
       }
       case 'awesome-copilot': {
@@ -94,14 +136,14 @@ export class SourceDispatcher {
           repoSlug: this.repoSlug(source.url),
           branch: config.branch,
           collectionsPath: config.collectionsPath,
-          githubApi: this.githubApi
+          githubApi: this.apiFor(source)
         });
       }
       case 'skills': {
         return new SkillsBundleResolver({
           repoSlug: this.repoSlug(source.url),
           ref: (source as { ref?: string }).ref,
-          githubApi: this.githubApi
+          githubApi: this.apiFor(source)
         });
       }
       case 'local-skills': {
@@ -135,7 +177,7 @@ export class SourceDispatcher {
    * @returns true if the source type is remote and requires a resolver.
    */
   public isRemote(sourceType: string): boolean {
-    const remoteTypes = ['github', 'awesome-copilot', 'skills', 'apm'];
+    const remoteTypes = ['github', 'awesome-copilot', 'skills', 'apm', 'artifactory'];
     return remoteTypes.includes(sourceType);
   }
 }

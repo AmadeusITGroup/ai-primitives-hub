@@ -1,6 +1,7 @@
 /**
  * Tests for infra/stores/hub-store.ts.
  */
+import * as path from 'node:path';
 import type {
   HubConfig,
   HubReference,
@@ -56,7 +57,7 @@ describe('HubStore', () => {
   it('falls back to a local reference when the sidecar is missing', async () => {
     fs.seed('/hubs/no-meta.yml', 'version: "1.0.0"\nmetadata:\n  name: x\n  description: d\n  maintainer: m\n  updatedAt: "2024-01-01T00:00:00.000Z"\nsources: []\nprofiles: []\n');
     const loaded = await store.load('no-meta');
-    expect(loaded.reference).toEqual({ type: 'local', location: '/hubs/no-meta.yml' });
+    expect(loaded.reference).toEqual({ type: 'local', location: path.join('/hubs', 'no-meta.yml') });
   });
 
   it('overwrites an existing hub on save', async () => {

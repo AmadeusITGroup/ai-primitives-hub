@@ -31,6 +31,7 @@ export interface CollectionItem {
   kind: string;
   name?: string;
   description?: string;
+  tags?: string[];
 }
 
 export interface Collection {

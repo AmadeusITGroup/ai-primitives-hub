@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import * as path from 'node:path';
 import type {
   RegistrySource,
 } from '@ai-primitives-hub/core';
@@ -77,7 +78,7 @@ describe('LocalSkillsAdapter', () => {
     it('resolves the on-disk skill directory by extracting the id from the bundle id', () => {
       const adapter = makeAdapter();
       const bundle = { id: 'local-skills-skills-root-my-skill' } as never;
-      expect(adapter.getSkillSourcePath(bundle)).toBe('/skills-root/skills/my-skill');
+      expect(adapter.getSkillSourcePath(bundle)).toBe(path.join('/skills-root', 'skills', 'my-skill'));
     });
 
     it('extracts the skill name/id from the bundle id', () => {
@@ -226,7 +227,12 @@ describe('LocalSkillsAdapter', () => {
   describe('validate', () => {
     it('is invalid when the root directory does not exist', async () => {
       const result = await makeAdapter().validate();
-      expect(result).toEqual({ valid: false, errors: ['Directory does not exist: /skills-root'], warnings: [], bundlesFound: 0 });
+      expect(result).toEqual({
+        valid: false,
+        errors: [`Directory does not exist: ${path.join('/skills-root')}`],
+        warnings: [],
+        bundlesFound: 0
+      });
     });
 
     it('is invalid when the skills/ directory is missing', async () => {
@@ -236,7 +242,7 @@ describe('LocalSkillsAdapter', () => {
       const result = await makeAdapter({ fs }).validate();
       expect(result).toEqual({
         valid: false,
-        errors: [`Missing required 'skills' directory: /skills-root/skills`],
+        errors: [`Missing required 'skills' directory: ${path.join('/skills-root', 'skills')}`],
         warnings: [],
         bundlesFound: 0
       });

@@ -6,6 +6,7 @@
  * use a hand-rolled in-memory `ConfigFs` so the loader is exercised in
  * isolation without touching real disk.
  */
+import * as path from 'node:path';
 import {
   describe,
   expect,
@@ -19,6 +20,10 @@ import {
 interface Inode {
   [path: string]: string;
 }
+
+const workspacePath = path.join(path.sep, 'workspace');
+const userConfigHome = path.join(path.sep, 'home', 'user', '.config');
+const workspaceFile = (name: string): string => path.join(workspacePath, name);
 
 const makeFs = (files: Inode) => {
   const map = new Map<string, string>(Object.entries(files));
@@ -37,7 +42,7 @@ const makeFs = (files: Inode) => {
 describe('loadConfig', () => {
   it('returns built-in defaults when no config files exist', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {},
       fs: makeFs({})
     });
@@ -51,10 +56,10 @@ describe('loadConfig', () => {
 
   it('loads a project config from cwd', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {},
       fs: makeFs({
-        '/workspace/ai-primitives-hub.yml': 'output: json\nfoo: bar\n'
+        [workspaceFile('ai-primitives-hub.yml')]: 'output: json\nfoo: bar\n'
       })
     });
     expect(config).toMatchObject({
@@ -66,10 +71,10 @@ describe('loadConfig', () => {
 
   it('walks upward Cargo-style to find a project config', async () => {
     const config = await loadConfig({
-      cwd: '/workspace/packages/cli',
+      cwd: workspaceFile('packages/cli'),
       env: {},
       fs: makeFs({
-        '/workspace/ai-primitives-hub.yml': 'output: yaml\n'
+        [workspaceFile('ai-primitives-hub.yml')]: 'output: yaml\n'
       })
     });
     expect(config.output).toBe('yaml');
@@ -77,11 +82,11 @@ describe('loadConfig', () => {
 
   it('prefers the .yaml filename over .yml when both are present', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {},
       fs: makeFs({
-        '/workspace/ai-primitives-hub.yml': 'output: yml\n',
-        '/workspace/ai-primitives-hub.yaml': 'output: yaml\n'
+        [workspaceFile('ai-primitives-hub.yml')]: 'output: yml\n',
+        [workspaceFile('ai-primitives-hub.yaml')]: 'output: yaml\n'
       })
     });
     expect(config.output).toBe('yaml');
@@ -89,10 +94,10 @@ describe('loadConfig', () => {
 
   it('loads a user config from XDG_CONFIG_HOME', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
-      env: { XDG_CONFIG_HOME: '/home/user/.config' },
+      cwd: workspacePath,
+      env: { XDG_CONFIG_HOME: userConfigHome },
       fs: makeFs({
-        '/home/user/.config/ai-primitives-hub/config.yml': 'output: json\nverbose: true\n'
+        [path.join(userConfigHome, 'ai-primitives-hub', 'config.yml')]: 'output: json\nverbose: true\n'
       })
     });
     expect(config.output).toBe('json');
@@ -101,11 +106,11 @@ describe('loadConfig', () => {
 
   it('project config overrides user config', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
-      env: { XDG_CONFIG_HOME: '/home/user/.config' },
+      cwd: workspacePath,
+      env: { XDG_CONFIG_HOME: userConfigHome },
       fs: makeFs({
-        '/home/user/.config/ai-primitives-hub/config.yml': 'output: json\n',
-        '/workspace/ai-primitives-hub.yml': 'output: yaml\n'
+        [path.join(userConfigHome, 'ai-primitives-hub', 'config.yml')]: 'output: json\n',
+        [workspaceFile('ai-primitives-hub.yml')]: 'output: yaml\n'
       })
     });
     expect(config.output).toBe('yaml');
@@ -113,15 +118,15 @@ describe('loadConfig', () => {
 
   it('env vars override project config and coerce booleans/numbers', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {
-        XDG_CONFIG_HOME: '/home/user/.config',
+        XDG_CONFIG_HOME: userConfigHome,
         AI_PRIMITIVES_HUB_OUTPUT: 'ndjson',
         AI_PRIMITIVES_HUB_VERBOSE: 'true',
         AI_PRIMITIVES_HUB_INDEX__TTL: '120'
       },
       fs: makeFs({
-        '/home/user/.config/ai-primitives-hub/config.yml': 'output: json\nverbose: false\n'
+        [path.join(userConfigHome, 'ai-primitives-hub', 'config.yml')]: 'output: json\nverbose: false\n'
       })
     });
     expect(config.output).toBe('ndjson');
@@ -131,7 +136,7 @@ describe('loadConfig', () => {
 
   it('camelCases single-underscore env keys and treats double underscores as nested paths', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {
         AI_PRIMITIVES_HUB_CACHE_PATH: '/tmp',
         AI_PRIMITIVES_HUB_HUB__TIMEOUT: '30'
@@ -144,12 +149,12 @@ describe('loadConfig', () => {
 
   it('explicit --config file overrides all earlier layers', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: { AI_PRIMITIVES_HUB_OUTPUT: 'ndjson' },
-      configFile: '/workspace/override.yml',
+      configFile: workspaceFile('override.yml'),
       fs: makeFs({
-        '/workspace/ai-primitives-hub.yml': 'output: json\n',
-        '/workspace/override.yml': 'output: text\nquiet: true\n'
+        [workspaceFile('ai-primitives-hub.yml')]: 'output: json\n',
+        [workspaceFile('override.yml')]: 'output: text\nquiet: true\n'
       })
     });
     expect(config.output).toBe('text');
@@ -158,19 +163,19 @@ describe('loadConfig', () => {
 
   it('throws when an explicit --config file does not exist', async () => {
     await expect(loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {},
-      configFile: '/workspace/missing.yml',
+      configFile: workspaceFile('missing.yml'),
       fs: makeFs({})
     })).rejects.toThrow('Config file not found');
   });
 
   it('deep-merges nested objects instead of replacing them', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {},
       fs: makeFs({
-        '/workspace/ai-primitives-hub.yml': 'github:\n  token: abc\n  timeout: 5\n'
+        [workspaceFile('ai-primitives-hub.yml')]: 'github:\n  token: abc\n  timeout: 5\n'
       })
     });
     expect(config.github).toEqual({ token: 'abc', timeout: 5 });
@@ -178,10 +183,10 @@ describe('loadConfig', () => {
 
   it('later nested layers override leaves while preserving siblings', async () => {
     const config = await loadConfig({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: { AI_PRIMITIVES_HUB_GITHUB__TIMEOUT: '10' },
       fs: makeFs({
-        '/workspace/ai-primitives-hub.yml': 'github:\n  token: abc\n  timeout: 5\n'
+        [workspaceFile('ai-primitives-hub.yml')]: 'github:\n  token: abc\n  timeout: 5\n'
       })
     });
     expect(config.github).toEqual({ token: 'abc', timeout: 10 });
@@ -191,7 +196,7 @@ describe('loadConfig', () => {
 describe('resolveProjectConfigPath', () => {
   it('returns undefined when no project config exists', async () => {
     const result = await resolveProjectConfigPath({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {},
       fs: makeFs({})
     });
@@ -200,12 +205,12 @@ describe('resolveProjectConfigPath', () => {
 
   it('returns the absolute path to the first found config file', async () => {
     const result = await resolveProjectConfigPath({
-      cwd: '/workspace',
+      cwd: workspacePath,
       env: {},
       fs: makeFs({
-        '/workspace/ai-primitives-hub.yml': 'output: json\n'
+        [workspaceFile('ai-primitives-hub.yml')]: 'output: json\n'
       })
     });
-    expect(result).toBe('/workspace/ai-primitives-hub.yml');
+    expect(result).toBe(workspaceFile('ai-primitives-hub.yml'));
   });
 });

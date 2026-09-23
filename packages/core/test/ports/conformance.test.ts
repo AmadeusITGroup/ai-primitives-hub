@@ -43,16 +43,26 @@ class FixedClock implements Clock {
 class InMemoryFileSystem implements FileSystem {
   private readonly files = new Map<string, string>();
 
-  public async readFile(path: string): Promise<string> {
-    const contents = this.files.get(path);
-    if (contents === undefined) {
-      throw new Error(`ENOENT: ${path}`);
-    }
-    return contents;
+  public readFile(path: string): Promise<string> {
+    return Promise.resolve().then(() => {
+      const contents = this.files.get(path);
+      if (contents === undefined) {
+        throw new Error(`ENOENT: ${path}`);
+      }
+      return contents;
+    });
   }
 
   public async writeFile(path: string, contents: string): Promise<void> {
     this.files.set(path, contents);
+  }
+
+  public async readFileBytes(path: string): Promise<Uint8Array> {
+    return new TextEncoder().encode(await this.readFile(path));
+  }
+
+  public async writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
+    this.files.set(path, new TextDecoder().decode(bytes));
   }
 
   public async readJson<T = unknown>(path: string): Promise<T> {
@@ -103,12 +113,20 @@ class StaticGitHubApi implements GitHubApi {
     return this.jsonByPath[pathOrUrl] as T;
   }
 
+  public async getJsonWithHeaders<T>(pathOrUrl: string): Promise<{ value: T; headers: Record<string, string> }> {
+    return { value: await this.getJson<T>(pathOrUrl), headers: {} };
+  }
+
   public async getText(pathOrUrl: string): Promise<string> {
     return String(this.jsonByPath[pathOrUrl]);
   }
 
   public async download(pathOrUrl: string): Promise<Uint8Array> {
     return new TextEncoder().encode(String(this.jsonByPath[pathOrUrl]));
+  }
+
+  public async getJsonWithEtag<T>(pathOrUrl: string): Promise<{ status: 'ok'; value: T; etag: undefined }> {
+    return { status: 'ok', value: await this.getJson<T>(pathOrUrl), etag: undefined };
   }
 }
 

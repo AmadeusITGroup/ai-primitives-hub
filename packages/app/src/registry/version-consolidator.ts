@@ -17,16 +17,14 @@
  */
 import type {
   Bundle,
+  LogEvent,
+  OnLogEvent,
   SourceType,
 } from '@ai-primitives-hub/core';
 import {
   compareVersions,
   extractBundleIdentity,
 } from '@ai-primitives-hub/core';
-import type {
-  LogEvent,
-  OnLogEvent,
-} from '../update/log-event';
 
 /**
  * Version metadata for a bundle.

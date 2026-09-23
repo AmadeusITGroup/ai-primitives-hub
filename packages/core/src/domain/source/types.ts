@@ -21,7 +21,9 @@ export type SourceType =
   | 'apm'
   | 'local-apm'
   | 'skills'
-  | 'local-skills';
+  | 'local-skills'
+  | 'azure-devops'
+  | 'artifactory';
 
 /**
  * A configured bundle source.
@@ -38,6 +40,13 @@ export interface RegistrySource {
   token?: string;
   /** Hub identifier, when this source was provisioned by a curated hub. */
   hubId?: string;
+  /**
+   * The hub config `sources[].id` this source was provisioned from — the
+   * stable, author-assigned identity that survives a `url` change. Used to
+   * match a pre-rename orphan to its replacement. Absent on manually-added
+   * sources and on hub sources persisted before this field existed.
+   */
+  hubSourceId?: string;
   metadata?: {
     description?: string;
     homepage?: string;
@@ -48,7 +57,7 @@ export interface RegistrySource {
     branch?: string;
     /** Collections directory, for awesome-copilot sources. */
     collectionsPath?: string;
-    /** Index file name, for awesome-copilot sources. */
+    /** Index file name, for awesome-copilot and Artifactory sources. */
     indexFile?: string;
     [key: string]: unknown;
   };

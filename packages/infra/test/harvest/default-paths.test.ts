@@ -25,7 +25,7 @@ describe('primitive-index / default-paths', () => {
 
   it('falls back to XDG_CACHE_HOME/ai-primitives-hub when AI_PRIMITIVES_HUB_CACHE unset', () => {
     const env: DefaultPathEnv = { XDG_CACHE_HOME: '/xdg/cache' };
-    expect(defaultCacheDir(env)).toBe('/xdg/cache/ai-primitives-hub');
+    expect(defaultCacheDir(env)).toBe(path.join('/xdg/cache', 'ai-primitives-hub'));
   });
 
   it('falls back to ~/.cache/ai-primitives-hub when no env set', () => {

@@ -4,13 +4,20 @@
  */
 
 import {
+  createHash,
+} from 'node:crypto';
+import * as path from 'node:path';
+import {
   activateRegistryProfile,
+  remapBundleSource as appRemapBundleSource,
+  canonicalizeIndexHubId,
   createLocalProfile,
   deactivateRegistryProfile,
   deleteLocalProfile,
   detectBundleUpdates,
   exportLocalProfile,
   exportRegistrySettings,
+  hydrateSourceReadmes,
   importLocalProfile,
   importRegistrySettings,
   installRegistryBundle,
@@ -18,6 +25,7 @@ import {
   listAllProfiles,
   listInstalledBundles as listInstalledBundlesCore,
   listLocalProfiles as listLocalProfilesCore,
+  reuseCachedSourceReadmes,
   searchRegistryBundles,
   uninstallInstalledBundle,
   updateLocalProfile,
@@ -26,16 +34,35 @@ import {
 import type {
   LogEvent,
 } from '@ai-primitives-hub/app';
+import type {
+  BundleProvider,
+  PrimitiveIndexKey,
+} from '@ai-primitives-hub/core';
 import {
+  BlobCache,
+  CompositeBundleProvider,
+  CompositeTokenProvider,
+  createRegistrySourceBundleProvider,
+  createSourceRevision,
+  GhCliTokenProvider,
+  GitHubApiClient,
   GitHubAdapter as InfraGitHubAdapter,
+  NodeHttpClient,
+  SourceAdapterBundleProvider,
+  StaticTokenProvider,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
+  createCoreRegistryAdapter,
   createRegistryAdapter,
 } from '../adapters/infra-adapter-factory';
 import {
   IRepositoryAdapter,
 } from '../adapters/repository-adapter';
+import {
+  VsCodeSessionTokenProvider,
+} from '../adapters/vscode-session-token-provider';
 import {
   RegistryStorage,
 } from '../storage/registry-storage';
@@ -95,6 +122,9 @@ import {
   LockfileManager,
 } from './lockfile-manager';
 import {
+  SourceTokenVault,
+} from './source-token-vault';
+import {
   VersionConsolidator,
 } from './version-consolidator';
 
@@ -137,6 +167,7 @@ export class RegistryManager {
   }
 
   private readonly storage: RegistryStorage;
+  private readonly tokenVault: SourceTokenVault;
   private hubManager?: HubManager;
   private _autoUpdateService?: AutoUpdateService;
   private readonly installer: BundleInstaller;
@@ -144,6 +175,8 @@ export class RegistryManager {
   private readonly adapters = new Map<string, IRepositoryAdapter>();
   private readonly versionConsolidator: VersionConsolidator;
   private sourcesCache: RegistrySource[] = [];
+  private readonly primitiveIndexKeyCache = new Map<string, { key: PrimitiveIndexKey; expiresAt: number }>();
+  private readonly primitiveIndexKeyRequests = new Map<string, Promise<PrimitiveIndexKey>>();
 
   // Event emitters
   private readonly _onBundleInstalled = new vscode.EventEmitter<InstalledBundle>();
@@ -187,6 +220,11 @@ export class RegistryManager {
 
   private constructor(private readonly context: vscode.ExtensionContext) {
     this.storage = new RegistryStorage(context);
+    this.tokenVault = new SourceTokenVault(context.secrets ?? {
+      get: async () => undefined,
+      store: async () => undefined,
+      delete: async () => undefined
+    });
     this.installer = new BundleInstaller(context);
     this.logger = Logger.getInstance();
 
@@ -195,12 +233,87 @@ export class RegistryManager {
     this.versionConsolidator.setSourceTypeResolver((sourceId: string) => this.getSourceType(sourceId));
   }
 
+  private invalidatePrimitiveIndexKeyCache(): void {
+    this.primitiveIndexKeyCache.clear();
+  }
+
+  private async buildPrimitiveIndexKey(
+    searchProfileId: string,
+    resolveRemoteRevision = true
+  ): Promise<PrimitiveIndexKey> {
+    const sources = (await this.storage.getSources()).filter((source) => source.enabled);
+    const blobCache = new BlobCache(path.join(new XdgAppStorage().getPaths().cache, 'primitive-index-blobs'));
+    const snapshot = await Promise.all(sources.map(async (source) => {
+      const bundles = await this.storage.getCachedSourceBundles(source.id);
+      let fallbackRevision = createHash('sha256').update(JSON.stringify(bundles
+        .map((bundle) => ({
+          id: bundle.id,
+          version: bundle.version,
+          lastUpdated: bundle.lastUpdated,
+          readmeRevision: bundle.readmeRevision,
+          checksum: bundle.checksum
+        }))
+        .toSorted((a, b) => `${a.id}@${a.version}`.localeCompare(`${b.id}@${b.version}`)))).digest('hex');
+
+      if (resolveRemoteRevision) {
+        // Native GitHub harvesters use the repository head commit as the source
+        // revision. Resolve the same revision here so CLI and VS Code converge
+        // on one namespaced index instead of creating client-specific copies.
+        try {
+          const enrichedSource = this.enrichSourceWithGlobalToken(source);
+          const tokenProviders = [
+            ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token)] : []),
+            new VsCodeSessionTokenProvider(true),
+            new GhCliTokenProvider()
+          ];
+          const nativeProvider = createRegistrySourceBundleProvider({
+            source: enrichedSource,
+            client: new GitHubApiClient(new NodeHttpClient(), {
+              tokenProvider: new CompositeTokenProvider(tokenProviders)
+            }),
+            cache: blobCache
+          });
+          if (nativeProvider && 'getCommitSha' in nativeProvider
+            && typeof (nativeProvider as { getCommitSha?: unknown }).getCommitSha === 'function') {
+            fallbackRevision = await (nativeProvider as { getCommitSha: () => Promise<string> }).getCommitSha();
+          }
+        } catch (error) {
+          this.logger.debug(`Could not resolve primitive revision for source '${source.id}'; using cached catalog revision`, error);
+        }
+      }
+      return {
+        id: source.id,
+        type: source.type,
+        url: source.url,
+        hubId: source.hubId,
+        config: source.config,
+        revision: fallbackRevision
+      };
+    }));
+    const hubId = this.hubManager ? await this.hubManager.getActiveHubId() : null;
+    const sourceRevision = createSourceRevision(snapshot.map((source) => ({
+      sourceId: source.id,
+      url: source.url,
+      branch: typeof source.config?.branch === 'string' ? source.config.branch : 'main',
+      revision: source.revision
+    })));
+    return {
+      hubId: canonicalizeIndexHubId(hubId ?? 'registry'),
+      sourceRevision,
+      searchProfileId
+    };
+  }
+
   /**
    * Enrich source with global token if applicable
    * Applies global GitHub token to GitHub sources that don't have their own token
    * @param source
    */
   private enrichSourceWithGlobalToken(source: RegistrySource): RegistrySource {
+    // The deprecated setting is a GitHub-only compatibility fallback.
+    if (source.type !== 'github') {
+      return source;
+    }
     // If source already has a token, don't override it
     if (source.token && source.token.trim().length > 0) {
       return source;
@@ -231,8 +344,8 @@ export class RegistryManager {
     for (const source of sources) {
       if (source.enabled) {
         try {
-          const enrichedSource = this.enrichSourceWithGlobalToken(source);
-          const adapter = createRegistryAdapter(enrichedSource);
+          const enrichedSource = this.enrichSourceWithGlobalToken({ ...source, token: await this.tokenVault.get(source.id) });
+          const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
           this.adapters.set(source.id, adapter);
         } catch (error) {
           this.logger.error(`Failed to create adapter for source '${source.id}'`, error as Error);
@@ -292,7 +405,7 @@ export class RegistryManager {
 
     if (!adapter) {
       const enrichedSource = this.enrichSourceWithGlobalToken(source);
-      adapter = createRegistryAdapter(enrichedSource);
+      adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
       this.adapters.set(source.id, adapter);
     }
 
@@ -637,72 +750,12 @@ export class RegistryManager {
   }
 
   /**
-   * Carry over cached readmes into freshly fetched bundles when the source revision is unchanged.
-   * Bundles whose `readmeRevision` differs (or is not provided by the adapter) are left without a
-   * readme so {@link downloadReadmesConcurrently} re-downloads them. This keeps readmes fresh while
-   * avoiding redundant downloads on every sync.
-   * @param previouslyCached - Snapshot of cached bundles taken before the current sync started
-   * @param bundles - Freshly fetched bundles to enrich in place
-   */
-  private async reuseCachedReadmes(previouslyCached: Bundle[], bundles: Bundle[]): Promise<void> {
-    if (!previouslyCached || previouslyCached.length === 0) {
-      return;
-    }
-    const cachedById = new Map(previouslyCached.map((b) => [b.id, b]));
-    for (const bundle of bundles) {
-      const previous = cachedById.get(bundle.id);
-      if (
-        previous?.readme
-        && previous.readmeRevision !== undefined
-        && previous.readmeRevision === bundle.readmeRevision
-      ) {
-        bundle.readme = previous.readme;
-      }
-    }
-  }
-
-  /**
-   * Download readme files concurrently
-   * @param bundles - Bundles to download readmes for
-   * @param sourceId - Source ID for caching purposes
-   * @param adapter - Adapter to use for downloading readmes
-   */
-  private async downloadReadmesConcurrently(bundles: Bundle[], sourceId: string, adapter: IRepositoryAdapter): Promise<void> {
-    const concurrency = CONCURRENCY_CONSTANTS.README_DOWNLOAD_CONCURRENCY;
-    const filteredBundles = bundles.filter((b) => b.readmeUrl && !b.readme);
-    const succeeded: string[] = [];
-    const failed: string[] = [];
-    for (let i = 0; i < filteredBundles.length; i += concurrency) {
-      const batch = filteredBundles.slice(i, i + concurrency);
-      const newlyDownloaded = new Set<string>();
-      await Promise.allSettled(
-        batch.map(async (bundle) => {
-          const readme = await adapter.downloadReadme(bundle);
-          if (readme) {
-            bundle.readme = readme;
-            newlyDownloaded.add(bundle.id);
-          } else {
-            failed.push(bundle.id);
-          }
-        })
-      );
-      succeeded.push(...newlyDownloaded);
-      if (newlyDownloaded.size > 0) {
-        const bundleIdsWithReadmes = [...newlyDownloaded];
-        // Cache all bundles (including previously downloaded) so consumers get full state
-        await this.storage.cacheSourceBundles(sourceId, bundles);
-        this._onReadmeDownloaded.fire({ sourceId, bundleIds: bundleIdsWithReadmes });
-      }
-    }
-    this._onReadmeDownloadComplete.fire({ sourceId, succeeded, failed });
-  }
-
-  /**
    * Set HubManager instance for hub integration
    * @param hubManager
    */
   public setHubManager(hubManager: HubManager): void {
     this.hubManager = hubManager;
+    hubManager.onActiveHubChanged(() => this.invalidatePrimitiveIndexKeyCache());
   }
 
   /**
@@ -761,6 +814,11 @@ export class RegistryManager {
   public async initialize(): Promise<void> {
     this.logger.info('Initializing AI Primitives Hub...');
     await this.storage.initialize();
+    const config = await this.storage.loadConfig();
+    const sanitizedSources = await this.tokenVault.migrateLegacyTokens(config.sources);
+    if (sanitizedSources.some((source, index) => source.token !== config.sources[index]?.token)) {
+      await this.storage.saveConfig({ ...config, sources: sanitizedSources });
+    }
     await this.loadAdapters();
     this.logger.info('AI Primitives Hub initialized successfully');
   }
@@ -804,22 +862,27 @@ export class RegistryManager {
   public async addSource(source: RegistrySource): Promise<void> {
     this.logger.info(`Adding source: ${source.name}`);
 
-    // Validate source (with global token if applicable)
-    const enrichedSource = this.enrichSourceWithGlobalToken(source);
-    const adapter = createRegistryAdapter(enrichedSource);
+    if (source.token?.trim()) {
+      await this.tokenVault.set(source.id, source.token.trim());
+    }
+    const sourceWithoutToken = { ...source, token: undefined };
+    // Validate source (with global GitHub token compatibility only)
+    const enrichedSource = this.enrichSourceWithGlobalToken(sourceWithoutToken);
+    const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
     const validation = await adapter.validate();
 
     if (!validation.valid) {
       throw new Error(`Source validation failed: ${validation.errors.join(', ')}`);
     }
 
-    await this.storage.addSource(source);
+    await this.storage.addSource(sourceWithoutToken);
     this.adapters.set(source.id, adapter);
 
     // Update cache
     this.sourcesCache = await this.storage.getSources();
+    this.invalidatePrimitiveIndexKeyCache();
 
-    this._onSourceAdded.fire(source);
+    this._onSourceAdded.fire(sourceWithoutToken);
     this.logger.info(`Source '${source.name}' added successfully`);
   }
 
@@ -831,35 +894,87 @@ export class RegistryManager {
     this.logger.info(`Removing source: ${sourceId}`);
 
     await this.storage.removeSource(sourceId);
+    await this.tokenVault.delete(sourceId);
     this.adapters.delete(sourceId);
 
     // Update cache
     this.sourcesCache = await this.storage.getSources();
+    this.invalidatePrimitiveIndexKeyCache();
 
     this._onSourceRemoved.fire(sourceId);
     this.logger.info(`Source '${sourceId}' removed successfully`);
   }
 
   /**
+   * Remap installed bundles from an old source to a new one.
+   *
+   * Thin delegator to `@ai-primitives-hub/app`'s `remapBundleSource`, which
+   * owns the ordering that matters: it resolves the replacement source's
+   * descriptor and rejects before writing anything when that source is
+   * absent, so a failed remap never half-migrates and then lets the caller
+   * delete the orphan.
+   * @param oldSourceId - Source id being retired.
+   * @param newSourceId - Replacement source id.
+   */
+  public async remapBundleSource(oldSourceId: string, newSourceId: string): Promise<void> {
+    // No workspace means no repository in scope, hence no repository-scope
+    // bundles to migrate: the lockfile port is left unwired, which the use
+    // case treats as a valid skip rather than a failure.
+    const workspaceRoot = getWorkspaceRoot();
+
+    await appRemapBundleSource(
+      oldSourceId,
+      newSourceId,
+      {
+        listSources: () => this.storage.getSources(),
+        remapLockfileSourceId: workspaceRoot
+          ? (oldId, newId, descriptor) =>
+            LockfileManager.getInstance(workspaceRoot).remapSourceId(oldId, newId, descriptor)
+          : undefined,
+        getInstalledBundles: (scope) => this.storage.getInstalledBundles(scope),
+        // `core`'s `DeploymentManifest.mcpServers` is intentionally looser
+        // (`Record<string, unknown>`) than this extension's
+        // `McpServersManifest` (see `installBundle`'s identical, documented
+        // cast) — the data itself is always this extension's own shape here,
+        // since it only ever flows back out of `RegistryStorage` above.
+        recordInstallation: (bundle) => this.storage.recordInstallation(bundle as InstalledBundle)
+      },
+      (event) => this.forwardLogEvent(event)
+    );
+  }
+
+  /**
    * Update a source
+   *
+   * The token is kept in SecretStorage, never in the registry configuration.
+   * A missing or `undefined` token leaves the stored credential untouched, so
+   * callers that merely carry an absent token (e.g. a hub sync of a source the
+   * hub declares no credential for) cannot wipe it; an empty or blank string
+   * removes it, and any other value replaces it.
    * @param sourceId
    * @param updates
    */
   public async updateSource(sourceId: string, updates: Partial<RegistrySource>): Promise<void> {
     this.logger.info(`Updating source: ${sourceId}`);
 
-    await this.storage.updateSource(sourceId, updates);
+    if (updates.token !== undefined) {
+      const token = updates.token.trim();
+      await (token ? this.tokenVault.set(sourceId, token) : this.tokenVault.delete(sourceId));
+    }
+    const { token: _token, ...persistedUpdates } = updates;
+    await this.storage.updateSource(sourceId, persistedUpdates);
 
     // Reload adapter if source was updated
     this.adapters.delete(sourceId);
     const sources = await this.storage.getSources();
     this.sourcesCache = sources; // Update cache
+    this.invalidatePrimitiveIndexKeyCache();
 
     const updatedSource = sources.find((s) => s.id === sourceId);
 
     if (updatedSource && updatedSource.enabled) {
       const enrichedSource = this.enrichSourceWithGlobalToken(updatedSource);
-      const adapter = createRegistryAdapter(enrichedSource);
+      const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
       this.adapters.set(sourceId, adapter);
     }
 
@@ -872,6 +987,138 @@ export class RegistryManager {
    */
   public async listSources(): Promise<RegistrySource[]> {
     return await this.storage.getSources();
+  }
+
+  /**
+   * Return the identity of the currently searchable source snapshot.
+   * Cached bundle coordinates and source revisions make this change when a
+   * source sync changes the catalog, while the active hub keeps separate hub
+   * caches from being reused accidentally.
+   * @param searchProfileId
+   */
+  public async getPrimitiveIndexKey(searchProfileId: string): Promise<PrimitiveIndexKey> {
+    const cached = this.primitiveIndexKeyCache.get(searchProfileId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.key;
+    }
+
+    const pending = this.primitiveIndexKeyRequests.get(searchProfileId);
+    if (pending) {
+      return pending;
+    }
+
+    const request = this.buildPrimitiveIndexKey(searchProfileId);
+    this.primitiveIndexKeyRequests.set(searchProfileId, request);
+    try {
+      const key = await request;
+      this.primitiveIndexKeyCache.set(searchProfileId, {
+        key,
+        // Coalesce repeated search/rebuild calls without allowing a source
+        // change to remain visible after the explicit invalidations above.
+        expiresAt: Date.now() + 30_000
+      });
+      return key;
+    } finally {
+      if (this.primitiveIndexKeyRequests.get(searchProfileId) === request) {
+        this.primitiveIndexKeyRequests.delete(searchProfileId);
+      }
+    }
+  }
+
+  /**
+   * Return an index key from locally cached source metadata only.
+   *
+   * Search uses this variant so resolving the physical persisted-index path
+   * never performs a GitHub/API revision lookup. Rebuilds continue to use
+   * `getPrimitiveIndexKey`, which resolves remote revisions for CLI/extension
+   * namespace convergence.
+   * @param searchProfileId
+   */
+  public async getCachedPrimitiveIndexKey(searchProfileId: string): Promise<PrimitiveIndexKey> {
+    const cacheKey = `${searchProfileId}:cached`;
+    const cached = this.primitiveIndexKeyCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.key;
+    }
+
+    const pending = this.primitiveIndexKeyRequests.get(cacheKey);
+    if (pending) {
+      return pending;
+    }
+
+    const request = this.buildPrimitiveIndexKey(searchProfileId, false);
+    this.primitiveIndexKeyRequests.set(cacheKey, request);
+    try {
+      const key = await request;
+      this.primitiveIndexKeyCache.set(cacheKey, {
+        key,
+        expiresAt: Date.now() + 30_000
+      });
+      return key;
+    } finally {
+      if (this.primitiveIndexKeyRequests.get(cacheKey) === request) {
+        this.primitiveIndexKeyRequests.delete(cacheKey);
+      }
+    }
+  }
+
+  /**
+   * Create a shared primitive-harvest provider over all enabled sources.
+   * Source catalog metadata and archive extraction are translated by infra;
+   * the index/search strategy remains in the shared app packages.
+   */
+  public async createPrimitiveBundleProvider(): Promise<BundleProvider> {
+    const sources = await this.storage.getSources();
+    const blobCache = new BlobCache(path.join(new XdgAppStorage().getPaths().cache, 'primitive-index-blobs'));
+    const entries = sources
+      .filter((source) => source.enabled)
+      .flatMap((source) => {
+        // Plugin sources are not part of the extension registry source union
+        // yet; do not route them through the catalog adapter as a semantic
+        // primitive provider until their native plugin tree is implemented.
+        if ((source.type as string) === 'awesome-copilot-plugin') {
+          return [];
+        }
+        try {
+          const enrichedSource = this.enrichSourceWithGlobalToken(source);
+          const tokenProviders = [
+            ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token)] : []),
+            new VsCodeSessionTokenProvider(true),
+            new GhCliTokenProvider()
+          ];
+          const nativeProvider = createRegistrySourceBundleProvider({
+            source: enrichedSource,
+            client: new GitHubApiClient(new NodeHttpClient(), {
+              tokenProvider: new CompositeTokenProvider(tokenProviders)
+            }),
+            cache: blobCache
+          });
+          if (nativeProvider) {
+            return [{ sourceId: source.id, provider: nativeProvider }];
+          }
+          return [{
+            sourceId: source.id,
+            provider: new SourceAdapterBundleProvider({
+              adapter: createCoreRegistryAdapter(enrichedSource, this.tokenVault),
+              // Installation state is deliberately applied at query time so the
+              // persisted semantic index remains reusable after install changes.
+              isInstalled: () => false
+            })
+          }];
+        } catch (error) {
+          this.logger.warn(
+            `Skipping source '${source.id}' from primitive index: ${error instanceof Error ? error.message : String(error)}`
+          );
+          return [];
+        }
+      });
+    return new CompositeBundleProvider(entries, {
+      onSourceError: (sourceId, error) => {
+        this.logger.warn(
+          `Skipping source '${sourceId}' during primitive indexing: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    });
   }
 
   /**
@@ -904,11 +1151,12 @@ export class RegistryManager {
       this._onSourceSynced.fire({ sourceId, bundleCount: partial.length });
     });
 
-    // Reuse still-valid cached readmes so we only re-download when the source revision changed
-    await this.reuseCachedReadmes(preSyncCache, bundles);
+    // Reuse still-valid cached readmes so we only re-download when the source revision changed.
+    reuseCachedSourceReadmes(bundles, preSyncCache);
 
     // Cache bundles
     await this.storage.cacheSourceBundles(sourceId, bundles);
+    this.invalidatePrimitiveIndexKeyCache();
 
     this.logger.info(`Source '${sourceId}' synced. Found ${bundles.length} bundles.`);
 
@@ -944,7 +1192,11 @@ export class RegistryManager {
     this._onSourceSynced.fire({ sourceId, bundleCount: bundles.length });
 
     // Download the readme files in concurrent, non blocking way
-    this.downloadReadmesConcurrently(bundles, sourceId, adapter).catch((err) => {
+    hydrateSourceReadmes(sourceId, bundles, adapter, {
+      cacheSourceBundles: (id, cachedBundles) => this.storage.cacheSourceBundles(id, cachedBundles),
+      onReadmesDownloaded: (event) => this._onReadmeDownloaded.fire(event),
+      onReadmesComplete: (event) => this._onReadmeDownloadComplete.fire(event)
+    }).catch((err) => {
       this.logger.error(`Failed to download readmes for source '${sourceId}'`, err as Error);
     });
   }
@@ -954,8 +1206,12 @@ export class RegistryManager {
    * @param source
    */
   public async validateSource(source: RegistrySource): Promise<ValidationResult> {
-    const enrichedSource = this.enrichSourceWithGlobalToken(source);
-    const adapter = createRegistryAdapter(enrichedSource);
+    if (source.token?.trim()) {
+      await this.tokenVault.set(source.id, source.token.trim());
+    }
+    const sourceWithoutToken = { ...source, token: undefined };
+    const enrichedSource = this.enrichSourceWithGlobalToken(sourceWithoutToken);
+    const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
     return await adapter.validate();
   }
 

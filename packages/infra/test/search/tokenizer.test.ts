@@ -40,6 +40,14 @@ describe('tokenizer', () => {
     expect(stem('rs')).toBe('rs');
   });
 
+  it('stem() unifies -ies/-ied plurals with their -y singular', () => {
+    expect(stem('queries')).toBe('query');
+    expect(stem('query')).toBe('query');
+    expect(stem('studied')).toBe('study');
+    // A document term and its query variant now tokenise identically.
+    expect(tokenize('queries')).toStrictEqual(tokenize('query'));
+  });
+
   it('keepStopwords honours caller intent', () => {
     const out = tokenize('for the module', { keepStopwords: true, stem: false });
     expect(out.includes('for')).toBe(true);

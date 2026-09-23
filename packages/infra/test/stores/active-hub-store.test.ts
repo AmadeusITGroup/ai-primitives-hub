@@ -32,6 +32,11 @@ describe('ActiveHubStore', () => {
     expect(await store.get()).toBe('my-hub');
   });
 
+  it('reads the shared index pointer hub field', async () => {
+    fs.seed('/hubs/active-hub.json', JSON.stringify({ hub: 'shared-hub', profile: 'bm25-v1' }));
+    expect(await store.get()).toBe('shared-hub');
+  });
+
   it('updates the active hub id when set again', async () => {
     await store.set('hub-1');
     await store.set('hub-2');

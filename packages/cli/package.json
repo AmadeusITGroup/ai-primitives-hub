@@ -1,6 +1,6 @@
 {
   "name": "@ai-primitives-hub/cli",
-  "version": "0.0.1-alpha.1",
+  "version": "0.1.0",
   "description": "ai-primitives-hub CLI. Thin Clipanion delivery adapter over @ai-primitives-hub/app — argument parsing and output formatting only, never business logic.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -35,32 +35,33 @@
     "test:coverage": "vitest run --coverage",
     "build:sea": "node scripts/build-sea.mjs",
     "build:sea:local": "node scripts/build-sea.mjs --local",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@ai-primitives-hub/app": "workspace:*",
     "@ai-primitives-hub/core": "workspace:*",
     "@ai-primitives-hub/infra": "workspace:*",
+    "@prompt-registry/collection-scripts": "workspace:^",
     "archiver": "^7.0.1",
     "clipanion": "4.0.0-rc.4",
-    "inquirer": "^9.3.8",
-    "js-yaml": "^4.0.0",
-    "semver": "^7.5.4",
+    "inquirer": "^14.0.0",
+    "js-yaml": "^4.3.1",
+    "semver": "^7.8.5",
     "typanion": "^3.14.0"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
-    "@types/inquirer": "^9.0.9",
+    "@types/inquirer": "^9.0.10",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.0.0",
-    "@types/semver": "^7.5.6",
-    "@vitest/coverage-v8": "^4.1.7",
+    "@types/node": "^22.20.1",
+    "@types/semver": "^7.7.1",
+    "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.1",
     "postject": "1.0.0-alpha.6",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.7"
+    "vitest": "^5.0.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=24.0.0"
   }
 }

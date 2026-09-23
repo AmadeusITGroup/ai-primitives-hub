@@ -7,6 +7,7 @@
  * extension's actual on-disk lockfile format (see the module doc for
  * the full rationale) — written fresh against that adapted schema.
  */
+import * as nodePath from 'node:path';
 import {
   describe,
   expect,
@@ -21,6 +22,7 @@ import {
   LOCKFILE_NAME,
   LOCKFILE_SCHEMA_VERSION,
   readLockfile,
+  remapSourceId,
   removeBundleEntry,
   upsertBundleEntry,
   upsertSource,
@@ -32,11 +34,11 @@ import {
 
 describe('getLockfilePathForMode', () => {
   it('routes commit mode to prompt-registry.lock.json', () => {
-    expect(getLockfilePathForMode('/repo', 'commit')).toBe(`/repo/${LOCKFILE_NAME}`);
+    expect(getLockfilePathForMode('/repo', 'commit')).toBe(nodePath.join('/repo', LOCKFILE_NAME));
   });
 
   it('routes local-only mode to prompt-registry.local.lock.json', () => {
-    expect(getLockfilePathForMode('/repo', 'local-only')).toBe(`/repo/${LOCAL_LOCKFILE_NAME}`);
+    expect(getLockfilePathForMode('/repo', 'local-only')).toBe(nodePath.join('/repo', LOCAL_LOCKFILE_NAME));
   });
 });
 
@@ -181,5 +183,46 @@ describe('upsertSource / cleanupOrphanedSource', () => {
     const next = cleanupOrphanedSource(lock, 'github-abc');
 
     expect(next.sources['github-abc']).toBeUndefined();
+  });
+});
+
+describe('remapSourceId', () => {
+  it('remaps all bundle entries from old source to new source', () => {
+    let lock = emptyLockfile('cli@1.0.0');
+    lock = upsertSource(lock, 'github-old', { type: 'github', url: 'https://github.com/org/old-repo' });
+    lock = upsertBundleEntry(lock, 'bundle-a', { version: '1.0.0', sourceId: 'github-old', sourceType: 'github', installedAt: 't', files: [] });
+    lock = upsertBundleEntry(lock, 'bundle-b', { version: '2.0.0', sourceId: 'github-old', sourceType: 'github', installedAt: 't', files: [] });
+
+    const next = remapSourceId(lock, 'github-old', 'github-new', { type: 'github', url: 'https://github.com/org/new-repo' });
+
+    expect(next.bundles['bundle-a'].sourceId).toBe('github-new');
+    expect(next.bundles['bundle-b'].sourceId).toBe('github-new');
+    expect(next.sources['github-old']).toBeUndefined();
+    expect(next.sources['github-new'].url).toBe('https://github.com/org/new-repo');
+  });
+
+  it('does not touch bundles referencing a different source', () => {
+    let lock = emptyLockfile('cli@1.0.0');
+    lock = upsertSource(lock, 'github-old', { type: 'github', url: 'https://github.com/org/old-repo' });
+    lock = upsertSource(lock, 'github-other', { type: 'github', url: 'https://github.com/org/other' });
+    lock = upsertBundleEntry(lock, 'bundle-a', { version: '1.0.0', sourceId: 'github-old', sourceType: 'github', installedAt: 't', files: [] });
+    lock = upsertBundleEntry(lock, 'bundle-b', { version: '1.0.0', sourceId: 'github-other', sourceType: 'github', installedAt: 't', files: [] });
+
+    const next = remapSourceId(lock, 'github-old', 'github-new', { type: 'github', url: 'https://github.com/org/new-repo' });
+
+    expect(next.bundles['bundle-a'].sourceId).toBe('github-new');
+    expect(next.bundles['bundle-b'].sourceId).toBe('github-other');
+    expect(next.sources['github-other']).toBeDefined();
+  });
+
+  it('does not mutate the input lockfile', () => {
+    let lock = emptyLockfile('cli@1.0.0');
+    lock = upsertSource(lock, 'github-old', { type: 'github', url: 'https://github.com/org/old-repo' });
+    lock = upsertBundleEntry(lock, 'bundle-a', { version: '1.0.0', sourceId: 'github-old', sourceType: 'github', installedAt: 't', files: [] });
+
+    remapSourceId(lock, 'github-old', 'github-new', { type: 'github', url: 'https://github.com/org/new-repo' });
+
+    expect(lock.bundles['bundle-a'].sourceId).toBe('github-old');
+    expect(lock.sources['github-old']).toBeDefined();
   });
 });

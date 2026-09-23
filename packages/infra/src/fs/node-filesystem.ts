@@ -34,6 +34,15 @@ export class NodeFileSystem implements FileSystem {
     await writeFile(path, contents, 'utf8');
   }
 
+  public async readFileBytes(path: string): Promise<Uint8Array> {
+    const buffer = await readFile(path);
+    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  }
+
+  public async writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
+    await writeFile(path, bytes);
+  }
+
   public async readJson<T = unknown>(path: string): Promise<T> {
     return JSON.parse(await this.readFile(path)) as T;
   }

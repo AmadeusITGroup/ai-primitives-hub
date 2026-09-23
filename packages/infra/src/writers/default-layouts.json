@@ -5,27 +5,37 @@
         "baseDir": "${HOME}/.copilot",
         "kindRoutes": {
           "prompts/": "prompts/",
-          "chatmodes/": "agents/",
+          "chat-modes/": "agents/",
           "instructions/": "instructions/",
           "agents/": "agents/",
           "skills/": "skills/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${vscodeUserDir}/mcp.json",
+          "serversKey": "servers",
+          "supportsInputs": true
+        }
       },
       "repository": {
-        "baseDir": "${workspaceRoot}",
+        "baseDir": "${workspaceRoot}/.github",
         "kindRoutes": {
-          "prompts/": ".github/prompts/",
-          "chatmodes/": ".github/agents/",
-          "instructions/": ".github/instructions/",
-          "agents/": ".github/agents/",
-          "skills/": ".github/skills/",
-          "hooks/": ".github/hooks/",
-          "plugins/": ".github/plugins/"
+          "prompts/": "prompts/",
+          "chat-modes/": "agents/",
+          "instructions/": "instructions/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.vscode/mcp.json",
+          "serversKey": "servers",
+          "supportsInputs": true
+        }
       }
     },
     "vscode-insiders": {
@@ -33,27 +43,37 @@
         "baseDir": "${HOME}/.copilot",
         "kindRoutes": {
           "prompts/": "prompts/",
-          "chatmodes/": "agents/",
+          "chat-modes/": "agents/",
           "instructions/": "instructions/",
           "agents/": "agents/",
           "skills/": "skills/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${vscodeUserDir}/mcp.json",
+          "serversKey": "servers",
+          "supportsInputs": true
+        }
       },
       "repository": {
-        "baseDir": "${workspaceRoot}",
+        "baseDir": "${workspaceRoot}/.github",
         "kindRoutes": {
-          "prompts/": ".github/prompts/",
-          "chatmodes/": ".github/agents/",
-          "instructions/": ".github/instructions/",
-          "agents/": ".github/agents/",
-          "skills/": ".github/skills/",
-          "hooks/": ".github/hooks/",
-          "plugins/": ".github/plugins/"
+          "prompts/": "prompts/",
+          "chat-modes/": "agents/",
+          "instructions/": "instructions/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.vscode/mcp.json",
+          "serversKey": "servers",
+          "supportsInputs": true
+        }
       }
     },
     "copilot-cli": {
@@ -67,41 +87,107 @@
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
+        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"],
+        "mcpConfig": {
+          "path": "${HOME}/.copilot/mcp-config.json",
+          "serversKey": "mcpServers"
+        }
       },
       "repository": {
-        "baseDir": "${workspaceRoot}",
+        "baseDir": "${workspaceRoot}/.github",
         "kindRoutes": {
-          "prompts/": ".github/prompts/",
-          "agents/": ".github/agents/",
-          "skills/": ".github/skills/",
-          "instructions/": ".github/instructions/",
-          "hooks/": ".github/hooks/",
-          "plugins/": ".github/plugins/"
+          "prompts/": "prompts/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "instructions/": "instructions/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"]
+        "skipPaths": ["deployment-manifest.yml", "README.md", "collections/"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.mcp.json",
+          "serversKey": "mcpServers"
+        }
       }
     },
     "kiro": {
       "user": {
         "baseDir": "${HOME}/.kiro",
         "kindRoutes": {
+          ".kiro/steering/": "steering/",
+          ".kiro/specs/": "specs/",
+          "powers/": "powers/",
           "prompts/": "steering/",
-          "agents/": "agents/",
           "instructions/": "steering/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
           "skills/": "skills/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.kiro/settings/mcp.json",
+          "serversKey": "mcpServers"
+        }
       },
       "repository": {
-        "baseDir": "${workspaceRoot}",
+        "baseDir": "${workspaceRoot}/.kiro",
         "kindRoutes": {
-          "prompts/": ".kiro/steering/",
-          "agents/": ".kiro/agents/",
-          "instructions/": ".kiro/steering/",
-          "skills/": ".kiro/skills/"
+          ".kiro/steering/": "steering/",
+          ".kiro/specs/": "specs/",
+          "powers/": "powers/",
+          "prompts/": "steering/",
+          "instructions/": "steering/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.kiro/settings/mcp.json",
+          "serversKey": "mcpServers"
+        }
+      }
+    },
+    "kiro-cli": {
+      "user": {
+        "baseDir": "${HOME}/.kiro",
+        "kindRoutes": {
+          ".kiro/steering/": "steering/",
+          ".kiro/specs/": "specs/",
+          "powers/": "powers/",
+          "prompts/": "steering/",
+          "instructions/": "steering/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.kiro/settings/mcp.json",
+          "serversKey": "mcpServers"
+        }
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}/.kiro",
+        "kindRoutes": {
+          ".kiro/steering/": "steering/",
+          ".kiro/specs/": "specs/",
+          "powers/": "powers/",
+          "prompts/": "steering/",
+          "instructions/": "steering/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.kiro/settings/mcp.json",
+          "serversKey": "mcpServers"
+        }
       }
     },
     "windsurf": {
@@ -110,20 +196,28 @@
         "kindRoutes": {
           "prompts/": "rules/",
           "instructions/": "rules/",
-          "chatmodes/": "agents/",
+          "chat-modes/": "agents/",
           "agents/": "agents/",
-          "skills/": "skills/"
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.codeium/windsurf/mcp_config.json",
+          "serversKey": "mcpServers"
+        }
       },
       "repository": {
-        "baseDir": "${workspaceRoot}",
+        "baseDir": "${workspaceRoot}/.windsurf",
         "kindRoutes": {
-          "prompts/": ".windsurf/rules/",
-          "instructions/": ".windsurf/rules/",
-          "chatmodes/": ".windsurf/agents/",
-          "agents/": ".windsurf/agents/",
-          "skills/": ".windsurf/skills/"
+          "prompts/": "rules/",
+          "instructions/": "rules/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
         },
         "skipPaths": ["deployment-manifest.yml", "README.md"]
       }
@@ -132,28 +226,218 @@
       "user": {
         "baseDir": "${HOME}/.claude",
         "kindRoutes": {
+          ".claude/commands/": "commands/",
+          ".claude/output-styles/": "output-styles/",
           "prompts/": "commands/",
-          "agents/": "agents/",
           "instructions/": "instructions/",
-          "chatmodes/": "agents/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
           "skills/": "skills/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.claude.json",
+          "serversKey": "mcpServers"
+        }
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}/.claude",
+        "kindRoutes": {
+          ".claude/commands/": "commands/",
+          ".claude/output-styles/": "output-styles/",
+          "prompts/": "commands/",
+          "instructions/": "instructions/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.mcp.json",
+          "serversKey": "mcpServers"
+        }
+      }
+    },
+    "cursor": {
+      "user": {
+        "baseDir": "${HOME}/.cursor",
+        "kindRoutes": {
+          ".cursor/rules/": "rules/",
+          ".cursor/agents/": "agents/",
+          ".cursor/skills/": "skills/",
+          ".cursor/commands/": "commands/",
+          "prompts/": "rules/",
+          "instructions/": "rules/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.cursor/mcp.json",
+          "serversKey": "mcpServers"
+        }
       },
       "repository": {
         "baseDir": "${workspaceRoot}",
         "kindRoutes": {
-          "prompts/": ".claude/commands/",
-          "agents/": ".claude/agents/",
-          "instructions/": ".claude/instructions/",
-          "chatmodes/": ".claude/agents/",
-          "skills/": ".claude/skills/",
-          "hooks/": ".claude/hooks/",
-          "plugins/": ".claude/plugins/"
+          ".cursor/rules/": ".cursor/rules/",
+          ".cursor/agents/": ".cursor/agents/",
+          ".cursor/skills/": ".cursor/skills/",
+          ".cursor/commands/": ".cursor/commands/",
+          "prompts/": ".cursor/rules/",
+          "instructions/": ".cursor/rules/",
+          "chat-modes/": ".cursor/agents/",
+          "agents/": ".cursor/agents/",
+          "skills/": ".cursor/skills/",
+          "hooks/": ".cursor/hooks/",
+          "plugins/": ".cursor/plugins/"
         },
-        "skipPaths": ["deployment-manifest.yml", "README.md"]
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.cursor/mcp.json",
+          "serversKey": "mcpServers"
+        }
+      }
+    },
+    "opencode": {
+      "user": {
+        "baseDir": "${HOME}/.opencode",
+        "kindRoutes": {
+          ".opencode/tools/": "tools/",
+          ".opencode/commands/": "commands/",
+          ".opencode/agents/": "agents/",
+          ".opencode/skills/": "skills/",
+          ".opencode/rules/": "rules/",
+          ".opencode/hooks/": "hooks/",
+          ".opencode/plugins/": "plugins/",
+          "prompts/": "commands/",
+          "instructions/": "rules/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.opencode/mcp.json",
+          "serversKey": "mcpServers"
+        }
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          ".opencode/tools/": ".opencode/tools/",
+          ".opencode/commands/": ".opencode/commands/",
+          ".opencode/agents/": ".opencode/agents/",
+          ".opencode/skills/": ".opencode/skills/",
+          ".opencode/rules/": ".opencode/rules/",
+          ".opencode/hooks/": ".opencode/hooks/",
+          ".opencode/plugins/": ".opencode/plugins/",
+          "prompts/": ".opencode/commands/",
+          "instructions/": ".opencode/rules/",
+          "chat-modes/": ".opencode/agents/",
+          "agents/": ".opencode/agents/",
+          "skills/": ".opencode/skills/",
+          "hooks/": ".opencode/hooks/",
+          "plugins/": ".opencode/plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.opencode/mcp.json",
+          "serversKey": "mcpServers"
+        }
+      }
+    },
+    "devin": {
+      "user": {
+        "baseDir": "${HOME}/.devin",
+        "kindRoutes": {
+          "knowledge/": "knowledge/",
+          "playbooks/": "playbooks/",
+          "powers/": "powers/",
+          "prompts/": "prompts/",
+          "instructions/": "instructions/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.devin/mcp.json",
+          "serversKey": "mcpServers"
+        }
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "knowledge/": ".devin/knowledge/",
+          "playbooks/": ".devin/playbooks/",
+          "powers/": ".devin/powers/",
+          "prompts/": ".devin/prompts/",
+          "instructions/": ".devin/instructions/",
+          "chat-modes/": ".devin/agents/",
+          "agents/": ".devin/agents/",
+          "skills/": ".devin/skills/",
+          "hooks/": ".devin/hooks/",
+          "plugins/": ".devin/plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.devin/mcp.json",
+          "serversKey": "mcpServers"
+        }
+      }
+    },
+    "devin-cli": {
+      "user": {
+        "baseDir": "${HOME}/.devin",
+        "kindRoutes": {
+          "knowledge/": "knowledge/",
+          "playbooks/": "playbooks/",
+          "powers/": "powers/",
+          "prompts/": "prompts/",
+          "instructions/": "instructions/",
+          "chat-modes/": "agents/",
+          "agents/": "agents/",
+          "skills/": "skills/",
+          "hooks/": "hooks/",
+          "plugins/": "plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${HOME}/.devin/mcp.json",
+          "serversKey": "mcpServers"
+        }
+      },
+      "repository": {
+        "baseDir": "${workspaceRoot}",
+        "kindRoutes": {
+          "knowledge/": ".devin/knowledge/",
+          "playbooks/": ".devin/playbooks/",
+          "powers/": ".devin/powers/",
+          "prompts/": ".devin/prompts/",
+          "instructions/": ".devin/instructions/",
+          "chat-modes/": ".devin/agents/",
+          "agents/": ".devin/agents/",
+          "skills/": ".devin/skills/",
+          "hooks/": ".devin/hooks/",
+          "plugins/": ".devin/plugins/"
+        },
+        "skipPaths": ["deployment-manifest.yml", "README.md"],
+        "mcpConfig": {
+          "path": "${workspaceRoot}/.devin/mcp.json",
+          "serversKey": "mcpServers"
+        }
       }
     }
   }

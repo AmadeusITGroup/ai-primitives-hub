@@ -5,9 +5,15 @@
  */
 
 import * as fs from 'node:fs';
+import {
+  resolveScoredBundleSearchKeys,
+} from '@ai-primitives-hub/app';
 import MarkdownIt from 'markdown-it';
 import sanitizeHtml from 'sanitize-html';
 import * as vscode from 'vscode';
+import {
+  PrimitiveIndexService,
+} from '../services/primitive-index-service';
 import {
   RegistryManager,
 } from '../services/registry-manager';
@@ -30,6 +36,8 @@ import {
   UI_CONSTANTS,
 } from '../utils/constants';
 import {
+  ContentBreakdown,
+  extractAllEnvironments,
   extractAllTags,
   extractBundleSources,
 } from '../utils/filter-utils';
@@ -47,7 +55,7 @@ import {
  * Message types sent from webview to extension
  */
 interface WebviewMessage {
-  type: 'ready' | 'refresh' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
+  type: 'ready' | 'refresh' | 'search' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
     | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'completeSetup' | 'openExternalLink';
   bundleId?: string;
   installPath?: string;
@@ -56,19 +64,10 @@ interface WebviewMessage {
   enabled?: boolean;
   sourceId?: string;
   url?: string;
+  query?: string;
 }
 
-/**
- * Content breakdown showing count of each resource type
- */
-interface ContentBreakdown {
-  prompts: number;
-  instructions: number;
-  chatmodes: number;
-  agents: number;
-  skills: number;
-  mcpServers: number;
-}
+// ContentBreakdown is imported from filter-utils
 
 interface BundlesLoadedMessage {
   type: 'bundlesLoaded';
@@ -76,9 +75,26 @@ interface BundlesLoadedMessage {
   filterOptions: {
     tags: string[];
     sources: unknown[];
+    environments: string[];
   };
   setupState: string;
   sourcesCount: number;
+}
+
+interface PrimitiveSearchDiagnostics {
+  profile: string;
+  ranking: string;
+  embeddings: boolean;
+  primitiveHits: number;
+  bundleHits: number;
+  error?: string;
+}
+
+interface MarketplaceBundleIdentity {
+  sourceId: string;
+  bundleId: string;
+  /** Member primitive file paths, used to attribute source-level index hits. */
+  filePaths?: string[];
 }
 
 export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
@@ -96,6 +112,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
   private isLoadingBundles = false;
   private loadBundlesPending = false;
+  private primitiveSearchGeneration = 0;
   private disposables: vscode.Disposable[] = [];
   private markDownIt: InstanceType<typeof MarkdownIt> | undefined;
   private readonly sanitizeOptions: sanitizeHtml.IOptions = {
@@ -133,7 +150,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly registryManager: RegistryManager,
-    private readonly setupStateManager: SetupStateManager
+    private readonly setupStateManager: SetupStateManager,
+    private readonly primitiveIndexService?: PrimitiveIndexService
   ) {
     this.logger = Logger.getInstance();
 
@@ -160,7 +178,10 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       this.registryManager.onAutoUpdatePreferenceChanged(() => this.loadBundles()),
       // Repository bundle changes (lockfile changes, workspace folder changes)
       this.registryManager.onRepositoryBundlesChanged(() => this.loadBundles()),
-      this.registryManager.onReadmeDownloaded(() => this.loadBundles())
+      // README hydration emits one event per completed download batch. Route
+      // those events through the same throttle as source syncs so progressive
+      // hydration cannot start a marketplace load for every batch.
+      this.registryManager.onReadmeDownloaded(() => this.sourceSyncThrottle.trigger())
     );
   }
 
@@ -392,6 +413,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       // Extract dynamic filter options
       const availableTags = extractAllTags(bundles);
       const availableSources = extractBundleSources(bundles, sources);
+      const availableEnvironments = extractAllEnvironments(bundles);
 
       // Get setup state for empty state UI
       const setupState = await this.setupStateManager.getState();
@@ -401,7 +423,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         bundles: enhancedBundles,
         filterOptions: {
           tags: availableTags,
-          sources: availableSources
+          sources: availableSources,
+          environments: availableEnvironments
         },
         setupState,
         sourcesCount: sources.length
@@ -543,6 +566,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * @param message
    */
   private async handleMessage(message: WebviewMessage): Promise<void> {
+    if (message.type === 'search') {
+      this.logger.info(
+        `Marketplace search event received query="${message.query ?? ''}" `
+        + `service=${String(this.primitiveIndexService !== undefined)} view=${String(this._view !== undefined)}`
+      );
+    }
     switch (message.type) {
       case 'ready': {
         this.webviewReady = true;
@@ -552,6 +581,10 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       }
       case 'refresh': {
         await this.loadBundles();
+        break;
+      }
+      case 'search': {
+        await this.handlePrimitiveSearch(message.query ?? '');
         break;
       }
       case 'install': {
@@ -623,6 +656,149 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         this.logger.warn(`Unknown message type: ${message.type}`);
       }
     }
+  }
+
+  /**
+   * Resolve free-text marketplace search to ranked bundle identities.
+   * @param query
+   */
+  private async handlePrimitiveSearch(query: string): Promise<void> {
+    const searchGeneration = ++this.primitiveSearchGeneration;
+    if (!this.primitiveIndexService || !this._view) {
+      this.logger.warn(
+        `Marketplace semantic search skipped service=${String(this.primitiveIndexService !== undefined)} `
+        + `view=${String(this._view !== undefined)}`
+      );
+      return;
+    }
+
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) {
+      await this._view.webview.postMessage({
+        type: 'primitiveSearchResults',
+        query,
+        bundleKeys: null
+      });
+      return;
+    }
+
+    try {
+      this.logger.info(`Marketplace semantic search started profile=${this.primitiveIndexService.getProfile()} query="${normalizedQuery}"`);
+      // Marketplace search is deliberately read-only: source synchronization
+      // and index rebuilds are owned by the extension lifecycle. Do not call
+      // ensureBuilt() here because a missing snapshot must not trigger a
+      // provider enumeration or remote-source interaction on a keystroke.
+      const result = await this.primitiveIndexService.search({ q: normalizedQuery, limit: 200 });
+      this.logger.info(`Marketplace semantic search query completed profile=${this.primitiveIndexService.getProfile()} query="${normalizedQuery}"`);
+      if (searchGeneration !== this.primitiveSearchGeneration) {
+        this.logger.debug(`Ignoring stale Marketplace semantic search result query="${normalizedQuery}"`);
+        return;
+      }
+      const catalogBundles = this.getMarketplaceBundleIdentities();
+      // The persisted index may identify primitives by a source's author-assigned
+      // hub id (`hubSourceId`) rather than the generated catalog `id` used by the
+      // marketplace snapshot. Reconcile both schemes to the canonical catalog id
+      // so semantic hits actually project onto rendered bundles — mirrors the
+      // CLI's dual-keyed source map. Without this, every hit fails the exact
+      // sourceId match and the webview silently falls back to keyword-only.
+      const sourceIdAliases = new Map<string, string>();
+      for (const source of await this.registryManager.listSources()) {
+        sourceIdAliases.set(source.id, source.id);
+        if (source.hubSourceId !== undefined && source.hubSourceId.length > 0) {
+          sourceIdAliases.set(source.hubSourceId, source.id);
+        }
+      }
+      const scoredKeys = resolveScoredBundleSearchKeys(
+        result.hits.map((hit) => {
+          const indexed = hit.primitive.bundle;
+          const canonicalSourceId = sourceIdAliases.get(indexed.sourceId) ?? indexed.sourceId;
+          // Preserve the source-level identity (bundleId === sourceId) that the
+          // native GitHub/harvested providers emit, so the projection can expand
+          // it to every catalog bundle of that source.
+          const isSourceLevel = indexed.bundleId === indexed.sourceId;
+          return {
+            sourceId: canonicalSourceId,
+            bundleId: isSourceLevel ? canonicalSourceId : indexed.bundleId,
+            // Matched primitive path lets the resolver attribute a source-level
+            // hit to the specific catalog bundle that contains this file.
+            path: hit.primitive.path,
+            score: hit.score
+          };
+        }),
+        catalogBundles
+      );
+      // The relevance cut lives in the shared search core (per-profile floors in
+      // `@ai-primitives-hub/app`), so `result.hits` is already trimmed to the
+      // relevant cluster before it reaches this projection.
+      const bundleKeys = scoredKeys.map((entry) => entry.key);
+      const diagnostics: PrimitiveSearchDiagnostics = {
+        profile: result.searchProfileId ?? this.primitiveIndexService.getProfile(),
+        ranking: result.ranking ?? 'unknown',
+        embeddings: result.embeddingUsed === true,
+        primitiveHits: result.hits.length,
+        bundleHits: bundleKeys.length
+      };
+      this.logger.info(
+        `Primitive semantic search profile=${result.searchProfileId ?? this.primitiveIndexService.getProfile()} `
+        + `ranking=${result.ranking ?? 'unknown'} embeddings=${String(result.embeddingUsed === true)} query="${normalizedQuery}" `
+        + `primitiveHits=${String(result.hits.length)} bundleHits=${String(bundleKeys.length)}`
+      );
+      const delivered = await this._view.webview.postMessage({
+        type: 'primitiveSearchResults',
+        query,
+        bundleKeys,
+        diagnostics
+      });
+      this.logger.info(
+        `Marketplace semantic search results delivered=${String(delivered)} query="${normalizedQuery}" `
+        + `catalogBundles=${String(catalogBundles.length)} bundleHits=${String(bundleKeys.length)}`
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Marketplace indexed search unavailable; using metadata search: ${reason}`);
+      await this._view.webview.postMessage({
+        type: 'primitiveSearchResults',
+        query,
+        bundleKeys: null,
+        diagnostics: {
+          profile: this.primitiveIndexService.getProfile(),
+          ranking: 'unavailable',
+          embeddings: false,
+          primitiveHits: 0,
+          bundleHits: 0,
+          error: reason
+        }
+      });
+    }
+  }
+
+  /**
+   * Return the exact catalog snapshot currently rendered by the webview.
+   * Searching the registry again here can produce a different consolidated
+   * version/source snapshot from `latestBundlesMessage`, making valid semantic
+   * keys invisible to the UI. Keep projection on the rendered snapshot.
+   */
+  private getMarketplaceBundleIdentities(): MarketplaceBundleIdentity[] {
+    const bundles = this.latestBundlesMessage?.bundles ?? [];
+    return bundles.flatMap((bundle) => {
+      if (!bundle || typeof bundle !== 'object') {
+        return [];
+      }
+      const candidate = bundle as { sourceId?: unknown; id?: unknown; prompts?: unknown };
+      if (typeof candidate.sourceId !== 'string' || typeof candidate.id !== 'string') {
+        return [];
+      }
+      // Member file paths let a source-level semantic hit (native GitHub sources
+      // index a whole repo as one bundle) be attributed to the specific catalog
+      // bundle that contains the matched primitive, instead of every bundle from
+      // the source. Absent for catalog snapshots without per-bundle prompt lists.
+      const filePaths = Array.isArray(candidate.prompts)
+        ? candidate.prompts
+          .map((prompt) => (prompt as { file?: unknown }).file)
+          .filter((file): file is string => typeof file === 'string' && file.length > 0)
+        : undefined;
+      return [{ sourceId: candidate.sourceId, bundleId: candidate.id, filePaths }];
+    });
   }
 
   /**
@@ -1006,12 +1182,15 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const cssUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'bundle-details', 'bundle-details.css')
     );
+    const iconsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'icons.css')
+    );
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'bundle-details', 'bundle-details.js')
     );
 
     // Generate CSP
-    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';`;
 
     // Load HTML template
     const htmlPath = vscode.Uri.joinPath(
@@ -1024,13 +1203,13 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
 
     // Generate dynamic sections
-    const installedBadge = isInstalled ? '<span class="badge">✓ Installed</span>' : '';
+    const installedBadge = isInstalled ? '<span class="badge"><i class="fa-icon fa-circle-check"></i> Installed</span>' : '';
 
     const autoUpdateSection = isInstalled
       ? `
     <div class="auto-update-toggle">
         <div style="flex: 1;">
-            <div class="auto-update-label">🔄 Auto-Update</div>
+            <div class="auto-update-label"><i class="fa-icon fa-arrows-rotate"></i> Auto-Update</div>
             <div class="auto-update-description">Automatically install updates when available</div>
         </div>
         <div class="toggle-switch ${autoUpdateEnabled ? 'enabled' : ''}" id="autoUpdateToggle" data-action="toggleAutoUpdate">
@@ -1042,27 +1221,27 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const breakdownContent = `
         <div class="breakdown">
             <div class="breakdown-item">
-                <div class="breakdown-icon">💬</div>
+                <div class="breakdown-icon fa-icon fa-file-lines"></div>
                 <div class="breakdown-count">${breakdown.prompts}</div>
                 <div class="breakdown-label">Prompts</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon">📋</div>
+                <div class="breakdown-icon fa-icon fa-list-check"></div>
                 <div class="breakdown-count">${breakdown.instructions}</div>
                 <div class="breakdown-label">Instructions</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon">🤖</div>
+                <div class="breakdown-icon fa-icon fa-robot"></div>
                 <div class="breakdown-count">${breakdown.agents}</div>
                 <div class="breakdown-label">Agents</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon">🛠️</div>
+                <div class="breakdown-icon fa-icon fa-puzzle-piece"></div>
                 <div class="breakdown-count">${breakdown.skills}</div>
                 <div class="breakdown-label">Skills</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon">🔌</div>
+                <div class="breakdown-icon fa-icon fa-plug"></div>
                 <div class="breakdown-count">${breakdown.mcpServers}</div>
                 <div class="breakdown-label">MCP Servers</div>
             </div>
@@ -1091,7 +1270,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const tagsSection = bundle.tags && bundle.tags.length > 0
       ? `
     <div class="section">
-        <h2>🏷️ Tags</h2>
+        <h2><i class="fa-icon fa-tags"></i> Tags</h2>
         <div class="tags">
             ${bundle.tags.map((tag) => `<span class="tag">${tag}</span>`).join('')}
         </div>
@@ -1106,6 +1285,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       .replace('{{cspSource}}', cspSource)
       .replaceAll('{{bundleName}}', this.escapeHtml(bundle.name))
       .replace('{{cssUri}}', cssUri.toString())
+      .replace('{{iconsUri}}', iconsUri.toString())
       .replace('{{installedBadge}}', installedBadge)
       .replaceAll('{{author}}', this.escapeHtml(bundle.author || 'Unknown'))
       .replace('{{version}}', bundle.version)
@@ -1252,15 +1432,21 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const cssUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'marketplace', 'marketplace.css')
     );
+    const iconsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'fonts', 'icons.css')
+    );
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'marketplace', 'marketplace.js')
+    );
+    const iconUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'resources', 'activity-bar-icon.png')
     );
 
     // Generate nonce for CSP
     const nonce = this.getNonce();
 
     // Generate CSP
-    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';`;
 
     // Load HTML template from external file
     const htmlPath = vscode.Uri.joinPath(
@@ -1275,6 +1461,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     // Replace placeholders with actual values
     htmlTemplate = htmlTemplate
       .replace('{{cssUri}}', cssUri.toString())
+      .replace('{{iconsUri}}', iconsUri.toString())
+      .replace('{{iconUri}}', iconUri.toString())
       .replace('{{cspSource}}', cspSource)
       .replace('{{nonce}}', nonce)
       .replace('{{scriptUri}}', scriptUri.toString());

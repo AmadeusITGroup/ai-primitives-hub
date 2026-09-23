@@ -84,6 +84,15 @@ flowchart TD
     U --> AA
 ```
 
+## Binary Safety and Integrity Verification
+
+Bundle files are copied to the target byte-for-byte and verified after every write:
+
+- **Binary-safe writes** — writers use the `FileSystem` port's `readFileBytes`/`writeFileBytes` for all payloads. Text payloads (strict UTF-8) may additionally pass through a target-specific `ResourceTransformer`; binary payloads (images, archives, office documents) are never decoded as text — a lossy UTF-8 round-trip replaces invalid sequences with U+FFFD and corrupts them.
+- **Post-write verification** — after each write, the installed file is re-read and compared against the bytes the writer intended to write (`verifyWrittenBytes` in `core`'s `domain/install/integrity`). A mismatch throws `FileIntegrityError` (`BUNDLE.INTEGRITY_MISMATCH`) instead of leaving a silently corrupted artifact.
+- **Upstream layers already verified** — zip entry CRC-32 is checked during extraction, and governed (`formatVersion: 1`) deployment manifests carry per-file `size` + `sha256` validated against the extracted bytes.
+- **Lockfile checksums** — `checksumFiles` hashes the extracted (archive) bytes, not the optionally transformed on-disk result. For untransformed files those values match; for transformed files a later user-modification check that compares on-disk hashes to the lockfile will currently report a mismatch. Recording a separate `installedChecksum` in `LockfileFileEntry` is a follow-up (issue #357 Stage 2) and is not part of this binary-safety change.
+
 ## Scope Selection
 
 When a user initiates installation, a QuickPick dialog presents three options:
@@ -271,6 +280,19 @@ This ensures:
 **Legacy format**: Older lockfiles may contain hub-prefixed sourceIds (`hub-{hubId}-{sourceId}`). These continue to work for backward compatibility—sources are resolved by matching the sourceId in the `sources` section.
 
 **Case normalization (v2)**: Source IDs generated after this version use fully case-insensitive URL normalization (host + path lowercased). Older source IDs preserved path case. The extension uses dual-read: when matching source IDs, it checks both current and legacy formats. Lockfile entries with old-format IDs continue to work and migrate organically when bundles are updated. Local data (config.json, cache) is migrated automatically on activation via `MigrationRegistry`. All migration-related code is tagged with `@migration-cleanup(sourceId-normalization-v2)` for future removal.
+
+### Orphaned Hub Source Pruning
+
+Because a hub source's sourceId is derived from its URL, renaming a collection's repository URL produces a *new* sourceId while the old source lingers—causing the same collection to appear twice in the registry.
+
+When syncing a hub, `loadHubSources` (in `@ai-primitives-hub/app`, `registry/load-hub-sources.ts`) tracks which existing sources are still represented in the current hub config (added, updated, or matched as a duplicate). Any source whose `hubId` matches the hub being loaded but is absent from that set is treated as orphaned. Manually-added sources (no `hubId`) and sources contributed by other hubs are never touched. The returned `LoadHubSourcesResult` includes a `removed` count alongside `added`/`updated`/`skipped`.
+
+Orphan handling depends on whether installed bundles reference the orphan:
+
+- **No consumers:** the orphan is removed via `HubSourceSync.removeSource`.
+- **Has consumers + `remapBundleSource` provided:** lockfile entries and installation records are remapped to the replacement source (the new sourceId from the renamed URL), then the orphan is removed. This ensures bundles continue receiving updates from the new source seamlessly.
+- **Has consumers + no `remapBundleSource`:** the orphan is kept alive with a warning, preventing bundles from becoming unmanaged.
+- **Any `addSource` failure this sync:** pruning is skipped entirely to avoid deleting an old source before its replacement lands.
 
 ### Hub Key Generation
 

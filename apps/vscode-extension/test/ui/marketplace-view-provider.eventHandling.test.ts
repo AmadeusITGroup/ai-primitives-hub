@@ -59,6 +59,7 @@ suite('MarketplaceViewProvider - Event Handling', () => {
   let onBundleInstalledCallback: ((installation: InstalledBundle) => void) | undefined;
   let onBundleUninstalledCallback: ((bundleId: string) => void) | undefined;
   let onBundleUpdatedCallback: ((installation: InstalledBundle) => void) | undefined;
+  let onReadmeDownloadedCallback: (() => void) | undefined;
 
   setup(() => {
     sandbox = sinon.createSandbox();
@@ -90,6 +91,9 @@ suite('MarketplaceViewProvider - Event Handling', () => {
       },
       onBundleUpdated: (cb) => {
         onBundleUpdatedCallback = cb;
+      },
+      onReadmeDownloaded: (cb) => {
+        onReadmeDownloadedCallback = cb;
       }
     });
 
@@ -128,6 +132,35 @@ suite('MarketplaceViewProvider - Event Handling', () => {
 
       assert.ok(mockRegistryManager.onBundleUpdated.calledOnce, 'Should register onBundleUpdated listener');
       assert.ok(onBundleUpdatedCallback, 'Should have callback for onBundleUpdated');
+    });
+
+    test('should register listener for onReadmeDownloaded event', () => {
+      assert.ok(mockRegistryManager.onReadmeDownloaded.calledOnce, 'Should register onReadmeDownloaded listener');
+      assert.ok(onReadmeDownloadedCallback, 'Should have callback for onReadmeDownloaded');
+    });
+  });
+
+  suite('README hydration refreshes', () => {
+    test('should coalesce README download refreshes with source sync refreshes', async () => {
+      const initialSearchCount = mockRegistryManager.searchBundles.callCount;
+
+      onReadmeDownloadedCallback?.();
+      onReadmeDownloadedCallback?.();
+      onReadmeDownloadedCallback?.();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.strictEqual(
+        mockRegistryManager.searchBundles.callCount,
+        initialSearchCount + 1,
+        'README batches should trigger one leading marketplace refresh'
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      assert.strictEqual(
+        mockRegistryManager.searchBundles.callCount,
+        initialSearchCount + 2,
+        'README batches should trigger one trailing marketplace refresh'
+      );
     });
   });
 

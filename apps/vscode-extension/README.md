@@ -90,6 +90,20 @@ Manifests are validated against the JSON schemas in [`schemas/`](./schemas/) at 
 
 → [Author Guide: Creating a Collection](./docs/author-guide/creating-source-bundle.md)
 
+### Host editor support
+
+The extension runs in VS Code and its forks. For **workspace (repository) scope** installs, it detects the host editor automatically and routes primitives to the folder that editor actually reads — no configuration needed:
+
+| Host editor | Workspace destination |
+|-------------|----------------------|
+| VS Code / VS Code Insiders | `.github/` |
+| Kiro | `.kiro/` |
+| Windsurf | `.windsurf/` |
+
+Only editors that are VS Code forks (and therefore actually run this extension) are detected. An unrecognized host falls back to the VS Code `.github/` layout, so behavior is never worse than before. Non-VS-Code tools such as Claude Code and Devin are CLI/cloud agents that do not run this extension, so they are not host-detected (the CLI can still target them explicitly).
+
+> **Note:** Detection applies to new installs only. If you previously installed bundles into `.github/` while running Kiro, those files are **not** migrated automatically — reinstall the bundle (or move the files) to place them under `.kiro/`.
+
 ---
 
 ## 🤖 Ask Copilot About AI Primitives Hub
@@ -140,8 +154,8 @@ code --install-extension prompt-registry-<version>.vsix
 ```bash
 git clone https://github.com/AmadeusITGroup/ai-primitives-hub.git
 cd ai-primitives-hub
-npm install
-npm run package:vsix
+pnpm install
+pnpm run package:vsix
 # Install the VSIX produced by the previous step (the filename includes the current version)
 code --install-extension prompt-registry-<version>.vsix
 ```

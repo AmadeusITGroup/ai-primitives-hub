@@ -32,6 +32,13 @@ class FailingGitHubApi implements GitHubApi {
     return pathOrUrl === this.failPath ? Promise.reject(this.error) : this.inner.getJson(pathOrUrl);
   }
 
+  public getJsonWithHeaders<T>(pathOrUrl: string, extraHeaders?: Record<string, string>): Promise<{
+    value: T;
+    headers: Record<string, string>;
+  }> {
+    return pathOrUrl === this.failPath ? Promise.reject(this.error) : this.inner.getJsonWithHeaders(pathOrUrl, extraHeaders);
+  }
+
   public getText(pathOrUrl: string): Promise<string> {
     return pathOrUrl === this.failPath ? Promise.reject(this.error) : this.inner.getText(pathOrUrl);
   }

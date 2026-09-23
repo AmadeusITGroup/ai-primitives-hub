@@ -290,4 +290,20 @@ sources:
     expect(result).toHaveLength(1);
     expect(result[0].owner).toBe('owner');
   });
+
+  it('rejects an enabled malformed remote source in strict mode', () => {
+    expect(() => parseHubConfig({
+      sources: [
+        { type: 'github', url: 'https://github.com/owner/repo/extra', enabled: true }
+      ]
+    }, { strict: true })).toThrow('invalid or non-GitHub repository URL');
+  });
+
+  it('does not reject local sources in strict mode because they are outside GitHub preflight scope', () => {
+    expect(parseHubConfig({
+      sources: [
+        { type: 'local', url: '/tmp/bundles', enabled: true }
+      ]
+    }, { strict: true })).toEqual([]);
+  });
 });

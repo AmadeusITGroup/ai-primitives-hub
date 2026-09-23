@@ -17,7 +17,12 @@ import type {
 
 export interface LocalDirFs {
   readDir(p: string): Promise<string[]>;
-  readFile(p: string): Promise<string>;
+  /**
+   * Byte-level read. Required so binary assets (images, archives,
+   * office documents) survive the round-trip: reading them through a
+   * UTF-8 string API corrupts any non-UTF-8 payload (issue #357).
+   */
+  readFileBytes(p: string): Promise<Uint8Array>;
   exists(p: string): Promise<boolean>;
 }
 
@@ -51,14 +56,15 @@ const walk = async (
   for (const entry of entries) {
     const full = path.join(cur, entry);
     // FileSystem.readDir returns names only; we probe by trying
-    // readFile first. If it succeeds the entry is a file; if it
-    // throws we recurse as a directory.
+    // readFileBytes first. If it succeeds the entry is a file; if it
+    // throws we recurse as a directory. Byte-level reads keep binary
+    // assets intact (issue #357).
     try {
-      const text = await fs.readFile(full);
+      const bytes = await fs.readFileBytes(full);
       const rel = path.relative(root, full);
       // Normalize to forward slashes so the map keys match the
       // bundle's logical layout independent of host OS.
-      out.set(rel.split(path.sep).join('/'), new TextEncoder().encode(text));
+      out.set(rel.split(path.sep).join('/'), bytes);
     } catch {
       await walk(root, full, fs, out);
     }

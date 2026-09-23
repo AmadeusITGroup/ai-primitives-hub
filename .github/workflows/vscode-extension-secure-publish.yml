@@ -19,6 +19,11 @@ on:
         required: false
         type: string
         default: "vscode-marketplace,open-vsx"
+      audit_ignore_ghsas:
+        description: "GHSAs to ignore for this release only (comma-separated)"
+        required: false
+        type: string
+        default: ""
 
 # Security: Minimal permissions following principle of least privilege
 permissions:
@@ -55,7 +60,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -84,21 +89,34 @@ jobs:
           echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.5.0
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
           cache-dependency-path: "pnpm-lock.yaml"
 
       - name: Install workspace dependencies with integrity check
+        env:
+          AUDIT_IGNORE_GHSAS: ${{ inputs.audit_ignore_ghsas }}
         run: |
           pnpm install --frozen-lockfile --prefer-offline
-          pnpm audit --prod --audit-level=moderate
+          audit_args=()
+          IFS=',' read -r -a ignored_ghsas <<< "$AUDIT_IGNORE_GHSAS"
+          for ghsa in "${ignored_ghsas[@]}"; do
+            ghsa="$(printf '%s' "$ghsa" | tr -d '[:space:]')"
+            if [ -z "$ghsa" ]; then
+              continue
+            fi
+            if [[ ! "$ghsa" =~ ^GHSA-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}$ ]]; then
+              echo "Invalid GHSA ID: $ghsa"
+              exit 1
+            fi
+            audit_args+=(--ignore "$ghsa")
+          done
+          pnpm audit --prod --audit-level=moderate "${audit_args[@]}"
 
       - name: Update version in package.json
         working-directory: ${{ env.EXTENSION_DIR }}
@@ -115,10 +133,13 @@ jobs:
           severity: "CRITICAL,HIGH"
           skip-dirs: "website,lib"
 
+      # `vsce package` runs `vscode:prepublish` (= `compile`), so this step
+      # only builds the workspace deps that compile bundles.
+      # `pkg^...` = that package's workspace deps only; excludes cli.
       - name: Build and package extension
         run: |
-          pnpm run build
-          pnpm -C ${{ env.EXTENSION_DIR }} run package:prepare
+          pnpm --filter "prompt-registry^..." build
+          pnpm -C ${{ env.EXTENSION_DIR }} run ignore:prod
 
           # Package with integrity verification
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
@@ -148,7 +169,7 @@ jobs:
           echo "Package SHA256: $SHA256"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: extension-package
           path: |
@@ -190,7 +211,7 @@ jobs:
           egress-policy: audit
 
       - name: Download package artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: extension-package
 
@@ -206,7 +227,7 @@ jobs:
           fi
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -252,7 +273,7 @@ jobs:
           egress-policy: audit
 
       - name: Download package artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: extension-package
 
@@ -268,7 +289,7 @@ jobs:
           fi
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -306,12 +327,12 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Download package artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: extension-package
 
@@ -430,14 +451,14 @@ jobs:
 
       - name: Upload bundle to release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             ${{env.EXTENSION_NAME}}-vscode-extension-${{ needs.pre-publish-security.outputs.version }}-bundle.zip
           tag_name: ${{ github.event.release.tag_name }}
 
       - name: Upload bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: installation-bundle
           path: ${{env.EXTENSION_NAME}}-vscode-extension-${{ needs.pre-publish-security.outputs.version }}-bundle.zip

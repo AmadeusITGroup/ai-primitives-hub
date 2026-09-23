@@ -35,8 +35,14 @@ export function stem(token: string): string {
   if (token.length <= 3) {
     return token;
   }
+  // Normalise -ies/-ied to -y first so singular/plural (and verb) pairs unify:
+  // queries↔query, studied↔study. Without this, `queries` stemmed to `quer`
+  // while `query` stayed `query`, so the two never matched.
+  if (token.length > 4 && (token.endsWith('ies') || token.endsWith('ied'))) {
+    return `${token.slice(0, -3)}y`;
+  }
   // Order matters: longer suffixes first.
-  const suffixes = ['ingly', 'edly', 'ing', 'ers', 'ier', 'ied', 'ies', 'ed', 'er', 'es', 'ly', 's'];
+  const suffixes = ['ingly', 'edly', 'ing', 'ers', 'ier', 'ed', 'er', 'es', 'ly', 's'];
   for (const suf of suffixes) {
     if (token.length > suf.length + 2 && token.endsWith(suf)) {
       return token.slice(0, -suf.length);

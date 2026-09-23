@@ -2,15 +2,18 @@
 
 Thin Clipanion delivery adapter over `@ai-primitives-hub/app`. Depends on
 `core`, `infra`, and `app`. Commands parse arguments, call into `app`, and
-format output — no business logic lives here (see migration plan §3.3.3 for
-why this rule exists and what happens when it's violated).
+format output; shared business behavior belongs in the domain and application
+packages.
 
-Status: **scaffolding only** (Phase 1 of `.tmp/ai-primitives-hub-next-migration-plan.md`).
-Real commands land in Phase 5 (§7.6): framework wiring (Clipanion, RC pin
-accepted per decision 8), foundational commands (`status`, `config`,
-`target`, `source`), hub/profile commands, index/search/discovery commands,
-install/uninstall, collection/scaffolding commands, and doctor/diagnostics
-(including HTTP-proxy/TLS-CA support carried over from prior work).
+Status: **active alpha CLI**. The package currently includes commands for
+collections, primitives, bundle building, sources, Hubs, profiles, targets,
+index/search/discovery, installation, configuration, shell completion, and
+doctor/diagnostics. Run the executable with `--help` for the commands present
+in the installed version.
+
+The package requires Node.js 24 or newer. See the
+[current architecture overview](../../docs/contributor-guide/architecture.md)
+for its relationship with the extension and shared packages.
 
 ## Development
 

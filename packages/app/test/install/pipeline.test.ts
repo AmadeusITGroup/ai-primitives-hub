@@ -22,6 +22,10 @@ import {
   it,
 } from 'vitest';
 import {
+  createGovernedReleaseArchive,
+  createLegacyReleaseArchive,
+} from '../../../core/test/fixtures/release-archives';
+import {
   InstallPipeline,
   InstallPipelineError,
   type PipelineEvent,
@@ -67,6 +71,27 @@ describe('InstallPipeline', () => {
     expect(outcome.manifest.id).toBe('my-bundle');
     expect(outcome.sha256).toBe('abc123');
     expect(outcome.write.written).toContain('/out/deployment-manifest.yml');
+  });
+
+  it('accepts a source-authoritative bundle ID when manifest ID validation is skipped', async () => {
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: {
+        extract: async (): Promise<ExtractedFiles> => new Map([
+          ['deployment-manifest.yml', new TextEncoder().encode('id: workflow-nevio\nversion: 2.0.8\nname: Task Driven Workflow\n')]
+        ])
+      },
+      writerFactory: () => okWriter,
+      skipManifestIdValidation: true
+    });
+
+    const outcome = await pipeline.run({
+      bundleId: 'amadeus-airlines-solutions-workflow-instructions-workflow-nevio',
+      bundleVersion: '2.0.8'
+    }, TARGET);
+
+    expect(outcome.manifest.id).toBe('workflow-nevio');
   });
 
   it('emits events for every stage in order', async () => {
@@ -196,5 +221,77 @@ describe('InstallPipeline', () => {
 
     await pipeline.run({ bundleId: 'my-bundle' }, TARGET);
     expect(calledWith).toBe(TARGET);
+  });
+
+  it('passes only declared installable content to the target writer for a governed release', async () => {
+    let writerFiles: string[] = [];
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: { extract: async () => createGovernedReleaseArchive({ id: 'my-bundle' }) },
+      writerFactory: () => ({
+        preflight: async (_target, files) => ({ writable: [...files.keys()], skipped: [] }),
+        write: async (_target, files) => {
+          writerFiles = [...files.keys()];
+          return {
+            written: ['/out/prompts/hello.prompt.md'],
+            skipped: [],
+            writtenBundlePaths: ['prompts/hello.prompt.md']
+          };
+        },
+        remove: async () => {}
+      })
+    });
+
+    await pipeline.run({ bundleId: 'my-bundle' }, TARGET);
+
+    expect(writerFiles).toEqual([
+      'deployment-manifest.yml',
+      'prompts/hello.prompt.md'
+    ]);
+  });
+
+  it('passes the complete extracted map to legacy writers unchanged', async () => {
+    const legacyFiles = createLegacyReleaseArchive({ id: 'my-bundle' });
+    let writerInput: ExtractedFiles | undefined;
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: { extract: async () => legacyFiles },
+      writerFactory: () => ({
+        preflight: async () => ({ writable: [...legacyFiles.keys()], skipped: [] }),
+        write: async (_target, files) => {
+          writerInput = files;
+          return { written: [...files.keys()], skipped: [] };
+        },
+        remove: async () => {}
+      })
+    });
+
+    await pipeline.run({ bundleId: 'my-bundle' }, TARGET);
+
+    expect(writerInput).toBe(legacyFiles);
+    expect([...writerInput!.keys()]).toEqual([...legacyFiles.keys()]);
+  });
+
+  it('does not construct or invoke a writer when governed validation fails', async () => {
+    const malformedFiles = createGovernedReleaseArchive({ id: 'my-bundle' });
+    malformedFiles.set('unexpected.txt', new TextEncoder().encode('not declared'));
+    let writerFactoryCalls = 0;
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: { extract: async () => malformedFiles },
+      writerFactory: () => {
+        writerFactoryCalls += 1;
+        return okWriter;
+      }
+    });
+
+    await expect(pipeline.run({ bundleId: 'my-bundle' }, TARGET)).rejects.toMatchObject({
+      code: 'BUNDLE.MANIFEST_INVALID',
+      stage: 'validate'
+    });
+    expect(writerFactoryCalls).toBe(0);
   });
 });

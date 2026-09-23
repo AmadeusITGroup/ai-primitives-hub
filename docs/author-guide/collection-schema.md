@@ -120,7 +120,8 @@ This allows multiple collections to safely share common MCP servers without conf
 
 ## Validation
 
-Run `Ctrl+Shift+P` → "AI Primitives Hub: Validate Collections"
+Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
+macOS) and run **AI Primitives Hub: Validate Collections**.
 
 ## See Also
 

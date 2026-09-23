@@ -394,5 +394,45 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
       assert.ok(jsContent.includes('Bundles will appear as sources are synced'),
         'marketplace.js should include explanation about syncing');
     });
+
+    test('external marketplace JS should progressively refine semantic search results', () => {
+      const jsPath = path.join(PROJECT_ROOT, 'src', 'ui', 'webview', 'marketplace', 'marketplace.js');
+      if (!fs.existsSync(jsPath)) {
+        return;
+      }
+      const jsContent = fs.readFileSync(jsPath, 'utf8');
+
+      assert.ok(jsContent.includes('let semanticSearchPending = false;'),
+        'marketplace.js should track pending semantic searches');
+      assert.ok(jsContent.includes('if (semanticSearchPending && hasSearch && filteredBundles.length === 0)'),
+        'marketplace.js should show a loading state when semantic results are still pending');
+      assert.ok(jsContent.includes('updateMarketplaceSummary();\n        renderBundles();'),
+        'marketplace.js should refresh counts when final semantic results arrive');
+      assert.ok(jsContent.includes('title="Open Details"'),
+        'marketplace.js should expose bundle details through a focusable button');
+      assert.ok(jsContent.includes('title="Open Source Repository"'),
+        'marketplace.js should retain an accessible title for the repository icon');
+      assert.ok(!jsContent.includes('<span>Repository</span>'),
+        'marketplace.js should render the repository action as an icon-only button');
+      assert.ok(jsContent.includes('No installed bundles'),
+        'marketplace.js should explain when the Installed tab is empty');
+      assert.ok(jsContent.includes('All installed bundles are up to date'),
+        'marketplace.js should explain when the Updates tab is empty');
+      assert.ok(jsContent.includes('checkbox.checked = selectedTags.includes(tag);'),
+        'marketplace.js should keep tag checkboxes synchronized with selected tags');
+      assert.ok(jsContent.includes('updateFilterUI();\n    updateTagButtonText();\n    updateContentTypeButtonText();'),
+        'marketplace.js should refresh the tag selector after removing a tag chip');
+    });
+
+    test('external marketplace HTML should not show a separate bundle count summary', () => {
+      const htmlPath = path.join(PROJECT_ROOT, 'src', 'ui', 'webview', 'marketplace', 'marketplace.html');
+      if (!fs.existsSync(htmlPath)) {
+        return;
+      }
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+      assert.ok(!htmlContent.includes('id="filterSummary"'),
+        'marketplace.html should not include a separate bundle count summary');
+    });
   });
 });

@@ -51,4 +51,10 @@ describe('ZipBundleExtractor', () => {
 
     await expect(new ZipBundleExtractor().extract(garbage)).rejects.toThrow(/Failed to extract bundle/);
   });
+
+  it('rejects archive entries that escape the bundle root', async () => {
+    const zipBytes = buildZip([{ path: '../outside.txt', bytes: new TextEncoder().encode('unsafe') }]);
+
+    await expect(new ZipBundleExtractor().extract(zipBytes)).rejects.toThrow(/Unsafe ZIP path/);
+  });
 });

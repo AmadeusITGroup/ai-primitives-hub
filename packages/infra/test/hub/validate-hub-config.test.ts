@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import {
   validateHubConfig,
+  validateHubConfigDocument,
 } from '../../src/hub/validate-hub-config';
 
 function validConfig(): Record<string, unknown> {
@@ -27,6 +28,42 @@ function validConfig(): Record<string, unknown> {
         id: 'profile-1',
         name: 'Profile One',
         bundles: [{ id: 'bundle-1', source: 'src-1' }]
+      }
+    ]
+  };
+}
+
+function schemaValidConfig(): Record<string, unknown> {
+  return {
+    version: '1.0.0',
+    metadata: {
+      name: 'Test Hub',
+      description: 'A test hub',
+      maintainer: 'someone',
+      updatedAt: '2024-01-01T00:00:00.000Z'
+    },
+    sources: [
+      {
+        id: 'github-source',
+        type: 'github',
+        url: 'https://github.com/example-org/example-repository',
+        enabled: true,
+        priority: 1
+      }
+    ],
+    profiles: [
+      {
+        id: 'profile-1',
+        name: 'Profile One',
+        description: 'A test profile',
+        bundles: [
+          {
+            id: 'example-org-example-repository-example-bundle',
+            version: 'latest',
+            source: 'github-source',
+            required: true
+          }
+        ]
       }
     ]
   };
@@ -131,5 +168,81 @@ describe('validateHubConfig', () => {
     (config.profiles as Record<string, unknown>[])[0].bundles = [{ id: 'bundle-1', source: 'missing-src' }];
     const result = validateHubConfig(config);
     expect(result.errors.some((e) => e.includes('references non-existent source'))).toBe(true);
+  });
+});
+
+describe('validateHubConfigDocument', () => {
+  it('accepts a schema-valid config and the source policies', () => {
+    const result = validateHubConfigDocument(schemaValidConfig());
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('includes JSON schema errors for missing source fields', () => {
+    const config = schemaValidConfig();
+    delete (config.sources as Record<string, unknown>[])[0].enabled;
+
+    const result = validateHubConfigDocument(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((error) => error.includes("'enabled'") || error.includes('enabled'))).toBe(true);
+  });
+
+  it('rejects a github source that defines config', () => {
+    const config = schemaValidConfig();
+    (config.sources as Record<string, unknown>[])[0].config = { branch: 'main' };
+
+    const result = validateHubConfigDocument(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "Source 'github-source' has type 'github' and must not define 'config'."
+    );
+  });
+
+  it('rejects an awesome-copilot source without config', () => {
+    const config = schemaValidConfig();
+    const source = (config.sources as Record<string, unknown>[])[0];
+    source.type = 'awesome-copilot';
+
+    const result = validateHubConfigDocument(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "Source 'github-source' has type 'awesome-copilot' and must define 'config'."
+    );
+  });
+
+  it('rejects a github profile bundle with the wrong repository prefix', () => {
+    const config = schemaValidConfig();
+    const bundle = ((config.profiles as Record<string, unknown>[])[0].bundles as Record<string, unknown>[])[0];
+    bundle.id = 'another-org-another-repository-example-bundle';
+
+    const result = validateHubConfigDocument(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "Profile 'profile-1' bundle #1 must reference GitHub source 'github-source' "
+      + "with an ID starting 'example-org-example-repository-'."
+    );
+  });
+
+  it('rejects duplicate source and profile IDs', () => {
+    const config = schemaValidConfig();
+    config.sources = [
+      ...(config.sources as Record<string, unknown>[]),
+      { ...(config.sources as Record<string, unknown>[])[0] }
+    ];
+    config.profiles = [
+      ...(config.profiles as Record<string, unknown>[]),
+      { ...(config.profiles as Record<string, unknown>[])[0] }
+    ];
+
+    const result = validateHubConfigDocument(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((error) => error.includes('Duplicate source ID'))).toBe(true);
+    expect(result.errors.some((error) => error.includes('Duplicate profile ID'))).toBe(true);
   });
 });

@@ -2,6 +2,8 @@
 
 Extend existing hubs by adding new sources or profiles to the hub configuration file.
 
+If you do not have a Hub yet, start with [Creating a Hub](./creating-a-hub.md).
+
 ## Prerequisites
 
 - Write access to the hub's configuration repository
@@ -14,13 +16,11 @@ Extend existing hubs by adding new sources or profiles to the hub configuration 
 
 Open the hub's YAML configuration file and add a new source to the `sources` array:
 
-Add a new source to the `sources` array:
-
 ```yaml
 sources:
   # Existing sources...
   
-  - id: "my-new-source"                    # Unique identifier
+  - id: "my-new-source"                    # Stable identity — keep unchanged once published
     type: "github"                         # Source type
     repository: "myorg/new-prompt-bundles" # Repository location
     name: "My New Source"                  # Display name
@@ -33,24 +33,59 @@ sources:
       homepage: "https://github.com/myorg/new-prompt-bundles"
 ```
 
-### 3. Source Types
+### 2. Source Types
 
-Choose the appropriate source type for organization we recommend github source type for versionned package:
+Choose a source type accepted by the current Hub schema. For a versioned
+collection published through GitHub releases, use `github`.
 
 | Type | Use Case | Required Fields |
 |------|----------|-----------------|
 | `github` | GitHub repository | `repository` |
+| `local` | Local filesystem source | `url` |
 | `awesome-copilot` | YAML collections | `repository` |
+| `local-awesome-copilot` | Local YAML collections | `url` |
 | `apm` | APM packages | `url` |
+| `local-apm` | Local APM packages | `url` |
+| `skills` | GitHub repository containing skills | `repository` |
 
-### 4. Priority Guidelines
+Source types supported elsewhere in the product are not necessarily valid in
+a Hub. Check the [Hub Schema](../reference/hub-schema.md) before adding one.
 
-Set priority based on source importance:
-- **90-100**: Critical organizational sources
-- **70-89**: Important team sources  
-- **50-69**: Community sources
-- **10-49**: Experimental sources
-- **1-9**: Deprecated sources
+For a `local` source inside `hub-config.yml`, `url` is the filesystem path to
+that collection source. By contrast, the CLI's `hub add --location` flag in
+the validation steps below points to the Hub's `hub-config.yml` file itself.
+`location` is a CLI option, not a source field in the YAML.
+
+### 3. Priority Guidelines
+
+The Hub schema accepts priorities from `0` through `100`; higher values win
+when sources conflict. There are no canonical category ranges. Choose values
+relative to the other sources in the same Hub and document any team-specific
+convention in the Hub repository.
+
+## Renaming a Source URL
+
+A source's `id` is its stable identity. Keep the `id` value unchanged and change only the URL — `repository` for `github` and `awesome-copilot` sources, `url` for `apm` sources:
+
+```yaml
+sources:
+  - id: "ml-prompts"                              # Unchanged — this is the identity
+    type: "github"
+    repository: "myorg/ml-prompt-collection-v2"   # Changed — the new location
+    name: "ML Prompt Collection"
+    enabled: true
+    priority: 80
+```
+
+Because the `id` stayed the same, users who already installed bundles from this source keep them attached: on the next hub sync, their installed bundles migrate to the renamed repository and stay updatable.
+
+Changing an `id` means something different. It is read as removing one source and adding an unrelated one. The removed source is kept — not deleted — while installed bundles still reference it, so nothing is lost, but those bundles stay pointed at the old location and stop receiving updates from the new one.
+
+Changing an `id` also breaks profiles, with or without a URL change. A profile bundle's `source` field names a source `id`, so every profile entry referencing the old `id` no longer resolves. That constraint already exists today; keeping the `id` stable is how you avoid it.
+
+### Backfill Window
+
+The registry remembers which hub declaration each installed source came from. Sources that users stored before this tracking existed do not carry that link yet — it is written on the next successful sync of the hub that owns them. If a rename lands before that sync, the pre-rename source is kept alive instead of migrated, and users see a warning in the logs naming the reason. Publish the rename in a separate commit from any other source change so users get one sync to backfill first.
 
 ## Adding a Profile
 
@@ -67,7 +102,7 @@ profiles:
   - id: "data-science"                     # Unique identifier
     name: "Data Science Toolkit"          # Display name
     description: "Prompts for data analysis, ML, and visualization"
-    icon: "📊"                             # Optional icon/emoji
+    icon: "📊"                             # Optional emoji icon
     bundles:
       - id: "python-data"                  # Bundle from any source
         version: "latest"                  # Version or "latest"
@@ -90,6 +125,11 @@ Each bundle in a profile needs:
 - **source**: Must reference a source ID defined in the hub
 - **required**: `true` for mandatory bundles, `false` for optional
 
+Pin a semantic version for stable or production profiles whose contents
+should change only through a reviewed Hub update. Use `latest` only when
+following the newest available collection is intentional, such as during
+development.
+
 ### 3. Profile Organization
 
 Use the `path` array to organize profiles in the UI:
@@ -109,9 +149,17 @@ This creates a hierarchy: Engineering → Backend → [Profile Name]
 Before committing, validate your hub configuration:
 
 ```bash
-# If you have the extension installed locally
-Ctrl+Shift+P → "AI Primitives Hub: Import Hub" → [Your hub URL]
+ai-primitives-hub hub add \
+  --type local \
+  --location ./hub-config.yml \
+  --id hub-validation \
+  --no-use \
+  --no-sync
 ```
+
+This runs the CLI's shared runtime checks. For full JSON Schema validation,
+run **AI Primitives Hub: Import Hub** from the VS Code Command Palette and
+select the local `hub-config.yml` file.
 
 ### 2. Test Source Connectivity
 
@@ -132,7 +180,7 @@ Check that profile bundles exist in their specified sources:
 ### 1. Commit and Push
 
 ```bash
-git add hub.yml
+git add hub-config.yml
 git commit -m "Add data science profile and new source"
 git push origin main
 ```
@@ -146,14 +194,22 @@ metadata:
   name: "Engineering Team Hub"
   description: "Centralized prompt management for the engineering organization"
   maintainer: "Platform Team"
-  updatedAt: "2025-01-15T10:30:00Z"  # Update timestamp
+  updatedAt: "2026-08-16T00:00:00Z"  # Replace with the current ISO 8601 timestamp
 ```
 
 ### 3. Notify Users
 
 Users can sync the updated hub:
 - Right-click hub in Registry Explorer → "Sync Hub"
-- Or: `Ctrl+Shift+P` → "AI Primitives Hub: Sync Hub"
+- Or open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+  `Cmd+Shift+P` on macOS) and run **AI Primitives Hub: Sync Hub**.
+
+Hub sync refreshes the configuration and source catalog. For a profile that is
+already active, it can reveal added, removed, or version-changed bundle
+references, but it does not automatically install, remove, or update those
+collections. **Sync Profile** accepts the updated profile definition, but it
+also does not install bundles. Bundle installation, updates, and removal remain
+separate user actions.
 
 ## Example: Complete Addition
 
@@ -166,7 +222,7 @@ metadata:
   name: "Engineering Team Hub"
   description: "Centralized prompt management for the engineering organization"
   maintainer: "Platform Team"
-  updatedAt: "2025-01-15T10:30:00Z"
+  updatedAt: "2026-08-16T00:00:00Z"  # Replace with the current ISO 8601 timestamp
 
 sources:
   # Existing sources...
@@ -226,6 +282,12 @@ profiles:
 - Check version availability
 - Verify source is enabled and synced
 
+### Installed Bundles Did Not Migrate After a Repository Rename
+- Confirm the source's `id` is byte-identical to what you published before the rename — a changed `id` is read as remove-plus-add, so the old source is kept and its bundles stay on the old location
+- Confirm exactly one source declaration carries that `id`; an ambiguous match is never guessed
+- If users synced the hub for the first time only after the rename, the pre-rename source has no recorded link yet (see [Backfill Window](#backfill-window)); reverting the URL, letting users sync once, then re-applying the rename restores the migration path
+- Ask users to check the extension logs: each kept-alive source is reported with the source id, how many installed bundles reference it, and the reason
+
 ### Permission Issues
 - Ensure you have write access to the hub repository
 - Check if the hub requires specific permissions for contributors
@@ -233,6 +295,7 @@ profiles:
 ## See Also
 
 - [Hub Schema Reference](../reference/hub-schema.md) — Complete schema documentation
+- [Creating a Hub](./creating-a-hub.md) — End-to-end Hub authoring and publishing
 - [Collection Schema](./collection-schema.md) — Creating new bundles
 - [Profiles and Hubs Guide](../user-guide/profiles-and-hubs.md) — User perspective
 - [Publishing Collections](./publishing.md) — Creating bundle sources

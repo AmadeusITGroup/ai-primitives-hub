@@ -30,7 +30,7 @@ describe('NodeProcessRunner', () => {
 
   it('runs the command in the requested working directory', async () => {
     const cwd = realpathSync(tmpdir());
-    const result = await new NodeProcessRunner().exec('pwd', { cwd });
+    const result = await new NodeProcessRunner().exec('node -p "process.cwd()"', { cwd });
     expect(result.stdout.trim()).toBe(cwd);
   });
 

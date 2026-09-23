@@ -6,7 +6,8 @@ A **Profile** groups bundles from multiple sources. Activate with one click.
 
 ### Commands
 
-- **Create**: `Ctrl+Shift+P` → "AI Primitives Hub: Create Profile"
+- **Create**: Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+  `Cmd+Shift+P` on macOS) and run **AI Primitives Hub: Create Profile**
 - **Activate**: Right-click profile → Activate Profile
 - **Deactivate**: Right-click active profile → Deactivate Profile
 
@@ -20,6 +21,11 @@ Toggle with ⭐ button in Registry Explorer.
 ## Hubs
 
 A **Hub** is a centralized repository of versioned profiles and sources. Share across your organization.
+
+Use a Hub when a team needs one maintained catalog of approved sources and
+role-based profiles. A Hub contains configuration; the collections and their
+primitive files remain in the referenced sources. If you only need to publish
+one collection repository, configure a source instead of creating a Hub.
 
 ### First-Run Hub Selection
 
@@ -48,12 +54,23 @@ The active hub is automatically synchronized to keep it up-to-date:
 
 After every hub sync (startup, periodic, or manual), all sources are automatically re-synced and the tree view refreshes with the latest bundles.
 
+Hub sync refreshes the Hub configuration and source catalog. It can reveal
+added, removed, or version-changed references in an active profile, but it does
+not automatically install, remove, or update collections that are already on
+the user's machine. **Sync Profile** accepts the updated profile definition,
+while collection installation, updates, and removal remain separate actions.
+
 ### Commands
 
-- **Import**: `Ctrl+Shift+P` → "AI Primitives Hub: Import Hub"
-- **Export**: `Ctrl+Shift+P` → "AI Primitives Hub: Export Hub Configuration"
+- **Import**: Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+  `Cmd+Shift+P` on macOS) and run **AI Primitives Hub: Import Hub**
+- **Export**: Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or
+  `Cmd+Shift+P` on macOS) and run
+  **AI Primitives Hub: Export Hub Configuration**
 - **Sync**: Right-click hub → Sync Hub
-- **Reset First Run**: `Ctrl+Shift+P` → "AI Primitives Hub: Reset First Run" (re-triggers hub selector)
+- **Reset First Run**: Open the Command Palette (`Ctrl+Shift+P` on
+  Windows/Linux or `Cmd+Shift+P` on macOS) and run
+  **AI Primitives Hub: Reset First Run** (re-triggers hub selector)
 
 ### Hub Config Format
 
@@ -63,7 +80,7 @@ metadata:
   name: "Team Hub"
   description: "Shared prompt configuration"
   maintainer: "team-name"
-  updatedAt: "2024-01-01T00:00:00Z"
+  updatedAt: "2026-08-16T00:00:00Z" # Replace with the current ISO 8601 timestamp
 sources:
   - id: "team-prompts"
     type: "github"
@@ -74,6 +91,7 @@ profiles:
   - id: "backend"
     name: "Backend Developer"
     description: "Prompts for backend development"
+    icon: "🛠️"
     bundles:
       - id: "api-design"
         version: "latest"
@@ -81,8 +99,14 @@ profiles:
         required: true
 ```
 
+The schema accepts any string for `icon`; the extension's profile UI uses
+emoji, so these guides use emoji consistently. Pin a semantic version when a
+profile must remain stable. Use `latest` only when following the newest
+available collection is intentional.
+
 ## See Also
 
 - [Getting Started](./getting-started.md) — First-run experience
 - [Sources](./sources.md) — Configure sources
+- [Creating a Hub](../author-guide/creating-a-hub.md) — Author and publish a Hub
 - [Hub Schema](../reference/hub-schema.md) — Full schema reference

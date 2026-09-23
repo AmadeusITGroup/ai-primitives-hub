@@ -1,4 +1,6 @@
 import type {
+  GitHubRepositoryTarget,
+  GitHubSourceAuthCategory,
   HttpClient,
   HttpRequest,
   HttpResponse,
@@ -26,21 +28,32 @@ class FakeHttpClient implements HttpClient {
     this.queue = Array.isArray(responses) ? [...responses] : [responses];
   }
 
-  public async fetch(request: HttpRequest): Promise<HttpResponse> {
+  public fetch(request: HttpRequest): Promise<HttpResponse> {
     this.lastRequest = request;
     this.requests.push(request);
-    return this.queue.length > 1 ? this.queue.shift()! : this.queue[0];
+    return Promise.resolve(this.queue.length > 1 ? this.queue.shift()! : this.queue[0]);
   }
 }
 
 class StaticTokenProvider implements TokenProvider {
   public lastHost: string | undefined;
+  public lastTarget: GitHubRepositoryTarget | undefined;
 
   public constructor(private readonly token: string | undefined) {}
 
-  public async getToken(host: string): Promise<string | undefined> {
+  public getToken(host: string, target?: GitHubRepositoryTarget): Promise<string | undefined> {
     this.lastHost = host;
-    return this.token;
+    this.lastTarget = target;
+    return Promise.resolve(this.token);
+  }
+}
+
+class CountingTokenProvider implements TokenProvider {
+  public calls = 0;
+
+  public getToken(): Promise<string | undefined> {
+    this.calls += 1;
+    return Promise.resolve('should-not-be-used');
   }
 }
 
@@ -53,11 +66,12 @@ function jsonResponse(body: unknown, statusCode = 200, headers: Record<string, s
   };
 }
 
-const noSleep = async (): Promise<void> => undefined;
+const noSleep = (): Promise<void> => Promise.resolve();
 
 function recordingSleep(sleeps: number[]): (ms: number) => Promise<void> {
-  return async (ms: number): Promise<void> => {
+  return (ms: number): Promise<void> => {
     sleeps.push(ms);
+    return Promise.resolve();
   };
 }
 
@@ -97,9 +111,30 @@ describe('GitHubApiClient', () => {
     expect(http.lastRequest?.headers?.Authorization).toBeUndefined();
   });
 
+  it('does not make an anonymous request for a public-generic source when its token is unavailable', async () => {
+    const http = new FakeHttpClient(jsonResponse({ ok: true }));
+    const client = new GitHubApiClient(http, {
+      tokenProvider: new StaticTokenProvider(undefined),
+      authenticationCategory: 'public-generic'
+    });
+
+    await expect(client.getJson('/repos/o/r')).rejects.toMatchObject({
+      code: 'GH_PUBLIC_GENERIC_TOKEN_UNAVAILABLE'
+    });
+    expect(http.requests).toHaveLength(0);
+  });
+
   it('parses the JSON body on success', async () => {
     const http = new FakeHttpClient(jsonResponse({ name: 'repo' }));
     await expect(new GitHubApiClient(http).getJson('/repos/o/r')).resolves.toEqual({ name: 'repo' });
+  });
+
+  it('returns response headers with parsed JSON', async () => {
+    const headers = { link: '<https://api.github.com/repos/o/r/releases?page=2>; rel="next"' };
+    const http = new FakeHttpClient(jsonResponse({ name: 'repo' }, 200, headers));
+
+    await expect(new GitHubApiClient(http).getJsonWithHeaders('/repos/o/r'))
+      .resolves.toEqual({ value: { name: 'repo' }, headers });
   });
 
   it('throws a descriptive error on a 404 response', async () => {
@@ -160,6 +195,42 @@ describe('GitHubApiClient', () => {
     const tokenProvider = new StaticTokenProvider('secret-token');
     await new GitHubApiClient(http, { tokenProvider }).getText('https://raw.githubusercontent.com/o/r/main/manifest.yml');
     expect(tokenProvider.lastHost).toBe('raw.githubusercontent.com');
+  });
+
+  it('passes the source repository target while preserving the request host', async () => {
+    const http = new FakeHttpClient(jsonResponse({ ok: true }));
+    const tokenProvider = new StaticTokenProvider('secret-token');
+    const target: GitHubRepositoryTarget = {
+      host: 'github.com',
+      owner: 'owner',
+      repository: 'repo'
+    };
+    const client = new GitHubApiClient(http, { tokenProvider, repositoryTarget: target });
+
+    await client.getText('https://raw.githubusercontent.com/owner/repo/main/file.txt');
+
+    expect(tokenProvider.lastHost).toBe('raw.githubusercontent.com');
+    expect(tokenProvider.lastTarget).toEqual(target);
+  });
+
+  it('does not invoke a token provider for a public-anonymous source', async () => {
+    const http = new FakeHttpClient(jsonResponse({ ok: true }));
+    const tokenProvider = new CountingTokenProvider();
+    const category: GitHubSourceAuthCategory = 'public-anonymous';
+    const client = new GitHubApiClient(http, {
+      tokenProvider,
+      authenticationCategory: category,
+      repositoryTarget: {
+        host: 'github.com',
+        owner: 'owner',
+        repository: 'repo'
+      }
+    });
+
+    await client.getJson('/repos/owner/repo');
+
+    expect(tokenProvider.calls).toBe(0);
+    expect(http.lastRequest?.headers?.Authorization).toBeUndefined();
   });
 
   describe('retry / backoff', () => {

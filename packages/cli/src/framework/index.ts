@@ -100,10 +100,18 @@ export {
   findProjectLockfile,
   loadTargets,
   lockfilePathForTarget,
+  resolveEffectiveTarget,
+} from './target';
+export type {
+  TargetOverrides,
 } from './target';
 export {
   copyCommandPrototype,
 } from './command-class';
+export {
+  collectCommandPaths,
+  getCommandPaths,
+} from './command-paths';
 export type {
   RenderTableOptions,
   TableColumn,
@@ -123,3 +131,6 @@ export {
 export {
   suggestCommand,
 } from './suggest';
+export {
+  loadInquirer,
+} from './inquirer';

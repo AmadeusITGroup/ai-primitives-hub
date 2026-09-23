@@ -142,6 +142,44 @@ export class SourceCommands {
         return uris && uris.length > 0 ? uris[0].fsPath : undefined;
       }
 
+      case 'artifactory': {
+        const location = await vscode.window.showInputBox({
+          prompt: 'Enter credential-free Artifactory source root URL',
+          placeHolder: 'https://artifactory.example.com/artifactory/prompt-registry/',
+          validateInput: (value) => {
+            try {
+              const url = new URL(value);
+              const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+              if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+                return 'Please enter an HTTPS URL, or loopback HTTP for local testing';
+              }
+              return undefined;
+            } catch {
+              return 'Please enter a valid Artifactory URL';
+            }
+          },
+          ignoreFocusOut: true
+        });
+        if (location && new URL(location).protocol === 'http:') {
+          await vscode.window.showWarningMessage('Loopback HTTP is intended only for local Artifactory testing; use HTTPS for shared or production sources.');
+        }
+        return location;
+      }
+
+      case 'azure-devops': {
+        return await vscode.window.showInputBox({
+          prompt: 'Enter Azure DevOps repository URL',
+          placeHolder: 'https://dev.azure.com/org/project/_git/repo',
+          validateInput: (value) => {
+            if (!value || !value.startsWith('https://dev.azure.com') || !value.includes('/_git/')) {
+              return 'Please enter a valid Azure DevOps HTTPS URL containing /_git/';
+            }
+            return undefined;
+          },
+          ignoreFocusOut: true
+        });
+      }
+
       default: {
         return undefined;
       }
@@ -211,17 +249,22 @@ export class SourceCommands {
    * @param sourceId
    */
   private async configureToken(sourceId: string): Promise<void> {
+    const source = (await this.registryManager.listSources()).find((item) => item.id === sourceId);
+    if (!source) {
+      return;
+    }
     const token = await vscode.window.showInputBox({
-      prompt: 'Enter access token (leave empty to remove)',
+      prompt: 'Paste access token (leave empty to remove)',
       password: true,
-      placeHolder: 'Access token',
+      placeHolder: 'Token value (stored securely)',
       ignoreFocusOut: true
     });
 
     if (token !== undefined) {
       await this.registryManager.updateSource(sourceId, {
-        token: token.trim() || undefined,
-        private: !!token.trim()
+        token: token.trim(),
+        private: !!token.trim(),
+        ...(source.type === 'artifactory' ? { config: { ...source.config, authMode: token.trim() ? 'bearer' : 'anonymous' } } : {})
       });
       vscode.window.showInformationMessage('Token configuration updated');
     }
@@ -329,6 +372,16 @@ export class SourceCommands {
             label: '$(folder-library) Local Skills',
             description: 'Local filesystem directory with skills in skills/ folder (SKILL.md files)',
             value: 'local-skills'
+          },
+          {
+            label: '$(azure) Azure DevOps',
+            description: 'Azure DevOps Git repository (cloud) with .collection.yml bundles',
+            value: 'azure-devops'
+          },
+          {
+            label: '$(cloud) Artifactory',
+            description: 'Credential-free or Bearer-authenticated Artifactory source root',
+            value: 'artifactory'
           }
         ],
         {
@@ -365,6 +418,9 @@ export class SourceCommands {
         return;
       }
 
+      // For Step 4 later
+      let token: string | undefined;
+      let isPrivate: { label: string; description: string; value: boolean } | undefined;
       // Step 3.5: Get additional config for awesome-copilot and local-awesome-copilot
       let config: any;
       switch (sourceType.value) {
@@ -418,15 +474,65 @@ export class SourceCommands {
 
           break;
         }
+        case 'artifactory': {
+          const indexFile = await vscode.window.showInputBox({
+            prompt: 'Enter Artifactory index file (or press Enter for "index-v1.json")',
+            placeHolder: 'index-v1.json',
+            value: 'index-v1.json',
+            ignoreFocusOut: true
+          });
+          config = { indexFile: indexFile || 'index-v1.json' };
+          break;
+        }
+        case 'azure-devops': {
+          const branch = await vscode.window.showInputBox({
+            prompt: 'Enter branch name (or press Enter for "main")',
+            placeHolder: 'main',
+            value: 'main',
+            ignoreFocusOut: true
+          });
+
+          const collectionsPath = await vscode.window.showInputBox({
+            prompt: 'Enter bundles root path within the repository (or press Enter for "/")',
+            placeHolder: 'collections',
+            value: 'collections',
+            ignoreFocusOut: true
+          });
+
+          config = {
+            branch: branch || 'main',
+            collectionsPath: collectionsPath || '/'
+          };
+
+          //  'azure-devops' requires PAT by default
+          token = await vscode.window.showInputBox({
+            prompt: 'Enter personal access token (PAT)',
+            password: true,
+            ignoreFocusOut: true
+          });
+
+          isPrivate = {
+            label: 'Private',
+            description: 'Requires authentication',
+            value: true
+          };
+
+          break;
+        }
             // No default
       }
 
-      // Step 4: Check if private/authentication needed (skip for local sources)
-      let token: string | undefined;
-      let isPrivate: { label: string; description: string; value: boolean } | undefined;
-      const isLocalSource = sourceType.value === 'local' || sourceType.value === 'local-awesome-copilot' || sourceType.value === 'local-apm';
+      // Step 4: Check if private/authentication needed
+      const isTokenSkipped =
+        // skip token prompt for local sources and Azure DevOps
+        sourceType.value === 'local'
+        || sourceType.value === 'local-awesome-copilot'
+        || sourceType.value === 'local-apm'
+        || sourceType.value === 'local-skills'
+        || sourceType.value === 'azure-devops'
+        || sourceType.value === 'artifactory';
 
-      if (!isLocalSource) {
+      if (!isTokenSkipped) {
         isPrivate = await vscode.window.showQuickPick(
           [
             { label: 'Public', description: 'No authentication required', value: false },

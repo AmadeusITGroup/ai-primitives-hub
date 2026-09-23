@@ -10,6 +10,9 @@
  * `Context.fs`.
  */
 import {
+  execFileSync,
+} from 'node:child_process';
+import {
   mkdir,
   mkdtemp,
   readFile,
@@ -20,8 +23,14 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  getInstallableBundleFiles,
+  validateManifest,
+} from '@ai-primitives-hub/core';
+import {
   NodeFileSystem,
+  ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
+import * as yaml from 'js-yaml';
 import {
   afterEach,
   beforeEach,
@@ -71,7 +80,12 @@ const COMMAND_CLASSES = [
 interface JsonEnvelope<T> {
   status: string;
   data: T;
+  warnings: string[];
 }
+
+// Windows CI can take longer than Vitest's default 10-second hook timeout
+// while initializing and removing a Git-backed real-filesystem fixture.
+const REAL_FS_HOOK_TIMEOUT_MS = 30_000;
 
 describe('collection/bundle/version/skill commands', () => {
   let workspace: string;
@@ -92,6 +106,11 @@ describe('collection/bundle/version/skill commands', () => {
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
+  const commitFixtureChanges = (): void => {
+    execFileSync('git', ['add', '.'], { cwd: workspace });
+    execFileSync('git', ['commit', '-m', 'fixture update'], { cwd: workspace, stdio: 'ignore' });
+  };
+
   beforeEach(async () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-collection-test-'));
     await mkdir(path.join(workspace, 'collections'), { recursive: true });
@@ -107,11 +126,18 @@ items:
     kind: prompt
 `
     );
-  });
+    await writeFile(path.join(workspace, 'LICENSE'), 'Test fixture license\n');
+    execFileSync('git', ['init'], { cwd: workspace, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: workspace });
+    execFileSync('git', ['config', 'user.name', 'Test Fixture'], { cwd: workspace });
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/example/test-collection.git'], { cwd: workspace });
+    execFileSync('git', ['add', '.'], { cwd: workspace });
+    execFileSync('git', ['commit', '-m', 'fixture'], { cwd: workspace, stdio: 'ignore' });
+  }, REAL_FS_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     await rm(workspace, { recursive: true, force: true });
-  });
+  }, REAL_FS_HOOK_TIMEOUT_MS);
 
   describe('collection create', () => {
     it('creates a new collection file', async () => {
@@ -163,8 +189,18 @@ items:
     it('passes for the seeded valid collection', async () => {
       const result = await run(['collection', 'validate', '-o', 'json']);
       expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{ ok: boolean }>(result.stdout);
+      const envelope = parseJson<{ ok: boolean; warnings: string[] }>(result.stdout);
       expect(envelope.data.ok).toBe(true);
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toContain('collections/foo.collection.yml: Collection has no readme. Consider adding a readme to help users understand this collection.');
+    });
+
+    it('emits text warnings only once through stderr', async () => {
+      const result = await run(['collection', 'validate']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain('Warnings:');
+      expect(result.stderr).toContain('warning: collections/foo.collection.yml: Collection has no readme. Consider adding a readme to help users understand this collection.');
     });
 
     it('fails for a collection missing the required id field', async () => {
@@ -191,6 +227,31 @@ items:
       expect(envelope.data.affected.map((a) => a.id)).toContain('foo');
     });
 
+    it('reports the collection as affected when its README changed', async () => {
+      await mkdir(path.join(workspace, 'docs'), { recursive: true });
+      await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+readme:
+  path: docs/collection-overview.md
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+      commitFixtureChanges();
+
+      const result = await run([
+        'collection', 'affected', '--changed-path', 'docs/collection-overview.md', '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ affected: { id: string }[] }>(result.stdout);
+      expect(envelope.data.affected.map((a) => a.id)).toContain('foo');
+    });
+
     it('reports no affected collections for an unrelated path', async () => {
       const result = await run([
         'collection', 'affected', '--changed-path', 'unrelated/file.md', '-o', 'json'
@@ -212,6 +273,209 @@ items:
       expect(envelope.data).toMatchObject({ id: 'foo', totalItems: 1 });
       const content = await readFile(outFile, 'utf8');
       expect(content).toContain('id: foo');
+      expect(content).not.toContain('readme:');
+    });
+
+    it('keeps collection tags at the root and does not clone them onto items', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+description: Test collection
+author: Test Author
+tags: [argos, splunk]
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+
+      const outFile = path.join(workspace, 'deployment-manifest.yml');
+      const result = await run([
+        'bundle', 'manifest',
+        '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out-file', outFile,
+        '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+
+      const manifest = yaml.load(await readFile(outFile, 'utf8')) as {
+        tags?: string[];
+        prompts: { tags?: string[] }[];
+      };
+      expect(manifest.tags).toEqual(['argos', 'splunk']);
+      expect(manifest.prompts).toHaveLength(1);
+      expect(manifest.prompts[0].tags).toBeUndefined();
+    });
+
+    it('preserves item-specific tags without copying collection tags', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+tags: [argos, pack]
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+    tags: [splunk]
+`
+      );
+
+      const outFile = path.join(workspace, 'deployment-manifest.yml');
+      const result = await run([
+        'bundle', 'manifest',
+        '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out-file', outFile,
+        '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+
+      const manifest = yaml.load(await readFile(outFile, 'utf8')) as {
+        tags?: string[];
+        prompts: { tags?: string[] }[];
+      };
+      expect(manifest.tags).toEqual(['argos', 'pack']);
+      expect(manifest.prompts[0].tags).toEqual(['splunk']);
+    });
+
+    it('generates the expected MCP fields and matches the legacy generator', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+description: Test collection
+author: Test Author
+tags: [test]
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+mcp:
+  inputs:
+    - id: serviceUrl
+      type: promptString
+      description: "Service URL"
+      default: "https://service.example.test"
+    - id: accessToken
+      type: promptString
+      description: "Service access token"
+      password: true
+    - id: proxyUrl
+      type: promptString
+      description: "HTTPS proxy URL"
+      default: "https://proxy.example.test"
+  items:
+    example-server:
+      type: stdio
+      command: node
+      args:
+        - server.js
+        - "--service-url=\${input:serviceUrl}"
+        - "--access-token=\${input:accessToken}"
+        - "--proxy-url=\${input:proxyUrl}"
+`
+      );
+
+      const legacyManifestPath = path.join(workspace, 'legacy-manifest.yml');
+      const cliManifestPath = path.join(workspace, 'cli-manifest.yml');
+      const legacyGeneratorPath = path.resolve(process.cwd(), '../../lib/bin/generate-manifest.js');
+
+      execFileSync(process.execPath, [
+        legacyGeneratorPath,
+        '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out', legacyManifestPath
+      ], { cwd: workspace, encoding: 'utf8' });
+
+      const result = await run([
+        'bundle', 'manifest',
+        '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out-file', cliManifestPath,
+        '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+
+      const legacyManifest = yaml.load(await readFile(legacyManifestPath, 'utf8'));
+      const cliManifest = yaml.load(await readFile(cliManifestPath, 'utf8'));
+
+      expect(cliManifest).toMatchObject({
+        mcpServers: {
+          'example-server': {
+            type: 'stdio',
+            command: 'node',
+            args: [
+              'server.js',
+              '--service-url=${input:serviceUrl}',
+              '--access-token=${input:accessToken}',
+              '--proxy-url=${input:proxyUrl}'
+            ]
+          }
+        },
+        mcpInputs: [
+          {
+            id: 'serviceUrl',
+            type: 'promptString',
+            description: 'Service URL',
+            default: 'https://service.example.test'
+          },
+          {
+            id: 'accessToken',
+            type: 'promptString',
+            description: 'Service access token',
+            password: true
+          },
+          {
+            id: 'proxyUrl',
+            type: 'promptString',
+            description: 'HTTPS proxy URL',
+            default: 'https://proxy.example.test'
+          }
+        ]
+      });
+      expect(cliManifest).toEqual(legacyManifest);
+    });
+
+    it('records the declared README basename and matches the legacy generator', async () => {
+      await mkdir(path.join(workspace, 'docs'), { recursive: true });
+      await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+description: Test collection
+readme:
+  path: docs/collection-overview.md
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+
+      const legacyManifestPath = path.join(workspace, 'legacy-manifest.yml');
+      const cliManifestPath = path.join(workspace, 'cli-manifest.yml');
+      const legacyGeneratorPath = path.resolve(process.cwd(), '../../lib/bin/generate-manifest.js');
+      execFileSync(process.execPath, [
+        legacyGeneratorPath,
+        '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out', legacyManifestPath
+      ], { cwd: workspace, encoding: 'utf8' });
+
+      const result = await run([
+        'bundle', 'manifest',
+        '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out-file', cliManifestPath,
+        '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      const cliManifest = yaml.load(await readFile(cliManifestPath, 'utf8'));
+      expect(cliManifest).toEqual(yaml.load(await readFile(legacyManifestPath, 'utf8')));
+      expect(cliManifest).toMatchObject({ readme: 'collection-overview.md' });
     });
 
     it('fails with exit 1 when collections/ does not exist and no --collection-file is given', async () => {
@@ -239,12 +503,155 @@ items:
   });
 
   describe('bundle build', () => {
+    it('builds a self-contained governed archive and retains metadata outside target content', async () => {
+      await mkdir(path.join(workspace, 'docs'), { recursive: true });
+      await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
+      await writeFile(path.join(workspace, 'LICENSE'), 'Example license\n');
+      await writeFile(
+        path.join(workspace, 'package.json'),
+        JSON.stringify({
+          name: 'example-collection',
+          license: 'Example-License',
+          repository: { url: 'https://github.com/example/example-collection.git' }
+        })
+      );
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+description: Test collection
+readme:
+  path: docs/collection-overview.md
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+      commitFixtureChanges();
+
+      const result = await run([
+        'bundle', 'build', '--version', '1.0.0', '--collection-file', 'collections/foo.collection.yml', '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ zipAsset: string; manifestAsset: string }>(result.stdout);
+      const files = await new ZipBundleExtractor().extract(await readFile(envelope.data.zipAsset));
+      const manifest = validateManifest(files, { expectedId: 'foo', expectedVersion: '1.0.0' });
+
+      expect(manifest).toMatchObject({
+        formatVersion: 1,
+        items: [{ id: 'hello.prompt', path: 'prompts/hello.prompt.md', kind: 'prompt' }],
+        provenance: {
+          source: 'https://github.com/example/example-collection',
+          collectionPath: 'collections/foo.collection.yml',
+          sourceSnapshotPath: 'metadata/source/collections/foo.collection.yml',
+          license: 'Example-License',
+          licensePath: 'LICENSE'
+        }
+      });
+      expect([...files.keys()].toSorted()).toEqual([
+        'LICENSE',
+        'README.md',
+        'deployment-manifest.yml',
+        'metadata/source/collections/foo.collection.yml',
+        'prompts/hello.prompt.md'
+      ]);
+      expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([
+        'deployment-manifest.yml',
+        'prompts/hello.prompt.md'
+      ]);
+      expect(yaml.load(await readFile(envelope.data.manifestAsset, 'utf8'))).toEqual(
+        yaml.load(new TextDecoder().decode(files.get('deployment-manifest.yml')))
+      );
+    });
+
     it('builds a non-trivial, reproducible bundle zip', async () => {
       const result = await run([
         'bundle', 'build', '--version', '1.0.0', '--collection-file', 'collections/foo.collection.yml', '-o', 'json'
       ]);
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+      const envelope = parseJson<{ zipAsset: string; manifestAsset: string; readmeAsset?: string }>(result.stdout);
+      const zipStat = await stat(envelope.data.zipAsset);
+      expect(zipStat.size).toBeGreaterThan(0);
+      expect(envelope.data.readmeAsset).toBeUndefined();
+    });
+
+    it('builds a legacy bundle with a warning when committed license text is absent', async () => {
+      await rm(path.join(workspace, 'LICENSE'));
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+license: MIT
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+      commitFixtureChanges();
+
+      const result = await run([
+        'bundle', 'build', '--collection-file', 'collections/foo.collection.yml', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+      const envelope = parseJson<{ zipAsset: string; manifestAsset: string; version: string }>(result.stdout);
+      expect(envelope.data.version).toBe('0.0.0-dev');
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toContain(
+        'No committed LICENSE, COPYING, or NOTICE file was found; building a legacy bundle without governed release evidence. Add license text to enable governed self-contained releases.'
+      );
+
+      const files = await new ZipBundleExtractor().extract(await readFile(envelope.data.zipAsset));
+      const manifest = validateManifest(files, { expectedId: 'foo', expectedVersion: '0.0.0-dev' });
+      expect(manifest).not.toHaveProperty('formatVersion');
+      expect(manifest).not.toHaveProperty('files');
+      expect(manifest).not.toHaveProperty('provenance');
+      expect([...files.keys()].toSorted()).toEqual([
+        'deployment-manifest.yml',
+        'prompts/hello.prompt.md'
+      ]);
+      expect(yaml.load(await readFile(envelope.data.manifestAsset, 'utf8'))).toEqual(
+        yaml.load(new TextDecoder().decode(files.get('deployment-manifest.yml')))
+      );
+    });
+
+    it('returns the declared README as a release asset', async () => {
+      await mkdir(path.join(workspace, 'docs'), { recursive: true });
+      await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+readme:
+  path: docs/collection-overview.md
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+      commitFixtureChanges();
+
+      const result = await run([
+        'bundle', 'build', '--version', '1.0.0', '--collection-file', 'collections/foo.collection.yml', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+      const envelope = parseJson<{ readmeAsset?: string }>(result.stdout);
+      expect(envelope.data.readmeAsset).toBe('docs/collection-overview.md');
+      expect(await readFile(path.join(workspace, envelope.data.readmeAsset!), 'utf8')).toBe('# Overview\n');
+      const manifest = yaml.load(await readFile(path.join(workspace, 'dist', 'foo', 'deployment-manifest.yml'), 'utf8')) as { readme: string };
+      expect(manifest.readme).toBe('README.md');
+    });
+
+    it('defaults to the first collection file under collections/ when --collection-file is omitted', async () => {
+      const result = await run([
+        'bundle', 'build', '--version', '1.0.0', '-o', 'json'
+      ]);
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
       const envelope = parseJson<{ zipAsset: string; manifestAsset: string }>(result.stdout);
+      expect(envelope.data.manifestAsset).toContain('deployment-manifest.yml');
+      expect(envelope.data.zipAsset).toContain('foo.bundle.zip');
       const zipStat = await stat(envelope.data.zipAsset);
       expect(zipStat.size).toBeGreaterThan(0);
     });

@@ -41,27 +41,31 @@ export class FakeGitHubApi implements GitHubApi {
     return this;
   }
 
-  public async getJson<T>(pathOrUrl: string): Promise<T> {
+  public getJson<T>(pathOrUrl: string): Promise<T> {
     if (!this.jsonByPath.has(pathOrUrl)) {
-      throw new Error(`GitHub API error: 404 - not seeded: ${pathOrUrl}`);
+      return Promise.reject(new Error(`GitHub API error: 404 - not seeded: ${pathOrUrl}`));
     }
-    return this.jsonByPath.get(pathOrUrl) as T;
+    return Promise.resolve(this.jsonByPath.get(pathOrUrl) as T);
   }
 
-  public async getText(pathOrUrl: string): Promise<string> {
+  public async getJsonWithHeaders<T>(pathOrUrl: string): Promise<{ value: T; headers: Record<string, string> }> {
+    return { value: await this.getJson<T>(pathOrUrl), headers: {} };
+  }
+
+  public getText(pathOrUrl: string): Promise<string> {
     const text = this.textByPath.get(pathOrUrl);
     if (text === undefined) {
-      throw new Error(`GitHub API error: 404 - not seeded: ${pathOrUrl}`);
+      return Promise.reject(new Error(`GitHub API error: 404 - not seeded: ${pathOrUrl}`));
     }
-    return text;
+    return Promise.resolve(text);
   }
 
-  public async download(pathOrUrl: string): Promise<Uint8Array> {
+  public download(pathOrUrl: string): Promise<Uint8Array> {
     const bytes = this.bytesByPath.get(pathOrUrl);
     if (bytes === undefined) {
-      throw new Error(`GitHub API error: 404 - not seeded: ${pathOrUrl}`);
+      return Promise.reject(new Error(`GitHub API error: 404 - not seeded: ${pathOrUrl}`));
     }
-    return bytes;
+    return Promise.resolve(bytes);
   }
 
   public async getJsonWithEtag<T>(pathOrUrl: string, etag?: string): Promise<EtaggedResult<T>> {

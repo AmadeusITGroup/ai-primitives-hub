@@ -16,6 +16,10 @@ import {
   it,
 } from 'vitest';
 import {
+  createGovernedReleaseArchive,
+  createLegacyReleaseArchive,
+} from '../../../core/test/fixtures/release-archives';
+import {
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
 } from '../../src/writers/repo-scope-writer';
@@ -47,7 +51,7 @@ skills:
     type: skill`;
 
 describe('RepositoryScopeWriter', () => {
-  it('writes prompts to .github/copilot/prompts/', async () => {
+  it('writes prompts to .github/prompts/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
@@ -58,12 +62,84 @@ describe('RepositoryScopeWriter', () => {
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
 
-  it('writes instructions to .github/copilot/instructions/', async () => {
+  it('writes canonical collection items to the repository target', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+
+    const manifest = `id: collection-bundle
+version: 1.0.0
+name: Collection Bundle
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt`;
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['prompts/hello.prompt.md', new TextEncoder().encode('# Hello')]
+    ]);
+
+    const result = await writer.write(files);
+
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'hello.prompt.md');
+    expect(result.written).toContain(expected);
+    expect(await fs.exists(expected)).toBe(true);
+  });
+
+  it('uses canonical items once for governed manifests with a legacy projection', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const manifest = `formatVersion: 1
+id: collection-bundle
+version: 1.0.0
+name: Collection Bundle
+items:
+  - id: hello
+    path: prompts/hello.prompt.md
+    kind: prompt
+prompts:
+  - id: hello
+    file: prompts/hello.prompt.md
+    type: prompt`;
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['prompts/hello.prompt.md', new TextEncoder().encode('# Hello')]
+    ]);
+
+    const result = await writer.write(files);
+
+    expect(result.writtenBundlePaths).toEqual(['prompts/hello.prompt.md']);
+    expect(result.written).toHaveLength(1);
+  });
+
+  it('routes the complete legacy archive fixture through its legacy projection', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+
+    const result = await writer.write(createLegacyReleaseArchive({ id: 'legacy-bundle' }));
+
+    expect(result.writtenBundlePaths).toEqual(['prompts/hello.prompt.md']);
+    expect(result.written).toEqual([
+      path.join(WORKSPACE_ROOT, '.github', 'prompts', 'hello.prompt.md')
+    ]);
+  });
+
+  it('routes only canonical installable items from the complete governed archive fixture', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+
+    const result = await writer.write(createGovernedReleaseArchive({ id: 'governed-bundle' }));
+
+    expect(result.writtenBundlePaths).toEqual(['prompts/hello.prompt.md']);
+    expect(result.written).toEqual([
+      path.join(WORKSPACE_ROOT, '.github', 'prompts', 'hello.prompt.md')
+    ]);
+  });
+
+  it('writes instructions to .github/instructions/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
@@ -74,15 +150,60 @@ describe('RepositoryScopeWriter', () => {
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'instructions', 'test.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'instructions', 'test.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
 
-  it('writes agents to .github/copilot/agents/', async () => {
+  it('writes instructions with plural "instructions" type to .github/instructions/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
+    const manifest = `id: test-bundle
+version: 1.0.0
+name: Test
+instructions:
+  - id: test-instruction
+    file: instructions/test.md
+    type: instructions`;
+
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['instructions/test.md', new TextEncoder().encode('# Test Instruction')]
+    ]);
+
+    const result = await writer.write(files);
+
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'instructions', 'test.md');
+    expect(result.written).toContain(expected);
+    expect(await fs.exists(expected)).toBe(true);
+  });
+
+  it('writes chatmode items to .github/agents/', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const manifest = `id: test-bundle
+version: 1.0.0
+name: Test
+prompts:
+  - id: review-mode
+    file: chat-modes/review.chatmode.md
+    type: chatmode`;
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['chat-modes/review.chatmode.md', new TextEncoder().encode('# Review')]
+    ]);
+
+    const result = await writer.write(files);
+
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'agents', 'review.chatmode.md');
+    expect(result.written).toContain(expected);
+    expect(await fs.exists(expected)).toBe(true);
+  });
+
+  it('writes agents to .github/agents/', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
     const files = new Map<string, Uint8Array>([
       ['deployment-manifest.yml', new TextEncoder().encode(SAMPLE_MANIFEST)],
       ['agents/test.md', new TextEncoder().encode('# Test Agent')]
@@ -90,7 +211,7 @@ describe('RepositoryScopeWriter', () => {
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'agents', 'test.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'agents', 'test.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
@@ -171,11 +292,42 @@ describe('RepositoryScopeWriter', () => {
     expect(await fs.exists(testFile)).toBe(false);
   });
 
+  it('removes a bundle-relative prompt path from the repository output route', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+
+    const testFile = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
+    fs.seed(testFile, '# Test');
+
+    await writer.removeBundleFile('prompts/test.md');
+
+    expect(await fs.exists(testFile)).toBe(false);
+  });
+
+  it('removes bundle files from their Copilot repository directories', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const files = [
+      ['instructions/test.instructions.md', '.github/instructions/test.instructions.md'],
+      ['agents/test.agent.md', '.github/agents/test.agent.md'],
+      ['skills/demo/SKILL.md', '.github/skills/demo/SKILL.md']
+    ] as const;
+
+    for (const [bundlePath, repositoryPath] of files) {
+      const targetPath = path.join(WORKSPACE_ROOT, repositoryPath);
+      fs.seed(targetPath, '# Test');
+
+      await writer.removeBundleFile(bundlePath);
+
+      expect(await fs.exists(targetPath)).toBe(false);
+    }
+  });
+
   it('removes files for a bundle from manifest', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
-    const promptFile = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md');
+    const promptFile = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
     fs.seed(promptFile, '# Test');
 
     const manifest = {
@@ -184,6 +336,20 @@ describe('RepositoryScopeWriter', () => {
     };
 
     await writer.remove('test-bundle', manifest);
+
+    expect(await fs.exists(promptFile)).toBe(false);
+  });
+
+  it('removes governed canonical items without relying on legacy projections', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const promptFile = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'governed.md');
+    fs.seed(promptFile, '# Governed');
+
+    await writer.remove('governed-bundle', {
+      formatVersion: 1,
+      items: [{ id: 'governed', path: 'prompts/governed.md', kind: 'prompt' }]
+    });
 
     expect(await fs.exists(promptFile)).toBe(false);
   });
@@ -210,7 +376,7 @@ describe('RepositoryScopeWriter', () => {
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');
-    fs.seed(excludePath, '# Prompt Registry (local)\n.github/copilot/prompts/test.md');
+    fs.seed(excludePath, '# Prompt Registry (local)\n.github/prompts/test.md');
 
     const manifest = {
       id: 'test-bundle',
@@ -220,14 +386,14 @@ describe('RepositoryScopeWriter', () => {
     await writer.remove('test-bundle', manifest);
 
     const content = await fs.readFile(excludePath);
-    expect(content).not.toContain('.github/copilot/prompts/test.md');
+    expect(content).not.toContain('.github/prompts/test.md');
   });
 
   it('switches commit mode from commit to local-only', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
-    const paths = [path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md')];
+    const paths = [path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md')];
 
     await writer.switchCommitMode(paths, 'local-only');
 
@@ -239,13 +405,13 @@ describe('RepositoryScopeWriter', () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
-    const paths = [path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md')];
+    const paths = [path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md')];
     await writer.switchCommitMode(paths, 'local-only');
     await writer.switchCommitMode(paths, 'commit');
 
     const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');
     const content = await fs.readFile(excludePath);
-    expect(content).not.toContain('.github/copilot/prompts/test.md');
+    expect(content).not.toContain('.github/prompts/test.md');
   });
 
   it('sanitizes skill IDs', async () => {
@@ -340,6 +506,54 @@ prompts:
     expect(result.written).toEqual([]);
   });
 
+  it('writes binary skill assets byte-for-byte (issue #357)', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+
+    // Zip local-header magic followed by bytes that are NOT valid UTF-8;
+    // a lossy TextDecoder round-trip would replace them with U+FFFD.
+    const binaryBytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x9D, 0xC7, 0x80]);
+    const manifest = `id: test-bundle
+skills:
+  - id: deck-skill
+    file: skills/deck-skill/SKILL.md
+    type: skill`;
+
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['skills/deck-skill/SKILL.md', new TextEncoder().encode('# Deck skill')],
+      ['skills/deck-skill/assets/template.pptx', binaryBytes]
+    ]);
+
+    const result = await writer.write(files);
+
+    const installedPath = path.join(WORKSPACE_ROOT, '.github', 'skills', 'deck-skill', 'assets', 'template.pptx');
+    expect(result.written).toContain(installedPath);
+    expect(await fs.readFileBytes(installedPath)).toEqual(binaryBytes);
+  });
+
+  it('writes binary manifest items byte-for-byte', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+
+    const binaryBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0xFF, 0xD8, 0x00, 0xC0]);
+    const manifest = `id: test-bundle
+hooks:
+  - id: binary-hook
+    file: hooks/tool.bin
+    type: hook`;
+
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['hooks/tool.bin', binaryBytes]
+    ]);
+
+    await writer.write(files);
+
+    const installedPath = path.join(WORKSPACE_ROOT, '.github', 'hooks', 'tool.bin');
+    expect(await fs.readFileBytes(installedPath)).toEqual(binaryBytes);
+  });
+
   it('handles file paths with special characters', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
@@ -377,7 +591,7 @@ describe('RepositoryScopeWriterAdapter', () => {
     const result = await adapter.write(dummyTarget, files);
 
     expect(result.written.length).toBeGreaterThan(0);
-    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md'))).toBe(true);
+    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md'))).toBe(true);
   });
 
   it('delegates remove to RepositoryScopeWriter.removeFile', async () => {
@@ -389,6 +603,19 @@ describe('RepositoryScopeWriterAdapter', () => {
     fs.seed(testFile, '# Test');
 
     await adapter.remove(dummyTarget, 'copilot/prompts/test.md');
+
+    expect(await fs.exists(testFile)).toBe(false);
+  });
+
+  it('translates bundle-relative paths during pipeline removal', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const adapter = new RepositoryScopeWriterAdapter(writer);
+
+    const testFile = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
+    fs.seed(testFile, '# Test');
+
+    await adapter.remove(dummyTarget, 'prompts/test.md');
 
     expect(await fs.exists(testFile)).toBe(false);
   });

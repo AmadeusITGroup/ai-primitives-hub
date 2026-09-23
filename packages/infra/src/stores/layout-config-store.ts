@@ -26,7 +26,9 @@ import {
 import {
   xdgConfigDir,
 } from '../storage/xdg-base-dirs';
-import builtInLayouts from '../writers/default-layouts.json';
+import {
+  defaultLayouts as builtInLayouts,
+} from '../writers/default-layouts';
 
 /** File name used for user and project override files. */
 export const LAYOUTS_CONFIG_FILE = 'ai-primitives-hub-layouts.yml';
@@ -125,9 +127,9 @@ export class FileSystemLayoutConfigLoader implements LayoutConfigLoader {
   }
 
   public async load(): Promise<TargetLayoutsConfig[]> {
-    const layers: TargetLayoutsConfig[] = [
-      builtInLayouts
-    ];
+    // Built-in layer is already typed by the infra accessor, which pairs its single
+    // narrowing with validateBuiltInLayouts() and a unit test.
+    const layers: TargetLayoutsConfig[] = [builtInLayouts];
 
     // Layer 2: user config (~/.config/ai-primitives-hub/layouts.yml)
     const userConfigDir = this.opts.userConfigDir ?? resolveUserConfigDir();
@@ -159,6 +161,6 @@ export class FileSystemLayoutConfigLoader implements LayoutConfigLoader {
  */
 export class BuiltInOnlyLayoutConfigLoader implements LayoutConfigLoader {
   public load(): Promise<TargetLayoutsConfig[]> {
-    return Promise.resolve([builtInLayouts as TargetLayoutsConfig]);
+    return Promise.resolve([builtInLayouts]);
   }
 }

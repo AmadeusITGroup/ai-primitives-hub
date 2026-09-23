@@ -204,7 +204,7 @@ sequenceDiagram
         Writer-->>CLI: Written paths
     else target.scope == repository
         CLI->>RepoWriter: write(target, files)
-        RepoWriter->>FS: Write .github/copilot/... files
+        RepoWriter->>FS: Write files under .github/prompts/, .github/agents/, .github/instructions/, .github/skills/
         RepoWriter-->>CLI: Written paths
     end
 
@@ -236,7 +236,7 @@ sequenceDiagram
 
     CLI->>HubMgr: loadHub(hubId)
     HubMgr->>HubStore: read hub config
-    HubStore->>FS: Read .ai-primitives-hub/hubs/<hub-id>/hub.yml
+    HubStore->>FS: Read <app-storage>/hubs/<hub-id>.yml
     FS-->>HubStore: Hub config
     HubStore-->>HubMgr: Hub
     HubMgr-->>CLI: Hub

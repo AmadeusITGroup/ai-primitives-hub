@@ -26,12 +26,12 @@ export class ZipBundleExtractor implements BundleExtractor {
    * @param bytes Raw bundle bytes (zip).
    * @returns Map of relative paths to file contents.
    */
-  public extract(bytes: Uint8Array): Promise<ExtractedFiles> {
+  public async extract(bytes: Uint8Array): Promise<ExtractedFiles> {
     let zip: AdmZip;
     try {
       zip = new AdmZip(Buffer.from(bytes));
     } catch (error) {
-      return Promise.reject(new Error(`Failed to extract bundle: ${(error as Error).message}`));
+      throw new Error(`Failed to extract bundle: ${(error as Error).message}`);
     }
 
     const files = new Map<string, Uint8Array>();
@@ -39,8 +39,35 @@ export class ZipBundleExtractor implements BundleExtractor {
       if (entry.isDirectory) {
         continue;
       }
-      files.set(entry.entryName, entry.getData());
+      const path = normalizeZipPath(entry.entryName);
+      if (path === undefined) {
+        throw new Error(`Unsafe ZIP path: ${entry.entryName}`);
+      }
+      files.set(path, entry.getData());
     }
-    return Promise.resolve(files);
+    return files;
   }
+}
+
+function normalizeZipPath(entryName: string): string | undefined {
+  const path = entryName.replaceAll('\\', '/');
+  if (path.startsWith('/') || /^[A-Za-z]:\//.test(path)) {
+    return undefined;
+  }
+
+  const segments: string[] = [];
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') {
+      continue;
+    }
+    if (segment === '..') {
+      if (segments.length === 0) {
+        return undefined;
+      }
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments.length > 0 ? segments.join('/') : undefined;
 }

@@ -1,6 +1,9 @@
 import type {
   Clock,
+  GitHubRepositoryTarget,
+  GitHubSourceAuthCategory,
   HttpClient,
+  HttpCredentialProvider,
   HttpRequest,
   HttpResponse,
   ProcessResult,
@@ -12,6 +15,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
   createSourceAdapter,
@@ -61,6 +65,33 @@ class StubTokenProvider implements TokenProvider {
   }
 }
 
+class RecordingTargetTokenProvider implements TokenProvider {
+  public readonly targets: (GitHubRepositoryTarget | undefined)[] = [];
+
+  public async getToken(_host: string, target?: GitHubRepositoryTarget): Promise<string | undefined> {
+    this.targets.push(target);
+    return undefined;
+  }
+}
+
+class CountingTokenProvider implements TokenProvider {
+  public calls = 0;
+
+  public async getToken(): Promise<string | undefined> {
+    this.calls += 1;
+    return 'fallback-token';
+  }
+}
+
+class RecordingTokenProvider implements TokenProvider {
+  public readonly targets: (GitHubRepositoryTarget | undefined)[] = [];
+
+  public async getToken(_host: string, target?: GitHubRepositoryTarget): Promise<string | undefined> {
+    this.targets.push(target);
+    return 'category-token';
+  }
+}
+
 function makeSource(overrides: Partial<RegistrySource> = {}): RegistrySource {
   return {
     id: 'test-source',
@@ -93,7 +124,8 @@ describe('createSourceAdapter', () => {
     ['github', 'https://github.com/owner/repo'],
     ['skills', 'https://github.com/owner/repo'],
     ['awesome-copilot', 'https://github.com/owner/repo'],
-    ['apm', 'https://github.com/owner/repo']
+    ['apm', 'https://github.com/owner/repo'],
+    ['artifactory', 'https://artifactory.example/repository']
   ] as const)('builds a %s adapter with the matching .type', (type, url) => {
     const adapter = createSourceAdapter(makeSource({ type, url }), makeDeps());
     expect(adapter.type).toBe(type);
@@ -103,6 +135,24 @@ describe('createSourceAdapter', () => {
     expect(() => createSourceAdapter(makeSource({ type: 'nonexistent' as never }), makeDeps())).toThrow(
       'No adapter for source type: nonexistent'
     );
+  });
+
+  describe('Artifactory auth wiring', () => {
+    it('uses the provider-neutral credential factory and never the GitHub fallback chain', () => {
+      const credentials: HttpCredentialProvider = { headersFor: async () => ({}) };
+      const factory = vi.fn(() => credentials);
+      const fallback = new CountingTokenProvider();
+      const source = makeSource({ type: 'artifactory', url: 'https://artifactory.example/repository', config: { indexFile: 'catalog.json' } });
+
+      const adapter = createSourceAdapter(source, makeDeps({
+        artifactoryCredentialFactory: factory,
+        fallbackTokenProviders: [fallback]
+      }));
+
+      expect(adapter.type).toBe('artifactory');
+      expect(factory).toHaveBeenCalledWith(source);
+      expect(fallback.calls).toBe(0);
+    });
   });
 
   describe('GitHub-hosted auth wiring', () => {
@@ -146,6 +196,114 @@ describe('createSourceAdapter', () => {
       for (const request of httpClient.requests) {
         expect(request.headers?.Authorization).toBeUndefined();
       }
+    });
+
+    it('binds GitHub API calls to the source repository target', async () => {
+      const httpClient = new RecordingHttpClient();
+      const tokenProvider = new RecordingTargetTokenProvider();
+      const adapter = createSourceAdapter(
+        makeSource({ type: 'github', url: 'https://github.com/owner/repo' }),
+        makeDeps({ httpClient, fallbackTokenProviders: [tokenProvider] })
+      );
+
+      await adapter.validate();
+
+      expect(tokenProvider.targets.length).toBeGreaterThan(0);
+      expect(tokenProvider.targets.every((target) => target !== undefined)).toBe(true);
+      expect(tokenProvider.targets[0]).toEqual({
+        host: 'github.com',
+        owner: 'owner',
+        repository: 'repo'
+      });
+    });
+
+    it('does not invoke credentials for a public-anonymous source', async () => {
+      const httpClient = new RecordingHttpClient();
+      const fallback = new CountingTokenProvider();
+      const source = makeSource({ type: 'github', url: 'https://github.com/owner/repo' });
+      const auth: { category: GitHubSourceAuthCategory; target: GitHubRepositoryTarget } = {
+        category: 'public-anonymous',
+        target: { host: 'github.com', owner: 'owner', repository: 'repo' }
+      };
+      const adapter = createSourceAdapter(
+        source,
+        makeDeps({
+          httpClient,
+          fallbackTokenProviders: [fallback],
+          sourceAuthentication: new Map([[source.id, auth]])
+        })
+      );
+
+      await adapter.validate();
+
+      expect(fallback.calls).toBe(0);
+      expect(httpClient.requests.length).toBeGreaterThan(0);
+      for (const request of httpClient.requests) {
+        expect(request.headers?.Authorization).toBeUndefined();
+      }
+    });
+
+    it('uses only the preflight provider for a public-generic source', async () => {
+      const httpClient = new RecordingHttpClient();
+      const fallback = new CountingTokenProvider();
+      const categoryProvider = new RecordingTokenProvider();
+      const source = makeSource({ type: 'github', url: 'https://github.com/owner/repo' });
+      const adapter = createSourceAdapter(
+        source,
+        makeDeps({
+          httpClient,
+          fallbackTokenProviders: [fallback],
+          sourceAuthentication: new Map([[
+            source.id,
+            {
+              category: 'public-generic',
+              target: { host: 'github.com', owner: 'owner', repository: 'repo' },
+              tokenProvider: categoryProvider
+            }
+          ]])
+        })
+      );
+
+      await adapter.validate();
+
+      expect(fallback.calls).toBe(0);
+      expect(categoryProvider.targets.length).toBeGreaterThan(0);
+      expect(httpClient.requests.every((request) => request.headers?.Authorization === 'token category-token')).toBe(true);
+    });
+
+    it('rejects an unresolved preflight source before constructing its adapter', () => {
+      const source = makeSource({ type: 'github', url: 'https://github.com/owner/repo' });
+
+      expect(() => createSourceAdapter(
+        source,
+        makeDeps({
+          sourceAuthentication: new Map([[
+            source.id,
+            {
+              category: 'unresolved',
+              target: { host: 'github.com', owner: 'owner', repository: 'repo' }
+            }
+          ]])
+        })
+      )).toThrow('unresolved GitHub authentication');
+    });
+
+    it('rejects a preflight target that does not match the configured source', () => {
+      const source = makeSource({ type: 'github', url: 'https://github.com/owner/repo' });
+
+      expect(() => createSourceAdapter(
+        source,
+        makeDeps({
+          sourceAuthentication: new Map([[
+            source.id,
+            {
+              category: 'app-authenticated',
+              target: { host: 'github.com', owner: 'other-owner', repository: 'repo' },
+              tokenProvider: new RecordingTokenProvider()
+            }
+          ]])
+        })
+      )).toThrow('does not match the configured source');
     });
   });
 });

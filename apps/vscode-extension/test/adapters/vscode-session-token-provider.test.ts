@@ -15,10 +15,12 @@ suite('VsCodeSessionTokenProvider', () => {
 
   setup(() => {
     sandbox = sinon.createSandbox();
+    VsCodeSessionTokenProvider.clearCache();
     getSessionStub = sandbox.stub(vscode.authentication, 'getSession');
   });
 
   teardown(() => {
+    VsCodeSessionTokenProvider.clearCache();
     sandbox.restore();
   });
 
@@ -92,5 +94,29 @@ suite('VsCodeSessionTokenProvider', () => {
     await provider.getToken('github.com');
 
     assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+  });
+
+  test('deduplicates concurrent GitHub session requests across provider instances', async () => {
+    let release!: () => void;
+    const sessionReady = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    getSessionStub.callsFake(async () => {
+      await sessionReady;
+      return {
+        accessToken: 'gho_shared',
+        account: { id: 'test', label: 'test' },
+        id: 'session-id',
+        scopes: ['repo']
+      };
+    });
+
+    const requests = Array.from({ length: 20 }, () => new VsCodeSessionTokenProvider().getToken('github.com'));
+    await Promise.resolve();
+    assert.strictEqual(getSessionStub.callCount, 1);
+    release();
+
+    const tokens = await Promise.all(requests);
+    assert.ok(tokens.every((token) => token === 'gho_shared'));
   });
 });

@@ -4,6 +4,7 @@ import {
   it,
 } from 'vitest';
 import {
+  createTokenResolver,
   redactToken,
   resolveGithubToken,
   type TokenResolver,
@@ -65,5 +66,14 @@ describe('token-provider', () => {
     expect(redactToken('ghp_abcdefghij')).toBe('***<len=14,tail=ghij>');
     expect(redactToken('')).toBe('***<empty>');
     expect(redactToken(undefined)).toBe('***<missing>');
+  });
+
+  it('reads the environment supplied by the harvest caller', async () => {
+    const r = await resolveGithubToken(
+      {},
+      createTokenResolver({ GITHUB_TOKEN: 'caller-token' })
+    );
+    expect(r.token).toBe('caller-token');
+    expect(r.source).toBe('env:GITHUB_TOKEN');
   });
 });

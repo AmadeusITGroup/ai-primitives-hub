@@ -1,4 +1,5 @@
 import type {
+  GitHubRepositoryTarget,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -82,5 +83,32 @@ describe('CompositeTokenProvider', () => {
 
     await provider.getToken('api.github.com');
     expect(seenHosts).toEqual(['api.github.com', 'api.github.com']);
+  });
+
+  it('passes optional repository context through to every provider', async () => {
+    const target: GitHubRepositoryTarget = {
+      host: 'github.com',
+      owner: 'owner',
+      repository: 'repo'
+    };
+    const seenTargets: (GitHubRepositoryTarget | undefined)[] = [];
+    const provider = new CompositeTokenProvider([
+      {
+        getToken: async (_host: string, repositoryTarget?: GitHubRepositoryTarget) => {
+          seenTargets.push(repositoryTarget);
+          return undefined;
+        }
+      },
+      {
+        getToken: async (_host: string, repositoryTarget?: GitHubRepositoryTarget) => {
+          seenTargets.push(repositoryTarget);
+          return undefined;
+        }
+      }
+    ]);
+
+    await provider.getToken('api.github.com', target);
+
+    expect(seenTargets).toEqual([target, target]);
   });
 });

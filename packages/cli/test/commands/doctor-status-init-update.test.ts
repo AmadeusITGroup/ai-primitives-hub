@@ -11,6 +11,7 @@
  * approach in install.test.ts/uninstall.test.ts.
  */
 import {
+  access,
   mkdir,
   mkdtemp,
   rm,
@@ -98,9 +99,20 @@ describe('doctor/status/init/update commands', () => {
     it('runs every check and exits 0 with zero failures', async () => {
       const result = await run(['doctor', '-o', 'json']);
       expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{ checks: { name: string; status: string }[]; summary: { ok: number; warn: number; fail: number } }>(result.stdout);
+      const envelope = parseJson<{ checks: { name: string; status: string; detail?: string }[]; summary: { ok: number; warn: number; fail: number } }>(result.stdout);
       expect(envelope.data.checks.length).toBe(11);
       expect(envelope.data.summary.fail).toBe(0);
+      expect(envelope.data.checks).toContainEqual(expect.objectContaining({
+        name: 'github-cli',
+        status: 'warn'
+      }));
+      expect(envelope.data.checks).toContainEqual(expect.objectContaining({
+        name: 'project-config',
+        status: 'warn',
+        detail: expect.stringContaining('--scope repository')
+      }));
+      const projectConfigCheck = envelope.data.checks.find(({ name }) => name === 'project-config');
+      expect(projectConfigCheck?.detail).toContain('need one. For repository installs');
     });
 
     it('-v includes per-check logs', async () => {
@@ -114,11 +126,77 @@ describe('doctor/status/init/update commands', () => {
   describe('doctor diagnostics', () => {
     it('runs the full self-contained smoke test successfully', async () => {
       const result = await run(['doctor', 'diagnostics', '-o', 'json']);
-      const envelope = parseJson<{ ok: boolean; steps: { name: string; exitCode: number }[] }>(result.stdout);
+      const envelope = parseJson<{
+        ok: boolean;
+        workspace: string;
+        workspaceRetained: boolean;
+        steps: { name: string; exitCode: number }[];
+      }>(result.stdout);
       const failed = envelope.data.steps.filter((s) => s.exitCode !== 0);
+      const stepNames = envelope.data.steps.map((step) => step.name);
       expect(failed).toEqual([]);
       expect(envelope.data.ok).toBe(true);
+      expect(envelope.data.workspaceRetained).toBe(false);
+      expect(stepNames).toEqual(expect.arrayContaining([
+        'index-bench',
+        'index-report',
+        'build-governed-bundle',
+        'verify-governed-archive',
+        'materialize-governed-bundle',
+        'install-governed-bundle',
+        'verify-governed-install',
+        'uninstall-governed-bundle',
+        'verify-governed-removed',
+        'collection-affected',
+        'version-compute',
+        'config-list',
+        'target-remove',
+        'hub-remove'
+      ]));
+      await expect(access(envelope.data.workspace)).rejects.toThrow();
       expect(result.exitCode).toBe(0);
+    }, 60_000);
+
+    it('retains the diagnostic workspace when explicitly requested', async () => {
+      const result = await run(['doctor', 'diagnostics', '--retain-workspace', '-o', 'json']);
+      const envelope = parseJson<{
+        ok: boolean;
+        workspace: string;
+        workspaceRetained: boolean;
+        steps: {
+          name: string;
+          exitCode: number;
+          output?: { formatVersion?: number; inventoryCount?: number };
+        }[];
+      }>(result.stdout);
+
+      try {
+        expect(result.exitCode).toBe(0);
+        expect(envelope.data.ok).toBe(true);
+        expect(envelope.data.workspaceRetained).toBe(true);
+        await expect(access(envelope.data.workspace)).resolves.toBeUndefined();
+        await expect(access(path.join(
+          envelope.data.workspace,
+          'collections',
+          'governed.collection.yml'
+        ))).resolves.toBeUndefined();
+        await expect(access(path.join(
+          envelope.data.workspace,
+          'governed-dist',
+          'governed-foo',
+          'governed-foo.bundle.zip'
+        ))).resolves.toBeUndefined();
+        await expect(access(path.join(envelope.data.workspace, '.git', 'HEAD'))).resolves.toBeUndefined();
+
+        const archiveStep = envelope.data.steps.find((step) => step.name === 'verify-governed-archive');
+        expect(archiveStep?.exitCode).toBe(0);
+        expect(archiveStep?.output).toMatchObject({
+          formatVersion: 1
+        });
+        expect(archiveStep?.output?.inventoryCount).toBeGreaterThan(0);
+      } finally {
+        await rm(envelope.data.workspace, { recursive: true, force: true });
+      }
     }, 60_000);
   });
 
@@ -169,29 +247,8 @@ describe('doctor/status/init/update commands', () => {
   });
 
   describe('init', () => {
-    it('creates a target non-interactively', async () => {
-      const result = await run(['init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '-o', 'json']);
-      expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{ target: { name: string; type: string; created: boolean } }>(result.stdout);
-      expect(envelope.data.target).toMatchObject({ name: 'copilot', type: 'copilot-cli', created: true });
-    });
-
-    it('is idempotent: re-running with the same target reports created: false', async () => {
-      await run(['init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '-o', 'json']);
-      const result = await run(['init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '-o', 'json']);
-      expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{ target: { created: boolean } }>(result.stdout);
-      expect(envelope.data.target.created).toBe(false);
-    });
-
-    it('fails with exit 1 for an unknown --target-type', async () => {
-      const result = await run(['init', '--target-type', 'totally-bogus', '--yes', '-o', 'json']);
-      expect(result.exitCode).toBe(1);
-    });
-
-    it('imports and syncs a local hub when --hub/--hub-type local are given', async () => {
-      const hubConfigFile = path.join(workspace, 'hub-config.yml');
-      const hubSourceDir = path.join(workspace, 'hub-source');
+    const writeLocalHubConfig = async (hubConfigFile: string): Promise<void> => {
+      const hubSourceDir = path.join(path.dirname(hubConfigFile), 'hub-source');
       await mkdir(hubSourceDir, { recursive: true });
       await writeFile(
         hubConfigFile,
@@ -212,6 +269,54 @@ sources:
 profiles: []
 `
       );
+    };
+
+    it('creates a target non-interactively', async () => {
+      const result = await run(['init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '-o', 'json']);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ target: { name: string; type: string; created: boolean } }>(result.stdout);
+      expect(envelope.data.target).toMatchObject({ name: 'copilot', type: 'copilot-cli', created: true });
+    });
+
+    it('is idempotent: re-running with the same target reports created: false', async () => {
+      await run(['init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '-o', 'json']);
+      const result = await run(['init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '-o', 'json']);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ target: { created: boolean } }>(result.stdout);
+      expect(envelope.data.target.created).toBe(false);
+    });
+
+    it('makes the default user-scoped target visible to doctor', async () => {
+      const initResult = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '--skip-index', '-o', 'json'
+      ]);
+      expect(initResult.exitCode).toBe(0);
+
+      const doctorResult = await run(['doctor', '-o', 'json']);
+      expect(doctorResult.exitCode).toBe(0);
+      const doctor = parseJson<{
+        checks: { name: string; status: string; detail: string }[];
+      }>(doctorResult.stdout);
+      expect(doctor.data.checks).toContainEqual(expect.objectContaining({
+        name: 'project-config',
+        status: 'ok',
+        detail: expect.stringContaining('from user config')
+      }));
+      expect(doctor.data.checks).toContainEqual(expect.objectContaining({
+        name: 'install-targets',
+        status: 'ok',
+        detail: expect.stringContaining('copilot')
+      }));
+    });
+
+    it('fails with exit 1 for an unknown --target-type', async () => {
+      const result = await run(['init', '--target-type', 'totally-bogus', '--yes', '-o', 'json']);
+      expect(result.exitCode).toBe(1);
+    });
+
+    it('imports and syncs a local hub when --hub/--hub-type local are given', async () => {
+      const hubConfigFile = path.join(workspace, 'hub-config.yml');
+      await writeLocalHubConfig(hubConfigFile);
       const result = await run([
         'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
         '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '-o', 'json'
@@ -219,6 +324,78 @@ profiles: []
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{ hub: { id: string } | null }>(result.stdout);
       expect(envelope.data.hub).not.toBeNull();
+    });
+
+    it('reuses and activates the same hub on repeated initialization', async () => {
+      const hubConfigFile = path.join(workspace, 'hub-config.yml');
+      await writeLocalHubConfig(hubConfigFile);
+
+      const firstResult = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '--skip-index', '-o', 'json'
+      ]);
+      expect(firstResult.exitCode).toBe(0);
+      const first = parseJson<{ hub: { id: string } | null }>(firstResult.stdout);
+      const hubId = first.data.hub?.id;
+      expect(hubId).toBeDefined();
+
+      const secondResult = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '--skip-index', '-o', 'json'
+      ]);
+      expect(secondResult.exitCode).toBe(0);
+      const second = parseJson<{ hub: { id: string } | null }>(secondResult.stdout);
+      expect(second.data.hub?.id).toBe(hubId);
+
+      const statusResult = await run(['status', '-o', 'json']);
+      expect(statusResult.exitCode).toBe(0);
+      const status = parseJson<{
+        activeHubId: string | null;
+        hubs: string[];
+        targets: { name: string }[];
+      }>(statusResult.stdout);
+      expect(status.data.activeHubId).toBe(hubId);
+      expect(status.data.hubs).toEqual([hubId]);
+      expect(status.data.targets).toContainEqual(expect.objectContaining({ name: 'copilot' }));
+    });
+
+    it('builds an embedded index by default after importing a hub', async () => {
+      const hubConfigFile = path.join(workspace, 'hub-config.yml');
+      const outFile = path.join(workspace, 'xdg-cache', 'ai-primitives-hub', 'primitive-index.json');
+      await writeLocalHubConfig(hubConfigFile);
+      const result = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ steps: string[] }>(result.stdout);
+      expect(envelope.data.steps.some((s) => s.startsWith('index built:'))).toBe(true);
+      expect(envelope.data.steps.some((s) => s.includes('embeddings: ternlight-mini'))).toBe(true);
+      await access(outFile);
+    });
+
+    it('honours --skip-index and --no-embed flags', async () => {
+      const hubConfigFile = path.join(workspace, 'hub-config.yml');
+      const outFile = path.join(workspace, 'xdg-cache', 'ai-primitives-hub', 'primitive-index.json');
+      await writeLocalHubConfig(hubConfigFile);
+      const result = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '--skip-index', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ steps: string[] }>(result.stdout);
+      expect(envelope.data.steps.some((s) => s.startsWith('index built:'))).toBe(false);
+      await expect(access(outFile)).rejects.toThrow();
+
+      const noEmbedResult = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '--no-embed', '-o', 'json'
+      ]);
+      expect(noEmbedResult.exitCode).toBe(0);
+      const noEmbedEnvelope = parseJson<{ steps: string[] }>(noEmbedResult.stdout);
+      const indexStep = noEmbedEnvelope.data.steps.find((s) => s.startsWith('index built:'));
+      expect(indexStep).toBeDefined();
+      expect(indexStep).not.toContain('embeddings');
     });
   });
 

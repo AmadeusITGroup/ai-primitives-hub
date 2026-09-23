@@ -107,7 +107,11 @@
             "awesome-copilot",
             "local-awesome-copilot",
             "apm",
-            "local-apm"
+            "local-apm",
+            "skills",
+            "local-skills",
+            "azure-devops",
+            "artifactory"
           ]
         },
         "installedAt": {
@@ -179,7 +183,11 @@
             "awesome-copilot",
             "local-awesome-copilot",
             "apm",
-            "local-apm"
+            "local-apm",
+            "skills",
+            "local-skills",
+            "azure-devops",
+            "artifactory"
           ]
         },
         "url": {
@@ -190,6 +198,24 @@
         "branch": {
           "type": "string",
           "description": "Optional Git branch for git-based sources"
+        },
+        "collectionsPath": {
+          "type": "string",
+          "description": "Optional collections subdirectory for awesome-copilot sources"
+        },
+        "indexFile": {
+          "type": "string",
+          "description": "Optional Artifactory index file"
+        },
+        "authMode": {
+          "type": "string",
+          "enum": ["anonymous", "bearer"],
+          "description": "Optional Artifactory authentication mode"
+        },
+        "credentialRef": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional external Artifactory credential reference"
         }
       },
       "additionalProperties": false

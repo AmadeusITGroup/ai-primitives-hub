@@ -13,6 +13,9 @@
  * so repeating it here would create an ambiguous star-export binding.
  */
 import * as path from 'node:path';
+import {
+  PRIMITIVE_KINDS,
+} from '../primitive/types';
 import type {
   CollectionFieldValidationResult,
   ObjectValidationResult,
@@ -21,7 +24,7 @@ import type {
 
 /**
  * Default validation rules for collections.
- * Item kinds are loaded from the JSON schema for single source of truth.
+ * Item kinds are sourced from the canonical PRIMITIVE_KINDS list.
  */
 export const DEFAULT_VALIDATION_RULES: ValidationRules = {
   collectionId: {
@@ -34,7 +37,7 @@ export const DEFAULT_VALIDATION_RULES: ValidationRules = {
     default: '1.0.0',
     description: 'semantic versioning format (X.Y.Z)'
   },
-  itemKinds: ['prompt', 'instruction', 'chat-mode', 'agent', 'skill', 'plugin', 'hook'],
+  itemKinds: [...PRIMITIVE_KINDS],
   deprecatedKinds: {
     chatmode: 'agent'
   }
@@ -211,6 +214,19 @@ export function validateCollectionObject(
     const versionResult = validateVersion(col.version as string, rules);
     if (!versionResult.valid) {
       errors.push(`${sourceLabel}: ${versionResult.error}`);
+    }
+  }
+
+  if (col.readme !== undefined) {
+    if (!col.readme || typeof col.readme !== 'object') {
+      errors.push(`${sourceLabel}: readme must be an object with a "path" property`);
+    } else {
+      const readme = col.readme as Record<string, unknown>;
+      if (!readme.path || typeof readme.path !== 'string' || readme.path.trim() === '') {
+        errors.push(`${sourceLabel}: readme.path must be a non-empty string`);
+      } else if (!isSafeRepoRelativePath(readme.path)) {
+        errors.push(`${sourceLabel}: readme.path has an invalid path (must be repo-root relative): ${readme.path}`);
+      }
     }
   }
 

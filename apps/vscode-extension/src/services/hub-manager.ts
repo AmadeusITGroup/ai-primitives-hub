@@ -22,7 +22,6 @@ import {
   loadHubSourcesProgressively,
 } from '@ai-primitives-hub/app';
 import type {
-  HubAvailabilityResult,
   HubConfigStore,
   LoadHubSourcesOptions,
   LogEvent,
@@ -35,16 +34,23 @@ import type {
   ProfileLifecycleSync,
 } from '@ai-primitives-hub/core';
 import {
+  AnonymousCredentialProvider,
+  ArtifactoryHubResolver,
   CompositeHubResolver,
   CompositeTokenProvider,
   GhCliTokenProvider,
   GitHubHubResolver,
+  isWithinSourceRoot,
   LocalHubResolver,
   NodeFileSystem,
   NodeHttpClient,
+  normalizeSourceRoot,
   UrlHubResolver,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
+import {
+  HubVaultCredentialProvider,
+} from '../adapters/infra-adapter-factory';
 import {
   VsCodeSessionTokenProvider,
 } from '../adapters/vscode-session-token-provider';
@@ -75,6 +81,9 @@ import {
   SchemaValidator,
   ValidationResult,
 } from './schema-validator';
+import {
+  HubTokenVault,
+} from './source-token-vault';
 
 /**
  * Resolved bundle with its download URL
@@ -123,7 +132,36 @@ export interface SetActiveHubOptions {
 
 /**
  * HubManager orchestrates all hub-related operations
+ * @param sources
+ * @param reference
+ * @param secrets
  */
+async function hydrateArtifactorySources(
+  sources: CoreHubConfig['sources'],
+  reference: HubReference,
+  secrets?: vscode.SecretStorage
+): Promise<CoreHubConfig['sources']> {
+  if (reference.type !== 'artifactory' || reference.authMode !== 'bearer'
+    || !reference.credentialRef || !secrets) {
+    return sources;
+  }
+  const token = await new HubTokenVault(secrets).get(reference.credentialRef);
+  if (!token) {
+    return sources;
+  }
+  const root = normalizeSourceRoot(reference.location);
+  return sources.map((source) => {
+    if (source.type !== 'artifactory' || source.token) {
+      return source;
+    }
+    try {
+      return isWithinSourceRoot(root, normalizeSourceRoot(source.url)) ? { ...source, token } : source;
+    } catch {
+      return source;
+    }
+  });
+}
+
 export class HubManager {
   private readonly storage: HubStorage;
   private readonly validator: SchemaValidator;
@@ -155,7 +193,8 @@ export class HubManager {
     validator: SchemaValidator,
     extensionPath: string,
     private readonly bundleInstaller?: any,
-    private readonly registryManager?: any
+    private readonly registryManager?: any,
+    private readonly secrets?: vscode.SecretStorage
   ) {
     if (!storage) {
       throw new Error('storage is required');
@@ -200,7 +239,16 @@ export class HubManager {
     const resolver = new CompositeHubResolver(
       new GitHubHubResolver(httpClient, tokenProvider),
       new LocalHubResolver(new NodeFileSystem()),
-      new UrlHubResolver(httpClient, tokenProvider)
+      new UrlHubResolver(httpClient, tokenProvider),
+      new ArtifactoryHubResolver(httpClient, (reference, root) => {
+        if (reference.authMode !== 'bearer') {
+          return new AnonymousCredentialProvider();
+        }
+        if (!secrets || !reference.credentialRef) {
+          throw new Error('Artifactory Bearer authentication requires a SecretStorage credentialRef.');
+        }
+        return new HubVaultCredentialProvider(new HubTokenVault(secrets), reference.credentialRef, root);
+      })
     );
 
     this.appHubManager = new AppHubManager({
@@ -297,6 +345,7 @@ export class HubManager {
    * fresh token on every call, so there is no cache left to clear.
    */
   public clearAuthCache(): void {
+    VsCodeSessionTokenProvider.clearCache();
     this.logger.info('[HubManager] Authentication cache cleared');
   }
 
@@ -324,14 +373,6 @@ export class HubManager {
     return resolvedHubId;
   }
 
-  /**
-   * Import a hub and immediately start progressive source loading/syncing.
-   * Returns handles so callers can unblock early (`onFirstSettled`) or wait
-   * for the full batch (`onComplete`).
-   * @param reference Hub reference (GitHub, URL, or local path)
-   * @param hubId Optional hub identifier (auto-generated if not provided)
-   * @returns Hub identifier and progressive-load handles
-   */
   public async importHubProgressively(
     reference: HubReference,
     hubId?: string
@@ -347,13 +388,17 @@ export class HubManager {
     }
 
     const hubData = await this.storage.loadHub(resolvedHubId);
+    const sources = await hydrateArtifactorySources(hubData.config.sources ?? [], hubData.reference, this.secrets);
     const result = loadHubSourcesProgressively(
       resolvedHubId,
-      hubData.config.sources ?? [],
+      sources,
       {
         listSources: () => this.registryManager.listSources(),
         addSource: (s) => this.registryManager.addSource(s),
-        updateSource: (id, u) => this.registryManager.updateSource(id, u)
+        updateSource: (id, u) => this.registryManager.updateSource(id, u),
+        removeSource: (id) => this.registryManager.removeSource(id),
+        listInstalledBundles: () => this.registryManager.listInstalledBundles(),
+        remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
       },
       this.translateLogEvent,
       {
@@ -507,25 +552,13 @@ export class HubManager {
    * @returns true if hub is accessible, false otherwise
    */
   public async verifyHubAvailability(reference: HubReference): Promise<boolean> {
-    const result = await this.verifyHubAvailabilityDetailed(reference);
-    return result.available;
-  }
-
-  /**
-   * Verify a hub and preserve the failure reason for first-run notifications.
-   * @param reference Hub reference to verify
-   * @returns Availability and an optional failure reason
-   */
-  public async verifyHubAvailabilityDetailed(reference: HubReference): Promise<HubAvailabilityResult> {
-    const result = await this.appHubManager.verifyHubAvailabilityDetailed(reference);
-    if (result.available) {
+    const available = await this.appHubManager.verifyHubAvailability(reference);
+    if (available) {
       this.logger.debug(`Hub verification successful: ${reference.type}:${reference.location}`);
     } else {
-      this.logger.warn(
-        `Hub verification failed: ${reference.type}:${reference.location} — ${result.reason ?? 'Unknown reason'}`
-      );
+      this.logger.debug(`Hub verification failed: ${reference.type}:${reference.location}`);
     }
-    return result;
+    return available;
   }
 
   /**
@@ -610,14 +643,17 @@ export class HubManager {
       // the background so the marketplace/tree fill in progressively.
       if (this.registryManager && options?.loadSources !== false) {
         const hubData = await this.storage.loadHub(hubId);
-        const sources = hubData.config.sources ?? [];
+        const sources = await hydrateArtifactorySources(hubData.config.sources ?? [], hubData.reference, this.secrets);
         const { onComplete } = loadHubSourcesProgressively(
           hubId,
           sources,
           {
             listSources: () => this.registryManager.listSources(),
             addSource: (s) => this.registryManager.addSource(s),
-            updateSource: (id, u) => this.registryManager.updateSource(id, u)
+            updateSource: (id, u) => this.registryManager.updateSource(id, u),
+            removeSource: (id) => this.registryManager.removeSource(id),
+            listInstalledBundles: () => this.registryManager.listInstalledBundles(),
+            remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
           },
           this.translateLogEvent,
           {
@@ -668,7 +704,7 @@ export class HubManager {
 
     try {
       const hubData = await this.storage.loadHub(hubId);
-      const hubSources = hubData.config.sources || [];
+      const hubSources = await hydrateArtifactorySources(hubData.config.sources || [], hubData.reference, this.secrets);
 
       await appLoadHubSources(
         hubId,
@@ -676,7 +712,10 @@ export class HubManager {
         {
           listSources: () => this.registryManager.listSources(),
           addSource: (source) => this.registryManager.addSource(source),
-          updateSource: (sourceId, updates) => this.registryManager.updateSource(sourceId, updates)
+          updateSource: (sourceId, updates) => this.registryManager.updateSource(sourceId, updates),
+          removeSource: (sourceId) => this.registryManager.removeSource(sourceId),
+          listInstalledBundles: () => this.registryManager.listInstalledBundles(),
+          remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
         },
         this.translateLogEvent,
         options

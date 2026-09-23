@@ -15,6 +15,8 @@ import type {
 
 interface ActiveHubFile {
   hubId: string | null;
+  /** Compatibility field used by the shared index pointer format. */
+  hub?: string;
   setAt: string;
 }
 
@@ -42,7 +44,7 @@ export class ActiveHubStore {
     }
     try {
       const data = await this.fs.readJson<ActiveHubFile>(this.activeHubPath);
-      return data.hubId ?? null;
+      return data.hubId ?? data.hub ?? null;
     } catch {
       return null;
     }

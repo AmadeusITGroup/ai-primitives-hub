@@ -30,7 +30,9 @@ On first launch, AI Primitives Hub shows a welcome dialog to help you get starte
 
 4. **Ongoing Sync** — On each VS Code startup, the active hub is automatically synced to keep your configuration up-to-date.
 
-To reset and re-trigger the first-run experience: `Ctrl+Shift+P` → "AI Primitives Hub: Reset First Run"
+To reset and re-trigger the first-run experience, open the Command Palette
+(`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on macOS) and run
+**AI Primitives Hub: Reset First Run**.
 
 ## Quick Start (5 minutes)
 

@@ -314,3 +314,43 @@ export async function setupSourceAndGetBundleGeneric(
 
   return { sourceId, bundle };
 }
+
+/**
+ * Remove a temp directory tree.
+ *
+ * On non-Windows platforms, a simple `fs.rmSync` is used and errors are
+ * thrown so real problems aren't hidden.
+ *
+ * On Windows, `npm install` + `npm run` can leave orphaned node processes
+ * that hold `node_modules/` handles open (memory-mapped native addons),
+ * making the directory undeletable (EPERM). Since the CI runner is an
+ * ephemeral VM, a leftover temp dir is not a test-correctness issue — so
+ * on Windows we just log the error instead of throwing.
+ * @param dir - Absolute path to the directory to remove.
+ * @example
+ * import { rmrfSync } from '../helpers/e2e-test-helpers';
+ * teardown(() => rmrfSync(testDir));
+ */
+export function rmrfSync(dir: string): void {
+  if (!fs.existsSync(dir)) {
+    return;
+  }
+
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  } catch (err) {
+    if (process.platform !== 'win32') {
+      throw new Error(`[rmrfSync] Could not remove ${dir}: ${(err as NodeJS.ErrnoException).message}`);
+    }
+    // Windows: orphaned node processes from `npm run` can hold node_modules/
+    // handles open via memory-mapped native addons. The CI runner is
+    // ephemeral, so a leftover temp dir is harmless — just log it.
+    // eslint-disable-next-line no-console -- known Windows issue: orphaned processes hold temp dir handles
+    console.warn(
+      `[rmrfSync] Could not remove ${dir}: ${(err as NodeJS.ErrnoException).message}.`
+      + ' This is a known Windows issue: orphaned node processes from `npm run`'
+      + ' can hold node_modules/ handles open. The CI runner is ephemeral,'
+      + ' so a leftover temp dir is harmless.'
+    );
+  }
+}

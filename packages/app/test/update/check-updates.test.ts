@@ -123,6 +123,20 @@ describe('UpdateCheckerCore.checkForUpdates', () => {
     expect(checkUpdatesCalls).toBe(2);
   });
 
+  it('can query freshly synchronized sources without syncing them again', async () => {
+    let syncSourceCalls = 0;
+    const registry = makeRegistry({
+      syncSource: async () => {
+        syncSourceCalls++;
+      }
+    });
+    const checker = new UpdateCheckerCore({ registry, preferences, cache });
+
+    await checker.checkForUpdates(false, false);
+
+    expect(syncSourceCalls).toBe(0);
+  });
+
   it('enriches a raw BundleUpdate with bundle metadata and the auto-update preference', async () => {
     const update: BundleUpdate = { bundleId: 'bundle-1', currentVersion: '1.0.0', latestVersion: '2.0.0', changelog: 'notes' };
     const registry = makeRegistry({

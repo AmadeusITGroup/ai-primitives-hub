@@ -39,6 +39,17 @@ export interface DirEntry {
 export interface FileSystem {
   readFile(path: string): Promise<string>;
   writeFile(path: string, contents: string): Promise<void>;
+  /**
+   * Read raw bytes. Required for binary assets (images, archives,
+   * office documents): the string-based `readFile` decodes UTF-8
+   * lossily and corrupts any non-UTF-8 payload (issue #357).
+   */
+  readFileBytes(path: string): Promise<Uint8Array>;
+  /**
+   * Write raw bytes verbatim. Counterpart of `readFileBytes`; writers
+   * must use this for any payload that is not known to be UTF-8 text.
+   */
+  writeFileBytes(path: string, bytes: Uint8Array): Promise<void>;
   readJson<T = unknown>(path: string): Promise<T>;
   writeJson(path: string, value: unknown): Promise<void>;
   exists(path: string): Promise<boolean>;

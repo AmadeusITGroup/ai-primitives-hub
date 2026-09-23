@@ -37,7 +37,7 @@ You can also set it in `settings.json`:
 }
 ```
 
-Enabling telemetry helps us understand how the extension is used so we can focus on the features that matter most.
+Enabling telemetry helps us understand how the extension is used so we can focus on the features that matter most. For GitHub-based bundle installs, the telemetry payload uses the base bundle identity in the bundleId field and keeps the version in the version field so analytics can aggregate installs correctly.
 
 ## Export/Import Settings
 

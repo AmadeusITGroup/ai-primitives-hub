@@ -143,6 +143,19 @@ describe('LocalAwesomeCopilotAdapter', () => {
       expect((bundle as unknown as { breakdown: Record<string, number> }).breakdown.mcpServers).toBe(0);
     });
 
+    it('does not cache local README content by revision', async () => {
+      const fs = new InMemoryFileSystem();
+      fs.seed(
+        '/collections-root/collections/my-collection.collection.yml',
+        `${collectionYaml()}\nreadme:\n  path: docs/collection-overview.md`
+      );
+      fs.seed('/collections-root/docs/collection-overview.md', '# Overview');
+
+      const [bundle] = await new LocalAwesomeCopilotAdapter(makeSource(), fs).fetchBundles();
+
+      expect(bundle.readmeRevision).toBeUndefined();
+    });
+
     it('ignores files in the collections directory that are not .collection.yml', async () => {
       const fs = new InMemoryFileSystem();
       fs.seed('/collections-root/collections/my-collection.collection.yml', collectionYaml());
@@ -220,7 +233,7 @@ describe('LocalAwesomeCopilotAdapter', () => {
 
       expect(metadata).toMatchObject({
         name: 'collections-root',
-        description: 'Local Awesome Copilot collections from /collections-root',
+        description: `Local Awesome Copilot collections from ${path.join('/collections-root')}`,
         bundleCount: 1,
         version: '1.0.0'
       });
@@ -238,7 +251,7 @@ describe('LocalAwesomeCopilotAdapter', () => {
       const result = await new LocalAwesomeCopilotAdapter(makeSource(), new InMemoryFileSystem()).validate();
       expect(result).toEqual({
         valid: false,
-        errors: ['Collections directory does not exist: /collections-root/collections'],
+        errors: [`Collections directory does not exist: ${path.join('/collections-root', 'collections')}`],
         warnings: [],
         bundlesFound: 0
       });

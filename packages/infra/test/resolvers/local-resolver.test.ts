@@ -16,9 +16,11 @@ import {
 } from '../../src/resolvers/local-resolver';
 
 describe('readLocalBundle', () => {
+  const normalizePath = (value: string): string => value.replaceAll('\\', '/');
+
   const mockFs = {
     readDir: vi.fn(),
-    readFile: vi.fn(),
+    readFileBytes: vi.fn(),
     exists: vi.fn()
   } satisfies LocalDirFs;
 
@@ -36,20 +38,20 @@ describe('readLocalBundle', () => {
   it('reads bundle directory and produces ExtractedFiles map', async () => {
     mockFs.exists.mockResolvedValue(true);
     mockFs.readDir.mockImplementation(async (p: string) => {
-      if (p === '/bundle') {
+      if (normalizePath(p) === '/bundle') {
         return ['file1.txt', 'subdir'];
       }
-      if (p === '/bundle/subdir') {
+      if (normalizePath(p) === '/bundle/subdir') {
         return ['file2.txt'];
       }
       return [];
     });
-    mockFs.readFile.mockImplementation(async (p: string) => {
-      if (p === '/bundle/file1.txt') {
-        return 'content1';
+    mockFs.readFileBytes.mockImplementation(async (p: string) => {
+      if (normalizePath(p) === '/bundle/file1.txt') {
+        return new TextEncoder().encode('content1');
       }
-      if (p === '/bundle/subdir/file2.txt') {
-        return 'content2';
+      if (normalizePath(p) === '/bundle/subdir/file2.txt') {
+        return new TextEncoder().encode('content2');
       }
       throw new Error('Not a file');
     });
@@ -64,7 +66,7 @@ describe('readLocalBundle', () => {
   it('normalizes path separators to forward slashes', async () => {
     mockFs.exists.mockResolvedValue(true);
     mockFs.readDir.mockResolvedValue(['file.txt']);
-    mockFs.readFile.mockResolvedValue('content');
+    mockFs.readFileBytes.mockResolvedValue(new TextEncoder().encode('content'));
 
     const result = await readLocalBundle('/bundle', mockFs);
     expect(result.has('file.txt')).toBe(true);
@@ -81,20 +83,20 @@ describe('readLocalBundle', () => {
   it('handles deeply nested directories', async () => {
     mockFs.exists.mockResolvedValue(true);
     mockFs.readDir.mockImplementation(async (p: string) => {
-      if (p === '/bundle') {
+      if (normalizePath(p) === '/bundle') {
         return ['dir1'];
       }
-      if (p === '/bundle/dir1') {
+      if (normalizePath(p) === '/bundle/dir1') {
         return ['dir2'];
       }
-      if (p === '/bundle/dir1/dir2') {
+      if (normalizePath(p) === '/bundle/dir1/dir2') {
         return ['file.txt'];
       }
       return [];
     });
-    mockFs.readFile.mockImplementation(async (p: string) => {
-      if (p === '/bundle/dir1/dir2/file.txt') {
-        return 'content';
+    mockFs.readFileBytes.mockImplementation(async (p: string) => {
+      if (normalizePath(p) === '/bundle/dir1/dir2/file.txt') {
+        return new TextEncoder().encode('content');
       }
       throw new Error('Not a file');
     });
@@ -103,20 +105,31 @@ describe('readLocalBundle', () => {
     expect(result.has('dir1/dir2/file.txt')).toBe(true);
   });
 
+  it('preserves binary file contents byte-for-byte (issue #357)', async () => {
+    // Invalid UTF-8 sequences: a lossy string round-trip would corrupt them.
+    const binaryBytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x9D, 0xC7]);
+    mockFs.exists.mockResolvedValue(true);
+    mockFs.readDir.mockResolvedValue(['template.pptx']);
+    mockFs.readFileBytes.mockResolvedValue(binaryBytes);
+
+    const result = await readLocalBundle('/bundle', mockFs);
+    expect(result.get('template.pptx')).toEqual(binaryBytes);
+  });
+
   it('handles mixed files and directories', async () => {
     mockFs.exists.mockResolvedValue(true);
     mockFs.readDir.mockImplementation(async (p: string) => {
-      if (p === '/bundle') {
+      if (normalizePath(p) === '/bundle') {
         return ['file1.txt', 'dir1', 'file2.txt'];
       }
-      if (p === '/bundle/dir1') {
+      if (normalizePath(p) === '/bundle/dir1') {
         return ['file3.txt'];
       }
       return [];
     });
-    mockFs.readFile.mockImplementation(async (p: string) => {
-      if (p.includes('file')) {
-        return 'content';
+    mockFs.readFileBytes.mockImplementation(async (p: string) => {
+      if (normalizePath(p).includes('file')) {
+        return new TextEncoder().encode('content');
       }
       throw new Error('Not a file');
     });

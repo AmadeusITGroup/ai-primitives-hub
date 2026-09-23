@@ -5,9 +5,11 @@
  * These tests cover the critical CI/CD workflow functionality.
  */
 import * as assert from 'node:assert';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as yaml from 'js-yaml';
 
 // Import the publish-collections module - use require for CommonJS
 // When compiled to dist-test/test/, need to resolve back to lib/bin/
@@ -174,6 +176,128 @@ describe('Publish Collections CLI', () => {
     });
   });
 
+  describe('validateGovernedReleaseAssets()', () => {
+    const { validateGovernedReleaseAssets, PublishError } = publishModule;
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = createTempDir('governed-release-validation-');
+    });
+
+    afterEach(() => {
+      cleanup(tempDir);
+    });
+
+    it('accepts an exact standalone manifest and complete archive inventory', async () => {
+      const prompt = Buffer.from('# Hello\n');
+      const manifest = {
+        formatVersion: 1,
+        files: [{
+          path: 'prompts/hello.md',
+          role: 'installable',
+          size: prompt.byteLength,
+          sha256: `sha256:${crypto.createHash('sha256').update(prompt).digest('hex')}`
+        }],
+        provenance: { source: 'https://example.test/repo', revision: 'a'.repeat(40) }
+      };
+      const manifestPath = path.join(tempDir, 'deployment-manifest.yml');
+      const manifestText = yaml.dump(manifest, { lineWidth: -1 });
+      fs.writeFileSync(manifestPath, manifestText);
+
+      await assert.doesNotReject(validateGovernedReleaseAssets({
+        manifestAsset: manifestPath,
+        zipAsset: path.join(tempDir, 'bundle.zip'),
+        readArchive: async () => new Map([
+          ['deployment-manifest.yml', Buffer.from(manifestText)],
+          ['prompts/hello.md', prompt]
+        ])
+      }));
+    });
+
+    it('rejects an archive integrity mismatch before publication', async () => {
+      const manifest = {
+        formatVersion: 1,
+        files: [{ path: 'prompts/hello.md', role: 'installable', size: 1, sha256: `sha256:${'0'.repeat(64)}` }],
+        provenance: { source: 'https://example.test/repo', revision: 'a'.repeat(40) }
+      };
+      const manifestPath = path.join(tempDir, 'deployment-manifest.yml');
+      const manifestText = yaml.dump(manifest, { lineWidth: -1 });
+      fs.writeFileSync(manifestPath, manifestText);
+
+      await assert.rejects(
+        validateGovernedReleaseAssets({
+          manifestAsset: manifestPath,
+          zipAsset: path.join(tempDir, 'bundle.zip'),
+          readArchive: async () => new Map([
+            ['deployment-manifest.yml', Buffer.from(manifestText)],
+            ['prompts/hello.md', Buffer.from('bad')]
+          ])
+        }),
+        (error: unknown) => {
+          if (!(error instanceof PublishError)) {
+            return false;
+          }
+          return (error as { code?: string }).code === 'ARCHIVE_INTEGRITY_MISMATCH';
+        }
+      );
+    });
+
+    it('rejects archive content that is not declared by the inventory', async () => {
+      const prompt = Buffer.from('# Hello\n');
+      const manifest = {
+        formatVersion: 1,
+        files: [{
+          path: 'prompts/hello.md',
+          role: 'installable',
+          size: prompt.byteLength,
+          sha256: `sha256:${crypto.createHash('sha256').update(prompt).digest('hex')}`
+        }],
+        provenance: { source: 'https://example.test/repo', revision: 'a'.repeat(40) }
+      };
+      const manifestPath = path.join(tempDir, 'deployment-manifest.yml');
+      const manifestText = yaml.dump(manifest, { lineWidth: -1 });
+      fs.writeFileSync(manifestPath, manifestText);
+
+      await assert.rejects(
+        validateGovernedReleaseAssets({
+          manifestAsset: manifestPath,
+          zipAsset: path.join(tempDir, 'bundle.zip'),
+          readArchive: async () => new Map([
+            ['deployment-manifest.yml', Buffer.from(manifestText)],
+            ['prompts/hello.md', prompt],
+            ['metadata/untracked.txt', Buffer.from('not declared')]
+          ])
+        }),
+        (error: unknown) => error instanceof PublishError
+          && (error as { code?: string }).code === 'INCOMPLETE_ARCHIVE_INVENTORY'
+      );
+    });
+
+    it('rejects a historical legacy manifest at the governed publication gate', async () => {
+      const manifestText = yaml.dump({
+        id: 'legacy-bundle',
+        version: '1.0.0',
+        name: 'Legacy Bundle',
+        prompts: [{ id: 'hello', file: 'prompts/hello.md', type: 'prompt' }]
+      });
+      const manifestPath = path.join(tempDir, 'deployment-manifest.yml');
+      fs.writeFileSync(manifestPath, manifestText);
+
+      await assert.rejects(
+        validateGovernedReleaseAssets({
+          manifestAsset: manifestPath,
+          zipAsset: path.join(tempDir, 'bundle.zip'),
+          readArchive: async () => new Map([
+            ['deployment-manifest.yml', Buffer.from(manifestText)],
+            ['prompts/hello.md', Buffer.from('# Hello\n')]
+          ])
+        }),
+        (error: unknown) => error instanceof PublishError
+          && (error as { code?: string }).code === 'INVALID_RELEASE_MANIFEST'
+      );
+    });
+  });
+
   describe('getAllCollectionFiles()', () => {
     const { getAllCollectionFiles } = publishModule;
     let tempDir: string;
@@ -244,6 +368,7 @@ items:
     kind: prompt
 `);
       writeFile(tempDir, 'prompts/test.md', '# Test Prompt');
+      writeFile(tempDir, 'LICENSE', 'Test fixture license\n');
 
       const { spawnSync } = require('node:child_process');
       spawnSync('git', ['init'], { cwd: tempDir });
