@@ -17,6 +17,7 @@ import type {
 } from '@ai-primitives-hub/core';
 
 const DEFAULT_MAX_REDIRECTS = 10;
+const DEFAULT_TIMEOUT_MS = 25_000;
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 
 export class NodeHttpClient implements HttpClient {
@@ -47,33 +48,68 @@ export class NodeHttpClient implements HttpClient {
     const target = new URL(url);
     const transport = target.protocol === 'http:' ? http : https;
     const headers = this.ensureUserAgent(request.headers);
+    const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error(`HTTP request timeout must be a positive finite number, got ${timeoutMs}`);
+    }
 
     return new Promise<HttpResponse>((resolve, reject) => {
-      const req = transport.request(
+      let settled = false;
+      const state: {
+        timeoutHandle?: NodeJS.Timeout;
+        requestHandle?: http.ClientRequest;
+      } = {};
+      const timeoutError = new Error(`HTTP request to ${url} timed out after ${timeoutMs} ms`);
+      const settle = (callback: () => void): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (state.timeoutHandle) {
+          clearTimeout(state.timeoutHandle);
+        }
+        callback();
+      };
+      const handleTimeout = (): void => {
+        settle(() => {
+          reject(timeoutError);
+          state.requestHandle?.destroy(timeoutError);
+        });
+      };
+
+      const requestHandle = transport.request(
         target,
         { method: request.method ?? 'GET', headers },
         (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (chunk: Buffer) => chunks.push(chunk));
           res.on('end', () => {
-            resolve({
+            settle(() => resolve({
               statusCode: res.statusCode ?? 0,
               body: new Uint8Array(Buffer.concat(chunks)),
               finalUrl: url,
               headers: flattenHeaders(res.headers)
-            });
+            }));
+          });
+          res.on('error', (error) => {
+            settle(() => reject(new Error(`HTTP request to ${url} failed: ${error.message}`)));
           });
         }
       );
+      state.requestHandle = requestHandle;
 
-      req.on('error', (error) => {
-        reject(new Error(`HTTP request to ${url} failed: ${error.message}`));
+      requestHandle.on('error', (error) => {
+        settle(() => reject(new Error(`HTTP request to ${url} failed: ${error.message}`)));
       });
+      requestHandle.setTimeout(timeoutMs, handleTimeout);
+
+      state.timeoutHandle = setTimeout(handleTimeout, timeoutMs);
 
       if (request.body !== undefined) {
-        req.write(request.body);
+        requestHandle.write(request.body);
       }
-      req.end();
+      requestHandle.end();
     });
   }
 

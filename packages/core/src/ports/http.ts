@@ -28,6 +28,8 @@ export interface HttpRequest {
   headers?: Record<string, string>;
   /** Request body, for `POST`. */
   body?: Uint8Array | string;
+  /** Maximum request duration in milliseconds; defaults to the adapter's timeout. */
+  timeoutMs?: number;
   /** Maximum redirect chain length; defaults to the adapter's own default. */
   maxRedirects?: number;
 }

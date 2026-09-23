@@ -25,9 +25,9 @@
     }
   });
 
-  // Request initial data when webview is ready
-  // This ensures we get data even if the extension sent it before we were listening
-  vscode.postMessage({ type: 'refresh' });
+  // Signal readiness only after the message listener is installed. The extension
+  // retains the latest marketplace payload until this handshake completes.
+  vscode.postMessage({ type: 'ready' });
 
   // Update filter dropdowns with dynamic data
   const updateFilterUI = () => {

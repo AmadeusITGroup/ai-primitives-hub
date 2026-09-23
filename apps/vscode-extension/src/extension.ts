@@ -1220,7 +1220,7 @@ export class PromptRegistryExtension {
    * Handle fresh install flow
    * Initializes default sources, hub, and shows welcome notification
    */
-  private async handleFreshInstall(): Promise<void> {
+  private async handleFreshInstall(): Promise<boolean> {
     // Check if this is first run
     const state = await this.setupStateManager!.getState();
 
@@ -1239,16 +1239,19 @@ export class PromptRegistryExtension {
       }
 
       this.logger.info('First run completed successfully');
+      return true;
     }
+
+    return false;
   }
 
   /**
    * Check if this is the first run and show welcome message
    */
-  private async checkFirstRun(): Promise<void> {
+  private async checkFirstRun(): Promise<boolean> {
     if (!this.setupStateManager) {
       this.logger.warn('SetupStateManager not initialized, skipping first-run check');
-      return;
+      return false;
     }
 
     try {
@@ -1257,19 +1260,20 @@ export class PromptRegistryExtension {
         this.logger.info('Test environment detected, skipping first-run dialogs');
         // Mark setup as complete to prevent future dialogs
         await this.setupStateManager.markComplete();
-        return;
+        return false;
       }
 
       // Check for incomplete setup from previous session
       if (await this.handleIncompleteSetup()) {
-        return;
+        return false;
       }
 
       // Handle fresh install
-      await this.handleFreshInstall();
+      return await this.handleFreshInstall();
     } catch (error) {
       this.logger.error('Failed during first run', error as Error);
       await this.setupStateManager.markIncomplete();
+      return false;
     }
   }
 
@@ -1419,14 +1423,16 @@ export class PromptRegistryExtension {
     // Verify each hub in parallel but preserve order
     this.logger.info('Verifying default hubs...');
     const verificationResults = await Promise.all(defaultHubs.map(async (hub) => {
-      const isAvailable = await hubManager.verifyHubAvailability(hub.reference);
-      this.logger.debug(`Hub verification result for ${hub.name}: ${isAvailable ? 'available' : 'unavailable'}`);
-      if (isAvailable) {
+      const availability = await hubManager.verifyHubAvailabilityDetailed(hub.reference);
+      this.logger.debug(`Hub verification result for ${hub.name}: ${availability.available ? 'available' : 'unavailable'}`);
+      if (availability.available) {
         this.logger.info(`✓ Hub verified: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
       } else {
-        this.logger.warn(`✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
+        this.logger.warn(
+          `✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location}) — ${availability.reason ?? 'Unknown reason'}`
+        );
       }
-      return { ...hub, verified: isAvailable };
+      return { ...hub, verified: availability.available, reason: availability.reason };
     }));
 
     // verificationResults maintains the same order as defaultHubs
@@ -1458,11 +1464,18 @@ export class PromptRegistryExtension {
       }
     );
 
-    // Show warning if no verified hubs
-    if (verifiedHubs.filter((h) => h.verified).length === 0) {
-      this.logger.warn('No default hubs are currently accessible');
+    const unavailableHubs = verifiedHubs.filter((hub) => !hub.verified);
+    if (unavailableHubs.length > 0) {
+      const connectionDetails = unavailableHubs
+        .map((hub) => {
+          const registryType = hub.reference.type === 'github' ? 'GitHub' : hub.reference.type;
+          return `Could not connect to ${registryType} registry (${hub.reference.location}): ${hub.reason ?? 'Unknown connection error'}`;
+        })
+        .join('; ');
+      const message = connectionDetails;
+      this.logger.warn(message);
       vscode.window.showWarningMessage(
-        'Default hubs are currently unavailable. You can import a custom hub or skip for now.',
+        `${message} You can import a custom hub or skip for now.`,
         'Continue'
       );
     }
@@ -1482,18 +1495,25 @@ export class PromptRegistryExtension {
       // Import and activate the selected hub
       this.logger.info(`Importing first-run hub: ${selected.hubConfig.name}`);
       try {
-        const hubId = await hubManager.importHub(selected.hubConfig.reference);
-        await hubManager.setActiveHub(hubId);
-        this.logger.info(`First-run hub ${hubId} imported and activated, syncing sources...`);
+        // Save config + kick off progressive source loading/syncing in one call.
+        // VS Code holds webview/view resolution until activate() settles, so
+        // registering (and syncing) an entire hub's worth of sources before
+        // returning was blocking the marketplace/tree views from rendering at
+        // all during first-run import (see feat/progressive-loading-after-source-sync).
+        const { hubId, onFirstSettled, onComplete } =
+          await hubManager.importHubProgressively(selected.hubConfig.reference);
 
-        // Sync all sources from the newly imported hub in the background (non-blocking)
-        // This allows the UI to be responsive while sync happens progressively
-        this.sourceCommands!.syncAllSources({ silent: true }).then(() => {
-          this.logger.info('Sources synchronized successfully');
-          vscode.commands.executeCommand('promptRegistry.refresh');
-        }).catch((syncError) => {
-          this.logger.warn('Failed to sync sources after hub import', syncError as Error);
-        });
+        // Proceed as soon as the first source has finished syncing, or the
+        // whole batch settles with zero enabled sources — whichever comes first.
+        await onFirstSettled();
+
+        await hubManager.setActiveHub(hubId, { loadSources: false });
+        this.logger.info(`First-run hub ${hubId} imported and activated; remaining sources are loading/synchronizing in the background.`);
+
+        void onComplete()
+          .catch((error) => {
+            this.logger.error(`Failed to complete source sync for first-run hub ${hubId}`, error as Error);
+          });
 
         // Note: We intentionally do NOT auto-activate any profile here.
         // Users should explicitly choose which profile to activate.
@@ -1505,6 +1525,7 @@ export class PromptRegistryExtension {
         vscode.window.showErrorMessage(
           `Failed to import ${selected.hubConfig.name}: ${error instanceof Error ? error.message : String(error)}`
         );
+        throw error;
       }
     } else if (selected.label.includes('Custom Hub URL')) {
       // Redirect to import hub command
@@ -1599,10 +1620,13 @@ export class PromptRegistryExtension {
       await this.checkForAutomaticUpdates();
 
       // Check if this is first run and show welcome message
-      await this.checkFirstRun();
+      const initializedFirstRun = await this.checkFirstRun();
 
-      // Always sync active hub on activation to keep it up-to-date
-      await this.syncActiveHub();
+      // A hub selected during this activation is already current and its sources
+      // are being synchronized by the progressive first-run queue.
+      if (!initializedFirstRun) {
+        await this.syncActiveHub();
+      }
 
       // Ensure only one profile is active (cleanup any multi-active state)
       await this.ensureSingleActiveProfile();

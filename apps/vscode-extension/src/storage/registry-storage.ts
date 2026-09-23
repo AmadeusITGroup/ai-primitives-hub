@@ -52,12 +52,14 @@ const DEFAULT_SETTINGS: RegistrySettings = {
 /**
  * Default registry configuration
  */
-const DEFAULT_CONFIG: RegistryConfig = {
-  version: '1.0.0',
-  sources: [],
-  profiles: [],
-  settings: DEFAULT_SETTINGS
-};
+function createDefaultConfig(): RegistryConfig {
+  return {
+    version: '1.0.0',
+    sources: [],
+    profiles: [],
+    settings: { ...DEFAULT_SETTINGS }
+  };
+}
 
 /**
  * Registry storage manager
@@ -70,6 +72,7 @@ export class RegistryStorage {
   private readonly paths: StoragePaths;
   private readonly appStorage: AppStorage;
   private configCache?: RegistryConfig;
+  private configMutationQueue: Promise<void> = Promise.resolve();
 
   // ===== Update Preferences Management =====
 
@@ -138,6 +141,26 @@ export class RegistryStorage {
     return sanitized;
   }
 
+  private async writeConfig(config: RegistryConfig): Promise<void> {
+    const data = JSON.stringify(config, null, 2);
+    await writeFile(this.paths.config, data, 'utf8');
+    this.configCache = config;
+  }
+
+  private async enqueueConfigMutation(mutation: () => Promise<void>): Promise<void> {
+    const queuedMutation = this.configMutationQueue.then(mutation);
+    this.configMutationQueue = queuedMutation.catch(() => undefined);
+    await queuedMutation;
+  }
+
+  private async mutateConfig(mutation: (config: RegistryConfig) => void): Promise<void> {
+    await this.enqueueConfigMutation(async () => {
+      const config = await this.loadConfig();
+      mutation(config);
+      await this.writeConfig(config);
+    });
+  }
+
   /**
    * Get the list of supported scopes for querying installed bundles.
    * Repository scope bundles are tracked via LockfileManager, not RegistryStorage.
@@ -182,7 +205,7 @@ export class RegistryStorage {
 
     // Create default config if doesn't exist
     if (!fs.existsSync(this.paths.config)) {
-      await this.saveConfig(DEFAULT_CONFIG);
+      await this.saveConfig(createDefaultConfig());
     }
   }
 
@@ -205,7 +228,7 @@ export class RegistryStorage {
       return config;
     } catch {
       // Return default config if file doesn't exist or is invalid
-      return DEFAULT_CONFIG;
+      return createDefaultConfig();
     }
   }
 
@@ -214,9 +237,9 @@ export class RegistryStorage {
    * @param config
    */
   public async saveConfig(config: RegistryConfig): Promise<void> {
-    const data = JSON.stringify(config, null, 2);
-    await writeFile(this.paths.config, data, 'utf8');
-    this.configCache = config;
+    await this.enqueueConfigMutation(async () => {
+      await this.writeConfig(config);
+    });
   }
 
   /**
@@ -233,15 +256,13 @@ export class RegistryStorage {
    * @param source
    */
   public async addSource(source: RegistrySource): Promise<void> {
-    const config = await this.loadConfig();
+    await this.mutateConfig((config) => {
+      if (config.sources.some((s) => s.id === source.id)) {
+        throw new Error(`Source with ID '${source.id}' already exists`);
+      }
 
-    // Check for duplicate IDs
-    if (config.sources.some((s) => s.id === source.id)) {
-      throw new Error(`Source with ID '${source.id}' already exists`);
-    }
-
-    config.sources.push(source);
-    await this.saveConfig(config);
+      config.sources.push(source);
+    });
   }
 
   /**
@@ -250,15 +271,15 @@ export class RegistryStorage {
    * @param updates
    */
   public async updateSource(sourceId: string, updates: Partial<RegistrySource>): Promise<void> {
-    const config = await this.loadConfig();
-    const index = config.sources.findIndex((s) => s.id === sourceId);
+    await this.mutateConfig((config) => {
+      const index = config.sources.findIndex((s) => s.id === sourceId);
 
-    if (index === -1) {
-      throw new Error(`Source '${sourceId}' not found`);
-    }
+      if (index === -1) {
+        throw new Error(`Source '${sourceId}' not found`);
+      }
 
-    config.sources[index] = { ...config.sources[index], ...updates };
-    await this.saveConfig(config);
+      config.sources[index] = { ...config.sources[index], ...updates };
+    });
   }
 
   /**
@@ -266,9 +287,9 @@ export class RegistryStorage {
    * @param sourceId
    */
   public async removeSource(sourceId: string): Promise<void> {
-    const config = await this.loadConfig();
-    config.sources = config.sources.filter((s) => s.id !== sourceId);
-    await this.saveConfig(config);
+    await this.mutateConfig((config) => {
+      config.sources = config.sources.filter((s) => s.id !== sourceId);
+    });
 
     // Clean up source cache
     await this.clearSourceCache(sourceId);
@@ -289,14 +310,13 @@ export class RegistryStorage {
    * @param profile
    */
   public async addProfile(profile: Profile): Promise<void> {
-    const config = await this.loadConfig();
+    await this.mutateConfig((config) => {
+      if (config.profiles.some((p) => p.id === profile.id)) {
+        throw new Error(`Profile with ID '${profile.id}' already exists`);
+      }
 
-    if (config.profiles.some((p) => p.id === profile.id)) {
-      throw new Error(`Profile with ID '${profile.id}' already exists`);
-    }
-
-    config.profiles.push(profile);
-    await this.saveConfig(config);
+      config.profiles.push(profile);
+    });
   }
 
   /**
@@ -305,15 +325,15 @@ export class RegistryStorage {
    * @param updates
    */
   public async updateProfile(profileId: string, updates: Partial<Profile>): Promise<void> {
-    const config = await this.loadConfig();
-    const index = config.profiles.findIndex((p) => p.id === profileId);
+    await this.mutateConfig((config) => {
+      const index = config.profiles.findIndex((p) => p.id === profileId);
 
-    if (index === -1) {
-      throw new Error(`Profile '${profileId}' not found`);
-    }
+      if (index === -1) {
+        throw new Error(`Profile '${profileId}' not found`);
+      }
 
-    config.profiles[index] = { ...config.profiles[index], ...updates };
-    await this.saveConfig(config);
+      config.profiles[index] = { ...config.profiles[index], ...updates };
+    });
   }
 
   /**
@@ -321,9 +341,9 @@ export class RegistryStorage {
    * @param profileId
    */
   public async removeProfile(profileId: string): Promise<void> {
-    const config = await this.loadConfig();
-    config.profiles = config.profiles.filter((p) => p.id !== profileId);
-    await this.saveConfig(config);
+    await this.mutateConfig((config) => {
+      config.profiles = config.profiles.filter((p) => p.id !== profileId);
+    });
   }
 
   /**
@@ -519,14 +539,7 @@ export class RegistryStorage {
    * Clear all data (sources, profiles, caches) - used for replace import strategy
    */
   public async clearAll(): Promise<void> {
-    // Reset config to defaults
-    const config: RegistryConfig = {
-      version: '1.0.0',
-      sources: [],
-      profiles: [],
-      settings: DEFAULT_SETTINGS
-    };
-    await this.saveConfig(config);
+    await this.saveConfig(createDefaultConfig());
 
     // Clear all caches
     await this.clearAllCaches();

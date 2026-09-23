@@ -47,7 +47,7 @@ import {
  * Message types sent from webview to extension
  */
 interface WebviewMessage {
-  type: 'refresh' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
+  type: 'ready' | 'refresh' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
     | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'completeSetup' | 'openExternalLink';
   bundleId?: string;
   installPath?: string;
@@ -70,10 +70,23 @@ interface ContentBreakdown {
   mcpServers: number;
 }
 
+interface BundlesLoadedMessage {
+  type: 'bundlesLoaded';
+  bundles: unknown[];
+  filterOptions: {
+    tags: string[];
+    sources: unknown[];
+  };
+  setupState: string;
+  sourcesCount: number;
+}
+
 export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptregistry.marketplace';
 
   private _view?: vscode.WebviewView;
+  private webviewReady = false;
+  private latestBundlesMessage?: BundlesLoadedMessage;
   private readonly logger: Logger;
 
   private readonly sourceSyncThrottle = new LeadingTrailingThrottle(
@@ -200,6 +213,17 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   private handleSourceSynced(event: { sourceId: string; bundleCount: number }): void {
     this.logger.debug(`Source synced: ${event.sourceId} (${event.bundleCount} bundles)`);
     this.sourceSyncThrottle.trigger();
+  }
+
+  private async deliverBundles(): Promise<void> {
+    if (!this._view || !this.webviewReady || !this.latestBundlesMessage) {
+      return;
+    }
+
+    const delivered = await this._view.webview.postMessage(this.latestBundlesMessage);
+    if (!delivered) {
+      this.logger.warn('Marketplace webview was not ready to receive bundle data');
+    }
   }
 
   /**
@@ -372,19 +396,17 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       // Get setup state for empty state UI
       const setupState = await this.setupStateManager.getState();
 
-      // Send to webview (only if view is available)
-      if (this._view) {
-        this._view.webview.postMessage({
-          type: 'bundlesLoaded',
-          bundles: enhancedBundles,
-          filterOptions: {
-            tags: availableTags,
-            sources: availableSources
-          },
-          setupState: setupState,
-          sourcesCount: sources.length
-        });
-      }
+      this.latestBundlesMessage = {
+        type: 'bundlesLoaded',
+        bundles: enhancedBundles,
+        filterOptions: {
+          tags: availableTags,
+          sources: availableSources
+        },
+        setupState,
+        sourcesCount: sources.length
+      };
+      await this.deliverBundles();
 
       this.logger.debug(`Loaded ${enhancedBundles.length} bundles for marketplace`);
     } catch (error) {
@@ -522,6 +544,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    */
   private async handleMessage(message: WebviewMessage): Promise<void> {
     switch (message.type) {
+      case 'ready': {
+        this.webviewReady = true;
+        this.logger.debug('Marketplace webview signaled readiness');
+        await this.loadBundles();
+        break;
+      }
       case 'refresh': {
         await this.loadBundles();
         break;
@@ -1260,24 +1288,27 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     _token: vscode.CancellationToken
   ) {
     this._view = webviewView;
+    this.webviewReady = false;
+    this.logger.debug('Marketplace webview resolving; awaiting ready signal');
 
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.context.extensionUri]
     };
 
-    webviewView.webview.html = this.getHtmlContent(webviewView.webview);
-
     // Handle messages from webview
     webviewView.webview.onDidReceiveMessage(async (message) => {
       await this.handleMessage(message);
     });
 
-    // Load bundles with a small delay to ensure webview JavaScript is ready
-    // The webview also sends a refresh request when ready as a backup
-    setTimeout(() => {
-      void this.loadBundles();
-    }, UI_CONSTANTS.WEBVIEW_READY_DELAY_MS);
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.logger.debug('Marketplace webview became visible; retrying latest bundle delivery');
+        void this.deliverBundles();
+      }
+    });
+
+    webviewView.webview.html = this.getHtmlContent(webviewView.webview);
   }
 
   /**

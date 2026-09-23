@@ -72,6 +72,9 @@ describe('NodeHttpClient', () => {
         res.end('nope');
         return;
       }
+      if (req.url === '/hang') {
+        return;
+      }
       res.writeHead(200);
       res.end('root');
     });
@@ -125,6 +128,13 @@ describe('NodeHttpClient', () => {
 
   it('rejects when the server is unreachable', async () => {
     await expect(new NodeHttpClient().fetch({ url: 'http://127.0.0.1:1' })).rejects.toThrow('failed');
+  });
+
+  it('rejects stalled requests with the configured timeout and URL', async () => {
+    await expect(new NodeHttpClient().fetch({
+      url: `${baseUrl}/hang`,
+      timeoutMs: 25
+    })).rejects.toThrow(`HTTP request to ${baseUrl}/hang timed out after 25 ms`);
   });
 
   it('strips Authorization before following a cross-origin redirect', async () => {

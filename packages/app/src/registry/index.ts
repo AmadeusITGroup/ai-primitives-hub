@@ -11,6 +11,7 @@ export * from './install-registry-bundle';
 export * from './list-all-profiles';
 export * from './list-installed-bundles';
 export * from './load-hub-sources';
+export * from './source-sync-queue';
 export * from './local-profile-crud';
 export * from './profile-lifecycle';
 export * from './registry-settings';

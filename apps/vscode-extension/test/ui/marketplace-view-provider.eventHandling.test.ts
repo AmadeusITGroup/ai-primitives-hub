@@ -413,6 +413,7 @@ suite('MarketplaceViewProvider - Throttle on source sync burst', () => {
 
     const provider = new MarketplaceViewProvider(mockContext, mockRegistryManager, mockSetupStateManager);
     (provider as any)._view = { webview: mockWebview };
+    (provider as any).webviewReady = true;
   });
 
   teardown(() => {
