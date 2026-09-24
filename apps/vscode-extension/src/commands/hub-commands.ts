@@ -50,16 +50,19 @@ export class HubCommands {
   private readonly logger: Logger;
 
   private readonly context: vscode.ExtensionContext;
+  private readonly onInitialSourceSync?: (sourceSyncPromise: Promise<void>) => void;
 
   constructor(
     hubManager: HubManager,
     registryManager: RegistryManager,
-    context: vscode.ExtensionContext
+    context: vscode.ExtensionContext,
+    onInitialSourceSync?: (sourceSyncPromise: Promise<void>) => void
   ) {
     this.logger = Logger.getInstance();
     this.hubManager = hubManager;
     this.registryManager = registryManager;
     this.context = context;
+    this.onInitialSourceSync = onInitialSourceSync;
     this.registerCommands();
   }
 
@@ -378,8 +381,18 @@ export class HubCommands {
           progress.report({ message: 'Loading hub configuration...' });
 
           try {
-            // HubManager.importHub() handles source loading via loadHubSources()
-            const importedHubId = await this.hubManager.importHub(reference, hubId || undefined);
+            // Register sources before returning, while keeping their network
+            // synchronization progressive and observable by activation.
+            const progressiveImport = await this.hubManager.importHubProgressively(
+              reference,
+              hubId || undefined
+            );
+            await progressiveImport.onRegistered();
+            const sourceSyncPromise = progressiveImport.onComplete().catch((error) => {
+              this.logger.warn('Failed to complete imported hub source sync', error);
+            });
+            this.onInitialSourceSync?.(sourceSyncPromise);
+            const importedHubId = progressiveImport.hubId;
 
             // Note: Hub profiles are NOT copied locally. They are accessed via
             // HubManager.listProfilesFromHub() and displayed in "Shared Profiles" view.

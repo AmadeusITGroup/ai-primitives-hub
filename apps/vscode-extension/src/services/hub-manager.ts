@@ -395,7 +395,9 @@ export class HubManager {
 
     const { hubId: resolvedHubId, onRegistered, onComplete } = await this.importHubProgressively(reference, hubId);
     await onRegistered();
-    void onComplete();
+    void onComplete().catch((error) => {
+      this.logger.warn('Failed to complete imported hub source sync', error);
+    });
     return resolvedHubId;
   }
 
@@ -637,7 +639,9 @@ export class HubManager {
             })
           }
         );
-        void onComplete();
+        void onComplete().catch((error) => {
+          this.logger.warn('Failed to complete hub source sync', error);
+        });
       }
     }
 

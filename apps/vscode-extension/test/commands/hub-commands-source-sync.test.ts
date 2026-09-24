@@ -63,6 +63,16 @@ class MockHubManager {
     return 'test-hub-id';
   }
 
+  public async importHubProgressively(reference: any, hubId?: string) {
+    const importedHubId = await this.importHub(reference, hubId);
+    return {
+      hubId: importedHubId,
+      onRegistered: async () => {},
+      onFirstSettled: async () => {},
+      onComplete: async () => {}
+    };
+  }
+
   public loadHub(_hubId: string) {
     return {
       config: this.hubConfig,
