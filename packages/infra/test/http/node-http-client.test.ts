@@ -21,6 +21,7 @@ import {
   ArtifactoryHttpClient,
 } from '../../src/artifactory/http-client';
 import {
+  DEFAULT_HTTP_TIMEOUT_MS,
   NodeHttpClient,
 } from '../../src/http/node-http-client';
 import {
@@ -46,6 +47,10 @@ describe('NodeHttpClient', () => {
       { sleep: () => Promise.resolve() }
     );
   };
+
+  it('uses a 20-second default timeout for requests without an explicit timeout', () => {
+    expect(DEFAULT_HTTP_TIMEOUT_MS).toBe(20_000);
+  });
 
   beforeEach(async () => {
     crossOriginReceivedAuth = undefined;

@@ -124,6 +124,9 @@ import {
 import {
   HubStorage,
 } from './storage/hub-storage';
+import type {
+  HubReference,
+} from './types/hub';
 import {
   MarketplaceViewProvider,
 } from './ui/marketplace-view-provider';
@@ -149,6 +152,30 @@ import {
 
 // Module-level variable to store the extension instance for deactivation
 let extensionInstance: PromptRegistryExtension | undefined;
+
+interface UnavailableHub {
+  reference: HubReference;
+  reason?: string;
+}
+
+function formatUnavailableHubMessage(hub: UnavailableHub): string {
+  const registryType = hub.reference.type === 'github' ? 'GitHub' : hub.reference.type;
+  return `Could not connect to ${registryType} registry (${hub.reference.location}): ${hub.reason ?? 'Unknown connection error'}`;
+}
+
+/**
+ * Show an independent error notification for each unavailable hub.
+ * @param unavailableHubs Hubs that failed the first-run availability check.
+ */
+export function showUnavailableHubNotifications(unavailableHubs: readonly UnavailableHub[]): void {
+  for (const hub of unavailableHubs) {
+    const message = formatUnavailableHubMessage(hub);
+    void vscode.window.showErrorMessage(
+      `${message} You can import a custom hub or skip for now.`,
+      'Continue'
+    );
+  }
+}
 
 /**
  * Main extension class that handles activation, deactivation, and command registration
@@ -1550,18 +1577,8 @@ export class PromptRegistryExtension {
 
     const unavailableHubs = verifiedHubs.filter((hub) => !hub.verified);
     if (unavailableHubs.length > 0) {
-      const connectionDetails = unavailableHubs
-        .map((hub) => {
-          const registryType = hub.reference.type === 'github' ? 'GitHub' : hub.reference.type;
-          return `Could not connect to ${registryType} registry (${hub.reference.location}): ${hub.reason ?? 'Unknown connection error'}`;
-        })
-        .join('; ');
-      const message = connectionDetails;
-      this.logger.warn(message);
-      vscode.window.showWarningMessage(
-        `${message} You can import a custom hub or skip for now.`,
-        'Continue'
-      );
+      unavailableHubs.forEach((hub) => this.logger.warn(formatUnavailableHubMessage(hub)));
+      showUnavailableHubNotifications(unavailableHubs);
     }
 
     const selected = await vscode.window.showQuickPick(items, {
@@ -1730,7 +1747,16 @@ export class PromptRegistryExtension {
       // A hub selected during this activation is already current and its sources
       // are being synchronized by the progressive first-run queue.
       if (!initializedFirstRun) {
-        await this.syncActiveHub();
+        // Do not make extension activation wait for remote hub/source requests.
+        // The hub event handler starts source synchronization and resolves the
+        // initial-source-sync promise when that background work completes.
+        void this.syncActiveHub().finally(() => {
+          // If there is no active hub, or hub sync fails before emitting its
+          // event, release consumers that are waiting for initial readiness.
+          if (!this.initialSourceSyncPromise) {
+            this.markInitialSourceSyncReady();
+          }
+        });
       }
 
       // A hub sync emits the source synchronization asynchronously. Do not let
