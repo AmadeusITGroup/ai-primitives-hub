@@ -169,16 +169,17 @@ interface FirstRunHubSelectorDependencies {
   notifications: Pick<ExtensionNotifications, 'showError'>;
 }
 
-async function showUnavailableHubNotifications(
+function showUnavailableHubNotifications(
   unavailableHubs: readonly UnavailableHub[],
-  notifications: Pick<ExtensionNotifications, 'showError'>
-): Promise<void> {
+  notifications: Pick<ExtensionNotifications, 'showError'>,
+  logger: Pick<Logger, 'warn'>
+): void {
   for (const hub of unavailableHubs) {
     const message = formatUnavailableHubMessage(hub);
-    await notifications.showError(
+    void notifications.showError(
       `${message} You can import a custom hub or skip for now.`,
       'Continue'
-    );
+    ).catch((error) => logger.warn('Failed to show unavailable hub notification', error));
   }
 }
 
@@ -235,7 +236,7 @@ export async function runFirstRunHubSelector(
   const unavailableHubs = verificationResults.filter((hub) => !hub.verified);
   if (unavailableHubs.length > 0) {
     unavailableHubs.forEach((hub) => logger.warn(formatUnavailableHubMessage(hub)));
-    await showUnavailableHubNotifications(unavailableHubs, notifications);
+    showUnavailableHubNotifications(unavailableHubs, notifications, logger);
   }
 
   const selected = await vscode.window.showQuickPick(items, {
@@ -468,7 +469,19 @@ export class PromptRegistryExtension {
     // Initialize SetupStateManager for first-run configuration
     this.setupStateManager = SetupStateManager.getInstance(this.context, this.hubManager);
 
-    this.hubCommands = new HubCommands(this.hubManager, this.registryManager, this.context);
+    this.hubCommands = new HubCommands(
+      this.hubManager,
+      this.registryManager,
+      this.context,
+      (sourceSyncPromise) => {
+        if (!this.initialSourceSyncReadyResolved && !this.initialSourceSyncPromise) {
+          this.initialSourceSyncPromise = sourceSyncPromise;
+          void sourceSyncPromise.finally(() => {
+            this.markInitialSourceSyncReady(sourceSyncPromise);
+          });
+        }
+      }
+    );
     this.hubIntegrationCommands = new HubIntegrationCommands(this.hubManager, this.context);
     this.hubProfileCommands = new HubProfileCommands(this.context);
 

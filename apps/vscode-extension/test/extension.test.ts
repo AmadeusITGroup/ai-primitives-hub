@@ -56,4 +56,41 @@ suite('PromptRegistryExtension first-run hub selector', () => {
     assert.ok(items.some((item) => item.label.includes('Skip for now')));
     assert.ok(!items.some((item) => item.label.includes('Awesome Copilot Hub')));
   });
+
+  test('does not wait for unavailable-hub notification actions before showing the picker', async () => {
+    let releaseNotification!: () => void;
+    const notificationShown = new Promise<void>((resolve) => {
+      releaseNotification = resolve;
+    });
+    const showQuickPickStub = sandbox.stub(vscode.window, 'showQuickPick').resolves({
+      label: '$(x) Skip for now',
+      hubConfig: null
+    } as any);
+    const showErrorStub = sandbox.stub().returns(notificationShown.then(() => undefined));
+    const verifyHubAvailabilityDetailedStub = sandbox.stub().resolves({
+      available: false,
+      reason: 'offline'
+    });
+
+    const configured = await runFirstRunHubSelector({
+      hubManager: {
+        verifyHubAvailabilityDetailed: verifyHubAvailabilityDetailedStub,
+        importHubProgressively: sandbox.stub(),
+        setActiveHub: sandbox.stub()
+      },
+      logger: {
+        debug: () => undefined,
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined
+      },
+      notifications: {
+        showError: showErrorStub
+      }
+    });
+
+    assert.strictEqual(configured, false);
+    assert.strictEqual(showQuickPickStub.calledOnce, true);
+    releaseNotification();
+  });
 });
