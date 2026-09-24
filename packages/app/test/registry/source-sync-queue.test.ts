@@ -170,4 +170,18 @@ describe('createSourceSyncQueue', () => {
     await queue.onIdle();
     expect(synced.toSorted()).toEqual(['s1', 's3']);
   });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'normalizes invalid concurrency %s so enqueued work settles', async (concurrency) => {
+      const synced: string[] = [];
+      const queue = createSourceSyncQueue(async (id) => {
+        synced.push(id);
+      }, concurrency);
+
+      queue.enqueue('s1');
+      await queue.onIdle();
+
+      expect(synced).toEqual(['s1']);
+    }
+  );
 });
