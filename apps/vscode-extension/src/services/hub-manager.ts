@@ -22,6 +22,7 @@ import {
   loadHubSourcesProgressively,
 } from '@ai-primitives-hub/app';
 import type {
+  HubAvailabilityResult,
   HubConfigStore,
   LoadHubSourcesOptions,
   LogEvent,
@@ -510,13 +511,25 @@ export class HubManager {
    * @returns true if hub is accessible, false otherwise
    */
   public async verifyHubAvailability(reference: HubReference): Promise<boolean> {
-    const available = await this.appHubManager.verifyHubAvailability(reference);
-    if (available) {
+    const result = await this.verifyHubAvailabilityDetailed(reference);
+    return result.available;
+  }
+
+  /**
+   * Verify a hub and preserve the failure reason for first-run notifications.
+   * @param reference Hub reference to verify
+   * @returns Availability and an optional failure reason
+   */
+  public async verifyHubAvailabilityDetailed(reference: HubReference): Promise<HubAvailabilityResult> {
+    const result = await this.appHubManager.verifyHubAvailabilityDetailed(reference);
+    if (result.available) {
       this.logger.debug(`Hub verification successful: ${reference.type}:${reference.location}`);
     } else {
-      this.logger.debug(`Hub verification failed: ${reference.type}:${reference.location}`);
+      this.logger.warn(
+        `Hub verification failed: ${reference.type}:${reference.location} — ${result.reason ?? 'Unknown reason'}`
+      );
     }
-    return available;
+    return result;
   }
 
   /**

@@ -346,7 +346,7 @@ describe('loadHubSources', () => {
       }
     );
 
-    expect(result).toEqual({ added: 1, updated: 0, skipped: 1 });
+    expect(result).toEqual({ added: 1, updated: 0, skipped: 1, removed: 0 });
     expect(addedSources).toEqual([
       generateSourceId('awesome-copilot', 'https://github.com/org/one', {
         branch: 'main',
