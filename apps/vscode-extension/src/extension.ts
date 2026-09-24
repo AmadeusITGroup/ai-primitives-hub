@@ -1506,14 +1506,16 @@ export class PromptRegistryExtension {
     // Verify each hub in parallel but preserve order
     this.logger.info('Verifying default hubs...');
     const verificationResults = await Promise.all(defaultHubs.map(async (hub) => {
-      const isAvailable = await hubManager.verifyHubAvailability(hub.reference);
-      this.logger.debug(`Hub verification result for ${hub.name}: ${isAvailable ? 'available' : 'unavailable'}`);
-      if (isAvailable) {
+      const availability = await hubManager.verifyHubAvailabilityDetailed(hub.reference);
+      this.logger.debug(`Hub verification result for ${hub.name}: ${availability.available ? 'available' : 'unavailable'}`);
+      if (availability.available) {
         this.logger.info(`✓ Hub verified: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
       } else {
-        this.logger.warn(`✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
+        this.logger.warn(
+          `✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location}) — ${availability.reason ?? 'Unknown reason'}`
+        );
       }
-      return { ...hub, verified: isAvailable };
+      return { ...hub, verified: availability.available, reason: availability.reason };
     }));
 
     // verificationResults maintains the same order as defaultHubs
@@ -1546,11 +1548,18 @@ export class PromptRegistryExtension {
       }
     );
 
-    // Show warning if no verified hubs
-    if (verifiedHubs.filter((h) => h.verified).length === 0) {
-      this.logger.warn('No default hubs are currently accessible');
+    const unavailableHubs = verifiedHubs.filter((hub) => !hub.verified);
+    if (unavailableHubs.length > 0) {
+      const connectionDetails = unavailableHubs
+        .map((hub) => {
+          const registryType = hub.reference.type === 'github' ? 'GitHub' : hub.reference.type;
+          return `Could not connect to ${registryType} registry (${hub.reference.location}): ${hub.reason ?? 'Unknown connection error'}`;
+        })
+        .join('; ');
+      const message = connectionDetails;
+      this.logger.warn(message);
       vscode.window.showWarningMessage(
-        'Default hubs are currently unavailable. You can import a custom hub or skip for now.',
+        `${message} You can import a custom hub or skip for now.`,
         'Continue'
       );
     }
@@ -1600,6 +1609,7 @@ export class PromptRegistryExtension {
         vscode.window.showErrorMessage(
           `Failed to import ${selected.hubConfig.name}: ${error instanceof Error ? error.message : String(error)}`
         );
+        throw error;
       }
     } else if (selected.label.includes('Custom Hub URL')) {
       // Redirect to import hub command
