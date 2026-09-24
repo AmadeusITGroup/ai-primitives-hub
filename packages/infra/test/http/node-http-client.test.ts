@@ -15,6 +15,7 @@ import {
   it,
 } from 'vitest';
 import {
+  DEFAULT_HTTP_TIMEOUT_MS,
   NodeHttpClient,
 } from '../../src/http/node-http-client';
 
@@ -24,6 +25,10 @@ describe('NodeHttpClient', () => {
   let crossOriginServer: http.Server;
   let crossOriginUrl: string;
   let crossOriginReceivedAuth: string | undefined;
+
+  it('uses a 20-second default timeout for requests without an explicit timeout', () => {
+    expect(DEFAULT_HTTP_TIMEOUT_MS).toBe(20_000);
+  });
 
   beforeEach(async () => {
     crossOriginReceivedAuth = undefined;

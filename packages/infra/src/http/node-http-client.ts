@@ -17,7 +17,8 @@ import type {
 } from '@ai-primitives-hub/core';
 
 const DEFAULT_MAX_REDIRECTS = 10;
-const DEFAULT_TIMEOUT_MS = 25_000;
+/** Default timeout applied to every HTTP request without an explicit timeout. */
+export const DEFAULT_HTTP_TIMEOUT_MS = 20_000;
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 
 export class NodeHttpClient implements HttpClient {
@@ -48,7 +49,7 @@ export class NodeHttpClient implements HttpClient {
     const target = new URL(url);
     const transport = target.protocol === 'http:' ? http : https;
     const headers = this.ensureUserAgent(request.headers);
-    const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeoutMs = request.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
 
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
       throw new Error(`HTTP request timeout must be a positive finite number, got ${timeoutMs}`);
