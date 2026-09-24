@@ -13,6 +13,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
   DEFAULT_HTTP_TIMEOUT_MS,
@@ -26,8 +27,35 @@ describe('NodeHttpClient', () => {
   let crossOriginUrl: string;
   let crossOriginReceivedAuth: string | undefined;
 
-  it('uses a 20-second default timeout for requests without an explicit timeout', () => {
-    expect(DEFAULT_HTTP_TIMEOUT_MS).toBe(20_000);
+  it('uses the default timeout for requests without an explicit timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const requestUrl = `${baseUrl}/hang`;
+      const request = new NodeHttpClient().fetch({ url: requestUrl });
+      const rejection = expect(request).rejects.toThrow(
+        `HTTP request to ${requestUrl} timed out after ${DEFAULT_HTTP_TIMEOUT_MS} ms`
+      );
+      await vi.advanceTimersByTimeAsync(DEFAULT_HTTP_TIMEOUT_MS);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects an invalid timeout value: %s', async (timeoutMs) => {
+      await expect(new NodeHttpClient().fetch({
+        url: 'http://127.0.0.1:1',
+        timeoutMs
+      })).rejects.toThrow('HTTP request timeout must be a positive finite number');
+    }
+  );
+
+  it('enforces the timeout across the complete redirect chain', async () => {
+    await expect(new NodeHttpClient().fetch({
+      url: `${baseUrl}/redirect-chain-1`,
+      timeoutMs: 50
+    })).rejects.toThrow(`HTTP request to ${baseUrl}/redirect-chain-1 timed out after 50 ms`);
   });
 
   beforeEach(async () => {
@@ -65,6 +93,18 @@ describe('NodeHttpClient', () => {
       if (req.url === '/redirect-cross-origin') {
         res.writeHead(302, { Location: crossOriginUrl });
         res.end();
+        return;
+      }
+      if (req.url === '/redirect-chain-1' || req.url === '/redirect-chain-2') {
+        const next = req.url.endsWith('-1') ? '/redirect-chain-2' : '/redirect-chain-final';
+        setTimeout(() => {
+          res.writeHead(302, { Location: next });
+          res.end();
+        }, 30);
+        return;
+      }
+      if (req.url === '/redirect-chain-final') {
+        setTimeout(() => res.end('late'), 30);
         return;
       }
       if (req.url === '/redirect-same-origin') {

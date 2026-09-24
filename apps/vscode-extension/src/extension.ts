@@ -163,18 +163,126 @@ function formatUnavailableHubMessage(hub: UnavailableHub): string {
   return `Could not connect to ${registryType} registry (${hub.reference.location}): ${hub.reason ?? 'Unknown connection error'}`;
 }
 
-/**
- * Show an independent error notification for each unavailable hub.
- * @param unavailableHubs Hubs that failed the first-run availability check.
- */
-export function showUnavailableHubNotifications(unavailableHubs: readonly UnavailableHub[]): void {
+interface FirstRunHubSelectorDependencies {
+  hubManager: Pick<HubManager, 'verifyHubAvailabilityDetailed' | 'importHubProgressively' | 'setActiveHub'>;
+  logger: Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>;
+  notifications: Pick<ExtensionNotifications, 'showError'>;
+}
+
+async function showUnavailableHubNotifications(
+  unavailableHubs: readonly UnavailableHub[],
+  notifications: Pick<ExtensionNotifications, 'showError'>
+): Promise<void> {
   for (const hub of unavailableHubs) {
     const message = formatUnavailableHubMessage(hub);
-    void vscode.window.showErrorMessage(
+    await notifications.showError(
       `${message} You can import a custom hub or skip for now.`,
       'Continue'
     );
   }
+}
+
+/**
+ * Run the first-run hub selector.
+ * @param dependencies Hub workflow and VS Code notification dependencies.
+ * @returns true when the selector configured a hub, false when it was skipped or cancelled.
+ */
+export async function runFirstRunHubSelector(
+  dependencies: FirstRunHubSelectorDependencies
+): Promise<boolean> {
+  const { hubManager, logger, notifications } = dependencies;
+
+  // Get enabled default hubs and verify their availability.
+  const defaultHubs = getEnabledDefaultHubs();
+  logger.info('Verifying default hubs...');
+  const verificationResults = await Promise.all(defaultHubs.map(async (hub) => {
+    const availability = await hubManager.verifyHubAvailabilityDetailed(hub.reference);
+    logger.debug(`Hub verification result for ${hub.name}: ${availability.available ? 'available' : 'unavailable'}`);
+    if (availability.available) {
+      logger.info(`✓ Hub verified: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
+    } else {
+      logger.warn(
+        `✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location}) — ${availability.reason ?? 'Unknown reason'}`
+      );
+    }
+    return { ...hub, verified: availability.available, reason: availability.reason };
+  }));
+
+  const items = verificationResults
+    .filter((hub) => hub.verified)
+    .map((hub) => ({
+      label: `$(${hub.icon}) ${hub.name}${hub.recommended ? ' ⭐' : ''}`,
+      description: hub.recommended ? hub.description + ' (recommended)' : hub.description,
+      detail: `${hub.reference.type}/${hub.reference.location}`,
+      hubConfig: hub
+    }));
+
+  items.push(
+    {
+      label: '$(link-external) Custom Hub URL',
+      description: 'Import from custom URL',
+      detail: 'Enter a custom hub URL',
+      hubConfig: null as any
+    },
+    {
+      label: '$(x) Skip for now',
+      description: 'Configure hub later',
+      detail: 'You can configure a hub anytime from the toolbar',
+      hubConfig: null as any
+    }
+  );
+
+  const unavailableHubs = verificationResults.filter((hub) => !hub.verified);
+  if (unavailableHubs.length > 0) {
+    unavailableHubs.forEach((hub) => logger.warn(formatUnavailableHubMessage(hub)));
+    await showUnavailableHubNotifications(unavailableHubs, notifications);
+  }
+
+  const selected = await vscode.window.showQuickPick(items, {
+    placeHolder: 'Select a hub to get started',
+    title: 'Welcome to AI Primitives Hub - Choose Your Hub',
+    ignoreFocusOut: true
+  });
+
+  if (!selected) {
+    logger.info('User cancelled first-run hub selector');
+    return false;
+  }
+
+  if (selected.hubConfig && selected.hubConfig.reference) {
+    logger.info(`Importing first-run hub: ${selected.hubConfig.name}`);
+    try {
+      const { hubId, onFirstSettled, onComplete } =
+        await hubManager.importHubProgressively(selected.hubConfig.reference);
+
+      await onFirstSettled();
+      await hubManager.setActiveHub(hubId, { loadSources: false });
+      logger.info(`First-run hub ${hubId} imported and activated; remaining sources are loading/synchronizing in the background.`);
+
+      void onComplete().catch((error) => {
+        logger.error(`Failed to complete source sync for first-run hub ${hubId}`, error as Error);
+      });
+
+      logger.info('Hub imported successfully. User can manually activate a profile if desired.');
+      vscode.window.showInformationMessage(`Successfully activated ${selected.hubConfig.name}`);
+      return true;
+    } catch (error) {
+      logger.error(`Failed to import hub: ${selected.hubConfig.name}`, error as Error);
+      await notifications.showError(
+        `Failed to import ${selected.hubConfig.name}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      throw error;
+    }
+  }
+
+  if (selected.label.includes('Custom Hub URL')) {
+    logger.info('User chose custom hub URL, redirecting to import command');
+    await vscode.commands.executeCommand('promptregistry.importHub');
+    return true;
+  }
+
+  logger.info('User chose to skip hub configuration');
+  return false;
 }
 
 /**
@@ -1338,7 +1446,7 @@ export class PromptRegistryExtension {
       await this.setupStateManager!.markStarted();
 
       // Initialize hub (first-run hub selector or migration)
-      await this.initializeHub();
+      const initialized = await this.initializeHub();
 
       // If we get here, setup completed successfully
       await this.setupStateManager!.markComplete();
@@ -1349,7 +1457,7 @@ export class PromptRegistryExtension {
       }
 
       this.logger.info('First run completed successfully');
-      return true;
+      return initialized;
     }
 
     return false;
@@ -1467,13 +1575,14 @@ export class PromptRegistryExtension {
    * State Management: On error or cancellation, this method calls markIncomplete()
    * and re-throws. The caller is responsible for calling markComplete() on success.
    */
-  private async initializeHub(): Promise<void> {
+  private async initializeHub(): Promise<boolean> {
     if (!this.hubManager) {
       throw new Error('HubManager not initialized');
     }
 
     try {
       const hubManager = this.hubManager;
+      let initialized = false;
 
       // Check existing hubs
       const hubs = await hubManager.listHubs();
@@ -1484,7 +1593,7 @@ export class PromptRegistryExtension {
         this.logger.info('First-time hub setup: prompting for GitHub account');
         await promptGitHubAccountSelection();
         this.logger.info('First-time hub setup: showing hub selector');
-        await this.showFirstRunHubSelector();
+        initialized = await this.showFirstRunHubSelector();
 
         // Verify hub was actually configured
         const hubsAfter = await hubManager.listHubs();
@@ -1513,6 +1622,7 @@ export class PromptRegistryExtension {
       // Mark as initialized (for backward compatibility)
       await this.context.globalState.update('promptregistry.hubInitialized', true);
       this.logger.info('Hub initialization complete');
+      return initialized;
     } catch (error) {
       this.logger.error('Failed to initialize hub', error as Error);
       if (this.setupStateManager) {
@@ -1525,117 +1635,15 @@ export class PromptRegistryExtension {
   /**
    * Show first-run hub selector with preset options
    */
-  private async showFirstRunHubSelector(): Promise<void> {
-    const hubManager = this.hubManager!;
-
-    // Get enabled default hubs and verify their availability
-    const defaultHubs = getEnabledDefaultHubs();
-    // Verify each hub in parallel but preserve order
-    this.logger.info('Verifying default hubs...');
-    const verificationResults = await Promise.all(defaultHubs.map(async (hub) => {
-      const availability = await hubManager.verifyHubAvailabilityDetailed(hub.reference);
-      this.logger.debug(`Hub verification result for ${hub.name}: ${availability.available ? 'available' : 'unavailable'}`);
-      if (availability.available) {
-        this.logger.info(`✓ Hub verified: ${hub.name} (${hub.reference.type}:${hub.reference.location})`);
-      } else {
-        this.logger.warn(
-          `✗ Hub unavailable: ${hub.name} (${hub.reference.type}:${hub.reference.location}) — ${availability.reason ?? 'Unknown reason'}`
-        );
-      }
-      return { ...hub, verified: availability.available, reason: availability.reason };
-    }));
-
-    // verificationResults maintains the same order as defaultHubs
-    const verifiedHubs = verificationResults;
-
-    // Build quick-pick items from verified hubs
-    const items = verifiedHubs
-      .filter((hub) => hub.verified) // Only show verified hubs
-      .map((hub) => ({
-        label: `$(${hub.icon}) ${hub.name}${hub.recommended ? ' ⭐' : ''}`,
-        description: hub.recommended ? hub.description + ' (recommended)' : hub.description,
-        detail: `${hub.reference.type}/${hub.reference.location}`,
-        hubConfig: hub
-      }));
-
-    // Add custom URL and skip options
-    items.push(
-      {
-        label: '$(link-external) Custom Hub URL',
-        description: 'Import from custom URL',
-        detail: 'Enter a custom hub URL',
-        hubConfig: null as any
-      },
-      {
-        label: '$(x) Skip for now',
-        description: 'Configure hub later',
-        detail: 'You can configure a hub anytime from the toolbar',
-        hubConfig: null as any
-
-      }
-    );
-
-    const unavailableHubs = verifiedHubs.filter((hub) => !hub.verified);
-    if (unavailableHubs.length > 0) {
-      unavailableHubs.forEach((hub) => this.logger.warn(formatUnavailableHubMessage(hub)));
-      showUnavailableHubNotifications(unavailableHubs);
+  private async showFirstRunHubSelector(): Promise<boolean> {
+    if (!this.hubManager) {
+      throw new Error('HubManager not initialized');
     }
-
-    const selected = await vscode.window.showQuickPick(items, {
-      placeHolder: 'Select a hub to get started',
-      title: 'Welcome to AI Primitives Hub - Choose Your Hub',
-      ignoreFocusOut: true
+    return runFirstRunHubSelector({
+      hubManager: this.hubManager,
+      logger: this.logger,
+      notifications: this.notifications
     });
-
-    if (!selected) {
-      this.logger.info('User cancelled first-run hub selector');
-      return;
-    }
-
-    if (selected.hubConfig && selected.hubConfig.reference) {
-      // Import and activate the selected hub
-      this.logger.info(`Importing first-run hub: ${selected.hubConfig.name}`);
-      try {
-        // Save config + kick off progressive source loading/syncing in one call.
-        // VS Code holds webview/view resolution until activate() settles, so
-        // registering (and syncing) an entire hub's worth of sources before
-        // returning was blocking the marketplace/tree views from rendering at
-        // all during first-run import (see feat/progressive-loading-after-source-sync).
-        const { hubId, onFirstSettled, onComplete } =
-          await hubManager.importHubProgressively(selected.hubConfig.reference);
-
-        // Proceed as soon as the first source has finished syncing, or the
-        // whole batch settles with zero enabled sources — whichever comes first.
-        await onFirstSettled();
-
-        await hubManager.setActiveHub(hubId, { loadSources: false });
-        this.logger.info(`First-run hub ${hubId} imported and activated; remaining sources are loading/synchronizing in the background.`);
-
-        void onComplete()
-          .catch((error) => {
-            this.logger.error(`Failed to complete source sync for first-run hub ${hubId}`, error as Error);
-          });
-
-        // Note: We intentionally do NOT auto-activate any profile here.
-        // Users should explicitly choose which profile to activate.
-        this.logger.info('Hub imported successfully. User can manually activate a profile if desired.');
-
-        vscode.window.showInformationMessage(`Successfully activated ${selected.hubConfig.name}`);
-      } catch (error) {
-        this.logger.error(`Failed to import hub: ${selected.hubConfig.name}`, error as Error);
-        vscode.window.showErrorMessage(
-          `Failed to import ${selected.hubConfig.name}: ${error instanceof Error ? error.message : String(error)}`
-        );
-        throw error;
-      }
-    } else if (selected.label.includes('Custom Hub URL')) {
-      // Redirect to import hub command
-      this.logger.info('User chose custom hub URL, redirecting to import command');
-      await vscode.commands.executeCommand('promptregistry.importHub');
-    } else {
-      // Skip for now
-      this.logger.info('User chose to skip hub configuration');
-    }
   }
 
   /**
@@ -1757,12 +1765,8 @@ export class PromptRegistryExtension {
             this.markInitialSourceSyncReady();
           }
         });
-      }
-
-      // A hub sync emits the source synchronization asynchronously. Do not let
-      // the automatic update timer race it; activation itself remains
-      // non-blocking while the startup check waits on the readiness promise.
-      if (!this.initialSourceSyncPromise) {
+      } else if (!this.initialSourceSyncPromise) {
+        // First-run import already awaited its first progressive source sync.
         this.markInitialSourceSyncReady();
       }
 

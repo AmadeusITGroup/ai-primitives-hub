@@ -342,6 +342,7 @@ export class HubManager {
     if (!this.registryManager) {
       return {
         hubId: resolvedHubId,
+        onRegistered: () => Promise.resolve(),
         onFirstSettled: () => Promise.resolve(),
         onComplete: () => Promise.resolve()
       };
@@ -392,7 +393,8 @@ export class HubManager {
       return importedHubId;
     }
 
-    const { hubId: resolvedHubId, onComplete } = await this.importHubProgressively(reference, hubId);
+    const { hubId: resolvedHubId, onRegistered, onComplete } = await this.importHubProgressively(reference, hubId);
+    await onRegistered();
     void onComplete();
     return resolvedHubId;
   }

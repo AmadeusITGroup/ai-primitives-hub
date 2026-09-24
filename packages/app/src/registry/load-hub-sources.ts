@@ -109,11 +109,10 @@ export function findDuplicateSource(
 /**
  * Sync a hub's declared sources into the registry.
  *
- * Per-source `addSource`/`removeSource` failures (e.g. a private repo
- * returning 404) are caught, logged, and skipped rather than failing
- * the whole operation — a hub with one bad source should still get its
- * other sources loaded. `listSources`/`updateSource` failures are not
- * caught here; they propagate to the caller.
+ * Per-source registration failures (e.g. a private repo returning 404 or a
+ * storage update failure) are caught, logged, and skipped rather than failing
+ * the whole operation — a hub with one bad source should still get its other
+ * sources loaded. `listSources` failures still propagate to the caller.
  *
  * After syncing, any source belonging to this hub (`hubId` match) that
  * was not represented in the current config is pruned. Manually-added
@@ -180,7 +179,7 @@ export async function loadHubSources(
   // id would otherwise let us delete the old id (now absent from config)
   // while the replacement never landed, stranding installed bundles. Better
   // to keep a stale duplicate than to lose the source outright.
-  let addFailed = false;
+  let registrationFailed = false;
 
   const processSource = async (hubSource: HubSource): Promise<void> => {
     // Generate the stable id up front and protect it from pruning
@@ -279,7 +278,7 @@ export async function loadHubSources(
     } catch (sourceError) {
       const err = sourceError instanceof Error ? sourceError : new Error(String(sourceError));
       log('warn', `Failed to add hub source ${sourceId} (${hubSource.name}): ${err.message}`, err);
-      addFailed = true;
+      registrationFailed = true;
       skipped++;
     }
   };
@@ -291,7 +290,15 @@ export async function loadHubSources(
   const worker = async (): Promise<void> => {
     while (nextIndex < hubSources.length) {
       const index = nextIndex++;
-      await processSource(hubSources[index]);
+      const hubSource = hubSources[index];
+      try {
+        await processSource(hubSource);
+      } catch (sourceError) {
+        const err = sourceError instanceof Error ? sourceError : new Error(String(sourceError));
+        registrationFailed = true;
+        skipped++;
+        log('warn', `Failed to register hub source ${hubSource.id ?? hubSource.url}: ${err.message}`, err);
+      }
     }
   };
 
@@ -301,10 +308,10 @@ export async function loadHubSources(
   // and deleting an orphan (e.g. the pre-rename id) while its replacement
   // never landed would strand installed bundles. A stale duplicate is
   // recoverable on the next successful sync; lost sources are not.
-  if (addFailed) {
+  if (registrationFailed) {
     log(
       'warn',
-      `Skipping orphaned source pruning for hub ${hubId}: one or more sources failed to add this sync`
+      `Skipping orphaned source pruning for hub ${hubId}: one or more sources failed to register this sync`
     );
   } else {
     // Prune orphaned sources: any source previously linked to this hub that
@@ -439,6 +446,8 @@ export async function loadHubSources(
 }
 
 export interface ProgressiveLoadResult {
+  /** Resolves when all source registrations finish, before background syncs necessarily finish. */
+  onRegistered: () => Promise<void>;
   /** Resolves when the first source sync settles, OR all registrations complete with zero syncs. */
   onFirstSettled: () => Promise<void>;
   /** Resolves when all source registrations AND all background syncs finish. */
@@ -460,6 +469,8 @@ export interface ProgressiveLoadOptions extends LoadHubSourcesOptions {
  * - `onFirstSettled()` — resolves when the first sync settles, OR when
  *   registration finishes with zero syncs enqueued (so callers never hang on
  *   hubs whose sources are all disabled or duplicates).
+ * - `onRegistered()` — resolves after all source registration work finishes,
+ *   before background syncs necessarily finish.
  * - `onComplete()` — resolves after both registration and all sync tasks finish.
  * @param hubId Hub identifier the sources belong to.
  * @param hubSources Sources declared in the hub's config.
@@ -488,6 +499,7 @@ export function loadHubSourcesProgressively(
   });
 
   return {
+    onRegistered: () => registrationPromise.then(() => undefined),
     onFirstSettled: () => Promise.race([
       queue.onFirstSettled(),
       // If registration finishes without any enabled, new sources, resolve so
@@ -497,8 +509,6 @@ export function loadHubSourcesProgressively(
         queue.hasEnqueued() ? queue.onFirstSettled() : undefined
       )).catch(() => undefined)
     ]),
-    onComplete: () => registrationPromise
-      .catch(() => undefined)
-      .then(() => queue.onIdle())
+    onComplete: () => registrationPromise.then(() => queue.onIdle())
   };
 }

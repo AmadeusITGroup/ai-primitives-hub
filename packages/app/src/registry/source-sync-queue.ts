@@ -23,6 +23,9 @@ export function createSourceSyncQueue(
   syncSource: (sourceId: string) => Promise<void>,
   concurrency: number
 ): SourceSyncQueue {
+  const normalizedConcurrency = Number.isFinite(concurrency) && concurrency > 0
+    ? Math.max(1, Math.floor(concurrency))
+    : 1;
   const pending: string[] = [];
   const idleResolvers: (() => void)[] = [];
   const firstSettledResolvers: (() => void)[] = [];
@@ -58,7 +61,7 @@ export function createSourceSyncQueue(
   };
 
   const startAvailableSyncs = (): void => {
-    while (activeSyncs < concurrency && pending.length > 0) {
+    while (activeSyncs < normalizedConcurrency && pending.length > 0) {
       startSync(pending.shift()!);
     }
   };
