@@ -25,6 +25,7 @@ import type {
   WriterFs,
 } from '@ai-primitives-hub/app';
 import type {
+  ManifestPlacementType,
   Target,
   TargetType,
 } from '@ai-primitives-hub/core';
@@ -111,7 +112,7 @@ const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
  * VS Code, `.kiro/steering` on Kiro), so cleanup only ever touches folders this
  * tool created — never the host root (`.github`/`.kiro`) itself.
  */
-const MANAGED_KINDS: readonly CopilotFileType[] = ['prompt', 'instructions', 'agent', 'skill'];
+const MANAGED_KINDS: readonly ManifestPlacementType[] = ['prompt', 'instructions', 'agent', 'skill', 'knowledge'];
 
 /**
  * Tracks installed files during bundle installation for rollback support
@@ -338,7 +339,14 @@ export class RepositoryScopeService implements IScopeService {
       return;
     }
 
-    const fileType = promptDef.type as CopilotFileType || determineFileType(promptDef.file, promptDef.tags);
+    let fileType: ManifestPlacementType;
+    if (promptDef.type === 'knowledge') {
+      fileType = 'knowledge';
+    } else if (promptDef.type === undefined) {
+      fileType = determineFileType(promptDef.file, promptDef.tags);
+    } else {
+      fileType = promptDef.type as CopilotFileType;
+    }
     const files = new Map<string, Uint8Array>([[promptDef.file, await readFile(sourcePath)]]);
     const item: ManifestPlacementItem = { id: promptId, file: promptDef.file, type: fileType, tags: promptDef.tags };
     const result = await writer.writeManifestItems(target, files, [item]);
@@ -520,7 +528,15 @@ export class RepositoryScopeService implements IScopeService {
     for (const kind of MANAGED_KINDS) {
       // Host-appropriate managed dir (deduped: e.g. prompt+instructions both
       // resolve to .kiro/steering on Kiro).
-      const relativeDir = this.getTargetDirectory(kind).replace(/\/+$/, '');
+      let relativeDir: string;
+      try {
+        relativeDir = this.getTargetDirectory(kind).replace(/\/+$/, '');
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.startsWith('No repository route defined')) {
+          throw error;
+        }
+        continue;
+      }
       if (seen.has(relativeDir)) {
         continue;
       }
@@ -761,12 +777,17 @@ export class RepositoryScopeService implements IScopeService {
    * detected host, straight from `default-layouts.json` (the same resolution
    * the writer performs). This is the single source of truth for repository
    * destinations — no hardcoded `.github` map.
-   * @param type - The Copilot file type being placed.
+   * @param type - The manifest placement type being placed.
    * @returns The workspace-relative directory (e.g. `.kiro/agents/`).
    */
-  public getTargetDirectory(type: CopilotFileType): string {
+  public getTargetDirectory(type: ManifestPlacementType): string {
     const layout = resolveLayout(this.getTarget());
     const routeKey = KIND_TO_ROUTE_KEY[type];
+    if (routeKey === undefined) {
+      throw new Error(
+        `No repository route defined for file type "${type}" in layout "${this.targetType}". Add it to default-layouts.json.`
+      );
+    }
     const route = layout.kindRoutes[routeKey];
     if (route === undefined) {
       throw new Error(
@@ -993,11 +1014,19 @@ export class RepositoryScopeService implements IScopeService {
       // Managed primitive kinds; deduped because several kinds may resolve to
       // the same directory on some hosts (e.g. prompt + instructions ->
       // .kiro/steering/ on Kiro).
-      const managedKinds: CopilotFileType[] = ['prompt', 'instructions', 'agent', 'skill'];
+      const managedKinds: ManifestPlacementType[] = ['prompt', 'instructions', 'agent', 'skill', 'knowledge'];
       const scannedDirs = new Set<string>();
 
       for (const kind of managedKinds) {
-        const relativeDir = this.getTargetDirectory(kind).replace(/[/\\]+$/, '');
+        let relativeDir: string;
+        try {
+          relativeDir = this.getTargetDirectory(kind).replace(/[/\\]+$/, '');
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.startsWith('No repository route defined')) {
+            throw error;
+          }
+          continue;
+        }
         if (scannedDirs.has(relativeDir)) {
           continue;
         }

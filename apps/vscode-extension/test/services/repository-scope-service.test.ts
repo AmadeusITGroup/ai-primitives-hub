@@ -69,7 +69,9 @@ suite('RepositoryScopeService', () => {
 
     // Create files
     for (const file of files) {
-      fs.writeFileSync(path.join(bundlePath, file.name), file.content);
+      const filePath = path.join(bundlePath, file.name);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, file.content);
     }
 
     return bundlePath;
@@ -258,6 +260,39 @@ suite('RepositoryScopeService', () => {
 
       const targetFile = path.join(workspaceRoot, '.github', 'agents', 'reviewer.agent.md');
       assert.ok(fs.existsSync(targetFile), 'Agent file should be placed in .github/agents/');
+    });
+
+    test('should place knowledge files under .github/knowledge while preserving their source path', async () => {
+      const bundleId = 'knowledge-bundle';
+      const sourceFile = 'specifications/RDP/core_layer/AGENT_INDEX.md';
+      const bundlePath = createMockBundle(bundleId, [
+        { name: sourceFile, content: '# Knowledge', type: 'knowledge' }
+      ]);
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      const targetFile = path.join(workspaceRoot, '.github', 'knowledge', sourceFile);
+      assert.ok(fs.existsSync(targetFile), 'Knowledge file should be placed under .github/knowledge/');
+      assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), '# Knowledge');
+    });
+
+    test('should place knowledge files under the Kiro knowledge route', async () => {
+      const bundleId = 'kiro-knowledge-bundle';
+      const sourceFile = 'specifications/RDP/core_layer/AGENT_INDEX.md';
+      const bundlePath = createMockBundle(bundleId, [
+        { name: sourceFile, content: '# Knowledge', type: 'knowledge' }
+      ]);
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await kiroService.syncBundle(bundleId, bundlePath);
+
+      const targetFile = path.join(workspaceRoot, '.kiro', 'knowledge', sourceFile);
+      assert.ok(fs.existsSync(targetFile), 'Knowledge file should be placed under .kiro/knowledge/');
+      assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), '# Knowledge');
     });
 
     test('should create parent directories if they do not exist', async () => {

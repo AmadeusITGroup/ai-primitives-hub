@@ -42,7 +42,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
-import {
+import type {
   DeploymentManifest,
 } from '../types/registry';
 import {
@@ -74,6 +74,28 @@ export interface CopilotFile {
   targetPath: string;
   transformedContent?: string;
 }
+
+interface StorageMenuItem {
+  id?: string;
+  label?: string;
+  command?: string;
+  submenu?: {
+    items?: StorageMenuItem[];
+  };
+}
+
+interface VscodeStorageData {
+  lastKnownMenubarData?: {
+    menus?: {
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches the VS Code storage schema
+      Preferences?: {
+        items?: StorageMenuItem[];
+      };
+    };
+  };
+}
+
+type ManifestPrompt = NonNullable<DeploymentManifest['prompts']>[number];
 
 /**
  * Service to sync bundle prompts to GitHub Copilot's native directories at user level.
@@ -124,6 +146,9 @@ export class UserScopeService implements IScopeService {
 
   private getTargetPrimitiveDirectory(type: CopilotFileType): string {
     const routeKey = KIND_TO_ROUTE_KEY[type];
+    if (routeKey === undefined) {
+      throw new Error(`No ${type} route defined for target ${this.targetType}`);
+    }
     const route = resolveLayout(this.getTarget()).kindRoutes[routeKey];
     if (route === undefined) {
       throw new Error(`No ${type} route defined for target ${this.targetType}`);
@@ -230,11 +255,11 @@ export class UserScopeService implements IScopeService {
 
       // WORKAROUND #1: Try storage.json first (most reliable)
       if (fs.existsSync(storageJsonPath)) {
-        const storageData = JSON.parse(fs.readFileSync(storageJsonPath, 'utf8'));
-        const items = storageData?.lastKnownMenubarData?.menus?.Preferences?.items;
+        const storageData = JSON.parse(fs.readFileSync(storageJsonPath, 'utf8')) as VscodeStorageData;
+        const items = storageData.lastKnownMenubarData?.menus?.Preferences?.items;
 
         if (Array.isArray(items)) {
-          const profilesMenu = items.find((i: any) => i?.id === 'submenuitem.Profiles');
+          const profilesMenu = items.find((item) => item.id === 'submenuitem.Profiles');
 
           if (profilesMenu) {
             // Extract human-readable name from parent label
@@ -310,14 +335,14 @@ export class UserScopeService implements IScopeService {
         return null;
       }
 
-      const storageData = JSON.parse(fs.readFileSync(storageJsonPath, 'utf8'));
-      const items = storageData?.lastKnownMenubarData?.menus?.Preferences?.items;
+      const storageData = JSON.parse(fs.readFileSync(storageJsonPath, 'utf8')) as VscodeStorageData;
+      const items = storageData.lastKnownMenubarData?.menus?.Preferences?.items;
 
       if (!Array.isArray(items)) {
         return null;
       }
 
-      const profilesMenu = items.find((i: any) => i?.id === 'submenuitem.Profiles');
+      const profilesMenu = items.find((item) => item.id === 'submenuitem.Profiles');
 
       // Extract profile name from parent label
       // Format: "Profile (MyProfile)" or just "Profile"
@@ -342,7 +367,7 @@ export class UserScopeService implements IScopeService {
    * @param bundlePath
    * @param promptDef
    */
-  private async syncSkillFromBundle(bundleId: string, bundlePath: string, promptDef: any): Promise<void> {
+  private async syncSkillFromBundle(bundleId: string, bundlePath: string, promptDef: ManifestPrompt): Promise<void> {
     try {
       // Extract skill name and source directory from the manifest file path
       const skillPath = promptDef.file;
@@ -379,15 +404,15 @@ export class UserScopeService implements IScopeService {
   }
 
   private determineCopilotFileType(
-    promptDef: any,
+    promptDef: ManifestPrompt,
     sourcePath: string,
     bundleId: string
   ): CopilotFile {
     // Check if tags or filename indicate type
-    const tags = promptDef.tags || [];
+    const tags = promptDef.tags ?? [];
 
     // Use manifest type if provided, otherwise detect from file
-    const type: CopilotFileType = promptDef.type ? promptDef.type as CopilotFileType : determineFileType(sourcePath, tags);
+    const type: CopilotFileType = promptDef.type ?? determineFileType(sourcePath, tags);
 
     // Create target path: promptId.type.md directly in the generic Copilot directory
     const targetFileName = getTargetFileName(promptDef.id, type);
@@ -625,7 +650,7 @@ export class UserScopeService implements IScopeService {
       }
 
       const manifestContent = await readFile(manifestPath, 'utf8');
-      const manifest = yaml.load(manifestContent) as any;
+      const manifest = yaml.load(manifestContent) as DeploymentManifest;
 
       if (!manifest.prompts || manifest.prompts.length === 0) {
         this.logger.debug(`Bundle ${bundleId} has no prompts to unsync`);

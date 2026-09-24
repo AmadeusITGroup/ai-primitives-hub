@@ -23,10 +23,10 @@
  */
 import * as path from 'node:path';
 import type {
-  CopilotFileType,
   ExtractedFiles,
   KindRoutes,
   LayoutConfigLoader,
+  ManifestPlacementType,
   PrimitiveKind,
   ResourceTransformer,
   Target,
@@ -41,6 +41,8 @@ import {
   expandPath,
   getSkillName,
   getTargetFileName,
+  isCopilotFileType,
+  manifestPlacementTypeToPrimitiveKind,
   normalizePrimitiveKind,
   normalizePromptId,
   verifyWrittenBytes,
@@ -78,7 +80,7 @@ export interface WriterFs {
 
 /**
  * A manifest-driven placement instruction: "this bundle-relative source
- * file/directory is primitive `id` of Copilot type `type`". Used by
+ * file/directory is primitive `id` of placement type `type`". Used by
  * `FileTreeTargetWriter.writeManifestItems` for targets/scopes (e.g. the
  * VS Code extension's user/repository scopes) whose real on-disk
  * convention renames every file to `{id}.{type-extension}` rather than
@@ -91,23 +93,24 @@ export interface ManifestPlacementItem {
   id: string;
   /** Bundle-relative source path (looked up in the `ExtractedFiles` map). */
   file: string;
-  /** Copilot file type; auto-detected from `file`/`tags` when omitted. */
-  type?: CopilotFileType;
+  /** Manifest placement type; auto-detected from `file`/`tags` when omitted. */
+  type?: ManifestPlacementType;
   tags?: string[];
 }
 
 /**
- * Maps a `CopilotFileType` to the `default-layouts.json` kindRoutes key
+ * Maps a manifest placement type to the `default-layouts.json` kindRoutes key
  * whose *value* (the output subdirectory) applies to it. Chatmodes are
  * deliberately routed through the agents key because they are associated
  * with agents at runtime.
  */
-export const KIND_TO_ROUTE_KEY: Record<CopilotFileType, string> = {
+export const KIND_TO_ROUTE_KEY: Partial<Record<ManifestPlacementType, string>> = {
   prompt: 'prompts/',
   instructions: 'instructions/',
   chatmode: 'agents/',
   agent: 'agents/',
-  skill: 'skills/'
+  skill: 'skills/',
+  knowledge: 'knowledge/'
 };
 
 /**
@@ -122,7 +125,7 @@ export interface TargetRemoveResult {
 }
 
 // Re-export domain types for backward compatibility with existing callers.
-export type { KindRoutes, TargetLayout } from '@ai-primitives-hub/core';
+export type { KindRoutes, ManifestPlacementType, TargetLayout } from '@ai-primitives-hub/core';
 
 // Satisfy local usage (TypeScript needs the types in scope for the functions below).
 // The re-export above covers external callers.
@@ -392,7 +395,8 @@ export class FileTreeTargetWriter implements TargetWriter {
     for (const item of items) {
       const type = item.type ?? determineFileType(item.file, item.tags);
       const routeKey = KIND_TO_ROUTE_KEY[type];
-      if (allowed !== null && !allowed.has(copilotTypeToPrimitiveKind(type))) {
+      if (routeKey === undefined
+        || (allowed !== null && !allowed.has(manifestPlacementTypeToPrimitiveKind(type)))) {
         skipped.push(item.file);
         continue;
       }
@@ -423,7 +427,14 @@ export class FileTreeTargetWriter implements TargetWriter {
         skipped.push(item.file);
         continue;
       }
-      const outPath = path.join(baseDir, outPrefix, getTargetFileName(item.id, type));
+      const relativePath = type === 'knowledge'
+        ? getKnowledgeRelativePath(item.file)
+        : (isCopilotFileType(type) ? getTargetFileName(item.id, type) : null);
+      if (relativePath === null) {
+        skipped.push(item.file);
+        continue;
+      }
+      const outPath = path.join(baseDir, outPrefix, relativePath);
       await this.writeContent(target, item.file, bytes, outPath);
       written.push(outPath);
       writtenBundlePaths.push(item.file);
@@ -571,5 +582,21 @@ const routeToKind = (prefix: string): PrimitiveKind | null => {
     ?? null;
 };
 
-const copilotTypeToPrimitiveKind = (type: CopilotFileType): PrimitiveKind =>
-  type === 'instructions' ? 'instruction' : (type === 'chatmode' ? 'chat-mode' : type);
+const getKnowledgeRelativePath = (bundlePath: string): string | null => {
+  const normalized = bundlePath.replaceAll('\\', '/');
+  if (path.posix.isAbsolute(normalized) || normalized.split('/').includes('..')) {
+    return null;
+  }
+
+  const scopedKnowledgePath = /^\.[^/]+\/(knowledge\/.+)$/.exec(normalized)?.[1];
+  const knowledgePath = scopedKnowledgePath ?? (
+    normalized.startsWith('knowledge/') ? normalized : `knowledge/${normalized}`
+  );
+  const canonicalPath = path.posix.normalize(knowledgePath);
+  if (!canonicalPath.startsWith('knowledge/')) {
+    return null;
+  }
+
+  const relativePath = canonicalPath.slice('knowledge/'.length);
+  return relativePath.length > 0 ? relativePath : null;
+};
