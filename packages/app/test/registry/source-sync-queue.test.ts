@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
   createSourceSyncQueue,
+  normalizeConcurrency,
 } from '../../src/registry/source-sync-queue';
 
 describe('createSourceSyncQueue', () => {
@@ -95,6 +96,35 @@ describe('createSourceSyncQueue', () => {
       queue.onFirstSettled(),
       queue.onIdle()
     ]);
+  });
+
+  it('reports sync failures before continuing the queue', async () => {
+    const failures: { sourceId: string; error: Error }[] = [];
+    const queue = createSourceSyncQueue(
+      async () => {
+        throw new Error('sync failed');
+      },
+      1,
+      (sourceId, error) => failures.push({ sourceId, error })
+    );
+
+    queue.enqueue('s1');
+    await queue.onIdle();
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0].sourceId).toBe('s1');
+    expect(failures[0].error.message).toBe('sync failed');
+  });
+
+  it.each([
+    [0, 1],
+    [-1, 1],
+    [1.9, 1],
+    [2.1, 2],
+    [Number.NaN, 1],
+    [Number.POSITIVE_INFINITY, 1]
+  ])('normalizes concurrency %s to %s', (value, expected) => {
+    expect(normalizeConcurrency(value)).toBe(expected);
   });
 
   it('onFirstSettled resolves immediately when already settled before promise is registered', async () => {
