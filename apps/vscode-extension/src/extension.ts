@@ -167,6 +167,7 @@ interface FirstRunHubSelectorDependencies {
   hubManager: Pick<HubManager, 'verifyHubAvailabilityDetailed' | 'importHubProgressively' | 'setActiveHub'>;
   logger: Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>;
   notifications: Pick<ExtensionNotifications, 'showError'>;
+  onInitialSourceSync?: (sourceSyncPromise: Promise<void>) => void;
 }
 
 function showUnavailableHubNotifications(
@@ -191,7 +192,7 @@ function showUnavailableHubNotifications(
 export async function runFirstRunHubSelector(
   dependencies: FirstRunHubSelectorDependencies
 ): Promise<boolean> {
-  const { hubManager, logger, notifications } = dependencies;
+  const { hubManager, logger, notifications, onInitialSourceSync } = dependencies;
 
   // Get enabled default hubs and verify their availability.
   const defaultHubs = getEnabledDefaultHubs();
@@ -260,9 +261,10 @@ export async function runFirstRunHubSelector(
       await hubManager.setActiveHub(hubId, { loadSources: false });
       logger.info(`First-run hub ${hubId} imported and activated; remaining sources are loading/synchronizing in the background.`);
 
-      void onComplete().catch((error) => {
+      const sourceSyncPromise = onComplete().catch((error) => {
         logger.error(`Failed to complete source sync for first-run hub ${hubId}`, error as Error);
       });
+      onInitialSourceSync?.(sourceSyncPromise);
 
       logger.info('Hub imported successfully. User can manually activate a profile if desired.');
       vscode.window.showInformationMessage(`Successfully activated ${selected.hubConfig.name}`);
@@ -278,8 +280,8 @@ export async function runFirstRunHubSelector(
 
   if (selected.label.includes('Custom Hub URL')) {
     logger.info('User chose custom hub URL, redirecting to import command');
-    await vscode.commands.executeCommand('promptregistry.importHub');
-    return true;
+    const importedHubId = await vscode.commands.executeCommand<string | undefined>('promptregistry.importHub');
+    return importedHubId !== undefined;
   }
 
   logger.info('User chose to skip hub configuration');
@@ -473,14 +475,7 @@ export class PromptRegistryExtension {
       this.hubManager,
       this.registryManager,
       this.context,
-      (sourceSyncPromise) => {
-        if (!this.initialSourceSyncReadyResolved && !this.initialSourceSyncPromise) {
-          this.initialSourceSyncPromise = sourceSyncPromise;
-          void sourceSyncPromise.finally(() => {
-            this.markInitialSourceSyncReady(sourceSyncPromise);
-          });
-        }
-      }
+      (sourceSyncPromise) => this.trackInitialSourceSync(sourceSyncPromise)
     );
     this.hubIntegrationCommands = new HubIntegrationCommands(this.hubManager, this.context);
     this.hubProfileCommands = new HubProfileCommands(this.context);
@@ -1655,7 +1650,8 @@ export class PromptRegistryExtension {
     return runFirstRunHubSelector({
       hubManager: this.hubManager,
       logger: this.logger,
-      notifications: this.notifications
+      notifications: this.notifications,
+      onInitialSourceSync: (sourceSyncPromise) => this.trackInitialSourceSync(sourceSyncPromise)
     });
   }
 
@@ -1707,6 +1703,15 @@ export class PromptRegistryExtension {
       this.initialSourceSyncReadyResolved = true;
       this.primitiveIndexService.scheduleRebuild('initial source sync complete', 0);
       this.resolveInitialSourceSyncReady();
+    }
+  }
+
+  private trackInitialSourceSync(sourceSyncPromise: Promise<void>): void {
+    if (!this.initialSourceSyncReadyResolved && !this.initialSourceSyncPromise) {
+      this.initialSourceSyncPromise = sourceSyncPromise;
+      void sourceSyncPromise.finally(() => {
+        this.markInitialSourceSyncReady(sourceSyncPromise);
+      });
     }
   }
 

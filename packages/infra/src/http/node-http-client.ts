@@ -18,7 +18,7 @@ import type {
 
 const DEFAULT_MAX_REDIRECTS = 10;
 /** Default timeout applied to every HTTP request without an explicit timeout. */
-export const DEFAULT_HTTP_TIMEOUT_MS = 15_000;
+export const DEFAULT_HTTP_TIMEOUT_MS = 20_000;
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 
 export class NodeHttpClient implements HttpClient {
