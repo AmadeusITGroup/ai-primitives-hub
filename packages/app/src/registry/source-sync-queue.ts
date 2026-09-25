@@ -6,6 +6,17 @@ export interface SourceSyncQueue {
 }
 
 /**
+ * Normalize a caller-provided concurrency limit to a usable queue size.
+ * @param concurrency Requested concurrency limit.
+ * @returns A finite integer of at least one.
+ */
+export function normalizeConcurrency(concurrency: number): number {
+  return Number.isFinite(concurrency) && concurrency > 0
+    ? Math.max(1, Math.floor(concurrency))
+    : 1;
+}
+
+/**
  * Creates a bounded-concurrency queue that syncs sources via the provided
  * `syncSource` callback.
  *
@@ -18,11 +29,14 @@ export interface SourceSyncQueue {
  *   empty. Also resolves immediately when the queue is already idle.
  * @param syncSource
  * @param concurrency
+ * @param onError
  */
 export function createSourceSyncQueue(
   syncSource: (sourceId: string) => Promise<void>,
-  concurrency: number
+  concurrency: number,
+  onError?: (sourceId: string, error: Error) => void
 ): SourceSyncQueue {
+  const normalizedConcurrency = normalizeConcurrency(concurrency);
   const pending: string[] = [];
   const idleResolvers: (() => void)[] = [];
   const firstSettledResolvers: (() => void)[] = [];
@@ -47,9 +61,10 @@ export function createSourceSyncQueue(
 
   const startSync = (sourceId: string): void => {
     activeSyncs++;
-    // .catch() prevents unhandled rejections — callers are expected to handle
-    // errors inside their syncSource callback, but any leak is silenced here.
-    void syncSource(sourceId).catch(() => undefined).finally(() => {
+    void syncSource(sourceId).catch((error: unknown) => {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      onError?.(sourceId, normalizedError);
+    }).finally(() => {
       activeSyncs--;
       startAvailableSyncs();
       resolveFirstSettled();
@@ -58,7 +73,7 @@ export function createSourceSyncQueue(
   };
 
   const startAvailableSyncs = (): void => {
-    while (activeSyncs < concurrency && pending.length > 0) {
+    while (activeSyncs < normalizedConcurrency && pending.length > 0) {
       startSync(pending.shift()!);
     }
   };

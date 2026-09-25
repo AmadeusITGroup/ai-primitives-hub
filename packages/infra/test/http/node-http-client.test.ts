@@ -13,8 +13,10 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
+  DEFAULT_HTTP_TIMEOUT_MS,
   NodeHttpClient,
 } from '../../src/http/node-http-client';
 
@@ -24,6 +26,37 @@ describe('NodeHttpClient', () => {
   let crossOriginServer: http.Server;
   let crossOriginUrl: string;
   let crossOriginReceivedAuth: string | undefined;
+
+  it('uses the default timeout for requests without an explicit timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const requestUrl = `${baseUrl}/hang`;
+      const request = new NodeHttpClient().fetch({ url: requestUrl });
+      const rejection = expect(request).rejects.toThrow(
+        `HTTP request to ${requestUrl} timed out after ${DEFAULT_HTTP_TIMEOUT_MS} ms`
+      );
+      await vi.advanceTimersByTimeAsync(DEFAULT_HTTP_TIMEOUT_MS);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects an invalid timeout value: %s', async (timeoutMs) => {
+      await expect(new NodeHttpClient().fetch({
+        url: 'http://127.0.0.1:1',
+        timeoutMs
+      })).rejects.toThrow('HTTP request timeout must be a positive finite number');
+    }
+  );
+
+  it('enforces the timeout across the complete redirect chain', async () => {
+    await expect(new NodeHttpClient().fetch({
+      url: `${baseUrl}/redirect-chain-1`,
+      timeoutMs: 50
+    })).rejects.toThrow(`HTTP request to ${baseUrl}/redirect-chain-1 timed out after 50 ms`);
+  });
 
   beforeEach(async () => {
     crossOriginReceivedAuth = undefined;
@@ -62,6 +95,18 @@ describe('NodeHttpClient', () => {
         res.end();
         return;
       }
+      if (req.url === '/redirect-chain-1' || req.url === '/redirect-chain-2') {
+        const next = req.url.endsWith('-1') ? '/redirect-chain-2' : '/redirect-chain-final';
+        setTimeout(() => {
+          res.writeHead(302, { Location: next });
+          res.end();
+        }, 30);
+        return;
+      }
+      if (req.url === '/redirect-chain-final') {
+        setTimeout(() => res.end('late'), 30);
+        return;
+      }
       if (req.url === '/redirect-same-origin') {
         res.writeHead(302, { Location: '/echo-header' });
         res.end();
@@ -70,6 +115,9 @@ describe('NodeHttpClient', () => {
       if (req.url === '/not-found') {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('nope');
+        return;
+      }
+      if (req.url === '/hang') {
         return;
       }
       res.writeHead(200);
@@ -125,6 +173,13 @@ describe('NodeHttpClient', () => {
 
   it('rejects when the server is unreachable', async () => {
     await expect(new NodeHttpClient().fetch({ url: 'http://127.0.0.1:1' })).rejects.toThrow('failed');
+  });
+
+  it('rejects stalled requests with the configured timeout and URL', async () => {
+    await expect(new NodeHttpClient().fetch({
+      url: `${baseUrl}/hang`,
+      timeoutMs: 25
+    })).rejects.toThrow(`HTTP request to ${baseUrl}/hang timed out after 25 ms`);
   });
 
   it('strips Authorization before following a cross-origin redirect', async () => {

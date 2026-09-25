@@ -17,15 +17,24 @@ import type {
 } from '@ai-primitives-hub/core';
 
 const DEFAULT_MAX_REDIRECTS = 10;
+/** Default timeout applied to every HTTP request without an explicit timeout. */
+export const DEFAULT_HTTP_TIMEOUT_MS = 20_000;
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 
 export class NodeHttpClient implements HttpClient {
   private async fetchFollowingRedirects(
     request: HttpRequest,
     url: string,
-    redirectsRemaining: number
+    redirectsRemaining: number,
+    deadline: number,
+    timeoutMs: number
   ): Promise<HttpResponse> {
-    const response = await this.fetchOnce(request, url);
+    const remainingTimeoutMs = deadline - Date.now();
+    if (remainingTimeoutMs <= 0) {
+      throw new Error(`HTTP request to ${request.url} timed out after ${timeoutMs} ms`);
+    }
+
+    const response = await this.fetchOnce(request, url, remainingTimeoutMs, timeoutMs);
 
     if (REDIRECT_STATUS_CODES.has(response.statusCode) && response.headers.location) {
       if (redirectsRemaining <= 0) {
@@ -37,43 +46,76 @@ export class NodeHttpClient implements HttpClient {
       // matches fetch()/browser behavior. Same-origin redirects keep every
       // header, including Authorization, unchanged.
       const nextRequest = isSameOrigin(url, nextUrl) ? request : stripCredentialHeaders(request);
-      return this.fetchFollowingRedirects(nextRequest, nextUrl, redirectsRemaining - 1);
+      return this.fetchFollowingRedirects(nextRequest, nextUrl, redirectsRemaining - 1, deadline, timeoutMs);
     }
 
     return response;
   }
 
-  private async fetchOnce(request: HttpRequest, url: string): Promise<HttpResponse> {
+  private async fetchOnce(
+    request: HttpRequest,
+    url: string,
+    timeoutMs: number,
+    configuredTimeoutMs: number
+  ): Promise<HttpResponse> {
     const target = new URL(url);
     const transport = target.protocol === 'http:' ? http : https;
     const headers = this.ensureUserAgent(request.headers);
 
     return new Promise<HttpResponse>((resolve, reject) => {
-      const req = transport.request(
+      let settled = false;
+      const state: {
+        timeoutHandle?: NodeJS.Timeout;
+        requestHandle?: http.ClientRequest;
+      } = {};
+      const timeoutError = new Error(`HTTP request to ${request.url} timed out after ${configuredTimeoutMs} ms`);
+      const settle = (callback: () => void): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (state.timeoutHandle) {
+          clearTimeout(state.timeoutHandle);
+        }
+        callback();
+      };
+      const handleTimeout = (): void => {
+        settle(() => {
+          reject(timeoutError);
+          state.requestHandle?.destroy(timeoutError);
+        });
+      };
+
+      const requestHandle = transport.request(
         target,
         { method: request.method ?? 'GET', headers },
         (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (chunk: Buffer) => chunks.push(chunk));
           res.on('end', () => {
-            resolve({
+            settle(() => resolve({
               statusCode: res.statusCode ?? 0,
               body: new Uint8Array(Buffer.concat(chunks)),
               finalUrl: url,
               headers: flattenHeaders(res.headers)
-            });
+            }));
+          });
+          res.on('error', (error) => {
+            settle(() => reject(new Error(`HTTP request to ${url} failed: ${error.message}`)));
           });
         }
       );
+      state.requestHandle = requestHandle;
 
-      req.on('error', (error) => {
-        reject(new Error(`HTTP request to ${url} failed: ${error.message}`));
+      requestHandle.on('error', (error) => {
+        settle(() => reject(new Error(`HTTP request to ${url} failed: ${error.message}`)));
       });
+      state.timeoutHandle = setTimeout(handleTimeout, timeoutMs);
 
       if (request.body !== undefined) {
-        req.write(request.body);
+        requestHandle.write(request.body);
       }
-      req.end();
+      requestHandle.end();
     });
   }
 
@@ -93,7 +135,17 @@ export class NodeHttpClient implements HttpClient {
   }
 
   public async fetch(request: HttpRequest): Promise<HttpResponse> {
-    return this.fetchFollowingRedirects(request, request.url, request.maxRedirects ?? DEFAULT_MAX_REDIRECTS);
+    const timeoutMs = request.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error(`HTTP request timeout must be a positive finite number, got ${timeoutMs}`);
+    }
+    return this.fetchFollowingRedirects(
+      request,
+      request.url,
+      request.maxRedirects ?? DEFAULT_MAX_REDIRECTS,
+      Date.now() + timeoutMs,
+      timeoutMs
+    );
   }
 }
 

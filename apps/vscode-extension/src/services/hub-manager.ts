@@ -22,6 +22,7 @@ import {
   loadHubSourcesProgressively,
 } from '@ai-primitives-hub/app';
 import type {
+  HubAvailabilityResult,
   HubConfigStore,
   LoadHubSourcesOptions,
   LogEvent,
@@ -341,6 +342,7 @@ export class HubManager {
     if (!this.registryManager) {
       return {
         hubId: resolvedHubId,
+        onRegistered: () => Promise.resolve(),
         onFirstSettled: () => Promise.resolve(),
         onComplete: () => Promise.resolve()
       };
@@ -391,8 +393,11 @@ export class HubManager {
       return importedHubId;
     }
 
-    const { hubId: resolvedHubId, onComplete } = await this.importHubProgressively(reference, hubId);
-    void onComplete();
+    const { hubId: resolvedHubId, onRegistered, onComplete } = await this.importHubProgressively(reference, hubId);
+    await onRegistered();
+    void onComplete().catch((error) => {
+      this.logger.warn('Failed to complete imported hub source sync', error);
+    });
     return resolvedHubId;
   }
 
@@ -510,13 +515,25 @@ export class HubManager {
    * @returns true if hub is accessible, false otherwise
    */
   public async verifyHubAvailability(reference: HubReference): Promise<boolean> {
-    const available = await this.appHubManager.verifyHubAvailability(reference);
-    if (available) {
+    const result = await this.verifyHubAvailabilityDetailed(reference);
+    return result.available;
+  }
+
+  /**
+   * Verify a hub and preserve the failure reason for first-run notifications.
+   * @param reference Hub reference to verify
+   * @returns Availability and an optional failure reason
+   */
+  public async verifyHubAvailabilityDetailed(reference: HubReference): Promise<HubAvailabilityResult> {
+    const result = await this.appHubManager.verifyHubAvailabilityDetailed(reference);
+    if (result.available) {
       this.logger.debug(`Hub verification successful: ${reference.type}:${reference.location}`);
     } else {
-      this.logger.debug(`Hub verification failed: ${reference.type}:${reference.location}`);
+      this.logger.warn(
+        `Hub verification failed: ${reference.type}:${reference.location} — ${result.reason ?? 'Unknown reason'}`
+      );
     }
-    return available;
+    return result;
   }
 
   /**
@@ -622,7 +639,9 @@ export class HubManager {
             })
           }
         );
-        void onComplete();
+        void onComplete().catch((error) => {
+          this.logger.warn('Failed to complete hub source sync', error);
+        });
       }
     }
 
