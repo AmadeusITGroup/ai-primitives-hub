@@ -184,6 +184,36 @@ function showUnavailableHubNotifications(
   }
 }
 
+export interface InitialSourceSyncDependencies {
+  checkFirstRun: () => Promise<boolean>;
+  syncActiveHub: () => Promise<void>;
+  hasInitialSourceSync: () => boolean;
+  markInitialSourceSyncReady: () => void;
+}
+
+/**
+ * Coordinate startup without blocking activation on remote source work.
+ * @param dependencies Startup lifecycle callbacks.
+ * @returns Whether first-run setup initialized a hub.
+ */
+export async function startInitialSourceSync(
+  dependencies: InitialSourceSyncDependencies
+): Promise<boolean> {
+  const initializedFirstRun = await dependencies.checkFirstRun();
+
+  if (!initializedFirstRun) {
+    void dependencies.syncActiveHub().catch(() => undefined).finally(() => {
+      if (!dependencies.hasInitialSourceSync()) {
+        dependencies.markInitialSourceSyncReady();
+      }
+    });
+  } else if (!dependencies.hasInitialSourceSync()) {
+    dependencies.markInitialSourceSyncReady();
+  }
+
+  return initializedFirstRun;
+}
+
 /**
  * Run the first-run hub selector.
  * @param dependencies Hub workflow and VS Code notification dependencies.
@@ -1768,25 +1798,12 @@ export class PromptRegistryExtension {
       await this.checkForAutomaticUpdates();
 
       // Check if this is first run and show welcome message
-      const initializedFirstRun = await this.checkFirstRun();
-
-      // A hub selected during this activation is already current and its sources
-      // are being synchronized by the progressive first-run queue.
-      if (!initializedFirstRun) {
-        // Do not make extension activation wait for remote hub/source requests.
-        // The hub event handler starts source synchronization and resolves the
-        // initial-source-sync promise when that background work completes.
-        void this.syncActiveHub().finally(() => {
-          // If there is no active hub, or hub sync fails before emitting its
-          // event, release consumers that are waiting for initial readiness.
-          if (!this.initialSourceSyncPromise) {
-            this.markInitialSourceSyncReady();
-          }
-        });
-      } else if (!this.initialSourceSyncPromise) {
-        // First-run import already awaited its first progressive source sync.
-        this.markInitialSourceSyncReady();
-      }
+      await startInitialSourceSync({
+        checkFirstRun: () => this.checkFirstRun(),
+        syncActiveHub: () => this.syncActiveHub(),
+        hasInitialSourceSync: () => this.initialSourceSyncPromise !== undefined,
+        markInitialSourceSyncReady: () => this.markInitialSourceSyncReady()
+      });
 
       // Ensure only one profile is active (cleanup any multi-active state)
       await this.ensureSingleActiveProfile();

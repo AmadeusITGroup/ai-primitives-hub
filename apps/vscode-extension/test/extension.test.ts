@@ -3,7 +3,90 @@ import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
   runFirstRunHubSelector,
+  startInitialSourceSync,
 } from '../src/extension';
+
+suite('PromptRegistryExtension startup source sync', () => {
+  test('does not block activation while an existing hub sync runs', async () => {
+    let releaseSync!: () => void;
+    const syncPromise = new Promise<void>((resolve) => {
+      releaseSync = resolve;
+    });
+    let ready = false;
+
+    const startupPromise = startInitialSourceSync({
+      checkFirstRun: async () => false,
+      syncActiveHub: async () => syncPromise,
+      hasInitialSourceSync: () => false,
+      markInitialSourceSyncReady: () => {
+        ready = true;
+      }
+    });
+
+    assert.strictEqual(await startupPromise, false);
+    assert.strictEqual(ready, false);
+
+    releaseSync();
+    await syncPromise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(ready, true);
+  });
+
+  test('does not start a second sync or release readiness for a tracked first-run sync', async () => {
+    let syncStarted = false;
+    let ready = false;
+
+    const initialized = await startInitialSourceSync({
+      checkFirstRun: async () => true,
+      syncActiveHub: async () => {
+        syncStarted = true;
+      },
+      hasInitialSourceSync: () => true,
+      markInitialSourceSyncReady: () => {
+        ready = true;
+      }
+    });
+
+    assert.strictEqual(initialized, true);
+    assert.strictEqual(syncStarted, false);
+    assert.strictEqual(ready, false);
+  });
+
+  test('releases readiness when first-run setup has no source sync to track', async () => {
+    let ready = false;
+
+    const initialized = await startInitialSourceSync({
+      checkFirstRun: async () => true,
+      syncActiveHub: async () => undefined,
+      hasInitialSourceSync: () => false,
+      markInitialSourceSyncReady: () => {
+        ready = true;
+      }
+    });
+
+    assert.strictEqual(initialized, true);
+    assert.strictEqual(ready, true);
+  });
+
+  test('releases readiness when an existing-hub sync fails', async () => {
+    let ready = false;
+
+    const initialized = await startInitialSourceSync({
+      checkFirstRun: async () => false,
+      syncActiveHub: async () => {
+        throw new Error('remote hub unavailable');
+      },
+      hasInitialSourceSync: () => false,
+      markInitialSourceSyncReady: () => {
+        ready = true;
+      }
+    });
+
+    assert.strictEqual(initialized, false);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(ready, true);
+  });
+});
 
 suite('PromptRegistryExtension first-run hub selector', () => {
   let sandbox: sinon.SinonSandbox;
