@@ -211,76 +211,39 @@ describe('loadHubSources', () => {
     expect(result).toEqual({ added: 2, updated: 0, skipped: 1, removed: 0 });
   });
 
-  it('adds sources concurrently without exceeding the configured limit', async () => {
-    let activeAdds = 0;
-    let maxActiveAdds = 0;
-    let startedAdds = 0;
-    let releaseAdds: (() => void) | undefined;
-    const addsReleased = new Promise<void>((resolve) => {
-      releaseAdds = resolve;
+  it('continues loading and skips orphan pruning when an existing source update fails', async () => {
+    const existing = makeRegistrySource({
+      id: generateSourceId('awesome-copilot', 'https://github.com/github/awesome-copilot', {
+        branch: 'main',
+        collectionsPath: 'collections'
+      }),
+      hubId: 'hub-a'
     });
-    let firstBatchStarted: (() => void) | undefined;
-    const firstBatchReady = new Promise<void>((resolve) => {
-      firstBatchStarted = resolve;
+    const orphan = makeRegistrySource({
+      id: 'orphaned-source',
+      url: 'https://github.com/org/orphaned',
+      hubId: 'hub-a'
     });
-
-    ports.addSource = vi.fn(async () => {
-      activeAdds++;
-      startedAdds++;
-      maxActiveAdds = Math.max(maxActiveAdds, activeAdds);
-      if (startedAdds === 2) {
-        firstBatchStarted?.();
-      }
-      await addsReleased;
-      activeAdds--;
-    });
-
-    const sources = [
-      makeHubSource({ id: 's1', url: 'https://github.com/org/one' }),
-      makeHubSource({ id: 's2', url: 'https://github.com/org/two' }),
-      makeHubSource({ id: 's3', url: 'https://github.com/org/three' })
-    ];
-
-    const loading = loadHubSources('hub-a', sources, ports, undefined, { concurrency: 2 });
-    await firstBatchReady;
-
-    expect(startedAdds).toBe(2);
-    expect(maxActiveAdds).toBe(2);
-
-    releaseAdds?.();
-    await loading;
-
-    expect(startedAdds).toBe(3);
-    expect(maxActiveAdds).toBe(2);
-  });
-
-  it('notifies only after a source is added successfully', async () => {
-    const addedSources: string[] = [];
-    ports.addSource = vi.fn()
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('Source validation failed'));
+    ports = makePorts([existing, orphan]);
+    ports.updateSource = vi.fn().mockRejectedValue(new Error('storage unavailable'));
 
     const result = await loadHubSources(
       'hub-a',
       [
-        makeHubSource({ id: 's1', url: 'https://github.com/org/one' }),
-        makeHubSource({ id: 's2', url: 'https://github.com/org/two' })
+        makeHubSource(),
+        makeHubSource({ id: 'source-2', url: 'https://github.com/org/second' })
       ],
       ports,
       undefined,
-      {
-        concurrency: 2,
-        onSourceAdded: (source) => addedSources.push(source.id)
-      }
+      { concurrency: 2 }
     );
 
     expect(result).toEqual({ added: 1, updated: 0, skipped: 1, removed: 0 });
-    expect(addedSources).toEqual([
-      generateSourceId('awesome-copilot', 'https://github.com/org/one', {
-        branch: 'main',
-        collectionsPath: 'collections'
-      })
-    ]);
+    expect(ports.addSource).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://github.com/org/second'
+    }));
+    expect(ports.removeSource).not.toHaveBeenCalled();
+    expect(ports.sources).toContainEqual(orphan);
   });
 
   it('adds sources concurrently without exceeding the configured limit', async () => {

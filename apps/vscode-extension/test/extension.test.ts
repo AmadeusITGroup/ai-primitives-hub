@@ -93,4 +93,136 @@ suite('PromptRegistryExtension first-run hub selector', () => {
     assert.strictEqual(showQuickPickStub.calledOnce, true);
     releaseNotification();
   });
+
+  test('waits for the first sync, activates without reloading sources, and tracks completion', async () => {
+    let releaseFirstSettled!: () => void;
+    const firstSettled = new Promise<void>((resolve) => {
+      releaseFirstSettled = resolve;
+    });
+    let releaseComplete!: () => void;
+    const complete = new Promise<void>((resolve) => {
+      releaseComplete = resolve;
+    });
+    let importStarted!: () => void;
+    const importStartedPromise = new Promise<void>((resolve) => {
+      importStarted = resolve;
+    });
+    let trackedSourceSync: Promise<void> | undefined;
+    const setActiveHubStub = sandbox.stub().resolves();
+    const importHubProgressivelyStub = sandbox.stub().callsFake(async () => {
+      importStarted();
+      return {
+        hubId: 'verified-hub',
+        onFirstSettled: () => firstSettled,
+        onComplete: () => complete
+      };
+    });
+    const showQuickPickStub = sandbox.stub(vscode.window, 'showQuickPick').resolves({
+      label: '$(check) Verified Hub',
+      hubConfig: {
+        name: 'Verified Hub',
+        reference: { type: 'github', location: 'owner/verified-hub' }
+      }
+    } as any);
+    const showInformationStub = sandbox.stub(vscode.window, 'showInformationMessage').resolves();
+    const verifyHubAvailabilityDetailedStub = sandbox.stub().resolves({ available: true });
+
+    const selectorPromise = runFirstRunHubSelector({
+      hubManager: {
+        verifyHubAvailabilityDetailed: verifyHubAvailabilityDetailedStub,
+        importHubProgressively: importHubProgressivelyStub,
+        setActiveHub: setActiveHubStub
+      },
+      logger: {
+        debug: () => undefined,
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined
+      },
+      notifications: {
+        showError: sandbox.stub().resolves()
+      },
+      onInitialSourceSync: (sourceSyncPromise) => {
+        trackedSourceSync = sourceSyncPromise;
+      }
+    });
+
+    await importStartedPromise;
+    assert.strictEqual(setActiveHubStub.called, false);
+
+    releaseFirstSettled();
+    assert.strictEqual(await selectorPromise, true);
+    assert.deepStrictEqual(setActiveHubStub.firstCall.args, [
+      'verified-hub',
+      { loadSources: false }
+    ]);
+    assert.strictEqual(showInformationStub.calledOnce, true);
+    assert.ok(trackedSourceSync);
+
+    releaseComplete();
+    await trackedSourceSync;
+    assert.strictEqual(showQuickPickStub.calledOnce, true);
+  });
+
+  test('reports a verified-hub import failure and rethrows it', async () => {
+    const importError = new Error('hub config unavailable');
+    const showQuickPickStub = sandbox.stub(vscode.window, 'showQuickPick').resolves({
+      label: '$(check) Verified Hub',
+      hubConfig: {
+        name: 'Verified Hub',
+        reference: { type: 'github', location: 'owner/verified-hub' }
+      }
+    } as any);
+    const showErrorStub = sandbox.stub().resolves();
+    const verifyHubAvailabilityDetailedStub = sandbox.stub().resolves({ available: true });
+    const importHubProgressivelyStub = sandbox.stub().rejects(importError);
+
+    await assert.rejects(
+      runFirstRunHubSelector({
+        hubManager: {
+          verifyHubAvailabilityDetailed: verifyHubAvailabilityDetailedStub,
+          importHubProgressively: importHubProgressivelyStub,
+          setActiveHub: sandbox.stub()
+        },
+        logger: {
+          debug: () => undefined,
+          info: () => undefined,
+          warn: () => undefined,
+          error: () => undefined
+        },
+        notifications: { showError: showErrorStub }
+      }),
+      /hub config unavailable/
+    );
+
+    assert.strictEqual(showQuickPickStub.calledOnce, true);
+    assert.match(showErrorStub.firstCall.args[0], /Failed to import Verified Hub/);
+  });
+
+  test('returns false when custom hub import is cancelled', async () => {
+    sandbox.stub(vscode.window, 'showQuickPick').resolves({
+      label: '$(link-external) Custom Hub URL',
+      hubConfig: null
+    } as any);
+    const executeCommandStub = sandbox.stub(vscode.commands, 'executeCommand').resolves(undefined);
+    const verifyHubAvailabilityDetailedStub = sandbox.stub().resolves({ available: false });
+
+    const configured = await runFirstRunHubSelector({
+      hubManager: {
+        verifyHubAvailabilityDetailed: verifyHubAvailabilityDetailedStub,
+        importHubProgressively: sandbox.stub(),
+        setActiveHub: sandbox.stub()
+      },
+      logger: {
+        debug: () => undefined,
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined
+      },
+      notifications: { showError: sandbox.stub().resolves() }
+    });
+
+    assert.strictEqual(configured, false);
+    assert.strictEqual(executeCommandStub.calledOnceWithExactly('promptregistry.importHub'), true);
+  });
 });

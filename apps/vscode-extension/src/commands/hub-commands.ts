@@ -391,7 +391,6 @@ export class HubCommands {
             const sourceSyncPromise = progressiveImport.onComplete().catch((error) => {
               this.logger.warn('Failed to complete imported hub source sync', error);
             });
-            this.onInitialSourceSync?.(sourceSyncPromise);
             const importedHubId = progressiveImport.hubId;
 
             // Note: Hub profiles are NOT copied locally. They are accessed via
@@ -400,6 +399,7 @@ export class HubCommands {
 
             // Auto-activate the imported hub (sources already registered by importHub)
             await this.hubManager.setActiveHub(importedHubId, { loadSources: false });
+            this.onInitialSourceSync?.(sourceSyncPromise);
             this.logger.info(`Auto-activated imported hub: ${importedHubId}`);
 
             vscode.window.showInformationMessage(

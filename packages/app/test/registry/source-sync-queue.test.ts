@@ -87,13 +87,14 @@ describe('createSourceSyncQueue', () => {
   });
 
   it('onFirstSettled resolves after the first source settles (failure)', async () => {
-    // syncSource is expected to handle its own errors — the queue only calls
-    // .catch(() => undefined) as a safety net, so the callback swallows here.
-    const sync = () => Promise.reject(new Error('sync failed')).catch(() => undefined) as Promise<void>;
+    const sync = () => Promise.reject(new Error('sync failed'));
     const queue = createSourceSyncQueue(sync, 1);
     queue.enqueue('s1');
 
-    await queue.onFirstSettled(); // must resolve, not hang
+    await Promise.all([
+      queue.onFirstSettled(),
+      queue.onIdle()
+    ]);
   });
 
   it('onFirstSettled resolves immediately when already settled before promise is registered', async () => {
