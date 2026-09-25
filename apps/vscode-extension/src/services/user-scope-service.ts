@@ -26,6 +26,7 @@ import {
 } from 'node:util';
 import {
   expandPath,
+  getKnowledgeTargetPath,
   KIND_TO_ROUTE_KEY,
   resolveLayout,
   TransformerRegistry,
@@ -34,9 +35,11 @@ import {
   determineFileType,
   getSkillName,
   getTargetFileName,
+  toCopilotFileType,
 } from '@ai-primitives-hub/core';
 import type {
   CopilotFileType,
+  ManifestPlacementType,
   Target,
   TargetType,
 } from '@ai-primitives-hub/core';
@@ -75,6 +78,8 @@ export interface CopilotFile {
   transformedContent?: string;
 }
 
+type UserScopeFile = Omit<CopilotFile, 'type'> & { type: ManifestPlacementType };
+
 interface StorageMenuItem {
   id?: string;
   label?: string;
@@ -108,7 +113,6 @@ export class UserScopeService implements IScopeService {
   private readonly transformerRegistry = TransformerRegistry.withBuiltIns();
   private windowsHomeInWSL: string | undefined;
   private warnedWslFallback = false;
-  private cachedPromptsDir: string | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext, homeDir = os.homedir(), targetType?: TargetType) {
     this.logger = Logger.getInstance();
@@ -133,18 +137,21 @@ export class UserScopeService implements IScopeService {
     };
   }
 
-  private getTargetBaseDirectory(): string {
+  private getTargetEnvironment(): Record<string, string | undefined> {
     const wslUserDir = this.getWindowsWslUserDir();
     if (this.isRunningInWSL() && !wslUserDir && !this.warnedWslFallback) {
       this.warnedWslFallback = true;
       this.logger.warn('[UserScopeService] Unable to resolve Windows path from WSL. Generic Copilot primitives may not be visible.');
       void vscode.window.showWarningMessage('AI Primitives Hub: Unable to resolve Windows path from WSL. Generic Copilot primitives may not be visible.');
     }
-    const env = { HOME: wslUserDir ?? this.homeDir };
-    return expandPath(resolveLayout(this.getTarget()).baseDir, env);
+    return { HOME: wslUserDir ?? this.homeDir };
   }
 
-  private getTargetPrimitiveDirectory(type: CopilotFileType): string {
+  private getTargetBaseDirectory(): string {
+    return expandPath(resolveLayout(this.getTarget()).baseDir, this.getTargetEnvironment());
+  }
+
+  private getTargetPrimitiveDirectory(type: ManifestPlacementType): string {
     const routeKey = KIND_TO_ROUTE_KEY[type];
     if (routeKey === undefined) {
       throw new Error(`No ${type} route defined for target ${this.targetType}`);
@@ -154,6 +161,11 @@ export class UserScopeService implements IScopeService {
       throw new Error(`No ${type} route defined for target ${this.targetType}`);
     }
     return path.join(this.getTargetBaseDirectory(), route);
+  }
+
+  private resolveKnowledgeTargetPath(bundlePath: string): string | null {
+    const layout = resolveLayout(this.getTarget());
+    return getKnowledgeTargetPath(layout, expandPath(layout.baseDir, this.getTargetEnvironment()), bundlePath);
   }
 
   private transformContent(filePath: string, content: string): string {
@@ -220,13 +232,8 @@ export class UserScopeService implements IScopeService {
    * so we need to sync prompts to the Windows filesystem, not the WSL filesystem.
    */
   private getCopilotPromptsDirectory(): string {
-    if (this.cachedPromptsDir) {
-      return this.cachedPromptsDir;
-    }
-
     const resolved = this.getTargetPrimitiveDirectory('prompt');
     this.logger.debug(`[UserScopeService] Resolved ${this.targetType} user primitive directory: ${resolved}`);
-    this.cachedPromptsDir = resolved;
     return resolved;
   }
 
@@ -407,12 +414,17 @@ export class UserScopeService implements IScopeService {
     promptDef: ManifestPrompt,
     sourcePath: string,
     bundleId: string
-  ): CopilotFile {
+  ): CopilotFile | null {
     // Check if tags or filename indicate type
     const tags = promptDef.tags ?? [];
 
     // Use manifest type if provided, otherwise detect from file
-    const type: CopilotFileType = promptDef.type ?? determineFileType(sourcePath, tags);
+    const type = promptDef.type === undefined
+      ? determineFileType(sourcePath, tags)
+      : toCopilotFileType(promptDef.type);
+    if (type === null) {
+      return null;
+    }
 
     // Create target path: promptId.type.md directly in the generic Copilot directory
     const targetFileName = getTargetFileName(promptDef.id, type);
@@ -428,6 +440,17 @@ export class UserScopeService implements IScopeService {
     };
   }
 
+  private determineKnowledgeFile(
+    promptDef: ManifestPrompt,
+    sourcePath: string,
+    bundleId: string
+  ): UserScopeFile | null {
+    const targetPath = this.resolveKnowledgeTargetPath(promptDef.file);
+    return targetPath === null
+      ? null
+      : { bundleId, type: 'knowledge', name: promptDef.name, sourcePath, targetPath };
+  }
+
   /**
    * Create symlink (or copy if symlink fails) to Copilot directory
    *
@@ -436,7 +459,7 @@ export class UserScopeService implements IScopeService {
    * returns false for broken symlinks.
    * @param file
    */
-  private async createCopilotFile(file: CopilotFile): Promise<void> {
+  private async createUserScopeFile(file: UserScopeFile): Promise<void> {
     try {
       // Check if target already exists using lstat() to detect broken symlinks
       // fs.existsSync() returns false for broken symlinks, but lstat() can still read them
@@ -489,7 +512,7 @@ export class UserScopeService implements IScopeService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`Failed to create Copilot file: ${file.targetPath}`, {
+      this.logger.error(`Failed to create user-scope file: ${file.targetPath}`, {
         message: errorMessage,
         stack: errorStack,
         bundleId: file.bundleId,
@@ -572,12 +595,6 @@ export class UserScopeService implements IScopeService {
     try {
       this.logger.debug(`Syncing bundle: ${bundleId}`);
 
-      // Get prompts directory
-      const promptsDir = this.getCopilotPromptsDirectory();
-
-      // Ensure base Copilot prompts directory exists
-      await this.ensureDirectory(promptsDir);
-
       // Read deployment manifest
       const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
 
@@ -594,6 +611,11 @@ export class UserScopeService implements IScopeService {
         return;
       }
 
+      if (manifest.prompts.some((prompt) => prompt.type !== 'knowledge')) {
+        // Ensure base Copilot prompts directory exists
+        await this.ensureDirectory(this.getCopilotPromptsDirectory());
+      }
+
       // Sync each prompt/skill
       for (const promptDef of manifest.prompts) {
         // Handle skills differently - they are directories
@@ -603,22 +625,28 @@ export class UserScopeService implements IScopeService {
         }
 
         const sourcePath = path.join(bundlePath, promptDef.file);
-
         if (!fs.existsSync(sourcePath)) {
           this.logger.warn(`Prompt file not found: ${sourcePath}`);
           continue;
         }
 
         // Detect file type and create appropriate filename
-        const copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+        const scopedFile = promptDef.type === 'knowledge'
+          ? this.determineKnowledgeFile(promptDef, sourcePath, bundleId)
+          : this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+        if (scopedFile === null) {
+          this.logger.warn(`Unsupported manifest placement type: ${promptDef.type}`);
+          continue;
+        }
+
         const sourceContent = await readFile(sourcePath, 'utf8');
         const transformedContent = this.transformContent(promptDef.file, sourceContent);
         if (transformedContent !== sourceContent) {
-          copilotFile.transformedContent = transformedContent;
+          scopedFile.transformedContent = transformedContent;
         }
 
         // Create symlink or copy
-        await this.createCopilotFile(copilotFile);
+        await this.createUserScopeFile(scopedFile);
       }
     } catch (error) {
       this.logger.error(`Failed to sync bundle ${bundleId}`, error as Error);
@@ -634,11 +662,6 @@ export class UserScopeService implements IScopeService {
   public async unsyncBundle(bundleId: string): Promise<void> {
     try {
       this.logger.debug(`Removing Copilot files for bundle: ${bundleId}`);
-
-      const promptsDir = this.getCopilotPromptsDirectory();
-      if (!fs.existsSync(promptsDir)) {
-        return;
-      }
 
       // Read the bundle's manifest to find which files were synced
       const bundlePath = path.join(this.context.globalStorageUri.fsPath, 'bundles', bundleId);
@@ -671,29 +694,34 @@ export class UserScopeService implements IScopeService {
         }
 
         const sourcePath = path.join(bundlePath, promptDef.file);
-        const copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+        const targetPath = promptDef.type === 'knowledge'
+          ? this.resolveKnowledgeTargetPath(promptDef.file)
+          : this.determineCopilotFileType(promptDef, sourcePath, bundleId)?.targetPath ?? null;
+        if (targetPath === null) {
+          continue;
+        }
 
         // Use checkPathExists to detect broken symlinks (fs.existsSync returns false for broken symlinks)
-        const existingEntry = await checkPathExists(copilotFile.targetPath);
+        const existingEntry = await checkPathExists(targetPath);
 
         if (existingEntry.exists) {
           // Only remove if it's a symlink (to avoid deleting user's custom files)
           if (existingEntry.isSymbolicLink) {
-            await unlink(copilotFile.targetPath);
+            await unlink(targetPath);
             if (existingEntry.isBroken) {
-              this.logger.debug(`Removed broken symlink: ${path.basename(copilotFile.targetPath)}`);
+              this.logger.debug(`Removed broken symlink: ${path.basename(targetPath)}`);
             } else {
-              this.logger.debug(`Removed: ${path.basename(copilotFile.targetPath)}`);
+              this.logger.debug(`Removed: ${path.basename(targetPath)}`);
             }
             removedCount++;
           } else {
             // In some environments (like WSL -> Windows), symlinks might fail and fall back to copy
             // Check if file content matches source before deleting
             try {
-              if (fs.existsSync(copilotFile.sourcePath)) {
-                this.logger.debug(`Target is a regular file, checking content before removal: ${path.basename(copilotFile.targetPath)}`);
-                const targetContent = await readFile(copilotFile.targetPath, 'utf8');
-                const sourceContent = await readFile(copilotFile.sourcePath, 'utf8');
+              if (fs.existsSync(sourcePath)) {
+                this.logger.debug(`Target is a regular file, checking content before removal: ${path.basename(targetPath)}`);
+                const targetContent = await readFile(targetPath, 'utf8');
+                const sourceContent = await readFile(sourcePath, 'utf8');
                 const transformedContent = this.transformContent(promptDef.file, sourceContent);
 
                 // Normalize line endings (CRLF -> LF) for comparison
@@ -701,23 +729,23 @@ export class UserScopeService implements IScopeService {
                 const normalizedSource = transformedContent.replace(/\r\n/g, '\n');
 
                 if (normalizedTarget === normalizedSource) {
-                  await unlink(copilotFile.targetPath);
-                  this.logger.debug(`Removed copied file: ${path.basename(copilotFile.targetPath)}`);
+                  await unlink(targetPath);
+                  this.logger.debug(`Removed copied file: ${path.basename(targetPath)}`);
                   removedCount++;
                 } else {
-                  this.logger.warn(`Skipping modified file: ${path.basename(copilotFile.targetPath)}`);
+                  this.logger.warn(`Skipping modified file: ${path.basename(targetPath)}`);
                 }
               } else {
-                this.logger.warn(`Skipping non-symlink file (source not found): ${path.basename(copilotFile.targetPath)}`);
+                this.logger.warn(`Skipping non-symlink file (source not found): ${path.basename(targetPath)}`);
               }
             } catch (err) {
-              this.logger.warn(`Failed to compare/remove file ${path.basename(copilotFile.targetPath)}: ${err}`);
+              this.logger.warn(`Failed to compare/remove file ${path.basename(targetPath)}: ${err}`);
             }
           }
         }
       }
 
-      this.logger.info(`✅ Removed ${removedCount} Copilot file(s) for bundle: ${bundleId}`);
+      this.logger.info(`✅ Removed ${removedCount} user-scope file(s) for bundle: ${bundleId}`);
     } catch (error) {
       this.logger.error(`Failed to unsync bundle ${bundleId}`, error as Error);
     }

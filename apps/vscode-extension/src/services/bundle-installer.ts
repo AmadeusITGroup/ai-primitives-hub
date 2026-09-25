@@ -19,6 +19,7 @@ import {
   promisify,
 } from 'node:util';
 import {
+  getKnowledgeRelativePath,
   InstallPipeline,
   InstallPipelineError,
 } from '@ai-primitives-hub/app';
@@ -29,10 +30,14 @@ import type {
   BundleSpec,
   ExtractedFiles,
   Installable,
+  ManifestPlacementType,
   Target,
   TargetType,
   TargetWriter,
   TargetWriteResult,
+} from '@ai-primitives-hub/core';
+import {
+  toCopilotFileType,
 } from '@ai-primitives-hub/core';
 import {
   ZipBundleExtractor,
@@ -55,7 +60,6 @@ import {
   RepositoryCommitMode,
 } from '../types/registry';
 import {
-  CopilotFileType,
   determineFileType,
   getSkillName,
   getTargetFileName,
@@ -254,29 +258,55 @@ export class BundleInstaller {
       // the same service (and layout resolution) that wrote the files — so the
       // lockfile is collected from the actual install location.
       const repoService = new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
+      const getTargetDirectory = (type: ManifestPlacementType): string | null => {
+        try {
+          return repoService.getTargetDirectory(type);
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith('No repository route defined')) {
+            return null;
+          }
+          throw error;
+        }
+      };
 
       // Collect files from the host-appropriate directories based on manifest
       for (const promptDef of manifest.prompts) {
-        const promptId = normalizePromptId(promptDef.id);
-        const fileType = (promptDef.type as CopilotFileType) || determineFileType(promptDef.file, promptDef.tags);
-        const targetDir = repoService.getTargetDirectory(fileType);
-
-        if (fileType === 'skill') {
+        const placementType = promptDef.type ?? determineFileType(promptDef.file, promptDef.tags);
+        if (placementType === 'skill') {
           // For skills, collect all files in the skill directory
+          const targetDir = getTargetDirectory('skill');
+          if (targetDir === null) {
+            continue;
+          }
+          const promptId = normalizePromptId(promptDef.id);
           const skillDir = path.join(workspaceRoot, targetDir, promptId);
           if (fs.existsSync(skillDir)) {
             await this.collectFromDirectory(skillDir, workspaceRoot, entries);
           }
-        } else {
-          // For other file types, collect the single file
-          const targetFileName = getTargetFileName(promptId, fileType);
-          const targetPath = path.join(workspaceRoot, targetDir, targetFileName);
+          continue;
+        }
 
-          if (fs.existsSync(targetPath)) {
-            const relativePath = path.relative(workspaceRoot, targetPath);
-            const checksum = await calculateFileChecksum(targetPath);
-            entries.push({ path: relativePath, checksum });
+        // For other file types, collect the single file
+        let targetPath: string | null = null;
+        if (placementType === 'knowledge') {
+          const relativePath = getKnowledgeRelativePath(promptDef.file);
+          const targetDir = getTargetDirectory('knowledge');
+          if (relativePath !== null && targetDir !== null) {
+            targetPath = path.join(workspaceRoot, targetDir, relativePath);
           }
+        } else {
+          const fileType = toCopilotFileType(placementType);
+          const targetDir = fileType === null ? null : getTargetDirectory(fileType);
+          if (fileType !== null && targetDir !== null) {
+            const promptId = normalizePromptId(promptDef.id);
+            targetPath = path.join(workspaceRoot, targetDir, getTargetFileName(promptId, fileType));
+          }
+        }
+
+        if (targetPath !== null && fs.existsSync(targetPath)) {
+          const relativePath = path.relative(workspaceRoot, targetPath);
+          const checksum = await calculateFileChecksum(targetPath);
+          entries.push({ path: relativePath, checksum });
         }
       }
 

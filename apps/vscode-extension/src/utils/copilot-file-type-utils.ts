@@ -21,4 +21,5 @@ export {
   getTargetFileName,
   isSkillDirectory,
   normalizePromptId,
+  toCopilotFileType,
 } from '@ai-primitives-hub/core';

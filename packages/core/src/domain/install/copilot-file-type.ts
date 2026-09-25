@@ -47,6 +47,21 @@ export function isCopilotFileType(value: ManifestPlacementType): value is Copilo
 }
 
 /**
+ * Convert canonical manifest kinds to supported Copilot filename types.
+ * @param value - Manifest placement type.
+ * @returns Copilot file type, or null when no Copilot filename mapping exists.
+ */
+export function toCopilotFileType(value: ManifestPlacementType): CopilotFileType | null {
+  if (value === 'instruction') {
+    return 'instructions';
+  }
+  if (value === 'chat-mode') {
+    return 'chatmode';
+  }
+  return isCopilotFileType(value) ? value : null;
+}
+
+/**
  * File extension mappings for each Copilot file type
  */
 const FILE_EXTENSIONS: Record<CopilotFileType, string> = {

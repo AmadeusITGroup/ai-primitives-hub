@@ -333,6 +333,14 @@ flowchart TD
 
 All bundle metadata (version, sourceId, files, etc.) is preserved during the move.
 
+The Git-exclude update is intentionally scoped to the selected bundle's
+`files` entries in the source lockfile. Mode switching does not scan managed
+directories, infer ownership from existing files, or automatically include
+`.github/copilot-instructions.md`. An empty or stale file list therefore cannot
+be repaired by switching modes; clean up or reinstall the bundle first.
+Because the recorded paths preserve the installation host's layout, cross-host
+commit-mode switching is outside this contract and remains separately untested.
+
 ### Backward Compatibility and Migration
 
 The dual-lockfile architecture maintains backward compatibility with existing lockfiles:

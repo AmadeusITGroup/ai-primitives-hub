@@ -276,6 +276,51 @@ prompts:
       assert.ok(!mockUserScopeService.syncBundle.called, 'User scope sync should not be used for repository-scoped skills');
     });
 
+    test('records the installed source-relative knowledge path in the repository lockfile', async () => {
+      const bundleId = testBundle.id;
+      const sourceFile = 'specifications/RDP/core_layer/AGENT_INDEX.md';
+      const installedFile = path.join(tempDir, '.github', 'knowledge', sourceFile);
+      mockRepositoryScopeService.syncBundle.resetHistory();
+      mockRepositoryScopeService.syncBundle.onFirstCall().callsFake(() => {
+        fs.mkdirSync(path.dirname(installedFile), { recursive: true });
+        fs.writeFileSync(installedFile, '# Knowledge');
+        return Promise.resolve();
+      });
+
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${bundleId}
+version: ${testBundle.version}
+name: ${testBundle.name}
+description: Test knowledge bundle
+author: test
+prompts:
+  - id: AGENT_INDEX
+    name: Agent Index
+    description: Knowledge index
+    file: ${sourceFile}
+    type: knowledge
+`));
+      zip.addFile(sourceFile, Buffer.from('# Knowledge'));
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      let lockfileFiles: { path: string; checksum: string }[] | undefined;
+      try {
+        await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'github');
+        lockfileFiles = mockLockfileManager.createOrUpdate.firstCall.args[0].files;
+      } finally {
+        mockRepositoryScopeService.syncBundle.resetBehavior();
+        mockRepositoryScopeService.syncBundle.resolves();
+      }
+
+      assert.ok(lockfileFiles);
+      assert.deepStrictEqual(lockfileFiles.map((file) => file.path), [
+        '.github/knowledge/specifications/RDP/core_layer/AGENT_INDEX.md'
+      ]);
+    });
+
     test('should call LockfileManager.createOrUpdate for repository scope installation', async () => {
       // Requirements: 4.1
       // Verify lockfile is updated when installing at repository scope

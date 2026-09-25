@@ -2,7 +2,7 @@
  * RepositoryScopeService Unit Tests
  *
  * Tests for repository-level bundle installation service.
- * Handles file placement in .github/ directories and git exclude management.
+ * Handles file placement in host-appropriate directories and git exclude management.
  *
  * Requirements: 1.2-1.7, 3.1-3.7
  */
@@ -570,7 +570,11 @@ suite('RepositoryScopeService', () => {
       ]);
 
       // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'commit');
+      const promptPath = path.join(promptsDir, 'test.prompt.md');
+      createLockfile(bundleId, 'commit', [{
+        path: path.relative(workspaceRoot, promptPath),
+        checksum: calculateChecksumSync(promptPath)
+      }]);
 
       await service.switchCommitMode(bundleId, 'local-only');
 
@@ -580,6 +584,101 @@ suite('RepositoryScopeService', () => {
         excludeContent.includes('.github/prompts/test.prompt.md'),
         'Git exclude should contain file path after switching to local-only'
       );
+    });
+
+    test('should only update paths recorded for the selected bundle', async () => {
+      createGitDirectory();
+
+      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+      fs.mkdirSync(promptsDir, { recursive: true });
+      const selectedPath = path.join(promptsDir, 'selected.prompt.md');
+      const otherBundlePath = path.join(promptsDir, 'other.prompt.md');
+      const untrackedPath = path.join(promptsDir, 'untracked.prompt.md');
+      fs.writeFileSync(selectedPath, '# Selected');
+      fs.writeFileSync(otherBundlePath, '# Other bundle');
+      fs.writeFileSync(untrackedPath, '# Untracked');
+
+      const conventionPath = path.join(workspaceRoot, '.github', 'copilot-instructions.md');
+      fs.writeFileSync(conventionPath, '# Repository instructions');
+
+      const selectedBundleId = 'selected-bundle';
+      const otherBundleId = 'other-bundle';
+      createLockfile(selectedBundleId, 'commit', [{
+        path: '.github/prompts/selected.prompt.md',
+        checksum: calculateChecksumSync(selectedPath)
+      }]);
+
+      type TestLockfile = {
+        bundles: Record<string, {
+          version: string;
+          sourceId: string;
+          sourceType: string;
+          installedAt: string;
+          files: { path: string; checksum: string }[];
+        }>;
+      };
+      const lockfilePath = path.join(workspaceRoot, 'prompt-registry.lock.json');
+      const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8')) as TestLockfile;
+      lockfile.bundles[otherBundleId] = {
+        ...lockfile.bundles[selectedBundleId],
+        files: [{
+          path: '.github/prompts/other.prompt.md',
+          checksum: calculateChecksumSync(otherBundlePath)
+        }]
+      };
+      fs.writeFileSync(lockfilePath, JSON.stringify(lockfile, null, 2));
+
+      await service.switchCommitMode(selectedBundleId, 'local-only');
+
+      const excludedPaths = (readGitExclude() ?? '').split(/\r?\n/);
+      assert.ok(excludedPaths.includes('.github/prompts/selected.prompt.md'));
+      assert.ok(!excludedPaths.includes('.github/prompts/other.prompt.md'));
+      assert.ok(!excludedPaths.includes('.github/prompts/untracked.prompt.md'));
+      assert.ok(!excludedPaths.includes('.github/copilot-instructions.md'));
+    });
+
+    test('should not discover files when the selected bundle has no recorded paths', async () => {
+      createGitDirectory();
+
+      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+      fs.mkdirSync(promptsDir, { recursive: true });
+      fs.writeFileSync(path.join(promptsDir, 'untracked.prompt.md'), '# Untracked');
+      fs.writeFileSync(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), '# Instructions');
+
+      const bundleId = 'empty-files-bundle';
+      createLockfile(bundleId, 'commit');
+
+      await service.switchCommitMode(bundleId, 'local-only');
+
+      const excludedPaths = (readGitExclude() ?? '')
+        .split(/\r?\n/)
+        .filter((entry) => entry.length > 0 && entry !== '# Prompt Registry (local)');
+      assert.deepStrictEqual(excludedPaths, []);
+    });
+
+    test('does not exclude unrelated files sharing a knowledge subdirectory', async () => {
+      createGitDirectory();
+      const knowledgeDir = path.join(workspaceRoot, '.github', 'knowledge', 'specifications', 'RDP');
+      fs.mkdirSync(knowledgeDir, { recursive: true });
+      const installedKnowledge = path.join(knowledgeDir, 'AGENT_INDEX.md');
+      const unrelatedFile = path.join(knowledgeDir, 'company-architecture.md');
+      fs.writeFileSync(installedKnowledge, '# Installed knowledge');
+      fs.writeFileSync(unrelatedFile, '# User file');
+
+      const bundleId = 'knowledge-switch-bundle';
+      createLockfile(bundleId, 'commit', [{
+        path: path.relative(workspaceRoot, installedKnowledge),
+        checksum: calculateChecksumSync(installedKnowledge)
+      }]);
+
+      await service.switchCommitMode(bundleId, 'local-only');
+
+      const excludeContent = readGitExclude();
+      assert.ok(excludeContent, 'Git exclude file should exist');
+      const excludedPaths = excludeContent.split(/\r?\n/);
+      assert.ok(excludedPaths.includes('.github/knowledge/specifications/RDP/AGENT_INDEX.md'));
+      assert.ok(!excludedPaths.includes('.github/knowledge/specifications'));
+      assert.ok(!excludedPaths.includes('.github/knowledge/specifications/RDP/company-architecture.md'));
     });
 
     test('should remove paths from git exclude when switching from local-only to commit', async () => {
@@ -598,7 +697,11 @@ suite('RepositoryScopeService', () => {
       ]);
 
       // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'local-only');
+      const promptPath = path.join(promptsDir, 'test.prompt.md');
+      createLockfile(bundleId, 'local-only', [{
+        path: path.relative(workspaceRoot, promptPath),
+        checksum: calculateChecksumSync(promptPath)
+      }]);
 
       await service.switchCommitMode(bundleId, 'commit');
 
@@ -1370,7 +1473,7 @@ prompts:
       }
     });
 
-    test('switchCommitMode scans host-aware dirs (.kiro) on a Kiro host', async () => {
+    test('switchCommitMode uses tracked host-aware file paths on a Kiro host', async () => {
       createGitDirectory();
       const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
       const bundleId = 'kiro-switch-bundle';
@@ -1380,7 +1483,11 @@ prompts:
       fs.mkdirSync(steeringDir, { recursive: true });
       fs.writeFileSync(path.join(steeringDir, 'test.prompt.md'), '# Prompt');
 
-      createLockfile(bundleId, 'commit');
+      const promptPath = path.join(steeringDir, 'test.prompt.md');
+      createLockfile(bundleId, 'commit', [{
+        path: path.relative(workspaceRoot, promptPath),
+        checksum: calculateChecksumSync(promptPath)
+      }]);
 
       await kiroService.switchCommitMode(bundleId, 'local-only');
 

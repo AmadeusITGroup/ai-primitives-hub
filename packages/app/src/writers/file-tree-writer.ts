@@ -41,10 +41,10 @@ import {
   expandPath,
   getSkillName,
   getTargetFileName,
-  isCopilotFileType,
   manifestPlacementTypeToPrimitiveKind,
   normalizePrimitiveKind,
   normalizePromptId,
+  toCopilotFileType,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -106,7 +106,9 @@ export interface ManifestPlacementItem {
  */
 export const KIND_TO_ROUTE_KEY: Partial<Record<ManifestPlacementType, string>> = {
   prompt: 'prompts/',
+  instruction: 'instructions/',
   instructions: 'instructions/',
+  'chat-mode': 'agents/',
   chatmode: 'agents/',
   agent: 'agents/',
   skill: 'skills/',
@@ -361,6 +363,15 @@ export class FileTreeTargetWriter implements TargetWriter {
     await verifyWrittenBytes(this.opts.fs, outPath, new TextEncoder().encode(content));
   }
 
+  public async getKnowledgeTargetPath(target: Target, bundlePath: string): Promise<string | null> {
+    const layout = await this.resolveLayout(target);
+    if (target.allowedKinds !== undefined
+      && !target.allowedKinds.some((kind) => (normalizePrimitiveKind(kind) ?? kind) === 'knowledge')) {
+      return null;
+    }
+    return getKnowledgeTargetPath(layout, expandPath(layout.baseDir, this.opts.env), bundlePath);
+  }
+
   /**
    * Write bundle files into the target using manifest-driven, ID-based
    * renaming rather than `write()`'s prefix-preserving routing.
@@ -427,14 +438,14 @@ export class FileTreeTargetWriter implements TargetWriter {
         skipped.push(item.file);
         continue;
       }
-      const relativePath = type === 'knowledge'
-        ? getKnowledgeRelativePath(item.file)
-        : (isCopilotFileType(type) ? getTargetFileName(item.id, type) : null);
-      if (relativePath === null) {
+      const copilotType = type === 'knowledge' ? null : toCopilotFileType(type);
+      const outPath = type === 'knowledge'
+        ? getKnowledgeTargetPath(layout, baseDir, item.file)
+        : (copilotType === null ? null : path.join(baseDir, outPrefix, getTargetFileName(item.id, copilotType)));
+      if (outPath === null) {
         skipped.push(item.file);
         continue;
       }
-      const outPath = path.join(baseDir, outPrefix, relativePath);
       await this.writeContent(target, item.file, bytes, outPath);
       written.push(outPath);
       writtenBundlePaths.push(item.file);
@@ -582,7 +593,7 @@ const routeToKind = (prefix: string): PrimitiveKind | null => {
     ?? null;
 };
 
-const getKnowledgeRelativePath = (bundlePath: string): string | null => {
+export const getKnowledgeRelativePath = (bundlePath: string): string | null => {
   const normalized = bundlePath.replaceAll('\\', '/');
   if (path.posix.isAbsolute(normalized) || normalized.split('/').includes('..')) {
     return null;
@@ -599,4 +610,17 @@ const getKnowledgeRelativePath = (bundlePath: string): string | null => {
 
   const relativePath = canonicalPath.slice('knowledge/'.length);
   return relativePath.length > 0 ? relativePath : null;
+};
+
+export const getKnowledgeTargetPath = (
+  layout: TargetLayout,
+  baseDir: string,
+  bundlePath: string
+): string | null => {
+  const routeKey = KIND_TO_ROUTE_KEY.knowledge;
+  const outPrefix = routeKey === undefined ? undefined : layout.kindRoutes[routeKey];
+  const relativePath = getKnowledgeRelativePath(bundlePath);
+  return outPrefix === undefined || relativePath === null
+    ? null
+    : path.join(baseDir, outPrefix, relativePath);
 };

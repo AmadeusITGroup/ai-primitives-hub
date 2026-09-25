@@ -33,6 +33,9 @@ import * as yaml from 'js-yaml';
 import {
   RegistryStorage,
 } from '../storage/registry-storage';
+import type {
+  Lockfile,
+} from '../types/lockfile';
 import {
   DeploymentManifest,
   RepositoryCommitMode,
@@ -326,7 +329,7 @@ export class RepositoryScopeService implements IScopeService {
     writer: FileTreeTargetWriter,
     target: Target,
     bundlePath: string,
-    promptDef: { file: string; type?: string; tags?: string[] },
+    promptDef: { file: string; type?: ManifestPlacementType; tags?: string[] },
     promptId: string,
     tracker: InstallationTracker
   ): Promise<void> {
@@ -339,14 +342,7 @@ export class RepositoryScopeService implements IScopeService {
       return;
     }
 
-    let fileType: ManifestPlacementType;
-    if (promptDef.type === 'knowledge') {
-      fileType = 'knowledge';
-    } else if (promptDef.type === undefined) {
-      fileType = determineFileType(promptDef.file, promptDef.tags);
-    } else {
-      fileType = promptDef.type as CopilotFileType;
-    }
+    const fileType = promptDef.type ?? determineFileType(promptDef.file, promptDef.tags);
     const files = new Map<string, Uint8Array>([[promptDef.file, await readFile(sourcePath)]]);
     const item: ManifestPlacementItem = { id: promptId, file: promptDef.file, type: fileType, tags: promptDef.tags };
     const result = await writer.writeManifestItems(target, files, [item]);
@@ -881,11 +877,11 @@ export class RepositoryScopeService implements IScopeService {
       // Read both lockfiles to get complete picture
       const mainLockfile = await lockfileManager.read();
       const localLockfilePath = lockfileManager.getLocalLockfilePath();
-      let localLockfile = null;
+      let localLockfile: Lockfile | null = null;
       if (fs.existsSync(localLockfilePath)) {
         try {
           const content = await readFile(localLockfilePath, 'utf8');
-          localLockfile = JSON.parse(content);
+          localLockfile = JSON.parse(content) as Lockfile;
         } catch {
           // Ignore parse errors
         }
@@ -983,6 +979,10 @@ export class RepositoryScopeService implements IScopeService {
    * Switch the commit mode for a bundle
    * @param bundleId - Bundle identifier
    * @param newMode - New commit mode
+   *
+   * Git-exclude updates are intentionally limited to paths recorded for this
+   * bundle in the repository lockfile. This method does not scan managed
+   * directories or infer ownership from files that are not recorded there.
    */
   public async switchCommitMode(bundleId: string, newMode: RepositoryCommitMode): Promise<void> {
     try {
@@ -1005,57 +1005,13 @@ export class RepositoryScopeService implements IScopeService {
         return;
       }
 
-      // Find installed files in the host-appropriate managed directories.
-      // The lockfile files point to the bundle cache, not the installed
-      // location, so we scan the host-aware destination dirs (e.g. .github/*
-      // for VS Code, .kiro/* for Kiro) for files that belong to this bundle.
-      const filePaths: string[] = [];
+      const filePaths = bundle.manifest.common.files;
+      const pathsForExclude = this.consolidateSkillPathsForGitExclude(filePaths);
+      this.logger.debug(`[RepositoryScopeService] Found ${filePaths.length} tracked files to update git exclude for`);
 
-      // Managed primitive kinds; deduped because several kinds may resolve to
-      // the same directory on some hosts (e.g. prompt + instructions ->
-      // .kiro/steering/ on Kiro).
-      const managedKinds: ManifestPlacementType[] = ['prompt', 'instructions', 'agent', 'skill', 'knowledge'];
-      const scannedDirs = new Set<string>();
-
-      for (const kind of managedKinds) {
-        let relativeDir: string;
-        try {
-          relativeDir = this.getTargetDirectory(kind).replace(/[/\\]+$/, '');
-        } catch (error) {
-          if (!(error instanceof Error) || !error.message.startsWith('No repository route defined')) {
-            throw error;
-          }
-          continue;
-        }
-        if (scannedDirs.has(relativeDir)) {
-          continue;
-        }
-        scannedDirs.add(relativeDir);
-
-        const absoluteDir = path.join(this.workspaceRoot, relativeDir);
-        if (!fs.existsSync(absoluteDir)) {
-          continue;
-        }
-
-        // Top-level entries: files for prompt/instructions/agent, skill
-        // directories for the skill kind. Both are valid git-exclude targets.
-        const entries = await readdir(absoluteDir);
-        for (const entry of entries) {
-          filePaths.push(path.join(relativeDir, entry));
-        }
-      }
-
-      // Check for the VS Code-specific copilot-instructions.md convention file
-      // (harmless no-op on non-VS-Code hosts, where it will not exist).
-      const copilotInstructionsPath = path.join(this.workspaceRoot, '.github', 'copilot-instructions.md');
-      if (fs.existsSync(copilotInstructionsPath)) {
-        filePaths.push('.github/copilot-instructions.md');
-      }
-
-      this.logger.debug(`[RepositoryScopeService] Found ${filePaths.length} files to update git exclude for`);
-
-      // Update git exclude based on new mode
-      await (newMode === 'local-only' ? this.addToGitExclude(filePaths) : this.removeFromGitExclude(filePaths));
+      await (newMode === 'local-only'
+        ? this.addToGitExclude(pathsForExclude)
+        : this.removeFromGitExclude(pathsForExclude));
 
       this.logger.info(`[RepositoryScopeService] ✅ Switched ${bundleId} to ${newMode} mode`);
     } catch (error) {
