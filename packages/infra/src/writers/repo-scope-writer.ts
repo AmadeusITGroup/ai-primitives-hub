@@ -425,7 +425,7 @@ export class RepositoryScopeWriter {
       }
 
       try {
-        await this.fs.remove(resolvedPath);
+        await this.fs.remove(p);
       } catch {
         // Ignore errors if file doesn't exist
       }
