@@ -1068,6 +1068,27 @@ describe('loadHubSourcesProgressively', () => {
     expect(synced.toSorted()).toEqual(addedIds.toSorted());
   });
 
+  it('logs background sync failures without rejecting completion', async () => {
+    const { events, onLog } = collectEvents();
+    const { onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [makeHubSource({ id: 's1', url: 'https://github.com/org/one' })],
+      ports,
+      onLog,
+      {
+        syncSource: async () => {
+          throw new Error('remote unavailable');
+        }
+      }
+    );
+
+    await expect(onComplete()).resolves.toBeUndefined();
+    expect(events).toContainEqual(expect.objectContaining({
+      level: 'warn',
+      message: expect.stringContaining('remote unavailable')
+    }));
+  });
+
   it('onFirstSettled resolves after the first sync settles', async () => {
     let releaseFirst!: () => void;
     const firstBlocker = new Promise<void>((r) => {

@@ -36,6 +36,7 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   createSourceSyncQueue,
+  normalizeConcurrency,
 } from './source-sync-queue';
 
 /**
@@ -283,8 +284,7 @@ export async function loadHubSources(
     }
   };
 
-  const raw = options?.concurrency ?? 1;
-  const concurrency = Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1;
+  const concurrency = normalizeConcurrency(options?.concurrency ?? 1);
   let nextIndex = 0;
 
   const worker = async (): Promise<void> => {
@@ -487,7 +487,14 @@ export function loadHubSourcesProgressively(
 ): ProgressiveLoadResult {
   const queue = createSourceSyncQueue(
     options.syncSource,
-    options.syncConcurrency ?? options.concurrency ?? 1
+    options.syncConcurrency ?? options.concurrency ?? 1,
+    (sourceId, error) => {
+      onLog?.({
+        level: 'warn',
+        message: `Failed to sync hub source ${sourceId}: ${error.message}`,
+        error
+      });
+    }
   );
 
   const registrationPromise = loadHubSources(hubId, hubSources, ports, onLog, {
