@@ -510,6 +510,21 @@ suite('RepositoryScopeService', () => {
       assert.ok(!fs.existsSync(path.join(promptsDir, 'test.prompt.md')), 'File should be removed');
     });
 
+    test('should unsync a file recorded with Windows separators on every platform', async () => {
+      const promptFile = path.join(workspaceRoot, '.github', 'prompts', 'windows-path.prompt.md');
+      fs.mkdirSync(path.dirname(promptFile), { recursive: true });
+      fs.writeFileSync(promptFile, '# Windows path');
+
+      createLockfile('windows-path-bundle', 'commit', [{
+        path: '.github\\prompts\\windows-path.prompt.md',
+        checksum: calculateChecksumSync(promptFile)
+      }]);
+
+      await service.unsyncBundle('windows-path-bundle');
+
+      assert.ok(!fs.existsSync(promptFile), 'File should be removed using the lockfile path');
+    });
+
     test('should remove entries from .git/info/exclude', async () => {
       createGitDirectory();
       const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');

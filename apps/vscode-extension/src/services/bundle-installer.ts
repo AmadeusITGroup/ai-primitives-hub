@@ -73,6 +73,9 @@ import {
   detectHostApp,
 } from '../utils/host-app';
 import {
+  normalizeLockfilePath,
+} from '../utils/lockfile-path-utils';
+import {
   Logger,
 } from '../utils/logger';
 import {
@@ -170,7 +173,7 @@ export class BundleInstaller {
         if (stats.isDirectory()) {
           await collectFromDir(filePath);
         } else {
-          const relativePath = path.relative(workspaceRoot, filePath);
+          const relativePath = normalizeLockfilePath(path.relative(workspaceRoot, filePath));
           const checksum = await calculateFileChecksum(filePath);
           entries.push({ path: relativePath, checksum });
         }
@@ -304,7 +307,7 @@ export class BundleInstaller {
         }
 
         if (targetPath !== null && fs.existsSync(targetPath)) {
-          const relativePath = path.relative(workspaceRoot, targetPath);
+          const relativePath = normalizeLockfilePath(path.relative(workspaceRoot, targetPath));
           const checksum = await calculateFileChecksum(targetPath);
           entries.push({ path: relativePath, checksum });
         }
@@ -336,7 +339,7 @@ export class BundleInstaller {
       if (stats.isDirectory()) {
         await this.collectFromDirectory(filePath, workspaceRoot, entries);
       } else {
-        const relativePath = path.relative(workspaceRoot, filePath);
+        const relativePath = normalizeLockfilePath(path.relative(workspaceRoot, filePath));
         const checksum = await calculateFileChecksum(filePath);
         entries.push({ path: relativePath, checksum });
       }

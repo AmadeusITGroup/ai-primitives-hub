@@ -55,6 +55,11 @@ import {
   detectHostApp,
 } from '../utils/host-app';
 import {
+  normalizeLockfilePath,
+  normalizeLockfilePaths,
+  resolveLockfilePath,
+} from '../utils/lockfile-path-utils';
+import {
   Logger,
 } from '../utils/logger';
 import {
@@ -488,7 +493,7 @@ export class RepositoryScopeService implements IScopeService {
       for (const [bundleId, entry] of Object.entries(mainLockfile.bundles)) {
         if (bundleId !== excludeBundleId && entry.files) {
           for (const file of entry.files) {
-            usedFiles.add(file.path);
+            usedFiles.add(normalizeLockfilePath(file.path));
           }
         }
       }
@@ -499,7 +504,7 @@ export class RepositoryScopeService implements IScopeService {
       for (const [bundleId, entry] of Object.entries(localLockfile.bundles)) {
         if (bundleId !== excludeBundleId && entry.files) {
           for (const file of entry.files) {
-            usedFiles.add(file.path);
+            usedFiles.add(normalizeLockfilePath(file.path));
           }
         }
       }
@@ -881,7 +886,7 @@ export class RepositoryScopeService implements IScopeService {
       if (fs.existsSync(localLockfilePath)) {
         try {
           const content = await readFile(localLockfilePath, 'utf8');
-          localLockfile = JSON.parse(content) as Lockfile;
+          localLockfile = normalizeLockfilePaths(JSON.parse(content) as Lockfile);
         } catch {
           // Ignore parse errors
         }
@@ -915,18 +920,19 @@ export class RepositoryScopeService implements IScopeService {
 
       // Remove each file tracked in the lockfile
       for (const fileEntry of bundleFiles) {
-        const targetPath = path.join(this.workspaceRoot, fileEntry.path);
+        const relativePath = normalizeLockfilePath(fileEntry.path);
+        const targetPath = resolveLockfilePath(this.workspaceRoot, relativePath);
 
         // Skip if file doesn't exist
         if (!fs.existsSync(targetPath)) {
-          this.logger.debug(`[RepositoryScopeService] File already removed: ${fileEntry.path}`);
+          this.logger.debug(`[RepositoryScopeService] File already removed: ${relativePath}`);
           continue;
         }
 
         // Skip if file is used by another bundle
-        if (filesUsedByOtherBundles.has(fileEntry.path)) {
-          skippedPaths.push({ path: fileEntry.path, reason: 'used by another bundle' });
-          this.logger.debug(`[RepositoryScopeService] Skipping file used by another bundle: ${fileEntry.path}`);
+        if (filesUsedByOtherBundles.has(relativePath)) {
+          skippedPaths.push({ path: relativePath, reason: 'used by another bundle' });
+          this.logger.debug(`[RepositoryScopeService] Skipping file used by another bundle: ${relativePath}`);
           continue;
         }
 
@@ -934,22 +940,22 @@ export class RepositoryScopeService implements IScopeService {
         try {
           const currentChecksum = await calculateFileChecksum(targetPath);
           if (currentChecksum !== fileEntry.checksum) {
-            skippedPaths.push({ path: fileEntry.path, reason: 'modified by user' });
-            this.logger.info(`[RepositoryScopeService] Preserving user-modified file: ${fileEntry.path}`);
+            skippedPaths.push({ path: relativePath, reason: 'modified by user' });
+            this.logger.info(`[RepositoryScopeService] Preserving user-modified file: ${relativePath}`);
             continue;
           }
         } catch {
-          this.logger.warn(`[RepositoryScopeService] Failed to calculate checksum for: ${fileEntry.path}`);
+          this.logger.warn(`[RepositoryScopeService] Failed to calculate checksum for: ${relativePath}`);
           continue;
         }
 
         // Safe to remove - file is tracked, unmodified, and not shared
         try {
           await unlink(targetPath);
-          removedPaths.push(fileEntry.path);
-          this.logger.debug(`[RepositoryScopeService] Removed: ${fileEntry.path}`);
+          removedPaths.push(relativePath);
+          this.logger.debug(`[RepositoryScopeService] Removed: ${relativePath}`);
         } catch {
-          this.logger.warn(`[RepositoryScopeService] Failed to remove file: ${fileEntry.path}`);
+          this.logger.warn(`[RepositoryScopeService] Failed to remove file: ${relativePath}`);
         }
       }
 

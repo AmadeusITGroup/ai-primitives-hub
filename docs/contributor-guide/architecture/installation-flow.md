@@ -171,6 +171,8 @@ Bundles are stored in separate lockfiles based on their commit mode:
 - **Local-only bundles** → `prompt-registry.local.lock.json` (personal, git-excluded)
 
 The commit mode is **implicit** based on which lockfile contains the bundle—no `commitMode` field is stored in bundle entries.
+Tracked `files[].path` values are repository-relative and use forward slashes on
+every platform; readers also accept legacy Windows backslashes.
 
 ```mermaid
 flowchart TD
