@@ -257,10 +257,13 @@ suite('HubCommands Source Sync', () => {
       { hubId: 'test-hub-id', options: { loadSources: false } }
     ]);
     assert.strictEqual(mockHubManager.completeStarted, true);
-    assert.ok(initialSourceSyncPromise);
+    const trackedSourceSyncPromise = initialSourceSyncPromise;
+    if (!trackedSourceSyncPromise) {
+      throw new Error('Expected initial source sync promise to be tracked');
+    }
 
     rejectCompletion(new Error('sync failed'));
-    await initialSourceSyncPromise;
+    return trackedSourceSyncPromise;
   });
 
   test('should skip existing sources when importing a hub', async () => {
