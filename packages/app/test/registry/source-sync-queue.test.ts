@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
   createSourceSyncQueue,
+  normalizeConcurrency,
 } from '../../src/registry/source-sync-queue';
 
 describe('createSourceSyncQueue', () => {
@@ -87,13 +88,43 @@ describe('createSourceSyncQueue', () => {
   });
 
   it('onFirstSettled resolves after the first source settles (failure)', async () => {
-    // syncSource is expected to handle its own errors — the queue only calls
-    // .catch(() => undefined) as a safety net, so the callback swallows here.
-    const sync = () => Promise.reject(new Error('sync failed')).catch(() => undefined) as Promise<void>;
+    const sync = () => Promise.reject(new Error('sync failed'));
     const queue = createSourceSyncQueue(sync, 1);
     queue.enqueue('s1');
 
-    await queue.onFirstSettled(); // must resolve, not hang
+    await Promise.all([
+      queue.onFirstSettled(),
+      queue.onIdle()
+    ]);
+  });
+
+  it('reports sync failures before continuing the queue', async () => {
+    const failures: { sourceId: string; error: Error }[] = [];
+    const queue = createSourceSyncQueue(
+      async () => {
+        throw new Error('sync failed');
+      },
+      1,
+      (sourceId, error) => failures.push({ sourceId, error })
+    );
+
+    queue.enqueue('s1');
+    await queue.onIdle();
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0].sourceId).toBe('s1');
+    expect(failures[0].error.message).toBe('sync failed');
+  });
+
+  it.each([
+    [0, 1],
+    [-1, 1],
+    [1.9, 1],
+    [2.1, 2],
+    [Number.NaN, 1],
+    [Number.POSITIVE_INFINITY, 1]
+  ])('normalizes concurrency %s to %s', (value, expected) => {
+    expect(normalizeConcurrency(value)).toBe(expected);
   });
 
   it('onFirstSettled resolves immediately when already settled before promise is registered', async () => {
@@ -170,4 +201,18 @@ describe('createSourceSyncQueue', () => {
     await queue.onIdle();
     expect(synced.toSorted()).toEqual(['s1', 's3']);
   });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'normalizes invalid concurrency %s so enqueued work settles', async (concurrency) => {
+      const synced: string[] = [];
+      const queue = createSourceSyncQueue(async (id) => {
+        synced.push(id);
+      }, concurrency);
+
+      queue.enqueue('s1');
+      await queue.onIdle();
+
+      expect(synced).toEqual(['s1']);
+    }
+  );
 });
