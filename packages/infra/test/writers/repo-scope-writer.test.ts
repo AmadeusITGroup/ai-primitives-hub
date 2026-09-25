@@ -6,11 +6,15 @@
  * `test/AGENTS.md`'s "test behavior not implementation" rule — same
  * assertions, faster + no real disk IO).
  */
+import * as disk from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   Target,
 } from '@ai-primitives-hub/core';
 import {
+  afterEach,
+  beforeEach,
   describe,
   expect,
   it,
@@ -19,6 +23,9 @@ import {
   createGovernedReleaseArchive,
   createLegacyReleaseArchive,
 } from '../../../core/test/fixtures/release-archives';
+import {
+  NodeFileSystem,
+} from '../../src/fs/node-filesystem';
 import {
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
@@ -627,5 +634,108 @@ describe('RepositoryScopeWriterAdapter', () => {
     const adapter = new RepositoryScopeWriterAdapter(writer);
 
     await expect(adapter.remove(dummyTarget, 'copilot/prompts/nonexistent.md')).resolves.not.toThrow();
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('RepositoryScopeWriter real filesystem containment', () => {
+  const target = { name: 't', type: 'vscode', scope: 'repository' } as Target;
+  let tempDir: string;
+  let repository: string;
+  let outside: string;
+  let writer: RepositoryScopeWriter;
+  let adapter: RepositoryScopeWriterAdapter;
+
+  beforeEach(async () => {
+    tempDir = await disk.mkdtemp(path.join(os.tmpdir(), 'repo-scope-removal-'));
+    repository = path.join(tempDir, 'repo');
+    outside = path.join(tempDir, 'outside');
+    await disk.mkdir(path.join(repository, '.github', 'copilot', 'prompts'), { recursive: true });
+    await disk.mkdir(outside);
+    writer = new RepositoryScopeWriter({ fs: new NodeFileSystem(), workspaceRoot: repository, commitMode: 'commit' });
+    adapter = new RepositoryScopeWriterAdapter(writer);
+  });
+
+  afterEach(async () => {
+    await disk.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['bundle-relative path', 'prompts/linked/victim.md'],
+    ['legacy repository path', '.github/copilot/prompts/linked/victim.md'],
+    ['fallback path', 'copilot/prompts/linked/victim.md']
+  ])('refuses to remove an outside file through a symlinked parent (%s)', async (_description, filePath) => {
+    const victim = path.join(outside, 'victim.md');
+    await disk.writeFile(victim, '# outside');
+    await disk.symlink(outside, path.join(repository, '.github', 'copilot', 'prompts', 'linked'), 'dir');
+
+    await expect(adapter.remove(target, filePath)).rejects.toThrow(/escapes repository root/);
+    await expect(disk.readFile(victim, 'utf8')).resolves.toBe('# outside');
+  });
+
+  it('refuses a rollback path through a symlinked parent', async () => {
+    const victim = path.join(outside, 'victim.md');
+    await disk.writeFile(victim, '# outside');
+    await disk.symlink(outside, path.join(repository, '.github', 'copilot', 'prompts', 'linked'), 'dir');
+
+    await expect(writer.rollback([path.join(repository, '.github', 'copilot', 'prompts', 'linked', 'victim.md')]))
+      .rejects.toThrow(/escapes repository root/);
+    await expect(disk.readFile(victim, 'utf8')).resolves.toBe('# outside');
+  });
+
+  it('refuses a missing filename below a symlinked parent', async () => {
+    await disk.symlink(outside, path.join(repository, '.github', 'copilot', 'prompts', 'linked'), 'dir');
+
+    await expect(adapter.remove(target, 'prompts/linked/missing.md')).rejects.toThrow(/escapes repository root/);
+  });
+
+  it('protects prompt removal through a symlinked manifest destination', async () => {
+    const victim = path.join(outside, 'victim.md');
+    await disk.writeFile(victim, '# outside');
+    await disk.rm(path.join(repository, '.github', 'copilot', 'prompts'), { recursive: true });
+    await disk.symlink(outside, path.join(repository, '.github', 'copilot', 'prompts'), 'dir');
+
+    await expect(writer.remove('bundle', {
+      prompts: [{ id: 'victim', file: 'prompts/victim.md', type: 'prompt' }]
+    })).rejects.toThrow(/escapes repository root/);
+    await expect(disk.readFile(victim, 'utf8')).resolves.toBe('# outside');
+  });
+
+  it('protects recursive skill removal through a symlinked manifest parent', async () => {
+    const skillDir = path.join(outside, 'my-skill');
+    await disk.mkdir(skillDir);
+    await disk.writeFile(path.join(skillDir, 'SKILL.md'), '# outside');
+    await disk.symlink(outside, path.join(repository, '.github', 'skills'), 'dir');
+
+    await expect(writer.remove('bundle', {
+      formatVersion: 1,
+      items: [{ path: 'skills/my-skill/SKILL.md', kind: 'skill', id: 'my-skill' }]
+    })).rejects.toThrow(/escapes repository root/);
+    await expect(disk.readFile(path.join(skillDir, 'SKILL.md'), 'utf8')).resolves.toBe('# outside');
+  });
+
+  it('removes the final symlink without deleting its outside target', async () => {
+    const victim = path.join(outside, 'victim.md');
+    await disk.writeFile(victim, '# outside');
+    const link = path.join(repository, '.github', 'copilot', 'prompts', 'linked.md');
+    await disk.symlink(victim, link);
+
+    await adapter.remove(target, 'prompts/linked.md');
+
+    await expect(disk.lstat(link)).rejects.toThrow();
+    await expect(disk.readFile(victim, 'utf8')).resolves.toBe('# outside');
+  });
+
+  it('allows parents symlinked to another directory inside a symlinked workspace root', async () => {
+    const alias = path.join(tempDir, 'alias');
+    const internal = path.join(repository, 'internal');
+    await disk.mkdir(internal);
+    await disk.writeFile(path.join(internal, 'installed.md'), '# installed');
+    await disk.symlink(internal, path.join(repository, '.github', 'copilot', 'prompts', 'linked'), 'dir');
+    await disk.symlink(repository, alias, 'dir');
+    const aliasedWriter = new RepositoryScopeWriter({ fs: new NodeFileSystem(), workspaceRoot: alias, commitMode: 'commit' });
+
+    await aliasedWriter.removeBundleFile('prompts/linked/installed.md');
+
+    await expect(disk.readFile(path.join(internal, 'installed.md'))).rejects.toThrow();
   });
 });

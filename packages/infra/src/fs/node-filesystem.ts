@@ -15,6 +15,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
@@ -81,6 +82,10 @@ export class NodeFileSystem implements FileSystem {
       size: stats.size,
       mtimeMs: stats.mtimeMs
     };
+  }
+
+  public async realpath(path: string): Promise<string> {
+    return realpath(path);
   }
 
   public async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {

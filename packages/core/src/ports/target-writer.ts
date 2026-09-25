@@ -78,6 +78,14 @@ export interface TargetWriter {
   rollback?(target: Target, written: readonly string[]): Promise<void>;
 
   /**
+   * Validate all removal paths without mutating the target. Repository-scope
+   * writers use this to refuse an unsafe lockfile before deleting any files.
+   * @param target Target chosen via `--target <name>`.
+   * @param filePaths Bundle-relative paths recorded in the lockfile.
+   */
+  preflightRemoval?(target: Target, filePaths: readonly string[]): Promise<void>;
+
+  /**
    * Remove a single file from the target.
    * @param target Target chosen via `--target <name>`.
    * @param filePath Relative file path to remove.

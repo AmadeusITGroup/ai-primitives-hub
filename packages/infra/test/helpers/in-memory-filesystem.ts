@@ -138,6 +138,11 @@ export class InMemoryFileSystem implements FileSystem {
     throw new Error(`ENOENT: no such file or directory: ${normalizedPath}`);
   }
 
+  public realpath(path: string): Promise<string> {
+    // No symlinks in this double; real-disk regression tests cover resolution.
+    return Promise.resolve(this.normalizePath(path));
+  }
+
   public async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {
     const normalizedPath = this.normalizePath(path);
     if (opts?.recursive === true) {

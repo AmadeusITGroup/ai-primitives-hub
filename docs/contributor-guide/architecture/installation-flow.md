@@ -172,11 +172,29 @@ Bundles are stored in separate lockfiles based on their commit mode:
 
 The commit mode is **implicit** based on which lockfile contains the bundle—no `commitMode` field is stored in bundle entries.
 Tracked `files[].path` values are repository-relative and use forward slashes on
-every platform; readers also accept legacy Windows backslashes.
-Before the extension or shared CLI removes a recorded file, it resolves the
-normalized path against the repository root and rejects lexical escapes outside
-that root, including traversal written with legacy backslashes. This check does
-not resolve symlinks inside the repository.
+every platform; readers also accept legacy Windows backslashes. Repository
+installation tracks files supplied by the bundle, not unrelated files already
+in a shared skill directory. Since the lockfile treats backslashes as legacy
+separators, a literal backslash in a POSIX source filename is unsupported:
+repository installation rejects that asset instead of recording a different
+path. Rename the asset and retry.
+
+The extension persists the repository lockfile while it can still roll back
+newly synced files. If persistence fails, it removes unmodified files it just
+created, restores overwritten files to their previous bytes, and leaves Git
+exclude entries unchanged. A file changed after the sync is preserved instead
+of being overwritten during best-effort rollback; inspect such files before
+retrying. This is not a transaction against concurrent filesystem changes.
+
+Before the extension or shared CLI removes a recorded file, it checks both
+lexical containment and the resolved path of the file's parent against the
+resolved repository root, including the nearest existing parent if intermediate
+directories are missing. All paths recorded for a bundle are checked before any of its files are
+removed. The final component is not resolved, so a tracked symlink can be
+unlinked without deleting its target. An unsafe or uncheckable path stops
+removal and retains the bundle's lockfile entry; inspect the lockfile and
+repository symlinks before retrying. These are pre-operation checks, not an
+atomic defense against concurrent symlink replacement during removal.
 
 ```mermaid
 flowchart TD

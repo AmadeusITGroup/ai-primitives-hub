@@ -14,6 +14,28 @@ export function normalizeLockfilePath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
 }
 
+/** A filename that cannot be represented unambiguously by the current lockfile format. */
+export class UnsupportedRepositoryPathError extends Error {
+  public constructor(filePath: string) {
+    super(`A literal backslash in a repository filename is not supported by the lockfile: ${filePath}. Rename the file and retry.`);
+    this.name = 'UnsupportedRepositoryPathError';
+  }
+}
+
+/**
+ * Convert a path returned by the host filesystem to lockfile separators.
+ * Legacy lockfile input interprets backslashes as Windows separators, so a
+ * literal POSIX backslash cannot be safely written and read back as a filename.
+ * Reject it rather than silently recording a different file's path.
+ * @param filePath - Native filesystem-derived relative path.
+ */
+export function normalizeFilesystemPath(filePath: string): string {
+  if (path.sep === '/' && filePath.includes('\\')) {
+    throw new UnsupportedRepositoryPathError(filePath);
+  }
+  return filePath.split(path.sep).join('/');
+}
+
 /**
  * Resolve a lockfile path against the repository root, accepting paths written
  * by older versions on Windows as well as the canonical forward-slash form.

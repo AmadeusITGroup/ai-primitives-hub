@@ -20,6 +20,9 @@ export interface SyncBundleOptions {
    * Only applicable for RepositoryScopeService.
    */
   commitMode?: 'commit' | 'local-only';
+
+  /** Repository-only: persist tracking while written files can still be rolled back. */
+  afterSync?: () => Promise<void>;
 }
 
 /**

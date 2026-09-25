@@ -11,6 +11,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -173,6 +174,44 @@ describe('uninstall command', () => {
     expect(envelope.data.removed.length).toBeGreaterThan(0);
     await expect(readFile(repositoryFile, 'utf8')).rejects.toThrow();
     await expect(readFile(envelope.data.lockfile, 'utf8')).rejects.toThrow();
+  });
+
+  it.skipIf(process.platform === 'win32').each([
+    ['bundle', (_lockPath: string) => ['--bundle', 'local-foo']],
+    ['all', (_lockPath: string) => ['--all']],
+    ['lockfile', (lockPath: string) => ['--lockfile', lockPath]]
+  ])('refuses an outside symlink without discarding the repository lockfile (%s)', async (_mode, args) => {
+    const installResult = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot',
+      '--scope', 'repository', '-o', 'json'
+    ]);
+    expect(installResult.exitCode).toBe(0);
+
+    const lockPath = path.join(workspace, 'prompt-registry.lock.json');
+    const lockfile = JSON.parse(await readFile(lockPath, 'utf8')) as {
+      bundles: Record<string, { files: { path: string; checksum: string }[] }>;
+    };
+    const outside = path.join(path.dirname(workspace), `${path.basename(workspace)}-outside`);
+    try {
+      await mkdir(outside);
+      const victim = path.join(outside, 'victim.md');
+      await writeFile(victim, '# Do not delete');
+      await symlink(outside, path.join(workspace, '.github', 'copilot', 'prompts', 'linked'), 'dir');
+      // The unsafe entry comes after an installed file: check the entire
+      // bundle before deleting even the first safe entry.
+      lockfile.bundles['local-foo'].files.push({ path: 'prompts/linked/victim.md', checksum: 'tracked' });
+      await writeFile(lockPath, JSON.stringify(lockfile, null, 2));
+
+      const result = await run(['uninstall', ...args(lockPath), '--target', 'copilot', '--scope', 'repository', '-o', 'json']);
+
+      expect(result.exitCode).not.toBe(0);
+      await expect(readFile(victim, 'utf8')).resolves.toBe('# Do not delete');
+      await expect(readFile(installedFile().replace(targetDir, path.join(workspace, '.github', 'copilot')), 'utf8'))
+        .resolves.toContain('Hello Prompt');
+      expect((JSON.parse(await readFile(lockPath, 'utf8')) as typeof lockfile).bundles['local-foo']).toBeDefined();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('--all removes every installed bundle for the target', async () => {

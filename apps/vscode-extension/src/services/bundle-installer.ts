@@ -37,6 +37,7 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  assertSafeRepositoryRemovalPath,
   toCopilotFileType,
 } from '@ai-primitives-hub/core';
 import {
@@ -73,7 +74,7 @@ import {
   detectHostApp,
 } from '../utils/host-app';
 import {
-  normalizeLockfilePath,
+  normalizeFilesystemPath,
 } from '../utils/lockfile-path-utils';
 import {
   Logger,
@@ -106,7 +107,6 @@ import {
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 const readdir = promisify(fs.readdir);
-const stat = promisify(fs.stat);
 const lstat = promisify(fs.lstat);
 const unlink = promisify(fs.unlink);
 const rmdir = promisify(fs.rmdir);
@@ -153,49 +153,19 @@ export class BundleInstaller {
   }
 
   /**
-   * Collect file entries with checksums for lockfile
-   * @param installDir
-   * @param workspaceRoot
-   */
-  private async collectFileEntries(installDir: string, workspaceRoot: string): Promise<LockfileFileEntry[]> {
-    const entries: LockfileFileEntry[] = [];
-
-    const collectFromDir = async (dir: string): Promise<void> => {
-      if (!fs.existsSync(dir)) {
-        return;
-      }
-
-      const files = await readdir(dir);
-      for (const file of files) {
-        const filePath = path.join(dir, file);
-        const stats = await stat(filePath);
-
-        if (stats.isDirectory()) {
-          await collectFromDir(filePath);
-        } else {
-          const relativePath = normalizeLockfilePath(path.relative(workspaceRoot, filePath));
-          const checksum = await calculateFileChecksum(filePath);
-          entries.push({ path: relativePath, checksum });
-        }
-      }
-    };
-
-    await collectFromDir(installDir);
-    return entries;
-  }
-
-  /**
    * Update lockfile when installing a bundle at repository scope
    * @param bundle
    * @param installed
    * @param options
    * @param sourceType
+   * @param sourceFiles - Paths provided by this bundle's extracted file map.
    */
   private async updateLockfileOnInstall(
     bundle: Bundle,
     installed: InstalledBundle,
     options: InstallOptions,
-    sourceType?: string
+    sourceType: string | undefined,
+    sourceFiles: readonly string[]
   ): Promise<void> {
     const workspaceRoot = getWorkspaceRoot();
     if (!workspaceRoot) {
@@ -208,7 +178,7 @@ export class BundleInstaller {
 
       // For repository scope, collect files from .github/ directories (where they are synced)
       // not from the bundle cache directory
-      const files = await this.collectRepositoryFileEntries(workspaceRoot, installed.installPath);
+      const files = await this.collectRepositoryFileEntries(workspaceRoot, installed.manifest, sourceFiles);
 
       // Create source entry
       const source: LockfileSourceEntry = {
@@ -229,121 +199,109 @@ export class BundleInstaller {
       this.logger.debug(`Updated lockfile for bundle ${bundle.id}`);
     } catch (error) {
       this.logger.error('Failed to update lockfile on install', error as Error);
-      // Don't fail the installation if lockfile update fails
+      // An installed bundle without tracking must not look like a successful install.
+      throw error;
     }
   }
 
   /**
-   * Collect file entries from .github/ directories for repository scope lockfile
-   * This collects the actual synced files, not the bundle cache files
+   * Collect only this bundle's synced files for the repository lockfile.
+   * Shared skill directories may contain files this bundle did not supply.
    * @param workspaceRoot
-   * @param bundlePath
+   * @param manifest - The manifest used to place files in the repository.
+   * @param sourceFiles - Paths in this bundle's extracted file map.
    */
-  private async collectRepositoryFileEntries(workspaceRoot: string, bundlePath: string): Promise<LockfileFileEntry[]> {
+  private async collectRepositoryFileEntries(
+    workspaceRoot: string,
+    manifest: DeploymentManifest,
+    sourceFiles: readonly string[]
+  ): Promise<LockfileFileEntry[]> {
     const entries: LockfileFileEntry[] = [];
+    const sourceFileSet = new Set(sourceFiles);
 
-    // Read the deployment manifest to know which files were installed
-    const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
-    if (!fs.existsSync(manifestPath)) {
-      this.logger.warn('No deployment manifest found, falling back to bundle cache files');
-      return this.collectFileEntries(bundlePath, workspaceRoot);
+    if (!manifest.prompts || manifest.prompts.length === 0) {
+      return entries;
     }
 
-    try {
-      const manifestContent = await readFile(manifestPath, 'utf8');
-      const manifest = yaml.load(manifestContent) as DeploymentManifest;
-
-      if (!manifest.prompts || manifest.prompts.length === 0) {
-        return entries;
-      }
-
-      // Resolve host-aware destinations via the repository scope service —
-      // the same service (and layout resolution) that wrote the files — so the
-      // lockfile is collected from the actual install location.
-      const repoService = new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
-      const getTargetDirectory = (type: ManifestPlacementType): string | null => {
-        try {
-          return repoService.getTargetDirectory(type);
-        } catch (error) {
-          if (error instanceof Error && error.message.startsWith('No repository route defined')) {
-            return null;
-          }
-          throw error;
+    // Resolve host-aware destinations via the same layout as the writer.
+    const repoService = new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
+    const getTargetDirectory = (type: ManifestPlacementType): string | null => {
+      try {
+        return repoService.getTargetDirectory(type);
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('No repository route defined')) {
+          return null;
         }
-      };
+        throw error;
+      }
+    };
 
-      // Collect files from the host-appropriate directories based on manifest
-      for (const promptDef of manifest.prompts) {
-        const placementType = promptDef.type ?? determineFileType(promptDef.file, promptDef.tags);
-        if (placementType === 'skill') {
-          // For skills, collect all files in the skill directory
-          const targetDir = getTargetDirectory('skill');
-          if (targetDir === null) {
-            continue;
-          }
-          const promptId = normalizePromptId(promptDef.id);
-          const skillDir = path.join(workspaceRoot, targetDir, promptId);
-          if (fs.existsSync(skillDir)) {
-            await this.collectFromDirectory(skillDir, workspaceRoot, entries);
-          }
+    // Collect files from the host-appropriate directories based on manifest
+    for (const promptDef of manifest.prompts) {
+      const manifestFile = normalizeFilesystemPath(promptDef.file);
+      const placementType = promptDef.type ?? determineFileType(promptDef.file, promptDef.tags);
+      if (placementType === 'skill') {
+        const targetDir = getTargetDirectory('skill');
+        if (targetDir === null) {
           continue;
         }
-
-        // For other file types, collect the single file
-        let targetPath: string | null = null;
-        if (placementType === 'knowledge') {
-          const relativePath = getKnowledgeRelativePath(promptDef.file);
-          const targetDir = getTargetDirectory('knowledge');
-          if (relativePath !== null && targetDir !== null) {
-            targetPath = path.join(workspaceRoot, targetDir, relativePath);
-          }
-        } else {
-          const fileType = toCopilotFileType(placementType);
-          const targetDir = fileType === null ? null : getTargetDirectory(fileType);
-          if (fileType !== null && targetDir !== null) {
-            const promptId = normalizePromptId(promptDef.id);
-            targetPath = path.join(workspaceRoot, targetDir, getTargetFileName(promptId, fileType));
+        const sourcePrefix = `${path.posix.dirname(manifestFile)}/`;
+        const skillDir = path.join(workspaceRoot, targetDir, normalizePromptId(promptDef.id));
+        for (const sourceFile of sourceFileSet) {
+          if (sourceFile.startsWith(sourcePrefix)) {
+            const skillAssetPath = path.join(skillDir, sourceFile.slice(sourcePrefix.length));
+            await this.collectSourcedFileEntry(skillAssetPath, workspaceRoot, entries);
           }
         }
+        continue;
+      }
 
-        if (targetPath !== null && fs.existsSync(targetPath)) {
-          const relativePath = normalizeLockfilePath(path.relative(workspaceRoot, targetPath));
-          const checksum = await calculateFileChecksum(targetPath);
-          entries.push({ path: relativePath, checksum });
+      if (!sourceFileSet.has(manifestFile)) {
+        continue;
+      }
+
+      // For other file types, collect the single file
+      let targetPath: string | null = null;
+      if (placementType === 'knowledge') {
+        const relativePath = getKnowledgeRelativePath(manifestFile);
+        const targetDir = getTargetDirectory('knowledge');
+        if (relativePath !== null && targetDir !== null) {
+          targetPath = path.join(workspaceRoot, targetDir, relativePath);
+        }
+      } else {
+        const fileType = toCopilotFileType(placementType);
+        const targetDir = fileType === null ? null : getTargetDirectory(fileType);
+        if (fileType !== null && targetDir !== null) {
+          const promptId = normalizePromptId(promptDef.id);
+          targetPath = path.join(workspaceRoot, targetDir, getTargetFileName(promptId, fileType));
         }
       }
 
-      return entries;
-    } catch (error) {
-      this.logger.warn('Failed to parse manifest, falling back to bundle cache files', error);
-      return this.collectFileEntries(bundlePath, workspaceRoot);
+      if (targetPath !== null) {
+        await this.collectSourcedFileEntry(targetPath, workspaceRoot, entries);
+      }
     }
+
+    return entries;
   }
 
   /**
-   * Recursively collect files from a directory
-   * @param dir
+   * Collect a sourced file (never scan a shared destination directory).
+   * @param filePath
    * @param workspaceRoot
    * @param entries
    */
-  private async collectFromDirectory(dir: string, workspaceRoot: string, entries: LockfileFileEntry[]): Promise<void> {
-    if (!fs.existsSync(dir)) {
+  private async collectSourcedFileEntry(filePath: string, workspaceRoot: string, entries: LockfileFileEntry[]): Promise<void> {
+    if (!fs.existsSync(filePath)) {
       return;
     }
 
-    const files = await readdir(dir);
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      const stats = await stat(filePath);
-
-      if (stats.isDirectory()) {
-        await this.collectFromDirectory(filePath, workspaceRoot, entries);
-      } else {
-        const relativePath = normalizeLockfilePath(path.relative(workspaceRoot, filePath));
-        const checksum = await calculateFileChecksum(filePath);
-        entries.push({ path: relativePath, checksum });
-      }
-    }
+    // A filesystem-derived path must not be normalized using the legacy
+    // lockfile parser: it treats a literal POSIX backslash as a separator.
+    const relativePath = normalizeFilesystemPath(path.relative(workspaceRoot, filePath));
+    await assertSafeRepositoryRemovalPath(workspaceRoot, filePath, fs.promises.realpath);
+    const checksum = await calculateFileChecksum(filePath);
+    entries.push({ path: relativePath, checksum });
   }
 
   /**
@@ -795,10 +753,12 @@ export class BundleInstaller {
     };
 
     let installDir = '';
+    let sourceFiles: string[] = [];
 
     const writer: TargetWriter = {
       write: async (_target: Target, files: ExtractedFiles): Promise<TargetWriteResult> => {
         const written: string[] = [];
+        sourceFiles = [...files.keys()];
 
         if (installSkillsToCopilotDir) {
           // Skills bundles install directly to Copilot skills directory for user/workspace scopes.
@@ -911,13 +871,13 @@ export class BundleInstaller {
         // Pass commitMode explicitly to syncBundle to avoid timing issues:
         // The installation record hasn't been saved to RegistryStorage yet at this point,
         // so RepositoryScopeService can't look up commitMode from storage.
-        await scopeService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
+        await scopeService.syncBundle(bundle.id, installDir, {
+          commitMode: options.commitMode,
+          afterSync: options.scope === 'repository'
+            ? () => this.updateLockfileOnInstall(bundle, installed, options, sourceType, sourceFiles)
+            : undefined
+        });
         this.logger.debug(`Synced to ${options.scope} scope`);
-
-        // Step 11: Update lockfile for repository scope
-        if (options.scope === 'repository') {
-          await this.updateLockfileOnInstall(bundle, installed, options, sourceType);
-        }
       }
 
       this.logger.info(`Bundle installed successfully from buffer: ${bundle.name}`);

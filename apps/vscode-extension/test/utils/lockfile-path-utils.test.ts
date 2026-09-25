@@ -1,6 +1,7 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import {
+  normalizeFilesystemPath,
   normalizeLockfilePath,
   resolveLockfilePath,
 } from '../../src/utils/lockfile-path-utils';
@@ -13,6 +14,21 @@ suite('Lockfile path utilities', () => {
       normalizeLockfilePath('.github\\prompts\\example.prompt.md'),
       '.github/prompts/example.prompt.md'
     );
+  });
+
+  test('converts only host separators when tracking paths obtained from the filesystem', () => {
+    assert.strictEqual(
+      normalizeFilesystemPath(path.join('.github', 'prompts', 'example.prompt.md')),
+      '.github/prompts/example.prompt.md'
+    );
+
+    if (process.platform !== 'win32') {
+      assert.throws(
+        () => normalizeFilesystemPath('.github/prompts/foo\\bar.md'),
+        /backslash.*not supported/i,
+        'Literal backslashes cannot be safely round-tripped through legacy lockfiles'
+      );
+    }
   });
 
   test('resolves a repository-relative path inside the repository', () => {

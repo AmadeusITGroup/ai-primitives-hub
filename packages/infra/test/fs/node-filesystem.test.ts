@@ -1,4 +1,7 @@
 import {
+  symlink,
+} from 'node:fs/promises';
+import {
   join,
 } from 'node:path';
 import {
@@ -105,6 +108,16 @@ describe('NodeFileSystem', () => {
 
   it('rejects stat on a missing path', async () => {
     await expect(fs.stat(join(dir, 'missing'))).rejects.toThrow();
+  });
+
+  it.skipIf(process.platform === 'win32')('realpath resolves directory symlinks', async () => {
+    const realDir = join(dir, 'real');
+    await fs.mkdir(realDir);
+    const alias = join(dir, 'alias');
+    await symlink(realDir, alias, 'dir');
+
+    expect(await fs.realpath(alias)).toBe(await fs.realpath(realDir));
+    await expect(fs.realpath(join(dir, 'missing'))).rejects.toThrow();
   });
 
   it('remove deletes a single file without recursive', async () => {
