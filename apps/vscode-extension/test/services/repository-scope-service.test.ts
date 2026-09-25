@@ -525,6 +525,20 @@ suite('RepositoryScopeService', () => {
       assert.ok(!fs.existsSync(promptFile), 'File should be removed using the lockfile path');
     });
 
+    test('should preserve files outside the workspace when a lockfile path traverses its root', async () => {
+      const externalFile = path.join(tempDir, 'outside.txt');
+      fs.writeFileSync(externalFile, '# Outside workspace');
+      const checksum = calculateChecksumSync(externalFile);
+
+      for (const filePath of ['../outside.txt', '..\\outside.txt']) {
+        createLockfile('traversal-bundle', 'commit', [{ path: filePath, checksum }]);
+
+        await service.unsyncBundle('traversal-bundle');
+
+        assert.ok(fs.existsSync(externalFile), `Should preserve external file for ${JSON.stringify(filePath)}`);
+      }
+    });
+
     test('should remove entries from .git/info/exclude', async () => {
       createGitDirectory();
       const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');

@@ -173,6 +173,10 @@ Bundles are stored in separate lockfiles based on their commit mode:
 The commit mode is **implicit** based on which lockfile contains the bundle—no `commitMode` field is stored in bundle entries.
 Tracked `files[].path` values are repository-relative and use forward slashes on
 every platform; readers also accept legacy Windows backslashes.
+Before the extension or shared CLI removes a recorded file, it resolves the
+normalized path against the repository root and rejects lexical escapes outside
+that root, including traversal written with legacy backslashes. This check does
+not resolve symlinks inside the repository.
 
 ```mermaid
 flowchart TD

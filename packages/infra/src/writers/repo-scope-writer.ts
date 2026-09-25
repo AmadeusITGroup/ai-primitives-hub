@@ -412,8 +412,20 @@ export class RepositoryScopeWriter {
 
   private async removePaths(paths: string[]): Promise<void> {
     for (const p of paths) {
+      const resolvedRoot = path.resolve(this.workspaceRoot);
+      const resolvedPath = path.resolve(p);
+      const relativePath = path.relative(resolvedRoot, resolvedPath);
+
+      if (
+        relativePath === '..'
+        || relativePath.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relativePath)
+      ) {
+        throw new Error(`Lockfile path escapes repository root: ${p}`);
+      }
+
       try {
-        await this.fs.remove(p);
+        await this.fs.remove(resolvedPath);
       } catch {
         // Ignore errors if file doesn't exist
       }

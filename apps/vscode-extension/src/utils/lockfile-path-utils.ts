@@ -22,7 +22,22 @@ export function normalizeLockfilePath(filePath: string): string {
  * @returns An absolute path using the current platform's path conventions.
  */
 export function resolveLockfilePath(repositoryRoot: string, filePath: string): string {
-  return path.join(repositoryRoot, ...normalizeLockfilePath(filePath).split('/'));
+  const resolvedRoot = path.resolve(repositoryRoot);
+  const resolvedPath = path.resolve(
+    resolvedRoot,
+    ...normalizeLockfilePath(filePath).split('/')
+  );
+  const relativePath = path.relative(resolvedRoot, resolvedPath);
+
+  if (
+    relativePath === '..'
+    || relativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relativePath)
+  ) {
+    throw new Error(`Lockfile path escapes repository root: ${filePath}`);
+  }
+
+  return resolvedPath;
 }
 
 /**

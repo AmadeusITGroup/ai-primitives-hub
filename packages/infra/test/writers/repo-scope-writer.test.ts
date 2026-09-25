@@ -604,6 +604,23 @@ describe('RepositoryScopeWriterAdapter', () => {
     expect(await fs.exists(testFile)).toBe(false);
   });
 
+  it.each([
+    ['bundle-relative POSIX path', 'prompts/../../../../outside.md'],
+    ['bundle-relative Windows path', 'prompts\\..\\..\\..\\..\\outside.md'],
+    ['legacy repository-relative path', '.github/../../outside.md'],
+    ['fallback relative path', '../../outside.md']
+  ])('rejects removal outside the repository for a %s', async (_description, filePath) => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const adapter = new RepositoryScopeWriterAdapter(writer);
+    const outsideFile = path.resolve(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', '../../../../outside.md');
+    fs.seed(outsideFile, '# Outside the repository');
+
+    await expect(adapter.remove(dummyTarget, filePath)).rejects.toThrow(/escapes repository root/);
+
+    expect(await fs.exists(outsideFile)).toBe(true);
+  });
+
   it('handles non-existent file removal gracefully', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
