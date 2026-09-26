@@ -104,6 +104,58 @@ prompts: []
     });
   });
 
+  suite('User-scope knowledge placement', () => {
+    const sourceFile = 'specifications/RDP/core_layer/AGENT_INDEX.md';
+
+    const createKnowledgeBundle = (bundlePath: string, bundleId: string): void => {
+      const sourcePath = path.join(bundlePath, sourceFile);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, '# Knowledge');
+      fs.mkdirSync(bundlePath, { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `id: ${bundleId}
+version: "1.0.0"
+prompts:
+  - id: AGENT_INDEX
+    name: Agent Index
+    file: ${sourceFile}
+    type: knowledge
+`);
+    };
+
+    test('preserves the source-relative path under VS Code and Kiro user knowledge routes', async () => {
+      const bundleId = 'knowledge-user-bundle';
+      const bundlePath = path.join(tempDir, 'knowledge-bundle');
+      createKnowledgeBundle(bundlePath, bundleId);
+
+      for (const targetType of ['vscode', 'kiro'] as const) {
+        const knowledgeService = new UserScopeService(mockContext, tempDir, targetType);
+        await knowledgeService.syncBundle(bundleId, bundlePath);
+
+        const targetRoot = targetType === 'vscode' ? '.copilot' : '.kiro';
+        const installedFile = path.join(tempDir, targetRoot, 'knowledge', sourceFile);
+        assert.ok(fs.existsSync(installedFile));
+        assert.strictEqual(fs.readFileSync(installedFile, 'utf8'), '# Knowledge');
+      }
+    });
+
+    test('unsyncs knowledge-only bundles without requiring a prompts directory', async () => {
+      const bundleId = 'knowledge-only-user-bundle';
+      const bundlePath = path.join(mockContext.globalStorageUri.fsPath, 'bundles', bundleId);
+      createKnowledgeBundle(bundlePath, bundleId);
+      const knowledgeService = new UserScopeService(mockContext, tempDir, 'vscode');
+
+      await knowledgeService.syncBundle(bundleId, bundlePath);
+
+      const installedFile = path.join(tempDir, '.copilot', 'knowledge', sourceFile);
+      assert.ok(fs.existsSync(installedFile));
+      assert.ok(!fs.existsSync(path.join(tempDir, '.copilot', 'prompts')));
+
+      await knowledgeService.unsyncBundle(bundleId);
+
+      assert.ok(!fs.existsSync(installedFile));
+    });
+  });
+
   suite('Kiro target installation', () => {
     test('uses the Kiro layout and transforms agent frontmatter', async () => {
       const bundleId = 'kiro-agent-bundle';

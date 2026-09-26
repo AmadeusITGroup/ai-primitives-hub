@@ -45,6 +45,10 @@ import {
   calculateFileChecksum,
 } from '../utils/file-integrity-service';
 import {
+  normalizeLockfilePaths,
+  resolveLockfilePath,
+} from '../utils/lockfile-path-utils';
+import {
   Logger,
 } from '../utils/logger';
 import {
@@ -240,7 +244,8 @@ export class LockfileManager {
   private async readLockfileByMode(commitMode: RepositoryCommitMode): Promise<Lockfile | null> {
     const lockfilePath = this.getLockfilePathForMode(commitMode);
     try {
-      return await readLockfile(lockfilePath, lockfileFs);
+      const lockfile = await readLockfile(lockfilePath, lockfileFs);
+      return lockfile === null ? null : normalizeLockfilePaths(lockfile);
     } catch (error) {
       this.logger.error(`Failed to read ${commitMode} lockfile:`, error instanceof Error ? error : undefined);
       return null;
@@ -463,7 +468,7 @@ export class LockfileManager {
 
       try {
         // Write to temp file with 2-space indentation
-        const content = JSON.stringify(lockfile, null, 2);
+        const content = JSON.stringify(normalizeLockfilePaths(lockfile), null, 2);
         await fs.promises.writeFile(tempPath, content, 'utf8');
 
         // Atomic rename
@@ -577,7 +582,7 @@ export class LockfileManager {
     }
 
     for (const file of entry.files) {
-      const filePath = path.join(this.repositoryPath, file.path);
+      const filePath = resolveLockfilePath(this.repositoryPath, file.path);
 
       try {
         await fs.promises.access(filePath, fs.constants.F_OK);
@@ -618,7 +623,8 @@ export class LockfileManager {
    */
   public async read(): Promise<Lockfile | null> {
     try {
-      return await readLockfile(this.lockfilePath, lockfileFs);
+      const lockfile = await readLockfile(this.lockfilePath, lockfileFs);
+      return lockfile === null ? null : normalizeLockfilePaths(lockfile);
     } catch (error) {
       this.logger.error('Failed to read lockfile:', error instanceof Error ? error : undefined);
       return null;
@@ -832,7 +838,7 @@ export class LockfileManager {
     const modifiedFiles: ModifiedFileInfo[] = [];
 
     for (const fileEntry of bundleEntry.files) {
-      const filePath = path.join(this.repositoryPath, fileEntry.path);
+      const filePath = resolveLockfilePath(this.repositoryPath, fileEntry.path);
 
       try {
         if (!fs.existsSync(filePath)) {

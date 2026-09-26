@@ -230,6 +230,22 @@ Repository scope requires an open workspace. Open a folder or workspace first.
 
 If multiple team members install bundles simultaneously, merge the lockfile changes like any other file. The extension will reconcile the state on next sync.
 
+### A repository installation rejects a filename with a backslash
+
+On POSIX systems, a source skill asset with a literal `\` in its filename cannot be represented safely in the lockfile: older lockfiles use backslashes as Windows path separators. Rename the asset, then retry the repository installation. Existing Windows-style lockfile paths are still accepted.
+
+### Installation refuses to write through a repository symlink
+
+The extension refuses to install into a destination reached through a symlink outside the repository or onto a file that is itself a symlink. Check the destination and any parent symlinks, then retry; do not replace the symlink solely to bypass the warning.
+
+### A repository installation fails while writing the lockfile
+
+The extension makes a best-effort attempt to remove files it just synced and restore files it overwrote. This rollback is not atomic against concurrent filesystem changes. If you edited a file after the sync, the extension leaves it untouched rather than discarding your changes. Check the affected repository files before retrying.
+
+### Removal stops because a path is outside the repository
+
+The extension and CLI refuse to remove files when a recorded path, including a symlinked parent, leads outside the repository or cannot be checked. Files outside the repository are left alone, and the bundle remains in the lockfile. Check the lockfile paths and any repository symlinks before retrying; do not delete the lockfile entry just to bypass the warning.
+
 ### Missing bundles after clone
 
 When you clone a repository with a lockfile, the extension prompts you to install missing bundles. If you dismissed the prompt, you can manually install bundles from the lockfile.

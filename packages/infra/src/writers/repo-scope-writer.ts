@@ -24,7 +24,10 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  assertSafeRepositoryDirectoryPath,
+  assertSafeRepositoryRemovalPath,
   normalizePrimitiveKind,
+  UnsafeRepositoryPathError,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -390,19 +393,26 @@ export class RepositoryScopeWriter {
 
   private async cleanupEmptyDirectories(dirs: string[]): Promise<void> {
     const parentDirs = new Set<string>();
+    const resolvedRoot = path.resolve(this.workspaceRoot);
     for (const dir of dirs) {
-      const parts = dir.split(path.sep);
-      for (let i = 0; i < parts.length - 1; i++) {
-        parentDirs.add(parts.slice(0, i + 1).join(path.sep));
+      let parent = path.dirname(path.resolve(dir));
+      while (parent !== resolvedRoot && path.dirname(parent) !== parent) {
+        // The host root can contain unrelated files; never remove .github itself.
+        if (parent === path.join(resolvedRoot, '.github')) {
+          break;
+        }
+        parentDirs.add(parent);
+        parent = path.dirname(parent);
       }
     }
 
-    for (const dir of parentDirs) {
+    for (const dir of [...parentDirs].toSorted((a, b) => b.length - a.length)) {
       try {
-        const fullPath = path.join(this.workspaceRoot, dir);
-        const entries = await this.fs.readDir(fullPath);
+        const realpath = this.getRealpath(dir);
+        await assertSafeRepositoryDirectoryPath(this.workspaceRoot, dir, realpath);
+        const entries = await this.fs.readDir(dir);
         if (entries.length === 0) {
-          await this.fs.remove(fullPath);
+          await this.removePaths([dir]);
         }
       } catch {
         // Directory doesn't exist or can't be read
@@ -410,9 +420,56 @@ export class RepositoryScopeWriter {
     }
   }
 
+  private getRealpath(filePath: string): (p: string) => Promise<string> {
+    if (this.fs.realpath === undefined) {
+      throw new UnsafeRepositoryPathError(filePath, 'cannot be checked against repository root');
+    }
+    return this.fs.realpath.bind(this.fs);
+  }
+
+  private async validateRemovalPaths(paths: readonly string[]): Promise<void> {
+    for (const p of paths) {
+      await assertSafeRepositoryRemovalPath(this.workspaceRoot, p, this.getRealpath(p));
+    }
+  }
+
+  private getBundleRemovalPath(filePath: string): string {
+    const normalized = filePath.replaceAll('\\', '/');
+    const route = [
+      ['prompts/', 'copilot/prompts/'],
+      ['instructions/', 'copilot/instructions/'],
+      ['chat-modes/', 'copilot/agents/'],
+      ['chatmodes/', 'copilot/agents/'],
+      ['agents/', 'copilot/agents/'],
+      ['skills/', 'skills/'],
+      ['hooks/', 'hooks/'],
+      ['plugins/', 'plugins/']
+    ].find(([sourcePrefix]) => normalized.startsWith(sourcePrefix));
+
+    return route === undefined
+      ? path.join(this.workspaceRoot, normalized)
+      : path.join(this.workspaceRoot, '.github', route[1], normalized.slice(route[0].length));
+  }
+
+  /**
+   * Map a lockfile's bundle path to the exact destination used by remove.
+   * @param filePath
+   */
+  private resolveLockfileRemovalPath(filePath: string): string {
+    const normalized = filePath.replaceAll('\\', '/');
+    if (normalized.startsWith('.github/') || /^(prompts|instructions|chat-modes|chatmodes|agents|skills|hooks|plugins)\//.test(normalized)) {
+      return this.getBundleRemovalPath(normalized);
+    }
+    return path.join(this.workspaceRoot, '.github', normalized);
+  }
+
   private async removePaths(paths: string[]): Promise<void> {
+    // Check every path before removing any, including paths that do not exist.
+    await this.validateRemovalPaths(paths);
     for (const p of paths) {
       try {
+        // Keep the original path spelling: in-memory and Windows adapters may
+        // not recognize the drive-qualified path used only for validation.
         await this.fs.remove(p);
       } catch {
         // Ignore errors if file doesn't exist
@@ -437,6 +494,14 @@ export class RepositoryScopeWriter {
       // for governed releases above.
       ...(manifest.skills?.map((item) => ({ file: item.file, type: item.type })) ?? [])
     ];
+  }
+
+  /**
+   * Validate a bundle's entire lockfile entry before removing any files.
+   * @param filePaths
+   */
+  public async preflightRemoval(filePaths: readonly string[]): Promise<void> {
+    await this.validateRemovalPaths(filePaths.map((filePath) => this.resolveLockfileRemovalPath(filePath)));
   }
 
   /**
@@ -549,21 +614,7 @@ export class RepositoryScopeWriter {
    * @param filePath - Bundle-relative path recorded in the lockfile.
    */
   public async removeBundleFile(filePath: string): Promise<void> {
-    const normalized = filePath.replaceAll('\\', '/');
-    const route = [
-      ['prompts/', 'copilot/prompts/'],
-      ['instructions/', 'copilot/instructions/'],
-      ['chat-modes/', 'copilot/agents/'],
-      ['chatmodes/', 'copilot/agents/'],
-      ['agents/', 'copilot/agents/'],
-      ['skills/', 'skills/'],
-      ['hooks/', 'hooks/'],
-      ['plugins/', 'plugins/']
-    ].find(([sourcePrefix]) => normalized.startsWith(sourcePrefix));
-
-    const targetPath = route === undefined
-      ? path.join(this.workspaceRoot, normalized)
-      : path.join(this.workspaceRoot, '.github', route[1], normalized.slice(route[0].length));
+    const targetPath = this.getBundleRemovalPath(filePath);
     await this.removePaths([targetPath]);
     if (this.commitMode === 'local-only') {
       await this.removeFromGitExclude([targetPath]);
@@ -603,6 +654,10 @@ export class RepositoryScopeWriter {
         }
       }
     }
+
+    // Manifest removal bypasses removePaths for recursive skill directories.
+    // Validate all destinations here before any filesystem mutation.
+    await this.validateRemovalPaths([...skillDirsToRemove, ...pathsToRemove]);
 
     // Remove skill directories
     for (const skillDir of skillDirsToRemove) {
@@ -671,6 +726,10 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
 
   public async rollback(_target: Target, written: readonly string[]): Promise<void> {
     await this.writer.rollback(written);
+  }
+
+  public async preflightRemoval(_target: Target, filePaths: readonly string[]): Promise<void> {
+    await this.writer.preflightRemoval(filePaths);
   }
 
   /**

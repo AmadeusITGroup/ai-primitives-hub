@@ -74,4 +74,13 @@ describe('built-in default layouts', () => {
       }
     }
   });
+
+  it('defines knowledge routes for GitHub/Copilot and Kiro targets', () => {
+    for (const type of ['vscode', 'vscode-insiders', 'copilot-cli', 'kiro', 'kiro-cli']) {
+      for (const scope of ['user', 'repository'] as const) {
+        expect(defaultLayouts.layouts[type][scope]?.kindRoutes['knowledge/'])
+          .toBe('knowledge/');
+      }
+    }
+  });
 });

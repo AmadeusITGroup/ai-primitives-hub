@@ -28,6 +28,9 @@ import type {
   FileSystem,
   Target,
 } from '@ai-primitives-hub/core';
+import {
+  UnsafeRepositoryPathError,
+} from '@ai-primitives-hub/core';
 import type {
   LockfileBundleEntry,
   RepositoryCommitMode,
@@ -112,11 +115,19 @@ export class UninstallPipeline {
     const removed: string[] = [];
     const skipped: string[] = [];
 
+    // In repository scope, check every entry before mutating any installed
+    // file. Per-file validation alone can leave a half-uninstalled bundle.
+    await writer.preflightRemoval?.(this.target, files);
+
     for (const file of files) {
       try {
         await writer.remove(this.target, file);
         removed.push(file);
-      } catch {
+      } catch (error) {
+        if (error instanceof UnsafeRepositoryPathError) {
+          // Do not discard the lockfile entry for a path we could not check.
+          throw error;
+        }
         skipped.push(file);
       }
     }
@@ -256,7 +267,10 @@ export class UninstallPipeline {
   public async runFromLockfile(): Promise<UninstallResult[]> {
     try {
       return await this.runAll();
-    } catch {
+    } catch (error) {
+      if (error instanceof UnsafeRepositoryPathError) {
+        throw error;
+      }
       // Lockfile doesn't exist or is invalid
       return [];
     }

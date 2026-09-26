@@ -63,7 +63,7 @@ export interface LockfileBundleEntry {
  * File entry within a bundle
  */
 export interface LockfileFileEntry {
-  /** Relative path from repository root */
+  /** Repository-relative path serialized with forward slashes on every platform. */
   path: string;
   /** SHA256 checksum of the file contents */
   checksum: string;

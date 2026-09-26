@@ -366,6 +366,36 @@ describe('FileTreeTargetWriter', () => {
     expect(result.written).toContain(localPath('/ws', '.devin', 'knowledge', 'onboarding.md'));
     expect(result.written).toContain(localPath('/ws', '.devin', 'playbooks', 'bug-fix.md'));
   });
+
+  it('routes knowledge files into .github/knowledge for vscode repository scope', async () => {
+    const fs = new InMemoryFileSystem();
+    const knowledgeTarget: Target = { name: 'test', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['knowledge/specifications.md', new TextEncoder().encode('# Specifications')]
+    ]);
+
+    const result = await writer.write(knowledgeTarget, files);
+
+    expect(result.written).toContain(localPath('/ws', '.github', 'knowledge', 'specifications.md'));
+    expect(await fs.readFile(localPath('/ws', '.github', 'knowledge', 'specifications.md')))
+      .toBe('# Specifications');
+  });
+
+  it('routes knowledge files into .kiro/knowledge for kiro repository scope', async () => {
+    const fs = new InMemoryFileSystem();
+    const knowledgeTarget: Target = { name: 'test', type: 'kiro', scope: 'repository', rootPath: '/ws' };
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['knowledge/specifications.md', new TextEncoder().encode('# Specifications')]
+    ]);
+
+    const result = await writer.write(knowledgeTarget, files);
+
+    expect(result.written).toContain(localPath('/ws', '.kiro', 'knowledge', 'specifications.md'));
+    expect(await fs.readFile(localPath('/ws', '.kiro', 'knowledge', 'specifications.md')))
+      .toBe('# Specifications');
+  });
 });
 
 describe('FileTreeTargetWriter.writeManifestItems', () => {
@@ -431,6 +461,43 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
     const result = await writer.writeManifestItems(repoTarget, files, items);
 
     expect(result.written).toEqual([localPath('/ws', '.github', 'agents', 'my-agent.agent.md')]);
+  });
+
+  it('routes knowledge items to knowledge while preserving source-relative paths', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['specifications/RDP/AGENT_INDEX.md', new TextEncoder().encode('# Index')],
+      ['.github/knowledge/RDP/issue-tickets.md', new TextEncoder().encode('# Tickets')]
+    ]);
+    const items: ManifestPlacementItem[] = [
+      { id: 'AGENT_INDEX', file: 'specifications/RDP/AGENT_INDEX.md', type: 'knowledge' },
+      { id: 'issue-tickets', file: '.github/knowledge/RDP/issue-tickets.md', type: 'knowledge' }
+    ];
+
+    const result = await writer.writeManifestItems(repoTarget, files, items);
+
+    expect(result.written).toEqual([
+      localPath('/ws', '.github', 'knowledge', 'specifications', 'RDP', 'AGENT_INDEX.md'),
+      localPath('/ws', '.github', 'knowledge', 'RDP', 'issue-tickets.md')
+    ]);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it('skips knowledge paths that escape the bundle root', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['../outside.md', new TextEncoder().encode('# Outside')]
+    ]);
+    const items: ManifestPlacementItem[] = [
+      { id: 'outside', file: '../outside.md', type: 'knowledge' }
+    ];
+
+    const result = await writer.writeManifestItems(repoTarget, files, items);
+
+    expect(result.written).toEqual([]);
+    expect(result.skipped).toEqual(['../outside.md']);
   });
 
   it('skips items whose kind is excluded by target.allowedKinds', async () => {

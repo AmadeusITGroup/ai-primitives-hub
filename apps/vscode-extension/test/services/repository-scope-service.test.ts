@@ -2,7 +2,7 @@
  * RepositoryScopeService Unit Tests
  *
  * Tests for repository-level bundle installation service.
- * Handles file placement in .github/ directories and git exclude management.
+ * Handles file placement in host-appropriate directories and git exclude management.
  *
  * Requirements: 1.2-1.7, 3.1-3.7
  */
@@ -69,7 +69,9 @@ suite('RepositoryScopeService', () => {
 
     // Create files
     for (const file of files) {
-      fs.writeFileSync(path.join(bundlePath, file.name), file.content);
+      const filePath = path.join(bundlePath, file.name);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, file.content);
     }
 
     return bundlePath;
@@ -218,6 +220,65 @@ suite('RepositoryScopeService', () => {
   });
 
   suite('syncBundle - File Placement', () => {
+    if (process.platform !== 'win32') {
+      test('refuses to overwrite a prompt outside the repository through a symlinked target directory', async () => {
+        const outside = path.join(tempDir, 'outside');
+        fs.mkdirSync(outside);
+        const victim = path.join(outside, 'test.prompt.md');
+        fs.writeFileSync(victim, '# Outside');
+        fs.mkdirSync(path.join(workspaceRoot, '.github'));
+        fs.symlinkSync(outside, path.join(workspaceRoot, '.github', 'prompts'), 'dir');
+        const bundlePath = createMockBundle('unsafe-prompt', [{ name: 'test.prompt.md', content: '# Installed' }]);
+
+        await assert.rejects(service.syncBundle('unsafe-prompt', bundlePath), /escapes repository root/);
+
+        assert.strictEqual(fs.readFileSync(victim, 'utf8'), '# Outside', 'The destination must not be written before validation');
+      });
+
+      test('refuses to write through a final symlink pointing outside the repository', async () => {
+        const victim = path.join(tempDir, 'victim.prompt.md');
+        fs.writeFileSync(victim, '# Outside');
+        const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+        fs.mkdirSync(promptsDir, { recursive: true });
+        fs.symlinkSync(victim, path.join(promptsDir, 'test.prompt.md'));
+        const bundlePath = createMockBundle('linked-prompt', [{ name: 'test.prompt.md', content: '# Installed' }]);
+
+        await assert.rejects(service.syncBundle('linked-prompt', bundlePath), /symlink/);
+
+        assert.strictEqual(fs.readFileSync(victim, 'utf8'), '# Outside');
+      });
+
+      test('restores an overwritten prompt if a later destination is an unsafe symlink', async () => {
+        const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+        fs.mkdirSync(promptsDir, { recursive: true });
+        const originalPath = path.join(promptsDir, 'first.prompt.md');
+        const outside = path.join(tempDir, 'outside.prompt.md');
+        fs.writeFileSync(originalPath, '# Original');
+        fs.writeFileSync(outside, '# Outside');
+        fs.symlinkSync(outside, path.join(promptsDir, 'second.prompt.md'));
+        const bundlePath = createMockBundle('partial-rollback', [
+          { name: 'first.prompt.md', content: '# Installed' },
+          { name: 'second.prompt.md', content: '# Installed' }
+        ]);
+
+        await assert.rejects(service.syncBundle('partial-rollback', bundlePath), /symlink/);
+
+        assert.strictEqual(fs.readFileSync(originalPath, 'utf8'), '# Original');
+        assert.strictEqual(fs.readFileSync(outside, 'utf8'), '# Outside');
+      });
+
+      test('rejects ambiguous POSIX backslashes in a manifest before writing any files', async () => {
+        const bundlePath = createMockBundle('unportable-manifest', [
+          { name: 'first.prompt.md', content: '# First' },
+          { name: 'second\\ambiguous.prompt.md', content: '# Ambiguous' }
+        ]);
+
+        await assert.rejects(service.syncBundle('unportable-manifest', bundlePath), /backslash.*not supported/i);
+
+        assert.ok(!fs.existsSync(path.join(workspaceRoot, '.github', 'prompts', 'first.prompt.md')));
+      });
+    }
+
     test('should place prompt files in .github/prompts/', async () => {
       const bundleId = 'test-bundle';
       const bundlePath = createMockBundle(bundleId, [
@@ -258,6 +319,39 @@ suite('RepositoryScopeService', () => {
 
       const targetFile = path.join(workspaceRoot, '.github', 'agents', 'reviewer.agent.md');
       assert.ok(fs.existsSync(targetFile), 'Agent file should be placed in .github/agents/');
+    });
+
+    test('should place knowledge files under .github/knowledge while preserving their source path', async () => {
+      const bundleId = 'knowledge-bundle';
+      const sourceFile = 'specifications/RDP/core_layer/AGENT_INDEX.md';
+      const bundlePath = createMockBundle(bundleId, [
+        { name: sourceFile, content: '# Knowledge', type: 'knowledge' }
+      ]);
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      const targetFile = path.join(workspaceRoot, '.github', 'knowledge', sourceFile);
+      assert.ok(fs.existsSync(targetFile), 'Knowledge file should be placed under .github/knowledge/');
+      assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), '# Knowledge');
+    });
+
+    test('should place knowledge files under the Kiro knowledge route', async () => {
+      const bundleId = 'kiro-knowledge-bundle';
+      const sourceFile = 'specifications/RDP/core_layer/AGENT_INDEX.md';
+      const bundlePath = createMockBundle(bundleId, [
+        { name: sourceFile, content: '# Knowledge', type: 'knowledge' }
+      ]);
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await kiroService.syncBundle(bundleId, bundlePath);
+
+      const targetFile = path.join(workspaceRoot, '.kiro', 'knowledge', sourceFile);
+      assert.ok(fs.existsSync(targetFile), 'Knowledge file should be placed under .kiro/knowledge/');
+      assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), '# Knowledge');
     });
 
     test('should create parent directories if they do not exist', async () => {
@@ -475,6 +569,151 @@ suite('RepositoryScopeService', () => {
       assert.ok(!fs.existsSync(path.join(promptsDir, 'test.prompt.md')), 'File should be removed');
     });
 
+    test('should unsync a file recorded with Windows separators on every platform', async () => {
+      const promptFile = path.join(workspaceRoot, '.github', 'prompts', 'windows-path.prompt.md');
+      fs.mkdirSync(path.dirname(promptFile), { recursive: true });
+      fs.writeFileSync(promptFile, '# Windows path');
+
+      createLockfile('windows-path-bundle', 'commit', [{
+        path: '.github\\prompts\\windows-path.prompt.md',
+        checksum: calculateChecksumSync(promptFile)
+      }]);
+
+      await service.unsyncBundle('windows-path-bundle');
+
+      assert.ok(!fs.existsSync(promptFile), 'File should be removed using the lockfile path');
+    });
+
+    test('should preserve files outside the workspace when a lockfile path traverses its root', async () => {
+      const externalFile = path.join(tempDir, 'outside.txt');
+      fs.writeFileSync(externalFile, '# Outside workspace');
+      const checksum = calculateChecksumSync(externalFile);
+
+      for (const filePath of ['../outside.txt', '..\\outside.txt']) {
+        createLockfile('traversal-bundle', 'commit', [{ path: filePath, checksum }]);
+
+        await assert.rejects(service.unsyncBundle('traversal-bundle'), /escapes repository root/);
+
+        assert.ok(fs.existsSync(externalFile), `Should preserve external file for ${JSON.stringify(filePath)}`);
+      }
+    });
+
+    if (process.platform !== 'win32') {
+      test('refuses a symlinked parent before checking a matching checksum or removing the file', async () => {
+        const outside = path.join(tempDir, 'outside');
+        fs.mkdirSync(outside);
+        const victim = path.join(outside, 'victim.prompt.md');
+        fs.writeFileSync(victim, '# Outside workspace');
+        const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+        fs.mkdirSync(promptsDir, { recursive: true });
+        fs.symlinkSync(outside, path.join(promptsDir, 'linked'), 'dir');
+        createLockfile('symlink-bundle', 'commit', [{
+          path: '.github/prompts/linked/victim.prompt.md',
+          checksum: calculateChecksumSync(victim)
+        }]);
+
+        await assert.rejects(service.unsyncBundle('symlink-bundle'), /escapes repository root/);
+
+        assert.strictEqual(fs.readFileSync(victim, 'utf8'), '# Outside workspace');
+        assert.ok(fs.existsSync(path.join(workspaceRoot, 'prompt-registry.lock.json')));
+      });
+
+      test('refuses a local-only entry with Windows separators through an outside symlink', async () => {
+        const outside = path.join(tempDir, 'outside');
+        fs.mkdirSync(outside);
+        const victim = path.join(outside, 'victim.prompt.md');
+        fs.writeFileSync(victim, '# Outside workspace');
+        const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+        fs.mkdirSync(promptsDir, { recursive: true });
+        fs.symlinkSync(outside, path.join(promptsDir, 'linked'), 'dir');
+        createLockfile('local-symlink-bundle', 'local-only', [{
+          path: '.github\\prompts\\linked\\victim.prompt.md',
+          checksum: calculateChecksumSync(victim)
+        }]);
+
+        await assert.rejects(service.unsyncBundle('local-symlink-bundle'), /escapes repository root/);
+
+        assert.strictEqual(fs.readFileSync(victim, 'utf8'), '# Outside workspace');
+        assert.ok(fs.existsSync(path.join(workspaceRoot, 'prompt-registry.local.lock.json')));
+      });
+
+      test('rejects an unsafe entry before removing any other file in that bundle', async () => {
+        const safeFile = path.join(workspaceRoot, '.github', 'prompts', 'safe.prompt.md');
+        fs.mkdirSync(path.dirname(safeFile), { recursive: true });
+        fs.writeFileSync(safeFile, '# Installed');
+        const outside = path.join(tempDir, 'outside');
+        fs.mkdirSync(outside);
+        const victim = path.join(outside, 'victim.prompt.md');
+        fs.writeFileSync(victim, '# Outside workspace');
+        fs.symlinkSync(outside, path.join(path.dirname(safeFile), 'linked'), 'dir');
+        createLockfile('mixed-bundle', 'commit', [
+          { path: '.github/prompts/safe.prompt.md', checksum: calculateChecksumSync(safeFile) },
+          { path: '.github/prompts/linked/victim.prompt.md', checksum: calculateChecksumSync(victim) }
+        ]);
+
+        await assert.rejects(service.unsyncBundle('mixed-bundle'), /escapes repository root/);
+
+        assert.ok(fs.existsSync(safeFile), 'Safe files must remain untouched when another entry is unsafe');
+        assert.ok(fs.existsSync(victim), 'Outside files must remain untouched');
+        assert.ok(fs.existsSync(path.join(workspaceRoot, 'prompt-registry.lock.json')));
+      });
+
+      test('unlinks a final symlink without deleting its outside target', async () => {
+        const victim = path.join(tempDir, 'victim.prompt.md');
+        fs.writeFileSync(victim, '# Outside workspace');
+        const link = path.join(workspaceRoot, '.github', 'prompts', 'link.prompt.md');
+        fs.mkdirSync(path.dirname(link), { recursive: true });
+        fs.symlinkSync(victim, link);
+        createLockfile('final-link-bundle', 'commit', [{
+          path: '.github/prompts/link.prompt.md', checksum: calculateChecksumSync(victim)
+        }]);
+
+        await service.unsyncBundle('final-link-bundle');
+
+        assert.ok(!fs.existsSync(link), 'Only the symlink should be removed');
+        assert.ok(fs.existsSync(victim), 'The symlink target must remain');
+      });
+
+      test('allows a symlinked workspace root and an in-repository symlinked parent', async () => {
+        const actualDir = path.join(workspaceRoot, 'internal');
+        fs.mkdirSync(actualDir);
+        const prompt = path.join(actualDir, 'installed.prompt.md');
+        fs.writeFileSync(prompt, '# Installed');
+        const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+        fs.mkdirSync(promptsDir, { recursive: true });
+        fs.symlinkSync(actualDir, path.join(promptsDir, 'linked'), 'dir');
+        const alias = path.join(tempDir, 'alias');
+        fs.symlinkSync(workspaceRoot, alias, 'dir');
+        const aliasedService = new RepositoryScopeService(alias, mockStorage);
+        createLockfile('internal-link-bundle', 'commit', [{
+          path: '.github/prompts/linked/installed.prompt.md', checksum: calculateChecksumSync(prompt)
+        }]);
+
+        await aliasedService.unsyncBundle('internal-link-bundle');
+
+        assert.ok(!fs.existsSync(prompt), 'In-repository symlinked parents should be allowed');
+        LockfileManager.resetInstance(alias);
+      });
+
+      test('does not traverse an outside symlink during empty managed-directory cleanup', async () => {
+        const prompt = path.join(workspaceRoot, '.github', 'prompts', 'installed.prompt.md');
+        fs.mkdirSync(path.dirname(prompt), { recursive: true });
+        fs.writeFileSync(prompt, '# Installed');
+        const outsideSkills = path.join(tempDir, 'outside-skills');
+        const outsideSkill = path.join(outsideSkills, 'empty-skill');
+        fs.mkdirSync(outsideSkill, { recursive: true });
+        fs.symlinkSync(outsideSkills, path.join(workspaceRoot, '.github', 'skills'), 'dir');
+        createLockfile('cleanup-bundle', 'commit', [{
+          path: '.github/prompts/installed.prompt.md', checksum: calculateChecksumSync(prompt)
+        }]);
+
+        await service.unsyncBundle('cleanup-bundle');
+
+        assert.ok(!fs.existsSync(prompt), 'The installed prompt should be removed');
+        assert.ok(fs.existsSync(outsideSkill), 'Cleanup must not descend into outside symlinked directories');
+      });
+    }
+
     test('should remove entries from .git/info/exclude', async () => {
       createGitDirectory();
       const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
@@ -535,7 +774,11 @@ suite('RepositoryScopeService', () => {
       ]);
 
       // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'commit');
+      const promptPath = path.join(promptsDir, 'test.prompt.md');
+      createLockfile(bundleId, 'commit', [{
+        path: path.relative(workspaceRoot, promptPath),
+        checksum: calculateChecksumSync(promptPath)
+      }]);
 
       await service.switchCommitMode(bundleId, 'local-only');
 
@@ -545,6 +788,101 @@ suite('RepositoryScopeService', () => {
         excludeContent.includes('.github/prompts/test.prompt.md'),
         'Git exclude should contain file path after switching to local-only'
       );
+    });
+
+    test('should only update paths recorded for the selected bundle', async () => {
+      createGitDirectory();
+
+      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+      fs.mkdirSync(promptsDir, { recursive: true });
+      const selectedPath = path.join(promptsDir, 'selected.prompt.md');
+      const otherBundlePath = path.join(promptsDir, 'other.prompt.md');
+      const untrackedPath = path.join(promptsDir, 'untracked.prompt.md');
+      fs.writeFileSync(selectedPath, '# Selected');
+      fs.writeFileSync(otherBundlePath, '# Other bundle');
+      fs.writeFileSync(untrackedPath, '# Untracked');
+
+      const conventionPath = path.join(workspaceRoot, '.github', 'copilot-instructions.md');
+      fs.writeFileSync(conventionPath, '# Repository instructions');
+
+      const selectedBundleId = 'selected-bundle';
+      const otherBundleId = 'other-bundle';
+      createLockfile(selectedBundleId, 'commit', [{
+        path: '.github/prompts/selected.prompt.md',
+        checksum: calculateChecksumSync(selectedPath)
+      }]);
+
+      type TestLockfile = {
+        bundles: Record<string, {
+          version: string;
+          sourceId: string;
+          sourceType: string;
+          installedAt: string;
+          files: { path: string; checksum: string }[];
+        }>;
+      };
+      const lockfilePath = path.join(workspaceRoot, 'prompt-registry.lock.json');
+      const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8')) as TestLockfile;
+      lockfile.bundles[otherBundleId] = {
+        ...lockfile.bundles[selectedBundleId],
+        files: [{
+          path: '.github/prompts/other.prompt.md',
+          checksum: calculateChecksumSync(otherBundlePath)
+        }]
+      };
+      fs.writeFileSync(lockfilePath, JSON.stringify(lockfile, null, 2));
+
+      await service.switchCommitMode(selectedBundleId, 'local-only');
+
+      const excludedPaths = (readGitExclude() ?? '').split(/\r?\n/);
+      assert.ok(excludedPaths.includes('.github/prompts/selected.prompt.md'));
+      assert.ok(!excludedPaths.includes('.github/prompts/other.prompt.md'));
+      assert.ok(!excludedPaths.includes('.github/prompts/untracked.prompt.md'));
+      assert.ok(!excludedPaths.includes('.github/copilot-instructions.md'));
+    });
+
+    test('should not discover files when the selected bundle has no recorded paths', async () => {
+      createGitDirectory();
+
+      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
+      fs.mkdirSync(promptsDir, { recursive: true });
+      fs.writeFileSync(path.join(promptsDir, 'untracked.prompt.md'), '# Untracked');
+      fs.writeFileSync(path.join(workspaceRoot, '.github', 'copilot-instructions.md'), '# Instructions');
+
+      const bundleId = 'empty-files-bundle';
+      createLockfile(bundleId, 'commit');
+
+      await service.switchCommitMode(bundleId, 'local-only');
+
+      const excludedPaths = (readGitExclude() ?? '')
+        .split(/\r?\n/)
+        .filter((entry) => entry.length > 0 && entry !== '# Prompt Registry (local)');
+      assert.deepStrictEqual(excludedPaths, []);
+    });
+
+    test('does not exclude unrelated files sharing a knowledge subdirectory', async () => {
+      createGitDirectory();
+      const knowledgeDir = path.join(workspaceRoot, '.github', 'knowledge', 'specifications', 'RDP');
+      fs.mkdirSync(knowledgeDir, { recursive: true });
+      const installedKnowledge = path.join(knowledgeDir, 'AGENT_INDEX.md');
+      const unrelatedFile = path.join(knowledgeDir, 'company-architecture.md');
+      fs.writeFileSync(installedKnowledge, '# Installed knowledge');
+      fs.writeFileSync(unrelatedFile, '# User file');
+
+      const bundleId = 'knowledge-switch-bundle';
+      createLockfile(bundleId, 'commit', [{
+        path: path.relative(workspaceRoot, installedKnowledge),
+        checksum: calculateChecksumSync(installedKnowledge)
+      }]);
+
+      await service.switchCommitMode(bundleId, 'local-only');
+
+      const excludeContent = readGitExclude();
+      assert.ok(excludeContent, 'Git exclude file should exist');
+      const excludedPaths = excludeContent.split(/\r?\n/);
+      assert.ok(excludedPaths.includes('.github/knowledge/specifications/RDP/AGENT_INDEX.md'));
+      assert.ok(!excludedPaths.includes('.github/knowledge/specifications'));
+      assert.ok(!excludedPaths.includes('.github/knowledge/specifications/RDP/company-architecture.md'));
     });
 
     test('should remove paths from git exclude when switching from local-only to commit', async () => {
@@ -563,7 +901,11 @@ suite('RepositoryScopeService', () => {
       ]);
 
       // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'local-only');
+      const promptPath = path.join(promptsDir, 'test.prompt.md');
+      createLockfile(bundleId, 'local-only', [{
+        path: path.relative(workspaceRoot, promptPath),
+        checksum: calculateChecksumSync(promptPath)
+      }]);
 
       await service.switchCommitMode(bundleId, 'commit');
 
@@ -605,6 +947,77 @@ suite('RepositoryScopeService', () => {
       // Should not throw, but may log warning
       await service.syncBundle(bundleId, bundlePath);
     });
+
+    const assertPartialWriteRollback = async (
+      bundleId: string,
+      originalContents: string | null,
+      expectedContents: string | null,
+      simulation: { removeDestinationDuringWrite?: boolean; externalEditBeforeRollback?: string } = {}
+    ): Promise<void> => {
+      const bundlePath = createMockBundle(bundleId, [
+        { name: 'test.prompt.md', content: '# Installed', type: 'prompt' }
+      ]);
+      const targetFile = path.join(workspaceRoot, '.github', 'prompts', 'test.prompt.md');
+
+      if (originalContents !== null) {
+        fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+        fs.writeFileSync(targetFile, originalContents);
+      }
+
+      let writeFailed = false;
+      const externalEdit = simulation.externalEditBeforeRollback;
+      if (externalEdit !== undefined) {
+        let editApplied = false;
+        const originalLstat = fs.promises.lstat.bind(fs.promises);
+        sandbox.stub(fs.promises, 'lstat').callsFake(async (filePath) => {
+          const stats = await originalLstat(filePath);
+          if (writeFailed && filePath === targetFile && !editApplied) {
+            fs.writeFileSync(targetFile, externalEdit);
+            editApplied = true;
+          }
+          return stats;
+        });
+      }
+
+      const originalWriteFile = fs.promises.writeFile.bind(fs.promises);
+      sandbox.stub(fs.promises, 'writeFile').callsFake(async (filePath, contents, writeOptions) => {
+        if (filePath === targetFile) {
+          if (simulation.removeDestinationDuringWrite) {
+            fs.unlinkSync(targetFile);
+          } else {
+            await originalWriteFile(filePath, Buffer.from('# Partial'));
+          }
+          writeFailed = true;
+          throw new Error('Simulated partial filesystem write');
+        }
+        return originalWriteFile(filePath, contents, writeOptions);
+      });
+
+      await assert.rejects(
+        service.syncBundle(bundleId, bundlePath, { commitMode: 'commit' }),
+        /Simulated partial filesystem write/
+      );
+
+      assert.strictEqual(fs.existsSync(targetFile), expectedContents !== null);
+      if (expectedContents !== null) {
+        assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), expectedContents);
+      }
+    };
+
+    test('should restore an existing destination after a partial write', () => assertPartialWriteRollback('partial-write-existing', '# Original', '# Original'));
+    test('should remove a new destination after a partial write', () => assertPartialWriteRollback('partial-write-new', null, null));
+    test('should restore an existing destination missing after a failed write', () => assertPartialWriteRollback(
+      'partial-write-missing',
+      '# Original',
+      '# Original',
+      { removeDestinationDuringWrite: true }
+    ));
+    test('should preserve a destination edited after a partial write fails', () => assertPartialWriteRollback(
+      'partial-write-user-edit',
+      '# Original',
+      '# User edit',
+      { externalEditBeforeRollback: '# User edit' }
+    ));
 
     test('should rollback on partial file installation failure', async () => {
       const bundleId = 'rollback-bundle';
@@ -757,6 +1170,23 @@ prompts:
       return bundlePath;
     };
 
+    if (process.platform === 'win32') {
+      test('installs a skill whose manifest uses Windows separators', async () => {
+        const bundlePath = createMockBundleWithSkill('windows-skill', 'my-skill', [
+          { relativePath: 'SKILL.md', content: '# Skill' },
+          { relativePath: 'scripts/run.sh', content: '#!/bin/sh' }
+        ]);
+        const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
+        const manifest = fs.readFileSync(manifestPath, 'utf8');
+        fs.writeFileSync(manifestPath, manifest.replace('skills/my-skill/SKILL.md', 'skills\\my-skill\\SKILL.md'));
+
+        await service.syncBundle('windows-skill', bundlePath);
+
+        assert.strictEqual(fs.readFileSync(path.join(workspaceRoot, '.github', 'skills', 'my-skill', 'SKILL.md'), 'utf8'), '# Skill');
+        assert.strictEqual(fs.readFileSync(path.join(workspaceRoot, '.github', 'skills', 'my-skill', 'scripts', 'run.sh'), 'utf8'), '#!/bin/sh');
+      });
+    }
+
     test('should copy skill directories to .github/skills/<skill-name>/', async () => {
       const bundleId = 'skill-bundle';
       const skillName = 'my-skill';
@@ -773,6 +1203,29 @@ prompts:
       assert.ok(fs.existsSync(targetSkillDir), 'Skill directory should be created');
       assert.ok(fs.existsSync(path.join(targetSkillDir, 'SKILL.md')), 'SKILL.md should be copied');
       assert.ok(fs.existsSync(path.join(targetSkillDir, 'index.js')), 'index.js should be copied');
+    });
+
+    test('restores an existing skill file when post-sync tracking fails', async () => {
+      const bundlePath = createMockBundleWithSkill('skill-rollback', 'my-skill', [
+        { relativePath: 'SKILL.md', content: '# Installed' },
+        { relativePath: 'scripts/run.sh', content: '#!/bin/sh' }
+      ]);
+      const skillDir = path.join(workspaceRoot, '.github', 'skills', 'my-skill');
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Existing');
+      fs.writeFileSync(path.join(skillDir, 'user-notes.md'), '# Keep');
+
+      await assert.rejects(
+        service.syncBundle('skill-rollback', bundlePath, {
+          commitMode: 'commit',
+          afterSync: () => Promise.reject(new Error('Lockfile write failed'))
+        }),
+        /Lockfile write failed/
+      );
+
+      assert.strictEqual(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'), '# Existing');
+      assert.strictEqual(fs.readFileSync(path.join(skillDir, 'user-notes.md'), 'utf8'), '# Keep');
+      assert.ok(!fs.existsSync(path.join(skillDir, 'scripts', 'run.sh')));
     });
 
     test('should copy all files within skill directory recursively', async () => {
@@ -795,6 +1248,64 @@ prompts:
       assert.ok(fs.existsSync(path.join(targetSkillDir, 'src', 'utils', 'helper.js')), 'src/utils/helper.js should be copied');
       assert.ok(fs.existsSync(path.join(targetSkillDir, 'config', 'settings.json')), 'config/settings.json should be copied');
     });
+
+    if (process.platform !== 'win32') {
+      test('refuses to copy skill assets through a symlinked destination outside the repository', async () => {
+        const outside = path.join(tempDir, 'outside-skill');
+        fs.mkdirSync(outside);
+        const victim = path.join(outside, 'SKILL.md');
+        fs.writeFileSync(victim, '# Outside');
+        const skillDir = path.join(workspaceRoot, '.github', 'skills', 'my-skill');
+        fs.mkdirSync(path.dirname(skillDir), { recursive: true });
+        fs.symlinkSync(outside, skillDir, 'dir');
+        const bundlePath = createMockBundleWithSkill('unsafe-skill', 'my-skill', [
+          { relativePath: 'SKILL.md', content: '# Installed' },
+          { relativePath: 'scripts/run.sh', content: '#!/bin/sh' }
+        ]);
+
+        await assert.rejects(service.syncBundle('unsafe-skill', bundlePath), /escapes repository root/);
+
+        assert.strictEqual(fs.readFileSync(victim, 'utf8'), '# Outside');
+        assert.ok(!fs.existsSync(path.join(outside, 'scripts', 'run.sh')));
+      });
+
+      test('rejects a source skill asset whose POSIX backslash name cannot be tracked in the lockfile', async () => {
+        const bundleId = 'unportable-skill';
+        const skillName = 'my-skill';
+        const bundlePath = createMockBundleWithSkill(bundleId, skillName, [
+          { relativePath: 'SKILL.md', content: '# My Skill' },
+          { relativePath: 'scripts/foo\\bar.sh', content: '#!/bin/sh' }
+        ]);
+
+        await assert.rejects(service.syncBundle(bundleId, bundlePath), /backslash.*not supported/i);
+
+        assert.ok(!fs.existsSync(path.join(workspaceRoot, '.github', 'skills', skillName)),
+          'The invalid bundle must not leave any untracked repository files');
+      });
+
+      test('preserves pre-existing skill assets if a later source asset forces rollback', async () => {
+        const bundlePath = createMockBundleWithSkill('rollback-skills', 'safe-skill', [
+          { relativePath: 'SKILL.md', content: '# Installed' }
+        ]);
+        const unsafeDir = path.join(bundlePath, 'skills', 'unsafe-skill');
+        fs.mkdirSync(unsafeDir, { recursive: true });
+        fs.writeFileSync(path.join(unsafeDir, 'SKILL.md'), '# Unsafe skill');
+        fs.writeFileSync(path.join(unsafeDir, 'foo\\bar.sh'), '#!/bin/sh');
+        fs.appendFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `
+  - id: unsafe-skill
+    file: skills/unsafe-skill/SKILL.md
+    type: skill`);
+        const targetDir = path.join(workspaceRoot, '.github', 'skills', 'safe-skill');
+        fs.mkdirSync(targetDir, { recursive: true });
+        const userAsset = path.join(targetDir, 'user-notes.md');
+        fs.writeFileSync(userAsset, '# Keep me');
+
+        await assert.rejects(service.syncBundle('rollback-skills', bundlePath), /backslash.*not supported/i);
+
+        assert.strictEqual(fs.readFileSync(userAsset, 'utf8'), '# Keep me');
+        assert.ok(!fs.existsSync(path.join(targetDir, 'SKILL.md')), 'Remove only the installed asset');
+      });
+    }
 
     test('should preserve skill directory structure', async () => {
       const bundleId = 'skill-bundle-structure';
@@ -1335,7 +1846,7 @@ prompts:
       }
     });
 
-    test('switchCommitMode scans host-aware dirs (.kiro) on a Kiro host', async () => {
+    test('switchCommitMode uses tracked host-aware file paths on a Kiro host', async () => {
       createGitDirectory();
       const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
       const bundleId = 'kiro-switch-bundle';
@@ -1345,7 +1856,11 @@ prompts:
       fs.mkdirSync(steeringDir, { recursive: true });
       fs.writeFileSync(path.join(steeringDir, 'test.prompt.md'), '# Prompt');
 
-      createLockfile(bundleId, 'commit');
+      const promptPath = path.join(steeringDir, 'test.prompt.md');
+      createLockfile(bundleId, 'commit', [{
+        path: path.relative(workspaceRoot, promptPath),
+        checksum: calculateChecksumSync(promptPath)
+      }]);
 
       await kiroService.switchCommitMode(bundleId, 'local-only');
 

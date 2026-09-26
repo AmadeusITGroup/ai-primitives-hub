@@ -12,6 +12,9 @@
  * the CLI to depend on directly.
  * @module domain/install/copilot-file-type
  */
+import type {
+  ManifestPlacementType,
+} from './manifest-placement-type';
 
 /**
  * Normalize a prompt ID to a safe string for use in file names.
@@ -29,6 +32,34 @@ export function normalizePromptId(id: string | number): string {
  * Supported Copilot file types
  */
 export type CopilotFileType = 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill';
+
+/**
+ * Check whether a manifest placement type has Copilot filename semantics.
+ * @param value - Manifest placement type.
+ * @returns True when the type can be passed to Copilot filename helpers.
+ */
+export function isCopilotFileType(value: ManifestPlacementType): value is CopilotFileType {
+  return value === 'prompt'
+    || value === 'instructions'
+    || value === 'chatmode'
+    || value === 'agent'
+    || value === 'skill';
+}
+
+/**
+ * Convert canonical manifest kinds to supported Copilot filename types.
+ * @param value - Manifest placement type.
+ * @returns Copilot file type, or null when no Copilot filename mapping exists.
+ */
+export function toCopilotFileType(value: ManifestPlacementType): CopilotFileType | null {
+  if (value === 'instruction') {
+    return 'instructions';
+  }
+  if (value === 'chat-mode') {
+    return 'chatmode';
+  }
+  return isCopilotFileType(value) ? value : null;
+}
 
 /**
  * File extension mappings for each Copilot file type

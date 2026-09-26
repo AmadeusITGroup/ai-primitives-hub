@@ -58,5 +58,7 @@ export interface FileSystem {
   /** Like `readDir`, but with type information — avoids a stat-per-entry scan. */
   readDirEntries(path: string): Promise<DirEntry[]>;
   stat(path: string): Promise<FileStat>;
+  /** Resolve symlinks in an existing path; repository removal fails closed if unavailable. */
+  realpath?(path: string): Promise<string>;
   remove(path: string, opts?: { recursive?: boolean }): Promise<void>;
 }
