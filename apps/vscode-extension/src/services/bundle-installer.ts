@@ -225,16 +225,7 @@ export class BundleInstaller {
 
     // Resolve host-aware destinations via the same layout as the writer.
     const repoService = new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
-    const getTargetDirectory = (type: ManifestPlacementType): string | null => {
-      try {
-        return repoService.getTargetDirectory(type);
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith('No repository route defined')) {
-          return null;
-        }
-        throw error;
-      }
-    };
+    const getTargetDirectory = (type: ManifestPlacementType): string | null => repoService.tryGetTargetDirectory(type);
 
     // Collect files from the host-appropriate directories based on manifest
     for (const promptDef of manifest.prompts) {

@@ -948,6 +948,77 @@ suite('RepositoryScopeService', () => {
       await service.syncBundle(bundleId, bundlePath);
     });
 
+    const assertPartialWriteRollback = async (
+      bundleId: string,
+      originalContents: string | null,
+      expectedContents: string | null,
+      simulation: { removeDestinationDuringWrite?: boolean; externalEditBeforeRollback?: string } = {}
+    ): Promise<void> => {
+      const bundlePath = createMockBundle(bundleId, [
+        { name: 'test.prompt.md', content: '# Installed', type: 'prompt' }
+      ]);
+      const targetFile = path.join(workspaceRoot, '.github', 'prompts', 'test.prompt.md');
+
+      if (originalContents !== null) {
+        fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+        fs.writeFileSync(targetFile, originalContents);
+      }
+
+      let writeFailed = false;
+      const externalEdit = simulation.externalEditBeforeRollback;
+      if (externalEdit !== undefined) {
+        let editApplied = false;
+        const originalLstat = fs.promises.lstat.bind(fs.promises);
+        sandbox.stub(fs.promises, 'lstat').callsFake(async (filePath) => {
+          const stats = await originalLstat(filePath);
+          if (writeFailed && filePath === targetFile && !editApplied) {
+            fs.writeFileSync(targetFile, externalEdit);
+            editApplied = true;
+          }
+          return stats;
+        });
+      }
+
+      const originalWriteFile = fs.promises.writeFile.bind(fs.promises);
+      sandbox.stub(fs.promises, 'writeFile').callsFake(async (filePath, contents, writeOptions) => {
+        if (filePath === targetFile) {
+          if (simulation.removeDestinationDuringWrite) {
+            fs.unlinkSync(targetFile);
+          } else {
+            await originalWriteFile(filePath, Buffer.from('# Partial'));
+          }
+          writeFailed = true;
+          throw new Error('Simulated partial filesystem write');
+        }
+        return originalWriteFile(filePath, contents, writeOptions);
+      });
+
+      await assert.rejects(
+        service.syncBundle(bundleId, bundlePath, { commitMode: 'commit' }),
+        /Simulated partial filesystem write/
+      );
+
+      assert.strictEqual(fs.existsSync(targetFile), expectedContents !== null);
+      if (expectedContents !== null) {
+        assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), expectedContents);
+      }
+    };
+
+    test('should restore an existing destination after a partial write', () => assertPartialWriteRollback('partial-write-existing', '# Original', '# Original'));
+    test('should remove a new destination after a partial write', () => assertPartialWriteRollback('partial-write-new', null, null));
+    test('should restore an existing destination missing after a failed write', () => assertPartialWriteRollback(
+      'partial-write-missing',
+      '# Original',
+      '# Original',
+      { removeDestinationDuringWrite: true }
+    ));
+    test('should preserve a destination edited after a partial write fails', () => assertPartialWriteRollback(
+      'partial-write-user-edit',
+      '# Original',
+      '# User edit',
+      { externalEditBeforeRollback: '# User edit' }
+    ));
+
     test('should rollback on partial file installation failure', async () => {
       const bundleId = 'rollback-bundle';
       const bundlePath = createMockBundle(bundleId, [

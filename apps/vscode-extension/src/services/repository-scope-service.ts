@@ -84,6 +84,13 @@ const readdir = promisify(fs.readdir);
 const unlink = promisify(fs.unlink);
 const rm = promisify(fs.rm);
 
+interface TrackedWrite {
+  before: Buffer | null;
+  after: Buffer;
+  completed: boolean;
+  failedState?: Buffer | null;
+}
+
 /**
  * `WriterFs` adapter backed by Node's `fs` module, so
  * `RepositoryScopeService` can drive the shared
@@ -91,7 +98,7 @@ const rm = promisify(fs.rm);
  * instead of duplicating it.
  */
 class NodeWriterFs implements WriterFs {
-  private readonly writes = new Map<string, { before: Buffer | null; after: Buffer }>();
+  private readonly writes = new Map<string, TrackedWrite>();
 
   private async writeTracked(p: string, bytes: Uint8Array): Promise<void> {
     let before = this.writes.get(p)?.before;
@@ -105,11 +112,24 @@ class NodeWriterFs implements WriterFs {
         before = null;
       }
     }
-    await fs.promises.writeFile(p, bytes);
-    this.writes.set(p, { before: before ?? null, after: Buffer.from(bytes) });
+    const entry: TrackedWrite = { before: before ?? null, after: Buffer.from(bytes), completed: false };
+    this.writes.set(p, entry);
+    try {
+      await fs.promises.writeFile(p, bytes);
+      entry.completed = true;
+    } catch (error) {
+      try {
+        entry.failedState = await fs.promises.readFile(p);
+      } catch (readError) {
+        if ((readError as NodeJS.ErrnoException).code === 'ENOENT') {
+          entry.failedState = null;
+        }
+      }
+      throw error;
+    }
   }
 
-  public getWrittenFiles(): { path: string; before: Buffer | null; after: Buffer }[] {
+  public getWrittenFiles(): ({ path: string } & TrackedWrite)[] {
     return [...this.writes].map(([filePath, contents]) => ({ path: filePath, ...contents }));
   }
 
@@ -420,11 +440,12 @@ export class RepositoryScopeService implements IScopeService {
     const fileType = promptDef.type ?? determineFileType(promptDef.file, promptDef.tags);
     const knowledgeRelativePath = fileType === 'knowledge' ? getKnowledgeRelativePath(promptDef.file) : null;
     const copilotType = fileType === 'knowledge' ? null : toCopilotFileType(fileType);
+    const knowledgeDir = knowledgeRelativePath === null ? null : this.tryGetTargetDirectory('knowledge');
     const targetPath = knowledgeRelativePath === null
       ? (copilotType === null
         ? null
         : path.join(this.workspaceRoot, this.getTargetDirectory(fileType), getTargetFileName(promptId, copilotType)))
-      : path.join(this.workspaceRoot, this.getTargetDirectory('knowledge'), knowledgeRelativePath);
+      : (knowledgeDir === null ? null : path.join(this.workspaceRoot, knowledgeDir, knowledgeRelativePath));
     if (targetPath === null) {
       this.logger.warn(`[RepositoryScopeService] No repository route for: ${promptDef.file}`);
       return;
@@ -459,16 +480,35 @@ export class RepositoryScopeService implements IScopeService {
   /**
    * Rollback installation by removing new files and restoring overwritten ones.
    * @param tracker
-   * @param writerFs - Journal of successfully written file contents.
+   * @param writerFs - Journal of attempted writes and their original contents.
    */
   private async rollbackInstallation(tracker: InstallationTracker, writerFs: NodeWriterFs): Promise<void> {
     this.logger.error(`[RepositoryScopeService] Installation failed, rolling back...`);
 
     // Leave files that changed since the write untouched. Never delete a
     // pre-existing file just because an install or lockfile write failed.
-    for (const { path: absolutePath, before, after } of writerFs.getWrittenFiles().toReversed()) {
+    for (const { path: absolutePath, before, after, completed, failedState } of writerFs.getWrittenFiles().toReversed()) {
       try {
         await this.assertSafeInstallPath(absolutePath);
+        if (!completed) {
+          let unchangedSinceFailure = false;
+          if (failedState === null) {
+            unchangedSinceFailure = !fs.existsSync(absolutePath);
+          } else if (failedState !== undefined && fs.existsSync(absolutePath)) {
+            unchangedSinceFailure = (await fs.promises.readFile(absolutePath)).equals(failedState);
+          }
+          if (!unchangedSinceFailure) {
+            this.logger.warn(`[RepositoryScopeService] Preserving destination changed or unverifiable after incomplete write: ${absolutePath}`);
+            continue;
+          }
+          if (before !== null) {
+            await writeFile(absolutePath, before);
+          } else if (failedState !== null) {
+            await unlink(absolutePath);
+          }
+          this.logger.debug(`[RepositoryScopeService] Rolled back incomplete write: ${absolutePath}`);
+          continue;
+        }
         if (!fs.existsSync(absolutePath)) {
           continue;
         }
@@ -617,15 +657,11 @@ export class RepositoryScopeService implements IScopeService {
     for (const kind of MANAGED_KINDS) {
       // Host-appropriate managed dir (deduped: e.g. prompt+instructions both
       // resolve to .kiro/steering on Kiro).
-      let relativeDir: string;
-      try {
-        relativeDir = this.getTargetDirectory(kind).replace(/\/+$/, '');
-      } catch (error) {
-        if (!(error instanceof Error) || !error.message.startsWith('No repository route defined')) {
-          throw error;
-        }
+      const targetDirectory = this.tryGetTargetDirectory(kind);
+      if (targetDirectory === null) {
         continue;
       }
+      const relativeDir = targetDirectory.replace(/\/+$/, '');
       if (seen.has(relativeDir)) {
         continue;
       }
@@ -893,6 +929,22 @@ export class RepositoryScopeService implements IScopeService {
     const absolute = path.join(layout.baseDir, route);
     const relative = path.relative(this.workspaceRoot, absolute).split(path.sep).join('/');
     return relative.endsWith('/') ? relative : `${relative}/`;
+  }
+
+  /**
+   * Resolve an optional repository destination, returning null when the host
+   * layout does not support that primitive kind.
+   * @param type - Manifest placement type to resolve.
+   */
+  public tryGetTargetDirectory(type: ManifestPlacementType): string | null {
+    try {
+      return this.getTargetDirectory(type);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('No repository route defined')) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**

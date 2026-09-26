@@ -325,6 +325,41 @@ prompts:
       ]);
     });
 
+    test('skips unrouted knowledge files on Windsurf and still tracks supported files', async () => {
+      const windsurfService = new RepositoryScopeService(tempDir, mockStorage, 'windsurf');
+      (ScopeServiceFactory.create as sinon.SinonStub).callsFake((scope) =>
+        scope === 'repository' ? windsurfService : mockUserScopeService);
+      installer = new BundleInstaller(mockContext, 'windsurf');
+
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+prompts:
+  - id: supported-prompt
+    file: supported.prompt.md
+    type: prompt
+  - id: unsupported-knowledge
+    file: specifications/RDP/AGENT_INDEX.md
+    type: knowledge
+`));
+      zip.addFile('supported.prompt.md', Buffer.from('# Supported prompt'));
+      zip.addFile('specifications/RDP/AGENT_INDEX.md', Buffer.from('# Knowledge'));
+
+      await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      const promptPath = path.join(tempDir, '.windsurf', 'rules', 'supported-prompt.prompt.md');
+      assert.strictEqual(fs.readFileSync(promptPath, 'utf8'), '# Supported prompt');
+      assert.ok(!fs.existsSync(path.join(tempDir, '.windsurf', 'knowledge')),
+        'A host without a knowledge route must not receive a knowledge directory');
+
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.deepStrictEqual(tracked.map((file) => file.path), ['.windsurf/rules/supported-prompt.prompt.md']);
+    });
+
     if (process.platform !== 'win32') {
       test('does not track an existing POSIX backslash filename that was not installed by the bundle', async () => {
         const skillDir = path.join(tempDir, '.github', 'skills', 'my-skill');
