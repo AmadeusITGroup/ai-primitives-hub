@@ -48,7 +48,7 @@ describe('repository path containment', () => {
   });
 
   it('allows a symlinked root and an internal parent without resolving the final link', async () => {
-    const alias = '/repo-alias';
+    const alias = path.resolve('/repo-alias');
     const link = path.join(alias, '.github', 'linked');
     const candidate = path.join(link, 'final-link');
     const realpath = vi.fn((filePath: string) => {
