@@ -63,7 +63,9 @@ class FailAfterFirstWriteFileSystem extends InMemoryFileSystem {
 
 class ExternalKnowledgeParentFileSystem extends InMemoryFileSystem {
   public override realpath(filePath: string): Promise<string> {
-    return Promise.resolve(filePath === '/ws/.github/knowledge/linked' ? '/outside' : filePath);
+    const resolvedPath = path.resolve(filePath);
+    const externalParent = path.resolve('/ws', '.github', 'knowledge', 'linked');
+    return Promise.resolve(resolvedPath === externalParent ? path.resolve('/outside') : resolvedPath);
   }
 }
 
@@ -613,7 +615,7 @@ describe('FileTreeTargetWriter scope and layout behavior', () => {
     const result = await writer.write(target, files);
     const lockfileEntry = checksumWrittenFiles(files, result, target, '/ws')[0];
 
-    expect(result.written).toEqual(['/ws/custom/docs/specifications/guide.md']);
+    expect(result.written).toEqual([localPath('/ws', 'custom', 'docs', 'specifications', 'guide.md')]);
     expect(lockfileEntry?.path).toBe('custom/docs/specifications/guide.md');
     await writer.preflightRemoval(target, [lockfileEntry?.path]);
     await writer.remove(target, lockfileEntry?.path);

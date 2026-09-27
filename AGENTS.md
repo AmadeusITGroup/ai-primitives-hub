@@ -54,6 +54,7 @@ New domain or use-case logic belongs in `packages/`, not in a delivery layer. Se
 - Search existing implementation, helpers, and neighboring tests before adding code. Reuse instead of duplicating.
 - Tests must verify observable behavior through public entry points; mock external boundaries, not the unit under test.
 - Treat transformed values in failures as a production-path lead before rewriting fixtures.
+- For filesystem/path changes, distinguish host-native paths from slash-separated persisted paths; a Linux-only test run cannot establish Windows behavior. Require the Windows CI matrix to pass before calling the change merge-ready, following `packages/AGENTS.md`.
 - Use `Logger.getInstance()` rather than `console.log`; errors should be actionable.
 - Update user-facing or contributor documentation with behavior, command, setting, schema, or workflow changes.
 
