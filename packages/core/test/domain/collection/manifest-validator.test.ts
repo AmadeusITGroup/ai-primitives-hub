@@ -5,6 +5,8 @@ import {
 } from 'vitest';
 import {
   getInstallableBundleFiles,
+  getManifestPlacementItems,
+  getTargetInstallableBundleFiles,
   ManifestValidationError,
   validateManifest,
 } from '../../../src/domain/collection/manifest-validator';
@@ -114,6 +116,25 @@ describe('validateManifest', () => {
     expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([...files.keys()]);
   });
 
+  it('normalizes canonical and legacy placement declarations without processing both copies', () => {
+    const canonical = getManifestPlacementItems({
+      formatVersion: 1,
+      items: [{ id: 'canonical', path: 'specifications/guide.md', kind: 'knowledge' }],
+      prompts: [{ id: 'legacy', file: 'specifications/legacy-only.md', type: 'knowledge' }]
+    });
+    expect(canonical).toEqual([{ id: 'canonical', file: 'specifications/guide.md', type: 'knowledge' }]);
+
+    const legacyPrompts = getManifestPlacementItems({
+      items: [{ id: 'canonical', path: 'prompts/guide.prompt.md', kind: 'prompt' }],
+      prompts: [{ id: 'legacy', file: 'prompts/guide.prompt.md', type: 'prompt' }]
+    });
+    expect(legacyPrompts).toEqual([{ id: 'legacy', file: 'prompts/guide.prompt.md', type: 'prompt' }]);
+
+    expect(getManifestPlacementItems({
+      items: [{ id: 'items-only', path: 'prompts/items-only.prompt.md', kind: 'prompt' }]
+    })).toEqual([{ id: 'items-only', file: 'prompts/items-only.prompt.md', type: 'prompt' }]);
+  });
+
   it('validates a fully governed release and exposes only installable files', () => {
     const files = createGovernedReleaseArchive({ id: 'governed-bundle' });
 
@@ -134,6 +155,217 @@ describe('validateManifest', () => {
       'deployment-manifest.yml',
       'prompts/hello.prompt.md'
     ]);
+  });
+
+  it('projects declared governed knowledge files to canonical virtual paths', () => {
+    const files = createGovernedReleaseArchive({ includeKnowledge: true });
+    const manifest = validateManifest(files, {});
+
+    const targetFiles = getTargetInstallableBundleFiles(files, manifest);
+
+    expect([...targetFiles.keys()]).toEqual([
+      'deployment-manifest.yml',
+      'prompts/hello.prompt.md',
+      'knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md'
+    ]);
+    expect(targetFiles.get('knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md'))
+      .toEqual(files.get('specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md'));
+  });
+
+  it('retains embedded knowledge sources as skill assets while projecting standalone knowledge', () => {
+    const files = createGovernedReleaseArchive({ includeSkillKnowledge: true });
+    const manifest = validateManifest(files, {});
+
+    const targetFiles = getTargetInstallableBundleFiles(files, manifest);
+
+    expect(targetFiles.get('skills/knowledge-skill/SKILL.md')).toEqual(files.get('skills/knowledge-skill/SKILL.md'));
+    expect(targetFiles.get('skills/knowledge-skill/knowledge/guide.md'))
+      .toEqual(files.get('skills/knowledge-skill/knowledge/guide.md'));
+    expect(targetFiles.get('knowledge/skills/knowledge-skill/knowledge/guide.md'))
+      .toEqual(files.get('skills/knowledge-skill/knowledge/guide.md'));
+  });
+
+  it('rejects legacy knowledge declarations without a string source path', () => {
+    const malformedFiles = filesWith(`id: malformed-legacy
+version: 1.0.0
+name: Legacy
+prompts:
+  - id: guide
+    type: knowledge
+`);
+
+    expect(() => {
+      const manifest = validateManifest(malformedFiles, {});
+      getTargetInstallableBundleFiles(malformedFiles, manifest);
+    }).toThrow(ManifestValidationError);
+  });
+
+  it('selects legacy prompts first, adds distinct items, and deduplicates by canonical kind', () => {
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', bytes(`id: legacy-dual
+version: 1.0.0
+name: Legacy Dual
+prompts:
+  - id: prompt-shared
+    file: prompts/shared.md
+    type: prompt
+  - id: prompt-agent-wins
+    file: agents/review.md
+    type: chat-mode
+  - id: prompt-guide
+    file: specifications/prompts-guide.md
+    type: knowledge
+  - id: prompt-wins
+    file: specifications/duplicate-guide.md
+    type: knowledge
+items:
+  - id: item-guide
+    path: specifications/items-guide.md
+    kind: knowledge
+  - path: specifications/idless-guide.md
+    kind: knowledge
+  - id: item-shared
+    path: prompts/shared.md
+    kind: prompt
+  - id: item-agent-duplicate
+    path: agents/review.md
+    kind: chatmode
+  - id: item-loses
+    path: specifications/duplicate-guide.md
+    kind: knowledge
+`)],
+      ['prompts/shared.md', bytes('# Shared prompt')],
+      ['agents/review.md', bytes('# Review agent')],
+      ['specifications/prompts-guide.md', bytes('# Prompt knowledge')],
+      ['specifications/duplicate-guide.md', bytes('# Duplicate source')],
+      ['specifications/items-guide.md', bytes('# Item knowledge')],
+      ['specifications/idless-guide.md', bytes('# ID-less knowledge')]
+    ]);
+    const manifest = validateManifest(files, {});
+
+    const placements = getManifestPlacementItems(manifest as Record<string, unknown>);
+    expect(placements).toEqual([
+      { id: 'prompt-shared', file: 'prompts/shared.md', type: 'prompt' },
+      { id: 'prompt-agent-wins', file: 'agents/review.md', type: 'chat-mode' },
+      { id: 'prompt-guide', file: 'specifications/prompts-guide.md', type: 'knowledge' },
+      { id: 'prompt-wins', file: 'specifications/duplicate-guide.md', type: 'knowledge' },
+      { id: 'item-guide', file: 'specifications/items-guide.md', type: 'knowledge' }
+    ]);
+
+    const targetFiles = getTargetInstallableBundleFiles(files, manifest);
+    expect(targetFiles.get('knowledge/specifications/prompts-guide.md')).toEqual(bytes('# Prompt knowledge'));
+    expect(targetFiles.get('knowledge/specifications/duplicate-guide.md')).toEqual(bytes('# Duplicate source'));
+    expect(targetFiles.get('knowledge/specifications/items-guide.md')).toEqual(bytes('# Item knowledge'));
+    expect(targetFiles.get('knowledge/specifications/idless-guide.md')).toEqual(bytes('# ID-less knowledge'));
+  });
+
+  it('uses canonical items only for versioned manifests even when legacy prompts differ', () => {
+    expect(getManifestPlacementItems({
+      formatVersion: 1,
+      items: [{ id: 'canonical', path: 'prompts/canonical.md', kind: 'prompt' }],
+      prompts: [{ id: 'legacy', file: 'specifications/legacy-only.md', type: 'knowledge' }]
+    })).toEqual([{ id: 'canonical', file: 'prompts/canonical.md', type: 'prompt' }]);
+
+    const files = createGovernedReleaseArchive({ includeKnowledge: true });
+    const manifest = validateManifest(files, {});
+    const manifestWithDifferentLegacyProjection = {
+      ...manifest,
+      prompts: [{ id: 'legacy-only', file: 'specifications/legacy-only.md', type: 'knowledge' }]
+    } as typeof manifest;
+    const targetFiles = getTargetInstallableBundleFiles(files, manifestWithDifferentLegacyProjection);
+
+    expect(targetFiles.has('knowledge/specifications/legacy-only.md')).toBe(false);
+    expect(targetFiles.has('knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md')).toBe(true);
+  });
+
+  it('projects legacy items-only knowledge declarations', () => {
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', bytes('id: legacy\nversion: 1.0.0\nname: Legacy\nitems:\n  - id: guide\n    path: documentation/guide.md\n    kind: knowledge\n')],
+      ['documentation/guide.md', bytes('# Guide')]
+    ]);
+    const manifest = validateManifest(files, {});
+
+    expect(getTargetInstallableBundleFiles(files, manifest).get('knowledge/documentation/guide.md'))
+      .toEqual(bytes('# Guide'));
+  });
+
+  it.each([
+    ['knowledge/guide.md', 'knowledge/guide.md'],
+    ['.github/knowledge/guide.md', 'knowledge/guide.md'],
+    ['specifications/guide.md', 'knowledge/specifications/guide.md']
+  ])('projects the knowledge source form %s to %s', (sourcePath, targetPath) => {
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', bytes(`id: legacy\nversion: 1.0.0\nname: Legacy\nprompts:\n  - id: guide\n    file: ${sourcePath}\n    type: knowledge\n`)],
+      [sourcePath, bytes('# Guide')]
+    ]);
+    const manifest = validateManifest(files, {});
+
+    expect(getTargetInstallableBundleFiles(files, manifest).get(targetPath)).toEqual(bytes('# Guide'));
+  });
+
+  it('does not route legacy knowledge files that are not declared in the manifest', () => {
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', bytes('id: legacy\nversion: 1.0.0\nname: Legacy\nprompts:\n  - id: prompt\n    file: prompts/hello.md\n    type: prompt\n')],
+      ['prompts/hello.md', bytes('# Prompt')],
+      ['knowledge/unlisted.md', bytes('# Unlisted')],
+      ['specifications/unlisted.md', bytes('# Source')]
+    ]);
+    const manifest = validateManifest(files, {});
+
+    const targetFiles = getTargetInstallableBundleFiles(files, manifest);
+
+    expect(targetFiles.has('knowledge/unlisted.md')).toBe(false);
+    expect(targetFiles.has('specifications/unlisted.md')).toBe(true);
+  });
+
+  it('projects legacy knowledge declarations without copying undeclared source files', () => {
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', bytes('id: legacy\nversion: 1.0.0\nname: Legacy\nprompts:\n  - id: guide\n    file: specifications/guide.md\n    type: knowledge\n')],
+      ['specifications/guide.md', bytes('# Guide')],
+      ['specifications/unlisted.md', bytes('# Unlisted')]
+    ]);
+    const manifest = validateManifest(files, {});
+
+    const targetFiles = getTargetInstallableBundleFiles(files, manifest);
+
+    expect(targetFiles.get('knowledge/specifications/guide.md')).toEqual(bytes('# Guide'));
+    expect(targetFiles.get('specifications/unlisted.md')).toEqual(bytes('# Unlisted'));
+  });
+
+  it.each(['../outside.md', '/outside.md', 'C:/outside.md', 'C:\\\\outside.md']) (
+    'rejects an unsafe declared knowledge path %s', (filePath) => {
+      const files = new Map<string, Uint8Array>([
+        ['deployment-manifest.yml', bytes(`id: legacy\nversion: 1.0.0\nname: Legacy\nprompts:\n  - id: guide\n    file: ${filePath}\n    type: knowledge\n`)],
+        [filePath, bytes('# Guide')]
+      ]);
+      const manifest = validateManifest(files, {});
+
+      expect(() => getTargetInstallableBundleFiles(files, manifest)).toThrow();
+    }
+  );
+
+  it('rejects missing declared knowledge files and aliases from distinct source paths', () => {
+    const missingFiles = filesWith('id: legacy\nversion: 1.0.0\nname: Legacy\nprompts:\n  - id: guide\n    file: specifications/guide.md\n    type: knowledge\n');
+    const missingManifest = validateManifest(missingFiles, {});
+    expect(() => getTargetInstallableBundleFiles(missingFiles, missingManifest)).toThrow();
+
+    const aliasedFiles = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', bytes(`id: legacy
+version: 1.0.0
+name: Legacy
+prompts:
+  - id: first
+    file: knowledge/guide.md
+    type: knowledge
+  - id: second
+    file: .github/knowledge/guide.md
+    type: knowledge
+`)],
+      ['knowledge/guide.md', bytes('# First')],
+      ['.github/knowledge/guide.md', bytes('# Second')]
+    ]);
+    const aliasedManifest = validateManifest(aliasedFiles, {});
+    expect(() => getTargetInstallableBundleFiles(aliasedFiles, aliasedManifest)).toThrow();
   });
 
   it('rejects a versioned manifest when archive content is not declared in its inventory', () => {

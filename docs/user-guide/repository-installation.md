@@ -37,9 +37,12 @@ your-repo/
 │   │   └── my-agent.agent.md
 │   ├── instructions/
 │   │   └── my-instructions.instructions.md
-│   └── skills/
-│       └── my-skill/
-│           └── skill.md
+│   ├── skills/
+│   │   └── my-skill/
+│   │       └── skill.md
+│   └── knowledge/
+│       └── specifications/
+│           └── RDP/...
 └── prompt-registry.lock.json
 ```
 
@@ -202,7 +205,12 @@ If you've modified bundle files locally, you'll see a warning before updating wi
 | Instructions (`.instructions.md`) | `.github/instructions/` |
 | Agents (`.agent.md`) | `.github/agents/` |
 | Skills | `.github/skills/<skill-name>/` |
+| Knowledge | `.github/knowledge/<source-relative-path>` (Kiro repository scope: `.kiro/knowledge/<source-relative-path>`) |
 | MCP Servers | `.vscode/mcp.json` |
+
+Manifest-declared knowledge keeps its nested source path under the target's
+knowledge directory. Repository lockfiles record the actual repository-relative
+destination so updates and uninstall can find the installed file.
 
 ## Troubleshooting
 

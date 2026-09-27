@@ -31,6 +31,9 @@ import type {
   Target,
 } from '@ai-primitives-hub/core';
 import {
+  UnsafeRepositoryPathError,
+} from '@ai-primitives-hub/core';
+import {
   FileSystemLayoutConfigLoader,
   readTargets,
   type RepositoryCommitMode,
@@ -242,7 +245,7 @@ export const createWriterFactory = (
   });
 
   return (target: Target): TargetWriter => {
-    const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
+    const effectiveTarget = resolveEffectiveTarget(ctx, target, { ...opts, commitMode: target.commitMode });
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
     const workspaceRoot = effectiveTarget.rootPath ?? ctx.cwd();
@@ -294,11 +297,15 @@ export async function runUserScopeUninstall(
 
   const removed: string[] = [];
   const skipped: string[] = [];
+  await writer.preflightRemoval?.(target, entry.files.map((file) => file.path));
   for (const file of entry.files) {
     try {
       await writer.remove(target, file.path);
       removed.push(file.path);
-    } catch {
+    } catch (error) {
+      if (error instanceof UnsafeRepositoryPathError) {
+        throw error;
+      }
       skipped.push(file.path);
     }
   }

@@ -196,7 +196,7 @@ export class UninstallPipeline {
       return { bundleId: id, removed: [], skipped: [] };
     }
 
-    const writer = this.writerFactory(this.target);
+    const writer = this.writerFactory({ ...this.target, commitMode: plan.commitMode });
     const result = await this.removeFiles(writer, plan.filesToRemove);
 
     await this.removeFromLockfile(id, plan.lockfileEntry, plan.commitMode);
@@ -245,7 +245,7 @@ export class UninstallPipeline {
         continue;
       }
 
-      const writer = this.writerFactory(this.target);
+      const writer = this.writerFactory({ ...this.target, commitMode: plan.commitMode });
       const result = await this.removeFiles(writer, plan.filesToRemove);
       await this.removeFromLockfile(plan.bundleId, plan.lockfileEntry, plan.commitMode);
 

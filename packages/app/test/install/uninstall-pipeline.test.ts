@@ -24,6 +24,9 @@ import {
   upsertBundleEntry,
   writeLockfile,
 } from '../../src/stores/json-lockfile-store';
+import {
+  FileTreeTargetWriter,
+} from '../../src/writers/file-tree-writer';
 import type {
   TargetWriter,
 } from '../../src/writers/file-tree-writer';
@@ -121,6 +124,67 @@ describe('UninstallPipeline.run', () => {
     const raw = await fs.readFile(path);
     expect(JSON.parse(raw).bundles).not.toHaveProperty('bundle-a');
     expect(JSON.parse(raw).bundles).toHaveProperty('bundle-b');
+  });
+
+  it('preserves files and lockfile when a custom knowledge route changes before uninstall', async () => {
+    const fs = new InMemoryFileSystem();
+    const oldLayoutLoader = {
+      load: async () => [{
+        layouts: {
+          vscode: {
+            repository: {
+              baseDir: '${workspaceRoot}/custom',
+              kindRoutes: { 'knowledge/': 'docs/', 'prompts/': 'docs/' },
+              skipPaths: []
+            }
+          }
+        }
+      }]
+    };
+    const newLayoutLoader = {
+      load: async () => [{
+        layouts: {
+          vscode: {
+            repository: {
+              baseDir: '${workspaceRoot}/custom',
+              kindRoutes: { 'knowledge/': 'articles/', 'prompts/': 'docs/' },
+              skipPaths: []
+            }
+          }
+        }
+      }]
+    };
+    const knowledgePath = 'custom/docs/specifications/guide.md';
+    const unrelatedPath = '/repo/custom/docs/unrelated.md';
+    const writerAtInstall = new FileTreeTargetWriter({ fs, env: {}, layoutLoader: oldLayoutLoader });
+    const writeResult = await writerAtInstall.write(TARGET, new Map([
+      ['knowledge/specifications/guide.md', new TextEncoder().encode('# Guide')]
+    ]));
+    const installedPath = writeResult.written[0];
+    fs.seed(unrelatedPath, '# Unrelated');
+    const lockfilePath = getLockfilePathForMode('/repo', 'commit');
+    let lock = emptyLockfile('cli@1.0.0');
+    lock = upsertBundleEntry(lock, 'custom-knowledge', {
+      version: '1.0.0',
+      sourceId: 'local-custom',
+      sourceType: 'local',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: [{ path: knowledgePath, checksum: 'tracked' }]
+    });
+    await writeLockfile(lockfilePath, lock, fs);
+    const writerAtUninstall = new FileTreeTargetWriter({ fs, env: {}, layoutLoader: newLayoutLoader });
+    const pipeline = new UninstallPipeline({
+      fs,
+      target: TARGET,
+      repositoryPath: '/repo',
+      writerFactory: () => writerAtUninstall
+    });
+
+    await expect(pipeline.run('custom-knowledge')).rejects.toThrow(/does not match|unsafe|route/i);
+
+    expect(await fs.exists(installedPath)).toBe(true);
+    expect(await fs.exists(unrelatedPath)).toBe(true);
+    expect((await readLockfile(lockfilePath, fs))?.bundles['custom-knowledge']).toBeDefined();
   });
 
   it('returns an empty result for an unknown bundle', async () => {

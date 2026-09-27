@@ -24,6 +24,8 @@ export * from './install/manifest-placement-type';
 export * from './install/copilot-file-type';
 export * from './install/layout';
 export * from './install/integrity';
+export * from './install/knowledge-path';
+export * from './install/file-write-journal';
 export * from './install/repository-path';
 export * from './install/transform';
 export * from './registry/types';

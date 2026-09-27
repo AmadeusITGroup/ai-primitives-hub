@@ -25,12 +25,13 @@
  */
 import * as path from 'node:path';
 import {
-  checksumFiles,
+  checksumWrittenFiles,
   emptyLockfile,
   type HubManager,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  persistTargetWrite,
   readLockfile,
   resolveUserConfigPaths,
   type TargetWriter,
@@ -41,7 +42,7 @@ import {
   writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import {
-  getInstallableBundleFiles,
+  getTargetInstallableBundleFiles,
   type HttpClient,
   type HubProfile,
   type HubProfileBundle,
@@ -339,7 +340,7 @@ export class ProfileCurrentCommand extends BaseProfileCommand {
  * Result of activating a single profile bundle against a single target.
  */
 type ActivateBundleOutcome =
-  | { ok: true; written: string[]; entry: LockfileBundleEntry; sourceEntry: LockfileSourceEntry }
+  | { ok: true; written: string[]; entry: LockfileBundleEntry; sourceEntry: LockfileSourceEntry; writer: TargetWriter }
   | { ok: false; reason: string };
 
 /**
@@ -405,19 +406,22 @@ async function activateBundleForTarget(
       expectedId: bundleRef.id,
       expectedVersion: bundleRef.version === 'latest' ? undefined : bundleRef.version
     });
-    const targetFiles = getInstallableBundleFiles(files, manifest);
+    const targetFiles = getTargetInstallableBundleFiles(files, manifest);
     const result = await writeTargetSafely(writer, target, targetFiles);
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: src.id,
-      sourceType: src.type,
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
-    };
-    if (target.scope === 'repository') {
-      entry.commitMode = target.commitMode ?? 'commit';
-    }
-    return { ok: true, written: result.written, entry, sourceEntry };
+    const entry = await persistTargetWrite(writer, target, result, async () => {
+      const trackedEntry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: src.id,
+        sourceType: src.type,
+        installedAt: new Date().toISOString(),
+        files: checksumWrittenFiles(targetFiles, result, target, target.rootPath ?? ctx.cwd())
+      };
+      if (target.scope === 'repository') {
+        trackedEntry.commitMode = target.commitMode ?? 'commit';
+      }
+      return trackedEntry;
+    });
+    return { ok: true, written: result.written, entry, sourceEntry, writer };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
@@ -520,13 +524,16 @@ export async function runProfileActivation(
     ? createSourceAwareInstallDependencyCache(built.http, ctx)
     : undefined;
 
+  const writerFactory = createWriterFactory(ctx, {});
   for (const target of effectiveTargets) {
-    const writer = createWriterFactory(ctx, {})(target);
     const written: string[] = [];
+    const pendingWrites: { writer: TargetWriter; written: string[] }[] = [];
+    const targetSuccesses: { bundleId: string; version: string }[] = [];
     const lockPath = lockfilePathForTarget(ctx, target);
     let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
 
     for (const bundleRef of profile.bundles) {
+      const writer = writerFactory(target);
       const outcome = await activateBundleForTarget(
         bundleRef,
         sources,
@@ -542,14 +549,46 @@ export async function runProfileActivation(
         continue;
       }
       written.push(...outcome.written);
+      pendingWrites.push({ writer: outcome.writer, written: outcome.written });
       lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
       lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
-      syncedBundleVersions[bundleRef.id] = outcome.entry.version;
-      if (!syncedBundles.includes(bundleRef.id)) {
-        syncedBundles.push(bundleRef.id);
+      targetSuccesses.push({ bundleId: bundleRef.id, version: outcome.entry.version });
+    }
+    try {
+      await writeLockfile(lockPath, lock, ctx.fs);
+    } catch (failure) {
+      const rollbackErrors: unknown[] = [];
+      for (const pending of [...pendingWrites].reverse()) {
+        if (pending.written.length === 0) {
+          continue;
+        }
+        if (pending.writer.rollback === undefined) {
+          rollbackErrors.push(new Error(`writer for target ${target.name} cannot rollback persisted files`));
+          continue;
+        }
+        try {
+          await pending.writer.rollback(target, pending.written);
+        } catch (rollbackError) {
+          rollbackErrors.push(rollbackError);
+        }
+      }
+      if (rollbackErrors.length > 0) {
+        throw new AggregateError([failure, ...rollbackErrors], 'Profile lockfile write failed and rollback was incomplete', {
+          cause: failure
+        });
+      }
+      const reason = failure instanceof Error ? failure.message : String(failure);
+      for (const pending of targetSuccesses) {
+        failures.push({ bundleId: pending.bundleId, target: target.name, reason });
+      }
+      continue;
+    }
+    for (const pending of targetSuccesses) {
+      syncedBundleVersions[pending.bundleId] = pending.version;
+      if (!syncedBundles.includes(pending.bundleId)) {
+        syncedBundles.push(pending.bundleId);
       }
     }
-    await writeLockfile(lockPath, lock, ctx.fs);
     writtenByTarget[target.name] = written;
   }
 

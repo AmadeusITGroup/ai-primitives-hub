@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import {
   assertSafeRepositoryDirectoryPath,
+  assertSafeRepositoryInstallPath,
   assertSafeRepositoryRemovalPath,
   UnsafeRepositoryPathError,
 } from '../../../src/domain/install/repository-path';
@@ -75,6 +76,18 @@ describe('repository path containment', () => {
       }
       return Promise.resolve(root);
     })).rejects.toThrow(/cannot be checked/);
+  });
+
+  it('rejects a final symlink before install while allowing a missing final component', async () => {
+    const linkedPath = path.join(root, '.github', 'knowledge', 'linked.md');
+    const realpath = (filePath: string): Promise<string> => Promise.resolve(filePath);
+    const lstat = (filePath: string): Promise<{ isSymbolicLink: boolean }> =>
+      Promise.resolve({ isSymbolicLink: filePath === linkedPath });
+
+    await expect(assertSafeRepositoryInstallPath(root, linkedPath, realpath, lstat))
+      .rejects.toThrow(/symlink/);
+    await expect(assertSafeRepositoryInstallPath(root, path.join(root, '.github', 'knowledge', 'new.md'), realpath, lstat))
+      .resolves.toBeUndefined();
   });
 
   it('validates the final directory when a managed directory will be traversed', async () => {

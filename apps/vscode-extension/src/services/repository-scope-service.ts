@@ -32,7 +32,9 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   assertSafeRepositoryDirectoryPath,
+  assertSafeRepositoryInstallPath,
   assertSafeRepositoryRemovalPath,
+  getManifestPlacementItems,
   toCopilotFileType,
   UnsafeRepositoryPathError,
 } from '@ai-primitives-hub/core';
@@ -157,6 +159,14 @@ class NodeWriterFs implements WriterFs {
   public exists(p: string): Promise<boolean> {
     return Promise.resolve(fs.existsSync(p));
   }
+
+  public realpath(p: string): Promise<string> {
+    return fs.promises.realpath(p);
+  }
+
+  public async lstat(p: string): Promise<{ isSymbolicLink: boolean }> {
+    return { isSymbolicLink: (await fs.promises.lstat(p)).isSymbolicLink() };
+  }
 }
 
 /**
@@ -259,20 +269,29 @@ export class RepositoryScopeService implements IScopeService {
    * @param targetPath - Absolute destination about to be written.
    */
   private async assertSafeInstallPath(targetPath: string): Promise<void> {
-    await assertSafeRepositoryRemovalPath(this.workspaceRoot, targetPath, fs.promises.realpath);
-    try {
-      if ((await fs.promises.lstat(targetPath)).isSymbolicLink()) {
-        throw new UnsafeRepositoryPathError(targetPath, 'is a symlink and cannot be written safely');
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return;
-      }
-      if (error instanceof UnsafeRepositoryPathError) {
-        throw error;
-      }
-      throw new UnsafeRepositoryPathError(targetPath, 'cannot be checked against repository root');
+    await assertSafeRepositoryInstallPath(
+      this.workspaceRoot,
+      targetPath,
+      fs.promises.realpath,
+      async (filePath) => ({ isSymbolicLink: (await fs.promises.lstat(filePath)).isSymbolicLink() })
+    );
+  }
+
+  private async getSafeKnowledgeSourcePath(bundlePath: string, filePath: string): Promise<string> {
+    if (getKnowledgeRelativePath(filePath) === null) {
+      throw new Error(`manifest declares an unsafe knowledge path: ${filePath}`);
     }
+    const sourcePath = path.resolve(bundlePath, filePath);
+    if (!fs.existsSync(sourcePath)) {
+      throw new Error(`manifest declares a missing knowledge file: ${filePath}`);
+    }
+    const bundleRoot = await fs.promises.realpath(bundlePath);
+    const sourceRealPath = await fs.promises.realpath(sourcePath);
+    const relativePath = path.relative(bundleRoot, sourceRealPath);
+    if (relativePath === '..' || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+      throw new Error(`knowledge source escapes bundle directory: ${filePath}`);
+    }
+    return sourcePath;
   }
 
   /**
@@ -340,12 +359,32 @@ export class RepositoryScopeService implements IScopeService {
     // The extractor keys source files with POSIX separators. Convert Windows
     // manifest paths to the same form, but reject ambiguous POSIX backslashes
     // before writing any repository files.
-    const prompts = (manifest.prompts || []).map((promptDef) => ({
-      ...promptDef,
-      file: normalizeFilesystemPath(promptDef.file)
-    }));
+    const placements: ManifestPlacementItem[] = getManifestPlacementItems(manifest as unknown as Record<string, unknown>)
+      .map((item) => ({
+        ...item,
+        file: item.type === 'knowledge' && this.tryGetTargetDirectory('knowledge') === null
+          ? item.file
+          : normalizeFilesystemPath(item.file),
+        type: item.type as ManifestPlacementType
+      }));
 
-    for (const promptDef of prompts) {
+    for (const item of placements) {
+      if (item.type !== 'knowledge') {
+        continue;
+      }
+      const knowledgeDir = this.tryGetTargetDirectory('knowledge');
+      if (knowledgeDir === null) {
+        continue;
+      }
+      await this.getSafeKnowledgeSourcePath(bundlePath, item.file);
+      const relativePath = getKnowledgeRelativePath(item.file);
+      if (relativePath === null) {
+        throw new Error(`manifest declares an unsafe knowledge path: ${item.file}`);
+      }
+      await this.assertSafeInstallPath(path.join(this.workspaceRoot, knowledgeDir, relativePath));
+    }
+
+    for (const promptDef of placements) {
       const promptId = normalizePromptId(promptDef.id);
 
       await (promptDef.type === 'skill'
@@ -429,23 +468,36 @@ export class RepositoryScopeService implements IScopeService {
     tracker: InstallationTracker
   ): Promise<void> {
     this.logger.debug(`[RepositoryScopeService] installFileAndTrack: bundlePath=${bundlePath}, file=${promptDef.file}, promptId=${promptId}`);
-    const sourcePath = path.join(bundlePath, promptDef.file);
+    const fileType = promptDef.type ?? determineFileType(promptDef.file, promptDef.tags);
+    const knowledgeDir = fileType === 'knowledge' ? this.tryGetTargetDirectory('knowledge') : null;
+    if (fileType === 'knowledge' && knowledgeDir === null) {
+      this.logger.warn(`[RepositoryScopeService] No repository route for: ${promptDef.file}`);
+      return;
+    }
+    const knowledgeRelativePath = fileType === 'knowledge' ? getKnowledgeRelativePath(promptDef.file) : null;
+    if (fileType === 'knowledge' && knowledgeRelativePath === null) {
+      throw new Error(`manifest declares an unsafe knowledge path: ${promptDef.file}`);
+    }
+
+    const sourcePath = fileType === 'knowledge'
+      ? await this.getSafeKnowledgeSourcePath(bundlePath, promptDef.file)
+      : path.resolve(bundlePath, promptDef.file);
     this.logger.debug(`[RepositoryScopeService] Source path: ${sourcePath}`);
     this.logger.debug(`[RepositoryScopeService] Source exists: ${fs.existsSync(sourcePath)}`);
     if (!fs.existsSync(sourcePath)) {
+      if (fileType === 'knowledge') {
+        throw new Error(`manifest declares a missing knowledge file: ${promptDef.file}`);
+      }
       this.logger.warn(`[RepositoryScopeService] Source file not found: ${sourcePath}`);
       return;
     }
 
-    const fileType = promptDef.type ?? determineFileType(promptDef.file, promptDef.tags);
-    const knowledgeRelativePath = fileType === 'knowledge' ? getKnowledgeRelativePath(promptDef.file) : null;
     const copilotType = fileType === 'knowledge' ? null : toCopilotFileType(fileType);
-    const knowledgeDir = knowledgeRelativePath === null ? null : this.tryGetTargetDirectory('knowledge');
-    const targetPath = knowledgeRelativePath === null
-      ? (copilotType === null
+    const targetPath = fileType === 'knowledge'
+      ? path.join(this.workspaceRoot, knowledgeDir as string, knowledgeRelativePath as string)
+      : (copilotType === null
         ? null
-        : path.join(this.workspaceRoot, this.getTargetDirectory(fileType), getTargetFileName(promptId, copilotType)))
-      : (knowledgeDir === null ? null : path.join(this.workspaceRoot, knowledgeDir, knowledgeRelativePath));
+        : path.join(this.workspaceRoot, this.getTargetDirectory(fileType), getTargetFileName(promptId, copilotType)));
     if (targetPath === null) {
       this.logger.warn(`[RepositoryScopeService] No repository route for: ${promptDef.file}`);
       return;
@@ -983,14 +1035,14 @@ export class RepositoryScopeService implements IScopeService {
       const manifestContent = await readFile(manifestPath, 'utf8');
       const manifest = yaml.load(manifestContent) as DeploymentManifest;
       this.logger.debug(`[RepositoryScopeService] Manifest parsed. Keys: ${Object.keys(manifest).join(', ')}`);
-      this.logger.debug(`[RepositoryScopeService] manifest.prompts exists: ${!!manifest.prompts}, length: ${manifest.prompts?.length ?? 'N/A'}`);
+      const placements = getManifestPlacementItems(manifest as unknown as Record<string, unknown>);
 
-      if (!manifest.prompts || manifest.prompts.length === 0) {
+      if (placements.length === 0) {
         this.logger.info(`[RepositoryScopeService] Bundle ${bundleId} has no prompts to sync`);
       } else {
-        this.logger.info(`[RepositoryScopeService] Found ${manifest.prompts.length} prompts to sync`);
-        for (const p of manifest.prompts) {
-          this.logger.info(`[RepositoryScopeService]   - Prompt: id=${p.id}, file=${p.file}, type=${p.type}`);
+        this.logger.info(`[RepositoryScopeService] Found ${placements.length} prompts to sync`);
+        for (const item of placements) {
+          this.logger.info(`[RepositoryScopeService]   - Prompt: id=${item.id}, file=${item.file}, type=${item.type}`);
         }
       }
 
@@ -1100,10 +1152,14 @@ export class RepositoryScopeService implements IScopeService {
 
         // Safe to remove - file is tracked, unmodified, and not shared
         try {
+          await assertSafeRepositoryRemovalPath(this.workspaceRoot, targetPath, fs.promises.realpath);
           await unlink(targetPath);
           removedPaths.push(relativePath);
           this.logger.debug(`[RepositoryScopeService] Removed: ${relativePath}`);
-        } catch {
+        } catch (error) {
+          if (error instanceof UnsafeRepositoryPathError) {
+            throw error;
+          }
           this.logger.warn(`[RepositoryScopeService] Failed to remove file: ${relativePath}`);
         }
       }

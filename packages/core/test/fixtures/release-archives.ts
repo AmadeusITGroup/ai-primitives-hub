@@ -11,6 +11,10 @@ import type {
 export interface ReleaseArchiveFixtureOptions {
   id?: string;
   version?: string;
+  includeKnowledge?: boolean;
+  includeKnowledgePair?: boolean;
+  includeSkillKnowledge?: boolean;
+  includeLegacyProjection?: boolean;
 }
 
 const bytes = (content: string): Uint8Array => new TextEncoder().encode(content);
@@ -29,8 +33,14 @@ export const createLegacyReleaseArchive = (
 ): ExtractedFiles => {
   const id = options.id ?? 'legacy-bundle';
   const version = options.version ?? '1.0.0';
-  const archiveFiles = { 'prompts/hello.prompt.md': '# Hello Prompt\n' };
-  const manifest = `id: ${id}\nversion: ${version}\nname: Legacy Bundle\nprompts:\n  - id: hello\n    file: prompts/hello.prompt.md\n    type: prompt\n`;
+  const knowledgePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+  const archiveFiles = {
+    'prompts/hello.prompt.md': '# Hello Prompt\n',
+    ...(options.includeKnowledge === true ? { [knowledgePath]: '# SBB B2P\n' } : {})
+  };
+  const manifest = `id: ${id}\nversion: ${version}\nname: Legacy Bundle\nprompts:\n  - id: hello\n    file: prompts/hello.prompt.md\n    type: prompt\n${options.includeKnowledge === true
+    ? `  - id: sbb-b2p\n    file: ${knowledgePath}\n    type: knowledge\n`
+    : ''}`;
 
   return new Map([
     ['deployment-manifest.yml', bytes(manifest)],
@@ -50,8 +60,20 @@ export const createGovernedReleaseArchive = (
   const id = options.id ?? 'governed-bundle';
   const version = options.version ?? '1.0.0';
   const sourceSnapshotPath = 'metadata/source/collections/governed.collection.yml';
+  const knowledgePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+  const secondKnowledgePath = 'specifications/alternate/SBB_B2P.md';
+  const skillPath = 'skills/knowledge-skill/SKILL.md';
+  const skillKnowledgePath = 'skills/knowledge-skill/knowledge/guide.md';
   const archiveFiles = {
     'prompts/hello.prompt.md': '# Hello Prompt\n',
+    ...(options.includeKnowledge === true || options.includeKnowledgePair === true ? { [knowledgePath]: '# SBB B2P\n' } : {}),
+    ...(options.includeKnowledgePair === true ? { [secondKnowledgePath]: '# Alternate SBB B2P\n' } : {}),
+    ...(options.includeSkillKnowledge === true
+      ? {
+        [skillPath]: '# Knowledge Skill\n',
+        [skillKnowledgePath]: '# Embedded skill knowledge\n'
+      }
+      : {}),
     [sourceSnapshotPath]: `id: ${id}\n`,
     'README.md': '# Governed bundle\n',
     LICENSE: 'Governed license text\n',
@@ -59,7 +81,8 @@ export const createGovernedReleaseArchive = (
   };
   const files = Object.entries(archiveFiles).map(([filePath, content]) => ({
     path: filePath,
-    role: filePath.startsWith('prompts/')
+    role: filePath.startsWith('prompts/') || filePath === knowledgePath || filePath === secondKnowledgePath
+      || filePath === skillPath || filePath === skillKnowledgePath
       ? 'installable'
       : (filePath.startsWith('ignored/') ? 'ignored' : 'metadata'),
     size: bytes(content).byteLength,
@@ -71,8 +94,40 @@ export const createGovernedReleaseArchive = (
     version,
     name: 'Governed Bundle',
     readme: 'README.md',
-    items: [{ id: 'hello', path: 'prompts/hello.prompt.md', kind: 'prompt' }],
-    prompts: [{ id: 'hello', file: 'prompts/hello.prompt.md', type: 'prompt' }],
+    items: [
+      { id: 'hello', path: 'prompts/hello.prompt.md', kind: 'prompt' },
+      ...(options.includeKnowledge === true || options.includeKnowledgePair === true
+        ? [{ id: 'sbb-b2p', path: knowledgePath, kind: 'knowledge' }]
+        : []),
+      ...(options.includeKnowledgePair === true
+        ? [{ id: 'sbb-b2p-alternate', path: secondKnowledgePath, kind: 'knowledge' }]
+        : []),
+      ...(options.includeSkillKnowledge === true
+        ? [
+          { id: 'knowledge-skill', path: skillPath, kind: 'skill' },
+          { id: 'knowledge-skill-guide', path: skillKnowledgePath, kind: 'knowledge' }
+        ]
+        : [])
+    ],
+    ...(options.includeLegacyProjection === false
+      ? {}
+      : {
+        prompts: [
+          { id: 'hello', file: 'prompts/hello.prompt.md', type: 'prompt' },
+          ...(options.includeKnowledge === true || options.includeKnowledgePair === true
+            ? [{ id: 'sbb-b2p', file: knowledgePath, type: 'knowledge' }]
+            : []),
+          ...(options.includeKnowledgePair === true
+            ? [{ id: 'sbb-b2p-alternate', file: secondKnowledgePath, type: 'knowledge' }]
+            : []),
+          ...(options.includeSkillKnowledge === true
+            ? [
+              { id: 'knowledge-skill', file: skillPath, type: 'skill' },
+              { id: 'knowledge-skill-guide', file: skillKnowledgePath, type: 'knowledge' }
+            ]
+            : [])
+        ]
+      }),
     provenance: {
       source: 'https://github.com/example/governed-bundle',
       revision: '0123456789abcdef0123456789abcdef01234567',

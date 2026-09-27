@@ -183,6 +183,35 @@ suite('UserScopeService - WSL Support', () => {
       assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), promptContent);
     });
 
+    test('preserves and rejects a modified WSL knowledge copy during resync', async () => {
+      const windowsUserDir = path.join(tempDir, 'Users', 'testuser');
+      const wslUserDir = path.join(tempDir, 'home', 'testuser');
+      stubWSLEnvironment(windowsUserDir, 'vscode');
+
+      const bundleId = 'wsl-knowledge-bundle';
+      const sourceFile = 'specifications/RDP/guide.md';
+      const bundlePath = path.join(wslUserDir, 'bundles', bundleId);
+      const sourcePath = path.join(bundlePath, sourceFile);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, '# Original knowledge');
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `id: ${bundleId}
+version: 1.0.0
+name: WSL Knowledge
+prompts:
+  - id: guide
+    file: ${sourceFile}
+    type: knowledge
+`);
+      const service = new UserScopeService(createMockContext(wslUserDir));
+      const targetFile = path.join(windowsUserDir, '.copilot', 'knowledge', sourceFile);
+
+      await service.syncBundle(bundleId, bundlePath);
+      fs.writeFileSync(targetFile, '# User edit');
+
+      await assert.rejects(service.syncBundle(bundleId, bundlePath), /modified knowledge/);
+      assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), '# User edit');
+    });
+
     test('should delete copied file during unsync when content matches (CRLF-normalized)', async () => {
       const windowsUserDir = path.join(tempDir, 'Users', 'testuser');
       const globalStorageDir = path.join(tempDir, 'home', 'testuser');

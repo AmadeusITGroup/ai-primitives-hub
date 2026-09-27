@@ -137,6 +137,7 @@ Files are placed in `.github/` subdirectories based on type:
 | Instructions (`.instructions.md`) | `.github/instructions/` |
 | Agents (`.agent.md`) | `.github/agents/` |
 | Skills | `.github/skills/<skill-name>/` |
+| Knowledge | `.github/knowledge/<source-relative-path>`; Kiro repository scope uses `.kiro/knowledge/<source-relative-path>` |
 | MCP Servers | `.vscode/mcp.json` |
 
 ### Git Exclude Management
@@ -177,7 +178,10 @@ installation tracks files supplied by the bundle, not unrelated files already
 in a shared skill directory. Since the lockfile treats backslashes as legacy
 separators, a literal backslash in a POSIX source filename is unsupported:
 repository installation rejects that asset instead of recording a different
-path. Rename the asset and retry.
+path. Rename the asset and retry. Repository knowledge entries record their
+physical repository-relative destination (for example, `.github/knowledge/...`
+or `.kiro/knowledge/...`); user-scope CLI entries retain the canonical
+`knowledge/...` bundle path.
 
 The extension persists the repository lockfile while it can still roll back
 newly synced files. If persistence fails, it removes unmodified files it just

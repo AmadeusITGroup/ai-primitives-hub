@@ -267,6 +267,22 @@ suite('RepositoryScopeService', () => {
         assert.strictEqual(fs.readFileSync(outside, 'utf8'), '# Outside');
       });
 
+      test('preflights unsafe knowledge before installing an earlier prompt', async () => {
+        const outside = path.join(tempDir, 'outside-knowledge');
+        fs.mkdirSync(outside);
+        const knowledgeDir = path.join(workspaceRoot, '.github', 'knowledge');
+        fs.mkdirSync(knowledgeDir, { recursive: true });
+        fs.symlinkSync(outside, path.join(knowledgeDir, 'linked'), 'dir');
+        const bundlePath = createMockBundle('mixed-unsafe-knowledge', [
+          { name: 'first.prompt.md', content: '# First', type: 'prompt' },
+          { name: 'linked/victim.md', content: '# Knowledge', type: 'knowledge' }
+        ]);
+
+        await assert.rejects(service.syncBundle('mixed-unsafe-knowledge', bundlePath), /escapes repository root/);
+
+        assert.ok(!fs.existsSync(path.join(workspaceRoot, '.github', 'prompts', 'first.prompt.md')));
+      });
+
       test('rejects ambiguous POSIX backslashes in a manifest before writing any files', async () => {
         const bundlePath = createMockBundle('unportable-manifest', [
           { name: 'first.prompt.md', content: '# First' },
@@ -319,6 +335,35 @@ suite('RepositoryScopeService', () => {
 
       const targetFile = path.join(workspaceRoot, '.github', 'agents', 'reviewer.agent.md');
       assert.ok(fs.existsSync(targetFile), 'Agent file should be placed in .github/agents/');
+    });
+
+    test('installs canonical items-only knowledge declarations', async () => {
+      const bundleId = 'canonical-knowledge-bundle';
+      const sourceFile = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+      const bundlePath = path.join(tempDir, 'bundles', bundleId);
+      fs.mkdirSync(path.dirname(path.join(bundlePath, sourceFile)), { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, sourceFile), '# SBB B2P');
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `formatVersion: 1
+id: ${bundleId}
+version: 1.0.0
+name: Canonical Knowledge
+items:
+  - id: sbb-b2p
+    path: ${sourceFile}
+    kind: knowledge
+`);
+
+      await service.syncBundle(bundleId, bundlePath, { commitMode: 'commit' });
+
+      const targetFile = path.join(workspaceRoot, '.github', 'knowledge', sourceFile);
+      assert.strictEqual(fs.readFileSync(targetFile, 'utf8'), '# SBB B2P');
+
+      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      await kiroService.syncBundle(bundleId, bundlePath, { commitMode: 'commit' });
+      assert.strictEqual(
+        fs.readFileSync(path.join(workspaceRoot, '.kiro', 'knowledge', sourceFile), 'utf8'),
+        '# SBB B2P'
+      );
     });
 
     test('should place knowledge files under .github/knowledge while preserving their source path', async () => {
@@ -965,23 +1010,25 @@ suite('RepositoryScopeService', () => {
       }
 
       let writeFailed = false;
+      let writeFailureInjected = false;
       const externalEdit = simulation.externalEditBeforeRollback;
       if (externalEdit !== undefined) {
         let editApplied = false;
-        const originalLstat = fs.promises.lstat.bind(fs.promises);
-        sandbox.stub(fs.promises, 'lstat').callsFake(async (filePath) => {
-          const stats = await originalLstat(filePath);
-          if (writeFailed && filePath === targetFile && !editApplied) {
+        const originalRealpath = fs.promises.realpath.bind(fs.promises);
+        sandbox.stub(fs.promises, 'realpath').callsFake(async (filePath) => {
+          const resolvedPath = await originalRealpath(filePath);
+          if (writeFailed && filePath === path.dirname(targetFile) && !editApplied) {
             fs.writeFileSync(targetFile, externalEdit);
             editApplied = true;
           }
-          return stats;
+          return resolvedPath;
         });
       }
 
       const originalWriteFile = fs.promises.writeFile.bind(fs.promises);
       sandbox.stub(fs.promises, 'writeFile').callsFake(async (filePath, contents, writeOptions) => {
-        if (filePath === targetFile) {
+        if (filePath === targetFile && !writeFailureInjected) {
+          writeFailureInjected = true;
           if (simulation.removeDestinationDuringWrite) {
             fs.unlinkSync(targetFile);
           } else {

@@ -36,6 +36,18 @@ import {
 
 const WORKSPACE_ROOT = '/workspace';
 
+class FailAfterSecondByteWriteFileSystem extends InMemoryFileSystem {
+  private writeCount = 0;
+
+  public override async writeFileBytes(filePath: string, bytes: Uint8Array): Promise<void> {
+    this.writeCount += 1;
+    await super.writeFileBytes(filePath, bytes);
+    if (this.writeCount === 2) {
+      throw new Error('disk full after write');
+    }
+  }
+}
+
 const SAMPLE_MANIFEST = `id: test-bundle
 version: 1.0.0
 name: Test Bundle
@@ -144,6 +156,211 @@ prompts:
     expect(result.written).toEqual([
       path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'hello.prompt.md')
     ]);
+  });
+
+  it('writes projected nested knowledge bytes and reports the canonical bundle key', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const sourcePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    const targetKey = `knowledge/${sourcePath}`;
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: knowledge-bundle\nprompts:\n  - id: sbb\n    file: ${sourcePath}\n    type: knowledge\n`)],
+      [targetKey, new TextEncoder().encode('# SBB')]
+    ]);
+
+    const result = await writer.write(files);
+    const targetPath = path.join(WORKSPACE_ROOT, '.github', 'knowledge', sourcePath);
+
+    expect(result.written).toEqual([targetPath]);
+    expect(result.writtenBundlePaths).toEqual([targetKey]);
+    expect(await fs.readFileBytes(targetPath)).toEqual(files.get(targetKey));
+  });
+
+  it('preserves nested destinations when knowledge basenames are identical', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const first = 'specifications/first/guide.md';
+    const second = 'specifications/second/guide.md';
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: knowledge
+items:
+  - id: first
+    path: ${first}
+    kind: knowledge
+  - id: second
+    path: ${second}
+    kind: knowledge
+`)],
+      [`knowledge/${first}`, new TextEncoder().encode('# First')],
+      [`knowledge/${second}`, new TextEncoder().encode('# Second')]
+    ]);
+
+    const result = await writer.write(files);
+
+    expect(result.written).toEqual([
+      path.join(WORKSPACE_ROOT, '.github', 'knowledge', first),
+      path.join(WORKSPACE_ROOT, '.github', 'knowledge', second)
+    ]);
+    expect(result.writtenBundlePaths).toEqual([`knowledge/${first}`, `knowledge/${second}`]);
+  });
+
+  it('uses legacy prompts first and adds distinct items without double-writing aliases', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const knowledgePath = 'specifications/items-guide.md';
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: legacy-dual
+version: 1.0.0
+name: Legacy Dual
+prompts:
+  - id: prompt-wins
+    file: prompts/shared.md
+    type: chat-mode
+items:
+  - id: item-duplicate
+    path: prompts/shared.md
+    kind: chatmode
+  - id: item-knowledge
+    path: ${knowledgePath}
+    kind: knowledge
+`)],
+      ['prompts/shared.md', new TextEncoder().encode('# Shared prompt')],
+      [`knowledge/${knowledgePath}`, new TextEncoder().encode('# Item knowledge')]
+    ]);
+
+    const result = await writer.write(files);
+
+    expect(result.written).toEqual([
+      path.join(WORKSPACE_ROOT, '.github', 'copilot', 'agents', 'shared.md'),
+      path.join(WORKSPACE_ROOT, '.github', 'knowledge', knowledgePath)
+    ]);
+    expect(result.writtenBundlePaths).toEqual(['prompts/shared.md', `knowledge/${knowledgePath}`]);
+  });
+
+  it('uses the shared legacy dual-manifest order and writes canonical kind aliases once', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const agentPath = 'agents/review.md';
+    const knowledgePath = 'specifications/items-guide.md';
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: legacy-dual
+version: 1.0.0
+name: Legacy Dual
+prompts:
+  - id: prompt-review
+    file: ${agentPath}
+    type: chat-mode
+items:
+  - id: item-review
+    path: ${agentPath}
+    kind: chatmode
+  - path: ${knowledgePath}
+    kind: knowledge
+`)],
+      [agentPath, new TextEncoder().encode('# Review agent')],
+      [`knowledge/${knowledgePath}`, new TextEncoder().encode('# Item knowledge')]
+    ]);
+
+    const result = await writer.write(files);
+
+    expect(result.written).toEqual([
+      path.join(WORKSPACE_ROOT, '.github', 'copilot', 'agents', 'review.md'),
+      path.join(WORKSPACE_ROOT, '.github', 'knowledge', knowledgePath)
+    ]);
+    expect(result.writtenBundlePaths).toEqual([agentPath, `knowledge/${knowledgePath}`]);
+  });
+
+  it('restores pre-existing files when a later repository write fails', async () => {
+    const fs = new FailAfterSecondByteWriteFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const first = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'first.md');
+    const second = path.join(WORKSPACE_ROOT, '.github', 'knowledge', 'second.md');
+    fs.seed(first, '# Original first');
+    fs.seed(second, '# Original second');
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: mixed
+items:
+  - id: first
+    path: prompts/first.md
+    kind: prompt
+  - id: second
+    path: knowledge/second.md
+    kind: knowledge
+`)],
+      ['prompts/first.md', new TextEncoder().encode('# First')],
+      ['knowledge/second.md', new TextEncoder().encode('# Second')]
+    ]);
+
+    await expect(writer.write(files)).rejects.toThrow('disk full after write');
+
+    expect(await fs.readFile(first)).toBe('# Original first');
+    expect(await fs.readFile(second)).toBe('# Original second');
+  });
+
+  it('removes legacy knowledge keys and repository-relative knowledge lock paths', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const adapter = new RepositoryScopeWriterAdapter(writer);
+    const target: Target = { name: 'test', type: 'vscode', scope: 'repository', rootPath: WORKSPACE_ROOT };
+    const legacy = path.join(WORKSPACE_ROOT, '.github', 'knowledge', 'legacy', 'guide.md');
+    const repositoryRelative = path.join(WORKSPACE_ROOT, '.github', 'knowledge', 'canonical', 'guide.md');
+    fs.seed(legacy, '# Legacy');
+    fs.seed(repositoryRelative, '# Canonical');
+
+    await adapter.preflightRemoval(target, ['knowledge/legacy/guide.md', '.github/knowledge/canonical/guide.md']);
+    await expect(adapter.preflightRemoval(target, ['knowledge/../copilot/prompts/unrelated.md']))
+      .rejects.toThrow(/escapes repository root/);
+    await adapter.remove(target, 'knowledge/legacy/guide.md');
+    await adapter.remove(target, '.github/knowledge/canonical/guide.md');
+
+    expect(await fs.exists(legacy)).toBe(false);
+    expect(await fs.exists(repositoryRelative)).toBe(false);
+  });
+
+  it('rejects unsafe knowledge paths before writing preceding prompt content', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: unsafe
+prompts:
+  - id: first
+    file: prompts/first.md
+    type: prompt
+  - id: bad
+    file: ../outside.md
+    type: knowledge
+`)],
+      ['prompts/first.md', new TextEncoder().encode('# First')],
+      ['../outside.md', new TextEncoder().encode('# Outside')]
+    ]);
+
+    await expect(writer.write(files)).rejects.toThrow(/unsafe knowledge path/);
+
+    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'first.md'))).toBe(false);
+  });
+
+  it('adds and removes only knowledge files from local-only git excludes', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
+    const adapter = new RepositoryScopeWriterAdapter(writer);
+    const sourcePath = 'specifications/RDP/guide.md';
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: local-knowledge\nprompts:\n  - id: guide\n    file: ${sourcePath}\n    type: knowledge\n`)],
+      [`knowledge/${sourcePath}`, new TextEncoder().encode('# Guide')]
+    ]);
+
+    const result = await writer.write(files);
+    const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');
+    const physicalPath = path.join(WORKSPACE_ROOT, '.github', 'knowledge', sourcePath);
+    const unrelatedPath = path.join(WORKSPACE_ROOT, '.github', 'knowledge', 'unrelated.md');
+    fs.seed(unrelatedPath, '# Unrelated');
+    expect(await fs.readFile(excludePath)).toContain('.github/knowledge/specifications/RDP/guide.md');
+
+    await adapter.remove({ name: 'test', type: 'vscode', scope: 'repository', rootPath: WORKSPACE_ROOT }, result.writtenBundlePaths[0]);
+
+    expect(await fs.exists(physicalPath)).toBe(false);
+    expect(await fs.exists(unrelatedPath)).toBe(true);
+    expect(await fs.readFile(excludePath)).not.toContain('.github/knowledge/specifications/RDP/guide.md');
   });
 
   it('writes instructions to .github/copilot/instructions/', async () => {
@@ -331,6 +548,38 @@ prompts:
     expect(await fs.exists(promptFile)).toBe(false);
   });
 
+  it('removes nested knowledge from unversioned items-only manifests', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const sourcePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    const targetPath = path.join(WORKSPACE_ROOT, '.github', 'knowledge', sourcePath);
+    const unrelatedPath = path.join(WORKSPACE_ROOT, '.github', 'knowledge', 'unrelated.md');
+    fs.seed(targetPath, '# Owned');
+    fs.seed(unrelatedPath, '# Unrelated');
+
+    await writer.remove('legacy-items-only', {
+      items: [{ path: sourcePath, kind: 'knowledge' }]
+    });
+
+    expect(await fs.exists(targetPath)).toBe(false);
+    expect(await fs.exists(unrelatedPath)).toBe(true);
+  });
+
+  it('removes nested knowledge from an unversioned items-only manifest', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const sourcePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    const targetPath = path.join(WORKSPACE_ROOT, '.github', 'knowledge', sourcePath);
+    const unrelatedPath = path.join(WORKSPACE_ROOT, '.github', 'knowledge', 'unrelated.md');
+    fs.seed(targetPath, '# Owned');
+    fs.seed(unrelatedPath, '# Unrelated');
+
+    await writer.remove('legacy-items-only', { items: [{ id: 'sbb-b2p', path: sourcePath, kind: 'knowledge' }] });
+
+    expect(await fs.exists(targetPath)).toBe(false);
+    expect(await fs.exists(unrelatedPath)).toBe(true);
+  });
+
   it('removes governed canonical items without relying on legacy projections', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
@@ -360,6 +609,40 @@ prompts:
     await writer.remove('test-bundle', manifest);
 
     expect(await fs.exists(skillDir)).toBe(false);
+  });
+
+  it('removes an unversioned items skill ID override without deleting the source-named directory', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const sourceSkillId = 'source-skill';
+    const targetSkillId = 'renamed-skill';
+    const manifest = {
+      id: 'items-skill-override',
+      version: '1.0.0',
+      name: 'Items Skill Override',
+      items: [{ id: targetSkillId, path: `skills/${sourceSkillId}/SKILL.md`, kind: 'skill' }]
+    };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: ${manifest.id}
+version: ${manifest.version}
+name: ${manifest.name}
+items:
+  - id: ${targetSkillId}
+    path: skills/${sourceSkillId}/SKILL.md
+    kind: skill
+`)],
+      [`skills/${sourceSkillId}/SKILL.md`, new TextEncoder().encode('# Skill')],
+      [`skills/${sourceSkillId}/helper.txt`, new TextEncoder().encode('# Helper')]
+    ]);
+    const sourceNamedDirectory = path.join(WORKSPACE_ROOT, '.github', 'skills', sourceSkillId);
+    const targetSkillDirectory = path.join(WORKSPACE_ROOT, '.github', 'skills', targetSkillId);
+    fs.seed(path.join(sourceNamedDirectory, 'unrelated.txt'), '# Unrelated');
+
+    await writer.write(files);
+    await writer.remove('items-skill-override', manifest);
+
+    expect(await fs.exists(targetSkillDirectory)).toBe(false);
+    expect(await fs.readFile(path.join(sourceNamedDirectory, 'unrelated.txt'))).toBe('# Unrelated');
   });
 
   it('removes from .git/info/exclude in local-only mode', async () => {
@@ -615,6 +898,8 @@ describe('RepositoryScopeWriterAdapter', () => {
     ['bundle-relative POSIX path', 'prompts/../../../../outside.md'],
     ['bundle-relative Windows path', 'prompts\\..\\..\\..\\..\\outside.md'],
     ['legacy repository-relative path', '.github/../../outside.md'],
+    ['legacy knowledge path', 'knowledge/../../../outside.md'],
+    ['repository-relative knowledge path', '.github/knowledge/../../../outside.md'],
     ['fallback relative path', '../../outside.md']
   ])('rejects removal outside the repository for a %s', async (_description, filePath) => {
     const fs = new InMemoryFileSystem();
@@ -711,6 +996,65 @@ describe.skipIf(process.platform === 'win32')('RepositoryScopeWriter real filesy
       items: [{ path: 'skills/my-skill/SKILL.md', kind: 'skill', id: 'my-skill' }]
     })).rejects.toThrow(/escapes repository root/);
     await expect(disk.readFile(path.join(skillDir, 'SKILL.md'), 'utf8')).resolves.toBe('# outside');
+  });
+
+  it('refuses a knowledge write through an external parent before writing other bundle files', async () => {
+    const victim = path.join(outside, 'victim.md');
+    const knowledgeDir = path.join(repository, '.github', 'knowledge');
+    await disk.writeFile(victim, '# outside');
+    await disk.mkdir(knowledgeDir, { recursive: true });
+    await disk.symlink(outside, path.join(knowledgeDir, 'linked'), 'dir');
+    const sourcePath = 'linked/victim.md';
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: mixed
+prompts:
+  - id: first
+    file: prompts/first.md
+    type: prompt
+  - id: victim
+    file: ${sourcePath}
+    type: knowledge
+`)],
+      ['prompts/first.md', new TextEncoder().encode('# First')],
+      [`knowledge/${sourcePath}`, new TextEncoder().encode('# New victim')]
+    ]);
+
+    await expect(writer.write(files)).rejects.toThrow(/escapes repository root/);
+
+    await expect(disk.readFile(path.join(repository, '.github', 'copilot', 'prompts', 'first.md'))).rejects.toThrow();
+    await expect(disk.readFile(victim, 'utf8')).resolves.toBe('# outside');
+  });
+
+  it('rejects a final knowledge symlink while leaving its outside target untouched', async () => {
+    const victim = path.join(outside, 'victim.md');
+    const knowledgeDir = path.join(repository, '.github', 'knowledge');
+    await disk.writeFile(victim, '# outside');
+    await disk.mkdir(knowledgeDir, { recursive: true });
+    await disk.symlink(victim, path.join(knowledgeDir, 'linked.md'));
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode('id: knowledge\nprompts:\n  - id: linked\n    file: linked.md\n    type: knowledge\n')],
+      ['knowledge/linked.md', new TextEncoder().encode('# New')]
+    ]);
+
+    await expect(writer.write(files)).rejects.toThrow(/symlink/);
+
+    await expect(disk.readFile(victim, 'utf8')).resolves.toBe('# outside');
+  });
+
+  it('allows a knowledge parent symlink to another directory inside the repository', async () => {
+    const internal = path.join(repository, 'internal-knowledge');
+    const knowledgeDir = path.join(repository, '.github', 'knowledge');
+    await disk.mkdir(internal, { recursive: true });
+    await disk.mkdir(knowledgeDir, { recursive: true });
+    await disk.symlink(internal, path.join(knowledgeDir, 'linked'), 'dir');
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode('id: knowledge\nprompts:\n  - id: guide\n    file: linked/nested/guide.md\n    type: knowledge\n')],
+      ['knowledge/linked/nested/guide.md', new TextEncoder().encode('# Guide')]
+    ]);
+
+    await writer.write(files);
+
+    await expect(disk.readFile(path.join(internal, 'nested', 'guide.md'), 'utf8')).resolves.toBe('# Guide');
   });
 
   it('removes the final symlink without deleting its outside target', async () => {

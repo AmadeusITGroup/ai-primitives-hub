@@ -52,6 +52,18 @@ describe('NodeFileSystem', () => {
     expect(await fs.readFileBytes(filePath)).toEqual(binaryBytes);
   });
 
+  it('renames a sibling file over an existing destination', async () => {
+    const destination = join(dir, 'prompt-registry.lock.json');
+    const temporary = join(dir, '.prompt-registry.lock.json.pending');
+    await fs.writeFile(destination, '{"before":true}');
+    await fs.writeFile(temporary, '{"after":true}');
+
+    await fs.rename(temporary, destination);
+
+    expect(await fs.readFile(destination)).toBe('{"after":true}');
+    expect(await fs.exists(temporary)).toBe(false);
+  });
+
   it('writes then reads back JSON, pretty-printed with a trailing newline', async () => {
     const filePath = join(dir, 'data.json');
     await fs.writeJson(filePath, { a: 1, b: [2, 3] });

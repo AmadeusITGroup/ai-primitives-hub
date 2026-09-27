@@ -48,14 +48,17 @@ export async function writeTargetSafely(
 
   const result = await writer.write(target, files);
   if (result.skipped.length > 0) {
+    const rejection = new TargetWriteRejectedError(result.skipped);
     if (writer.rollback !== undefined && result.written.length > 0) {
       try {
         await writer.rollback(target, result.written);
-      } catch {
-        // Preserve the policy failure; rollback is explicitly best effort.
+      } catch (rollbackError) {
+        throw new AggregateError([rejection, rollbackError], 'Target write was rejected and rollback was incomplete', {
+          cause: rejection
+        });
       }
     }
-    throw new TargetWriteRejectedError(result.skipped);
+    throw rejection;
   }
   return result;
 }

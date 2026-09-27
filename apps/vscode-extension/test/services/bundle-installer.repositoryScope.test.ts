@@ -10,8 +10,15 @@
  */
 
 import * as assert from 'node:assert';
+import {
+  createHash,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import AdmZipClass from 'adm-zip';
+import {
+  dump as dumpYaml,
+} from 'js-yaml';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -59,6 +66,53 @@ suite('BundleInstaller - Repository Scope', () => {
     .withVersion('1.0.0')
     .withDescription('Test bundle for repository scope')
     .build();
+
+  const createGovernedKnowledgeZip = (bundleId: string, version: string): Buffer => {
+    const sourceSnapshotPath = 'metadata/source/collections/governed.collection.yml';
+    const knowledgePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    const archiveFiles = {
+      'prompts/hello.prompt.md': '# Hello Prompt\n',
+      [knowledgePath]: '# SBB B2P\n',
+      [sourceSnapshotPath]: `id: ${bundleId}\n`,
+      'README.md': '# Governed bundle\n',
+      LICENSE: 'Governed license text\n',
+      'ignored/build/cache.pyc': 'cache bytes\n'
+    };
+    const inventory = Object.entries(archiveFiles).map(([filePath, content]) => ({
+      path: filePath,
+      role: filePath.startsWith('prompts/') || filePath === knowledgePath
+        ? 'installable'
+        : (filePath.startsWith('ignored/') ? 'ignored' : 'metadata'),
+      size: Buffer.byteLength(content),
+      sha256: `sha256:${createHash('sha256').update(content).digest('hex')}`
+    }));
+    const manifest = {
+      formatVersion: 1,
+      id: bundleId,
+      version,
+      name: 'Governed Bundle',
+      readme: 'README.md',
+      items: [
+        { id: 'hello', path: 'prompts/hello.prompt.md', kind: 'prompt' },
+        { id: 'sbb-b2p', path: knowledgePath, kind: 'knowledge' }
+      ],
+      provenance: {
+        source: 'https://github.com/example/governed-bundle',
+        revision: '0123456789abcdef0123456789abcdef01234567',
+        collectionPath: 'collections/governed.collection.yml',
+        sourceSnapshotPath,
+        license: 'Governed-License',
+        licensePath: 'LICENSE'
+      },
+      files: inventory
+    };
+    const zip = new AdmZipClass();
+    zip.addFile('deployment-manifest.yml', Buffer.from(dumpYaml(manifest, { lineWidth: -1 }), 'utf8'));
+    for (const [filePath, content] of Object.entries(archiveFiles)) {
+      zip.addFile(filePath, Buffer.from(content, 'utf8'));
+    }
+    return zip.toBuffer();
+  };
 
   setup(() => {
     sandbox = sinon.createSandbox();
@@ -322,6 +376,121 @@ prompts:
       assert.ok(lockfileFiles);
       assert.deepStrictEqual(lockfileFiles.map((file) => file.path), [
         '.github/knowledge/specifications/RDP/core_layer/AGENT_INDEX.md'
+      ]);
+    });
+
+    test('tracks knowledge from canonical items-only manifests at its physical repository path', async () => {
+      const sourceFile = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+      const installedFile = path.join(tempDir, '.github', 'knowledge', sourceFile);
+      mockRepositoryScopeService.syncBundle.resetHistory();
+      mockRepositoryScopeService.syncBundle.onFirstCall().callsFake((_bundleId: string, _bundlePath: string, options?: SyncBundleOptions) => {
+        fs.mkdirSync(path.dirname(installedFile), { recursive: true });
+        fs.writeFileSync(installedFile, '# SBB B2P');
+        return options?.afterSync?.() ?? Promise.resolve();
+      });
+      const bundleBuffer = createGovernedKnowledgeZip(testBundle.id, testBundle.version);
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      await installer.installFromBuffer(testBundle, bundleBuffer, { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.deepStrictEqual(tracked.map((file) => file.path), [
+        '.github/knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md'
+      ]);
+    });
+
+    test('syncs a valid governed items-only archive through the real repository service', async () => {
+      const sourceFile = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+      const realService = new RepositoryScopeService(tempDir, mockStorage, 'vscode');
+      (ScopeServiceFactory.create as sinon.SinonStub).callsFake((scope) =>
+        scope === 'repository' ? realService : mockUserScopeService);
+      installer = new BundleInstaller(mockContext, 'vscode');
+      const bundleBuffer = createGovernedKnowledgeZip(testBundle.id, testBundle.version);
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      await installer.installFromBuffer(testBundle, bundleBuffer, { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      const installedPath = path.join(tempDir, '.github', 'knowledge', sourceFile);
+      assert.strictEqual(fs.readFileSync(installedPath, 'utf8'), '# SBB B2P\n');
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.ok(tracked.some((file) => file.path === `.github/knowledge/${sourceFile}`));
+    });
+
+    test('syncs legacy dual prompts and items through the real repository service without duplicates', async () => {
+      const promptFile = 'prompts/shared.md';
+      const agentFile = 'agents/review.md';
+      const promptKnowledge = 'specifications/prompts-guide.md';
+      const duplicateKnowledge = 'specifications/duplicate-guide.md';
+      const itemKnowledge = 'specifications/items-guide.md';
+      const manifest = {
+        id: testBundle.id,
+        version: testBundle.version,
+        name: testBundle.name,
+        prompts: [
+          { id: 'shared', file: promptFile, type: 'prompt' },
+          { id: 'review', file: agentFile, type: 'chat-mode' },
+          { id: 'prompt-guide', file: promptKnowledge, type: 'knowledge' },
+          { id: 'prompt-wins', file: duplicateKnowledge, type: 'knowledge' }
+        ],
+        items: [
+          { id: 'item-guide', path: itemKnowledge, kind: 'knowledge' },
+          { id: 'item-agent-duplicate', path: agentFile, kind: 'chatmode' },
+          { id: 'item-loses', path: duplicateKnowledge, kind: 'knowledge' }
+        ]
+      };
+      const zip = new AdmZipClass();
+      zip.addFile('deployment-manifest.yml', Buffer.from(dumpYaml(manifest, { lineWidth: -1 }), 'utf8'));
+      zip.addFile(promptFile, Buffer.from('# Shared prompt'));
+      zip.addFile(agentFile, Buffer.from('# Review agent'));
+      zip.addFile(promptKnowledge, Buffer.from('# Prompt knowledge'));
+      zip.addFile(duplicateKnowledge, Buffer.from('# Duplicate source'));
+      zip.addFile(itemKnowledge, Buffer.from('# Item knowledge'));
+      const realService = new RepositoryScopeService(tempDir, mockStorage, 'vscode');
+      (ScopeServiceFactory.create as sinon.SinonStub).callsFake((scope) =>
+        scope === 'repository' ? realService : mockUserScopeService);
+      installer = new BundleInstaller(mockContext, 'vscode');
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      assert.strictEqual(
+        fs.readFileSync(realService.getTargetPath('prompt', 'shared'), 'utf8'),
+        '# Shared prompt'
+      );
+      const agentTarget = path.join(tempDir, realService.getTargetDirectory('chat-mode'), 'review.chatmode.md');
+      assert.strictEqual(fs.readFileSync(agentTarget, 'utf8'), '# Review agent');
+      assert.strictEqual(fs.readFileSync(path.join(tempDir, '.github', 'knowledge', promptKnowledge), 'utf8'), '# Prompt knowledge');
+      assert.strictEqual(fs.readFileSync(path.join(tempDir, '.github', 'knowledge', duplicateKnowledge), 'utf8'), '# Duplicate source');
+      assert.strictEqual(fs.readFileSync(path.join(tempDir, '.github', 'knowledge', itemKnowledge), 'utf8'), '# Item knowledge');
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      const repoRelative = (filePath: string): string => path.relative(tempDir, filePath).split(path.sep).join('/');
+      assert.deepStrictEqual(tracked.map((file) => file.path), [
+        repoRelative(realService.getTargetPath('prompt', 'shared')),
+        repoRelative(agentTarget),
+        `.github/knowledge/${promptKnowledge}`,
+        `.github/knowledge/${duplicateKnowledge}`,
+        `.github/knowledge/${itemKnowledge}`
+      ]);
+    });
+
+    test('tracks Kiro knowledge from canonical items-only manifests under .kiro', async () => {
+      const sourceFile = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+      const installedFile = path.join(tempDir, '.kiro', 'knowledge', sourceFile);
+      mockRepositoryScopeService.syncBundle.resetHistory();
+      mockRepositoryScopeService.syncBundle.onFirstCall().callsFake((_bundleId: string, _bundlePath: string, options?: SyncBundleOptions) => {
+        fs.mkdirSync(path.dirname(installedFile), { recursive: true });
+        fs.writeFileSync(installedFile, '# SBB B2P');
+        return options?.afterSync?.() ?? Promise.resolve();
+      });
+      installer = new BundleInstaller(mockContext, 'kiro');
+      const bundleBuffer = createGovernedKnowledgeZip(testBundle.id, testBundle.version);
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      await installer.installFromBuffer(testBundle, bundleBuffer, { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.deepStrictEqual(tracked.map((file) => file.path), [
+        '.kiro/knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md'
       ]);
     });
 

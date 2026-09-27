@@ -32,6 +32,34 @@ import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 
+class PartialLockfileWriteFileSystem extends InMemoryFileSystem {
+  public partialTempPath: string | null = null;
+
+  public constructor(private readonly lockfilePath: string) {
+    super();
+  }
+
+  public override async writeFile(filePath: string, contents: string): Promise<void> {
+    const isTempSibling = filePath !== this.lockfilePath
+      && nodePath.dirname(filePath) === nodePath.dirname(this.lockfilePath)
+      && nodePath.basename(filePath).startsWith(`.${nodePath.basename(this.lockfilePath)}.`);
+    if (filePath === this.lockfilePath || isTempSibling) {
+      if (isTempSibling) {
+        this.partialTempPath = filePath;
+      }
+      await super.writeFile(filePath, contents.slice(0, 9));
+      throw new Error('simulated partial lockfile write');
+    }
+    await super.writeFile(filePath, contents);
+  }
+
+  public async rename(from: string, to: string): Promise<void> {
+    const contents = await this.readFileBytes(from);
+    await this.writeFileBytes(to, contents);
+    await this.remove(from);
+  }
+}
+
 describe('getLockfilePathForMode', () => {
   it('routes commit mode to prompt-registry.lock.json', () => {
     expect(getLockfilePathForMode('/repo', 'commit')).toBe(nodePath.join('/repo', LOCKFILE_NAME));
@@ -69,6 +97,27 @@ describe('readLockfile / writeLockfile', () => {
 
     expect(result).not.toBeNull();
     expect(result?.version).toBe(LOCKFILE_SCHEMA_VERSION);
+  });
+
+  it('preserves the existing lockfile and removes a partial temp on write failure', async () => {
+    const path = getLockfilePathForMode('/repo', 'commit');
+    const oldLock = emptyLockfile('before@1.0.0');
+    const oldContents = `${JSON.stringify(oldLock, null, 2)}\n`;
+    const fs = new PartialLockfileWriteFileSystem(path);
+    fs.seed(path, oldContents);
+    const nextLock = upsertBundleEntry(emptyLockfile('after@1.0.0'), 'bundle', {
+      version: '1.0.0',
+      sourceId: 'local-test',
+      sourceType: 'local',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: []
+    });
+
+    await expect(writeLockfile(path, nextLock, fs)).rejects.toThrow('simulated partial lockfile write');
+
+    expect(await fs.readFile(path)).toBe(oldContents);
+    expect(fs.partialTempPath).not.toBeNull();
+    expect(await fs.exists(fs.partialTempPath as string)).toBe(false);
   });
 
   it('reads a lockfile written in the extension\'s exact on-disk shape', async () => {

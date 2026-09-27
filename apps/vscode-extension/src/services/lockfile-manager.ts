@@ -582,7 +582,16 @@ export class LockfileManager {
     }
 
     for (const file of entry.files) {
-      const filePath = resolveLockfilePath(this.repositoryPath, file.path);
+      let filePath: string;
+      try {
+        filePath = resolveLockfilePath(this.repositoryPath, file.path);
+      } catch (error) {
+        this.logger.warn(
+          `Invalid lockfile path cannot be checked: ${file.path}`,
+          error instanceof Error ? error : undefined
+        );
+        return true;
+      }
 
       try {
         await fs.promises.access(filePath, fs.constants.F_OK);
@@ -838,9 +847,8 @@ export class LockfileManager {
     const modifiedFiles: ModifiedFileInfo[] = [];
 
     for (const fileEntry of bundleEntry.files) {
-      const filePath = resolveLockfilePath(this.repositoryPath, fileEntry.path);
-
       try {
+        const filePath = resolveLockfilePath(this.repositoryPath, fileEntry.path);
         if (!fs.existsSync(filePath)) {
           // File is missing
           modifiedFiles.push({
@@ -864,7 +872,11 @@ export class LockfileManager {
           });
         }
       } catch (error) {
-        this.logger.warn(`Failed to check file ${fileEntry.path}:`, error instanceof Error ? error : undefined);
+        const invalidPath = error instanceof Error && error.message.includes('Lockfile path escapes repository root');
+        this.logger.warn(
+          invalidPath ? `Invalid lockfile path cannot be checked: ${fileEntry.path}` : `Failed to check file ${fileEntry.path}:`,
+          error instanceof Error ? error : undefined
+        );
         modifiedFiles.push({
           path: fileEntry.path,
           originalChecksum: fileEntry.checksum,

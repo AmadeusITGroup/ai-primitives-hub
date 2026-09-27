@@ -70,6 +70,34 @@ export async function assertSafeRepositoryRemovalPath(
 }
 
 /**
+ * Validate a destination before installation without following a final symlink.
+ * @param repositoryRoot - Repository root used for containment checks.
+ * @param candidate - Absolute destination path.
+ * @param realpath - Filesystem adapter's symlink-resolving realpath operation.
+ * @param lstat - Filesystem adapter's non-following final-component check.
+ */
+export async function assertSafeRepositoryInstallPath(
+  repositoryRoot: string,
+  candidate: string,
+  realpath: (filePath: string) => Promise<string>,
+  lstat: (filePath: string) => Promise<{ isSymbolicLink: boolean }>
+): Promise<void> {
+  await assertSafeRepositoryRemovalPath(repositoryRoot, candidate, realpath);
+  try {
+    if ((await lstat(candidate)).isSymbolicLink) {
+      throw new UnsafeRepositoryPathError(candidate, 'is a symlink');
+    }
+  } catch (error) {
+    if (error instanceof UnsafeRepositoryPathError) {
+      throw error;
+    }
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new UnsafeRepositoryPathError(candidate, 'cannot be checked against repository root');
+    }
+  }
+}
+
+/**
  * Unlike deletion, traversing a managed directory follows the final symlink.
  * Validate that target too before reading or cleaning any children.
  * @param repositoryRoot - Repository path.

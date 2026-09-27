@@ -38,6 +38,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   assertSafeRepositoryRemovalPath,
+  getManifestPlacementItems,
   toCopilotFileType,
 } from '@ai-primitives-hub/core';
 import {
@@ -61,7 +62,6 @@ import {
   RepositoryCommitMode,
 } from '../types/registry';
 import {
-  determineFileType,
   getSkillName,
   getTargetFileName,
   normalizePromptId,
@@ -219,7 +219,8 @@ export class BundleInstaller {
     const entries: LockfileFileEntry[] = [];
     const sourceFileSet = new Set(sourceFiles);
 
-    if (!manifest.prompts || manifest.prompts.length === 0) {
+    const placements = getManifestPlacementItems(manifest as unknown as Record<string, unknown>);
+    if (placements.length === 0) {
       return entries;
     }
 
@@ -228,9 +229,13 @@ export class BundleInstaller {
     const getTargetDirectory = (type: ManifestPlacementType): string | null => repoService.tryGetTargetDirectory(type);
 
     // Collect files from the host-appropriate directories based on manifest
-    for (const promptDef of manifest.prompts) {
+    for (const promptDef of placements) {
+      const placementType = promptDef.type as ManifestPlacementType;
+      const knowledgeTargetDir = placementType === 'knowledge' ? getTargetDirectory('knowledge') : null;
+      if (placementType === 'knowledge' && knowledgeTargetDir === null) {
+        continue;
+      }
       const manifestFile = normalizeFilesystemPath(promptDef.file);
-      const placementType = promptDef.type ?? determineFileType(promptDef.file, promptDef.tags);
       if (placementType === 'skill') {
         const targetDir = getTargetDirectory('skill');
         if (targetDir === null) {
@@ -247,19 +252,24 @@ export class BundleInstaller {
         continue;
       }
 
-      if (!sourceFileSet.has(manifestFile)) {
-        continue;
-      }
-
-      // For other file types, collect the single file
       let targetPath: string | null = null;
       if (placementType === 'knowledge') {
-        const relativePath = getKnowledgeRelativePath(manifestFile);
-        const targetDir = getTargetDirectory('knowledge');
-        if (relativePath !== null && targetDir !== null) {
-          targetPath = path.join(workspaceRoot, targetDir, relativePath);
+        const targetDir = knowledgeTargetDir;
+        if (targetDir === null) {
+          continue;
         }
+        const relativePath = getKnowledgeRelativePath(manifestFile);
+        if (relativePath === null) {
+          throw new Error(`manifest declares an unsafe knowledge path: ${manifestFile}`);
+        }
+        if (!sourceFileSet.has(manifestFile)) {
+          throw new Error(`manifest declares a missing knowledge file: ${manifestFile}`);
+        }
+        targetPath = path.join(workspaceRoot, targetDir, relativePath);
       } else {
+        if (!sourceFileSet.has(manifestFile)) {
+          continue;
+        }
         const fileType = toCopilotFileType(placementType);
         const targetDir = fileType === null ? null : getTargetDirectory(fileType);
         if (fileType !== null && targetDir !== null) {
@@ -701,10 +711,14 @@ export class BundleInstaller {
     };
 
     const zipExtractor = new ZipBundleExtractor();
+    let archivedFiles: ExtractedFiles = new Map();
+    let sourceFiles: string[] = [];
     const extractor: BundleExtractor = {
       extract: async (bytes: Uint8Array): Promise<ExtractedFiles> => {
         const files = await zipExtractor.extract(bytes);
         if (files.has('deployment-manifest.yml')) {
+          archivedFiles = files;
+          sourceFiles = [...files.keys()];
           return files;
         }
 
@@ -739,22 +753,22 @@ export class BundleInstaller {
         };
         const augmented = new Map(files);
         augmented.set('deployment-manifest.yml', new TextEncoder().encode(yaml.dump(fallbackManifest)));
+        archivedFiles = augmented;
+        sourceFiles = [...augmented.keys()];
         return augmented;
       }
     };
 
     let installDir = '';
-    let sourceFiles: string[] = [];
 
     const writer: TargetWriter = {
-      write: async (_target: Target, files: ExtractedFiles): Promise<TargetWriteResult> => {
+      write: async (_target: Target, _files: ExtractedFiles): Promise<TargetWriteResult> => {
         const written: string[] = [];
-        sourceFiles = [...files.keys()];
 
         if (installSkillsToCopilotDir) {
           // Skills bundles install directly to Copilot skills directory for user/workspace scopes.
           // Find the skill directory by locating a SKILL.md entry in the bundle.
-          const skillEntry = [...files.keys()].find((p) => path.posix.basename(p).toLowerCase() === 'skill.md');
+          const skillEntry = [...archivedFiles.keys()].find((p) => path.posix.basename(p).toLowerCase() === 'skill.md');
           if (!skillEntry) {
             throw new Error('Skills directory not found in bundle');
           }
@@ -771,7 +785,7 @@ export class BundleInstaller {
 
           // Copy skill files directly to ~/.copilot/skills/{skill-name}
           const skillEntryPrefix = `${skillDir}/`;
-          const skillEntries = [...files.entries()].filter(([p]) => p.startsWith(skillEntryPrefix));
+          const skillEntries = [...archivedFiles.entries()].filter(([p]) => p.startsWith(skillEntryPrefix));
           if (skillEntries.length === 0) {
             throw new Error(`Skill directory not found in bundle: ${skillDir}`);
           }
@@ -804,7 +818,7 @@ export class BundleInstaller {
           await ensureDirectory(installDir);
           this.logger.debug(`Installation directory: ${installDir}`);
 
-          for (const [entryPath, bytes] of files) {
+          for (const [entryPath, bytes] of archivedFiles) {
             const outPath = path.join(installDir, entryPath);
             await ensureDirectory(path.dirname(outPath));
             await writeFile(outPath, Buffer.from(bytes));

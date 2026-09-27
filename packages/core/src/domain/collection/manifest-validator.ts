@@ -28,7 +28,14 @@ import {
   isManifestIdMatch,
 } from '../bundle/id';
 import {
+  determineFileType,
+} from '../install/copilot-file-type';
+import {
+  getKnowledgeRelativePath,
+} from '../install/knowledge-path';
+import {
   isPrimitiveKind,
+  normalizePrimitiveKind,
 } from '../primitive/types';
 import {
   RELEASE_DEPLOYMENT_MANIFEST_FORMAT_VERSION,
@@ -208,6 +215,225 @@ export const getInstallableBundleFiles = (
   }
   return installableFiles;
 };
+
+export interface SelectedManifestPlacementItem {
+  id?: unknown;
+  file: unknown;
+  type: unknown;
+  tags?: string[];
+  name?: unknown;
+  description?: unknown;
+}
+
+export const getSelectedManifestPlacementItems = (
+  manifest: Record<string, unknown>
+): SelectedManifestPlacementItem[] => {
+  const selectEntry = (value: unknown): SelectedManifestPlacementItem | null => {
+    if (value === null || typeof value !== 'object') {
+      return null;
+    }
+    const item = value as Record<string, unknown>;
+    const file = typeof item.path === 'string' ? item.path : item.file;
+    const type = typeof item.kind === 'string' ? item.kind : item.type;
+    const tags = Array.isArray(item.tags) && item.tags.every((tag) => typeof tag === 'string')
+      ? item.tags
+      : undefined;
+    const result: SelectedManifestPlacementItem = { file, type };
+    if ('id' in item) {
+      result.id = item.id;
+    }
+    if (tags !== undefined) {
+      result.tags = tags;
+    }
+    if ('name' in item) {
+      result.name = item.name;
+    }
+    if ('description' in item) {
+      result.description = item.description;
+    }
+    return result;
+  };
+
+  const items = Array.isArray(manifest.items) ? manifest.items : [];
+  if (manifest.formatVersion === RELEASE_DEPLOYMENT_MANIFEST_FORMAT_VERSION) {
+    return items.flatMap((value) => {
+      const entry = selectEntry(value);
+      return entry === null ? [] : [entry];
+    });
+  }
+
+  const selected: SelectedManifestPlacementItem[] = [];
+  const seen = new Set<string>();
+  const appendEntries = (entries: unknown[]): void => {
+    for (const value of entries) {
+      const item = selectEntry(value);
+      if (item === null) {
+        continue;
+      }
+      const inferredType = typeof item.type === 'string'
+        ? item.type
+        : (typeof item.file === 'string' ? determineFileType(item.file, item.tags) : null);
+      const canonicalKind = typeof inferredType === 'string'
+        ? normalizePrimitiveKind(inferredType) ?? inferredType.trim().toLowerCase()
+        : null;
+      if (typeof item.file === 'string' && canonicalKind !== null) {
+        const key = `${item.file.replaceAll('\\', '/')}\u0000${canonicalKind}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+      }
+      selected.push(item);
+    }
+  };
+
+  appendEntries(Array.isArray(manifest.prompts) ? manifest.prompts : []);
+  appendEntries(items);
+  return selected;
+};
+
+export const getTargetInstallableBundleFiles = (
+  files: ExtractedFiles,
+  manifest: ValidatedManifest
+): ExtractedFiles => {
+  const installableFiles = getInstallableBundleFiles(files, manifest);
+  const manifestRecord = manifest as Record<string, unknown>;
+  const declarations: { source: string }[] = [];
+  const skillSourceDirs = new Set<string>();
+  const registerSkill = (source: unknown): void => {
+    if (typeof source !== 'string') {
+      return;
+    }
+    const normalized = source.replaceAll('\\', '/');
+    const segments = normalized.split('/');
+    if (segments.length === 3 && segments[0] === 'skills' && segments[2]?.toLowerCase() === 'skill.md') {
+      skillSourceDirs.add(segments.slice(0, 2).join('/'));
+    }
+  };
+  const addKnowledgeDeclaration = (source: unknown): void => {
+    if (typeof source !== 'string') {
+      throw new ManifestValidationError(
+        'manifest declares a knowledge item without a string source path',
+        'BUNDLE.MANIFEST_INVALID'
+      );
+    }
+    declarations.push({ source });
+  };
+
+  for (const item of getSelectedManifestPlacementItems(manifestRecord)) {
+    const kind = normalizePrimitiveKind(item.type);
+    if (kind === 'skill') {
+      registerSkill(item.file);
+    } else if (kind === 'knowledge') {
+      addKnowledgeDeclaration(item.file);
+    }
+  }
+
+  const seenSources = new Set<string>();
+  const sourceKeys = new Set<string>();
+  const projected = new Map<string, { source: string; bytes: Uint8Array }>();
+  for (const declaration of declarations) {
+    if (seenSources.has(declaration.source)) {
+      continue;
+    }
+    seenSources.add(declaration.source);
+    const relativePath = getKnowledgeRelativePath(declaration.source);
+    if (declaration.source === MANIFEST_FILENAME || relativePath === null) {
+      throw new ManifestValidationError(
+        `manifest declares an unsafe knowledge path: ${declaration.source}`,
+        'BUNDLE.MANIFEST_INVALID'
+      );
+    }
+    const normalizedSource = declaration.source.split(String.fromCharCode(92)).join('/');
+    const sourceKey = files.has(declaration.source) ? declaration.source : normalizedSource;
+    const bytes = installableFiles.get(sourceKey);
+    if (bytes === undefined) {
+      throw new ManifestValidationError(
+        `manifest declares a missing or non-installable knowledge file: ${declaration.source}`,
+        'BUNDLE.MANIFEST_INVALID'
+      );
+    }
+    const targetKey = `knowledge/${relativePath}`;
+    const existing = projected.get(targetKey);
+    if (existing !== undefined && existing.source !== declaration.source) {
+      throw new ManifestValidationError(
+        `knowledge paths ${existing.source} and ${declaration.source} resolve to the same target path`,
+        'BUNDLE.MANIFEST_INVALID'
+      );
+    }
+    const embeddedSkillKnowledge = [...skillSourceDirs].some((skillDir) =>
+      normalizedSource.startsWith(`${skillDir}/knowledge/`));
+    if (!embeddedSkillKnowledge) {
+      sourceKeys.add(sourceKey);
+    }
+    projected.set(targetKey, { source: declaration.source, bytes });
+  }
+
+  if (projected.size === 0
+    && ![...installableFiles.keys()].some((filePath) => /^(knowledge\/|\.[^/]+\/knowledge\/)/.test(filePath))) {
+    return installableFiles;
+  }
+
+  const targetFiles = new Map<string, Uint8Array>();
+  for (const [filePath, bytes] of installableFiles) {
+    if (sourceKeys.has(filePath)) {
+      continue;
+    }
+    if (/^(knowledge\/|\.[^/]+\/knowledge\/)/.test(filePath)) {
+      const relativePath = getKnowledgeRelativePath(filePath);
+      const targetKey = relativePath === null ? null : `knowledge/${relativePath}`;
+      const declared = targetKey === null ? undefined : projected.get(targetKey);
+      if (declared !== undefined) {
+        throw new ManifestValidationError(
+          `knowledge path ${declared.source} collides with an existing bundle path ${filePath}`,
+          'BUNDLE.MANIFEST_INVALID'
+        );
+      }
+      continue;
+    }
+    targetFiles.set(filePath, bytes);
+  }
+  for (const [targetKey, value] of projected) {
+    if (targetFiles.has(targetKey)) {
+      throw new ManifestValidationError(
+        `knowledge path ${value.source} collides with an existing bundle path ${targetKey}`,
+        'BUNDLE.MANIFEST_INVALID'
+      );
+    }
+    targetFiles.set(targetKey, value.bytes);
+  }
+  return targetFiles;
+};
+
+export interface ManifestPlacementItem {
+  id: string;
+  file: string;
+  type: string;
+  tags?: string[];
+  name?: string;
+  description?: string;
+}
+
+export const getManifestPlacementItems = (
+  manifest: Record<string, unknown>
+): ManifestPlacementItem[] => getSelectedManifestPlacementItems(manifest).flatMap((item) => {
+  const file = item.file;
+  if (typeof file !== 'string' || (typeof item.id !== 'string' && typeof item.id !== 'number')) {
+    return [];
+  }
+  const type = typeof item.type === 'string' ? item.type : determineFileType(file, item.tags);
+  const placement: ManifestPlacementItem = { id: String(item.id), file, type };
+  if (item.tags !== undefined) {
+    placement.tags = item.tags;
+  }
+  if (typeof item.name === 'string') {
+    placement.name = item.name;
+  }
+  if (typeof item.description === 'string') {
+    placement.description = item.description;
+  }
+  return [placement];
+});
 
 const RELEASE_FILE_ROLES: ReadonlySet<ReleaseManifestFileRole> = new Set([
   'installable',

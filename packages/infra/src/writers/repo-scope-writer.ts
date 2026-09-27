@@ -25,7 +25,11 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   assertSafeRepositoryDirectoryPath,
+  assertSafeRepositoryInstallPath,
   assertSafeRepositoryRemovalPath,
+  FileWriteJournal,
+  getKnowledgeRelativePath,
+  getSelectedManifestPlacementItems,
   normalizePrimitiveKind,
   UnsafeRepositoryPathError,
   verifyWrittenBytes,
@@ -100,6 +104,7 @@ export class RepositoryScopeWriter {
   private readonly fs: FileSystem;
   private readonly workspaceRoot: string;
   private readonly commitMode: RepositoryCommitMode;
+  private writeJournal: FileWriteJournal | null = null;
 
   /**
    * Construct a RepositoryScopeWriter.
@@ -130,12 +135,25 @@ export class RepositoryScopeWriter {
    * @param bytes Exact bytes to install.
    */
   private async writeBytesVerified(targetPath: string, bytes: Uint8Array): Promise<void> {
-    await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await this.fs.writeFileBytes(targetPath, bytes);
-    await verifyWrittenBytes(this.fs, targetPath, bytes);
+    await this.validateInstallPaths([targetPath]);
+    const journal = this.writeJournal;
+    if (journal === null) {
+      throw new Error('repository write journal is not initialized');
+    }
+    await journal.write(targetPath, bytes, async () => {
+      await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await this.fs.writeFileBytes(targetPath, bytes);
+      await verifyWrittenBytes(this.fs, targetPath, bytes);
+    });
   }
 
   private getTargetPath(item: { type: string; file: string }): string | null {
+    if (item.type.toLowerCase() === 'knowledge') {
+      const relativePath = getKnowledgeRelativePath(item.file);
+      return relativePath === null
+        ? null
+        : path.join(this.workspaceRoot, '.github', 'knowledge', relativePath);
+    }
     const subdirectory = this.getSubdirectory(item.type);
     if (!subdirectory) {
       return null;
@@ -144,6 +162,19 @@ export class RepositoryScopeWriter {
     const fileName = this.getFileName(item.file);
     const targetPath = path.join(this.workspaceRoot, '.github', subdirectory, fileName);
     return targetPath;
+  }
+
+  private getKnowledgeBundlePath(filePath: string, files: ExtractedFiles): string {
+    const relativePath = getKnowledgeRelativePath(filePath);
+    if (relativePath === null) {
+      throw new Error(`manifest declares an unsafe knowledge path: ${filePath}`);
+    }
+    const canonicalPath = `knowledge/${relativePath}`;
+    const bundlePath = files.has(canonicalPath) ? canonicalPath : filePath;
+    if (!files.has(bundlePath)) {
+      throw new Error(`manifest declares a missing knowledge file: ${filePath}`);
+    }
+    return bundlePath;
   }
 
   private getSubdirectory(type: string): string | null {
@@ -193,6 +224,9 @@ export class RepositoryScopeWriter {
         const skillDir = path.join(this.workspaceRoot, '.github', `skills/${targetSkillId}`);
         skillDirsToRemove.push(skillDir);
       } else {
+        if (p.type.toLowerCase() === 'knowledge' && getKnowledgeRelativePath(p.file) === null) {
+          throw new Error(`manifest declares an unsafe knowledge path: ${p.file}`);
+        }
         const targetPath = this.getTargetPath({ type: p.type, file: p.file });
         if (targetPath) {
           pathsToRemove.push(targetPath);
@@ -287,13 +321,14 @@ export class RepositoryScopeWriter {
       } else if (p.type.toLowerCase() === 'plugin') {
         await this.installPluginItem(p, files, written, skillDirs, writtenBundlePaths);
       } else {
-        const bytes = files.get(p.file);
-        if (bytes) {
+        const bundlePath = kind === 'knowledge' ? this.getKnowledgeBundlePath(p.file, files) : p.file;
+        const bytes = files.get(bundlePath);
+        if (bytes !== undefined) {
           const targetPath = this.getTargetPath({ type: p.type, file: p.file });
           if (targetPath) {
             await this.writeBytesVerified(targetPath, bytes);
             written.push(targetPath);
-            writtenBundlePaths.push(p.file);
+            writtenBundlePaths.push(bundlePath);
           } else {
             skipped.push(p.file);
           }
@@ -427,6 +462,24 @@ export class RepositoryScopeWriter {
     return this.fs.realpath.bind(this.fs);
   }
 
+  private getLstat(filePath: string): (p: string) => Promise<{ isSymbolicLink: boolean }> {
+    if (this.fs.lstat === undefined) {
+      throw new UnsafeRepositoryPathError(filePath, 'cannot be checked against repository root');
+    }
+    return this.fs.lstat.bind(this.fs);
+  }
+
+  private async validateInstallPaths(paths: readonly string[]): Promise<void> {
+    for (const filePath of paths) {
+      await assertSafeRepositoryInstallPath(
+        this.workspaceRoot,
+        filePath,
+        this.getRealpath(filePath),
+        this.getLstat(filePath)
+      );
+    }
+  }
+
   private async validateRemovalPaths(paths: readonly string[]): Promise<void> {
     for (const p of paths) {
       await assertSafeRepositoryRemovalPath(this.workspaceRoot, p, this.getRealpath(p));
@@ -435,12 +488,17 @@ export class RepositoryScopeWriter {
 
   private getBundleRemovalPath(filePath: string): string {
     const normalized = filePath.replaceAll('\\', '/');
+    if ((normalized.startsWith('knowledge/') || normalized.startsWith('.github/knowledge/'))
+      && getKnowledgeRelativePath(normalized) === null) {
+      throw new UnsafeRepositoryPathError(filePath);
+    }
     const route = [
       ['prompts/', 'copilot/prompts/'],
       ['instructions/', 'copilot/instructions/'],
       ['chat-modes/', 'copilot/agents/'],
       ['chatmodes/', 'copilot/agents/'],
       ['agents/', 'copilot/agents/'],
+      ['knowledge/', 'knowledge/'],
       ['skills/', 'skills/'],
       ['hooks/', 'hooks/'],
       ['plugins/', 'plugins/']
@@ -457,7 +515,7 @@ export class RepositoryScopeWriter {
    */
   private resolveLockfileRemovalPath(filePath: string): string {
     const normalized = filePath.replaceAll('\\', '/');
-    if (normalized.startsWith('.github/') || /^(prompts|instructions|chat-modes|chatmodes|agents|skills|hooks|plugins)\//.test(normalized)) {
+    if (normalized.startsWith('.github/') || /^(prompts|instructions|chat-modes|chatmodes|agents|knowledge|skills|hooks|plugins)\//.test(normalized)) {
       return this.getBundleRemovalPath(normalized);
     }
     return path.join(this.workspaceRoot, '.github', normalized);
@@ -468,22 +526,39 @@ export class RepositoryScopeWriter {
     await this.validateRemovalPaths(paths);
     for (const p of paths) {
       try {
+        await this.validateRemovalPaths([p]);
         // Keep the original path spelling: in-memory and Windows adapters may
         // not recognize the drive-qualified path used only for validation.
         await this.fs.remove(p);
-      } catch {
+      } catch (error) {
+        if (error instanceof UnsafeRepositoryPathError) {
+          throw error;
+        }
         // Ignore errors if file doesn't exist
       }
     }
   }
 
   private getManifestItems(manifest: DeploymentManifest): { file: string; type: string; id?: string }[] {
+    const selected = getSelectedManifestPlacementItems(manifest as unknown as Record<string, unknown>);
+    const placementItems = selected.flatMap((item) => {
+      if (typeof item.file !== 'string' || typeof item.type !== 'string') {
+        return [];
+      }
+      const placement: { file: string; type: string; id?: string } = {
+        file: item.file,
+        type: item.type
+      };
+      if (typeof item.id === 'string' || typeof item.id === 'number') {
+        placement.id = String(item.id);
+      }
+      return [placement];
+    });
     if (manifest.formatVersion === 1 && manifest.items !== undefined) {
-      return manifest.items.map((item) => ({ file: item.path, type: item.kind, id: item.id }));
+      return placementItems;
     }
-    return [
-      ...(manifest.items?.map((item) => ({ file: item.path, type: item.kind, id: item.id })) ?? []),
-      ...(manifest.prompts ?? []),
+    const items: { file: string; type: string; id?: string }[] = [
+      ...placementItems,
       ...(manifest.agents ?? []),
       ...(manifest.instructions ?? []),
       ...(manifest.hooks ?? []),
@@ -494,6 +569,14 @@ export class RepositoryScopeWriter {
       // for governed releases above.
       ...(manifest.skills?.map((item) => ({ file: item.file, type: item.type })) ?? [])
     ];
+    return items.filter((item, index) => {
+      const kind = normalizePrimitiveKind(item.type) ?? item.type.toLowerCase();
+      const key = `${item.file.replaceAll('\\', '/')}\u0000${kind}`;
+      return items.findIndex((other) => {
+        const otherKind = normalizePrimitiveKind(other.type) ?? other.type.toLowerCase();
+        return `${other.file.replaceAll('\\', '/')}\u0000${otherKind}` === key;
+      }) === index;
+    });
   }
 
   /**
@@ -522,6 +605,7 @@ export class RepositoryScopeWriter {
     const allowed = allowedKinds === undefined ? null : new Set(allowedKinds);
     const writable: string[] = [];
     const skipped: string[] = [];
+    const destinations: string[] = [];
 
     for (const item of this.getManifestItems(manifest)) {
       const kind = normalizePrimitiveKind(item.type);
@@ -530,22 +614,33 @@ export class RepositoryScopeWriter {
         continue;
       }
       if (kind === 'skill' || kind === 'plugin') {
+        const sourceId = kind === 'skill' ? this.extractSkillId(item.file) : this.extractPluginId(item.file);
+        const targetId = item.id ?? sourceId;
         const prefix = `${path.posix.dirname(item.file)}/`;
         const matches = [...files.keys()].filter((file) => file.startsWith(prefix));
         if (matches.length === 0) {
           skipped.push(item.file);
         } else {
-          writable.push(...matches);
+          const targetDir = path.join(this.workspaceRoot, '.github', kind === 'skill' ? 'skills' : 'plugins', targetId);
+          for (const file of matches) {
+            const relativePath = file.slice(prefix.length);
+            writable.push(file);
+            destinations.push(path.join(targetDir, relativePath));
+          }
         }
         continue;
       }
-      if (files.has(item.file) && this.getTargetPath({ type: item.type, file: item.file }) !== null) {
-        writable.push(item.file);
+      const bundlePath = kind === 'knowledge' ? this.getKnowledgeBundlePath(item.file, files) : item.file;
+      const targetPath = this.getTargetPath({ type: item.type, file: item.file });
+      if (files.has(bundlePath) && targetPath !== null) {
+        writable.push(bundlePath);
+        destinations.push(targetPath);
       } else {
         skipped.push(item.file);
       }
     }
 
+    await this.validateInstallPaths(destinations);
     return { writable, skipped };
   }
 
@@ -567,21 +662,45 @@ export class RepositoryScopeWriter {
       return { written, skipped, skillDirs, writtenBundlePaths };
     }
 
+    await this.preflight(files, allowedKinds);
     const manifest = await this.parseManifest(manifestBytes);
+    const journal = new FileWriteJournal(this.fs);
+    this.writeJournal = journal;
 
-    await this.processManifestItems(
-      this.getManifestItems(manifest),
-      files,
-      written,
-      skipped,
-      skillDirs,
-      writtenBundlePaths,
-      allowed
-    );
+    try {
+      await this.processManifestItems(
+        this.getManifestItems(manifest),
+        files,
+        written,
+        skipped,
+        skillDirs,
+        writtenBundlePaths,
+        allowed
+      );
 
-    // Update git exclude for local-only mode
-    if (this.commitMode === 'local-only') {
-      await this.updateGitExclude(written);
+      // Update git exclude for local-only mode
+      if (this.commitMode === 'local-only') {
+        await this.updateGitExclude(written);
+      }
+    } catch (cause) {
+      const rollbackErrors: unknown[] = [];
+      try {
+        await this.validateRemovalPaths(journal.getPaths());
+        await journal.rollback();
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+      if (this.commitMode === 'local-only') {
+        try {
+          await this.removeFromGitExclude(written);
+        } catch (excludeError) {
+          rollbackErrors.push(excludeError);
+        }
+      }
+      if (rollbackErrors.length > 0) {
+        throw new AggregateError([cause, ...rollbackErrors], 'Repository write failed and rollback was incomplete', { cause });
+      }
+      throw cause;
     }
 
     return { written, skipped, skillDirs, writtenBundlePaths };
@@ -592,7 +711,8 @@ export class RepositoryScopeWriter {
    * @param written Absolute paths returned by `write`.
    */
   public async rollback(written: readonly string[]): Promise<void> {
-    await this.removePaths([...written]);
+    await this.validateRemovalPaths(written);
+    await this.writeJournal?.rollback(written);
     if (this.commitMode === 'local-only') {
       await this.removeFromGitExclude([...written]);
     }
@@ -633,6 +753,14 @@ export class RepositoryScopeWriter {
     if (manifest.formatVersion === 1 && manifest.items !== undefined) {
       this.collectRemovePaths(this.getManifestItems(manifest), pathsToRemove, skillDirsToRemove);
     } else {
+      if (manifest.items !== undefined) {
+        this.collectRemovePaths(manifest.items.map((item) => ({
+          file: item.path,
+          type: item.kind,
+          id: item.id
+        })), pathsToRemove, skillDirsToRemove);
+      }
+
       // Collect paths to remove for prompts, agents, and instructions
       if (manifest.prompts) {
         this.collectRemovePaths(manifest.prompts, pathsToRemove, skillDirsToRemove);
@@ -662,8 +790,12 @@ export class RepositoryScopeWriter {
     // Remove skill directories
     for (const skillDir of skillDirsToRemove) {
       try {
+        await this.validateRemovalPaths([skillDir]);
         await this.fs.remove(skillDir, { recursive: true });
-      } catch {
+      } catch (error) {
+        if (error instanceof UnsafeRepositoryPathError) {
+          throw error;
+        }
         // Ignore errors if directory doesn't exist
       }
     }
@@ -671,8 +803,12 @@ export class RepositoryScopeWriter {
     // Remove files
     for (const p of pathsToRemove) {
       try {
+        await this.validateRemovalPaths([p]);
         await this.fs.remove(p);
-      } catch {
+      } catch (error) {
+        if (error instanceof UnsafeRepositoryPathError) {
+          throw error;
+        }
         // Ignore errors if file doesn't exist
       }
     }
@@ -745,7 +881,7 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
       await this.writer.removeBundleFile(normalized);
       return;
     }
-    const knownBundlePrefix = /^(prompts|instructions|chat-modes|chatmodes|agents|skills|hooks|plugins)\//;
+    const knownBundlePrefix = /^(prompts|instructions|chat-modes|chatmodes|agents|knowledge|skills|hooks|plugins)\//;
     if (knownBundlePrefix.test(normalized)) {
       await this.writer.removeBundleFile(normalized);
       return;
