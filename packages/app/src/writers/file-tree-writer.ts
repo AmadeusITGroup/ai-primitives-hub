@@ -365,17 +365,22 @@ export class FileTreeTargetWriter implements TargetWriter {
    * @param written - Absolute paths returned by `write`.
    */
   public async rollback(target: Target, written: readonly string[]): Promise<void> {
-    const journal = this.writeJournal;
-    if (journal !== null) {
-      const layout = await this.resolveLayout(target);
-      const baseDir = expandPath(layout.baseDir, this.opts.env);
-      const root = target.scope === 'repository' ? target.rootPath : baseDir;
-      if (root === undefined) {
-        throw new UnsafeRepositoryPathError(baseDir, 'cannot be checked against repository root');
-      }
-      await this.validateRemovalPaths(root, written);
-      await journal.rollback(written);
+    if (written.length === 0) {
+      return;
     }
+    const journal = this.writeJournal;
+    if (journal === null) {
+      throw new Error('Cannot rollback files without an active write journal');
+    }
+    journal.assertPaths(written);
+    const layout = await this.resolveLayout(target);
+    const baseDir = expandPath(layout.baseDir, this.opts.env);
+    const root = target.scope === 'repository' ? target.rootPath : baseDir;
+    if (root === undefined) {
+      throw new UnsafeRepositoryPathError(baseDir, 'cannot be checked against repository root');
+    }
+    await this.validateRemovalPaths(root, written);
+    await journal.rollback(written);
   }
 
   /**

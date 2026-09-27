@@ -46,6 +46,19 @@ const encodeBytes = (value: string): Uint8Array => new TextEncoder().encode(valu
 const text = (value: Uint8Array): string => new TextDecoder().decode(value);
 
 describe('FileWriteJournal', () => {
+  it('rejects an unknown rollback path before changing journaled files', async () => {
+    const fs = new JournalFileSystem();
+    fs.files.set('/a', encodeBytes('original'));
+    const journal = new FileWriteJournal(fs);
+    await journal.write('/a', encodeBytes('installed'), async () => {
+      await fs.writeFileBytes('/a', encodeBytes('installed'));
+    });
+
+    await expect(journal.rollback(['/a', '/unknown'])).rejects.toThrow(/unknown|journal/i);
+
+    expect(text(await fs.readFileBytes('/a'))).toBe('installed');
+  });
+
   it('removes a partial new file after a write fails', async () => {
     const fs = new JournalFileSystem();
     const journal = new FileWriteJournal(fs);

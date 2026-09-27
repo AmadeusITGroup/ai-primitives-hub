@@ -107,12 +107,20 @@ export class FileWriteJournal {
     return [...this.entries.keys()];
   }
 
+  public assertPaths(paths: readonly string[]): void {
+    const unknown = [...new Set(paths.filter((path) => !this.entries.has(path)))];
+    if (unknown.length > 0) {
+      throw new Error(`Rollback paths are not recorded in the current write journal: ${unknown.join(', ')}`);
+    }
+  }
+
   public async rollback(paths: readonly string[] = [...this.entries.keys()]): Promise<void> {
+    this.assertPaths(paths);
     const errors: unknown[] = [];
     for (const path of [...paths].reverse()) {
       const entry = this.entries.get(path);
       if (entry === undefined) {
-        continue;
+        throw new Error(`Rollback path is no longer recorded in the write journal: ${path}`);
       }
 
       let current: Uint8Array | null;

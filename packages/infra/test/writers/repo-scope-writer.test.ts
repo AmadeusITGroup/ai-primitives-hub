@@ -297,6 +297,37 @@ items:
     expect(await fs.readFile(second)).toBe('# Original second');
   });
 
+  it('rejects rollback without a journal and rejects paths from a replaced journal', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const firstPath = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'first.md');
+    const secondPath = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'second.md');
+    const writeBundle = (name: string): Map<string, Uint8Array> => new Map([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: ${name}
+version: 1.0.0
+name: ${name}
+prompts:
+  - id: ${name}
+    file: prompts/${name}.md
+    type: prompt
+`)],
+      [`prompts/${name}.md`, new TextEncoder().encode(`# ${name}`)]
+    ]);
+
+    await expect(writer.rollback([])).resolves.toBeUndefined();
+    await expect(writer.rollback([firstPath])).rejects.toThrow(/journal/i);
+
+    const first = await writer.write(writeBundle('first'));
+    const second = await writer.write(writeBundle('second'));
+    await expect(writer.rollback(first.written)).rejects.toThrow(/journal/i);
+    expect(await fs.readFile(firstPath)).toBe('# first');
+    expect(await fs.readFile(secondPath)).toBe('# second');
+
+    await writer.rollback(second.written);
+    expect(await fs.readFile(firstPath)).toBe('# first');
+    expect(await fs.exists(secondPath)).toBe(false);
+  });
+
   it('removes legacy knowledge keys and repository-relative knowledge lock paths', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
@@ -957,14 +988,30 @@ describe.skipIf(process.platform === 'win32')('RepositoryScopeWriter real filesy
     await expect(disk.readFile(victim, 'utf8')).resolves.toBe('# outside');
   });
 
-  it('refuses a rollback path through a symlinked parent', async () => {
+  it('refuses to rollback journaled skill files through a symlinked parent', async () => {
     const victim = path.join(outside, 'victim.md');
     await disk.writeFile(victim, '# outside');
-    await disk.symlink(outside, path.join(repository, '.github', 'copilot', 'prompts', 'linked'), 'dir');
+    const bundleFiles = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: rollback-skill
+version: 1.0.0
+name: Rollback Skill
+items:
+  - id: renamed-skill
+    path: skills/source-skill/SKILL.md
+    kind: skill
+`)],
+      ['skills/source-skill/SKILL.md', new TextEncoder().encode('# Skill')],
+      ['skills/source-skill/nested/victim.md', new TextEncoder().encode('# Installed')]
+    ]);
+    const result = await writer.write(bundleFiles);
+    const skillDirectory = path.join(repository, '.github', 'skills', 'renamed-skill');
+    const nestedDirectory = path.join(skillDirectory, 'nested');
+    await disk.rm(nestedDirectory, { recursive: true });
+    await disk.symlink(outside, nestedDirectory, 'dir');
 
-    await expect(writer.rollback([path.join(repository, '.github', 'copilot', 'prompts', 'linked', 'victim.md')]))
-      .rejects.toThrow(/escapes repository root/);
+    await expect(writer.rollback(result.written)).rejects.toThrow(/escapes repository root/);
     await expect(disk.readFile(victim, 'utf8')).resolves.toBe('# outside');
+    await expect(disk.readFile(path.join(skillDirectory, 'SKILL.md'), 'utf8')).resolves.toBe('# Skill');
   });
 
   it('refuses a missing filename below a symlinked parent', async () => {

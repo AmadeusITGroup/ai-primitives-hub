@@ -236,6 +236,36 @@ describe('FileTreeTargetWriter', () => {
     expect(errors.some((error) => String(error).includes('rollback failed'))).toBe(true);
   });
 
+  it('rejects non-empty rollback when no write journal exists while allowing an empty request', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+
+    await expect(writer.rollback(target, [])).resolves.toBeUndefined();
+    await expect(writer.rollback(target, [localPath('/out', 'prompts', 'unwritten.md')]))
+      .rejects.toThrow(/journal/i);
+  });
+
+  it('rejects paths from an older write journal without changing either write', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const writeBundle = (name: string): Map<string, Uint8Array> => new Map([
+      ['deployment-manifest.yml', new TextEncoder().encode(`id: ${name}\nversion: 1.0.0\nname: ${name}\nprompts:\n  - id: ${name}\n    file: prompts/${name}.md\n    type: prompt\n`)],
+      [`prompts/${name}.md`, new TextEncoder().encode(`# ${name}`)]
+    ]);
+    const first = await writer.write(target, writeBundle('first'));
+    const second = await writer.write(target, writeBundle('second'));
+    const firstPath = localPath('/out', 'prompts', 'first.md');
+    const secondPath = localPath('/out', 'prompts', 'second.md');
+
+    await expect(writer.rollback(target, first.written)).rejects.toThrow(/journal/i);
+    expect(await fs.readFile(firstPath)).toBe('# first');
+    expect(await fs.readFile(secondPath)).toBe('# second');
+
+    await writer.rollback(target, second.written);
+    expect(await fs.readFile(firstPath)).toBe('# first');
+    expect(await fs.exists(secondPath)).toBe(false);
+  });
+
   it('routes the legacy chatmodes path alias to the canonical chat-modes route', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });

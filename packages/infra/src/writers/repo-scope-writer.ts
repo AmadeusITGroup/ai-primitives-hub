@@ -711,8 +711,16 @@ export class RepositoryScopeWriter {
    * @param written Absolute paths returned by `write`.
    */
   public async rollback(written: readonly string[]): Promise<void> {
+    if (written.length === 0) {
+      return;
+    }
+    const journal = this.writeJournal;
+    if (journal === null) {
+      throw new Error('Cannot rollback repository files without an active write journal');
+    }
+    journal.assertPaths(written);
     await this.validateRemovalPaths(written);
-    await this.writeJournal?.rollback(written);
+    await journal.rollback(written);
     if (this.commitMode === 'local-only') {
       await this.removeFromGitExclude([...written]);
     }
