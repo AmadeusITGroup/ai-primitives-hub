@@ -37,6 +37,7 @@ src/migrations/  Activation-time data migrations
 
 - Find existing services, utilities, and tests before adding code; do not duplicate helpers in `src/utils/` or `test/helpers/`.
 - Write a focused failing test before changing behavior, then run it and the tests in the same service or adapter directory as the changed file, plus all unit tests: `pnpm -C apps/vscode-extension run test:unit`.
+- Before enabling a primitive kind in the extension, follow [the contributor primitive recipe](../../.agents/skills/introduce-ai-primitive/SKILL.md) across manifests, targets, CLI, scopes, tracking, and uninstall; document any intentionally deferred UI work.
 - Keep activation events, `package.json` contributions, and tests aligned.
 - Add migrations in `src/migrations/`, wire them through `runMigrations()`, and mark temporary migration compatibility code with `@migration-cleanup(name)`.
 - Update relevant user or contributor docs; see [documentation guidance](../../docs/AGENTS.md).

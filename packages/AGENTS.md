@@ -19,6 +19,7 @@ CLI / Extension → app → infra → core
 - Implement external systems in `infra` behind a core port. Add a source adapter by copying one in `infra/src/adapters/`, implementing `SourceAdapter`, and wiring it into `app`'s `createSourceAdapter` switch.
 - `app` orchestrates only — it composes ports and adapters, holds no business rules, and takes storage via the injected `AppStorage` port (never `vscode.ExtensionContext`).
 - `cli` commands stay thin: parse/format I/O, delegate everything else to `app`. Clipanion is pinned exactly (`4.0.0-rc.4`, no `^`).
+- For a new primitive kind or a new target route for an existing kind, follow [the end-to-end primitive recipe](../.agents/skills/introduce-ai-primitive/SKILL.md), including package, CLI, extension, lockfile, and update/removal checks.
 
 ## Commands
 
