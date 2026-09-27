@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import {
+  VsCodeSessionTokenProvider,
+} from '../adapters/vscode-session-token-provider';
+import {
   RegistryManager,
 } from '../services/registry-manager';
 import {
@@ -24,6 +27,7 @@ export class GitHubAuthCommand {
         title: 'Authenticating with GitHub...',
         cancellable: false
       }, async () => {
+        await VsCodeSessionTokenProvider.forceAuthentication();
         await this.registryManager.forceAuthentication();
       });
 

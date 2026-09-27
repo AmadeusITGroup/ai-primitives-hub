@@ -25,8 +25,10 @@ import {
 } from '../utils/logger';
 
 const TOKEN_CACHE_TTL_MS = 30_000;
+const SESSION_TIMEOUT_MS = 60_000;
 const tokenCache = new Map<boolean, { token: string; expiresAt: number }>();
 const tokenRequests = new Map<boolean, Promise<string | undefined>>();
+let cacheGeneration = 0;
 
 export class VsCodeSessionTokenProvider implements TokenProvider {
   private readonly logger = Logger.getInstance();
@@ -41,10 +43,20 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
    */
   public constructor(private readonly createIfNone = true) {}
 
-  private async resolveToken(): Promise<string | undefined> {
+  private async resolveToken(forceNewSession = false): Promise<string | undefined> {
+    const generation = cacheGeneration;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       this.logger.debug('[VsCodeSessionTokenProvider] Trying VS Code GitHub authentication...');
-      const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: this.createIfNone });
+      const session = await Promise.race([
+        vscode.authentication.getSession('github', ['repo'], forceNewSession ? { forceNewSession: true } : { createIfNone: this.createIfNone }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('GitHub sign-in timed out after 60 seconds. Check the GitHub Authentication output and VPN/proxy connectivity, then retry.')), SESSION_TIMEOUT_MS);
+        })
+      ]);
+      if (generation !== cacheGeneration) {
+        return undefined;
+      }
       if (session) {
         this.logger.info('[VsCodeSessionTokenProvider] Using VS Code GitHub authentication');
         tokenCache.set(this.createIfNone, {
@@ -57,7 +69,12 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
       return undefined;
     } catch (error) {
       this.logger.warn(`[VsCodeSessionTokenProvider] VS Code auth failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (forceNewSession) {
+        throw error;
+      }
       return undefined;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -67,7 +84,18 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
    * source, while VS Code exposes one GitHub session for the host.
    */
   public static clearCache(): void {
+    cacheGeneration += 1;
     tokenCache.clear();
+    tokenRequests.clear();
+  }
+
+  /** Request a fresh session explicitly; cancellation/failure must reach the UI. */
+  public static async forceAuthentication(): Promise<void> {
+    VsCodeSessionTokenProvider.clearCache();
+    const token = await new VsCodeSessionTokenProvider().resolveToken(true);
+    if (!token) {
+      throw new Error('GitHub authentication did not return a session. Please retry sign-in.');
+    }
   }
 
   public async getToken(host: string): Promise<string | undefined> {

@@ -190,41 +190,40 @@ export class GitHubApiClient implements GitHubApi {
   }
 
   private classify(response: HttpResponse): Classification {
-    if (response.statusCode === 403) {
+    if (response.statusCode === 403 || response.statusCode === 429) {
       if (response.headers['x-ratelimit-remaining'] === '0') {
         return { kind: 'rate-limit', reason: 'primary rate limit' };
       }
       const body = Buffer.from(response.body).toString('utf8').slice(0, 500);
-      if (/secondary rate limit/i.test(body) || response.headers['retry-after'] !== undefined) {
+      if (response.statusCode === 429 || /secondary rate limit/i.test(body) || response.headers['retry-after'] !== undefined) {
         return { kind: 'secondary-rate-limit', reason: 'secondary rate limit' };
       }
       return { kind: 'fatal', reason: 'forbidden' };
     }
-    if (response.statusCode === 408 || response.statusCode === 429 || response.statusCode >= 500) {
+    if (response.statusCode === 408 || response.statusCode >= 500) {
       return { kind: 'transient', reason: `status ${String(response.statusCode)}` };
     }
     return { kind: 'fatal', reason: `status ${String(response.statusCode)}` };
   }
 
   private computeSleep(classification: Classification, attempt: number, response: HttpResponse): number {
+    // GitHub requires Retry-After to take precedence over reset/backoff.
+    if (classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit') {
+      const retryAfter = Number(response.headers['retry-after']);
+      if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+        return Math.max(retryAfter * 1000, 100);
+      }
+    }
     if (classification.kind === 'rate-limit') {
       const reset = Number(response.headers['x-ratelimit-reset']);
       if (Number.isFinite(reset) && reset > 0) {
         const waitMs = Math.max(0, reset * 1000 - Date.now()) + 250;
         return Math.max(waitMs, 100);
       }
-      const retryAfter = Number(response.headers['retry-after']);
-      if (Number.isFinite(retryAfter) && retryAfter >= 0) {
-        return Math.max(retryAfter * 1000, 100);
-      }
-      return this.maxSleepMs;
+      return 60_000 * (2 ** (attempt - 1));
     }
     if (classification.kind === 'secondary-rate-limit') {
-      const retryAfter = Number(response.headers['retry-after']);
-      if (Number.isFinite(retryAfter) && retryAfter >= 0) {
-        return Math.max(retryAfter * 1000, 100);
-      }
-      return this.backoffBaseMs * (2 ** (attempt - 1));
+      return 60_000 * (2 ** (attempt - 1));
     }
     const back = this.backoffBaseMs * (2 ** (attempt - 1));
     const jitter = this.jitterMs > 0 ? Math.floor(this.random() * this.jitterMs) : 0;
@@ -273,7 +272,13 @@ export class GitHubApiClient implements GitHubApi {
         this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: classification.reason });
         throw new Error(describeError(response, url));
       }
-      const sleepMs = Math.min(this.computeSleep(classification, attempt, response), this.maxSleepMs);
+      const requiredSleepMs = this.computeSleep(classification, attempt, response);
+      const rateLimited = classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit';
+      if (rateLimited && requiredSleepMs > this.maxSleepMs) {
+        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: 'rate-limit wait exceeds budget' });
+        throw new Error(`GitHub API error: ${response.statusCode} - GitHub rate limit exceeded. Retry after ${Math.ceil(requiredSleepMs / 1000)} seconds. (${url})`);
+      }
+      const sleepMs = Math.min(requiredSleepMs, this.maxSleepMs);
       this.onEvent({
         kind: classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit' ? 'rate-limit' : 'retry',
         url,

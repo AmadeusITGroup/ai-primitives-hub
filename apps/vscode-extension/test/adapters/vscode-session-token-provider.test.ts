@@ -119,4 +119,30 @@ suite('VsCodeSessionTokenProvider', () => {
     const tokens = await Promise.all(requests);
     assert.ok(tokens.every((token) => token === 'gho_shared'));
   });
+
+  test('releases a stalled authentication request so later attempts can recover', async () => {
+    const clock = sandbox.useFakeTimers();
+    getSessionStub.onFirstCall().returns(new Promise(() => {}));
+    getSessionStub.onSecondCall().resolves({ accessToken: 'recovered' });
+    const provider = new VsCodeSessionTokenProvider();
+    const first = provider.getToken('github.com');
+    await clock.tickAsync(60_001);
+    assert.strictEqual(await first, undefined);
+    assert.strictEqual(await provider.getToken('github.com'), 'recovered');
+  });
+
+  test('an old session completing after reset cannot overwrite the new cached token', async () => {
+    let release!: (session: { accessToken: string }) => void;
+    getSessionStub.onFirstCall().returns(new Promise((resolve) => {
+      release = resolve;
+    }));
+    getSessionStub.onSecondCall().resolves({ accessToken: 'new' });
+    const provider = new VsCodeSessionTokenProvider();
+    const old = provider.getToken('github.com');
+    VsCodeSessionTokenProvider.clearCache();
+    assert.strictEqual(await provider.getToken('github.com'), 'new');
+    release({ accessToken: 'old' });
+    await old;
+    assert.strictEqual(await provider.getToken('github.com'), 'new');
+  });
 });

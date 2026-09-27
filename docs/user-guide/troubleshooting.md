@@ -25,13 +25,40 @@ View logs: `View → Output → AI Primitives Hub`
 - **Invalid Bundle**: Verify bundle has valid manifest
 - Check logs for `[ERROR]` messages
 
-### Authentication Fails (404/401)
+### GitHub Sign-in Stalls or Source Access Fails
 
-1. Check VS Code GitHub auth (bottom-left avatar)
-2. Try GitHub CLI: `gh auth status`
-3. Add explicit token with `repo` scope
-4. Run: `AI Primitives Hub: Validate Repository Access`
-5. Force refresh authentication: `AI Primitives Hub: Force GitHub Authentication`
+Sign-in, network connectivity, and repository authorization are separate steps.
+Use the exact error to choose the next action:
+
+| Symptom | Meaning and next step |
+| --- | --- |
+| Sign-in timed out | VS Code did not return a GitHub session within 60 seconds. Inspect the **GitHub Authentication** Output channel and complete any browser sign-in prompt. Retry after checking the VPN/proxy connection. |
+| HTTP request timed out or response interrupted | Check the network route used by VS Code, including API and asset-download hosts. This is a separate failure from waiting for a sign-in session. |
+| 401 | Credentials may be invalid or expired. Run **AI Primitives Hub: Force GitHub Authentication** to request a fresh VS Code session. Cancellation or failure is reported instead of a success notification. |
+| 404 | The repository, branch, file, or release may be absent, or the selected credentials may lack access to a private resource. Verify the exact source URL, selected account, repository permissions, and organization SSO authorization. A browser session succeeding does not prove the extension's token has access. |
+| 403 or 429 with a rate-limit message | Respect the indicated retry delay. The client honours `Retry-After` and the primary limit reset time. If the required wait exceeds its 60-second automatic wait budget, it fails promptly with the required delay rather than retrying early. A generic 403 can instead indicate a permissions or organization-policy restriction. |
+
+The sign-in timeout releases waiting extension operations; VS Code's underlying
+sign-in UI cannot be cancelled through this API. Close or complete an old browser
+prompt before trying again. A late result cannot overwrite a refreshed token.
+
+If no VS Code token is available, the existing GitHub CLI fallback may be tried;
+check `gh auth status` without copying access tokens into logs. An explicit source
+token takes precedence over VS Code authentication, so refreshing VS Code will
+not repair an expired explicit token. Likewise, a token from the wrong account
+can still be a valid token and produce a 404 for a private repository.
+
+Changing VPN profiles is evidence of a possible routing, proxy, DNS, or network
+access-policy difference, not proof of an API quota problem. The shared HTTP
+client does not itself configure proxy agents from VS Code settings or proxy
+environment variables; behaviour also depends on the host runtime. Follow your
+organization's supported network configuration and do not disable TLS checks.
+
+When reporting a failure, include the extension and VS Code versions, action,
+time, HTTP status, and sanitized **AI Primitives Hub** and **GitHub Authentication**
+Output lines. If available, include `x-ratelimit-remaining`, `x-ratelimit-reset`,
+`retry-after`, and `x-github-request-id`. Remove tokens, authorization headers,
+proxy credentials, signed query strings, and private repository names.
 
 ### Azure DevOps Authentication Fails (401/403)
 

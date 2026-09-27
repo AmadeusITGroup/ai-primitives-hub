@@ -267,8 +267,39 @@ describe('GitHubApiClient', () => {
   });
 
   describe('rate limiting', () => {
+    it('does not retry before a primary reset beyond the wait budget', async () => {
+      const reset = Math.floor(Date.now() / 1000) + 3600;
+      const http = new FakeHttpClient(jsonResponse({}, 403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) }));
+      const sleeps: number[] = [];
+      await expect(new GitHubApiClient(http, { sleep: recordingSleep(sleeps) }).getJson('/repos/o/r')).rejects.toThrow('Retry after');
+      expect(http.requests).toHaveLength(1);
+      expect(sleeps).toEqual([]);
+    });
+
+    it('honours Retry-After on 429 rather than retrying immediately', async () => {
+      const http = new FakeHttpClient([jsonResponse({}, 429, { 'retry-after': '10' }), jsonResponse({ ok: true })]);
+      const sleeps: number[] = [];
+      await new GitHubApiClient(http, { sleep: recordingSleep(sleeps) }).getJson('/repos/o/r');
+      expect(sleeps).toEqual([10_000]);
+    });
+
+    it('fails promptly when a required rate-limit wait exceeds the wait budget', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 403, { 'retry-after': '120' }));
+      const sleeps: number[] = [];
+      await expect(new GitHubApiClient(http, { sleep: recordingSleep(sleeps) }).getJson('/repos/o/r')).rejects.toThrow(/rate limit.*120/i);
+      expect(http.requests).toHaveLength(1);
+      expect(sleeps).toEqual([]);
+    });
+
+    it('waits at least a minute for a secondary limit without Retry-After', async () => {
+      const http = new FakeHttpClient([jsonResponse({ message: 'secondary rate limit' }, 403), jsonResponse({ ok: true })]);
+      const sleeps: number[] = [];
+      await new GitHubApiClient(http, { sleep: recordingSleep(sleeps) }).getJson('/repos/o/r');
+      expect(sleeps).toEqual([60_000]);
+    });
+
     it('sleeps until x-ratelimit-reset on a primary rate limit, then retries', async () => {
-      const resetAt = Math.floor(Date.now() / 1000) + 60;
+      const resetAt = Math.floor(Date.now() / 1000) + 30;
       const http = new FakeHttpClient([
         jsonResponse({}, 403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetAt) }),
         jsonResponse({ ok: true })
