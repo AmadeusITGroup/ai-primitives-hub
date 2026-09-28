@@ -1696,7 +1696,7 @@ export class PromptRegistryExtension {
       // Auto-activate the only hub
       const id = hubs[0].id;
       this.logger.info(`Auto-activating single hub: ${id}`);
-      await hubManager.setActiveHub(id);
+      await hubManager.setActiveHub(id, { loadSources: false });
       await vscode.commands.executeCommand('promptRegistry.refresh');
       return;
     }
@@ -1717,7 +1717,7 @@ export class PromptRegistryExtension {
 
     const hubId = selected ? selected.hubId : hubs[0].id;
     this.logger.info(`Migrating to active hub: ${hubId}`);
-    await hubManager.setActiveHub(hubId);
+    await hubManager.setActiveHub(hubId, { loadSources: false });
     await vscode.commands.executeCommand('promptRegistry.refresh');
   }
 
