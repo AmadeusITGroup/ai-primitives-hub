@@ -51,7 +51,6 @@ import {
   isGitHubAppAuthEnabled,
   NodeHttpClient,
   parseGitHubRepositoryTarget,
-  readTargets,
   type RepositoryCommitMode,
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
@@ -226,8 +225,8 @@ export class UpdateCommand extends BaseUpdateCommand {
     await detectUpdateContext(opts, ctx);
 
     try {
-      const targetName = await resolveTargetName(opts.target, 'update', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
-      const configuredTarget = await resolveTarget(targetName, 'update', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const targetName = await resolveTargetName(opts.target, 'update', ctx, () => loadTargets(ctx));
+      const configuredTarget = await resolveTarget(targetName, 'update', ctx, () => loadTargets(ctx));
       const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
       const commitMode = target.commitMode ?? 'commit';
