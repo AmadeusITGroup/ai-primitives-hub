@@ -17,6 +17,7 @@ import {
 } from 'vitest';
 import {
   DEFAULT_HTTP_TIMEOUT_MS,
+  MAX_HTTP_TIMEOUT_MS,
   NodeHttpClient,
 } from '../../src/http/node-http-client';
 
@@ -42,7 +43,7 @@ describe('NodeHttpClient', () => {
     }
   });
 
-  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, MAX_HTTP_TIMEOUT_MS + 1])(
     'rejects an invalid timeout value: %s', async (timeoutMs) => {
       await expect(new NodeHttpClient().fetch({
         url: 'http://127.0.0.1:1',

@@ -19,6 +19,8 @@ import type {
 const DEFAULT_MAX_REDIRECTS = 10;
 /** Default timeout applied to every HTTP request without an explicit timeout. */
 export const DEFAULT_HTTP_TIMEOUT_MS = 20_000;
+/** Maximum delay supported by Node's timer APIs. */
+export const MAX_HTTP_TIMEOUT_MS = 2_147_483_647;
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 
 export class NodeHttpClient implements HttpClient {
@@ -136,8 +138,10 @@ export class NodeHttpClient implements HttpClient {
 
   public async fetch(request: HttpRequest): Promise<HttpResponse> {
     const timeoutMs = request.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-      throw new Error(`HTTP request timeout must be a positive finite number, got ${timeoutMs}`);
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_HTTP_TIMEOUT_MS) {
+      throw new Error(
+        `HTTP request timeout must be a positive finite number no greater than ${MAX_HTTP_TIMEOUT_MS}, got ${timeoutMs}`
+      );
     }
     return this.fetchFollowingRedirects(
       request,

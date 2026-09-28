@@ -196,6 +196,7 @@ suite('PromptRegistryExtension first-run hub selector', () => {
       importStarted();
       return {
         hubId: 'verified-hub',
+        onRegistered: () => Promise.resolve(),
         onFirstSettled: () => firstSettled,
         onComplete: () => complete
       };
@@ -280,6 +281,50 @@ suite('PromptRegistryExtension first-run hub selector', () => {
 
     assert.strictEqual(showQuickPickStub.calledOnce, true);
     assert.match(showErrorStub.firstCall.args[0], /Failed to import Verified Hub/);
+  });
+
+  test('reports a registration failure before activating the hub', async () => {
+    const registrationError = new Error('source registration failed');
+    const showQuickPickStub = sandbox.stub(vscode.window, 'showQuickPick').resolves({
+      label: '$(check) Verified Hub',
+      hubConfig: {
+        name: 'Verified Hub',
+        reference: { type: 'github', location: 'owner/verified-hub' }
+      }
+    } as any);
+    const showErrorStub = sandbox.stub().resolves();
+    const setActiveHubStub = sandbox.stub().resolves();
+    const verifyHubAvailabilityDetailedStub = sandbox.stub().resolves({ available: true });
+    const importHubProgressivelyStub = sandbox.stub().resolves({
+      hubId: 'verified-hub',
+      onRegistered: () => Promise.reject(registrationError),
+      onFirstSettled: () => Promise.resolve(),
+      onComplete: () => Promise.resolve()
+    });
+
+    await assert.rejects(
+      runFirstRunHubSelector({
+        hubManager: {
+          verifyHubAvailabilityDetailed: verifyHubAvailabilityDetailedStub,
+          importHubProgressively: importHubProgressivelyStub,
+          setActiveHub: setActiveHubStub
+        },
+        logger: {
+          debug: () => undefined,
+          info: () => undefined,
+          warn: () => undefined,
+          error: () => undefined
+        },
+        notifications: {
+          showError: showErrorStub
+        }
+      }),
+      registrationError
+    );
+
+    assert.strictEqual(setActiveHubStub.called, false);
+    assert.strictEqual(showQuickPickStub.calledOnce, true);
+    assert.strictEqual(showErrorStub.calledOnce, true);
   });
 
   test('returns false when custom hub import is cancelled', async () => {

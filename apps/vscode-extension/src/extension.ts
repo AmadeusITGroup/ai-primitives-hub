@@ -284,10 +284,10 @@ export async function runFirstRunHubSelector(
   if (selected.hubConfig && selected.hubConfig.reference) {
     logger.info(`Importing first-run hub: ${selected.hubConfig.name}`);
     try {
-      const { hubId, onFirstSettled, onComplete } =
+      const { hubId, onRegistered, onFirstSettled, onComplete } =
         await hubManager.importHubProgressively(selected.hubConfig.reference);
 
-      await onFirstSettled();
+      await Promise.all([onRegistered(), onFirstSettled()]);
       await hubManager.setActiveHub(hubId, { loadSources: false });
       logger.info(`First-run hub ${hubId} imported and activated; remaining sources are loading/synchronizing in the background.`);
 
