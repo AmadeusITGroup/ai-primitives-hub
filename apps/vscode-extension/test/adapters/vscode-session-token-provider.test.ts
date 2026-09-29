@@ -207,6 +207,55 @@ suite('VsCodeSessionTokenProvider', () => {
     assert.ok(getSessionStub.calledOnce);
   });
 
+  (['select', 'force'] as const).forEach((firstMode) => {
+    test(`does not substitute ${firstMode} for a different interactive operation`, async () => {
+      let release!: (session: { accessToken: string }) => void;
+      getSessionStub.returns(new Promise((resolve) => {
+        release = resolve;
+      }));
+      const first = firstMode === 'select' ? VsCodeSessionTokenProvider.selectAccount() : VsCodeSessionTokenProvider.forceAuthentication();
+      const second = firstMode === 'select' ? VsCodeSessionTokenProvider.forceAuthentication() : VsCodeSessionTokenProvider.selectAccount();
+      // Observe rejection before releasing the active request, without leaving an unhandled rejection.
+      const rejected = assert.rejects(second, /already in progress/);
+      release({ accessToken: 'existing' });
+      await first;
+      await rejected;
+      getSessionStub.resolves({ accessToken: 'fresh' });
+      if (firstMode === 'select') {
+        await VsCodeSessionTokenProvider.forceAuthentication();
+        assert.ok(getSessionStub.lastCall.args[2].forceNewSession);
+      } else {
+        await VsCodeSessionTokenProvider.selectAccount();
+        assert.ok(getSessionStub.lastCall.args[2].clearSessionPreference);
+      }
+    });
+  });
+
+  test('a blocked forced retry preserves a session recovered after earlier timeouts', async () => {
+    const clock = sandbox.useFakeTimers();
+    const releases: ((value: undefined) => void)[] = [];
+    getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
+      ? new Promise((resolve) => {
+        releases.push(resolve);
+      })
+      : Promise.resolve({ accessToken: 'usable' }));
+    try {
+      for (let i = 0; i < 2; i++) {
+        const result = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /60 seconds/);
+        await clock.tickAsync(60_001);
+        await result;
+      }
+      const provider = new VsCodeSessionTokenProvider();
+      assert.strictEqual(await provider.getToken('github.com'), 'usable');
+      getSessionStub.resolves(undefined);
+      await assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /still running/);
+      assert.strictEqual(await provider.getToken('github.com'), 'usable');
+    } finally {
+      releases.forEach((release) => release(undefined));
+      await clock.tickAsync(0);
+    }
+  });
+
   test('failed forced refresh cannot leave an ordinary old token in the cache', async () => {
     let reject!: (error: Error) => void;
     getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession

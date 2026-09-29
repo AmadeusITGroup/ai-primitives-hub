@@ -32,7 +32,7 @@ let cacheGeneration = 0;
 type SessionMode = 'prompt' | 'passive' | 'silent' | 'force' | 'force-select' | 'select';
 // Keep native requests until THEY settle: a local timeout cannot cancel VS Code.
 const nativeRequests = new Map<SessionMode, Promise<vscode.AuthenticationSession | undefined>>();
-let interactiveRequest: Promise<string | undefined> | undefined;
+let interactiveRequest: { kind: 'select' | 'force'; token: Promise<string | undefined> } | undefined;
 let attemptCounter = 0;
 let notifiedGeneration = -1;
 
@@ -170,18 +170,26 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
   }
 
   private static async runInteractive(mode: SessionMode): Promise<void> {
+    const kind = mode === 'select' ? 'select' : 'force';
+    if (interactiveRequest && interactiveRequest.kind !== kind) {
+      throw new GitHubSessionError('PENDING', 'Another GitHub sign-in or account selection is already in progress. Complete it before retrying this action.');
+    }
     if (!interactiveRequest) {
+      // A blocked attempt must not discard a session recovered in the meantime.
+      if (nativeRequests.has(mode)) {
+        throw new GitHubSessionError('PENDING', 'A previous GitHub sign-in is still running in VS Code. Complete or close its browser prompt, or reload the window before retrying.');
+      }
       VsCodeSessionTokenProvider.clearCache();
-      const request = Promise.resolve().then(() => new VsCodeSessionTokenProvider().resolveToken(mode));
+      const request = { kind, token: Promise.resolve().then(() => new VsCodeSessionTokenProvider().resolveToken(mode)) } as const;
       interactiveRequest = request;
       const release = (): void => {
         if (interactiveRequest === request) {
           interactiveRequest = undefined;
         }
       };
-      void request.then(release, release);
+      void request.token.then(release, release);
     }
-    const token = await interactiveRequest;
+    const token = await interactiveRequest.token;
     if (!token) {
       throw new GitHubSessionError('FAILED', 'GitHub authentication did not return a session. Please retry sign-in.');
     }
@@ -194,7 +202,7 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
 
     if (interactiveRequest) {
       // Neither prompting nor passive reads may publish an older session during refresh.
-      return interactiveRequest.catch(() => undefined);
+      return interactiveRequest.token.catch(() => undefined);
     }
 
     const cached = tokenCache.get(this.createIfNone);

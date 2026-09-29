@@ -10,6 +10,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import type {
   GitHubClientEvent,
@@ -232,11 +233,27 @@ describe('GitHubApiClient', () => {
       expect(http.requests).toHaveLength(2);
     });
 
-    it('retries 429 and 408 the same way as 5xx', async () => {
+    it('retries mixed rate limits and transient failures within a configured larger budget', async () => {
       const http = new FakeHttpClient([jsonResponse({}, 429), jsonResponse({}, 408), jsonResponse({ ok: true })]);
-      const client = new GitHubApiClient(http, { sleep: noSleep });
+      const sleeps: number[] = [];
+      const client = new GitHubApiClient(http, { sleep: recordingSleep(sleeps), maxTotalSleepMs: 120_000, jitterMs: 0 });
       await expect(client.getJson('/repos/o/r')).resolves.toEqual({ ok: true });
       expect(http.requests).toHaveLength(3);
+      expect(sleeps).toEqual([60_000, 500]);
+    });
+
+    it('stops transient retries when the cumulative sleep budget is exhausted', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 503));
+      const sleeps: number[] = [];
+      const events: GitHubClientEvent[] = [];
+      const client = new GitHubApiClient(http, {
+        sleep: recordingSleep(sleeps), maxTotalSleepMs: 1000, maxSleepMs: 600,
+        backoffBaseMs: 600, jitterMs: 0, onEvent: (event) => events.push(event)
+      });
+      await expect(client.getJson('/repos/o/r')).rejects.toThrow('503');
+      expect(sleeps).toEqual([600]);
+      expect(http.requests).toHaveLength(2);
+      expect(events.at(-1)?.reason).toBe('cumulative retry wait exceeds budget');
     });
 
     it('gives up after maxRetries transient failures', async () => {
@@ -267,6 +284,32 @@ describe('GitHubApiClient', () => {
   });
 
   describe('rate limiting', () => {
+    it('allows the exact cumulative budget and resets it for each new request', async () => {
+      const limit = jsonResponse({}, 429, { 'retry-after': '30' });
+      const success = jsonResponse({ ok: true });
+      const http = new FakeHttpClient([limit, limit, success, limit, limit, success]);
+      const sleeps: number[] = [];
+      const client = new GitHubApiClient(http, { sleep: recordingSleep(sleeps) });
+      await expect(client.getJson('/repos/o/r')).resolves.toEqual({ ok: true });
+      await expect(client.getJson('/repos/o/r')).resolves.toEqual({ ok: true });
+      expect(sleeps).toEqual([30_000, 30_000, 30_000, 30_000]);
+    });
+    it('bounds cumulative waits for repeated server-directed retries', async () => {
+      const http = new FakeHttpClient(jsonResponse({}, 429, { 'retry-after': '60' }));
+      const sleeps: number[] = [];
+      await expect(new GitHubApiClient(http, { sleep: recordingSleep(sleeps) }).getJson('/repos/o/r')).rejects.toThrow('Retry after 60 seconds');
+      expect(sleeps).toEqual([60_000]);
+      expect(http.requests).toHaveLength(2);
+    });
+
+    it('counts transient waits before a rate limit without truncating Retry-After', async () => {
+      const http = new FakeHttpClient([jsonResponse({}, 503), jsonResponse({}, 429, { 'retry-after': '60' })]);
+      const sleeps: number[] = [];
+      await expect(new GitHubApiClient(http, { sleep: recordingSleep(sleeps), jitterMs: 0 }).getJson('/repos/o/r')).rejects.toThrow('Retry after 60 seconds');
+      expect(sleeps).toEqual([250]);
+      expect(http.requests).toHaveLength(2);
+    });
+
     it.each(['', '-1', 'invalid', 'Wed, 21 Oct 2015 07:28:00 GMT'])('falls back for invalid or past Retry-After %s', async (value) => {
       const http = new FakeHttpClient([jsonResponse({}, 429, { 'retry-after': value }), jsonResponse({ ok: true })]);
       const sleeps: number[] = [];
@@ -275,11 +318,15 @@ describe('GitHubApiClient', () => {
     });
 
     it('honours a future HTTP-date Retry-After', async () => {
-      const http = new FakeHttpClient([jsonResponse({}, 429, { 'retry-after': new Date(Date.now() + 30_000).toUTCString() }), jsonResponse({ ok: true })]);
-      const sleeps: number[] = [];
-      await new GitHubApiClient(http, { sleep: recordingSleep(sleeps) }).getJson('/repos/o/r');
-      expect(sleeps[0]).toBeGreaterThan(28_000);
-      expect(sleeps[0]).toBeLessThanOrEqual(30_000);
+      const now = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 29, 12));
+      try {
+        const http = new FakeHttpClient([jsonResponse({}, 429, { 'retry-after': new Date(Date.now() + 30_000).toUTCString() }), jsonResponse({ ok: true })]);
+        const sleeps: number[] = [];
+        await new GitHubApiClient(http, { sleep: recordingSleep(sleeps) }).getJson('/repos/o/r');
+        expect(sleeps).toEqual([30_000]);
+      } finally {
+        now.mockRestore();
+      }
     });
 
     it('does not shorten a date-based Retry-After beyond the budget', async () => {

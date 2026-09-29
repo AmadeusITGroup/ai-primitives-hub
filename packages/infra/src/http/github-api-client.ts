@@ -16,10 +16,11 @@
  *   fresh on every request, so a `TokenProvider` that itself tries
  *   multiple strategies still gets a chance to re-resolve on the next call.
  *
- * Phase 3b addition: resilient by default. Transient failures (408/429/5xx)
- * are retried with exponential backoff + jitter; a primary rate limit (403
+ * Phase 3b addition: resilient by default. Transient failures (408/5xx)
+ * are retried with exponential backoff + jitter; a primary rate limit (403/429
  * + `x-ratelimit-remaining: 0`) sleeps until `x-ratelimit-reset`; a
- * secondary rate limit honours `Retry-After`. None of this changes the
+ * secondary rate limit honours `Retry-After`. Retry sleeps share a cumulative
+ * budget per request. None of this changes the
  * public error contract for a *fatal* status (401/403-non-rate-limit/404/…
  * still throw the same `describeError` message as before) — it only adds
  * retries in front of it, so all pre-existing tests keep passing unchanged.
@@ -91,6 +92,8 @@ export interface GitHubApiClientOptions {
   jitterMs?: number;
   /** Upper bound on any single sleep. Default 60_000 ms. */
   maxSleepMs?: number;
+  /** Upper bound on cumulative retry sleeps per request, excluding network/auth time. Default 60_000 ms. */
+  maxTotalSleepMs?: number;
   /** Observability hook (called on every request/retry/rate-limit/give-up). */
   onEvent?: GitHubClientEventHandler;
   /** Test seam for the sleep primitive. Default = real `setTimeout`. */
@@ -117,6 +120,7 @@ export class GitHubApiClient implements GitHubApi {
   private readonly backoffBaseMs: number;
   private readonly jitterMs: number;
   private readonly maxSleepMs: number;
+  private readonly maxTotalSleepMs: number;
   private readonly onEvent: GitHubClientEventHandler;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
@@ -139,6 +143,7 @@ export class GitHubApiClient implements GitHubApi {
     this.backoffBaseMs = options.backoffBaseMs ?? 250;
     this.jitterMs = options.jitterMs ?? 250;
     this.maxSleepMs = options.maxSleepMs ?? 60_000;
+    this.maxTotalSleepMs = options.maxTotalSleepMs ?? 60_000;
     this.onEvent = options.onEvent ?? NOOP_EVENT_HANDLER;
     this.sleep = options.sleep ?? defaultSleep;
     this.random = options.random ?? Math.random;
@@ -266,6 +271,7 @@ export class GitHubApiClient implements GitHubApi {
     const headers = await this.buildHeaders(url, accept, extraHeaders);
     const allowStatus = opts?.allowStatus ?? [];
     let attempt = 0;
+    let totalSleepMs = 0;
     for (;;) {
       attempt += 1;
       this.onEvent({ kind: 'request', url, attempt });
@@ -282,11 +288,16 @@ export class GitHubApiClient implements GitHubApi {
       }
       const requiredSleepMs = this.computeSleep(classification, attempt, response);
       const rateLimited = classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit';
-      if (rateLimited && requiredSleepMs > this.maxSleepMs) {
+      const remainingSleepMs = this.maxTotalSleepMs - totalSleepMs;
+      if (rateLimited && (requiredSleepMs > this.maxSleepMs || requiredSleepMs > remainingSleepMs)) {
         this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: 'rate-limit wait exceeds budget' });
         throw new Error(`GitHub API error: ${response.statusCode} - GitHub rate limit exceeded. Retry after ${Math.ceil(requiredSleepMs / 1000)} seconds. (${url})`);
       }
       const sleepMs = Math.min(requiredSleepMs, this.maxSleepMs);
+      if (sleepMs > remainingSleepMs) {
+        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: 'cumulative retry wait exceeds budget' });
+        throw new Error(describeError(response, url));
+      }
       this.onEvent({
         kind: classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit' ? 'rate-limit' : 'retry',
         url,
@@ -295,6 +306,7 @@ export class GitHubApiClient implements GitHubApi {
         sleepMs,
         reason: classification.reason
       });
+      totalSleepMs += sleepMs;
       await this.sleep(sleepMs);
     }
   }

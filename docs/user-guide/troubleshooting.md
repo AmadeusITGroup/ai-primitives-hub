@@ -44,7 +44,7 @@ Use the exact error to choose the next action:
 | HTTP request timed out or response interrupted | Check the network route used by VS Code, including API and asset-download hosts. This is a separate failure from waiting for a sign-in session. |
 | 401 | Credentials may be invalid or expired. Run **AI Primitives Hub: Force GitHub Authentication** to request a fresh VS Code session. Cancellation or failure is reported instead of a success notification. |
 | 404 | The repository, branch, file, or release may be absent, or the selected credentials may lack access to a private resource. Verify the exact source URL, selected account, repository permissions, and organization SSO authorization. A browser session succeeding does not prove the extension's token has access. |
-| 403 or 429 with a rate-limit message | Respect the indicated retry delay. The client honours `Retry-After` and the primary limit reset time. If the required wait exceeds its 60-second automatic wait budget, it fails promptly with the required delay rather than retrying early. A generic 403 can instead indicate a permissions or organization-policy restriction. |
+| 403 or 429 with a rate-limit message | Respect the indicated retry delay. The client honours `Retry-After` and the primary limit reset time. Retry waits share a 60-second budget per request; if the next required wait exceeds the remaining budget, the client reports the required delay rather than retrying early. Network and sign-in time are separate from this budget. A generic 403 can instead indicate a permissions or organization-policy restriction. |
 
 The timeout releases waiting extension operations but cannot cancel VS Code's
 underlying sign-in UI. Background retries use a separate silent lookup rather
@@ -54,8 +54,8 @@ all source lookups so an older session cannot replace the refreshed token.
 
 Use **Sign In Again** to start explicit recovery or **Show Logs** to open the
 extension output. If VS Code still has pending sign-in requests, complete or
-close the browser prompt, or choose **Reload Window**. Notifications are limited
-to one per cache generation to avoid one warning per source. Logs include the
+close the browser prompt, or choose **Reload Window**. Repeated background failures
+produce one warning until authentication is explicitly reset. Logs include the
 attempt, mode, duration, and outcome without tokens or provider error bodies.
 
 If no VS Code token is available, the existing GitHub CLI fallback may be tried;
