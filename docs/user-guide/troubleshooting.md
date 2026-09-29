@@ -25,6 +25,14 @@ View logs: `View → Output → AI Primitives Hub`
 - **Invalid Bundle**: Verify bundle has valid manifest
 - Check logs for `[ERROR]` messages
 
+### Authentication Fails (404/401)
+
+1. Check VS Code GitHub auth (bottom-left avatar)
+2. Try GitHub CLI: `gh auth status`
+3. Add explicit token with `repo` scope
+4. Run: `AI Primitives Hub: Validate Repository Access`
+5. Force refresh authentication: `AI Primitives Hub: Force GitHub Authentication`
+
 ### GitHub Sign-in Stalls or Source Access Fails
 
 Sign-in, network connectivity, and repository authorization are separate steps.
@@ -38,9 +46,17 @@ Use the exact error to choose the next action:
 | 404 | The repository, branch, file, or release may be absent, or the selected credentials may lack access to a private resource. Verify the exact source URL, selected account, repository permissions, and organization SSO authorization. A browser session succeeding does not prove the extension's token has access. |
 | 403 or 429 with a rate-limit message | Respect the indicated retry delay. The client honours `Retry-After` and the primary limit reset time. If the required wait exceeds its 60-second automatic wait budget, it fails promptly with the required delay rather than retrying early. A generic 403 can instead indicate a permissions or organization-policy restriction. |
 
-The sign-in timeout releases waiting extension operations; VS Code's underlying
-sign-in UI cannot be cancelled through this API. Close or complete an old browser
-prompt before trying again. A late result cannot overwrite a refreshed token.
+The timeout releases waiting extension operations but cannot cancel VS Code's
+underlying sign-in UI. Background retries use a separate silent lookup rather
+than rejoining a stuck prompt; if that also remains pending, the existing
+authentication fallback is used without another wait. Forced sign-in coordinates
+all source lookups so an older session cannot replace the refreshed token.
+
+Use **Sign In Again** to start explicit recovery or **Show Logs** to open the
+extension output. If VS Code still has pending sign-in requests, complete or
+close the browser prompt, or choose **Reload Window**. Notifications are limited
+to one per cache generation to avoid one warning per source. Logs include the
+attempt, mode, duration, and outcome without tokens or provider error bodies.
 
 If no VS Code token is available, the existing GitHub CLI fallback may be tried;
 check `gh auth status` without copying access tokens into logs. An explicit source

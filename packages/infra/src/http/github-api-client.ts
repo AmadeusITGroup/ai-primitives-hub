@@ -209,9 +209,17 @@ export class GitHubApiClient implements GitHubApi {
   private computeSleep(classification: Classification, attempt: number, response: HttpResponse): number {
     // GitHub requires Retry-After to take precedence over reset/backoff.
     if (classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit') {
-      const retryAfter = Number(response.headers['retry-after']);
-      if (Number.isFinite(retryAfter) && retryAfter >= 0) {
-        return Math.max(retryAfter * 1000, 100);
+      const raw = response.headers['retry-after']?.trim();
+      if (raw && /^\d+$/.test(raw)) {
+        const seconds = Number(raw);
+        if (Number.isFinite(seconds)) {
+          return Math.max(seconds * 1000, 100);
+        }
+      } else if (raw && /[a-z]/i.test(raw)) {
+        const remaining = Date.parse(raw) - Date.now();
+        if (Number.isFinite(remaining) && remaining > 0) {
+          return remaining;
+        }
       }
     }
     if (classification.kind === 'rate-limit') {
