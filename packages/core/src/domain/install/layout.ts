@@ -141,12 +141,20 @@ export class UnresolvedPathTokenError extends Error {
  * Expand `${VAR}` tokens and leading `~` in a path template.
  * Pure: no IO. Converged from `expandPath` in `file-tree-writer` so both
  * MCP path resolution and primitive layout resolution use the same logic.
+ *
+ * `${HOME}` falls back to `USERPROFILE` when unset, same as the `~`
+ * branch below — Windows does not set a `HOME` env var by default, so
+ * without this fallback every `${HOME}`-based layout (vscode, claude-code,
+ * kiro, windsurf, cursor, copilot-cli) silently resolves to the current
+ * drive root instead of the user's home directory.
  * @param template - Path string possibly containing `${VAR}` or `~`.
  * @param env - Environment variable map (e.g. `process.env`).
  * @returns Expanded path with all tokens replaced.
  */
 export function expandPath(template: string, env: Record<string, string | undefined>): string {
-  let out = template.replaceAll(/\$\{([A-Z0-9_]+)\}/g, (_m, name: string) => env[name] ?? '');
+  let out = template.replaceAll(/\$\{([A-Z0-9_]+)\}/g, (_m, name: string) => (
+    name === 'HOME' ? (env.HOME ?? env.USERPROFILE ?? '') : (env[name] ?? '')
+  ));
   if (out.startsWith('~')) {
     const home = env.HOME ?? env.USERPROFILE ?? '';
     out = home + out.slice(1);
