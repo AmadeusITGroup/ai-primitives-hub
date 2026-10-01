@@ -65,8 +65,13 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
    */
   public constructor(private readonly createIfNone = true) {}
 
-  private async resolveToken(mode: SessionMode): Promise<string | undefined> {
-    const generation = cacheGeneration;
+  private async resolveToken(mode: SessionMode, scheduledGeneration?: number): Promise<string | undefined> {
+    // Interactive lookups run on a deferred microtask, so bind their publication
+    // authority to the generation captured when they were *scheduled*. Otherwise
+    // a reset between scheduling and start would be invisible here, letting a
+    // detached sign-in publish its session over credentials another provider
+    // recovered in the new generation.
+    const generation = scheduledGeneration ?? cacheGeneration;
     const interactive = mode === 'force' || mode === 'force-select' || mode === 'select';
     const attempt = ++attemptCounter;
     const startedAt = Date.now();
@@ -188,7 +193,8 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
         throw new GitHubSessionError('PENDING', 'A previous GitHub sign-in is still running in VS Code. Complete or close its browser prompt, or reload the window before retrying.');
       }
       VsCodeSessionTokenProvider.clearCache();
-      const request = { kind, token: Promise.resolve().then(() => new VsCodeSessionTokenProvider().resolveToken(mode)) } as const;
+      const scheduledGeneration = cacheGeneration;
+      const request = { kind, token: Promise.resolve().then(() => new VsCodeSessionTokenProvider().resolveToken(mode, scheduledGeneration)) } as const;
       interactiveRequest = request;
       const release = (): void => {
         if (interactiveRequest === request) {

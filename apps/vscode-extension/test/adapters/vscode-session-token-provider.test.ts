@@ -315,4 +315,19 @@ suite('VsCodeSessionTokenProvider', () => {
     releaseForce(undefined);
     await clock.tickAsync(0);
   });
+
+  test('a sign-in detached by a cache reset cannot overwrite recovered credentials', async () => {
+    getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
+      ? Promise.resolve({ accessToken: 'late-forced' })
+      : Promise.resolve({ accessToken: 'recovered' }));
+    // Schedule a forced sign-in, then reset before its deferred lookup starts.
+    const force = VsCodeSessionTokenProvider.forceAuthentication().catch(() => undefined);
+    VsCodeSessionTokenProvider.clearCache();
+    // Another provider recovers a session in the new generation.
+    assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'recovered');
+    await force;
+    // The detached forced sign-in must not publish over the recovered token.
+    assert.strictEqual(await new VsCodeSessionTokenProvider(false).getToken('github.com'), 'recovered');
+    assert.strictEqual(await new VsCodeSessionTokenProvider(true).getToken('github.com'), 'recovered');
+  });
 });
