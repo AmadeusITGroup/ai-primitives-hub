@@ -36,6 +36,7 @@ import type {
   GitHubRepositoryTarget,
   GitHubSourceAuthCategory,
   HttpClient,
+  HttpRequest,
   HttpResponse,
   TokenProvider,
 } from '@ai-primitives-hub/core';
@@ -265,25 +266,33 @@ export class GitHubApiClient implements GitHubApi {
     pathOrUrl: string,
     accept: string,
     extraHeaders?: Record<string, string>,
-    opts?: { allowStatus?: number[] }
+    opts?: { allowStatus?: number[]; method?: HttpRequest['method'] }
   ): Promise<HttpResponse> {
     const url = this.resolveUrl(pathOrUrl);
     const headers = await this.buildHeaders(url, accept, extraHeaders);
+    const method: HttpRequest['method'] = opts?.method ?? 'GET';
+    // Automatic retries (transient backoff, primary/secondary rate-limit
+    // waits, Retry-After) may only replay a request that has no side effects.
+    // Every current `GitHubApi` method is a read (GET), but the HTTP port can
+    // express a POST; this guard guarantees a non-safe verb is never silently
+    // re-sent, so honoring Retry-After can never duplicate a mutation.
+    const retryable = method === 'GET' || method === 'HEAD';
     const allowStatus = opts?.allowStatus ?? [];
     let attempt = 0;
     let totalSleepMs = 0;
     for (;;) {
       attempt += 1;
       this.onEvent({ kind: 'request', url, attempt });
-      const response = await this.http.fetch({ url, headers });
+      const response = await this.http.fetch({ url, method, headers });
       this.captureRateLimit(response);
       if (response.statusCode < 400 || allowStatus.includes(response.statusCode)) {
         this.onEvent({ kind: 'success', url, attempt, status: response.statusCode });
         return response;
       }
       const classification = this.classify(response);
-      if (classification.kind === 'fatal' || attempt > this.maxRetries) {
-        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: classification.reason });
+      if (!retryable || classification.kind === 'fatal' || attempt > this.maxRetries) {
+        const reason = retryable ? classification.reason : `non-idempotent ${method} not retried`;
+        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason });
         throw new Error(describeError(response, url));
       }
       const requiredSleepMs = this.computeSleep(classification, attempt, response);

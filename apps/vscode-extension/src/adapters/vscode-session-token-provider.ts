@@ -155,6 +155,14 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
     cacheGeneration += 1;
     tokenCache.clear();
     tokenRequests.clear();
+    // Detach any in-flight interactive sign-in so a stalled prompt cannot
+    // gate later reads or recovery: `getToken` must not keep returning a
+    // pre-reset `interactiveRequest.token` that is still blocked on VS Code.
+    // The pending promise is bounded by SESSION_TIMEOUT_MS and self-cleans
+    // through its own generation-guarded `release`; dropping the reference
+    // only stops new callers from attaching to it.
+    interactiveRequest = undefined;
+    notifiedGeneration = -1;
   }
 
   /** Request a fresh session explicitly; cancellation/failure must reach the UI. */

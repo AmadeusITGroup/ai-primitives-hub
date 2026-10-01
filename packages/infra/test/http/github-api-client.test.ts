@@ -263,6 +263,14 @@ describe('GitHubApiClient', () => {
       expect(http.requests).toHaveLength(3); // initial attempt + 2 retries
     });
 
+    it('issues an explicit GET so the retry layer only ever replays idempotent requests', async () => {
+      const http = new FakeHttpClient([jsonResponse({}, 503), jsonResponse({ ok: true })]);
+      const client = new GitHubApiClient(http, { sleep: noSleep });
+      await client.getJson('/repos/o/r');
+      expect(http.requests).toHaveLength(2);
+      expect(http.requests.every((request) => request.method === 'GET')).toBe(true);
+    });
+
     it('does not retry a fatal 403 (no rate-limit signal)', async () => {
       const http = new FakeHttpClient(jsonResponse({}, 403));
       const client = new GitHubApiClient(http, { sleep: noSleep });

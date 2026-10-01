@@ -295,4 +295,24 @@ suite('VsCodeSessionTokenProvider', () => {
     await old;
     assert.strictEqual(await provider.getToken('github.com'), 'new');
   });
+
+  test('clearing the cache detaches reads from a stalled interactive sign-in', async () => {
+    const clock = sandbox.useFakeTimers();
+    let releaseForce!: (value: undefined) => void;
+    getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
+      ? new Promise((resolve) => {
+        releaseForce = resolve;
+      })
+      : Promise.resolve({ accessToken: 'fresh' }));
+    const force = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /60 seconds/);
+    // Reset while the forced prompt is still stuck in VS Code.
+    VsCodeSessionTokenProvider.clearCache();
+    // A later read must recover immediately instead of blocking on the stalled
+    // interactive request until it eventually times out.
+    assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'fresh');
+    await clock.tickAsync(60_001);
+    await force;
+    releaseForce(undefined);
+    await clock.tickAsync(0);
+  });
 });
