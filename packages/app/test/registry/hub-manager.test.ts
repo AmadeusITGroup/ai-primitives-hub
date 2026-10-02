@@ -232,6 +232,28 @@ describe('HubManager (app)', () => {
     it('returns false for an invalid reference', async () => {
       expect(await manager.verifyHubAvailability({ type: 'github', location: 'bad' })).toBe(false);
     });
+
+    it('returns the resolution failure reason for an unavailable hub', async () => {
+      (resolver.resolve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Failed to fetch hub config: HTTP 403')
+      );
+
+      await expect(
+        manager.verifyHubAvailabilityDetailed({ type: 'github', location: 'AmadeusITGroup/ai-primitives-hub' })
+      ).resolves.toEqual({
+        available: false,
+        reason: 'Failed to fetch hub config: HTTP 403'
+      });
+    });
+
+    it('returns validation reasons for malformed hub references', async () => {
+      await expect(
+        manager.verifyHubAvailabilityDetailed({ type: 'github', location: 'bad' })
+      ).resolves.toEqual({
+        available: false,
+        reason: 'Invalid reference: Invalid GitHub location format. Expected: owner/repo'
+      });
+    });
   });
 
   describe('active hub management', () => {

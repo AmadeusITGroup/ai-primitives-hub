@@ -62,6 +62,11 @@ export interface HubDetailInfo extends HubInfo {
   };
 }
 
+export interface HubAvailabilityResult {
+  available: boolean;
+  reason?: string;
+}
+
 /**
  * Dependencies for the app-layer `HubManager`.
  */
@@ -277,15 +282,33 @@ export class HubManager {
    * @returns true iff the reference validates and the config fetch succeeds.
    */
   public async verifyHubAvailability(reference: HubReference): Promise<boolean> {
+    const result = await this.verifyHubAvailabilityDetailed(reference);
+    return result.available;
+  }
+
+  /**
+   * Probe whether a hub reference is reachable and preserve the failure reason
+   * for delivery layers that need to explain connection failures to users.
+   * Never throws.
+   * @param reference Hub reference to verify.
+   * @returns Availability and an actionable failure reason when unavailable.
+   */
+  public async verifyHubAvailabilityDetailed(reference: HubReference): Promise<HubAvailabilityResult> {
     try {
       const refValidation = await this.validateReference(reference);
       if (!refValidation.valid) {
-        return false;
+        return {
+          available: false,
+          reason: `Invalid reference: ${refValidation.errors.join(', ')}`
+        };
       }
       await this.deps.resolver.resolve(reference);
-      return true;
-    } catch {
-      return false;
+      return { available: true };
+    } catch (error) {
+      return {
+        available: false,
+        reason: error instanceof Error ? error.message : String(error)
+      };
     }
   }
 

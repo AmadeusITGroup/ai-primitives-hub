@@ -400,7 +400,9 @@ suite('E2E: Script Execution Tests', () => {
       execSync(gitSetup, {
         cwd: testDir,
         stdio: 'pipe',
-        timeout: 10_000
+        // Windows runners can take longer to initialize Git and stage the
+        // generated scaffold after npm installation and antivirus scanning.
+        timeout: 60_000
       });
     }
   });
