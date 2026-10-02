@@ -8,6 +8,9 @@ import * as vscode from 'vscode';
 import {
   VsCodeSessionTokenProvider,
 } from '../../src/adapters/vscode-session-token-provider';
+import {
+  Logger,
+} from '../../src/utils/logger';
 
 suite('VsCodeSessionTokenProvider', () => {
   let sandbox: sinon.SinonSandbox;
@@ -118,5 +121,213 @@ suite('VsCodeSessionTokenProvider', () => {
 
     const tokens = await Promise.all(requests);
     assert.ok(tokens.every((token) => token === 'gho_shared'));
+  });
+
+  test('releases a stalled authentication request so later attempts can recover', async () => {
+    const clock = sandbox.useFakeTimers();
+    let release!: (session: undefined) => void;
+    const stuck = new Promise((resolve) => {
+      release = resolve;
+    });
+    // Model VS Code's TaskSingler: identical options share the native request.
+    getSessionStub.callsFake((_provider, _scopes, options) => options.silent
+      ? Promise.resolve({ accessToken: 'recovered' })
+      : stuck);
+    const provider = new VsCodeSessionTokenProvider();
+    const first = provider.getToken('github.com');
+    await clock.tickAsync(60_001);
+    assert.strictEqual(await first, undefined);
+    const retry = provider.getToken('github.com');
+    await clock.tickAsync(60_001);
+    try {
+      assert.strictEqual(await retry, 'recovered');
+    } finally {
+      release(undefined);
+      await clock.tickAsync(0);
+    }
+  });
+
+  test('ordinary reads during forced sign-in share the fresh session', async () => {
+    let release!: (session: { accessToken: string }) => void;
+    const fresh = new Promise((resolve) => {
+      release = resolve;
+    });
+    getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
+      ? fresh
+      : Promise.resolve({ accessToken: 'previous' }));
+    const force = VsCodeSessionTokenProvider.forceAuthentication();
+    const reads = [new VsCodeSessionTokenProvider(true).getToken('github.com'), new VsCodeSessionTokenProvider(false).getToken('github.com')];
+    release({ accessToken: 'fresh' });
+    await force;
+    assert.deepStrictEqual(await Promise.all(reads), ['fresh', 'fresh']);
+    assert.strictEqual(await new VsCodeSessionTokenProvider(false).getToken('github.com'), 'fresh');
+  });
+
+  test('a stalled silent recovery falls back immediately on later calls without warning spam', async () => {
+    const clock = sandbox.useFakeTimers();
+    const releases: ((value: undefined) => void)[] = [];
+    getSessionStub.callsFake(() => new Promise((resolve) => {
+      releases.push(resolve);
+    }));
+    const warning = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
+    const provider = new VsCodeSessionTokenProvider();
+    for (let i = 0; i < 2; i++) {
+      const attempt = provider.getToken('github.com');
+      await clock.tickAsync(60_001);
+      assert.strictEqual(await attempt, undefined);
+    }
+    assert.strictEqual(await provider.getToken('github.com'), undefined);
+    assert.strictEqual(getSessionStub.callCount, 2);
+    assert.ok(warning.calledOnce);
+    releases.forEach((release) => release(undefined));
+    await clock.tickAsync(0);
+  });
+
+  test('explicit recovery bypasses a shared pending forced request using account selection', async () => {
+    const clock = sandbox.useFakeTimers();
+    let release!: (value: undefined) => void;
+    const stuck = new Promise((resolve) => {
+      release = resolve;
+    });
+    getSessionStub.callsFake((_provider, _scopes, options) => options.clearSessionPreference
+      ? Promise.resolve({ accessToken: 'recovered' })
+      : stuck);
+    const first = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /60 seconds/);
+    await clock.tickAsync(60_001);
+    await first;
+    await VsCodeSessionTokenProvider.forceAuthentication();
+    assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'recovered');
+    release(undefined);
+    await clock.tickAsync(0);
+  });
+
+  test('concurrent forced requests share one sign-in', async () => {
+    getSessionStub.resolves({ accessToken: 'fresh' });
+    await Promise.all([VsCodeSessionTokenProvider.forceAuthentication(), VsCodeSessionTokenProvider.forceAuthentication()]);
+    assert.ok(getSessionStub.calledOnce);
+  });
+
+  (['select', 'force'] as const).forEach((firstMode) => {
+    test(`does not substitute ${firstMode} for a different interactive operation`, async () => {
+      let release!: (session: { accessToken: string }) => void;
+      getSessionStub.returns(new Promise((resolve) => {
+        release = resolve;
+      }));
+      const first = firstMode === 'select' ? VsCodeSessionTokenProvider.selectAccount() : VsCodeSessionTokenProvider.forceAuthentication();
+      const second = firstMode === 'select' ? VsCodeSessionTokenProvider.forceAuthentication() : VsCodeSessionTokenProvider.selectAccount();
+      // Observe rejection before releasing the active request, without leaving an unhandled rejection.
+      const rejected = assert.rejects(second, /already in progress/);
+      release({ accessToken: 'existing' });
+      await first;
+      await rejected;
+      getSessionStub.resolves({ accessToken: 'fresh' });
+      if (firstMode === 'select') {
+        await VsCodeSessionTokenProvider.forceAuthentication();
+        assert.ok(getSessionStub.lastCall.args[2].forceNewSession);
+      } else {
+        await VsCodeSessionTokenProvider.selectAccount();
+        assert.ok(getSessionStub.lastCall.args[2].clearSessionPreference);
+      }
+    });
+  });
+
+  test('a blocked forced retry preserves a session recovered after earlier timeouts', async () => {
+    const clock = sandbox.useFakeTimers();
+    const releases: ((value: undefined) => void)[] = [];
+    getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
+      ? new Promise((resolve) => {
+        releases.push(resolve);
+      })
+      : Promise.resolve({ accessToken: 'usable' }));
+    try {
+      for (let i = 0; i < 2; i++) {
+        const result = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /60 seconds/);
+        await clock.tickAsync(60_001);
+        await result;
+      }
+      const provider = new VsCodeSessionTokenProvider();
+      assert.strictEqual(await provider.getToken('github.com'), 'usable');
+      getSessionStub.resolves(undefined);
+      await assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /still running/);
+      assert.strictEqual(await provider.getToken('github.com'), 'usable');
+    } finally {
+      releases.forEach((release) => release(undefined));
+      await clock.tickAsync(0);
+    }
+  });
+
+  test('failed forced refresh cannot leave an ordinary old token in the cache', async () => {
+    let reject!: (error: Error) => void;
+    getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
+      ? new Promise((_resolve, fail) => {
+        reject = fail;
+      })
+      : Promise.resolve({ accessToken: 'old' }));
+    const force = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /cancelled/);
+    const read = new VsCodeSessionTokenProvider().getToken('github.com');
+    await Promise.resolve();
+    reject(new Error('cancelled'));
+    await force;
+    assert.strictEqual(await read, undefined);
+    getSessionStub.resolves({ accessToken: 'new' });
+    assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'new');
+  });
+
+  test('auth diagnostics do not include provider secrets', async () => {
+    const warn = sandbox.stub(Logger.getInstance(), 'warn');
+    getSessionStub.rejects(new Error('token=gho_secret callback=https://host/?code=secret'));
+    await new VsCodeSessionTokenProvider().getToken('github.com');
+    assert.ok(JSON.stringify(warn.args).includes('outcome=FAILED'));
+    assert.ok(!JSON.stringify(warn.args).includes('secret'));
+  });
+
+  test('an old session completing after reset cannot overwrite the new cached token', async () => {
+    let release!: (session: { accessToken: string }) => void;
+    getSessionStub.onFirstCall().returns(new Promise((resolve) => {
+      release = resolve;
+    }));
+    getSessionStub.onSecondCall().resolves({ accessToken: 'new' });
+    const provider = new VsCodeSessionTokenProvider();
+    const old = provider.getToken('github.com');
+    VsCodeSessionTokenProvider.clearCache();
+    assert.strictEqual(await provider.getToken('github.com'), 'new');
+    release({ accessToken: 'old' });
+    await old;
+    assert.strictEqual(await provider.getToken('github.com'), 'new');
+  });
+
+  test('clearing the cache detaches reads from a stalled interactive sign-in', async () => {
+    const clock = sandbox.useFakeTimers();
+    let releaseForce!: (value: undefined) => void;
+    getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
+      ? new Promise((resolve) => {
+        releaseForce = resolve;
+      })
+      : Promise.resolve({ accessToken: 'fresh' }));
+    const force = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /60 seconds/);
+    // Reset while the forced prompt is still stuck in VS Code.
+    VsCodeSessionTokenProvider.clearCache();
+    // A later read must recover immediately instead of blocking on the stalled
+    // interactive request until it eventually times out.
+    assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'fresh');
+    await clock.tickAsync(60_001);
+    await force;
+    releaseForce(undefined);
+    await clock.tickAsync(0);
+  });
+
+  test('a sign-in detached by a cache reset cannot overwrite recovered credentials', async () => {
+    getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
+      ? Promise.resolve({ accessToken: 'late-forced' })
+      : Promise.resolve({ accessToken: 'recovered' }));
+    // Schedule a forced sign-in, then reset before its deferred lookup starts.
+    const force = VsCodeSessionTokenProvider.forceAuthentication().catch(() => undefined);
+    VsCodeSessionTokenProvider.clearCache();
+    // Another provider recovers a session in the new generation.
+    assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'recovered');
+    await force;
+    // The detached forced sign-in must not publish over the recovered token.
+    assert.strictEqual(await new VsCodeSessionTokenProvider(false).getToken('github.com'), 'recovered');
+    assert.strictEqual(await new VsCodeSessionTokenProvider(true).getToken('github.com'), 'recovered');
   });
 });
