@@ -32,7 +32,6 @@ import {
   defaultTokenProvider,
   HubStore,
   NodeHttpClient,
-  readTargets,
   XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import type {
@@ -49,6 +48,7 @@ import {
   createHubManager,
   failWith,
   formatOutput,
+  loadTargets,
   Option,
   type OutputFormat,
   readTargetsSafely,
@@ -189,7 +189,7 @@ async function searchAndInstall(
     return 0;
   }
 
-  const targets = await readTargetsSafely(readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+  const targets = await readTargetsSafely(loadTargets(ctx));
   let target: Target | undefined;
   if (opts.installTarget && opts.installTarget.length > 0) {
     target = targets.find((t) => t.name === opts.installTarget);
@@ -197,7 +197,7 @@ async function searchAndInstall(
     target = targets[0];
   } else if (targets.length > 1 && opts.interactive) {
     const { chosenTarget } = await inquirer.prompt<{ chosenTarget: string }>([
-      { type: 'list', name: 'chosenTarget', message: 'Select target:', choices: targets.map((t) => ({ name: `${t.name} (${t.type})`, value: t.name })) }
+      { type: 'select', name: 'chosenTarget', message: 'Select target:', choices: targets.map((t) => ({ name: `${t.name} (${t.type})`, value: t.name })) }
     ]);
     target = targets.find((t) => t.name === chosenTarget);
   } else if (targets.length > 1) {
