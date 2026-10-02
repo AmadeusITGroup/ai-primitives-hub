@@ -1,6 +1,9 @@
 /**
  * Core type definitions for the AI Primitives Hub system
  */
+import type {
+  ManifestPlacementType,
+} from '@ai-primitives-hub/core';
 import {
   McpServersManifest,
   VSCodeMcpInputDefinition,
@@ -249,6 +252,15 @@ export interface AutoUpdatePreferenceChangedEvent {
  * Deployment manifest (from bundle spec)
  */
 export interface DeploymentManifest {
+  formatVersion?: number;
+  items?: {
+    id: string;
+    path: string;
+    kind: string;
+    name?: string;
+    description?: string;
+    tags?: string[];
+  }[];
   common: {
     directories: string[];
     files: string[];
@@ -340,7 +352,7 @@ export interface DeploymentManifest {
     description: string;
     file: string;
     tags?: string[];
-    type?: 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill'; // GitHub Copilot file type
+    type?: ManifestPlacementType;
   }[];
   mcpServers?: McpServersManifest;
   mcpInputs?: VSCodeMcpInputDefinition[];

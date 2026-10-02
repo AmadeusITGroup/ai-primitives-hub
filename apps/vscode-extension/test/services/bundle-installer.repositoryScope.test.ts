@@ -10,8 +10,15 @@
  */
 
 import * as assert from 'node:assert';
+import {
+  createHash,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import AdmZipClass from 'adm-zip';
+import {
+  dump as dumpYaml,
+} from 'js-yaml';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -23,6 +30,9 @@ import {
 import {
   RepositoryScopeService,
 } from '../../src/services/repository-scope-service';
+import type {
+  SyncBundleOptions,
+} from '../../src/services/scope-service';
 import {
   ScopeServiceFactory,
 } from '../../src/services/scope-service-factory';
@@ -56,6 +66,53 @@ suite('BundleInstaller - Repository Scope', () => {
     .withVersion('1.0.0')
     .withDescription('Test bundle for repository scope')
     .build();
+
+  const createGovernedKnowledgeZip = (bundleId: string, version: string): Buffer => {
+    const sourceSnapshotPath = 'metadata/source/collections/governed.collection.yml';
+    const knowledgePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    const archiveFiles = {
+      'prompts/hello.prompt.md': '# Hello Prompt\n',
+      [knowledgePath]: '# SBB B2P\n',
+      [sourceSnapshotPath]: `id: ${bundleId}\n`,
+      'README.md': '# Governed bundle\n',
+      LICENSE: 'Governed license text\n',
+      'ignored/build/cache.pyc': 'cache bytes\n'
+    };
+    const inventory = Object.entries(archiveFiles).map(([filePath, content]) => ({
+      path: filePath,
+      role: filePath.startsWith('prompts/') || filePath === knowledgePath
+        ? 'installable'
+        : (filePath.startsWith('ignored/') ? 'ignored' : 'metadata'),
+      size: Buffer.byteLength(content),
+      sha256: `sha256:${createHash('sha256').update(content).digest('hex')}`
+    }));
+    const manifest = {
+      formatVersion: 1,
+      id: bundleId,
+      version,
+      name: 'Governed Bundle',
+      readme: 'README.md',
+      items: [
+        { id: 'hello', path: 'prompts/hello.prompt.md', kind: 'prompt' },
+        { id: 'sbb-b2p', path: knowledgePath, kind: 'knowledge' }
+      ],
+      provenance: {
+        source: 'https://github.com/example/governed-bundle',
+        revision: '0123456789abcdef0123456789abcdef01234567',
+        collectionPath: 'collections/governed.collection.yml',
+        sourceSnapshotPath,
+        license: 'Governed-License',
+        licensePath: 'LICENSE'
+      },
+      files: inventory
+    };
+    const zip = new AdmZipClass();
+    zip.addFile('deployment-manifest.yml', Buffer.from(dumpYaml(manifest, { lineWidth: -1 }), 'utf8'));
+    for (const [filePath, content] of Object.entries(archiveFiles)) {
+      zip.addFile(filePath, Buffer.from(content, 'utf8'));
+    }
+    return zip.toBuffer();
+  };
 
   setup(() => {
     sandbox = sinon.createSandbox();
@@ -106,7 +163,8 @@ suite('BundleInstaller - Repository Scope', () => {
 
     // Create mock scope services
     mockRepositoryScopeService = {
-      syncBundle: sandbox.stub().resolves(),
+      syncBundle: sandbox.stub().callsFake((_bundleId: string, _bundlePath: string, options?: SyncBundleOptions) =>
+        options?.afterSync?.() ?? Promise.resolve()),
       unsyncBundle: sandbox.stub().resolves(),
       getTargetPath: sandbox.stub().returns('.github/prompts/test.prompt.md'),
       getStatus: sandbox.stub().resolves({ baseDirectory: '.github', dirExists: true, syncedFiles: 0, files: [] }),
@@ -276,6 +334,332 @@ prompts:
       assert.ok(!mockUserScopeService.syncBundle.called, 'User scope sync should not be used for repository-scoped skills');
     });
 
+    test('records the installed source-relative knowledge path in the repository lockfile', async () => {
+      const bundleId = testBundle.id;
+      const sourceFile = 'specifications/RDP/core_layer/AGENT_INDEX.md';
+      const installedFile = path.join(tempDir, '.github', 'knowledge', sourceFile);
+      mockRepositoryScopeService.syncBundle.resetHistory();
+      mockRepositoryScopeService.syncBundle.onFirstCall().callsFake((_bundleId: string, _bundlePath: string, options?: SyncBundleOptions) => {
+        fs.mkdirSync(path.dirname(installedFile), { recursive: true });
+        fs.writeFileSync(installedFile, '# Knowledge');
+        return options?.afterSync?.() ?? Promise.resolve();
+      });
+
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${bundleId}
+version: ${testBundle.version}
+name: ${testBundle.name}
+description: Test knowledge bundle
+author: test
+prompts:
+  - id: AGENT_INDEX
+    name: Agent Index
+    description: Knowledge index
+    file: ${sourceFile}
+    type: knowledge
+`));
+      zip.addFile(sourceFile, Buffer.from('# Knowledge'));
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      let lockfileFiles: { path: string; checksum: string }[] | undefined;
+      try {
+        await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'github');
+        lockfileFiles = mockLockfileManager.createOrUpdate.firstCall.args[0].files;
+      } finally {
+        mockRepositoryScopeService.syncBundle.resetBehavior();
+        mockRepositoryScopeService.syncBundle.resolves();
+      }
+
+      assert.ok(lockfileFiles);
+      assert.deepStrictEqual(lockfileFiles.map((file) => file.path), [
+        '.github/knowledge/specifications/RDP/core_layer/AGENT_INDEX.md'
+      ]);
+    });
+
+    test('tracks knowledge from canonical items-only manifests at its physical repository path', async () => {
+      const sourceFile = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+      const installedFile = path.join(tempDir, '.github', 'knowledge', sourceFile);
+      mockRepositoryScopeService.syncBundle.resetHistory();
+      mockRepositoryScopeService.syncBundle.onFirstCall().callsFake((_bundleId: string, _bundlePath: string, options?: SyncBundleOptions) => {
+        fs.mkdirSync(path.dirname(installedFile), { recursive: true });
+        fs.writeFileSync(installedFile, '# SBB B2P');
+        return options?.afterSync?.() ?? Promise.resolve();
+      });
+      const bundleBuffer = createGovernedKnowledgeZip(testBundle.id, testBundle.version);
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      await installer.installFromBuffer(testBundle, bundleBuffer, { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.deepStrictEqual(tracked.map((file) => file.path), [
+        '.github/knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md'
+      ]);
+    });
+
+    test('syncs a valid governed items-only archive through the real repository service', async () => {
+      const sourceFile = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+      const realService = new RepositoryScopeService(tempDir, mockStorage, 'vscode');
+      (ScopeServiceFactory.create as sinon.SinonStub).callsFake((scope) =>
+        scope === 'repository' ? realService : mockUserScopeService);
+      installer = new BundleInstaller(mockContext, 'vscode');
+      const bundleBuffer = createGovernedKnowledgeZip(testBundle.id, testBundle.version);
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      await installer.installFromBuffer(testBundle, bundleBuffer, { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      const installedPath = path.join(tempDir, '.github', 'knowledge', sourceFile);
+      assert.strictEqual(fs.readFileSync(installedPath, 'utf8'), '# SBB B2P\n');
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.ok(tracked.some((file) => file.path === `.github/knowledge/${sourceFile}`));
+    });
+
+    test('syncs legacy dual prompts and items through the real repository service without duplicates', async () => {
+      const promptFile = 'prompts/shared.md';
+      const agentFile = 'agents/review.md';
+      const promptKnowledge = 'specifications/prompts-guide.md';
+      const duplicateKnowledge = 'specifications/duplicate-guide.md';
+      const itemKnowledge = 'specifications/items-guide.md';
+      const manifest = {
+        id: testBundle.id,
+        version: testBundle.version,
+        name: testBundle.name,
+        prompts: [
+          { id: 'shared', file: promptFile, type: 'prompt' },
+          { id: 'review', file: agentFile, type: 'chat-mode' },
+          { id: 'prompt-guide', file: promptKnowledge, type: 'knowledge' },
+          { id: 'prompt-wins', file: duplicateKnowledge, type: 'knowledge' }
+        ],
+        items: [
+          { id: 'item-guide', path: itemKnowledge, kind: 'knowledge' },
+          { id: 'item-agent-duplicate', path: agentFile, kind: 'chatmode' },
+          { id: 'item-loses', path: duplicateKnowledge, kind: 'knowledge' }
+        ]
+      };
+      const zip = new AdmZipClass();
+      zip.addFile('deployment-manifest.yml', Buffer.from(dumpYaml(manifest, { lineWidth: -1 }), 'utf8'));
+      zip.addFile(promptFile, Buffer.from('# Shared prompt'));
+      zip.addFile(agentFile, Buffer.from('# Review agent'));
+      zip.addFile(promptKnowledge, Buffer.from('# Prompt knowledge'));
+      zip.addFile(duplicateKnowledge, Buffer.from('# Duplicate source'));
+      zip.addFile(itemKnowledge, Buffer.from('# Item knowledge'));
+      const realService = new RepositoryScopeService(tempDir, mockStorage, 'vscode');
+      (ScopeServiceFactory.create as sinon.SinonStub).callsFake((scope) =>
+        scope === 'repository' ? realService : mockUserScopeService);
+      installer = new BundleInstaller(mockContext, 'vscode');
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      assert.strictEqual(
+        fs.readFileSync(realService.getTargetPath('prompt', 'shared'), 'utf8'),
+        '# Shared prompt'
+      );
+      const agentTarget = path.join(tempDir, realService.getTargetDirectory('chat-mode'), 'review.chatmode.md');
+      assert.strictEqual(fs.readFileSync(agentTarget, 'utf8'), '# Review agent');
+      assert.strictEqual(fs.readFileSync(path.join(tempDir, '.github', 'knowledge', promptKnowledge), 'utf8'), '# Prompt knowledge');
+      assert.strictEqual(fs.readFileSync(path.join(tempDir, '.github', 'knowledge', duplicateKnowledge), 'utf8'), '# Duplicate source');
+      assert.strictEqual(fs.readFileSync(path.join(tempDir, '.github', 'knowledge', itemKnowledge), 'utf8'), '# Item knowledge');
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      const repoRelative = (filePath: string): string => path.relative(tempDir, filePath).split(path.sep).join('/');
+      assert.deepStrictEqual(tracked.map((file) => file.path), [
+        repoRelative(realService.getTargetPath('prompt', 'shared')),
+        repoRelative(agentTarget),
+        `.github/knowledge/${promptKnowledge}`,
+        `.github/knowledge/${duplicateKnowledge}`,
+        `.github/knowledge/${itemKnowledge}`
+      ]);
+    });
+
+    test('tracks Kiro knowledge from canonical items-only manifests under .kiro', async () => {
+      const sourceFile = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+      const installedFile = path.join(tempDir, '.kiro', 'knowledge', sourceFile);
+      mockRepositoryScopeService.syncBundle.resetHistory();
+      mockRepositoryScopeService.syncBundle.onFirstCall().callsFake((_bundleId: string, _bundlePath: string, options?: SyncBundleOptions) => {
+        fs.mkdirSync(path.dirname(installedFile), { recursive: true });
+        fs.writeFileSync(installedFile, '# SBB B2P');
+        return options?.afterSync?.() ?? Promise.resolve();
+      });
+      installer = new BundleInstaller(mockContext, 'kiro');
+      const bundleBuffer = createGovernedKnowledgeZip(testBundle.id, testBundle.version);
+      mockLockfileManager.createOrUpdate.resetHistory();
+
+      await installer.installFromBuffer(testBundle, bundleBuffer, { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.deepStrictEqual(tracked.map((file) => file.path), [
+        '.kiro/knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md'
+      ]);
+    });
+
+    test('skips unrouted knowledge files on Windsurf and still tracks supported files', async () => {
+      const windsurfService = new RepositoryScopeService(tempDir, mockStorage, 'windsurf');
+      (ScopeServiceFactory.create as sinon.SinonStub).callsFake((scope) =>
+        scope === 'repository' ? windsurfService : mockUserScopeService);
+      installer = new BundleInstaller(mockContext, 'windsurf');
+
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+prompts:
+  - id: supported-prompt
+    file: supported.prompt.md
+    type: prompt
+  - id: unsupported-knowledge
+    file: specifications/RDP/AGENT_INDEX.md
+    type: knowledge
+`));
+      zip.addFile('supported.prompt.md', Buffer.from('# Supported prompt'));
+      zip.addFile('specifications/RDP/AGENT_INDEX.md', Buffer.from('# Knowledge'));
+
+      await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'github');
+
+      const promptPath = path.join(tempDir, '.windsurf', 'rules', 'supported-prompt.prompt.md');
+      assert.strictEqual(fs.readFileSync(promptPath, 'utf8'), '# Supported prompt');
+      assert.ok(!fs.existsSync(path.join(tempDir, '.windsurf', 'knowledge')),
+        'A host without a knowledge route must not receive a knowledge directory');
+
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.deepStrictEqual(tracked.map((file) => file.path), ['.windsurf/rules/supported-prompt.prompt.md']);
+    });
+
+    if (process.platform !== 'win32') {
+      test('does not track an existing POSIX backslash filename that was not installed by the bundle', async () => {
+        const skillDir = path.join(tempDir, '.github', 'skills', 'my-skill');
+        const unownedFile = path.join(skillDir, 'script\\helper.sh');
+        mockRepositoryScopeService.syncBundle.callsFake((_bundleId: string, _bundlePath: string, options?: SyncBundleOptions) => {
+          fs.mkdirSync(skillDir, { recursive: true });
+          fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Installed');
+          fs.writeFileSync(unownedFile, '# Pre-existing');
+          return options?.afterSync?.() ?? Promise.resolve();
+        });
+
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip();
+        zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+prompts:
+  - id: my-skill
+    file: skills/my-skill/SKILL.md
+    type: skill
+`));
+        zip.addFile('skills/my-skill/SKILL.md', Buffer.from('# Installed'));
+
+        await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'skills');
+
+        const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+        assert.deepStrictEqual(tracked.map((file) => file.path), ['.github/skills/my-skill/SKILL.md']);
+        assert.strictEqual(fs.readFileSync(unownedFile, 'utf8'), '# Pre-existing');
+      });
+
+      test('does not report a successful install when a sourced destination has an outside symlinked parent', async () => {
+        const outside = path.join(path.dirname(tempDir), `${path.basename(tempDir)}-outside`);
+        const skillDir = path.join(tempDir, '.github', 'skills', 'my-skill');
+        fs.mkdirSync(path.dirname(skillDir), { recursive: true });
+        fs.mkdirSync(outside);
+        try {
+          fs.writeFileSync(path.join(outside, 'SKILL.md'), '# Outside');
+          fs.symlinkSync(outside, skillDir, 'dir');
+
+          // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+          const AdmZip = require('adm-zip');
+          const zip = new AdmZip();
+          zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+prompts:
+  - id: my-skill
+    file: skills/my-skill/SKILL.md
+    type: skill
+`));
+          zip.addFile('skills/my-skill/SKILL.md', Buffer.from('# Skill'));
+
+          await assert.rejects(
+            installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'skills'),
+            /escapes repository root/
+          );
+          assert.ok(!mockLockfileManager.createOrUpdate.called);
+          assert.strictEqual(fs.readFileSync(path.join(outside, 'SKILL.md'), 'utf8'), '# Outside');
+        } finally {
+          fs.rmSync(outside, { recursive: true, force: true });
+        }
+      });
+    }
+
+    test('tracks nested source skill assets but not pre-existing files in the destination', async () => {
+      const skillDir = path.join(tempDir, '.github', 'skills', 'my-skill');
+      mockRepositoryScopeService.syncBundle.callsFake((_bundleId: string, _bundlePath: string, options?: SyncBundleOptions) => {
+        fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+        fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Skill');
+        fs.writeFileSync(path.join(skillDir, 'scripts', 'run.sh'), '# Installed');
+        fs.writeFileSync(path.join(skillDir, 'user-notes.md'), '# Pre-existing');
+        return options?.afterSync?.() ?? Promise.resolve();
+      });
+
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+prompts:
+  - id: my-skill
+    file: skills/my-skill/SKILL.md
+    type: skill
+`));
+      zip.addFile('skills/my-skill/SKILL.md', Buffer.from('# Skill'));
+      zip.addFile('skills/my-skill/scripts/run.sh', Buffer.from('# Installed'));
+
+      await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'skills');
+
+      const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+      assert.deepStrictEqual(tracked.map((file) => file.path).toSorted(), [
+        '.github/skills/my-skill/SKILL.md',
+        '.github/skills/my-skill/scripts/run.sh'
+      ].toSorted());
+      assert.strictEqual(fs.readFileSync(path.join(skillDir, 'user-notes.md'), 'utf8'), '# Pre-existing');
+    });
+
+    if (process.platform === 'win32') {
+      test('tracks files installed from a skill manifest using Windows separators', async () => {
+        (ScopeServiceFactory.create as sinon.SinonStub).returns(new RepositoryScopeService(tempDir, mockStorage, 'vscode'));
+
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip();
+        zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+prompts:
+  - id: my-skill
+    file: skills\\my-skill\\SKILL.md
+    type: skill
+`));
+        zip.addFile('skills/my-skill/SKILL.md', Buffer.from('# Skill'));
+        zip.addFile('skills/my-skill/scripts/run.sh', Buffer.from('#!/bin/sh'));
+
+        await installer.installFromBuffer(testBundle, zip.toBuffer(), { scope: 'repository', commitMode: 'commit' }, 'skills');
+
+        const tracked = mockLockfileManager.createOrUpdate.firstCall.args[0].files as { path: string }[];
+        assert.deepStrictEqual(tracked.map((file) => file.path).toSorted(), [
+          '.github/skills/my-skill/SKILL.md',
+          '.github/skills/my-skill/scripts/run.sh'
+        ]);
+      });
+    }
+
     test('should call LockfileManager.createOrUpdate for repository scope installation', async () => {
       // Requirements: 4.1
       // Verify lockfile is updated when installing at repository scope
@@ -370,6 +754,21 @@ prompts: []
   });
 
   suite('Repository Scope Uninstallation', () => {
+    test('keeps lockfile tracking and cache when repository unsync refuses removal', async () => {
+      const installed = createMockInstalledBundle(testBundle.id, '1.0.0', {
+        scope: 'repository',
+        commitMode: 'commit',
+        installPath: path.join(tempDir, 'bundles', testBundle.id)
+      });
+      fs.mkdirSync(installed.installPath, { recursive: true });
+      mockRepositoryScopeService.unsyncBundle.rejects(new Error('Unsafe repository path'));
+
+      await assert.rejects(installer.uninstall(installed), /Unsafe repository path/);
+
+      assert.ok(!mockLockfileManager.remove.called, 'Keep the bundle lockfile entry when unsync fails');
+      assert.ok(fs.existsSync(installed.installPath), 'Keep the cache for recovery');
+    });
+
     test('should call LockfileManager.remove when uninstalling repository scope bundle', async () => {
       // Requirements: 4.8
       const installed = createMockInstalledBundle(testBundle.id, '1.0.0', {
@@ -549,6 +948,23 @@ prompts:
   });
 
   suite('Error Handling', () => {
+    const createPromptBundleBuffer = (): Buffer => {
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+prompts:
+  - id: test
+    file: test.prompt.md
+    type: prompt
+`));
+      zip.addFile('test.prompt.md', Buffer.from('# Installed'));
+      return zip.toBuffer() as Buffer;
+    };
+
     test('should throw error when repository scope requested but no workspace open', async () => {
       // Requirements: 1.8
       // Stub workspaceFolders to be empty
@@ -588,7 +1004,7 @@ prompts: []
       }
     });
 
-    test('should handle lockfile write failures gracefully', async () => {
+    test('reports lockfile write failures instead of succeeding with untracked files', async () => {
       // Requirements: 15.6
       mockLockfileManager.createOrUpdate.rejects(new Error('Lockfile write failed'));
 
@@ -597,11 +1013,10 @@ prompts: []
         commitMode: 'commit'
       };
 
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
 id: ${testBundle.id}
 version: ${testBundle.version}
 name: ${testBundle.name}
@@ -609,13 +1024,61 @@ description: Test
 author: test
 prompts: []
 `));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
+      await assert.rejects(
+        installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github'),
+        /Lockfile write failed/,
+        'An untracked repository install must not report success'
+      );
+    });
 
-        // After implementation, should either throw or handle gracefully
-      } catch {
-        // Expected - lockfile failure should propagate or be handled
-        assert.ok(true, 'Lockfile failure handled');
-      }
+    test('rolls back newly synced files when writing the local-only lockfile fails', async () => {
+      const promptPath = path.join(tempDir, '.github', 'prompts', 'test.prompt.md');
+      const excludePath = path.join(tempDir, '.git', 'info', 'exclude');
+      fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+      fs.writeFileSync(excludePath, '# Existing excludes\n*.log\n');
+      (ScopeServiceFactory.create as sinon.SinonStub).returns(new RepositoryScopeService(tempDir, mockStorage, 'vscode'));
+      mockLockfileManager.createOrUpdate.rejects(new Error('Lockfile write failed'));
+
+      await assert.rejects(
+        installer.installFromBuffer(testBundle, createPromptBundleBuffer(), { scope: 'repository', commitMode: 'local-only' }, 'github'),
+        /Lockfile write failed/
+      );
+
+      assert.ok(!fs.existsSync(promptPath), 'A failed install must not leave an untracked prompt behind');
+      assert.strictEqual(fs.readFileSync(excludePath, 'utf8'), '# Existing excludes\n*.log\n');
+    });
+
+    test('restores an overwritten repository file when writing the lockfile fails', async () => {
+      const promptPath = path.join(tempDir, '.github', 'prompts', 'test.prompt.md');
+      fs.mkdirSync(path.dirname(promptPath), { recursive: true });
+      fs.writeFileSync(promptPath, '# Existing user file');
+      (ScopeServiceFactory.create as sinon.SinonStub).returns(new RepositoryScopeService(tempDir, mockStorage, 'vscode'));
+      mockLockfileManager.createOrUpdate.rejects(new Error('Lockfile write failed'));
+
+      await assert.rejects(
+        installer.installFromBuffer(testBundle, createPromptBundleBuffer(), { scope: 'repository', commitMode: 'commit' }, 'github'),
+        /Lockfile write failed/
+      );
+
+      assert.strictEqual(fs.readFileSync(promptPath, 'utf8'), '# Existing user file',
+        'The failed installation must not delete or replace a pre-existing file');
+    });
+
+    test('preserves a file edited after sync when the lockfile write fails', async () => {
+      const promptPath = path.join(tempDir, '.github', 'prompts', 'test.prompt.md');
+      (ScopeServiceFactory.create as sinon.SinonStub).returns(new RepositoryScopeService(tempDir, mockStorage, 'vscode'));
+      mockLockfileManager.createOrUpdate.callsFake(() => {
+        fs.writeFileSync(promptPath, '# User edit after sync');
+        return Promise.reject(new Error('Lockfile write failed'));
+      });
+
+      await assert.rejects(
+        installer.installFromBuffer(testBundle, createPromptBundleBuffer(), { scope: 'repository', commitMode: 'commit' }, 'github'),
+        /Lockfile write failed/
+      );
+
+      assert.strictEqual(fs.readFileSync(promptPath, 'utf8'), '# User edit after sync',
+        'Rollback must not overwrite user changes made since the install');
     });
   });
 

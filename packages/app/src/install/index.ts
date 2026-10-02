@@ -31,6 +31,10 @@ export {
   writeTargetSafely,
 } from './target-write';
 
+export {
+  persistTargetWrite,
+} from './persist-target-write';
+
 export type {
   InstallOutcome,
   InstallPipelineOptions,

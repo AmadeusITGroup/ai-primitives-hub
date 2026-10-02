@@ -10,9 +10,13 @@ import {
   mkdtemp,
   readFile,
   rm,
+  writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  resolveUserConfigPaths,
+} from '@ai-primitives-hub/app';
 import type {
   HttpClient,
   HttpRequest,
@@ -60,16 +64,29 @@ interface JsonEnvelope<T> {
   data: T;
 }
 
+class FailLockfileWriteFileSystem extends NodeFileSystem {
+  public failedWritePath: string | null = null;
+
+  public override async writeFile(filePath: string, contents: string): Promise<void> {
+    if (filePath.includes('prompt-registry') || filePath.includes('ai-primitives-hub.lock.json')) {
+      this.failedWritePath = filePath;
+      await super.writeFile(filePath, contents.slice(0, 9));
+      throw new Error('lockfile write failed');
+    }
+    await super.writeFile(filePath, contents);
+  }
+}
+
 describe('install command (local --from mode)', () => {
   let workspace: string;
   let bundleDir: string;
   let targetDir: string;
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
+  const run = (argv: string[], fs: NodeFileSystem = new NodeFileSystem()): ReturnType<typeof runCommand> => runCommand(argv, {
     commandClasses: COMMAND_CLASSES,
     context: {
       cwd: workspace,
-      fs: new NodeFileSystem(),
+      fs,
       env: {
         HOME: workspace,
         USERPROFILE: workspace,
@@ -158,6 +175,38 @@ describe('install command (local --from mode)', () => {
     expect(lockContent).toContain('local-foo');
   });
 
+  it('restores overwritten prompt and removes knowledge if lockfile persistence fails', async () => {
+    const firstInstall = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+    expect(firstInstall.exitCode).toBe(0);
+    const lockPath = parseJson<{ lockfile: string }>(firstInstall.stdout).data.lockfile;
+    const lockBefore = await readFile(lockPath, 'utf8');
+    const promptPath = path.join(targetDir, 'prompts', 'hello.prompt.md');
+    await writeFile(promptPath, '# User prompt');
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo', includeKnowledge: true }));
+
+    const failingFs = new FailLockfileWriteFileSystem();
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ], failingFs);
+
+    expect(result.exitCode).not.toBe(0);
+    await expect(readFile(promptPath, 'utf8')).resolves.toBe('# User prompt');
+    await expect(readFile(path.join(
+      targetDir,
+      'knowledge',
+      'specifications',
+      'RDP',
+      'provider_layer',
+      'SBB_B2P',
+      'SBB_B2P.md'
+    ), 'utf8')).rejects.toThrow();
+    await expect(readFile(lockPath, 'utf8')).resolves.toBe(lockBefore);
+    expect(failingFs.failedWritePath).not.toBeNull();
+    expect(await failingFs.exists(failingFs.failedWritePath as string)).toBe(false);
+  });
+
   it('does not write or lock governed archive metadata', async () => {
     await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo' }));
 
@@ -178,6 +227,140 @@ describe('install command (local --from mode)', () => {
     ]);
   });
 
+  it('installs nested governed knowledge for a Copilot user target and tracks virtual bytes', async () => {
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo', includeKnowledge: true }));
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const envelope = parseJson<{ lockfile: string }>(result.stdout);
+    const relativePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    await expect(readFile(path.join(targetDir, 'knowledge', relativePath), 'utf8')).resolves.toContain('SBB B2P');
+    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
+      bundles: Record<string, { files: { path: string; checksum: string }[] }>;
+    };
+    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toContain(`knowledge/${relativePath}`);
+  });
+
+  it('installs and tracks distinct knowledge paths with the same basename', async () => {
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo', includeKnowledgePair: true }));
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const envelope = parseJson<{ lockfile: string }>(result.stdout);
+    const first = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    const second = 'specifications/alternate/SBB_B2P.md';
+    await expect(readFile(path.join(targetDir, 'knowledge', first), 'utf8')).resolves.toContain('SBB B2P');
+    await expect(readFile(path.join(targetDir, 'knowledge', second), 'utf8')).resolves.toContain('Alternate SBB B2P');
+    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
+      bundles: Record<string, { files: { path: string }[] }>;
+    };
+    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toContain(`knowledge/${first}`);
+    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toContain(`knowledge/${second}`);
+  });
+
+  it('installs legacy manifest-declared knowledge without flattening its source path', async () => {
+    await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: 'local-foo', includeKnowledge: true }));
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const envelope = parseJson<{ lockfile: string }>(result.stdout);
+    const relativePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    await expect(readFile(path.join(targetDir, 'knowledge', relativePath), 'utf8')).resolves.toContain('SBB B2P');
+    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
+      bundles: Record<string, { files: { path: string }[] }>;
+    };
+    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toContain(`knowledge/${relativePath}`);
+  });
+
+  it('fails before writing when a legacy knowledge declaration has a traversal path', async () => {
+    await writeReleaseArchive(bundleDir, new Map([
+      ['deployment-manifest.yml', new TextEncoder().encode(
+        'id: local-foo\nversion: 1.0.0\nname: Legacy\nprompts:\n'
+        + '  - id: bad\n    file: ../outside.md\n    type: knowledge\n'
+      )]
+    ]));
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    await expect(readFile(path.join(targetDir, 'knowledge', 'outside.md'), 'utf8')).rejects.toThrow();
+    const userLockfile = resolveUserConfigPaths({
+      HOME: workspace,
+      USERPROFILE: workspace,
+      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config')
+    }).userLockfile;
+    await expect(readFile(userLockfile, 'utf8')).rejects.toThrow();
+  });
+
+  it('installs knowledge for a Kiro user target', async () => {
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo', includeKnowledge: true }));
+    const targetResult = await run([
+      'target', 'add', 'kiro-user', '--type', 'kiro', '--path', targetDir, '-o', 'json'
+    ]);
+    expect(targetResult.exitCode).toBe(0);
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'kiro-user', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const relativePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    await expect(readFile(path.join(targetDir, 'knowledge', relativePath), 'utf8')).resolves.toContain('SBB B2P');
+  });
+
+  it('records the physical knowledge destination for Copilot repository scope', async () => {
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo', includeKnowledge: true }));
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'copilot',
+      '--scope', 'repository', '--commit-mode', 'local-only', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const envelope = parseJson<{ lockfile: string }>(result.stdout);
+    const relativePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    await expect(readFile(path.join(workspace, '.github', 'knowledge', relativePath), 'utf8'))
+      .resolves.toContain('SBB B2P');
+    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
+      bundles: Record<string, { files: { path: string }[] }>;
+    };
+    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toContain(`.github/knowledge/${relativePath}`);
+  });
+
+  it('records Kiro repository knowledge under its physical repository-relative path', async () => {
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo', includeKnowledge: true }));
+    const targetResult = await run([
+      'target', 'add', 'kiro-repository', '--type', 'kiro', '--scope', 'repository',
+      '--workspace-root', workspace, '-o', 'json'
+    ]);
+    expect(targetResult.exitCode).toBe(0);
+
+    const result = await run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'kiro-repository', '-o', 'json'
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const envelope = parseJson<{ lockfile: string }>(result.stdout);
+    const relativePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    await expect(readFile(path.join(workspace, '.kiro', 'knowledge', relativePath), 'utf8'))
+      .resolves.toContain('SBB B2P');
+    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
+      bundles: Record<string, { files: { path: string }[] }>;
+    };
+    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toContain(`.kiro/knowledge/${relativePath}`);
+  });
+
   it('preserves legacy archive compatibility while routing only target-supported files', async () => {
     const result = await run([
       'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
@@ -196,7 +379,7 @@ describe('install command (local --from mode)', () => {
   });
 
   it('replays a governed archive from its lockfile without restoring metadata evidence', async () => {
-    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo' }));
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo', includeKnowledge: true }));
     const firstInstall = await run([
       'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'
     ]);
@@ -204,6 +387,7 @@ describe('install command (local --from mode)', () => {
     const firstEnvelope = parseJson<{ lockfile: string }>(firstInstall.stdout);
 
     await rm(path.join(targetDir, 'prompts', 'hello.prompt.md'));
+    await rm(path.join(targetDir, 'knowledge', 'specifications', 'RDP', 'provider_layer', 'SBB_B2P', 'SBB_B2P.md'));
     const replay = await run([
       'install', '--lockfile', firstEnvelope.data.lockfile, '--target', 'copilot', '-o', 'json'
     ]);
@@ -214,17 +398,29 @@ describe('install command (local --from mode)', () => {
     expect(replayEnvelope.data.failures).toEqual([]);
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
+    await expect(readFile(path.join(
+      targetDir,
+      'knowledge',
+      'specifications',
+      'RDP',
+      'provider_layer',
+      'SBB_B2P',
+      'SBB_B2P.md'
+    ), 'utf8')).resolves.toContain('SBB B2P');
     await expect(readFile(path.join(targetDir, 'README.md'), 'utf8')).rejects.toThrow();
   });
 
-  it('dry-run: reports the plan but writes nothing', async () => {
+  it('dry-run: reports source knowledge paths but writes nothing', async () => {
+    await writeReleaseArchive(bundleDir, createGovernedReleaseArchive({ id: 'local-foo', includeKnowledge: true }));
     const result = await run([
       'install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '--dry-run', '-o', 'json'
     ]);
     expect(result.exitCode).toBe(0);
-    const envelope = parseJson<{ dryRun: boolean; bundle: { id: string } }>(result.stdout);
+    const envelope = parseJson<{ dryRun: boolean; bundle: { id: string }; files: string[] }>(result.stdout);
     expect(envelope.data.dryRun).toBe(true);
     expect(envelope.data.bundle.id).toBe('local-foo');
+    expect(envelope.data.files).toContain('specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md');
+    expect(envelope.data.files).not.toContain('knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md');
 
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
   });
@@ -312,11 +508,16 @@ describe('install command (local --from mode)', () => {
         bytes: new TextEncoder().encode(
           'id: remote-foo\nversion: 1.0.0\nname: Remote Foo\nprompts:\n'
           + '  - id: hello\n    file: prompts/hello.prompt.md\n    type: prompt\n'
+          + '  - id: guide\n    file: specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md\n    type: knowledge\n'
         )
       },
       {
         path: 'prompts/hello.prompt.md',
         bytes: new TextEncoder().encode('# Hello from a remote bundle\n')
+      },
+      {
+        path: 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md',
+        bytes: new TextEncoder().encode('# Remote knowledge\n')
       }
     ]);
     const http: HttpClient = {
@@ -377,6 +578,14 @@ describe('install command (local --from mode)', () => {
     await expect(
       readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello from a remote bundle');
+    const relativeKnowledgePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+    await expect(readFile(path.join(workspace, '.github', 'knowledge', relativeKnowledgePath), 'utf8'))
+      .resolves.toContain('Remote knowledge');
+    const lockfile = JSON.parse(await readFile(path.join(workspace, 'prompt-registry.lock.json'), 'utf8')) as {
+      bundles: Record<string, { files: { path: string }[] }>;
+    };
+    expect(lockfile.bundles['remote-foo'].files.map((file) => file.path))
+      .toContain(`.github/knowledge/${relativeKnowledgePath}`);
     await expect(
       readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).rejects.toThrow();

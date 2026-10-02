@@ -17,12 +17,13 @@
  */
 import * as path from 'node:path';
 import {
-  checksumFiles,
+  checksumWrittenFiles,
   emptyLockfile,
   FileTreeTargetWriter,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  persistTargetWrite,
   readLockfile,
   resolveUserConfigPaths,
   type TargetWriter,
@@ -44,7 +45,7 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
-  getInstallableBundleFiles,
+  getTargetInstallableBundleFiles,
   parseBundleSpec,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -883,30 +884,32 @@ async function performLocalInstall(
     }
     const writerFactory = createWriterFactory(ctx, opts);
     const writer = writerFactory(effectiveTarget);
-    const targetFiles = getInstallableBundleFiles(files, manifest);
-    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
-
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
     const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-    const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-    const localSourceId = `local-${path.basename(opts.from as string)}`;
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: localSourceId,
-      sourceType: 'local',
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
-    }
-    let nextLock = upsertBundleEntry(existing, manifest.id, entry);
-    nextLock = upsertSource(nextLock, localSourceId, {
-      type: 'local',
-      url: path.resolve(ctx.cwd(), opts.from as string)
+    const targetFiles = getTargetInstallableBundleFiles(files, manifest);
+    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
+
+    await persistTargetWrite(writer, effectiveTarget, result, async () => {
+      const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+      const localSourceId = `local-${path.basename(opts.from as string)}`;
+      const entry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: localSourceId,
+        sourceType: 'local',
+        installedAt: new Date().toISOString(),
+        files: checksumWrittenFiles(targetFiles, result, effectiveTarget, effectiveTarget.rootPath ?? ctx.cwd())
+      };
+      if (scope === 'repository') {
+        entry.commitMode = commitMode;
+      }
+      let nextLock = upsertBundleEntry(existing, manifest.id, entry);
+      nextLock = upsertSource(nextLock, localSourceId, {
+        type: 'local',
+        url: path.resolve(ctx.cwd(), opts.from as string)
+      });
+      await writeLockfile(lockPath, nextLock, ctx.fs);
     });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
 
     await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
 
@@ -1117,31 +1120,34 @@ async function performRemoteInstall(
     }
     const writerFactory = createWriterFactory(ctx, opts);
     const writer = writerFactory(effectiveTarget);
-    const targetFiles = getInstallableBundleFiles(files, manifest);
-    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
     const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-    const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: installable.ref.sourceId,
-      sourceType: installable.ref.sourceType,
-      checksum: dl.sha256,
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
-    }
-    let nextLock = upsertBundleEntry(existing, manifest.id, entry);
-    const collectionsPath = opts.sourceConfig?.config?.collectionsPath;
-    nextLock = upsertSource(nextLock, installable.ref.sourceId, {
-      type: opts.sourceConfig?.type ?? 'github',
-      url: `https://github.com/${repoSlug}`,
-      ...(collectionsPath ? { collectionsPath } : {})
+    const targetFiles = getTargetInstallableBundleFiles(files, manifest);
+    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
+
+    await persistTargetWrite(writer, effectiveTarget, result, async () => {
+      const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+      const entry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: installable.ref.sourceId,
+        sourceType: installable.ref.sourceType,
+        checksum: dl.sha256,
+        installedAt: new Date().toISOString(),
+        files: checksumWrittenFiles(targetFiles, result, effectiveTarget, effectiveTarget.rootPath ?? ctx.cwd())
+      };
+      if (scope === 'repository') {
+        entry.commitMode = commitMode;
+      }
+      let nextLock = upsertBundleEntry(existing, manifest.id, entry);
+      const collectionsPath = opts.sourceConfig?.config?.collectionsPath;
+      nextLock = upsertSource(nextLock, installable.ref.sourceId, {
+        type: opts.sourceConfig?.type ?? 'github',
+        url: `https://github.com/${repoSlug}`,
+        ...(collectionsPath ? { collectionsPath } : {})
+      });
+      await writeLockfile(lockPath, nextLock, ctx.fs);
     });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
 
     formatOutput({
       ctx,
@@ -1454,7 +1460,7 @@ async function validateAndWrite(
     expectedId: bundleId,
     expectedVersion: entry.version
   });
-  await writeTargetSafely(writer, target, getInstallableBundleFiles(files, manifest));
+  await writeTargetSafely(writer, target, getTargetInstallableBundleFiles(files, manifest));
   if (verbose) {
     ctx.stdout.write(`[verbose] Successfully installed ${bundleId}\n`);
   }

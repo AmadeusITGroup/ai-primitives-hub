@@ -4,3 +4,4 @@
  * @module writers
  */
 export * from './file-tree-writer';
+export * from './lockfile-files';

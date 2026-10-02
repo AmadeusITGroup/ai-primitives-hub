@@ -11,11 +11,12 @@
  */
 import * as path from 'node:path';
 import {
-  checksumFiles,
+  checksumWrittenFiles,
   FileTreeTargetWriter,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  persistTargetWrite,
   readLockfile,
   resolveUserConfigPaths,
   type TargetWriter,
@@ -38,7 +39,7 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
-  getInstallableBundleFiles,
+  getTargetInstallableBundleFiles,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -587,28 +588,30 @@ async function applyUpdate(
   const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: undefined });
 
   const writer = writerFor(ctx, target, scope, commitMode);
-  const targetFiles = getInstallableBundleFiles(files, manifest);
+  const targetFiles = getTargetInstallableBundleFiles(files, manifest);
   const result = await writeTargetSafely(writer, target, targetFiles);
 
-  const entry: LockfileBundleEntry = {
-    version: manifest.version,
-    sourceId: candidate.entry.sourceId,
-    sourceType: candidate.entry.sourceType,
-    checksum: dl.sha256,
-    installedAt: new Date().toISOString(),
-    files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
-  };
-  if (scope === 'repository') {
-    entry.commitMode = commitMode;
-  }
+  await persistTargetWrite(writer, target, result, async () => {
+    const entry: LockfileBundleEntry = {
+      version: manifest.version,
+      sourceId: candidate.entry.sourceId,
+      sourceType: candidate.entry.sourceType,
+      checksum: dl.sha256,
+      installedAt: new Date().toISOString(),
+      files: checksumWrittenFiles(targetFiles, result, target, target.rootPath ?? ctx.cwd())
+    };
+    if (scope === 'repository') {
+      entry.commitMode = commitMode;
+    }
 
-  const lock = await readLockfile(lockPath, ctx.fs);
-  if (lock === null) {
-    return;
-  }
-  let nextLock = upsertBundleEntry(lock, manifest.id, entry);
-  nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
-  await writeLockfile(lockPath, nextLock, ctx.fs);
+    const lock = await readLockfile(lockPath, ctx.fs);
+    if (lock === null) {
+      throw new Error(`lockfile disappeared before tracking updated bundle ${manifest.id}`);
+    }
+    let nextLock = upsertBundleEntry(lock, manifest.id, entry);
+    nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
+    await writeLockfile(lockPath, nextLock, ctx.fs);
+  });
 
   const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
   const existingState = await stateStore.load(target.name);

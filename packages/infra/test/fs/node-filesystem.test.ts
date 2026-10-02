@@ -1,4 +1,7 @@
 import {
+  symlink,
+} from 'node:fs/promises';
+import {
   join,
 } from 'node:path';
 import {
@@ -47,6 +50,18 @@ describe('NodeFileSystem', () => {
     await fs.writeFileBytes(filePath, binaryBytes);
 
     expect(await fs.readFileBytes(filePath)).toEqual(binaryBytes);
+  });
+
+  it('renames a sibling file over an existing destination', async () => {
+    const destination = join(dir, 'prompt-registry.lock.json');
+    const temporary = join(dir, '.prompt-registry.lock.json.pending');
+    await fs.writeFile(destination, '{"before":true}');
+    await fs.writeFile(temporary, '{"after":true}');
+
+    await fs.rename(temporary, destination);
+
+    expect(await fs.readFile(destination)).toBe('{"after":true}');
+    expect(await fs.exists(temporary)).toBe(false);
   });
 
   it('writes then reads back JSON, pretty-printed with a trailing newline', async () => {
@@ -105,6 +120,16 @@ describe('NodeFileSystem', () => {
 
   it('rejects stat on a missing path', async () => {
     await expect(fs.stat(join(dir, 'missing'))).rejects.toThrow();
+  });
+
+  it.skipIf(process.platform === 'win32')('realpath resolves directory symlinks', async () => {
+    const realDir = join(dir, 'real');
+    await fs.mkdir(realDir);
+    const alias = join(dir, 'alias');
+    await symlink(realDir, alias, 'dir');
+
+    expect(await fs.realpath(alias)).toBe(await fs.realpath(realDir));
+    await expect(fs.realpath(join(dir, 'missing'))).rejects.toThrow();
   });
 
   it('remove deletes a single file without recursive', async () => {

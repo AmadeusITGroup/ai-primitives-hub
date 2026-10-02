@@ -366,11 +366,16 @@ const prepareWorkspace = async (
   );
 
   await fsPromises.mkdir(path.join(workspace, 'prompts'), { recursive: true });
+  await fsPromises.mkdir(path.join(workspace, 'knowledge'), { recursive: true });
   await fsPromises.mkdir(path.join(workspace, 'skills', 'governed-skill'), { recursive: true });
   await fsPromises.mkdir(path.join(workspace, 'docs'), { recursive: true });
   await fsPromises.writeFile(
     path.join(workspace, 'prompts', 'governed.prompt.md'),
     GOVERNED_PROMPT
+  );
+  await fsPromises.writeFile(
+    path.join(workspace, 'knowledge', 'governed-knowledge.md'),
+    GOVERNED_KNOWLEDGE
   );
   await fsPromises.writeFile(
     path.join(workspace, 'skills', 'governed-skill', 'SKILL.md'),
@@ -493,6 +498,11 @@ const GOVERNED_PROMPT = `# Governed Prompt
 ## Description: A governed diagnostic prompt.
 `;
 
+const GOVERNED_KNOWLEDGE = `# Governed Knowledge
+
+## Description: A governed diagnostic knowledge artifact.
+`;
+
 const GOVERNED_SKILL = `# Governed Skill
 
 ## Description: A governed diagnostic skill.
@@ -559,6 +569,8 @@ readme:
 items:
   - path: prompts/governed.prompt.md
     kind: prompt
+  - path: knowledge/governed-knowledge.md
+    kind: knowledge
   - path: skills/governed-skill/SKILL.md
     kind: skill
 `;
@@ -650,6 +662,7 @@ const verifyGovernedArchive = async (
 
   const expectedInstallableFiles = [
     'deployment-manifest.yml',
+    'knowledge/governed-knowledge.md',
     'prompts/governed.prompt.md',
     'skills/governed-skill/SKILL.md'
   ];
@@ -1131,6 +1144,7 @@ export const runDiagnostics = async (
     ], { bundleSubDir: fixtures.governedBundleSubDir });
     await runVerificationStep('verify-governed-install', async () => {
       const targetInstallablePaths = [
+        'knowledge/governed-knowledge.md',
         'prompts/governed.prompt.md',
         'skills/governed-skill/SKILL.md'
       ];
@@ -1175,6 +1189,7 @@ export const runDiagnostics = async (
     ]);
     await runVerificationStep('verify-governed-removed', async () => {
       const pathsToCheck = [
+        'knowledge/governed-knowledge.md',
         'prompts/governed.prompt.md',
         'skills/governed-skill/SKILL.md'
       ];

@@ -35,6 +35,7 @@
  */
 import {
   createHash,
+  randomUUID,
 } from 'node:crypto';
 import * as path from 'node:path';
 import type {
@@ -172,6 +173,7 @@ export interface LockfileFs {
   exists(p: string): Promise<boolean>;
   mkdir?(p: string, opts?: { recursive?: boolean }): Promise<void>;
   remove?(p: string): Promise<void>;
+  rename?(from: string, to: string): Promise<void>;
 }
 
 /**
@@ -209,11 +211,38 @@ export const writeLockfile = async (
   lock: Lockfile,
   fs: LockfileFs
 ): Promise<void> => {
+  const dir = path.dirname(file);
   if (fs.mkdir !== undefined) {
-    const dir = path.dirname(file);
     await fs.mkdir(dir, { recursive: true });
   }
-  await fs.writeFile(file, JSON.stringify(lock, null, 2) + '\n');
+  const contents = `${JSON.stringify(lock, null, 2)}\n`;
+  if (fs.rename === undefined) {
+    await fs.writeFile(file, contents);
+    return;
+  }
+
+  const temporaryPath = path.join(dir, `.${path.basename(file)}.${randomUUID()}.tmp`);
+  try {
+    await fs.writeFile(temporaryPath, contents);
+    await fs.rename(temporaryPath, file);
+  } catch (failure) {
+    const cleanupErrors: unknown[] = [];
+    if (fs.remove !== undefined) {
+      try {
+        if (await fs.exists(temporaryPath)) {
+          await fs.remove(temporaryPath);
+        }
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError([failure, ...cleanupErrors], 'Lockfile write failed and temp cleanup was incomplete', {
+        cause: failure
+      });
+    }
+    throw failure;
+  }
 };
 
 /**

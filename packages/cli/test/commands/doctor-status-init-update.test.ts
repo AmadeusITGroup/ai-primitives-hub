@@ -159,7 +159,11 @@ describe('doctor/status/init/update commands', () => {
         steps: {
           name: string;
           exitCode: number;
-          output?: { formatVersion?: number; inventoryCount?: number };
+          output?: {
+            formatVersion?: number;
+            inventoryCount?: number;
+            targetInstallable?: { path: string; present: boolean }[];
+          };
         }[];
       }>(result.stdout);
 
@@ -187,6 +191,12 @@ describe('doctor/status/init/update commands', () => {
           formatVersion: 1
         });
         expect(archiveStep?.output?.inventoryCount).toBeGreaterThan(0);
+
+        const installStep = envelope.data.steps.find((step) => step.name === 'verify-governed-install');
+        expect(installStep?.output?.targetInstallable).toContainEqual({
+          path: 'knowledge/governed-knowledge.md',
+          present: true
+        });
       } finally {
         await rm(envelope.data.workspace, { recursive: true, force: true });
       }

@@ -400,7 +400,7 @@ This is the most heavily automated area in the repository — `test/services/loc
 - [x] `updateCommitMode` moves the entry between lockfiles, preserves all metadata, copies the source entry, updates `generatedAt`, errors when the bundle is missing, emits `onLockfileUpdated` *(real fs)*
 - [x] Git-exclude added when moving to local-only and removed when the local lockfile empties *(real fs)*
 - [x] Other bundles in the source lockfile are preserved *(real fs)*
-- [x] `switchCommitMode` scans host-aware directories on a Kiro host *(real fs)*
+- [x] `switchCommitMode` updates only the selected bundle's lockfile-recorded paths, without scanning host directories or `.github/copilot-instructions.md`; Kiro paths are covered *(real fs)*
 - [ ] A move performed while the file is **open and dirty** in the editor
 
 **11.7 — clone fresh and restore**

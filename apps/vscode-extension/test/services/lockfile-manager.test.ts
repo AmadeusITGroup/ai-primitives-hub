@@ -1155,6 +1155,93 @@ suite('LockfileManager', () => {
     });
   });
 
+  suite('Lockfile path portability', () => {
+    test('should persist lockfile paths with portable forward slashes', async () => {
+      const manager = LockfileManager.getInstance(tempDir);
+      const testFilePath = path.join(tempDir, '.github', 'prompts', 'portable.prompt.md');
+      fs.mkdirSync(path.dirname(testFilePath), { recursive: true });
+      fs.writeFileSync(testFilePath, 'portable path');
+
+      const options = createTestOptions('portable-path-bundle');
+      options.files = [{
+        path: '.github\\prompts\\portable.prompt.md',
+        checksum: await calculateFileChecksum(testFilePath)
+      }];
+      await manager.createOrUpdate(options);
+
+      const lockfile = readLockfileFromDisk();
+      assert.strictEqual(
+        lockfile?.bundles['portable-path-bundle']?.files[0]?.path,
+        '.github/prompts/portable.prompt.md'
+      );
+    });
+
+    test('keeps healthy main and local bundles listable when another bundle has an invalid path', async () => {
+      const manager = LockfileManager.getInstance(tempDir);
+      const invalidOptions = createTestOptions('invalid-path-bundle');
+      invalidOptions.files = [{ path: '../../outside.md', checksum: 'invalid' }];
+      await manager.createOrUpdate(invalidOptions);
+
+      const healthyPath = path.join(tempDir, '.github', 'prompts', 'healthy-local.prompt.md');
+      fs.mkdirSync(path.dirname(healthyPath), { recursive: true });
+      fs.writeFileSync(healthyPath, 'healthy');
+      const localOptions = createTestOptions('healthy-local-bundle');
+      localOptions.commitMode = 'local-only';
+      localOptions.files = [{ path: '.github/prompts/healthy-local.prompt.md', checksum: await calculateFileChecksum(healthyPath) }];
+      await manager.createOrUpdate(localOptions);
+
+      const installed = await manager.getInstalledBundles();
+
+      assert.strictEqual(installed.length, 2);
+      assert.strictEqual(installed.find((bundle) => bundle.bundleId === 'invalid-path-bundle')?.filesMissing, true);
+      assert.strictEqual(installed.find((bundle) => bundle.bundleId === 'healthy-local-bundle')?.filesMissing, false);
+    });
+
+    test('treats physical Copilot and Kiro knowledge paths from CLI installs as present', async () => {
+      const manager = LockfileManager.getInstance(tempDir);
+      const relativePath = 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md';
+      const copilotPath = path.join(tempDir, '.github', 'knowledge', relativePath);
+      const kiroPath = path.join(tempDir, '.kiro', 'knowledge', relativePath);
+      fs.mkdirSync(path.dirname(copilotPath), { recursive: true });
+      fs.mkdirSync(path.dirname(kiroPath), { recursive: true });
+      fs.writeFileSync(copilotPath, '# Copilot knowledge');
+      fs.writeFileSync(kiroPath, '# Kiro knowledge');
+      const options = createTestOptions('physical-knowledge-paths');
+      options.files = [
+        { path: `.github/knowledge/${relativePath}`, checksum: await calculateFileChecksum(copilotPath) },
+        { path: `.kiro/knowledge/${relativePath}`, checksum: await calculateFileChecksum(kiroPath) }
+      ];
+      await manager.createOrUpdate(options);
+
+      const installed = await manager.getInstalledBundles();
+
+      assert.strictEqual(installed[0]?.filesMissing, false);
+      assert.deepStrictEqual(await manager.detectModifiedFiles('physical-knowledge-paths'), []);
+    });
+
+    test('should resolve legacy Windows-style file paths on every platform', async () => {
+      const bundleId = 'legacy-windows-path-bundle';
+      const filePath = path.join(tempDir, '.github', 'prompts', 'legacy.prompt.md');
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, 'legacy path');
+
+      const lockfile = LockfileBuilder.create()
+        .withSource('test-source', 'github', 'https://github.com/owner/repo')
+        .withBundleAndFiles(bundleId, '1.0.0', 'test-source', [{
+          path: '.github\\prompts\\legacy.prompt.md',
+          checksum: await calculateFileChecksum(filePath)
+        }])
+        .build();
+      writeLockfile(lockfile);
+
+      const manager = LockfileManager.getInstance(tempDir);
+      const installed = await manager.getInstalledBundles();
+      assert.strictEqual(installed[0]?.filesMissing, false);
+      assert.deepStrictEqual(installed[0]?.manifest.common.files, ['.github/prompts/legacy.prompt.md']);
+      assert.deepStrictEqual(await manager.detectModifiedFiles(bundleId), []);
+    });
+  });
+
   suite('detectModifiedFiles()', () => {
     test('should return empty array when no files modified', async () => {
       // Requirements: 14.1-14.2
@@ -1209,6 +1296,25 @@ suite('LockfileManager', () => {
 
       const result = await manager.detectModifiedFiles('test-bundle');
       assert.strictEqual(result[0].modificationType, 'missing');
+    });
+
+    test('reports an invalid lockfile path as missing and continues checking healthy entries', async () => {
+      const manager = LockfileManager.getInstance(tempDir);
+      const healthyPath = path.join(tempDir, '.github', 'prompts', 'healthy.prompt.md');
+      fs.mkdirSync(path.dirname(healthyPath), { recursive: true });
+      fs.writeFileSync(healthyPath, 'healthy');
+      const options = createTestOptions('mixed-path-bundle');
+      options.files = [
+        { path: '../../outside.md', checksum: 'invalid' },
+        { path: '.github/prompts/healthy.prompt.md', checksum: await calculateFileChecksum(healthyPath) }
+      ];
+      await manager.createOrUpdate(options);
+
+      const result = await manager.detectModifiedFiles('mixed-path-bundle');
+
+      assert.deepStrictEqual(result.map((file) => ({ path: file.path, modificationType: file.modificationType })), [
+        { path: '../../outside.md', modificationType: 'missing' }
+      ]);
     });
 
     test('should include original and current checksums in result', async () => {
