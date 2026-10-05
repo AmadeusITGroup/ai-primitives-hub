@@ -239,6 +239,14 @@ export class GitHubApiClient implements GitHubApi {
     if (classification.kind === 'secondary-rate-limit') {
       return 60_000 * (2 ** (attempt - 1));
     }
+    return this.transientBackoff(attempt);
+  }
+
+  /**
+   * Exponential backoff with optional jitter for a transient (retryable) failure.
+   * @param attempt
+   */
+  private transientBackoff(attempt: number): number {
     const back = this.backoffBaseMs * (2 ** (attempt - 1));
     const jitter = this.jitterMs > 0 ? Math.floor(this.random() * this.jitterMs) : 0;
     return back + jitter;
@@ -283,7 +291,31 @@ export class GitHubApiClient implements GitHubApi {
     for (;;) {
       attempt += 1;
       this.onEvent({ kind: 'request', url, attempt });
-      const response = await this.http.fetch({ url, method, headers });
+      let response: HttpResponse;
+      try {
+        response = await this.http.fetch({ url, method, headers });
+      } catch (error) {
+        // A thrown error is a transport-level failure (connection reset, DNS
+        // failure, or the HTTP adapter's own request timeout) with no response
+        // to classify. Treat it as transient, under the same guards as a
+        // retryable status: never replay a non-idempotent verb, and never
+        // exceed the cumulative sleep budget. On give-up, surface the original
+        // transport error rather than masking it with a synthetic status.
+        if (!retryable || attempt > this.maxRetries) {
+          const reason = retryable ? 'transport error' : `non-idempotent ${method} not retried`;
+          this.onEvent({ kind: 'give-up', url, attempt, reason });
+          throw error;
+        }
+        const backoffMs = Math.min(this.transientBackoff(attempt), this.maxSleepMs);
+        if (backoffMs > this.maxTotalSleepMs - totalSleepMs) {
+          this.onEvent({ kind: 'give-up', url, attempt, reason: 'cumulative retry wait exceeds budget' });
+          throw error;
+        }
+        this.onEvent({ kind: 'retry', url, attempt, sleepMs: backoffMs, reason: 'transport error' });
+        totalSleepMs += backoffMs;
+        await this.sleep(backoffMs);
+        continue;
+      }
       this.captureRateLimit(response);
       if (response.statusCode < 400 || allowStatus.includes(response.statusCode)) {
         this.onEvent({ kind: 'success', url, attempt, status: response.statusCode });

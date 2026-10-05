@@ -19,20 +19,28 @@ import {
   GitHubApiClient,
 } from '../../src/http/github-api-client';
 
-/** Returns each queued response in order, repeating the last one once exhausted. */
+/**
+ * Returns each queued response in order, repeating the last one once exhausted.
+ * A queued `Error` is thrown instead of returned, modelling a transport-level
+ * failure (connection reset, DNS failure, or the HTTP adapter's request timeout).
+ */
 class FakeHttpClient implements HttpClient {
   public lastRequest?: HttpRequest;
   public requests: HttpRequest[] = [];
-  private readonly queue: HttpResponse[];
+  private readonly queue: (HttpResponse | Error)[];
 
-  public constructor(responses: HttpResponse | HttpResponse[]) {
+  public constructor(responses: HttpResponse | Error | (HttpResponse | Error)[]) {
     this.queue = Array.isArray(responses) ? [...responses] : [responses];
   }
 
   public async fetch(request: HttpRequest): Promise<HttpResponse> {
     this.lastRequest = request;
     this.requests.push(request);
-    return this.queue.length > 1 ? this.queue.shift()! : this.queue[0];
+    const next = this.queue.length > 1 ? this.queue.shift()! : this.queue[0];
+    if (next instanceof Error) {
+      throw next;
+    }
+    return next;
   }
 }
 
@@ -269,6 +277,37 @@ describe('GitHubApiClient', () => {
       await client.getJson('/repos/o/r');
       expect(http.requests).toHaveLength(2);
       expect(http.requests.every((request) => request.method === 'GET')).toBe(true);
+    });
+
+    it('retries a thrown transport error (e.g. a request timeout) and returns the eventual success', async () => {
+      const http = new FakeHttpClient([
+        new Error('HTTP request to https://api.github.com/repos/o/r timed out after 20000 ms'),
+        jsonResponse({ ok: true })
+      ]);
+      const client = new GitHubApiClient(http, { sleep: noSleep });
+      await expect(client.getJson('/repos/o/r')).resolves.toEqual({ ok: true });
+      expect(http.requests).toHaveLength(2);
+    });
+
+    it('gives up after maxRetries transport errors and surfaces the original error', async () => {
+      const http = new FakeHttpClient(new Error('HTTP request to https://api.github.com/repos/o/r timed out after 20000 ms'));
+      const client = new GitHubApiClient(http, { sleep: noSleep, maxRetries: 2 });
+      await expect(client.getJson('/repos/o/r')).rejects.toThrow('timed out after 20000 ms');
+      expect(http.requests).toHaveLength(3); // initial attempt + 2 retries
+    });
+
+    it('stops transport-error retries when the cumulative sleep budget is exhausted', async () => {
+      const http = new FakeHttpClient(new Error('socket hang up'));
+      const sleeps: number[] = [];
+      const events: GitHubClientEvent[] = [];
+      const client = new GitHubApiClient(http, {
+        sleep: recordingSleep(sleeps), maxTotalSleepMs: 1000, maxSleepMs: 600,
+        backoffBaseMs: 600, jitterMs: 0, onEvent: (event) => events.push(event)
+      });
+      await expect(client.getJson('/repos/o/r')).rejects.toThrow('socket hang up');
+      expect(sleeps).toEqual([600]);
+      expect(http.requests).toHaveLength(2);
+      expect(events.at(-1)?.reason).toBe('cumulative retry wait exceeds budget');
     });
 
     it('does not retry a fatal 403 (no rate-limit signal)', async () => {
