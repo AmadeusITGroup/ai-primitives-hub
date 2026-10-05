@@ -77,6 +77,13 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
     const startedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      // A reset between scheduling and start revokes this operation's authority
+      // to publish, so bail before launching a native sign-in whose result would
+      // only be discarded (and which would surface a redundant browser prompt).
+      if (generation !== cacheGeneration) {
+        this.logger.debug(`[GitHubAuth] attempt=${attempt} mode=${mode} phase=discarded-before-start`);
+        return undefined;
+      }
       if (nativeRequests.has(mode)) {
         throw new GitHubSessionError('PENDING', 'A previous GitHub sign-in is still running in VS Code. Complete or close its browser prompt, or reload the window before retrying.');
       }

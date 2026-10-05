@@ -296,24 +296,19 @@ suite('VsCodeSessionTokenProvider', () => {
     assert.strictEqual(await provider.getToken('github.com'), 'new');
   });
 
-  test('clearing the cache detaches reads from a stalled interactive sign-in', async () => {
-    const clock = sandbox.useFakeTimers();
-    let releaseForce!: (value: undefined) => void;
+  test('a cache reset detaches a scheduled sign-in so later reads recover immediately', async () => {
     getSessionStub.callsFake((_provider, _scopes, options) => options.forceNewSession
-      ? new Promise((resolve) => {
-        releaseForce = resolve;
-      })
+      // A launched forced sign-in would hang forever; the guard must stop it starting.
+      ? new Promise(() => undefined)
       : Promise.resolve({ accessToken: 'fresh' }));
-    const force = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /60 seconds/);
-    // Reset while the forced prompt is still stuck in VS Code.
+    const force = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /retry sign-in/i);
+    // Reset before the scheduled forced lookup starts.
     VsCodeSessionTokenProvider.clearCache();
-    // A later read must recover immediately instead of blocking on the stalled
-    // interactive request until it eventually times out.
+    // A later read recovers at once instead of blocking on the detached request.
     assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'fresh');
-    await clock.tickAsync(60_001);
     await force;
-    releaseForce(undefined);
-    await clock.tickAsync(0);
+    // The detached forced lookup must never have been launched.
+    assert.ok(getSessionStub.getCalls().every((call) => !call.args[2].forceNewSession));
   });
 
   test('a sign-in detached by a cache reset cannot overwrite recovered credentials', async () => {
@@ -326,8 +321,10 @@ suite('VsCodeSessionTokenProvider', () => {
     // Another provider recovers a session in the new generation.
     assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'recovered');
     await force;
-    // The detached forced sign-in must not publish over the recovered token.
+    // The detached forced sign-in must not publish over the recovered token...
     assert.strictEqual(await new VsCodeSessionTokenProvider(false).getToken('github.com'), 'recovered');
     assert.strictEqual(await new VsCodeSessionTokenProvider(true).getToken('github.com'), 'recovered');
+    // ...and must not have launched a native forced sign-in once its authority was revoked.
+    assert.ok(getSessionStub.getCalls().every((call) => !call.args[2].forceNewSession));
   });
 });
