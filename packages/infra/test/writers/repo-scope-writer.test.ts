@@ -51,7 +51,7 @@ skills:
     type: skill`;
 
 describe('RepositoryScopeWriter', () => {
-  it('writes prompts to .github/copilot/prompts/', async () => {
+  it('writes prompts to .github/prompts/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
@@ -62,7 +62,7 @@ describe('RepositoryScopeWriter', () => {
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
@@ -84,7 +84,7 @@ items:
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'hello.prompt.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'hello.prompt.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
@@ -123,7 +123,7 @@ prompts:
 
     expect(result.writtenBundlePaths).toEqual(['prompts/hello.prompt.md']);
     expect(result.written).toEqual([
-      path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'hello.prompt.md')
+      path.join(WORKSPACE_ROOT, '.github', 'prompts', 'hello.prompt.md')
     ]);
   });
 
@@ -135,11 +135,11 @@ prompts:
 
     expect(result.writtenBundlePaths).toEqual(['prompts/hello.prompt.md']);
     expect(result.written).toEqual([
-      path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'hello.prompt.md')
+      path.join(WORKSPACE_ROOT, '.github', 'prompts', 'hello.prompt.md')
     ]);
   });
 
-  it('writes instructions to .github/copilot/instructions/', async () => {
+  it('writes instructions to .github/instructions/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
@@ -150,12 +150,12 @@ prompts:
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'instructions', 'test.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'instructions', 'test.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
 
-  it('writes instructions with plural "instructions" type to .github/copilot/instructions/', async () => {
+  it('writes instructions with plural "instructions" type to .github/instructions/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
@@ -174,12 +174,12 @@ instructions:
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'instructions', 'test.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'instructions', 'test.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
 
-  it('writes chatmode items to .github/copilot/agents/', async () => {
+  it('writes chatmode items to .github/agents/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
@@ -198,12 +198,12 @@ prompts:
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'agents', 'review.chatmode.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'agents', 'review.chatmode.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
 
-  it('writes agents to .github/copilot/agents/', async () => {
+  it('writes agents to .github/agents/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
@@ -214,7 +214,7 @@ prompts:
 
     const result = await writer.write(files);
 
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'agents', 'test.md');
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'agents', 'test.md');
     expect(result.written).toContain(expected);
     expect(await fs.exists(expected)).toBe(true);
   });
@@ -299,7 +299,7 @@ prompts:
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
-    const testFile = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md');
+    const testFile = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
     fs.seed(testFile, '# Test');
 
     await writer.removeBundleFile('prompts/test.md');
@@ -307,11 +307,32 @@ prompts:
     expect(await fs.exists(testFile)).toBe(false);
   });
 
+  it('removes bundle files from their Copilot repository directories', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const files = [
+      ['instructions/test.instructions.md', '.github/instructions/test.instructions.md'],
+      ['agents/test.agent.md', '.github/agents/test.agent.md'],
+      ['chat-modes/review.chatmode.md', '.github/agents/review.chatmode.md'],
+      ['prompts/review.chatmode.md', '.github/agents/review.chatmode.md'],
+      ['skills/demo/SKILL.md', '.github/skills/demo/SKILL.md']
+    ] as const;
+
+    for (const [bundlePath, repositoryPath] of files) {
+      const targetPath = path.join(WORKSPACE_ROOT, repositoryPath);
+      fs.seed(targetPath, '# Test');
+
+      await writer.removeBundleFile(bundlePath);
+
+      expect(await fs.exists(targetPath)).toBe(false);
+    }
+  });
+
   it('removes files for a bundle from manifest', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
-    const promptFile = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md');
+    const promptFile = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
     fs.seed(promptFile, '# Test');
 
     const manifest = {
@@ -327,7 +348,7 @@ prompts:
   it('removes governed canonical items without relying on legacy projections', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
-    const promptFile = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'governed.md');
+    const promptFile = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'governed.md');
     fs.seed(promptFile, '# Governed');
 
     await writer.remove('governed-bundle', {
@@ -360,7 +381,7 @@ prompts:
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');
-    fs.seed(excludePath, '# Prompt Registry (local)\n.github/copilot/prompts/test.md');
+    fs.seed(excludePath, '# Prompt Registry (local)\n.github/prompts/test.md');
 
     const manifest = {
       id: 'test-bundle',
@@ -370,14 +391,14 @@ prompts:
     await writer.remove('test-bundle', manifest);
 
     const content = await fs.readFile(excludePath);
-    expect(content).not.toContain('.github/copilot/prompts/test.md');
+    expect(content).not.toContain('.github/prompts/test.md');
   });
 
   it('switches commit mode from commit to local-only', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
-    const paths = [path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md')];
+    const paths = [path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md')];
 
     await writer.switchCommitMode(paths, 'local-only');
 
@@ -389,13 +410,13 @@ prompts:
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
-    const paths = [path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md')];
+    const paths = [path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md')];
     await writer.switchCommitMode(paths, 'local-only');
     await writer.switchCommitMode(paths, 'commit');
 
     const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');
     const content = await fs.readFile(excludePath);
-    expect(content).not.toContain('.github/copilot/prompts/test.md');
+    expect(content).not.toContain('.github/prompts/test.md');
   });
 
   it('sanitizes skill IDs', async () => {
@@ -575,7 +596,7 @@ describe('RepositoryScopeWriterAdapter', () => {
     const result = await adapter.write(dummyTarget, files);
 
     expect(result.written.length).toBeGreaterThan(0);
-    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md'))).toBe(true);
+    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md'))).toBe(true);
   });
 
   it('delegates remove to RepositoryScopeWriter.removeFile', async () => {
@@ -596,7 +617,7 @@ describe('RepositoryScopeWriterAdapter', () => {
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
     const adapter = new RepositoryScopeWriterAdapter(writer);
 
-    const testFile = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md');
+    const testFile = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
     fs.seed(testFile, '# Test');
 
     await adapter.remove(dummyTarget, 'prompts/test.md');
