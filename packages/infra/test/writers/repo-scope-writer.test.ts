@@ -179,30 +179,6 @@ instructions:
     expect(await fs.exists(expected)).toBe(true);
   });
 
-  it('writes chatmode items to .github/agents/', async () => {
-    const fs = new InMemoryFileSystem();
-    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
-
-    const manifest = `id: test-bundle
-version: 1.0.0
-name: Test
-prompts:
-  - id: review-mode
-    file: chat-modes/review.chatmode.md
-    type: chatmode`;
-
-    const files = new Map<string, Uint8Array>([
-      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
-      ['chat-modes/review.chatmode.md', new TextEncoder().encode('# Review')]
-    ]);
-
-    const result = await writer.write(files);
-
-    const expected = path.join(WORKSPACE_ROOT, '.github', 'agents', 'review.chatmode.md');
-    expect(result.written).toContain(expected);
-    expect(await fs.exists(expected)).toBe(true);
-  });
-
   it('writes agents to .github/agents/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
@@ -313,8 +289,6 @@ prompts:
     const files = [
       ['instructions/test.instructions.md', '.github/instructions/test.instructions.md'],
       ['agents/test.agent.md', '.github/agents/test.agent.md'],
-      ['chat-modes/review.chatmode.md', '.github/agents/review.chatmode.md'],
-      ['prompts/review.chatmode.md', '.github/agents/review.chatmode.md'],
       ['skills/demo/SKILL.md', '.github/skills/demo/SKILL.md']
     ] as const;
 
