@@ -99,13 +99,20 @@ describe('doctor/status/init/update commands', () => {
     it('runs every check and exits 0 with zero failures', async () => {
       const result = await run(['doctor', '-o', 'json']);
       expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{ checks: { name: string; status: string }[]; summary: { ok: number; warn: number; fail: number } }>(result.stdout);
+      const envelope = parseJson<{ checks: { name: string; status: string; detail?: string }[]; summary: { ok: number; warn: number; fail: number } }>(result.stdout);
       expect(envelope.data.checks.length).toBe(11);
       expect(envelope.data.summary.fail).toBe(0);
       expect(envelope.data.checks).toContainEqual(expect.objectContaining({
         name: 'github-cli',
         status: 'warn'
       }));
+      expect(envelope.data.checks).toContainEqual(expect.objectContaining({
+        name: 'project-config',
+        status: 'warn',
+        detail: expect.stringContaining('--scope repository')
+      }));
+      const projectConfigCheck = envelope.data.checks.find(({ name }) => name === 'project-config');
+      expect(projectConfigCheck?.detail).toContain('need one. For repository installs');
     });
 
     it('-v includes per-check logs', async () => {
@@ -279,6 +286,29 @@ profiles: []
       expect(envelope.data.target.created).toBe(false);
     });
 
+    it('makes the default user-scoped target visible to doctor', async () => {
+      const initResult = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli', '--yes', '--skip-index', '-o', 'json'
+      ]);
+      expect(initResult.exitCode).toBe(0);
+
+      const doctorResult = await run(['doctor', '-o', 'json']);
+      expect(doctorResult.exitCode).toBe(0);
+      const doctor = parseJson<{
+        checks: { name: string; status: string; detail: string }[];
+      }>(doctorResult.stdout);
+      expect(doctor.data.checks).toContainEqual(expect.objectContaining({
+        name: 'project-config',
+        status: 'ok',
+        detail: expect.stringContaining('from user config')
+      }));
+      expect(doctor.data.checks).toContainEqual(expect.objectContaining({
+        name: 'install-targets',
+        status: 'ok',
+        detail: expect.stringContaining('copilot')
+      }));
+    });
+
     it('fails with exit 1 for an unknown --target-type', async () => {
       const result = await run(['init', '--target-type', 'totally-bogus', '--yes', '-o', 'json']);
       expect(result.exitCode).toBe(1);
@@ -294,6 +324,39 @@ profiles: []
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{ hub: { id: string } | null }>(result.stdout);
       expect(envelope.data.hub).not.toBeNull();
+    });
+
+    it('reuses and activates the same hub on repeated initialization', async () => {
+      const hubConfigFile = path.join(workspace, 'hub-config.yml');
+      await writeLocalHubConfig(hubConfigFile);
+
+      const firstResult = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '--skip-index', '-o', 'json'
+      ]);
+      expect(firstResult.exitCode).toBe(0);
+      const first = parseJson<{ hub: { id: string } | null }>(firstResult.stdout);
+      const hubId = first.data.hub?.id;
+      expect(hubId).toBeDefined();
+
+      const secondResult = await run([
+        'init', '--target-name', 'copilot', '--target-type', 'copilot-cli',
+        '--hub', hubConfigFile, '--hub-type', 'local', '--yes', '--skip-index', '-o', 'json'
+      ]);
+      expect(secondResult.exitCode).toBe(0);
+      const second = parseJson<{ hub: { id: string } | null }>(secondResult.stdout);
+      expect(second.data.hub?.id).toBe(hubId);
+
+      const statusResult = await run(['status', '-o', 'json']);
+      expect(statusResult.exitCode).toBe(0);
+      const status = parseJson<{
+        activeHubId: string | null;
+        hubs: string[];
+        targets: { name: string }[];
+      }>(statusResult.stdout);
+      expect(status.data.activeHubId).toBe(hubId);
+      expect(status.data.hubs).toEqual([hubId]);
+      expect(status.data.targets).toContainEqual(expect.objectContaining({ name: 'copilot' }));
     });
 
     it('builds an embedded index by default after importing a hub', async () => {

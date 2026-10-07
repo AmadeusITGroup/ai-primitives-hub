@@ -26,6 +26,7 @@ import {
 } from '@ai-primitives-hub/app';
 import type {
   HttpClient,
+  HubReference,
   TargetType,
   TokenProvider,
 } from '@ai-primitives-hub/core';
@@ -44,6 +45,7 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   loadInquirer,
+  loadTargets,
 } from '../framework';
 import {
   Command,
@@ -258,7 +260,7 @@ async function runInteractiveWizard(ctx: Context, _opts: InitOptions): Promise<{
 
   const answers = await inquirer.prompt<WizardAnswers>([
     {
-      type: 'list',
+      type: 'select',
       name: 'ide',
       message: 'What IDE are you using?',
       choices: TARGET_TYPES.map((type) => ({
@@ -268,7 +270,7 @@ async function runInteractiveWizard(ctx: Context, _opts: InitOptions): Promise<{
       default: 'copilot-cli'
     },
     {
-      type: 'list',
+      type: 'select',
       name: 'scope',
       message: 'Installation scope:',
       choices: [
@@ -284,7 +286,7 @@ async function runInteractiveWizard(ctx: Context, _opts: InitOptions): Promise<{
       default: true
     },
     {
-      type: 'list',
+      type: 'select',
       name: 'hubChoice',
       message: 'Select hub:',
       choices: allHubChoices,
@@ -304,7 +306,7 @@ async function runInteractiveWizard(ctx: Context, _opts: InitOptions): Promise<{
   let targetName = DEFAULT_TARGET_NAME;
   const targetScope = answers.scope ?? 'user';
 
-  const currentTargets = await readTargets({ cwd: ctx.cwd(), fs: ctx.fs });
+  const currentTargets = await loadTargets(ctx);
   const targetExists = currentTargets.some((t) => t.name === targetName);
 
   if (targetExists) {
@@ -403,7 +405,7 @@ async function createOrReuseTarget(
  * @param hubType Hub reference type.
  * @param hubRefParam Hub reference branch or tag.
  * @param opts Init options.
- * @returns Hub ID or null.
+ * @returns The persisted hub ID and whether an existing import was reused.
  */
 async function importAndSyncHub(
   ctx: Context,
@@ -411,16 +413,39 @@ async function importAndSyncHub(
   hubType: HubType | undefined,
   hubRefParam: string | undefined,
   opts: InitOptions
-): Promise<string | null> {
+): Promise<{ id: string; reused: boolean }> {
   const mgr = createHubManager({ ctx, http: opts.http, tokens: opts.tokens });
   const refType = hubType ?? opts.hubType ?? inferHubType(hubRef);
-  const location = refType === 'local' && !path.isAbsolute(hubRef)
-    ? path.resolve(ctx.cwd(), hubRef)
-    : hubRef;
+  const localPath = hubRef.startsWith('file:') ? hubRef.slice('file:'.length) : hubRef;
+  const location = refType === 'local' && !path.isAbsolute(localPath)
+    ? path.resolve(ctx.cwd(), localPath)
+    : localPath;
+  const reference: HubReference = {
+    type: refType,
+    location,
+    ...(hubRefParam === undefined ? {} : { ref: hubRefParam })
+  };
 
-  const hubId = await mgr.importHub({ type: refType, location, ref: hubRefParam });
+  const existing = (await mgr.listHubs()).find((hub) => referencesMatch(hub.reference, reference));
+  const hubId = existing?.id ?? await mgr.importHub(reference);
+
   await mgr.syncHub(hubId);
-  return hubId;
+  await mgr.setActiveHub(hubId);
+  return { id: hubId, reused: existing !== undefined };
+}
+
+/**
+ * Compare the identity of two hub references. GitHub's implicit `main` ref
+ * is equivalent to an explicit `main`; `autoSync` is deliberately excluded
+ * because it controls behavior, not which hub was imported.
+ * @param left Saved hub reference.
+ * @param right Requested hub reference.
+ * @returns Whether both references identify the same hub.
+ */
+function referencesMatch(left: HubReference, right: HubReference): boolean {
+  return left.type === right.type
+    && left.location === right.location
+    && (left.type !== 'github' || (left.ref ?? 'main') === (right.ref ?? 'main'));
 }
 
 function describeTargetStep(name: string, type: string, file: string, created: boolean, updated: boolean): string {
@@ -445,7 +470,7 @@ function describeTargetStep(name: string, type: string, file: string, created: b
  * @param verbose Verbose flag.
  * @returns Formatted text output.
  */
-function buildInitOutput(data: { steps: string[]; target: { file: string; name: string; type: string }; hub: { id: string } | null }, verbose: boolean): string {
+function buildInitOutput(data: { steps: string[]; target: { file: string; name: string; type: string }; hub: { id: string; reused: boolean } | null }, verbose: boolean): string {
   const lines = ['Initialized ai-primitives-hub project:\n'];
   for (const step of data.steps) {
     lines.push(`  ✓ ${step}\n`);
@@ -568,9 +593,12 @@ async function runInit(ctx: Context, opts: InitOptions): Promise<number> {
     }
 
     let hubId: string | null = null;
+    let hubReused = false;
     if (hubRef !== undefined && hubRef.length > 0) {
-      hubId = await importAndSyncHub(ctx, hubRef, hubType, hubRefParam, opts);
-      steps.push(`hub "${hubId}" imported and synced`);
+      const importedHub = await importAndSyncHub(ctx, hubRef, hubType, hubRefParam, opts);
+      hubId = importedHub.id;
+      hubReused = importedHub.reused;
+      steps.push(`hub "${hubId}" ${importedHub.reused ? 'reused' : 'imported'} and synced`);
     }
 
     if (hubId !== null && opts.skipIndex !== true) {
@@ -604,7 +632,7 @@ async function runInit(ctx: Context, opts: InitOptions): Promise<number> {
         file: result.file,
         created: result.created ?? false
       },
-      hub: hubId === null ? null : { id: hubId },
+      hub: hubId === null ? null : { id: hubId, reused: hubReused },
       steps
     };
 

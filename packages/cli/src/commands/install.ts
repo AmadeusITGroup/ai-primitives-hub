@@ -63,7 +63,6 @@ import {
   NodeHttpClient,
   parseGitHubRepositoryTarget,
   readLocalBundle,
-  readTargets,
   type RepositoryCommitMode,
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
@@ -418,9 +417,9 @@ export class InstallCommand extends BaseInstallCommand {
     }
 
     try {
-      const targetName = await resolveTargetName(opts.target, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const targetName = await resolveTargetName(opts.target, 'install', ctx, () => loadTargets(ctx));
       checkAllowTarget(targetName, opts);
-      const configuredTarget = await resolveTarget(targetName, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const configuredTarget = await resolveTarget(targetName, 'install', ctx, () => loadTargets(ctx));
       const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
       const mode = determineInstallMode(opts);
@@ -1304,9 +1303,9 @@ export const createInstallCommand = (
       }
 
       try {
-        const targetName = await resolveTargetName(opts.target, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+        const targetName = await resolveTargetName(opts.target, 'install', ctx, () => loadTargets(ctx));
         checkAllowTarget(targetName, opts);
-        const configuredTarget = await resolveTarget(targetName, 'install', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+        const configuredTarget = await resolveTarget(targetName, 'install', ctx, () => loadTargets(ctx));
         const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
         if (opts.from !== undefined && opts.from.length > 0) {
