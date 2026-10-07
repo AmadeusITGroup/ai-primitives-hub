@@ -40,9 +40,11 @@ import {
   CompositeTokenProvider,
   GhCliTokenProvider,
   GitHubHubResolver,
+  isWithinSourceRoot,
   LocalHubResolver,
   NodeFileSystem,
   NodeHttpClient,
+  normalizeSourceRoot,
   UrlHubResolver,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
@@ -144,11 +146,20 @@ async function hydrateArtifactorySources(
     return sources;
   }
   const token = await new HubTokenVault(secrets).get(reference.credentialRef);
-  return token
-    ? sources.map((source) => source.type === 'artifactory' && !source.token
-      ? { ...source, token }
-      : source)
-    : sources;
+  if (!token) {
+    return sources;
+  }
+  const root = normalizeSourceRoot(reference.location);
+  return sources.map((source) => {
+    if (source.type !== 'artifactory' || source.token) {
+      return source;
+    }
+    try {
+      return isWithinSourceRoot(root, normalizeSourceRoot(source.url)) ? { ...source, token } : source;
+    } catch {
+      return source;
+    }
+  });
 }
 
 export class HubManager {

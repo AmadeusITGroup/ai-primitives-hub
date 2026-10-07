@@ -70,7 +70,7 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
   if (options.publish && publisher) {
     await publisher.publish('index-v1.json', new TextEncoder().encode(JSON.stringify(index, null, 2) + '\n'), 'application/json');
     const profiles = (Array.isArray(raw.profiles) ? raw.profiles : []).filter((profile): profile is Record<string, unknown> => !!profile && typeof profile === 'object').map((profile) => ({ ...profile, bundles: (Array.isArray(profile.bundles) ? profile.bundles : []).filter((bundle): bundle is Record<string, unknown> => {
-      const b = bundle as Record<string, unknown>; return verified.has(`${String(b.source)}\0${String(b.id)}\0${String(b.version)}`) || (String(b.version) === 'latest' && [...verified].some((key) => key.startsWith(`${String(b.source)}\0${String(b.id)}\0`)));
+      const b2 = bundle as Record<string, unknown>; const v2 = String(b2.version ?? 'latest'); return verified.has(`${String(b2.source)}\0${String(b2.id)}\0${v2}`) || (v2 === 'latest' && [...verified].some((key) => key.startsWith(`${String(b2.source)}\0${String(b2.id)}\0`)));
     }).map((bundle) => ({ ...bundle, source: 'replicated' })) }));
     const targetAuth = options.targetAuth ?? 'bearer';
     const config: HubConfig = {

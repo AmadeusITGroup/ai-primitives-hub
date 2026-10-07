@@ -26,6 +26,7 @@ import {
 } from '../framework';
 import type {
   Context,
+  OutputFormat,
 } from '../framework';
 
 export class HubReplicateCommand extends Command {
@@ -94,10 +95,11 @@ export class HubReplicateCommand extends Command {
         targetAuth,
         targetCredentialRef: consumerCredentialRef
       }, source, publisher);
+      const fmt = (this.output ?? 'text') as OutputFormat;
       formatOutput({
         ctx,
         command: 'hub.replicate',
-        output: (this.output ?? 'json') as 'json' | 'text' | 'yaml' | 'ndjson',
+        output: fmt,
         status: result.warnings.length > 0 ? 'warning' : 'ok',
         data: { mode, publish: this.publish, selectedBundles: result.selected.length, unresolvedProfiles: result.warnings, index: result.index, targetRoot: target },
         warnings: result.warnings
