@@ -30,15 +30,6 @@ pnpm run package:vsix
 
 Always run linting with its `:fix` option. Do not run the corresponding non-fixing lint command afterwards: it reports the same remaining issues without adding useful validation.
 
-### Local CLI End-to-End Tests
-
-When development changes affect the CLI, run an end-to-end test with the locally built CLI before finishing to fully verify the change:
-
-```bash
-pnpm -C packages -r build
-node packages/cli/bin/ai-primitives-hub.js <command>
-```
-
 ## Architecture
 
 Dependencies point inward only — `CLI` and `Extension` → `app` → `infra` → `core`:

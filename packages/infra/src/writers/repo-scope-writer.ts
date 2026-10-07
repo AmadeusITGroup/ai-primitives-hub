@@ -15,7 +15,6 @@
  */
 import * as path from 'node:path';
 import type {
-  CopilotFileType,
   ExtractedFiles,
   FileSystem,
   PrimitiveKind,
@@ -25,8 +24,6 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
-  determineFileType,
-  getRepositoryTargetDirectory,
   normalizePrimitiveKind,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
@@ -38,27 +35,6 @@ import {
  * Section header for AI Primitives Hub entries in .git/info/exclude
  */
 const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
-
-const COPILOT_FILE_TYPES: Partial<Record<string, CopilotFileType>> = {
-  prompt: 'prompt',
-  instruction: 'instructions',
-  instructions: 'instructions',
-  chatmode: 'chatmode',
-  'chat-mode': 'chatmode',
-  agent: 'agent',
-  skill: 'skill'
-};
-
-const BUNDLE_PATH_ROUTES: readonly { sourcePrefix: string; type: string }[] = [
-  { sourcePrefix: 'prompts/', type: 'prompt' },
-  { sourcePrefix: 'instructions/', type: 'instructions' },
-  { sourcePrefix: 'chat-modes/', type: 'chatmode' },
-  { sourcePrefix: 'chatmodes/', type: 'chatmode' },
-  { sourcePrefix: 'agents/', type: 'agent' },
-  { sourcePrefix: 'skills/', type: 'skill' },
-  { sourcePrefix: 'hooks/', type: 'hook' },
-  { sourcePrefix: 'plugins/', type: 'plugin' }
-];
 
 const toGitIgnorePath = (workspaceRoot: string, filePath: string): string =>
   path.relative(workspaceRoot, filePath).replaceAll('\\', '/');
@@ -169,17 +145,25 @@ export class RepositoryScopeWriter {
 
   private getSubdirectory(type: string): string | null {
     const typeLower = type.toLowerCase();
+    if (typeLower === 'prompt') {
+      return 'prompts';
+    }
+    if (typeLower === 'instruction' || typeLower === 'instructions') {
+      return 'instructions';
+    }
+    if (typeLower === 'agent' || typeLower === 'chatmode' || typeLower === 'chat-mode') {
+      return 'agents';
+    }
+    if (typeLower === 'skill') {
+      return 'skills';
+    }
     if (typeLower === 'hook') {
       return 'hooks';
     }
     if (typeLower === 'plugin') {
       return 'plugins';
     }
-
-    const copilotFileType = COPILOT_FILE_TYPES[typeLower];
-    return copilotFileType === undefined
-      ? null
-      : getRepositoryTargetDirectory(copilotFileType).slice('.github/'.length).replace(/\/$/, '');
+    return null;
   }
 
   private getFileName(filePath: string): string {
@@ -566,15 +550,20 @@ export class RepositoryScopeWriter {
    */
   public async removeBundleFile(filePath: string): Promise<void> {
     const normalized = filePath.replaceAll('\\', '/');
-    const route = BUNDLE_PATH_ROUTES.find(({ sourcePrefix }) => normalized.startsWith(sourcePrefix));
-    const routeType = route?.sourcePrefix === 'prompts/'
-      ? determineFileType(normalized)
-      : route?.type;
-    const subdirectory = routeType === undefined ? null : this.getSubdirectory(routeType);
+    const route = [
+      ['prompts/', 'prompts/'],
+      ['instructions/', 'instructions/'],
+      ['chat-modes/', 'agents/'],
+      ['chatmodes/', 'agents/'],
+      ['agents/', 'agents/'],
+      ['skills/', 'skills/'],
+      ['hooks/', 'hooks/'],
+      ['plugins/', 'plugins/']
+    ].find(([sourcePrefix]) => normalized.startsWith(sourcePrefix));
 
-    const targetPath = route === undefined || subdirectory === null
+    const targetPath = route === undefined
       ? path.join(this.workspaceRoot, normalized)
-      : path.join(this.workspaceRoot, '.github', subdirectory, normalized.slice(route.sourcePrefix.length));
+      : path.join(this.workspaceRoot, '.github', route[1], normalized.slice(route[0].length));
     await this.removePaths([targetPath]);
     if (this.commitMode === 'local-only') {
       await this.removeFromGitExclude([targetPath]);
