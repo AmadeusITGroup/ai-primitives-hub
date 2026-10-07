@@ -195,6 +195,28 @@ instructions:
     expect(await fs.exists(expected)).toBe(true);
   });
 
+  it.each(['chatmode', 'chat-mode'])('writes %s items to .github/agents/', async (type) => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const manifest = `id: test-bundle
+version: 1.0.0
+name: Test
+prompts:
+  - id: review-mode
+    file: prompts/review.chatmode.md
+    type: ${type}`;
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['prompts/review.chatmode.md', new TextEncoder().encode('# Review')]
+    ]);
+
+    const result = await writer.write(files);
+
+    const expected = path.join(WORKSPACE_ROOT, '.github', 'agents', 'review.chatmode.md');
+    expect(result.written).toContain(expected);
+    expect(await fs.exists(expected)).toBe(true);
+  });
+
   it('writes skills to .github/skills/<skill-id>/', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
@@ -295,6 +317,24 @@ instructions:
     for (const [bundlePath, repositoryPath] of files) {
       const targetPath = path.join(WORKSPACE_ROOT, repositoryPath);
       fs.seed(targetPath, '# Test');
+
+      await writer.removeBundleFile(bundlePath);
+
+      expect(await fs.exists(targetPath)).toBe(false);
+    }
+  });
+
+  it('removes chatmode bundle paths from .github/agents/', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const chatmodeFiles = [
+      ['chat-modes/review.chatmode.md', 'review.chatmode.md'],
+      ['chatmodes/legacy.chatmode.md', 'legacy.chatmode.md']
+    ] as const;
+
+    for (const [bundlePath, fileName] of chatmodeFiles) {
+      const targetPath = path.join(WORKSPACE_ROOT, '.github', 'agents', fileName);
+      fs.seed(targetPath, '# Chatmode');
 
       await writer.removeBundleFile(bundlePath);
 

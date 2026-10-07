@@ -43,6 +43,8 @@ const COPILOT_FILE_TYPES: Partial<Record<string, CopilotFileType>> = {
   prompt: 'prompt',
   instruction: 'instructions',
   instructions: 'instructions',
+  chatmode: 'chatmode',
+  'chat-mode': 'chatmode',
   agent: 'agent',
   skill: 'skill'
 };
@@ -50,6 +52,8 @@ const COPILOT_FILE_TYPES: Partial<Record<string, CopilotFileType>> = {
 const BUNDLE_PATH_ROUTES: readonly { sourcePrefix: string; type: string }[] = [
   { sourcePrefix: 'prompts/', type: 'prompt' },
   { sourcePrefix: 'instructions/', type: 'instructions' },
+  { sourcePrefix: 'chat-modes/', type: 'chatmode' },
+  { sourcePrefix: 'chatmodes/', type: 'chatmode' },
   { sourcePrefix: 'agents/', type: 'agent' },
   { sourcePrefix: 'skills/', type: 'skill' },
   { sourcePrefix: 'hooks/', type: 'hook' },
@@ -693,7 +697,7 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
       await this.writer.removeBundleFile(normalized);
       return;
     }
-    const knownBundlePrefix = /^(prompts|instructions|agents|skills|hooks|plugins)\//;
+    const knownBundlePrefix = /^(prompts|instructions|chat-modes|chatmodes|agents|skills|hooks|plugins)\//;
     if (knownBundlePrefix.test(normalized)) {
       await this.writer.removeBundleFile(normalized);
       return;
