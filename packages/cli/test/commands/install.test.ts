@@ -280,7 +280,7 @@ describe('install command (local --from mode)', () => {
     const envelope = parseJson<{ lockfile: string }>(result.stdout);
     expect(envelope.data.lockfile).toBe(path.join(workspace, 'prompt-registry.local.lock.json'));
     await expect(
-      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
+      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello Prompt');
   });
 
@@ -375,10 +375,10 @@ describe('install command (local --from mode)', () => {
 
     expect(result).toBe(0);
     await expect(
-      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
+      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello from a remote bundle');
     await expect(
-      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
+      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
     ).rejects.toThrow();
   });
 
@@ -444,7 +444,7 @@ describe('install command (local --from mode)', () => {
 
     expect(result).toBe(0);
     await expect(
-      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
+      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello Prompt');
     await expect(readFile(path.join(workspace, '.github', 'README.md'), 'utf8')).rejects.toThrow();
     await expect(readFile(path.join(workspace, '.github', 'LICENSE'), 'utf8')).rejects.toThrow();
@@ -531,7 +531,7 @@ describe('install command (local --from mode)', () => {
 
     expect(result).toBe(0);
     await expect(
-      readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
+      readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('preflighted bundle');
   });
 });
