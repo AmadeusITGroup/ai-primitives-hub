@@ -12,16 +12,27 @@ import * as yaml from 'js-yaml';
 
 interface ReleaseAsset { name?: string; url?: string; size?: number }
 interface Release { tag_name?: string; name?: string; published_at?: string; draft?: boolean; assets?: ReleaseAsset[] }
+interface ReleasePage { releases: Release[]; next?: string }
 export interface ReplicationCache { get(key: string): Promise<Uint8Array | undefined>; set(key: string, value: Uint8Array): Promise<void> }
+const nextPageUrl = (link: string | undefined): string | undefined => {
+  for (const part of (link ?? '').split(/,(?=\s*<)/)) {
+    const match = /^\s*<([^>]+)>(.*)$/.exec(part);
+    const relation = /(?:^|;)\s*rel\s*=\s*(?:"([^"]+)"|([^;\s]+))/i.exec(match?.[2] ?? '');
+    if (match && (relation?.[1] ?? relation?.[2])?.toLowerCase().split(/\s+/).includes('next')) {
+      return match[1];
+    }
+  }
+  return undefined;
+};
 export class GitHubReleaseSource implements ReplicationSourcePort {
   public constructor(private readonly api: GitHubApi, private readonly cache?: ReplicationCache, private readonly budget = 600) {}
   private used = 0;
   private async get<T>(key: string, load: () => Promise<T>, encode: (value: T) => Uint8Array, decode: (value: Uint8Array) => T): Promise<T> {
     const cached = await this.cache?.get(key); if (cached) {
       return decode(cached);
-    } if (++this.used > this.budget) {
+    } if (this.used >= this.budget) {
       throw new Error(`GitHub request budget (${this.budget}) exhausted; rerun with the same cache directory.`);
-    } const value = await load(); await this.cache?.set(key, encode(value)); return value;
+    } this.used += 1; const value = await load(); await this.cache?.set(key, encode(value)); return value;
   }
 
   public get requestCount(): number {
@@ -35,7 +46,23 @@ export class GitHubReleaseSource implements ReplicationSourcePort {
   }
 
   public async listReleaseCandidates(owner: string, repo: string, sourceId: string): Promise<ReplicationCandidate[]> {
-    const releases = await this.get(`releases:${owner}/${repo}`, () => this.api.getJson<Release[]>(`/repos/${owner}/${repo}/releases?per_page=100`), (value) => new TextEncoder().encode(JSON.stringify(value)), (bytes) => JSON.parse(new TextDecoder().decode(bytes)) as Release[]); const result: ReplicationCandidate[] = []; for (const release of releases) {
+    const releases: Release[] = []; const visited = new Set<string>(); let pageUrl: string | undefined = `/repos/${owner}/${repo}/releases?per_page=100`;
+    while (pageUrl) {
+      const currentUrl: string = pageUrl; if (visited.has(currentUrl)) {
+        throw new Error(`GitHub releases pagination repeated ${currentUrl}.`);
+      } visited.add(currentUrl);
+      const page: ReleasePage = await this.get<ReleasePage>(
+        `release-page:${owner}/${repo}:${currentUrl}`,
+        async (): Promise<ReleasePage> => {
+          const response = await this.api.getJsonWithHeaders<Release[]>(currentUrl);
+          return { releases: response.value, next: nextPageUrl(response.headers.link) };
+        },
+        (value) => new TextEncoder().encode(JSON.stringify(value)),
+        (bytes) => JSON.parse(new TextDecoder().decode(bytes)) as ReleasePage
+      );
+      releases.push(...page.releases); pageUrl = page.next;
+    }
+    const result: ReplicationCandidate[] = []; for (const release of releases) {
       if (release.draft) {
         continue;
       } const assets = release.assets ?? []; const manifest = assets.find((asset) => ['deployment-manifest.yml', 'deployment-manifest.yaml', 'deployment-manifest.json'].includes(asset.name ?? '')); const archive = assets.find((asset) => asset.name?.endsWith('.zip')); if (!manifest?.url || !archive?.url || !manifest.name) {

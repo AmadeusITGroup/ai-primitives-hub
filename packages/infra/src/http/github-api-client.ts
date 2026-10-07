@@ -287,10 +287,17 @@ export class GitHubApiClient implements GitHubApi {
   }
 
   public async getJson<T>(pathOrUrl: string, extraHeaders?: Record<string, string>): Promise<T> {
+    return (await this.getJsonWithHeaders<T>(pathOrUrl, extraHeaders)).value;
+  }
+
+  public async getJsonWithHeaders<T>(pathOrUrl: string, extraHeaders?: Record<string, string>): Promise<{
+    value: T;
+    headers: Record<string, string>;
+  }> {
     const response = await this.request(pathOrUrl, 'application/json', extraHeaders);
     const text = Buffer.from(response.body).toString('utf8');
     try {
-      return JSON.parse(text) as T;
+      return { value: JSON.parse(text) as T, headers: response.headers };
     } catch (error) {
       throw new Error(`Failed to parse GitHub response as JSON: ${error instanceof Error ? error.message : error}`);
     }

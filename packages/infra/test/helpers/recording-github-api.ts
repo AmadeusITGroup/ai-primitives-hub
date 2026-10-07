@@ -10,7 +10,7 @@ import type {
   GitHubApi,
 } from '@ai-primitives-hub/core';
 
-type GitHubApiMethod = 'getJson' | 'getText' | 'download' | 'getJsonWithEtag';
+type GitHubApiMethod = 'getJson' | 'getJsonWithHeaders' | 'getText' | 'download' | 'getJsonWithEtag';
 
 export interface RecordedGitHubApiCall {
   method: GitHubApiMethod;
@@ -25,6 +25,14 @@ export class RecordingGitHubApi implements GitHubApi {
   public getJson<T>(pathOrUrl: string): Promise<T> {
     this.calls.push({ method: 'getJson', pathOrUrl });
     return this.inner.getJson(pathOrUrl);
+  }
+
+  public getJsonWithHeaders<T>(pathOrUrl: string, extraHeaders?: Record<string, string>): Promise<{
+    value: T;
+    headers: Record<string, string>;
+  }> {
+    this.calls.push({ method: 'getJsonWithHeaders', pathOrUrl });
+    return this.inner.getJsonWithHeaders(pathOrUrl, extraHeaders);
   }
 
   public getText(pathOrUrl: string): Promise<string> {

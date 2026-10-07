@@ -38,7 +38,7 @@ Important options:
 | `--mode` | `latest` | Select profile-resolved latest versions or every available version |
 | `--cache-dir` | local cache | Persistent release/manifest/archive cache |
 | `--workers` | `4` | Bounded source-processing concurrency |
-| `--request-budget` | `600` | Maximum uncached GitHub API requests |
+| `--request-budget` | `600` | Maximum uncached GitHub API requests; every page of a repository's release list counts as one request |
 | `--target-auth` | `bearer` | Authentication mode recorded for the generated target source |
 | `--target-credential-ref` | `ARTIFACTORY_READER_TOKEN` | Consumer credential reference recorded in generated hub config |
 | `--publisher-credential-ref` | `ARTIFACTORY_PUBLISHER_TOKEN` | Environment variable used only for publication |
