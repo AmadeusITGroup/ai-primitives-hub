@@ -204,7 +204,7 @@ sequenceDiagram
         Writer-->>CLI: Written paths
     else target.scope == repository
         CLI->>RepoWriter: write(target, files)
-        RepoWriter->>FS: Write .github/copilot/... files
+        RepoWriter->>FS: Write files under .github/prompts/, .github/agents/, .github/instructions/, .github/skills/
         RepoWriter-->>CLI: Written paths
     end
 

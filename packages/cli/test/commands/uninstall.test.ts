@@ -161,7 +161,7 @@ describe('uninstall command', () => {
     ]);
     expect(installResult.exitCode).toBe(0);
 
-    const repositoryFile = path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md');
+    const repositoryFile = path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
     await expect(readFile(repositoryFile, 'utf8')).resolves.toContain('Hello Prompt');
 
     const uninstallResult = await run([
