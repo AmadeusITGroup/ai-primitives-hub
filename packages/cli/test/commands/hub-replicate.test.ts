@@ -93,6 +93,7 @@ describe('hub replicate command', () => {
       '--source-hub', 'owner/hub',
       '--target-root', 'https://artifactory.example/replicated',
       '--mode', 'latest',
+      '--output', 'json',
       '--cache-dir', cacheDir
     ], {
       ctx,
