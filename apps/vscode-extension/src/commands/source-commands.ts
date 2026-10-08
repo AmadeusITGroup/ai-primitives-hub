@@ -262,7 +262,7 @@ export class SourceCommands {
 
     if (token !== undefined) {
       await this.registryManager.updateSource(sourceId, {
-        token: token.trim() || undefined,
+        token: token.trim(),
         private: !!token.trim(),
         ...(source.type === 'artifactory' ? { config: { ...source.config, authMode: token.trim() ? 'bearer' : 'anonymous' } } : {})
       });

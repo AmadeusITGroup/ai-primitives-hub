@@ -945,14 +945,21 @@ export class RegistryManager {
 
   /**
    * Update a source
+   *
+   * The token is kept in SecretStorage, never in the registry configuration.
+   * A missing or `undefined` token leaves the stored credential untouched, so
+   * callers that merely carry an absent token (e.g. a hub sync of a source the
+   * hub declares no credential for) cannot wipe it; an empty or blank string
+   * removes it, and any other value replaces it.
    * @param sourceId
    * @param updates
    */
   public async updateSource(sourceId: string, updates: Partial<RegistrySource>): Promise<void> {
     this.logger.info(`Updating source: ${sourceId}`);
 
-    if ('token' in updates) {
-      await (updates.token?.trim() ? this.tokenVault.set(sourceId, updates.token.trim()) : this.tokenVault.delete(sourceId));
+    if (updates.token !== undefined) {
+      const token = updates.token.trim();
+      await (token ? this.tokenVault.set(sourceId, token) : this.tokenVault.delete(sourceId));
     }
     const { token: _token, ...persistedUpdates } = updates;
     await this.storage.updateSource(sourceId, persistedUpdates);

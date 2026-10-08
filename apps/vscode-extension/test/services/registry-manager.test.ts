@@ -16,6 +16,9 @@ import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
+  SourceTokenVault,
+} from '../../src/services/source-token-vault';
+import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
 import {
@@ -665,6 +668,106 @@ suite('RegistryManager - Source Management', () => {
     // Verify adapter was created and validated
     assert.ok(factoryStub.called, 'Adapter factory should be called');
     assert.ok(mockAdapter.validate.called, 'Adapter validation should be called');
+  });
+});
+
+suite('RegistryManager - Source Token Management', () => {
+  const SOURCE_ID = 'private-source';
+  let sandbox: sinon.SinonSandbox;
+  let manager: RegistryManager;
+  let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
+  let secretValues: Map<string, string>;
+
+  const storedToken = (): string | undefined => secretValues.get(SourceTokenVault.key(SOURCE_ID));
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+    secretValues = new Map([[SourceTokenVault.key(SOURCE_ID), 'stored-token']]);
+
+    const mockContext = {
+      globalState: {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      } as any,
+      workspaceState: {
+        get: sandbox.stub(),
+        update: sandbox.stub().resolves(),
+        keys: sandbox.stub().returns([]),
+        setKeysForSync: sandbox.stub()
+      } as any,
+      secrets: {
+        get: (key: string) => Promise.resolve(secretValues.get(key)),
+        store: (key: string, value: string) => {
+          secretValues.set(key, value);
+          return Promise.resolve();
+        },
+        delete: (key: string) => {
+          secretValues.delete(key);
+          return Promise.resolve();
+        }
+      } as any,
+      subscriptions: [],
+      extensionPath: '/mock/path',
+      extensionUri: vscode.Uri.file('/mock/path'),
+      storageUri: vscode.Uri.file('/mock/storage'),
+      globalStorageUri: vscode.Uri.file('/mock/global'),
+      asAbsolutePath: (p: string) => `/mock/path/${p}`
+    } as any;
+
+    RegistryManager.resetInstance();
+    manager = RegistryManager.getInstance(mockContext);
+
+    mockStorage = sandbox.createStubInstance(RegistryStorage);
+    mockStorage.getSources.resolves([]);
+    mockStorage.updateSource.resolves();
+    (manager as any).storage = mockStorage;
+  });
+
+  teardown(() => {
+    sandbox.restore();
+    RegistryManager.resetInstance();
+  });
+
+  test('should keep the stored token when an update does not mention it', async () => {
+    await manager.updateSource(SOURCE_ID, { name: 'Renamed Source' });
+
+    assert.strictEqual(storedToken(), 'stored-token');
+  });
+
+  test('should keep the stored token when a hub sync update carries no token', async () => {
+    // Hub sync always builds its update with a `token` entry, which is
+    // `undefined` whenever the hub declares no credential for the source.
+    await manager.updateSource(SOURCE_ID, { name: 'Hub Source', token: undefined });
+
+    assert.strictEqual(storedToken(), 'stored-token');
+  });
+
+  test('should replace the stored token with the trimmed new value', async () => {
+    await manager.updateSource(SOURCE_ID, { token: '  new-token  ' });
+
+    assert.strictEqual(storedToken(), 'new-token');
+  });
+
+  test('should remove the stored token when the update clears it with an empty value', async () => {
+    await manager.updateSource(SOURCE_ID, { token: '' });
+
+    assert.strictEqual(storedToken(), undefined);
+  });
+
+  test('should remove the stored token when the update clears it with whitespace', async () => {
+    await manager.updateSource(SOURCE_ID, { token: '   ' });
+
+    assert.strictEqual(storedToken(), undefined);
+  });
+
+  test('should never persist the token in the registry configuration', async () => {
+    await manager.updateSource(SOURCE_ID, { name: 'Renamed Source', token: 'new-token' });
+
+    const persistedUpdates = mockStorage.updateSource.firstCall.args[1];
+    assert.strictEqual(Object.hasOwn(persistedUpdates, 'token'), false);
+    assert.strictEqual(persistedUpdates.name, 'Renamed Source');
   });
 });
 
