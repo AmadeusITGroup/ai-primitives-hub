@@ -57,6 +57,9 @@ class RecordingHttp implements HttpClient {
   public readonly requests: HttpRequest[] = [];
   public async fetch(request: HttpRequest): Promise<HttpResponse> {
     this.requests.push(request);
+    if (request.url.startsWith('https://artifactory.example/')) {
+      return { statusCode: request.method === 'HEAD' ? 404 : 201, body: new Uint8Array(), finalUrl: request.url, headers: {} };
+    }
     let body: Uint8Array;
     if (request.url.includes('/contents/hub-config.yml')) {
       body = new TextEncoder().encode(JSON.stringify({ content: Buffer.from(hub).toString('base64') }));
@@ -114,5 +117,38 @@ describe('hub replicate command', () => {
     ]);
     expect(ctx.stdout.captured()).not.toContain('github-private-token');
     expect(JSON.parse(ctx.stdout.captured()).data.selectedBundles).toBe(1);
+  });
+
+  it('uploads the hub config at the target root and everything else under sources/replicated', async () => {
+    const http = new RecordingHttp();
+    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test', ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
+    const cacheDir = `/tmp/aph-replicate-test-cache-publish-${process.pid}-${Date.now()}`;
+    const exitCode = await runCli([
+      'hub', 'replicate',
+      '--source-hub', 'owner/hub',
+      '--target-root', 'https://artifactory.example/replicated',
+      '--mode', 'latest',
+      '--output', 'json',
+      '--publish', '--review',
+      '--cache-dir', cacheDir
+    ], {
+      ctx,
+      http,
+      tokens: tokenProvider,
+      commandClasses: [HubReplicateCommand],
+      commands: [],
+      name: 'ai-primitives-hub',
+      version: 'test'
+    });
+
+    expect(exitCode).toBe(0);
+    const base = 'https://artifactory.example/replicated';
+    expect(http.requests.filter((request) => request.method === 'PUT').map((request) => request.url)).toEqual([
+      `${base}/sources/replicated/bundles/owner-repo-bundle/1.0.0/deployment-manifest.yml`,
+      `${base}/sources/replicated/bundles/owner-repo-bundle/1.0.0/owner-repo-bundle-1.0.0.zip`,
+      `${base}/sources/replicated/index-v1.json`,
+      `${base}/hub-config.yml`
+    ]);
+    expect(ctx.stdout.captured()).not.toContain('publisher-token');
   });
 });

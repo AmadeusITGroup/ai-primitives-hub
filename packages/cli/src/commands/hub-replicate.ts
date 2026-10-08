@@ -74,12 +74,13 @@ export class HubReplicateCommand extends Command {
     const tokens: TokenProvider = this.commandContext.tokens ?? defaultTokenProvider(ctx.env);
     const api = new GitHubApiClient(http, { tokenProvider: tokens });
     const source = new GitHubReleaseSource(api, new FileReplicationCache(cacheDir), budget);
-    const target = `${this.targetRoot.replace(/\/$/, '')}/sources/replicated`;
+    const publishRoot = this.targetRoot.replace(/\/$/, '');
+    const target = `${publishRoot}/sources/replicated`;
     const publisher = this.publish
       ? new ArtifactoryReplicationPublisher(
         http,
-        new ArtifactoryEnvCredentialProvider(ctx.env, publisherCredentialRef, target),
-        target,
+        new ArtifactoryEnvCredentialProvider(ctx.env, publisherCredentialRef, publishRoot),
+        publishRoot,
         this.allowUnverifiedExisting
       )
       : undefined;

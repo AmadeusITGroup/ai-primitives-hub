@@ -26,6 +26,7 @@ export interface ReplicateOptions {
   targetAuth?: 'anonymous' | 'bearer';
   targetCredentialRef?: string;
 }
+const REPLICATED_SOURCE_PATH = 'sources/replicated';
 const sha256 = (data: Uint8Array): string => createHash('sha256').update(data).digest('hex');
 const sourceUrl = (source: Record<string, unknown>): string => String(source.url ?? '');
 const repoFromUrl = (url: string): { owner: string; repo: string } => {
@@ -60,7 +61,7 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
       const archive = await source.downloadArchive(candidate); if (archive.byteLength === 0) {
         throw new Error(`Empty release archive for ${candidate.bundleId}@${candidate.version}`);
       }
-      await publisher.publish(manifestPath, candidate.manifestBytes, 'application/yaml'); await publisher.publish(archivePath, archive, 'application/zip');
+      await publisher.publish(`${REPLICATED_SOURCE_PATH}/${manifestPath}`, candidate.manifestBytes, 'application/yaml'); await publisher.publish(`${REPLICATED_SOURCE_PATH}/${archivePath}`, archive, 'application/zip');
       entries.push(makeReplicatedEntry(candidate, manifestPath, archivePath, archive, sha256)); verified.add(`${candidate.sourceId}\0${candidate.bundleId}\0${candidate.version}`);
     } else {
       const placeholder = new Uint8Array(candidate.archiveSize); entries.push(makeReplicatedEntry(candidate, manifestPath, archivePath, placeholder, () => '0'.repeat(64)));
@@ -68,7 +69,7 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
   }
   const updatedAt = new Date().toISOString(); const index = { formatVersion: 1 as const, source: { id: 'replicated', name: 'Replicated GitHub hub', description: 'Bundles replicated from GitHub releases', updatedAt }, bundles: entries };
   if (options.publish && publisher) {
-    await publisher.publish('index-v1.json', new TextEncoder().encode(JSON.stringify(index, null, 2) + '\n'), 'application/json');
+    await publisher.publish(`${REPLICATED_SOURCE_PATH}/index-v1.json`, new TextEncoder().encode(JSON.stringify(index, null, 2) + '\n'), 'application/json');
     const profiles = (Array.isArray(raw.profiles) ? raw.profiles : []).filter((profile): profile is Record<string, unknown> => !!profile && typeof profile === 'object').map((profile) => ({ ...profile, bundles: (Array.isArray(profile.bundles) ? profile.bundles : []).filter((bundle): bundle is Record<string, unknown> => {
       const b2 = bundle as Record<string, unknown>; const v2 = String(b2.version ?? 'latest'); return verified.has(`${String(b2.source)}\0${String(b2.id)}\0${v2}`) || (v2 === 'latest' && [...verified].some((key) => key.startsWith(`${String(b2.source)}\0${String(b2.id)}\0`)));
     }).map((bundle) => ({ ...bundle, source: 'replicated' })) }));
@@ -78,7 +79,7 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
       metadata: { name: 'Replicated GitHub hub', description: 'Bundles replicated from GitHub releases', maintainer: 'ai-primitives-hub', updatedAt },
       sources: [{
         id: 'replicated', name: 'Replicated GitHub hub', type: 'artifactory',
-        url: `${options.targetRoot.replace(/\/$/, '')}/sources/replicated`, enabled: true, priority: 0,
+        url: `${options.targetRoot.replace(/\/$/, '')}/${REPLICATED_SOURCE_PATH}`, enabled: true, priority: 0,
         private: targetAuth === 'bearer',
         config: {
           indexFile: 'index-v1.json', authMode: targetAuth,
