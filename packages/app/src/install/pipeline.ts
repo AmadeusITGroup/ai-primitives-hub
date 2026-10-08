@@ -21,7 +21,7 @@ import {
   type BundleExtractor,
   type BundleResolver,
   type BundleSpec,
-  getInstallableBundleFiles,
+  getTargetInstallableBundleFiles,
   type Installable,
   type Target,
   type ValidatedManifest,
@@ -181,7 +181,7 @@ export class InstallPipeline {
     let writeResult;
     try {
       const writer = this.opts.writerFactory(target);
-      const targetFiles = getInstallableBundleFiles(files, manifest);
+      const targetFiles = getTargetInstallableBundleFiles(files, manifest);
       writeResult = await writeTargetSafely(writer, target, targetFiles);
     } catch (writeError) {
       const code = writeError instanceof TargetWriteRejectedError

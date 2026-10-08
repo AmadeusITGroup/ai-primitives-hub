@@ -23,10 +23,10 @@
  */
 import * as path from 'node:path';
 import type {
-  CopilotFileType,
   ExtractedFiles,
   KindRoutes,
   LayoutConfigLoader,
+  ManifestPlacementType,
   PrimitiveKind,
   ResourceTransformer,
   Target,
@@ -36,13 +36,20 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  assertSafeRepositoryInstallPath,
+  assertSafeRepositoryRemovalPath,
   decodeUtf8Strict,
   determineFileType,
   expandPath,
+  FileWriteJournal,
+  getKnowledgeRelativePath,
   getSkillName,
   getTargetFileName,
+  manifestPlacementTypeToPrimitiveKind,
   normalizePrimitiveKind,
   normalizePromptId,
+  toCopilotFileType,
+  UnsafeRepositoryPathError,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -74,11 +81,13 @@ export interface WriterFs {
   mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;
   remove(p: string): Promise<void>;
   exists(p: string): Promise<boolean>;
+  realpath?(p: string): Promise<string>;
+  lstat?(p: string): Promise<{ isSymbolicLink: boolean }>;
 }
 
 /**
  * A manifest-driven placement instruction: "this bundle-relative source
- * file/directory is primitive `id` of Copilot type `type`". Used by
+ * file/directory is primitive `id` of placement type `type`". Used by
  * `FileTreeTargetWriter.writeManifestItems` for targets/scopes (e.g. the
  * VS Code extension's user/repository scopes) whose real on-disk
  * convention renames every file to `{id}.{type-extension}` rather than
@@ -91,23 +100,26 @@ export interface ManifestPlacementItem {
   id: string;
   /** Bundle-relative source path (looked up in the `ExtractedFiles` map). */
   file: string;
-  /** Copilot file type; auto-detected from `file`/`tags` when omitted. */
-  type?: CopilotFileType;
+  /** Manifest placement type; auto-detected from `file`/`tags` when omitted. */
+  type?: ManifestPlacementType;
   tags?: string[];
 }
 
 /**
- * Maps a `CopilotFileType` to the `default-layouts.json` kindRoutes key
+ * Maps a manifest placement type to the `default-layouts.json` kindRoutes key
  * whose *value* (the output subdirectory) applies to it. Chatmodes are
  * deliberately routed through the agents key because they are associated
  * with agents at runtime.
  */
-export const KIND_TO_ROUTE_KEY: Record<CopilotFileType, string> = {
+export const KIND_TO_ROUTE_KEY: Partial<Record<ManifestPlacementType, string>> = {
   prompt: 'prompts/',
+  instruction: 'instructions/',
   instructions: 'instructions/',
+  'chat-mode': 'agents/',
   chatmode: 'agents/',
   agent: 'agents/',
-  skill: 'skills/'
+  skill: 'skills/',
+  knowledge: 'knowledge/'
 };
 
 /**
@@ -122,7 +134,7 @@ export interface TargetRemoveResult {
 }
 
 // Re-export domain types for backward compatibility with existing callers.
-export type { KindRoutes, TargetLayout } from '@ai-primitives-hub/core';
+export type { KindRoutes, ManifestPlacementType, TargetLayout } from '@ai-primitives-hub/core';
 
 // Satisfy local usage (TypeScript needs the types in scope for the functions below).
 // The re-export above covers external callers.
@@ -169,7 +181,7 @@ export const resolveLayoutAsync = async (
  * @deprecated Import `expandPath` from `@ai-primitives-hub/core` directly. This re-export
  * is kept for backward compatibility and will be removed in a future version.
  */
-export { expandPath } from '@ai-primitives-hub/core';
+export { expandPath, getKnowledgeRelativePath } from '@ai-primitives-hub/core';
 
 /**
  * Options for FileTreeTargetWriter.
@@ -194,7 +206,65 @@ export class FileTreeTargetWriter implements TargetWriter {
    * Construct a FileTreeTargetWriter.
    * @param opts Writer options including filesystem and environment.
    */
+  private writeJournal: FileWriteJournal | null = null;
+
   public constructor(private readonly opts: FileTreeTargetWriterOptions) {}
+
+  private containmentRoot(target: Target, baseDir: string): string {
+    if (target.scope !== 'repository') {
+      return path.resolve(baseDir);
+    }
+    if (target.rootPath === undefined) {
+      throw new UnsafeRepositoryPathError(baseDir, 'cannot be checked against repository root');
+    }
+    return path.resolve(target.rootPath);
+  }
+
+  private assertLexicallyWithinRoot(root: string, paths: readonly string[]): void {
+    const resolvedRoot = path.resolve(root);
+    for (const filePath of paths) {
+      const relative = path.relative(resolvedRoot, path.resolve(filePath));
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new UnsafeRepositoryPathError(filePath);
+      }
+    }
+  }
+
+  private async validateInstallPaths(root: string, paths: readonly string[]): Promise<void> {
+    const fileSystem = this.opts.fs;
+    if (fileSystem.realpath === undefined || fileSystem.lstat === undefined) {
+      throw new UnsafeRepositoryPathError(root, 'cannot be checked against repository root');
+    }
+    for (const filePath of paths) {
+      await assertSafeRepositoryInstallPath(
+        root,
+        filePath,
+        fileSystem.realpath.bind(fileSystem),
+        fileSystem.lstat.bind(fileSystem)
+      );
+    }
+  }
+
+  private async validateRemovalPaths(root: string, paths: readonly string[]): Promise<void> {
+    const fileSystem = this.opts.fs;
+    if (fileSystem.realpath === undefined) {
+      throw new UnsafeRepositoryPathError(root, 'cannot be checked against repository root');
+    }
+    for (const filePath of paths) {
+      await assertSafeRepositoryRemovalPath(root, filePath, fileSystem.realpath.bind(fileSystem));
+    }
+  }
+
+  private async rollbackJournal(target: Target, journal: FileWriteJournal): Promise<void> {
+    const layout = await this.resolveLayout(target);
+    const baseDir = expandPath(layout.baseDir, this.opts.env);
+    const root = target.scope === 'repository' ? target.rootPath : baseDir;
+    if (root === undefined) {
+      throw new UnsafeRepositoryPathError(baseDir, 'cannot be checked against repository root');
+    }
+    await this.validateRemovalPaths(root, journal.getPaths());
+    await journal.rollback();
+  }
 
   /**
    * Determine which extracted bundle files this writer can place without
@@ -205,12 +275,14 @@ export class FileTreeTargetWriter implements TargetWriter {
    */
   public async preflight(target: Target, files: ExtractedFiles): Promise<TargetWritePlan> {
     const layout = await this.resolveLayout(target);
+    const baseDir = expandPath(layout.baseDir, this.opts.env);
     const skip = new Set(layout.skipPaths);
     const allowed = target.allowedKinds === undefined
       ? null
       : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
     const writable: string[] = [];
     const skipped: string[] = [];
+    const destinations: string[] = [];
 
     for (const bundlePath of files.keys()) {
       if (skip.has(bundlePath)) {
@@ -227,8 +299,17 @@ export class FileTreeTargetWriter implements TargetWriter {
         continue;
       }
       writable.push(bundlePath);
+      destinations.push(path.join(baseDir, route.outPrefix, route.tail));
     }
 
+    if (destinations.length > 0) {
+      const root = this.containmentRoot(target, baseDir);
+      if (target.scope === 'repository' || await this.opts.fs.exists(root)) {
+        await this.validateInstallPaths(root, destinations);
+      } else {
+        this.assertLexicallyWithinRoot(root, destinations);
+      }
+    }
     return { writable, skipped };
   }
 
@@ -239,74 +320,67 @@ export class FileTreeTargetWriter implements TargetWriter {
    * @returns TargetWriteResult.
    */
   public async write(target: Target, files: ExtractedFiles): Promise<TargetWriteResult> {
+    let plan = await this.preflight(target, files);
     const layout = await this.resolveLayout(target);
     const baseDir = expandPath(layout.baseDir, this.opts.env);
-    const skip = new Set(layout.skipPaths);
-    const allowed = target.allowedKinds === undefined
-      ? null
-      : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
+    const root = this.containmentRoot(target, baseDir);
+    if (plan.writable.length > 0 && target.scope !== 'repository') {
+      await this.opts.fs.mkdir(baseDir, { recursive: true });
+      plan = await this.preflight(target, files);
+    }
+    const writable = new Set(plan.writable);
     const written: string[] = [];
     const writtenBundlePaths: string[] = [];
-    const skipped: string[] = [];
-    let pendingWritePath: string | null = null;
+    const journal = new FileWriteJournal(this.opts.fs);
+    this.writeJournal = journal;
 
     try {
-      // Eager mkdir of the routed-kind directories; reduces churn over
-      // calling mkdir per file. Per-kind subdir creation is recursive
-      // so root + nested dirs are covered.
-      for (const sub of Object.values(layout.kindRoutes)) {
-        await this.opts.fs.mkdir(path.join(baseDir, sub), { recursive: true });
-      }
-
       for (const [bundlePath, bytes] of files) {
-        if (skip.has(bundlePath)) {
+        if (!writable.has(bundlePath)) {
           continue;
         }
         const route = pickRoute(bundlePath, layout.kindRoutes);
         if (route === null) {
-          // Unrouted file; not an error (bundles may carry extras).
-          skipped.push(bundlePath);
           continue;
         }
-        // Skip when allowedKinds explicitly excludes this kind.
-        const routeKind = routeToKind(route.prefix);
-        if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
-          skipped.push(bundlePath);
-          continue;
-        }
-
         const outPath = path.join(baseDir, route.outPrefix, route.tail);
-        // Keep the path visible to the catch block before write starts:
-        // a filesystem can persist the file and then throw.
-        pendingWritePath = outPath;
-        await this.writeContent(target, bundlePath, bytes, outPath);
-        pendingWritePath = null;
+        await this.writeContent(target, bundlePath, bytes, outPath, root, journal);
         written.push(outPath);
         writtenBundlePaths.push(bundlePath);
       }
     } catch (cause) {
-      const rollbackPaths = pendingWritePath === null
-        ? written
-        : [...written, pendingWritePath];
-      await this.rollback(target, rollbackPaths);
+      try {
+        await this.rollbackJournal(target, journal);
+      } catch (rollbackError) {
+        throw new AggregateError([cause, rollbackError], 'Target write failed and rollback was incomplete', { cause });
+      }
       throw cause;
     }
-    return { written, skipped, writtenBundlePaths };
+    return { written, skipped: plan.skipped, writtenBundlePaths };
   }
 
   /**
    * Remove files written by a failed or rejected installation.
-   * @param _target - Target chosen via `--target <name>`.
+   * @param target - Target chosen via `--target <name>`.
    * @param written - Absolute paths returned by `write`.
    */
-  public async rollback(_target: Target, written: readonly string[]): Promise<void> {
-    for (const filePath of written) {
-      try {
-        await this.opts.fs.remove(filePath);
-      } catch {
-        // Rollback is best effort; preserve the original install failure.
-      }
+  public async rollback(target: Target, written: readonly string[]): Promise<void> {
+    if (written.length === 0) {
+      return;
     }
+    const journal = this.writeJournal;
+    if (journal === null) {
+      throw new Error('Cannot rollback files without an active write journal');
+    }
+    journal.assertPaths(written);
+    const layout = await this.resolveLayout(target);
+    const baseDir = expandPath(layout.baseDir, this.opts.env);
+    const root = target.scope === 'repository' ? target.rootPath : baseDir;
+    if (root === undefined) {
+      throw new UnsafeRepositoryPathError(baseDir, 'cannot be checked against repository root');
+    }
+    await this.validateRemovalPaths(root, written);
+    await journal.rollback(written);
   }
 
   /**
@@ -323,20 +397,26 @@ export class FileTreeTargetWriter implements TargetWriter {
    * @param bundlePath - Bundle-relative source path (transformer context).
    * @param bytes - Raw source bytes from the extracted bundle.
    * @param outPath - Absolute destination path.
+   * @param root
+   * @param journal
    */
   private async writeContent(
     target: Target,
     bundlePath: string,
     bytes: Uint8Array,
-    outPath: string
+    outPath: string,
+    root: string,
+    journal: FileWriteJournal
   ): Promise<void> {
-    await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-
     const text = decodeUtf8Strict(bytes);
     if (text === null) {
       // Binary payload: write verbatim, never transform.
-      await this.opts.fs.writeFileBytes(outPath, bytes);
-      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+      await this.validateInstallPaths(root, [outPath]);
+      await journal.write(outPath, bytes, async () => {
+        await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
+        await this.opts.fs.writeFileBytes(outPath, bytes);
+        await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+      });
       return;
     }
 
@@ -354,8 +434,22 @@ export class FileTreeTargetWriter implements TargetWriter {
         // In production, this would log a warning
       }
     }
-    await this.opts.fs.writeFile(outPath, content);
-    await verifyWrittenBytes(this.opts.fs, outPath, new TextEncoder().encode(content));
+    const writtenBytes = new TextEncoder().encode(content);
+    await this.validateInstallPaths(root, [outPath]);
+    await journal.write(outPath, writtenBytes, async () => {
+      await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
+      await this.opts.fs.writeFile(outPath, content);
+      await verifyWrittenBytes(this.opts.fs, outPath, writtenBytes);
+    });
+  }
+
+  public async getKnowledgeTargetPath(target: Target, bundlePath: string): Promise<string | null> {
+    const layout = await this.resolveLayout(target);
+    if (target.allowedKinds !== undefined
+      && !target.allowedKinds.some((kind) => (normalizePrimitiveKind(kind) ?? kind) === 'knowledge')) {
+      return null;
+    }
+    return getKnowledgeTargetPath(layout, expandPath(layout.baseDir, this.opts.env), bundlePath);
   }
 
   /**
@@ -388,48 +482,117 @@ export class FileTreeTargetWriter implements TargetWriter {
     const written: string[] = [];
     const writtenBundlePaths: string[] = [];
     const skipped: string[] = [];
+    const destinations: string[] = [];
 
     for (const item of items) {
       const type = item.type ?? determineFileType(item.file, item.tags);
       const routeKey = KIND_TO_ROUTE_KEY[type];
-      if (allowed !== null && !allowed.has(copilotTypeToPrimitiveKind(type))) {
-        skipped.push(item.file);
+      if (routeKey === undefined
+        || (allowed !== null && !allowed.has(manifestPlacementTypeToPrimitiveKind(type)))) {
         continue;
       }
       const outPrefix = layout.kindRoutes[routeKey];
       if (outPrefix === undefined) {
-        // Target's layout has no route for this kind at all.
-        skipped.push(item.file);
         continue;
       }
-
       if (type === 'skill') {
-        const wroteAny = await this.writeSkillItem(baseDir, outPrefix, item, files, written);
-        if (wroteAny) {
-          for (const bundlePath of files.keys()) {
-            const sourcePrefix = `${path.posix.dirname(item.file)}/`;
-            if (bundlePath.startsWith(sourcePrefix)) {
-              writtenBundlePaths.push(bundlePath);
+        if (getSkillName(item.file) !== null) {
+          const targetSkillId = normalizePromptId(item.id);
+          const sourcePrefix = `${path.posix.dirname(item.file)}/`;
+          for (const sourceFilePath of files.keys()) {
+            if (sourceFilePath.startsWith(sourcePrefix)) {
+              destinations.push(path.join(baseDir, outPrefix, targetSkillId, sourceFilePath.slice(sourcePrefix.length)));
             }
           }
-        } else {
-          skipped.push(item.file);
         }
         continue;
       }
-
-      const bytes = files.get(item.file);
-      if (bytes === undefined) {
-        skipped.push(item.file);
-        continue;
+      const copilotType = type === 'knowledge' ? null : toCopilotFileType(type);
+      const outPath = type === 'knowledge'
+        ? getKnowledgeTargetPath(layout, baseDir, item.file)
+        : (copilotType === null ? null : path.join(baseDir, outPrefix, getTargetFileName(item.id, copilotType)));
+      const bundlePath = this.getManifestSourceKey(files, type, item.file);
+      if (outPath !== null && files.has(bundlePath)) {
+        destinations.push(outPath);
       }
-      const outPath = path.join(baseDir, outPrefix, getTargetFileName(item.id, type));
-      await this.writeContent(target, item.file, bytes, outPath);
-      written.push(outPath);
-      writtenBundlePaths.push(item.file);
+    }
+
+    const root = destinations.length > 0
+      ? this.containmentRoot(target, baseDir)
+      : path.resolve(baseDir);
+    if (destinations.length > 0) {
+      if (target.scope !== 'repository') {
+        await this.opts.fs.mkdir(baseDir, { recursive: true });
+      }
+      await this.validateInstallPaths(root, destinations);
+    }
+    const journal = new FileWriteJournal(this.opts.fs);
+    this.writeJournal = journal;
+
+    try {
+      for (const item of items) {
+        const type = item.type ?? determineFileType(item.file, item.tags);
+        const routeKey = KIND_TO_ROUTE_KEY[type];
+        if (routeKey === undefined
+          || (allowed !== null && !allowed.has(manifestPlacementTypeToPrimitiveKind(type)))) {
+          skipped.push(item.file);
+          continue;
+        }
+        const outPrefix = layout.kindRoutes[routeKey];
+        if (outPrefix === undefined) {
+          skipped.push(item.file);
+          continue;
+        }
+
+        if (type === 'skill') {
+          const wroteAny = await this.writeSkillItem(baseDir, outPrefix, item, files, written, root, journal);
+          if (wroteAny) {
+            for (const sourceFilePath of files.keys()) {
+              const sourcePrefix = `${path.posix.dirname(item.file)}/`;
+              if (sourceFilePath.startsWith(sourcePrefix)) {
+                writtenBundlePaths.push(sourceFilePath);
+              }
+            }
+          } else {
+            skipped.push(item.file);
+          }
+          continue;
+        }
+
+        const bundlePath = this.getManifestSourceKey(files, type, item.file);
+        const bytes = files.get(bundlePath);
+        if (bytes === undefined) {
+          skipped.push(item.file);
+          continue;
+        }
+        const copilotType = type === 'knowledge' ? null : toCopilotFileType(type);
+        const outPath = type === 'knowledge'
+          ? getKnowledgeTargetPath(layout, baseDir, item.file)
+          : (copilotType === null ? null : path.join(baseDir, outPrefix, getTargetFileName(item.id, copilotType)));
+        if (outPath === null) {
+          skipped.push(item.file);
+          continue;
+        }
+        await this.writeContent(target, bundlePath, bytes, outPath, root, journal);
+        written.push(outPath);
+        writtenBundlePaths.push(bundlePath);
+      }
+    } catch (cause) {
+      try {
+        await this.rollbackJournal(target, journal);
+      } catch (rollbackError) {
+        throw new AggregateError([cause, rollbackError], 'Manifest item write failed and rollback was incomplete', { cause });
+      }
+      throw cause;
     }
 
     return { written, skipped, writtenBundlePaths };
+  }
+
+  private getManifestSourceKey(files: ExtractedFiles, type: ManifestPlacementType, file: string): string {
+    const relativePath = type === 'knowledge' ? getKnowledgeRelativePath(file) : null;
+    const canonicalPath = relativePath === null ? null : `knowledge/${relativePath}`;
+    return canonicalPath !== null && files.has(canonicalPath) ? canonicalPath : file;
   }
 
   private async resolveLayout(target: Target): Promise<TargetLayout> {
@@ -449,6 +612,8 @@ export class FileTreeTargetWriter implements TargetWriter {
    *   manifest file, e.g. `skills/my-skill/SKILL.md`).
    * @param files - Extracted bundle files.
    * @param written - Accumulator for written absolute paths.
+   * @param root
+   * @param journal
    * @returns true if at least one file was written.
    */
   private async writeSkillItem(
@@ -456,7 +621,9 @@ export class FileTreeTargetWriter implements TargetWriter {
     outPrefix: string,
     item: ManifestPlacementItem,
     files: ExtractedFiles,
-    written: string[]
+    written: string[],
+    root: string,
+    journal: FileWriteJournal
   ): Promise<boolean> {
     if (getSkillName(item.file) === null) {
       return false;
@@ -473,14 +640,111 @@ export class FileTreeTargetWriter implements TargetWriter {
       const outPath = path.join(baseDir, outPrefix, targetSkillId, tail);
       // Skill directories carry arbitrary assets (scripts, images,
       // office documents) — copy byte-for-byte, never transform.
-      await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFileBytes(outPath, bytes);
-      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+      await this.validateInstallPaths(root, [outPath]);
+      await journal.write(outPath, bytes, async () => {
+        await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
+        await this.opts.fs.writeFileBytes(outPath, bytes);
+        await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+      });
       written.push(outPath);
       wroteAny = true;
     }
 
     return wroteAny;
+  }
+
+  private repositoryKnowledgeRoute(
+    target: Target,
+    layout: TargetLayout,
+    baseDir: string
+  ): { prefix: string; outPrefix: string } | null {
+    if (target.scope !== 'repository') {
+      return null;
+    }
+    const routeKey = KIND_TO_ROUTE_KEY.knowledge;
+    const outPrefix = routeKey === undefined ? undefined : layout.kindRoutes[routeKey];
+    if (outPrefix === undefined) {
+      return null;
+    }
+    if (target.rootPath === undefined) {
+      throw new UnsafeRepositoryPathError(baseDir, 'cannot be checked against repository root');
+    }
+    const root = path.resolve(target.rootPath);
+    const destination = path.resolve(path.join(baseDir, outPrefix));
+    const relative = path.relative(root, destination);
+    if (relative.length === 0 || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new UnsafeRepositoryPathError(destination);
+    }
+    return { prefix: `${relative.split(path.sep).join('/')}/`, outPrefix };
+  }
+
+  private pickRemovalRoute(
+    target: Target,
+    filePath: string,
+    layout: TargetLayout,
+    baseDir: string
+  ): PickedRoute | null {
+    const raw = filePath.replaceAll('\\', '/');
+    const rawSegments = raw.split('/');
+    const dotHostKnowledgePath = rawSegments[0]?.startsWith('.') === true && rawSegments[1] === 'knowledge';
+    if (path.posix.isAbsolute(raw) || /^[a-zA-Z]:/.test(raw) || rawSegments.includes('..')
+      || (dotHostKnowledgePath && rawSegments.length < 3)) {
+      throw new UnsafeRepositoryPathError(filePath);
+    }
+    const configuredKnowledgeRoute = this.repositoryKnowledgeRoute(target, layout, baseDir);
+    const looksLikeKnowledgePath = raw.startsWith('knowledge/')
+      || dotHostKnowledgePath
+      || (configuredKnowledgeRoute !== null && raw.startsWith(configuredKnowledgeRoute.prefix));
+    if (looksLikeKnowledgePath && getKnowledgeRelativePath(raw) === null) {
+      throw new UnsafeRepositoryPathError(filePath);
+    }
+
+    const normalized = normalizeBundlePath(raw);
+    if (normalized.startsWith('knowledge/')) {
+      const relativePath = getKnowledgeRelativePath(normalized);
+      const routeKey = KIND_TO_ROUTE_KEY.knowledge;
+      const outPrefix = routeKey === undefined ? undefined : layout.kindRoutes[routeKey];
+      if (relativePath === null || outPrefix === undefined) {
+        throw new UnsafeRepositoryPathError(filePath, 'knowledge route is not configured for this target');
+      }
+      return { prefix: 'knowledge/', outPrefix, tail: relativePath };
+    }
+
+    if (configuredKnowledgeRoute !== null && normalized.startsWith(configuredKnowledgeRoute.prefix)) {
+      const tail = normalized.slice(configuredKnowledgeRoute.prefix.length);
+      if (getKnowledgeRelativePath(tail) === null) {
+        throw new UnsafeRepositoryPathError(filePath);
+      }
+      return { ...configuredKnowledgeRoute, tail };
+    }
+    const segments = normalized.split('/');
+    if (segments[0]?.startsWith('.') === true && segments[1] === 'knowledge' && segments.length > 2) {
+      throw new UnsafeRepositoryPathError(filePath, 'physical knowledge path does not match this target layout');
+    }
+    return pickRoute(normalized, layout.kindRoutes);
+  }
+
+  public async preflightRemoval(target: Target, filePaths: readonly string[]): Promise<void> {
+    if (filePaths.length === 0) {
+      return;
+    }
+    const layout = await this.resolveLayout(target);
+    const baseDir = expandPath(layout.baseDir, this.opts.env);
+    const root = target.scope === 'repository' ? target.rootPath : path.resolve(baseDir);
+    if (root === undefined) {
+      throw new UnsafeRepositoryPathError(baseDir, 'cannot be checked against repository root');
+    }
+    const destinations = filePaths.flatMap((filePath) => {
+      const route = this.pickRemovalRoute(target, filePath, layout, baseDir);
+      if (route === null) {
+        if (target.scope === 'repository') {
+          throw new UnsafeRepositoryPathError(filePath, 'does not match a repository layout route');
+        }
+        return [];
+      }
+      return [path.join(baseDir, route.outPrefix, route.tail)];
+    });
+    await this.validateRemovalPaths(root, destinations);
   }
 
   /**
@@ -491,11 +755,15 @@ export class FileTreeTargetWriter implements TargetWriter {
   public async remove(target: Target, filePath: string): Promise<void> {
     const layout = await this.resolveLayout(target);
     const baseDir = expandPath(layout.baseDir, this.opts.env);
-    const route = pickRoute(filePath, layout.kindRoutes);
+    const route = this.pickRemovalRoute(target, filePath, layout, baseDir);
     if (route === null) {
-      return; // Unrouted file, nothing to do
+      if (target.scope === 'repository') {
+        throw new UnsafeRepositoryPathError(filePath, 'does not match a repository layout route');
+      }
+      return;
     }
     const outPath = path.join(baseDir, route.outPrefix, route.tail);
+    await this.preflightRemoval(target, [filePath]);
     await this.opts.fs.remove(outPath);
   }
 }
@@ -571,5 +839,15 @@ const routeToKind = (prefix: string): PrimitiveKind | null => {
     ?? null;
 };
 
-const copilotTypeToPrimitiveKind = (type: CopilotFileType): PrimitiveKind =>
-  type === 'instructions' ? 'instruction' : (type === 'chatmode' ? 'chat-mode' : type);
+export const getKnowledgeTargetPath = (
+  layout: TargetLayout,
+  baseDir: string,
+  bundlePath: string
+): string | null => {
+  const routeKey = KIND_TO_ROUTE_KEY.knowledge;
+  const outPrefix = routeKey === undefined ? undefined : layout.kindRoutes[routeKey];
+  const relativePath = getKnowledgeRelativePath(bundlePath);
+  return outPrefix === undefined || relativePath === null
+    ? null
+    : path.join(baseDir, outPrefix, relativePath);
+};

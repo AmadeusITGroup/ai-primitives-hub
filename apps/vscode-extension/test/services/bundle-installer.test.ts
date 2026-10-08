@@ -354,6 +354,37 @@ suite('BundleInstaller', () => {
       return zip.toBuffer();
     };
 
+    test('retains embedded knowledge sidecars when installing a skill directly to Copilot', async () => {
+      const skillId = 'knowledge-bearing-skill';
+      const copilotSkillsDir = path.join(tempDir, 'copilot-skills');
+      fs.mkdirSync(copilotSkillsDir, { recursive: true });
+      sinon.stub(UserScopeService.prototype, 'getCopilotSkillsDirectory').returns(copilotSkillsDir);
+      const bundle: Bundle = { ...mockBundle, id: 'knowledge-bearing-skill-bundle' };
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`id: ${bundle.id}
+version: ${bundle.version}
+name: ${bundle.name}
+prompts:
+  - id: ${skillId}
+    file: skills/${skillId}/SKILL.md
+    type: skill
+  - id: guide
+    file: skills/${skillId}/knowledge/guide.md
+    type: knowledge
+`));
+      zip.addFile(`skills/${skillId}/SKILL.md`, Buffer.from('# Skill'));
+      zip.addFile(`skills/${skillId}/knowledge/guide.md`, Buffer.from('# Embedded knowledge'));
+
+      await installer.installFromBuffer(bundle, zip.toBuffer(), { scope: 'user', force: false }, 'skills');
+
+      const installedSkillDir = path.join(copilotSkillsDir, skillId);
+      assert.strictEqual(fs.readFileSync(path.join(installedSkillDir, 'SKILL.md'), 'utf8'), '# Skill');
+      assert.strictEqual(
+        fs.readFileSync(path.join(installedSkillDir, 'knowledge', 'guide.md'), 'utf8'),
+        '# Embedded knowledge'
+      );
+    });
+
     test('installs skill from the manifest path, not a hardcoded skills/ directory', async () => {
       const skillId = 'nevio-deployment-automation';
       const copilotSkillsDir = path.join(tempDir, 'copilot-skills');

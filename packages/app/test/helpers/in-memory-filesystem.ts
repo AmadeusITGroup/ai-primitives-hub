@@ -48,30 +48,32 @@ export class InMemoryFileSystem implements FileSystem {
     this.files.set(this.normalizePath(path), { contents, mtimeMs });
   }
 
-  public async readFile(path: string): Promise<string> {
+  public readFile(path: string): Promise<string> {
     const normalizedPath = this.normalizePath(path);
     const entry = this.files.get(normalizedPath);
     if (!entry) {
-      throw new Error(`ENOENT: no such file: ${normalizedPath}`);
+      return Promise.reject(new Error(`ENOENT: no such file: ${normalizedPath}`));
     }
-    return asString(entry.contents);
+    return Promise.resolve(asString(entry.contents));
   }
 
-  public async writeFile(path: string, contents: string): Promise<void> {
+  public writeFile(path: string, contents: string): Promise<void> {
     this.files.set(this.normalizePath(path), { contents, mtimeMs: Date.now() });
+    return Promise.resolve();
   }
 
-  public async readFileBytes(path: string): Promise<Uint8Array> {
+  public readFileBytes(path: string): Promise<Uint8Array> {
     const normalizedPath = this.normalizePath(path);
     const entry = this.files.get(normalizedPath);
     if (!entry) {
-      throw new Error(`ENOENT: no such file: ${normalizedPath}`);
+      return Promise.reject(Object.assign(new Error(`ENOENT: no such file: ${normalizedPath}`), { code: 'ENOENT' }));
     }
-    return asBytes(entry.contents);
+    return Promise.resolve(asBytes(entry.contents));
   }
 
-  public async writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
+  public writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
     this.files.set(this.normalizePath(path), { contents: bytes, mtimeMs: Date.now() });
+    return Promise.resolve();
   }
 
   public async readJson<T = unknown>(path: string): Promise<T> {
@@ -82,13 +84,21 @@ export class InMemoryFileSystem implements FileSystem {
     await this.writeFile(path, JSON.stringify(value, null, 2));
   }
 
-  public async exists(path: string): Promise<boolean> {
+  public realpath(path: string): Promise<string> {
+    return Promise.resolve(this.normalizePath(path));
+  }
+
+  public lstat(_path: string): Promise<{ isSymbolicLink: boolean }> {
+    return Promise.resolve({ isSymbolicLink: false });
+  }
+
+  public exists(path: string): Promise<boolean> {
     const normalizedPath = this.normalizePath(path);
     if (this.files.has(normalizedPath)) {
-      return true;
+      return Promise.resolve(true);
     }
     const dirPrefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
-    return [...this.files.keys()].some((existing) => existing.startsWith(dirPrefix));
+    return Promise.resolve([...this.files.keys()].some((existing) => existing.startsWith(dirPrefix)));
   }
 
   public mkdir(): Promise<void> {
@@ -100,10 +110,10 @@ export class InMemoryFileSystem implements FileSystem {
     return (await this.readDirEntries(path)).map((entry) => entry.name);
   }
 
-  public async readDirEntries(path: string): Promise<DirEntry[]> {
+  public readDirEntries(path: string): Promise<DirEntry[]> {
     const normalizedPath = this.normalizePath(path);
     if (this.files.has(normalizedPath)) {
-      throw new Error(`ENOTDIR: not a directory: ${normalizedPath}`);
+      return Promise.reject(new Error(`ENOTDIR: not a directory: ${normalizedPath}`));
     }
     const prefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
     const names = new Map<string, boolean>();
@@ -121,7 +131,7 @@ export class InMemoryFileSystem implements FileSystem {
       }
     }
 
-    return [...names.entries()].map(([name, isDirectory]) => ({ name, isDirectory }));
+    return Promise.resolve([...names.entries()].map(([name, isDirectory]) => ({ name, isDirectory })));
   }
 
   public async stat(path: string): Promise<FileStat> {
@@ -141,7 +151,7 @@ export class InMemoryFileSystem implements FileSystem {
     throw new Error(`ENOENT: no such file or directory: ${normalizedPath}`);
   }
 
-  public async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {
+  public remove(path: string, opts?: { recursive?: boolean }): Promise<void> {
     const normalizedPath = this.normalizePath(path);
     if (opts?.recursive === true) {
       const prefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
@@ -150,8 +160,9 @@ export class InMemoryFileSystem implements FileSystem {
           this.files.delete(key);
         }
       }
-      return;
+      return Promise.resolve();
     }
     this.files.delete(normalizedPath);
+    return Promise.resolve();
   }
 }

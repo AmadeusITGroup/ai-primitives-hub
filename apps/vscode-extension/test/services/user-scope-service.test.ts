@@ -104,6 +104,201 @@ prompts: []
     });
   });
 
+  suite('User-scope knowledge placement', () => {
+    const sourceFile = 'specifications/RDP/core_layer/AGENT_INDEX.md';
+
+    const createKnowledgeBundle = (bundlePath: string, bundleId: string): void => {
+      const sourcePath = path.join(bundlePath, sourceFile);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, '# Knowledge');
+      fs.mkdirSync(bundlePath, { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `id: ${bundleId}
+version: "1.0.0"
+prompts:
+  - id: AGENT_INDEX
+    name: Agent Index
+    file: ${sourceFile}
+    type: knowledge
+`);
+    };
+
+    test('preserves the source-relative path under VS Code and Kiro user knowledge routes', async () => {
+      const bundleId = 'knowledge-user-bundle';
+      const bundlePath = path.join(tempDir, 'knowledge-bundle');
+      createKnowledgeBundle(bundlePath, bundleId);
+
+      for (const targetType of ['vscode', 'kiro'] as const) {
+        const knowledgeService = new UserScopeService(mockContext, tempDir, targetType);
+        await knowledgeService.syncBundle(bundleId, bundlePath);
+
+        const targetRoot = targetType === 'vscode' ? '.copilot' : '.kiro';
+        const installedFile = path.join(tempDir, targetRoot, 'knowledge', sourceFile);
+        assert.ok(fs.existsSync(installedFile));
+        assert.strictEqual(fs.readFileSync(installedFile, 'utf8'), '# Knowledge');
+      }
+    });
+
+    test('syncs and unsyncs canonical items-only knowledge manifests', async () => {
+      const bundleId = 'canonical-knowledge-user-bundle';
+      const bundlePath = path.join(mockContext.globalStorageUri.fsPath, 'bundles', bundleId);
+      const sourcePath = path.join(bundlePath, sourceFile);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, '# Canonical knowledge');
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `formatVersion: 1
+id: ${bundleId}
+version: 1.0.0
+name: Canonical Knowledge
+items:
+  - id: agent-index
+    path: ${sourceFile}
+    kind: knowledge
+`);
+      for (const targetType of ['vscode', 'kiro'] as const) {
+        const knowledgeService = new UserScopeService(mockContext, tempDir, targetType);
+        const targetRoot = targetType === 'vscode' ? '.copilot' : '.kiro';
+        const installedFile = path.join(tempDir, targetRoot, 'knowledge', sourceFile);
+
+        await knowledgeService.syncBundle(bundleId, bundlePath);
+        assert.strictEqual(fs.readFileSync(installedFile, 'utf8'), '# Canonical knowledge');
+        await knowledgeService.unsyncBundle(bundleId);
+        assert.ok(!fs.existsSync(installedFile));
+      }
+    });
+
+    if (process.platform !== 'win32') {
+      test('allows a second sync when the final symlink belongs to the same bundle source', async () => {
+        const bundleId = 'owned-knowledge-link-bundle';
+        const bundlePath = path.join(mockContext.globalStorageUri.fsPath, 'bundles', bundleId);
+        createKnowledgeBundle(bundlePath, bundleId);
+        const knowledgeService = new UserScopeService(mockContext, tempDir, 'vscode');
+        const installedFile = path.join(tempDir, '.copilot', 'knowledge', sourceFile);
+        const expectedSource = path.join(bundlePath, sourceFile);
+
+        await knowledgeService.syncBundle(bundleId, bundlePath);
+        await knowledgeService.syncBundle(bundleId, bundlePath);
+
+        assert.ok(fs.lstatSync(installedFile).isSymbolicLink());
+        assert.strictEqual(fs.readlinkSync(installedFile), expectedSource);
+        assert.strictEqual(fs.readFileSync(installedFile, 'utf8'), '# Knowledge');
+      });
+
+      test('rejects and preserves a foreign final knowledge symlink during sync', async () => {
+        const bundleId = 'foreign-knowledge-link-bundle';
+        const bundlePath = path.join(mockContext.globalStorageUri.fsPath, 'bundles', bundleId);
+        createKnowledgeBundle(bundlePath, bundleId);
+        const outside = path.join(tempDir, 'foreign-knowledge.md');
+        const installedFile = path.join(tempDir, '.copilot', 'knowledge', sourceFile);
+        fs.writeFileSync(outside, '# User file');
+        fs.mkdirSync(path.dirname(installedFile), { recursive: true });
+        fs.symlinkSync(outside, installedFile);
+        const knowledgeService = new UserScopeService(mockContext, tempDir, 'vscode');
+
+        await assert.rejects(knowledgeService.syncBundle(bundleId, bundlePath), /symlink/);
+
+        assert.strictEqual(fs.readlinkSync(installedFile), outside);
+        assert.strictEqual(fs.readFileSync(outside, 'utf8'), '# User file');
+      });
+    }
+
+    if (process.platform !== 'win32') {
+      test('preserves a knowledge symlink replaced by an unrelated destination', async () => {
+        const bundleId = 'replaced-knowledge-link-bundle';
+        const bundlePath = path.join(mockContext.globalStorageUri.fsPath, 'bundles', bundleId);
+        createKnowledgeBundle(bundlePath, bundleId);
+        const knowledgeService = new UserScopeService(mockContext, tempDir, 'vscode');
+        const installedFile = path.join(tempDir, '.copilot', 'knowledge', sourceFile);
+        const unrelatedTarget = path.join(tempDir, 'unrelated-knowledge.md');
+
+        await knowledgeService.syncBundle(bundleId, bundlePath);
+        fs.writeFileSync(unrelatedTarget, '# User file');
+        fs.unlinkSync(installedFile);
+        fs.symlinkSync(unrelatedTarget, installedFile);
+        await knowledgeService.unsyncBundle(bundleId);
+
+        assert.strictEqual(fs.readlinkSync(installedFile), unrelatedTarget);
+        assert.strictEqual(fs.readFileSync(unrelatedTarget, 'utf8'), '# User file');
+      });
+    }
+
+    if (process.platform !== 'win32') {
+      test('rejects a knowledge write through an external user-scope parent symlink', async () => {
+        const bundleId = 'unsafe-knowledge-user-bundle';
+        const bundlePath = path.join(tempDir, 'unsafe-knowledge-bundle');
+        const sourcePath = path.join(bundlePath, 'linked', 'guide.md');
+        const outside = path.join(tempDir, 'outside-knowledge');
+        fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+        fs.writeFileSync(sourcePath, '# Guide');
+        fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `id: ${bundleId}
+version: 1.0.0
+prompts:
+  - id: guide
+    file: linked/guide.md
+    type: knowledge
+`);
+        fs.mkdirSync(path.join(tempDir, '.copilot', 'knowledge'), { recursive: true });
+        fs.mkdirSync(outside, { recursive: true });
+        fs.symlinkSync(outside, path.join(tempDir, '.copilot', 'knowledge', 'linked'), 'dir');
+        const knowledgeService = new UserScopeService(mockContext, tempDir, 'vscode');
+
+        await assert.rejects(knowledgeService.syncBundle(bundleId, bundlePath), /escapes repository root/);
+        assert.ok(!fs.existsSync(path.join(outside, 'guide.md')));
+      });
+    }
+
+    test('skips knowledge declarations when the user host has no knowledge route', async () => {
+      const bundleId = 'unsupported-knowledge-user-bundle';
+      const bundlePath = path.join(tempDir, 'unsupported-knowledge-bundle');
+      fs.mkdirSync(bundlePath, { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `formatVersion: 1
+id: ${bundleId}
+version: 1.0.0
+name: Unsupported Knowledge
+items:
+  - id: outside
+    path: ../outside.md
+    kind: knowledge
+`);
+      const windsurfService = new UserScopeService(mockContext, tempDir, 'windsurf');
+
+      await assert.doesNotReject(windsurfService.syncBundle(bundleId, bundlePath));
+    });
+
+    test('rejects a missing declared knowledge file on a supported user route', async () => {
+      const bundleId = 'missing-knowledge-user-bundle';
+      const bundlePath = path.join(tempDir, 'missing-knowledge-bundle');
+      fs.mkdirSync(bundlePath, { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `formatVersion: 1
+id: ${bundleId}
+version: 1.0.0
+name: Missing Knowledge
+items:
+  - id: guide
+    path: specifications/missing.md
+    kind: knowledge
+`);
+      const knowledgeService = new UserScopeService(mockContext, tempDir, 'vscode');
+
+      await assert.rejects(knowledgeService.syncBundle(bundleId, bundlePath), /missing or unreadable knowledge file/);
+    });
+
+    test('unsyncs knowledge-only bundles without requiring a prompts directory', async () => {
+      const bundleId = 'knowledge-only-user-bundle';
+      const bundlePath = path.join(mockContext.globalStorageUri.fsPath, 'bundles', bundleId);
+      createKnowledgeBundle(bundlePath, bundleId);
+      const knowledgeService = new UserScopeService(mockContext, tempDir, 'vscode');
+
+      await knowledgeService.syncBundle(bundleId, bundlePath);
+
+      const installedFile = path.join(tempDir, '.copilot', 'knowledge', sourceFile);
+      assert.ok(fs.existsSync(installedFile));
+      assert.ok(!fs.existsSync(path.join(tempDir, '.copilot', 'prompts')));
+
+      await knowledgeService.unsyncBundle(bundleId);
+
+      assert.ok(!fs.existsSync(installedFile));
+    });
+  });
+
   suite('Kiro target installation', () => {
     test('uses the Kiro layout and transforms agent frontmatter', async () => {
       const bundleId = 'kiro-agent-bundle';

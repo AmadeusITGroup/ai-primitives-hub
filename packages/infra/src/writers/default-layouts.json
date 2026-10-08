@@ -9,6 +9,7 @@
           "instructions/": "instructions/",
           "agents/": "agents/",
           "skills/": "skills/",
+          "knowledge/": "knowledge/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
@@ -27,6 +28,7 @@
           "instructions/": "instructions/",
           "agents/": "agents/",
           "skills/": "skills/",
+          "knowledge/": "knowledge/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
@@ -47,6 +49,7 @@
           "instructions/": "instructions/",
           "agents/": "agents/",
           "skills/": "skills/",
+          "knowledge/": "knowledge/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
@@ -65,6 +68,7 @@
           "instructions/": "instructions/",
           "agents/": "agents/",
           "skills/": "skills/",
+          "knowledge/": "knowledge/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
@@ -83,6 +87,7 @@
           "prompts/": "prompts/",
           "agents/": "agents/",
           "skills/": "skills/",
+          "knowledge/": "knowledge/",
           "instructions/": "instructions/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
@@ -99,6 +104,7 @@
           "prompts/": "prompts/",
           "agents/": "agents/",
           "skills/": "skills/",
+          "knowledge/": "knowledge/",
           "instructions/": "instructions/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
@@ -121,7 +127,8 @@
           "instructions/": "steering/",
           "chat-modes/": "agents/",
           "agents/": "agents/",
-          "skills/": "skills/"
+          "skills/": "skills/",
+          "knowledge/": "knowledge/"
         },
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
@@ -139,7 +146,8 @@
           "instructions/": "steering/",
           "chat-modes/": "agents/",
           "agents/": "agents/",
-          "skills/": "skills/"
+          "skills/": "skills/",
+          "knowledge/": "knowledge/"
         },
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
@@ -160,6 +168,7 @@
           "chat-modes/": "agents/",
           "agents/": "agents/",
           "skills/": "skills/",
+          "knowledge/": "knowledge/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },
@@ -180,6 +189,7 @@
           "chat-modes/": "agents/",
           "agents/": "agents/",
           "skills/": "skills/",
+          "knowledge/": "knowledge/",
           "hooks/": "hooks/",
           "plugins/": "plugins/"
         },

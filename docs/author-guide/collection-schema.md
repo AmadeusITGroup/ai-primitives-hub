@@ -16,7 +16,7 @@ tags:                               # Optional. For discoverability
 
 items:                              # Required. List of resources (max 50)
   - path: prompts/write-tests.prompt.md   # Required. Relative path to file
-    kind: prompt                          # Required. One of: prompt, instruction, chat-mode, agent
+    kind: prompt                          # Required. One of: prompt, instruction, chat-mode, agent, knowledge
     title: Test Writer                    # Optional. Display title
     description: Generates unit tests     # Optional. Item description
     tags: [testing, pytest]               # Optional. Item-level tags
@@ -26,6 +26,9 @@ items:                              # Required. List of resources (max 50)
 
   - path: agents/runner.agent.md
     kind: agent
+
+  - path: specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md
+    kind: knowledge
 readme:                                   # Optional. Documentation for the collection.
   path: docs/python-development/readme.md 
 
@@ -72,6 +75,10 @@ display:                            # Optional. UI preferences
   ordering: manual                  # manual or alphabetical
   show_badge: true                  # Show badge in UI
 ```
+
+Declared `knowledge` items preserve their nested source-relative path under the
+selected target's knowledge directory. Files not declared as knowledge items
+are not copied from neighboring source directories.
 
 ## MCP Input Definitions
 

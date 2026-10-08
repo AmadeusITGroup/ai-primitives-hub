@@ -13,6 +13,9 @@
  * @module domain/collection/types
  */
 import type {
+  ManifestPlacementType,
+} from '../install/manifest-placement-type';
+import type {
   PrimitiveKind,
 } from '../primitive/types';
 
@@ -230,7 +233,7 @@ export interface DeploymentManifest {
     description: string;
     file: string;
     tags?: string[];
-    type?: 'prompt' | 'instructions' | 'chatmode' | 'agent' | 'skill';
+    type?: ManifestPlacementType;
   }[];
   /**
    * MCP server declarations. Loosely typed pending a dedicated

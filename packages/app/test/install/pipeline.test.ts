@@ -73,6 +73,34 @@ describe('InstallPipeline', () => {
     expect(outcome.write.written).toContain('/out/deployment-manifest.yml');
   });
 
+  it('projects declared governed knowledge for the writer without changing the source manifest', async () => {
+    const archive = createGovernedReleaseArchive({ includeKnowledge: true });
+    let writtenFiles: ExtractedFiles | undefined;
+    const writer: TargetWriter = {
+      write: async (_target, files) => {
+        writtenFiles = files;
+        return { written: [], skipped: [] };
+      },
+      remove: async () => {}
+    };
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: { extract: async () => archive },
+      writerFactory: () => writer
+    });
+
+    const outcome = await pipeline.run({ bundleId: 'governed-bundle' }, TARGET);
+
+    expect(writtenFiles?.has('knowledge/specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md')).toBe(true);
+    expect(writtenFiles?.has('specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md')).toBe(false);
+    expect(outcome.manifest).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ path: 'specifications/RDP/provider_layer/SBB_B2P/SBB_B2P.md' })
+      ])
+    });
+  });
+
   it('emits events for every stage in order', async () => {
     const events: PipelineEvent['kind'][] = [];
     const pipeline = new InstallPipeline({

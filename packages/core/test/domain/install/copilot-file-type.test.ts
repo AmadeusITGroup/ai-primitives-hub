@@ -11,6 +11,7 @@ import {
   getTargetFileName,
   isSkillDirectory,
   normalizePromptId,
+  toCopilotFileType,
 } from '../../../src/domain/install/copilot-file-type';
 
 describe('normalizePromptId', () => {
@@ -79,6 +80,19 @@ describe('determineFileType', () => {
     expect(determineFileType('foo.md')).toBe('prompt');
     expect(determineFileType('foo.md', [])).toBe('prompt');
     expect(determineFileType('foo.md', ['unrelated'])).toBe('prompt');
+  });
+});
+
+describe('toCopilotFileType', () => {
+  it('maps canonical Copilot primitive kinds to legacy file types', () => {
+    expect(toCopilotFileType('instruction')).toBe('instructions');
+    expect(toCopilotFileType('chat-mode')).toBe('chatmode');
+    expect(toCopilotFileType('prompt')).toBe('prompt');
+  });
+
+  it('returns null for kinds without Copilot filename semantics', () => {
+    expect(toCopilotFileType('knowledge')).toBeNull();
+    expect(toCopilotFileType('plugin')).toBeNull();
   });
 });
 

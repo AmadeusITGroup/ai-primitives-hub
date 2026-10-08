@@ -12,9 +12,12 @@
  */
 import {
   access,
+  lstat as lstatPath,
   mkdir,
   readdir,
   readFile,
+  realpath,
+  rename as renamePath,
   rm,
   stat,
   writeFile,
@@ -81,6 +84,18 @@ export class NodeFileSystem implements FileSystem {
       size: stats.size,
       mtimeMs: stats.mtimeMs
     };
+  }
+
+  public async realpath(path: string): Promise<string> {
+    return realpath(path);
+  }
+
+  public async lstat(path: string): Promise<{ isSymbolicLink: boolean }> {
+    return { isSymbolicLink: (await lstatPath(path)).isSymbolicLink() };
+  }
+
+  public async rename(from: string, to: string): Promise<void> {
+    await renamePath(from, to);
   }
 
   public async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {
