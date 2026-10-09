@@ -16,10 +16,11 @@
  *   fresh on every request, so a `TokenProvider` that itself tries
  *   multiple strategies still gets a chance to re-resolve on the next call.
  *
- * Phase 3b addition: resilient by default. Transient failures (408/429/5xx)
- * are retried with exponential backoff + jitter; a primary rate limit (403
+ * Phase 3b addition: resilient by default. Transient failures (408/5xx)
+ * are retried with exponential backoff + jitter; a primary rate limit (403/429
  * + `x-ratelimit-remaining: 0`) sleeps until `x-ratelimit-reset`; a
- * secondary rate limit honours `Retry-After`. None of this changes the
+ * secondary rate limit honours `Retry-After`. Retry sleeps share a cumulative
+ * budget per request. None of this changes the
  * public error contract for a *fatal* status (401/403-non-rate-limit/404/…
  * still throw the same `describeError` message as before) — it only adds
  * retries in front of it, so all pre-existing tests keep passing unchanged.
@@ -35,6 +36,7 @@ import type {
   GitHubRepositoryTarget,
   GitHubSourceAuthCategory,
   HttpClient,
+  HttpRequest,
   HttpResponse,
   TokenProvider,
 } from '@ai-primitives-hub/core';
@@ -91,6 +93,8 @@ export interface GitHubApiClientOptions {
   jitterMs?: number;
   /** Upper bound on any single sleep. Default 60_000 ms. */
   maxSleepMs?: number;
+  /** Upper bound on cumulative retry sleeps per request, excluding network/auth time. Default 60_000 ms. */
+  maxTotalSleepMs?: number;
   /** Observability hook (called on every request/retry/rate-limit/give-up). */
   onEvent?: GitHubClientEventHandler;
   /** Test seam for the sleep primitive. Default = real `setTimeout`. */
@@ -117,6 +121,7 @@ export class GitHubApiClient implements GitHubApi {
   private readonly backoffBaseMs: number;
   private readonly jitterMs: number;
   private readonly maxSleepMs: number;
+  private readonly maxTotalSleepMs: number;
   private readonly onEvent: GitHubClientEventHandler;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
@@ -139,6 +144,7 @@ export class GitHubApiClient implements GitHubApi {
     this.backoffBaseMs = options.backoffBaseMs ?? 250;
     this.jitterMs = options.jitterMs ?? 250;
     this.maxSleepMs = options.maxSleepMs ?? 60_000;
+    this.maxTotalSleepMs = options.maxTotalSleepMs ?? 60_000;
     this.onEvent = options.onEvent ?? NOOP_EVENT_HANDLER;
     this.sleep = options.sleep ?? defaultSleep;
     this.random = options.random ?? Math.random;
@@ -190,42 +196,57 @@ export class GitHubApiClient implements GitHubApi {
   }
 
   private classify(response: HttpResponse): Classification {
-    if (response.statusCode === 403) {
+    if (response.statusCode === 403 || response.statusCode === 429) {
       if (response.headers['x-ratelimit-remaining'] === '0') {
         return { kind: 'rate-limit', reason: 'primary rate limit' };
       }
       const body = Buffer.from(response.body).toString('utf8').slice(0, 500);
-      if (/secondary rate limit/i.test(body) || response.headers['retry-after'] !== undefined) {
+      if (response.statusCode === 429 || /secondary rate limit/i.test(body) || response.headers['retry-after'] !== undefined) {
         return { kind: 'secondary-rate-limit', reason: 'secondary rate limit' };
       }
       return { kind: 'fatal', reason: 'forbidden' };
     }
-    if (response.statusCode === 408 || response.statusCode === 429 || response.statusCode >= 500) {
+    if (response.statusCode === 408 || response.statusCode >= 500) {
       return { kind: 'transient', reason: `status ${String(response.statusCode)}` };
     }
     return { kind: 'fatal', reason: `status ${String(response.statusCode)}` };
   }
 
   private computeSleep(classification: Classification, attempt: number, response: HttpResponse): number {
+    // GitHub requires Retry-After to take precedence over reset/backoff.
+    if (classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit') {
+      const raw = response.headers['retry-after']?.trim();
+      if (raw && /^\d+$/.test(raw)) {
+        const seconds = Number(raw);
+        if (Number.isFinite(seconds)) {
+          return Math.max(seconds * 1000, 100);
+        }
+      } else if (raw && /[a-z]/i.test(raw)) {
+        const remaining = Date.parse(raw) - Date.now();
+        if (Number.isFinite(remaining) && remaining > 0) {
+          return remaining;
+        }
+      }
+    }
     if (classification.kind === 'rate-limit') {
       const reset = Number(response.headers['x-ratelimit-reset']);
       if (Number.isFinite(reset) && reset > 0) {
         const waitMs = Math.max(0, reset * 1000 - Date.now()) + 250;
         return Math.max(waitMs, 100);
       }
-      const retryAfter = Number(response.headers['retry-after']);
-      if (Number.isFinite(retryAfter) && retryAfter >= 0) {
-        return Math.max(retryAfter * 1000, 100);
-      }
-      return this.maxSleepMs;
+      return 60_000 * (2 ** (attempt - 1));
     }
     if (classification.kind === 'secondary-rate-limit') {
-      const retryAfter = Number(response.headers['retry-after']);
-      if (Number.isFinite(retryAfter) && retryAfter >= 0) {
-        return Math.max(retryAfter * 1000, 100);
-      }
-      return this.backoffBaseMs * (2 ** (attempt - 1));
+      return 60_000 * (2 ** (attempt - 1));
     }
+    return this.transientBackoff(attempt);
+  }
+
+  /**
+   * Exponential backoff with optional jitter for a transient (retryable) failure.
+   * @param attempt
+   */
+  private transientBackoff(attempt: number): number {
     const back = this.backoffBaseMs * (2 ** (attempt - 1));
     const jitter = this.jitterMs > 0 ? Math.floor(this.random() * this.jitterMs) : 0;
     return back + jitter;
@@ -253,27 +274,71 @@ export class GitHubApiClient implements GitHubApi {
     pathOrUrl: string,
     accept: string,
     extraHeaders?: Record<string, string>,
-    opts?: { allowStatus?: number[] }
+    opts?: { allowStatus?: number[]; method?: HttpRequest['method'] }
   ): Promise<HttpResponse> {
     const url = this.resolveUrl(pathOrUrl);
     const headers = await this.buildHeaders(url, accept, extraHeaders);
+    const method: HttpRequest['method'] = opts?.method ?? 'GET';
+    // Automatic retries (transient backoff, primary/secondary rate-limit
+    // waits, Retry-After) may only replay a request that has no side effects.
+    // Every current `GitHubApi` method is a read (GET), but the HTTP port can
+    // express a POST; this guard guarantees a non-safe verb is never silently
+    // re-sent, so honoring Retry-After can never duplicate a mutation.
+    const retryable = method === 'GET' || method === 'HEAD';
     const allowStatus = opts?.allowStatus ?? [];
     let attempt = 0;
+    let totalSleepMs = 0;
     for (;;) {
       attempt += 1;
       this.onEvent({ kind: 'request', url, attempt });
-      const response = await this.http.fetch({ url, headers });
+      let response: HttpResponse;
+      try {
+        response = await this.http.fetch({ url, method, headers });
+      } catch (error) {
+        // A thrown error is a transport-level failure (connection reset, DNS
+        // failure, or the HTTP adapter's own request timeout) with no response
+        // to classify. Treat it as transient, under the same guards as a
+        // retryable status: never replay a non-idempotent verb, and never
+        // exceed the cumulative sleep budget. On give-up, surface the original
+        // transport error rather than masking it with a synthetic status.
+        if (!retryable || attempt > this.maxRetries) {
+          const reason = retryable ? 'transport error' : `non-idempotent ${method} not retried`;
+          this.onEvent({ kind: 'give-up', url, attempt, reason });
+          throw error;
+        }
+        const backoffMs = Math.min(this.transientBackoff(attempt), this.maxSleepMs);
+        if (backoffMs > this.maxTotalSleepMs - totalSleepMs) {
+          this.onEvent({ kind: 'give-up', url, attempt, reason: 'cumulative retry wait exceeds budget' });
+          throw error;
+        }
+        this.onEvent({ kind: 'retry', url, attempt, sleepMs: backoffMs, reason: 'transport error' });
+        totalSleepMs += backoffMs;
+        await this.sleep(backoffMs);
+        continue;
+      }
       this.captureRateLimit(response);
       if (response.statusCode < 400 || allowStatus.includes(response.statusCode)) {
         this.onEvent({ kind: 'success', url, attempt, status: response.statusCode });
         return response;
       }
       const classification = this.classify(response);
-      if (classification.kind === 'fatal' || attempt > this.maxRetries) {
-        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: classification.reason });
+      if (!retryable || classification.kind === 'fatal' || attempt > this.maxRetries) {
+        const reason = retryable ? classification.reason : `non-idempotent ${method} not retried`;
+        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason });
         throw new Error(describeError(response, url));
       }
-      const sleepMs = Math.min(this.computeSleep(classification, attempt, response), this.maxSleepMs);
+      const requiredSleepMs = this.computeSleep(classification, attempt, response);
+      const rateLimited = classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit';
+      const remainingSleepMs = this.maxTotalSleepMs - totalSleepMs;
+      if (rateLimited && (requiredSleepMs > this.maxSleepMs || requiredSleepMs > remainingSleepMs)) {
+        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: 'rate-limit wait exceeds budget' });
+        throw new Error(`GitHub API error: ${response.statusCode} - GitHub rate limit exceeded. Retry after ${Math.ceil(requiredSleepMs / 1000)} seconds. (${url})`);
+      }
+      const sleepMs = Math.min(requiredSleepMs, this.maxSleepMs);
+      if (sleepMs > remainingSleepMs) {
+        this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: 'cumulative retry wait exceeds budget' });
+        throw new Error(describeError(response, url));
+      }
       this.onEvent({
         kind: classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit' ? 'rate-limit' : 'retry',
         url,
@@ -282,6 +347,7 @@ export class GitHubApiClient implements GitHubApi {
         sleepMs,
         reason: classification.reason
       });
+      totalSleepMs += sleepMs;
       await this.sleep(sleepMs);
     }
   }
