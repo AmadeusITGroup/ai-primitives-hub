@@ -59,16 +59,18 @@ Stable IDs have the form `<owner>-<repository>-<manifest.id>` when the manifest 
 
 Publication is ordered to avoid advertising incomplete content:
 
-1. download and verify each manifest/archive;
+1. download each selected archive and reject zero-byte archives;
 2. publish bundle objects;
 3. publish `index-v1.json`;
 4. publish `hub-config.yml`.
+
+Release manifests are parsed, but replication does not validate them against the deployment-manifest schema or verify downloaded archives against upstream checksums.
 
 Before each write, the publisher uses `HEAD` and Artifactory checksum metadata. An existing object with the same SHA-256 is skipped. A conflicting or unverifiable object stops the operation by default. Re-running with the same cache and target root resumes completed work.
 
 Each run fetches the source hub config and every release-list page again so branch updates and newly published releases are discovered. These metadata requests count against `--request-budget`; only manifest and archive downloads are reused from the cache by asset URL. The budget must cover the metadata requests even when reusing a cache directory.
 
-Transient Artifactory failures may be retried with a bounded budget. Authentication, permission, conflict, schema, and integrity failures are not retried or redirected to GitHub.
+Artifactory publication does not automatically retry failed `HEAD` or upload requests. Re-run the command with the same cache and target root to resume completed work; publication failures do not trigger a GitHub fallback.
 
 ## Credentials
 
