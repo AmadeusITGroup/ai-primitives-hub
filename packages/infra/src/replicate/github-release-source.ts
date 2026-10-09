@@ -27,12 +27,16 @@ const nextPageUrl = (link: string | undefined): string | undefined => {
 export class GitHubReleaseSource implements ReplicationSourcePort {
   public constructor(private readonly api: GitHubApi, private readonly cache?: ReplicationCache, private readonly budget = 600) {}
   private used = 0;
+  private async request<T>(load: () => Promise<T>): Promise<T> {
+    if (this.used >= this.budget) {
+      throw new Error(`GitHub request budget (${this.budget}) exhausted; rerun with the same cache directory.`);
+    } this.used += 1; return load();
+  }
+
   private async get<T>(key: string, load: () => Promise<T>, encode: (value: T) => Uint8Array, decode: (value: Uint8Array) => T): Promise<T> {
     const cached = await this.cache?.get(key); if (cached) {
       return decode(cached);
-    } if (this.used >= this.budget) {
-      throw new Error(`GitHub request budget (${this.budget}) exhausted; rerun with the same cache directory.`);
-    } this.used += 1; const value = await load(); await this.cache?.set(key, encode(value)); return value;
+    } const value = await this.request(load); await this.cache?.set(key, encode(value)); return value;
   }
 
   public get requestCount(): number {
@@ -40,7 +44,7 @@ export class GitHubReleaseSource implements ReplicationSourcePort {
   }
 
   public async getHubConfig(ownerRepo: string, ref: string): Promise<Record<string, unknown>> {
-    const data = await this.get(`hub:${ownerRepo}:${ref}`, () => this.api.getJson<{ content: string }>(`/repos/${ownerRepo}/contents/hub-config.yml?ref=${encodeURIComponent(ref)}`), (value) => new TextEncoder().encode(value.content), (bytes) => ({ content: new TextDecoder().decode(bytes) })); const text = Buffer.from(data.content.replace(/\s/g, ''), 'base64').toString('utf8'); const parsed = yaml.load(text); if (!parsed || typeof parsed !== 'object') {
+    const data = await this.request(() => this.api.getJson<{ content: string }>(`/repos/${ownerRepo}/contents/hub-config.yml?ref=${encodeURIComponent(ref)}`)); const text = Buffer.from(data.content.replace(/\s/g, ''), 'base64').toString('utf8'); const parsed = yaml.load(text); if (!parsed || typeof parsed !== 'object') {
       throw new Error('source hub-config.yml must be a mapping');
     } return parsed as Record<string, unknown>;
   }
@@ -51,15 +55,10 @@ export class GitHubReleaseSource implements ReplicationSourcePort {
       const currentUrl: string = pageUrl; if (visited.has(currentUrl)) {
         throw new Error(`GitHub releases pagination repeated ${currentUrl}.`);
       } visited.add(currentUrl);
-      const page: ReleasePage = await this.get<ReleasePage>(
-        `release-page:${owner}/${repo}:${currentUrl}`,
-        async (): Promise<ReleasePage> => {
-          const response = await this.api.getJsonWithHeaders<Release[]>(currentUrl);
-          return { releases: response.value, next: nextPageUrl(response.headers.link) };
-        },
-        (value) => new TextEncoder().encode(JSON.stringify(value)),
-        (bytes) => JSON.parse(new TextDecoder().decode(bytes)) as ReleasePage
-      );
+      const page: ReleasePage = await this.request(async (): Promise<ReleasePage> => {
+        const response = await this.api.getJsonWithHeaders<Release[]>(currentUrl);
+        return { releases: response.value, next: nextPageUrl(response.headers.link) };
+      });
       releases.push(...page.releases); pageUrl = page.next;
     }
     const result: ReplicationCandidate[] = []; for (const release of releases) {

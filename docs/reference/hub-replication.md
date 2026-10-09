@@ -36,7 +36,7 @@ Important options:
 | `--source-ref` | `main` | GitHub branch/tag/commit |
 | `--target-root` | required | Credential-free Artifactory hub-tree root; loopback HTTP is allowed for local testing with a warning |
 | `--mode` | `latest` | Select profile-resolved latest versions or every available version |
-| `--cache-dir` | local cache | Persistent release/manifest/archive cache |
+| `--cache-dir` | local cache | Persistent manifest/archive download cache keyed by asset URL |
 | `--workers` | `4` | Bounded source-processing concurrency |
 | `--request-budget` | `600` | Maximum uncached GitHub API requests; every page of a repository's release list counts as one request |
 | `--target-auth` | `bearer` | Authentication mode recorded for the generated target source |
@@ -65,6 +65,8 @@ Publication is ordered to avoid advertising incomplete content:
 4. publish `hub-config.yml`.
 
 Before each write, the publisher uses `HEAD` and Artifactory checksum metadata. An existing object with the same SHA-256 is skipped. A conflicting or unverifiable object stops the operation by default. Re-running with the same cache and target root resumes completed work.
+
+Each run fetches the source hub config and every release-list page again so branch updates and newly published releases are discovered. These metadata requests count against `--request-budget`; only manifest and archive downloads are reused from the cache by asset URL. The budget must cover the metadata requests even when reusing a cache directory.
 
 Transient Artifactory failures may be retried with a bounded budget. Authentication, permission, conflict, schema, and integrity failures are not retried or redirected to GitHub.
 

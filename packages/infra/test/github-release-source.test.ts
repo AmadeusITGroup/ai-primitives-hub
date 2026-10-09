@@ -46,6 +46,73 @@ const release = (version: string) => ({
 });
 
 describe('GitHubReleaseSource', () => {
+  it('refreshes a branch hub config across runs sharing a cache and counts it against the budget', async () => {
+    const url = 'https://api.github.com/repos/owner/hub/contents/hub-config.yml?ref=main';
+    const initialConfig = { sources: [] };
+    const updatedConfig = { sources: [{ id: 'new-source' }] };
+    const cache = new MemoryCache();
+    const initialHttp = new FakeHttpClient().addRoute({
+      url,
+      status: 200,
+      body: JSON.stringify({ content: btoa(JSON.stringify(initialConfig)) })
+    });
+    const updatedHttp = new FakeHttpClient().addRoute({
+      url,
+      status: 200,
+      body: JSON.stringify({ content: btoa(JSON.stringify(updatedConfig)) })
+    });
+
+    await expect(new GitHubReleaseSource(new GitHubApiClient(initialHttp), cache).getHubConfig('owner/hub', 'main'))
+      .resolves.toEqual(initialConfig);
+    const updated = new GitHubReleaseSource(new GitHubApiClient(updatedHttp), cache, 1);
+
+    await expect(updated.getHubConfig('owner/hub', 'main')).resolves.toEqual(updatedConfig);
+    expect(updated.requestCount).toBe(1);
+    expect(updatedHttp.calls.map((call) => call.url)).toEqual([url]);
+    await expect(new GitHubReleaseSource(new GitHubApiClient(updatedHttp), cache, 0).getHubConfig('owner/hub', 'main'))
+      .rejects.toThrow('GitHub request budget (0) exhausted');
+    expect(updatedHttp.calls).toHaveLength(1);
+  });
+
+  it('discovers new releases and pagination across runs while reusing cached manifests and archives', async () => {
+    const originalRelease = release('1.0.0');
+    const newRelease = release('2.0.0');
+    const archive = new Uint8Array([1, 2, 3]);
+    const cache = new MemoryCache();
+    const initialHttp = new FakeHttpClient()
+      .addRoute({ url: firstPageUrl, status: 200, body: JSON.stringify([originalRelease]) })
+      .addRoute({ url: originalRelease.assets[0].url, status: 200, body: JSON.stringify({ id: 'bundle', version: '1.0.0' }) })
+      .addRoute({ url: originalRelease.assets[1].url, status: 200, body: archive });
+    const initial = new GitHubReleaseSource(new GitHubApiClient(initialHttp), cache);
+    const original = await initial.listReleaseCandidates('owner', 'repo', 'source');
+    await expect(initial.downloadArchive(original[0])).resolves.toEqual(archive);
+    expect(initial.requestCount).toBe(3);
+
+    const updatedHttp = new FakeHttpClient()
+      .addRoute({
+        url: firstPageUrl,
+        status: 200,
+        body: JSON.stringify([newRelease]),
+        headers: { link: `<${secondPageUrl}>; rel="next"` }
+      })
+      .addRoute({ url: secondPageUrl, status: 200, body: JSON.stringify([originalRelease]) })
+      .addRoute({ url: newRelease.assets[0].url, status: 200, body: JSON.stringify({ id: 'bundle', version: '2.0.0' }) })
+      .addRoute({ url: newRelease.assets[1].url, status: 200, body: archive });
+    const updated = new GitHubReleaseSource(new GitHubApiClient(updatedHttp), cache, 4);
+    const candidates = await updated.listReleaseCandidates('owner', 'repo', 'source');
+
+    expect(candidates.map((candidate) => candidate.version)).toEqual(['2.0.0', '1.0.0']);
+    await expect(updated.downloadArchive(candidates[1])).resolves.toEqual(archive);
+    await expect(updated.downloadArchive(candidates[0])).resolves.toEqual(archive);
+    expect(updated.requestCount).toBe(4);
+    expect(updatedHttp.calls.map((call) => call.url)).toEqual([
+      firstPageUrl,
+      secondPageUrl,
+      newRelease.assets[0].url,
+      newRelease.assets[1].url
+    ]);
+  });
+
   it('follows every Link page and keeps all/latest selection over collected releases', async () => {
     const http = new FakeHttpClient()
       .addRoute({
@@ -110,7 +177,7 @@ describe('GitHubReleaseSource', () => {
     expect(http.calls.map((call) => call.url)).toEqual([firstPageUrl]);
   });
 
-  it('resumes from cached pages after the budget is exhausted mid-pagination', async () => {
+  it('refetches every page after a previous run exhausted its budget mid-pagination', async () => {
     const http = new FakeHttpClient()
       .addRoute({ url: firstPageUrl, status: 200, body: JSON.stringify([]), headers: { link: `<${secondPageUrl}>; rel="next"` } })
       .addRoute({ url: secondPageUrl, status: 200, body: JSON.stringify([]) });
@@ -118,11 +185,11 @@ describe('GitHubReleaseSource', () => {
 
     await expect(new GitHubReleaseSource(new GitHubApiClient(http), cache, 1).listReleaseCandidates('owner', 'repo', 'source'))
       .rejects.toThrow('GitHub request budget (1) exhausted');
-    const resumed = new GitHubReleaseSource(new GitHubApiClient(http), cache, 1);
+    const resumed = new GitHubReleaseSource(new GitHubApiClient(http), cache, 2);
 
     await expect(resumed.listReleaseCandidates('owner', 'repo', 'source')).resolves.toEqual([]);
-    expect(resumed.requestCount).toBe(1);
-    expect(http.calls.map((call) => call.url)).toEqual([firstPageUrl, secondPageUrl]);
+    expect(resumed.requestCount).toBe(2);
+    expect(http.calls.map((call) => call.url)).toEqual([firstPageUrl, firstPageUrl, secondPageUrl]);
   });
 
   it('stops when the Link chain repeats a page instead of looping', async () => {
