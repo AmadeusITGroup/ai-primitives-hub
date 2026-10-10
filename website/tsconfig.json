@@ -1,8 +1,10 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "paths": {
+      "@site/*": ["./*"]
+    },
     "target": "ES2020",
     "jsx": "react-jsx",
     "strict": true,

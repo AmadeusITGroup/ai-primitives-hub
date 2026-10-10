@@ -27,7 +27,7 @@ export class NodeHttpClient implements HttpClient {
   ): Promise<HttpResponse> {
     const response = await this.fetchOnce(request, url);
 
-    if (REDIRECT_STATUS_CODES.has(response.statusCode) && response.headers.location) {
+    if (request.followRedirects !== false && REDIRECT_STATUS_CODES.has(response.statusCode) && response.headers.location) {
       if (redirectsRemaining <= 0) {
         throw new Error(`Maximum redirect count exceeded fetching ${request.url}`);
       }

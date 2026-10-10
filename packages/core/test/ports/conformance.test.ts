@@ -43,12 +43,14 @@ class FixedClock implements Clock {
 class InMemoryFileSystem implements FileSystem {
   private readonly files = new Map<string, string>();
 
-  public async readFile(path: string): Promise<string> {
-    const contents = this.files.get(path);
-    if (contents === undefined) {
-      throw new Error(`ENOENT: ${path}`);
-    }
-    return contents;
+  public readFile(path: string): Promise<string> {
+    return Promise.resolve().then(() => {
+      const contents = this.files.get(path);
+      if (contents === undefined) {
+        throw new Error(`ENOENT: ${path}`);
+      }
+      return contents;
+    });
   }
 
   public async writeFile(path: string, contents: string): Promise<void> {
@@ -111,12 +113,20 @@ class StaticGitHubApi implements GitHubApi {
     return this.jsonByPath[pathOrUrl] as T;
   }
 
+  public async getJsonWithHeaders<T>(pathOrUrl: string): Promise<{ value: T; headers: Record<string, string> }> {
+    return { value: await this.getJson<T>(pathOrUrl), headers: {} };
+  }
+
   public async getText(pathOrUrl: string): Promise<string> {
     return String(this.jsonByPath[pathOrUrl]);
   }
 
   public async download(pathOrUrl: string): Promise<Uint8Array> {
     return new TextEncoder().encode(String(this.jsonByPath[pathOrUrl]));
+  }
+
+  public async getJsonWithEtag<T>(pathOrUrl: string): Promise<{ status: 'ok'; value: T; etag: undefined }> {
+    return { status: 'ok', value: await this.getJson<T>(pathOrUrl), etag: undefined };
   }
 }
 

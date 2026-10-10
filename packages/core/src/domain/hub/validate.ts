@@ -184,6 +184,14 @@ export function isValidProtocol(protocol: string): boolean {
 }
 
 /**
+ * Loopback hosts may use HTTP only for local development/testing.
+ * @param hostname - Parsed URL hostname.
+ */
+export function isLoopbackHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+}
+
+/**
  * Validate a hub ID: non-empty, ≤255 chars, no path separators or
  * traversal, alphanumeric/dash/underscore only.
  * @param hubId - Hub ID to validate.
@@ -230,15 +238,28 @@ export function validateHubReference(ref: HubReference): void {
       }
       break;
     }
-    case 'url': {
+    case 'url':
+    case 'artifactory': {
       let url: URL;
       try {
         url = new URL(ref.location);
       } catch {
         throw new Error('Invalid URL format');
       }
-      if (!isValidProtocol(url.protocol)) {
+      const loopbackHttp = ref.type === 'artifactory'
+        && url.protocol === 'http:'
+        && isLoopbackHostname(url.hostname);
+      if (!isValidProtocol(url.protocol) && !loopbackHttp) {
         throw new Error('Only HTTPS URLs are allowed for security');
+      }
+      if (ref.type === 'artifactory') {
+        const configFile = ref.configFile ?? 'hub-config.yml';
+        if (!configFile || configFile.startsWith('/') || configFile.includes('\\') || hasPathTraversal(configFile)) {
+          throw new Error('Artifactory configFile must be a confined relative path');
+        }
+        if (ref.authMode !== undefined && ref.authMode !== 'anonymous' && ref.authMode !== 'bearer') {
+          throw new Error('Invalid Artifactory authentication mode');
+        }
       }
       break;
     }

@@ -82,18 +82,19 @@ async function autoDetectHubFromActive(
 /**
  * Apply a loaded hub reference to the command's hub source fields.
  * @param cmd Command instance (mutated).
- * @param cmd.hubRepo Output GitHub owner/repo.
- * @param cmd.hubBranch Output Git ref.
- * @param cmd.hubConfigFile Output local/URL config file path.
+ * @param cmd.hubRepo
+ * @param cmd.hubBranch
+ * @param cmd.hubConfigFile
  * @param hubRef Loaded hub reference.
- * @param hubRef.type Hub source type.
- * @param hubRef.location Hub location or owner/repo.
- * @param hubRef.ref Optional Git ref.
+ * @param hubRef.type
+ * @param hubRef.location
+ * @param hubRef.ref
+ * @param hubRef.configFile
  * @param hubConfigFile Absolute path to the locally cached hub config YAML.
  */
 function applyHubRef(
   cmd: { hubRepo?: string; hubBranch?: string; hubConfigFile?: string },
-  hubRef: { type: 'github' | 'local' | 'url'; location: string; ref?: string },
+  hubRef: { type: 'github' | 'local' | 'url' | 'artifactory'; location: string; ref?: string; configFile?: string },
   hubConfigFile: string
 ): void {
   if (hubRef.type === 'github') {

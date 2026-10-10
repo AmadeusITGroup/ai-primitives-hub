@@ -37,6 +37,10 @@ export interface GitHubApi {
    * @param extraHeaders - Optional additional headers.
    */
   getJson<T>(pathOrUrl: string, extraHeaders?: Record<string, string>): Promise<T>;
+  getJsonWithHeaders<T>(pathOrUrl: string, extraHeaders?: Record<string, string>): Promise<{
+    value: T;
+    headers: Record<string, string>;
+  }>;
 
   /**
    * GET returning the raw text body. Throws on a non-2xx response.
