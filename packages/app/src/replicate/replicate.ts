@@ -61,7 +61,14 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
       const archive = await source.downloadArchive(candidate); if (archive.byteLength === 0) {
         throw new Error(`Empty release archive for ${candidate.bundleId}@${candidate.version}`);
       }
-      await publisher.publish(`${REPLICATED_SOURCE_PATH}/${manifestPath}`, candidate.manifestBytes, 'application/yaml'); await publisher.publish(`${REPLICATED_SOURCE_PATH}/${archivePath}`, archive, 'application/zip');
+      const manifestStatus = await publisher.publish(`${REPLICATED_SOURCE_PATH}/${manifestPath}`, candidate.manifestBytes, 'application/yaml');
+      const bundleStatus = manifestStatus === 'skipped-unverified'
+        ? manifestStatus
+        : await publisher.publish(`${REPLICATED_SOURCE_PATH}/${archivePath}`, archive, 'application/zip');
+      if (bundleStatus === 'skipped-unverified') {
+        warnings.push(`Skipped unverified existing bundle ${candidate.bundleId}@${candidate.version}. Check the target objects before retrying.`);
+        continue;
+      }
       entries.push(makeReplicatedEntry(candidate, manifestPath, archivePath, archive, sha256)); verified.add(`${candidate.sourceId}\0${candidate.bundleId}\0${candidate.version}`);
     } else {
       const placeholder = new Uint8Array(candidate.archiveSize); entries.push(makeReplicatedEntry(candidate, manifestPath, archivePath, placeholder, () => '0'.repeat(64)));
@@ -69,7 +76,10 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
   }
   const updatedAt = new Date().toISOString(); const index = { formatVersion: 1 as const, source: { id: 'replicated', name: 'Replicated GitHub hub', description: 'Bundles replicated from GitHub releases', updatedAt }, bundles: entries };
   if (options.publish && publisher) {
-    await publisher.publish(`${REPLICATED_SOURCE_PATH}/index-v1.json`, new TextEncoder().encode(JSON.stringify(index, null, 2) + '\n'), 'application/json');
+    const indexStatus = await publisher.publish(`${REPLICATED_SOURCE_PATH}/index-v1.json`, new TextEncoder().encode(JSON.stringify(index, null, 2) + '\n'), 'application/json');
+    if (indexStatus === 'skipped-unverified') {
+      throw new Error('Unverified existing metadata at sources/replicated/index-v1.json. Check the target objects before retrying.');
+    }
     const profiles = (Array.isArray(raw.profiles) ? raw.profiles : []).filter((profile): profile is Record<string, unknown> => !!profile && typeof profile === 'object').map((profile) => ({ ...profile, bundles: (Array.isArray(profile.bundles) ? profile.bundles : []).filter((bundle): bundle is Record<string, unknown> => {
       const b2 = bundle as Record<string, unknown>; const v2 = String(b2.version ?? 'latest'); return verified.has(`${String(b2.source)}\0${String(b2.id)}\0${v2}`) || (v2 === 'latest' && [...verified].some((key) => key.startsWith(`${String(b2.source)}\0${String(b2.id)}\0`)));
     }).map((bundle) => ({ ...bundle, source: 'replicated' })) }));
@@ -88,7 +98,10 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
       }],
       profiles: profiles as HubConfig['profiles']
     };
-    await publisher.publish('hub-config.yml', new TextEncoder().encode(JSON.stringify(config, null, 2) + '\n'), 'application/yaml');
+    const hubStatus = await publisher.publish('hub-config.yml', new TextEncoder().encode(JSON.stringify(config, null, 2) + '\n'), 'application/yaml');
+    if (hubStatus === 'skipped-unverified') {
+      throw new Error('Unverified existing metadata at hub-config.yml. Check the target objects before retrying.');
+    }
     return { index, hubConfig: config, warnings, selected: selection.selected };
   }
   return { index, hubConfig: { version: '1', metadata: { name: 'Replicated GitHub hub', description: '', maintainer: '', updatedAt }, sources: [], profiles: [] }, warnings, selected: selection.selected };

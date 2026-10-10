@@ -45,7 +45,7 @@ Important options:
 | `--dry-run` | false | Explicitly request metadata-only behavior |
 | `--publish` | false | Enable Artifactory writes; requires `--review` |
 | `--review` | false | Acknowledges the publication review gate |
-| `--allow-unverified-existing` | false | Allows skipping existing objects whose remote checksum cannot be verified; never overwrites them |
+| `--allow-unverified-existing` | false | Skip unverified bundle objects with warnings; omit them from the generated index and profiles |
 
 The command is metadata-only unless both `--publish` and `--review` are provided. `--dry-run` and `--publish` cannot be combined.
 
@@ -67,6 +67,8 @@ Publication is ordered to avoid advertising incomplete content:
 Release manifests are parsed, but replication does not validate them against the deployment-manifest schema or verify downloaded archives against upstream checksums.
 
 Before each write, the publisher uses `HEAD` and Artifactory checksum metadata. An existing object with the same SHA-256 is skipped. A conflicting or unverifiable object stops the operation by default. Re-running with the same cache and target root resumes completed work.
+
+With `--allow-unverified-existing`, an unverified existing manifest or archive produces a warning, and its bundle is omitted from the generated index and both pinned and `latest` profile references. The flag never overwrites or repairs existing objects. The index and hub config must themselves be uploaded or match a verified existing checksum; if either metadata object is skipped unverified, publication fails. An unverified index prevents hub-config publication. The CLI returns exit code `2` for bundle-omission warnings and `1` for publication failures.
 
 Each run fetches the source hub config and every release-list page again so branch updates and newly published releases are discovered. These metadata requests count against `--request-budget`; only manifest and archive downloads are reused from the cache by asset URL. The budget must cover the metadata requests even when reusing a cache directory.
 

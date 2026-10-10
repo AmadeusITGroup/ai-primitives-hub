@@ -107,7 +107,7 @@ export class HubReplicateCommand extends Command {
       });
       return result.warnings.length > 0 ? 2 : 0;
     } catch (error) {
-      renderError(new RegistryError({ code: 'REPLICATE.FAILED', message: error instanceof Error ? error.message : 'Replication failed.' }), ctx); return 1;
+      renderError(new RegistryError({ code: 'HUB.REPLICATION_FAILED', message: error instanceof Error ? error.message : 'Replication failed.' }), ctx); return 1;
     }
   }
 }

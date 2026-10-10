@@ -55,10 +55,13 @@ profiles:
 
 class RecordingHttp implements HttpClient {
   public readonly requests: HttpRequest[] = [];
+  public constructor(private readonly unverifiedSuffix?: string) {}
   public async fetch(request: HttpRequest): Promise<HttpResponse> {
     this.requests.push(request);
     if (request.url.startsWith('https://artifactory.example/')) {
-      return { statusCode: request.method === 'HEAD' ? 404 : 201, body: new Uint8Array(), finalUrl: request.url, headers: {} };
+      const unverified = this.unverifiedSuffix !== undefined && request.url.endsWith(this.unverifiedSuffix);
+      const headStatus = unverified ? 200 : 404;
+      return { statusCode: request.method === 'HEAD' ? headStatus : 201, body: new Uint8Array(), finalUrl: request.url, headers: {} };
     }
     let body: Uint8Array;
     if (request.url.includes('/contents/hub-config.yml')) {
@@ -150,5 +153,55 @@ describe('hub replicate command', () => {
       `${base}/hub-config.yml`
     ]);
     expect(ctx.stdout.captured()).not.toContain('publisher-token');
+  });
+
+  it.each(['deployment-manifest.yml', '.zip'])('reports unverified %s objects as a warning and publishes no bundle references', async (suffix) => {
+    const http = new RecordingHttp(suffix);
+    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test', ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
+    const exitCode = await runCli([
+      'hub', 'replicate',
+      '--source-hub', 'owner/hub',
+      '--target-root', 'https://artifactory.example/replicated',
+      '--output', 'json',
+      '--publish', '--review', '--allow-unverified-existing',
+      '--cache-dir', `/tmp/aph-replicate-unverified-${suffix}-${process.pid}-${Date.now()}`
+    ], {
+      ctx, http, tokens: tokenProvider, commandClasses: [HubReplicateCommand], commands: [], name: 'ai-primitives-hub', version: 'test'
+    });
+
+    expect(exitCode).toBe(2);
+    const output = JSON.parse(ctx.stdout.captured());
+    expect(output.status).toBe('warning');
+    expect(output.warnings).toHaveLength(1);
+    expect(output.warnings[0]).toContain('owner-repo-bundle@1.0.0');
+    expect(output.data.index.bundles).toEqual([]);
+    const indexPut = http.requests.find((request) => request.method === 'PUT' && request.url.endsWith('/index-v1.json'));
+    const hubPut = http.requests.find((request) => request.method === 'PUT' && request.url.endsWith('/hub-config.yml'));
+    expect(indexPut).toBeDefined();
+    expect(hubPut).toBeDefined();
+    expect(JSON.parse(new TextDecoder().decode(indexPut?.body as Uint8Array)).bundles).toEqual([]);
+    expect(JSON.parse(new TextDecoder().decode(hubPut?.body as Uint8Array)).profiles[0].bundles).toEqual([]);
+    expect(ctx.stdout.captured()).not.toContain('publisher-token');
+    expect(ctx.stdout.captured()).not.toContain('github-private-token');
+  });
+
+  it.each(['index-v1.json', 'hub-config.yml'])('fails publication when existing %s metadata cannot be verified', async (suffix) => {
+    const http = new RecordingHttp(suffix);
+    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test', ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
+    const exitCode = await runCli([
+      'hub', 'replicate',
+      '--source-hub', 'owner/hub',
+      '--target-root', 'https://artifactory.example/replicated',
+      '--output', 'json',
+      '--publish', '--review', '--allow-unverified-existing',
+      '--cache-dir', `/tmp/aph-replicate-unverified-metadata-${suffix}-${process.pid}-${Date.now()}`
+    ], {
+      ctx, http, tokens: tokenProvider, commandClasses: [HubReplicateCommand], commands: [], name: 'ai-primitives-hub', version: 'test'
+    });
+
+    expect(exitCode).toBe(1);
+    expect(ctx.stderr.captured()).toContain('Unverified existing metadata');
+    expect(http.requests.some((request) => request.method === 'PUT' && request.url.endsWith('/hub-config.yml'))).toBe(false);
+    expect(ctx.stderr.captured()).not.toContain('publisher-token');
   });
 });
