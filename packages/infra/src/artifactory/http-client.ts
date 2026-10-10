@@ -17,6 +17,8 @@ export interface ConditionalJsonResult<T> { status: 'fresh' | 'not-modified'; va
 export interface ArtifactoryHttpClientOptions { maxRetries?: number; maxIndexBytes?: number; maxObjectBytes?: number; sleep?: (ms: number) => Promise<void> }
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const transient = new Set([408, 429, 502, 503, 504]);
+const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 10;
 
 export class ArtifactoryHttpClient {
   private readonly root: URL;
@@ -66,6 +68,33 @@ export class ArtifactoryHttpClient {
     return resolveConfinedObject(this.root, path).href;
   }
 
+  private async fetchWithConfinedRedirects(url: URL, headers: Record<string, string>): Promise<HttpResponse> {
+    let target = url;
+    for (let redirectCount = 0; ; redirectCount += 1) {
+      const response = await this.http.fetch({ url: target.href, headers, followRedirects: false });
+      if (!isWithinSourceRoot(this.root, new URL(response.finalUrl))) {
+        throw new RegistryError({ code: 'ARTIFACTORY.PATH_ESCAPE', message: 'Artifactory response redirected outside the source root.' });
+      }
+      const location = response.headers.location;
+      if (!redirectStatuses.has(response.statusCode) || !location) {
+        return response;
+      }
+      let next: URL;
+      try {
+        next = new URL(location, target);
+      } catch (cause) {
+        throw new RegistryError({ code: 'ARTIFACTORY.PATH_ESCAPE', message: 'Artifactory response redirected outside the source root.', cause });
+      }
+      if (!isWithinSourceRoot(this.root, next)) {
+        throw new RegistryError({ code: 'ARTIFACTORY.PATH_ESCAPE', message: 'Artifactory response redirected outside the source root.' });
+      }
+      if (redirectCount >= MAX_REDIRECTS) {
+        throw new RegistryError({ code: 'ARTIFACTORY.REQUEST_FAILED', message: `Maximum redirect count exceeded fetching ${url.href}` });
+      }
+      target = next;
+    }
+  }
+
   private async request(url: URL, accept: string, etag: string | undefined, maxBytes: number): Promise<HttpResponse> {
     const context: SourceRequestContext = { sourceId: this.root.href, trustedOrigin: this.root.origin, trustedPathPrefix: this.root.pathname };
     let headers: Record<string, string> = { Accept: accept, ...(await this.credentials.headersFor(url.href, context)) };
@@ -75,14 +104,14 @@ export class ArtifactoryHttpClient {
     for (let attempt = 0; ; attempt += 1) {
       let response: HttpResponse;
       try {
-        response = await this.http.fetch({ url: url.href, headers });
+        response = await this.fetchWithConfinedRedirects(url, headers);
       } catch (cause) {
+        if (cause instanceof RegistryError) {
+          throw cause;
+        }
         if (attempt < this.options.maxRetries) {
           await (this.options.sleep ?? wait)(Math.min(100 * 2 ** attempt, 2000)); continue;
         } throw new RegistryError({ code: 'ARTIFACTORY.TRANSIENT', message: 'Artifactory request failed.', cause });
-      }
-      if (!isWithinSourceRoot(this.root, new URL(response.finalUrl)) && response.statusCode !== 304) {
-        throw new RegistryError({ code: 'ARTIFACTORY.PATH_ESCAPE', message: 'Artifactory response redirected outside the source root.' });
       }
       if (response.statusCode >= 200 && response.statusCode < 300 || response.statusCode === 304) {
         const declared = Number(response.headers['content-length']);

@@ -51,7 +51,7 @@ The command is metadata-only unless both `--publish` and `--review` are provided
 
 ## Selection semantics
 
-`latest` reads bundle references from source profiles and selects the highest stable SemVer for each requested stable bundle ID. An explicitly pinned profile version is selected exactly. `all` selects every valid GitHub release candidate and deduplicates by stable bundle ID/version.
+`latest` reads bundle references from source profiles and selects the highest stable SemVer for each requested stable bundle ID. If no stable candidate exists, it selects the highest prerelease. An explicitly pinned profile version, including a prerelease, is selected exactly. `all` selects every valid GitHub release candidate, including prereleases, and deduplicates by stable bundle ID/version.
 
 Stable IDs have the form `<owner>-<repository>-<manifest.id>` when the manifest declares an ID, or `<owner>-<repository>` otherwise. The version remains a separate index coordinate. Unresolved profile references are warnings and are not emitted into generated profiles.
 
@@ -70,7 +70,7 @@ Before each write, the publisher uses `HEAD` and Artifactory checksum metadata. 
 
 Each run fetches the source hub config and every release-list page again so branch updates and newly published releases are discovered. These metadata requests count against `--request-budget`; only manifest and archive downloads are reused from the cache by asset URL. The budget must cover the metadata requests even when reusing a cache directory.
 
-Artifactory publication does not automatically retry failed `HEAD` or upload requests. Re-run the command with the same cache and target root to resume completed work; publication failures do not trigger a GitHub fallback.
+Artifactory publication does not automatically retry failed `HEAD` or upload requests and rejects redirect responses instead of following them. Re-run the command with the same cache and target root to resume completed work; publication failures do not trigger a GitHub fallback.
 
 ## Credentials
 

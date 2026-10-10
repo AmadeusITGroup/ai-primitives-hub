@@ -33,6 +33,7 @@ export interface HttpRequest {
   body?: Uint8Array | string;
   /** Maximum redirect chain length; defaults to the adapter's own default. */
   maxRedirects?: number;
+  followRedirects?: boolean;
 }
 
 /**

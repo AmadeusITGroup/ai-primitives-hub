@@ -59,7 +59,9 @@ export const selectReplications = (candidates: ReplicationCandidate[], requests:
     if (explicit.length > 0) {
       selected.push(...matches);
     } else {
-      selected.push([...matches].sort((a, b) => semver.rcompare(a.version, b.version))[0]);
+      const stable = matches.filter((candidate) => semver.prerelease(candidate.version) === null);
+      const pool = stable.length > 0 ? stable : matches;
+      selected.push([...pool].sort((a, b) => semver.rcompare(a.version, b.version))[0]);
     }
   }
   return { selected: deduplicate(selected), unresolved };

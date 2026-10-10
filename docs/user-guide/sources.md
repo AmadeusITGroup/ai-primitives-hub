@@ -29,6 +29,8 @@ An Artifactory source uses a credential-free HTTPS repository root and a static 
 
 Do not put credentials in the source URL, hub configuration, index, or lockfile. For private sources, configure Bearer authentication with a source-scoped credential reference. The CLI resolves that reference as an environment-variable name; the VS Code extension treats it only as a label/key and stores the token in SecretStorage. Authentication failures are reported and do not fall back to GitHub.
 
+Artifactory index and bundle downloads follow at most 10 redirect hops within the configured source root. Each destination is checked before the next request is sent. Cross-origin redirects, redirects outside the source path, and ambiguous encoded paths are rejected without forwarding the token or contacting the destination.
+
 Artifactory tokens are created in the Artifactory Administration UI (user profile/User Management) or through the Access token API supported by your Artifactory release. Use an access token with repository read permission for consumption. The token is an opaque, release-dependent string: copy the complete value returned by Artifactory, without adding `Bearer `; AI Primitives Hub adds that prefix to the HTTP `Authorization` header. The credential reference is not the token. In VS Code it does not need to exist as an environment variable, and you do not need to restart VS Code after entering the token.
 
 ## Adding a Source

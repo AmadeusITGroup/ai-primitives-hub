@@ -32,7 +32,11 @@ export function normalizeSourceRoot(raw: string): URL {
  * @param candidate
  */
 export function isWithinSourceRoot(root: URL, candidate: URL): boolean {
-  return root.protocol === candidate.protocol && root.hostname === candidate.hostname && root.port === candidate.port && candidate.pathname.startsWith(root.pathname);
+  return root.protocol === candidate.protocol
+    && root.hostname === candidate.hostname
+    && root.port === candidate.port
+    && !/%(?:2e|2f|5c|25)/i.test(candidate.pathname)
+    && candidate.pathname.startsWith(root.pathname);
 }
 
 /**
