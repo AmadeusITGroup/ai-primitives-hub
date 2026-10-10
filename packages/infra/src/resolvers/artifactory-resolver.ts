@@ -15,12 +15,21 @@ import {
 
 export class ArtifactoryBundleResolver implements BundleResolver {
   private index?: ArtifactorySourceIndex;
+  private etag?: string;
+  private indexRequest?: Promise<ArtifactorySourceIndex>;
   public constructor(private readonly source: RegistrySource, private readonly client: ArtifactoryHttpClient) {}
-  private async load(): Promise<ArtifactorySourceIndex> {
-    if (this.index) {
+  private load(): Promise<ArtifactorySourceIndex> {
+    this.indexRequest ??= this.refreshIndex().finally(() => {
+      this.indexRequest = undefined;
+    });
+    return this.indexRequest;
+  }
+
+  private async refreshIndex(): Promise<ArtifactorySourceIndex> {
+    const result = await this.client.getIndex(this.source.config?.indexFile ?? 'index-v1.json', this.etag);
+    if (result.status === 'not-modified' && this.index) {
       return this.index;
     }
-    const result = await this.client.getIndex(this.source.config?.indexFile ?? 'index-v1.json');
     const validation = validateArtifactorySourceIndex(result.value, this.source.hubSourceId ? { hubSourceId: this.source.hubSourceId } : undefined);
     if (!validation.valid) {
       throw new RegistryError({
@@ -29,6 +38,7 @@ export class ArtifactoryBundleResolver implements BundleResolver {
       });
     }
     this.index = result.value as ArtifactorySourceIndex;
+    this.etag = result.etag;
     return this.index;
   }
 

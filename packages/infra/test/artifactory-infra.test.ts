@@ -183,6 +183,50 @@ describe('Artifactory downloader', () => {
 });
 
 describe('Artifactory source adapter and resolver', () => {
+  it.each(['adapter', 'resolver'] as const)('revalidates a retained %s and preserves only validated snapshots and ETags', async (kind) => {
+    const updated = index();
+    updated.bundles[0].version = '2.0.0';
+    const encode = (value: unknown): Uint8Array => new TextEncoder().encode(JSON.stringify(value));
+    const http = new FakeHttpClient([
+      makeResponse(200, encode(index()), { etag: 'index-1' }),
+      makeResponse(304, new Uint8Array()),
+      makeResponse(200, encode(updated), { etag: 'index-2' }),
+      makeResponse(200, encode({ formatVersion: 99 }), { etag: 'invalid-index' }),
+      makeResponse(304, new Uint8Array()),
+      makeResponse(403, new Uint8Array()),
+      makeResponse(304, new Uint8Array())
+    ]);
+    const client = new ArtifactoryHttpClient(http, new FakeCredentials(), source.url);
+    const adapter = new ArtifactorySourceAdapter(source, client);
+    const resolver = new ArtifactoryBundleResolver(source, client);
+    const fetchVersion = async (): Promise<string | undefined> => kind === 'adapter'
+      ? (await adapter.fetchBundles())[0].version
+      : (await resolver.resolve({ bundleId: 'bundle', bundleVersion: 'latest' }))?.ref.bundleVersion;
+
+    expect(await fetchVersion()).toBe('1.0.0');
+    expect(await fetchVersion()).toBe('1.0.0');
+    expect(await fetchVersion()).toBe('2.0.0');
+    await expect(fetchVersion()).rejects.toMatchObject({ code: 'ARTIFACTORY.INDEX_INVALID' });
+    expect(await fetchVersion()).toBe('2.0.0');
+    await expect(fetchVersion()).rejects.toMatchObject({ code: 'ARTIFACTORY.ACCESS_DENIED' });
+    expect(await fetchVersion()).toBe('2.0.0');
+    expect(http.requests.map((request) => request.headers?.['If-None-Match']))
+      .toEqual([undefined, 'index-1', 'index-1', 'index-2', 'index-2', 'index-2', 'index-2']);
+  });
+
+  it('coalesces concurrent public refreshes but revalidates subsequent operations', async () => {
+    const http = new FakeHttpClient([
+      makeResponse(200, new TextEncoder().encode(JSON.stringify(index())), { etag: 'index-1' }),
+      makeResponse(304, new Uint8Array())
+    ]);
+    const adapter = new ArtifactorySourceAdapter(source, new ArtifactoryHttpClient(http, new FakeCredentials(), source.url));
+    await Promise.all([adapter.fetchBundles(), adapter.fetchMetadata(), adapter.validate()]);
+    expect(http.requests).toHaveLength(1);
+    await adapter.fetchMetadata();
+    expect(http.requests).toHaveLength(2);
+    expect(http.requests[1].headers?.['If-None-Match']).toBe('index-1');
+  });
+
   it('maps the static index to Bundle and verifies downloaded bytes', async () => {
     const http = httpClientForIndexAndArchive();
     const adapter = new ArtifactorySourceAdapter(

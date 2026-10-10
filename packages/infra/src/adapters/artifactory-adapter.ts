@@ -26,20 +26,33 @@ const digest = (bytes: Uint8Array): string => createHash('sha256').update(bytes)
 export class ArtifactorySourceAdapter extends BaseSourceAdapter {
   public readonly type = 'artifactory';
   private index?: ArtifactorySourceIndex;
+  private etag?: string;
+  private indexRequest?: Promise<ArtifactorySourceIndex>;
   public constructor(source: RegistrySource, private readonly client: ArtifactoryHttpClient) {
     super(source);
   }
 
-  private async load(): Promise<ArtifactorySourceIndex> {
-    if (this.index) {
+  private load(refresh = false): Promise<ArtifactorySourceIndex> {
+    if (this.index && !refresh) {
+      return Promise.resolve(this.index);
+    }
+    this.indexRequest ??= this.refreshIndex().finally(() => {
+      this.indexRequest = undefined;
+    });
+    return this.indexRequest;
+  }
+
+  private async refreshIndex(): Promise<ArtifactorySourceIndex> {
+    const result = await this.client.getIndex(this.source.config?.indexFile ?? 'index-v1.json', this.etag);
+    if (result.status === 'not-modified' && this.index) {
       return this.index;
     }
-    const result = await this.client.getIndex(this.source.config?.indexFile ?? 'index-v1.json');
     const validation = validateArtifactorySourceIndex(result.value, this.source.hubSourceId ? { hubSourceId: this.source.hubSourceId } : undefined);
     if (!validation.valid) {
       throw new RegistryError({ code: 'ARTIFACTORY.INDEX_INVALID', message: `Invalid Artifactory index: ${validation.errors.join('; ')}` });
     }
     this.index = result.value as ArtifactorySourceIndex;
+    this.etag = result.etag;
     return this.index;
   }
 
@@ -52,7 +65,7 @@ export class ArtifactorySourceAdapter extends BaseSourceAdapter {
   }
 
   public async fetchBundles(): Promise<Bundle[]> {
-    const index = await this.load();
+    const index = await this.load(true);
     return [...index.bundles].sort((a, b) => a.id.localeCompare(b.id) || compareSemVer(b.version, a.version)).map((item) => ({ id: item.id, name: item.name, version: item.version, description: item.description, author: item.author, sourceId: this.source.id, environments: item.environments, tags: item.tags, lastUpdated: item.lastUpdated, size: sizeText(item.archive.size), dependencies: item.dependencies, homepage: item.homepage, repository: item.repository, license: item.license, manifestUrl: this.client.urlFor(item.manifest.path), downloadUrl: this.client.urlFor(item.archive.path), checksum: { algorithm: 'sha256', hash: item.archive.sha256 }, readmeUrl: item.readme ? this.client.urlFor(item.readme.path) : undefined, readmeRevision: item.revision }));
   }
 
@@ -73,12 +86,12 @@ export class ArtifactorySourceAdapter extends BaseSourceAdapter {
   }
 
   public async fetchMetadata(): Promise<SourceMetadata> {
-    const index = await this.load(); return { name: index.source.name, description: index.source.description ?? '', bundleCount: index.bundles.length, lastUpdated: index.source.updatedAt, version: '1' };
+    const index = await this.load(true); return { name: index.source.name, description: index.source.description ?? '', bundleCount: index.bundles.length, lastUpdated: index.source.updatedAt, version: '1' };
   }
 
   public async validate(): Promise<ValidationResult> {
     try {
-      const index = await this.load(); return { valid: true, errors: [], bundlesFound: index.bundles.length };
+      const index = await this.load(true); return { valid: true, errors: [], bundlesFound: index.bundles.length };
     } catch (error) {
       return { valid: false, errors: [error instanceof Error ? error.message : String(error)] };
     }
