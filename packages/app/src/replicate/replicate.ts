@@ -69,7 +69,10 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
         warnings.push(`Skipped unverified existing bundle ${candidate.bundleId}@${candidate.version}. Check the target objects before retrying.`);
         continue;
       }
-      entries.push(makeReplicatedEntry(candidate, manifestPath, archivePath, archive, sha256)); verified.add(`${candidate.sourceId}\0${candidate.bundleId}\0${candidate.version}`);
+      entries.push(makeReplicatedEntry(candidate, manifestPath, archivePath, archive, sha256));
+      for (const sourceId of candidate.sourceIds ?? [candidate.sourceId]) {
+        verified.add(`${sourceId}\0${candidate.bundleId}\0${candidate.version}`);
+      }
     } else {
       const placeholder = new Uint8Array(candidate.archiveSize); entries.push(makeReplicatedEntry(candidate, manifestPath, archivePath, placeholder, () => '0'.repeat(64)));
     }

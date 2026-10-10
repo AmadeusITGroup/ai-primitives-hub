@@ -1,5 +1,8 @@
 /* eslint-disable @stylistic/max-len, @stylistic/max-statements-per-line, unicorn/no-array-sort, @typescript-eslint/no-base-to-string -- compact domain contract helpers */
 import * as semver from 'semver';
+import {
+  RegistryError,
+} from '../registry-error';
 import type {
   ArtifactoryBundleIndexEntry,
   ArtifactorySourceIndex,
@@ -9,7 +12,7 @@ import type {
 } from './types';
 
 export interface ReplicationCandidate {
-  sourceId: string; repo: string; tag: string; publishedAt: string; releaseName: string;
+  sourceId: string; sourceIds?: string[]; repo: string; tag: string; publishedAt: string; releaseName: string;
   manifest: Record<string, unknown>; manifestBytes: Uint8Array; manifestName: string;
   archiveUrl: string; archiveSize: number; version: string; bundleId: string;
 }
@@ -66,7 +69,25 @@ export const selectReplications = (candidates: ReplicationCandidate[], requests:
   }
   return { selected: deduplicate(selected), unresolved };
 };
-const deduplicate = (items: ReplicationCandidate[]): ReplicationCandidate[] => [...new Map(items.map((item) => [`${item.bundleId}\0${item.version}`, item])).values()].sort((a, b) => a.bundleId.localeCompare(b.bundleId) || semver.compare(a.version, b.version));
+const deduplicate = (items: ReplicationCandidate[]): ReplicationCandidate[] => {
+  const unique = new Map<string, ReplicationCandidate>();
+  for (const item of items) {
+    const key = `${item.bundleId}\0${item.version}`;
+    const existing = unique.get(key);
+    if (!existing) {
+      unique.set(key, { ...item, sourceIds: [item.sourceId] });
+      continue;
+    }
+    if (existing.repo !== item.repo || existing.tag !== item.tag || existing.archiveUrl !== item.archiveUrl
+      || existing.archiveSize !== item.archiveSize || existing.manifestName !== item.manifestName
+      || existing.manifestBytes.length !== item.manifestBytes.length
+      || !existing.manifestBytes.every((byte, index) => byte === item.manifestBytes[index])) {
+      throw new RegistryError({ code: 'HUB.REPLICATION_CONFLICT', message: `Conflicting replication candidates for ${item.bundleId}@${item.version}. Check the source releases before retrying.` });
+    }
+    existing.sourceIds = [...new Set([...(existing.sourceIds ?? [existing.sourceId]), item.sourceId])];
+  }
+  return [...unique.values()].sort((a, b) => a.bundleId.localeCompare(b.bundleId) || semver.compare(a.version, b.version));
+};
 
 export const requestsFromHubConfig = (hub: Record<string, unknown>): ReplicationRequest[] => {
   const sources = new Set((Array.isArray(hub.sources) ? hub.sources : []).filter((s): s is Record<string, unknown> => !!s && typeof s === 'object' && s.enabled !== false && s.type === 'github' && typeof s.id === 'string').map((s) => s.id as string));

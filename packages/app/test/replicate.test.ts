@@ -5,6 +5,9 @@ import type {
   ReplicationSourcePort,
 } from '@ai-primitives-hub/core';
 import {
+  validateArtifactorySourceIndex,
+} from '@ai-primitives-hub/core';
+import {
   describe,
   expect,
   it,
@@ -32,6 +35,29 @@ const sourceFor = (candidates: ReplicationCandidate[]): ReplicationSourcePort =>
 });
 
 describe('replicateHub', () => {
+  it.each(['latest', 'all'] as const)('preserves every pinned/latest source alias with one verified publication in %s mode', async (mode) => {
+    const aliases = ['a', 'b'];
+    const source: ReplicationSourcePort = {
+      getHubConfig: vi.fn(() => Promise.resolve({ version: '1.0.0', sources: aliases.map((id) => ({ id, type: 'github', url: 'https://github.com/owner/repo' })), profiles: aliases.map((id) => ({ id, bundles: [c.version, 'latest'].map((version) => ({ source: id, id: c.bundleId, version, required: true })) })) })),
+      listReleaseCandidates: vi.fn((_owner, _repo, sourceId) => Promise.resolve([{ ...c, sourceId }])),
+      downloadArchive: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3])))
+    };
+    const publisher: ReplicationPublisherPort = { publish: vi.fn(() => Promise.resolve('uploaded' as const)) };
+    const result = await replicateHub({ sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root', mode, publish: true }, source, publisher);
+    expect(result.index.bundles).toHaveLength(1);
+    expect(validateArtifactorySourceIndex(result.index).valid).toBe(true);
+    expect(result.hubConfig.profiles.map((profile) => profile.bundles)).toEqual(aliases.map(() => [c.version, 'latest'].map((version) => ({ source: 'replicated', id: c.bundleId, version, required: true }))));
+    expect(result.warnings).toEqual([]);
+    expect(source.downloadArchive).toHaveBeenCalledTimes(1);
+    expect(publisher.publish).toHaveBeenCalledTimes(4);
+
+    const unverifiedPublisher: ReplicationPublisherPort = { publish: vi.fn((path: string) => Promise.resolve(path.endsWith('.zip') ? 'skipped-unverified' as const : 'uploaded' as const)) };
+    const unverified = await replicateHub({ sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root', mode, publish: true }, source, unverifiedPublisher);
+    expect(unverified.index.bundles).toEqual([]);
+    expect(unverified.hubConfig.profiles.map((profile) => profile.bundles)).toEqual([[], []]);
+    expect(unverified.warnings).toHaveLength(1);
+  });
+
   it('does not download archives during dry-run and reports unresolved profiles', async () => {
     const source: ReplicationSourcePort = { getHubConfig: vi.fn(async () => ({ sources: [{ id: 's', type: 'github', url: 'https://github.com/owner/repo' }], profiles: [{ id: 'p', bundles: [{ source: 's', id: 'missing', version: 'latest' }] }] })), listReleaseCandidates: vi.fn(async () => [c]), downloadArchive: vi.fn() }; const result = await replicateHub({ sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root', mode: 'latest' }, source); expect(source.downloadArchive).not.toHaveBeenCalled(); expect(result.warnings).toContain('Unresolved profile bundle: s:missing');
   });

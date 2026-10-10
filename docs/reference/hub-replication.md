@@ -53,6 +53,8 @@ The command is metadata-only unless both `--publish` and `--review` are provided
 
 `latest` reads bundle references from source profiles and selects the highest stable SemVer for each requested stable bundle ID. If no stable candidate exists, it selects the highest prerelease. An explicitly pinned profile version, including a prerelease, is selected exactly. `all` selects every valid GitHub release candidate, including prereleases, and deduplicates by stable bundle ID/version.
 
+Candidates sharing a bundle ID/version are published once only when their repository, release tag, archive URL/size, and manifest bytes/name agree. All selected source aliases are retained for pinned and `latest` profile references after verified publication. Conflicting candidates stop replication before publication; an unverified object excludes every alias for that coordinate.
+
 Stable IDs have the form `<owner>-<repository>-<manifest.id>` when the manifest declares an ID, or `<owner>-<repository>` otherwise. The version remains a separate index coordinate. Unresolved profile references are warnings and are not emitted into generated profiles.
 
 ## Publication and resume
