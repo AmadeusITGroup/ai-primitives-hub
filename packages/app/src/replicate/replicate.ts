@@ -79,7 +79,13 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
   }
   const updatedAt = new Date().toISOString(); const index = { formatVersion: 1 as const, source: { id: 'replicated', name: 'Replicated GitHub hub', description: 'Bundles replicated from GitHub releases', updatedAt }, bundles: entries };
   if (options.publish && publisher) {
-    const indexStatus = await publisher.publish(`${REPLICATED_SOURCE_PATH}/index-v1.json`, new TextEncoder().encode(JSON.stringify(index, null, 2) + '\n'), 'application/json');
+    const indexBytes = new TextEncoder().encode(JSON.stringify(index, null, 2) + '\n');
+    const indexFile = `indexes/${sha256(indexBytes)}/index-v1.json`;
+    const generationStatus = await publisher.publish(`${REPLICATED_SOURCE_PATH}/${indexFile}`, indexBytes, 'application/json');
+    if (generationStatus === 'skipped-unverified') {
+      throw new Error('Unverified existing catalog generation. Check the target objects before retrying.');
+    }
+    const indexStatus = await publisher.publish(`${REPLICATED_SOURCE_PATH}/index-v1.json`, indexBytes, 'application/json', { replaceExisting: true });
     if (indexStatus === 'skipped-unverified') {
       throw new Error('Unverified existing metadata at sources/replicated/index-v1.json. Check the target objects before retrying.');
     }
@@ -95,13 +101,13 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
         url: `${options.targetRoot.replace(/\/$/, '')}/${REPLICATED_SOURCE_PATH}`, enabled: true, priority: 0,
         private: targetAuth === 'bearer',
         config: {
-          indexFile: 'index-v1.json', authMode: targetAuth,
+          indexFile, authMode: targetAuth,
           ...(targetAuth === 'bearer' && options.targetCredentialRef ? { credentialRef: options.targetCredentialRef } : {})
         }
       }],
       profiles: profiles as HubConfig['profiles']
     };
-    const hubStatus = await publisher.publish('hub-config.yml', new TextEncoder().encode(JSON.stringify(config, null, 2) + '\n'), 'application/yaml');
+    const hubStatus = await publisher.publish('hub-config.yml', new TextEncoder().encode(JSON.stringify(config, null, 2) + '\n'), 'application/yaml', { replaceExisting: true });
     if (hubStatus === 'skipped-unverified') {
       throw new Error('Unverified existing metadata at hub-config.yml. Check the target objects before retrying.');
     }

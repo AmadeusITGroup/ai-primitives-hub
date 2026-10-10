@@ -11,6 +11,7 @@ The generated tree is:
 ```text
 <target-root>/hub-config.yml
 <target-root>/sources/replicated/index-v1.json
+<target-root>/sources/replicated/indexes/<catalog-sha256>/index-v1.json
 <target-root>/sources/replicated/bundles/<stable-id>/<version>/deployment-manifest.yml
 <target-root>/sources/replicated/bundles/<stable-id>/<version>/<stable-id>-<version>.zip
 ```
@@ -63,14 +64,19 @@ Publication is ordered to avoid advertising incomplete content:
 
 1. download each selected archive and reject zero-byte archives;
 2. publish bundle objects;
-3. publish `index-v1.json`;
-4. publish `hub-config.yml`.
+3. publish an immutable content-addressed catalog generation under `indexes/<catalog-sha256>/index-v1.json`;
+4. refresh the compatibility/latest projection `index-v1.json`;
+5. publish `hub-config.yml` with its source `indexFile` pointing to that exact immutable generation.
 
 Release manifests are parsed, but replication does not validate them against the deployment-manifest schema or verify downloaded archives against upstream checksums.
 
-Before each write, the publisher uses `HEAD` and Artifactory checksum metadata. An existing object with the same SHA-256 is skipped. A conflicting or unverifiable object stops the operation by default. Re-running with the same cache and target root resumes completed work.
+Before each write, the publisher uses `HEAD` and Artifactory checksum metadata. An existing object with the same SHA-256 is skipped. Versioned bundle objects remain immutable: conflicting or unverifiable bytes stop publication by default. Re-running with the same cache and target root resumes matching bundle objects.
 
-With `--allow-unverified-existing`, an unverified existing manifest or archive produces a warning, and its bundle is omitted from the generated index and both pinned and `latest` profile references. The flag never overwrites or repairs existing objects. The index and hub config must themselves be uploaded or match a verified existing checksum; if either metadata object is skipped unverified, publication fails. An unverified index prevents hub-config publication. The CLI returns exit code `2` for bundle-omission warnings and `1` for publication failures.
+Only `sources/replicated/index-v1.json` and `hub-config.yml` are mutable metadata. After verified bundle publication, the application explicitly permits their refresh. New metadata uses `If-None-Match: *`; changed existing metadata requires a strong ETag from `HEAD` and uses `If-Match`. Missing, weak, or malformed ETags stop the refresh. A concurrent-write precondition failure stops publication without retries, and a failed index write prevents the hub-config write. Servers must honor conditional PUTs; qualify this behavior on the intended Artifactory deployment before production sign-off.
+
+The generated hub references its immutable catalog generation, not the mutable compatibility projection. Overlapping runs may leave the projection from a different run, but the final hub always resolves the catalog for its own profiles. Catalog generations are retained and never overwritten or deleted by replication. Because source identity includes `indexFile`, successive generations are distinct source snapshots; historical lockfiles retain their original catalog reference. Retention/cleanup is a separate administrative policy.
+
+With `--allow-unverified-existing`, an unverified existing manifest or archive produces a warning, and its bundle is omitted from the generated index and both pinned and `latest` profile references. The flag never overwrites or repairs bundle objects and does not bypass metadata preconditions. The index and hub config must themselves be conditionally uploaded/refreshed or match a verified existing checksum; if either metadata object is skipped unverified, publication fails. An unverified index prevents hub-config publication. The CLI returns exit code `2` for bundle-omission warnings and `1` for publication failures.
 
 Each run fetches the source hub config and every release-list page again so branch updates and newly published releases are discovered. These metadata requests count against `--request-budget`; only manifest and archive downloads are reused from the cache by asset URL. The budget must cover the metadata requests even when reusing a cache directory.
 

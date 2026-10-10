@@ -59,7 +59,7 @@ class RecordingHttp implements HttpClient {
   public async fetch(request: HttpRequest): Promise<HttpResponse> {
     this.requests.push(request);
     if (request.url.startsWith('https://artifactory.example/')) {
-      const unverified = this.unverifiedSuffix !== undefined && request.url.endsWith(this.unverifiedSuffix);
+      const unverified = this.unverifiedSuffix !== undefined && request.url.endsWith(this.unverifiedSuffix) && !request.url.includes('/indexes/');
       const headStatus = unverified ? 200 : 404;
       return { statusCode: request.method === 'HEAD' ? headStatus : 201, body: new Uint8Array(), finalUrl: request.url, headers: {} };
     }
@@ -149,6 +149,7 @@ describe('hub replicate command', () => {
     expect(http.requests.filter((request) => request.method === 'PUT').map((request) => request.url)).toEqual([
       `${base}/sources/replicated/bundles/owner-repo-bundle/1.0.0/deployment-manifest.yml`,
       `${base}/sources/replicated/bundles/owner-repo-bundle/1.0.0/owner-repo-bundle-1.0.0.zip`,
+      expect.stringMatching(/^https:\/\/artifactory.example\/replicated\/sources\/replicated\/indexes\/[a-f0-9]{64}\/index-v1.json$/),
       `${base}/sources/replicated/index-v1.json`,
       `${base}/hub-config.yml`
     ]);

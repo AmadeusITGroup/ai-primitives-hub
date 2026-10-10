@@ -123,7 +123,17 @@ boundary, and fallback policy are not defined only by the current branch or PR.
    objects first, verifies or reuses same-digest existing objects, publishes a
    complete source index second, and publishes `hub-config.yml` last. Dry-run
    and explicit review acknowledgement are required before writes in the CLI.
-   Conflicting or unverifiable existing objects stop the operation by default.
+   Conflicting or unverifiable existing bundle objects stop the operation by default.
+   Only the source index and root hub configuration are mutable: publication
+   explicitly requests their refresh after bundle verification. Conditional PUT
+   creates missing metadata with `If-None-Match: *` and replaces changed metadata
+   with a strong HEAD ETag via `If-Match`. Missing validators and precondition
+   failures stop publication; they never permit unconditional replacement.
+   Each generated hub references an immutable content-addressed index generation.
+   The mutable index-v1.json is a compatibility projection, not its source pointer.
+   This binds profiles and catalog across overlapping publishers without assuming
+   two-file atomic writes or a process-local lock. Generation retention is separate
+   from publication; source snapshots retain their original indexFile identity.
 
 8. **Defer native JFrog package contracts, transparent fallback, and signing.**
 

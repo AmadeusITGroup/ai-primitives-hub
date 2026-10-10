@@ -24,8 +24,9 @@ export interface ReplicationSourcePort {
   listReleaseCandidates(owner: string, repo: string, sourceId: string): Promise<ReplicationCandidate[]>;
   downloadArchive(candidate: ReplicationCandidate): Promise<Uint8Array>;
 }
+export interface ReplicationPublishOptions { replaceExisting?: boolean }
 export interface ReplicationPublisherPort {
-  publish(path: string, data: Uint8Array, mediaType: string): Promise<'uploaded' | 'skipped-existing' | 'skipped-unverified'>;
+  publish(path: string, data: Uint8Array, mediaType: string, options?: ReplicationPublishOptions): Promise<'uploaded' | 'skipped-existing' | 'skipped-unverified'>;
 }
 
 export const stableReplicatedBundleId = (repo: string, manifest: Record<string, unknown>): string => {
