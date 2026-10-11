@@ -40,7 +40,9 @@ Artifactory tokens are created in the Artifactory Administration UI (user profil
 ## Adding a Source
 
 Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
-macOS) and run **AI Primitives Hub: Add Source**. Choose **Artifactory** to enter the source root, index file, and token. When prompted, enter a label such as `ARTIFACTORY_READER_TOKEN` first, then paste the Artifactory token value in the password field. The label is only a SecretStorage key; it is not an environment variable and is not the token. The token is stored in VS Code SecretStorage.
+macOS) and run **AI Primitives Hub: Add Source**. Choose **Artifactory**, enter a name, the source root and index file, then choose **Public** for anonymous access or **Private** for Bearer authentication. Private access requires the complete Artifactory token in the password-protected prompt, without a `Bearer ` prefix. Enter the source priority to continue.
+
+Direct source enrollment does not ask for a credential label: its generated source ID scopes the SecretStorage token. Validation uses the supplied token without saving it. The token is saved only after the source is accepted; cancellation, rejected validation and duplicate IDs do not replace existing credentials or leave a newly saved token. No token is written to registry configuration. Credential-label prompts belong to Artifactory hub import, not direct source enrollment.
 
 CLI users can add the same source without storing a token in configuration:
 

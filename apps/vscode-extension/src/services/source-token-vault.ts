@@ -7,10 +7,14 @@ import type {
 export class SourceTokenVault {
   private static readonly KEY_PREFIX = 'promptregistry.source-token.';
 
-  public constructor(private readonly secrets: vscode.SecretStorage) {}
+  public constructor(private readonly secrets: vscode.SecretStorage, private readonly temporaryToken?: { sourceId: string; token: string }) {}
+
+  public withToken(sourceId: string, token: string): SourceTokenVault {
+    return new SourceTokenVault(this.secrets, { sourceId, token });
+  }
 
   public async get(sourceId: string): Promise<string | undefined> {
-    return await this.secrets.get(SourceTokenVault.key(sourceId));
+    return this.temporaryToken?.sourceId === sourceId ? this.temporaryToken.token : await this.secrets.get(SourceTokenVault.key(sourceId));
   }
 
   public async set(sourceId: string, token: string): Promise<void> {

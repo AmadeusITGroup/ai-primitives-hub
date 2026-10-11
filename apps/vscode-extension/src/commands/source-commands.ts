@@ -481,7 +481,29 @@ export class SourceCommands {
             value: 'index-v1.json',
             ignoreFocusOut: true
           });
-          config = { indexFile: indexFile || 'index-v1.json' };
+          if (indexFile === undefined) {
+            return;
+          }
+          isPrivate = await vscode.window.showQuickPick([
+            { label: 'Public', description: 'Anonymous access', value: false },
+            { label: 'Private', description: 'Bearer authentication', value: true }
+          ], { placeHolder: 'Choose Artifactory access', ignoreFocusOut: true });
+          if (!isPrivate) {
+            return;
+          }
+          config = { indexFile: indexFile || 'index-v1.json', authMode: isPrivate.value ? 'bearer' : 'anonymous' };
+          if (isPrivate.value) {
+            token = await vscode.window.showInputBox({
+              prompt: 'Paste the Artifactory access token to validate this source',
+              password: true,
+              placeHolder: 'Token value without the Bearer prefix',
+              ignoreFocusOut: true,
+              validateInput: (value) => value.trim() ? undefined : 'Enter an access token for private access'
+            });
+            if (!token?.trim()) {
+              return;
+            }
+          }
           break;
         }
         case 'azure-devops': {
@@ -592,7 +614,7 @@ export class SourceCommands {
       }
 
       // Validate source before adding
-      await vscode.window.withProgress(
+      const added = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
           title: `Validating source "${name}"...`,
@@ -612,13 +634,17 @@ export class SourceCommands {
             );
 
             if (proceed !== 'Yes') {
-              return;
+              return false;
             }
           }
 
           await this.registryManager.addSource(source);
+          return true;
         }
       );
+      if (!added) {
+        return;
+      }
 
       vscode.window.showInformationMessage(
         `Source "${name}" added successfully!`,

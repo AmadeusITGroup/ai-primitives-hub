@@ -862,21 +862,35 @@ export class RegistryManager {
   public async addSource(source: RegistrySource): Promise<void> {
     this.logger.info(`Adding source: ${source.name}`);
 
-    if (source.token?.trim()) {
-      await this.tokenVault.set(source.id, source.token.trim());
-    }
+    const token = source.token?.trim();
+    const validationVault = token ? this.tokenVault.withToken(source.id, token) : this.tokenVault;
     const sourceWithoutToken = { ...source, token: undefined };
     // Validate source (with global GitHub token compatibility only)
-    const enrichedSource = this.enrichSourceWithGlobalToken(sourceWithoutToken);
-    const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
+    const enrichedSource = this.enrichSourceWithGlobalToken({ ...sourceWithoutToken, token });
+    const adapter = createRegistryAdapter(enrichedSource, validationVault);
     const validation = await adapter.validate();
 
     if (!validation.valid) {
       throw new Error(`Source validation failed: ${validation.errors.join(', ')}`);
     }
 
+    const previousToken = token ? await this.tokenVault.get(source.id) : undefined;
     await this.storage.addSource(sourceWithoutToken);
-    this.adapters.set(source.id, adapter);
+    try {
+      if (token) {
+        await this.tokenVault.set(source.id, token);
+      }
+    } catch (error) {
+      const rollback = await Promise.allSettled([
+        this.storage.removeSource(source.id),
+        previousToken === undefined ? this.tokenVault.delete(source.id) : this.tokenVault.set(source.id, previousToken)
+      ]);
+      if (rollback.some((result) => result.status === 'rejected')) {
+        this.logger.error(`Could not fully roll back source '${source.id}'. Check registry and SecretStorage before retrying.`);
+      }
+      throw error;
+    }
+    this.adapters.set(source.id, createRegistryAdapter(enrichedSource, this.tokenVault));
 
     // Update cache
     this.sourcesCache = await this.storage.getSources();
@@ -1206,13 +1220,13 @@ export class RegistryManager {
    * @param source
    */
   public async validateSource(source: RegistrySource): Promise<ValidationResult> {
-    if (source.token?.trim()) {
-      await this.tokenVault.set(source.id, source.token.trim());
-    }
+    const token = source.token?.trim();
+    const validationVault = token ? this.tokenVault.withToken(source.id, token) : this.tokenVault;
     const sourceWithoutToken = { ...source, token: undefined };
-    const enrichedSource = this.enrichSourceWithGlobalToken(sourceWithoutToken);
-    const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
-    return await adapter.validate();
+    const enrichedSource = this.enrichSourceWithGlobalToken({ ...sourceWithoutToken, token });
+    const adapter = createRegistryAdapter(enrichedSource, validationVault);
+    const validation = await adapter.validate();
+    return { ...validation, warnings: validation.warnings ?? [] };
   }
 
   /**
