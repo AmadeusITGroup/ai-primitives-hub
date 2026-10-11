@@ -260,7 +260,7 @@ export class RegistryManager {
         // revision. Resolve the same revision here so CLI and VS Code converge
         // on one namespaced index instead of creating client-specific copies.
         try {
-          const enrichedSource = this.enrichSourceWithGlobalToken(source);
+          const enrichedSource = await this.enrichSourceWithVaultToken(source);
           const tokenProviders = [
             ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token)] : []),
             new VsCodeSessionTokenProvider(true),
@@ -311,7 +311,7 @@ export class RegistryManager {
    */
   private enrichSourceWithGlobalToken(source: RegistrySource): RegistrySource {
     // The deprecated setting is a GitHub-only compatibility fallback.
-    if (source.type !== 'github') {
+    if (!new Set(['github', 'awesome-copilot', 'skills', 'apm']).has(source.type)) {
       return source;
     }
     // If source already has a token, don't override it
@@ -334,6 +334,13 @@ export class RegistryManager {
     return source;
   }
 
+  private async enrichSourceWithVaultToken(source: RegistrySource): Promise<RegistrySource> {
+    if (source.type === 'local' || source.type.startsWith('local-')) {
+      return source;
+    }
+    return this.enrichSourceWithGlobalToken({ ...source, token: await this.tokenVault.get(source.id) });
+  }
+
   /**
    * Load adapters for all sources
    */
@@ -344,7 +351,7 @@ export class RegistryManager {
     for (const source of sources) {
       if (source.enabled) {
         try {
-          const enrichedSource = this.enrichSourceWithGlobalToken({ ...source, token: await this.tokenVault.get(source.id) });
+          const enrichedSource = await this.enrichSourceWithVaultToken(source);
           const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
           this.adapters.set(source.id, adapter);
         } catch (error) {
@@ -1084,9 +1091,9 @@ export class RegistryManager {
   public async createPrimitiveBundleProvider(): Promise<BundleProvider> {
     const sources = await this.storage.getSources();
     const blobCache = new BlobCache(path.join(new XdgAppStorage().getPaths().cache, 'primitive-index-blobs'));
-    const entries = sources
+    const entries = (await Promise.all(sources
       .filter((source) => source.enabled)
-      .flatMap((source) => {
+      .map(async (source) => {
         // Plugin sources are not part of the extension registry source union
         // yet; do not route them through the catalog adapter as a semantic
         // primitive provider until their native plugin tree is implemented.
@@ -1094,7 +1101,7 @@ export class RegistryManager {
           return [];
         }
         try {
-          const enrichedSource = this.enrichSourceWithGlobalToken(source);
+          const enrichedSource = await this.enrichSourceWithVaultToken(source);
           const tokenProviders = [
             ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token)] : []),
             new VsCodeSessionTokenProvider(true),
@@ -1125,7 +1132,7 @@ export class RegistryManager {
           );
           return [];
         }
-      });
+      }))).flat();
     return new CompositeBundleProvider(entries, {
       onSourceError: (sourceId, error) => {
         this.logger.warn(
