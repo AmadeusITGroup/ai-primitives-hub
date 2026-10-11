@@ -6,6 +6,9 @@
  * every call) since install does real file writes + lockfile IO.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   mkdir,
   mkdtemp,
   readFile,
@@ -13,6 +16,9 @@ import {
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type {
+  Lockfile,
+} from '@ai-primitives-hub/app';
 import type {
   HttpClient,
   HttpRequest,
@@ -41,7 +47,11 @@ import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
 import {
+  UpdateCommand,
+} from '../../src/commands/update';
+import {
   createTestContext,
+  runCli,
   runCommand,
 } from '../../src/framework';
 import {
@@ -136,6 +146,117 @@ describe('install command (local --from mode)', () => {
 
   afterEach(async () => {
     await rm(workspace, { recursive: true, force: true });
+  });
+
+  const artifactoryFixture = () => {
+    const catalogId = 'owner-repo-bundle';
+    const root = 'https://artifactory.example/repo/source';
+    let version = '1.0.0';
+    let manifestVersion = '1.0.0';
+    const archives = new Map<string, Uint8Array>();
+    const archiveFor = (): Uint8Array => {
+      const key = `${version}:${manifestVersion}`;
+      if (!archives.has(key)) {
+        const files = createLegacyReleaseArchive({ id: 'bundle', version: manifestVersion });
+        archives.set(key, buildZip([...files].map(([filePath, bytes]) => ({ path: filePath, bytes }))));
+      }
+      return archives.get(key)!;
+    };
+    const source: RegistrySource = {
+      id: 'artifact-source', name: 'Artifact Source', type: 'artifactory', url: root,
+      enabled: true, priority: 0, config: { authMode: 'bearer', credentialRef: 'ARTIFACTORY_TOKEN' }
+    };
+    const env = {
+      HOME: workspace, USERPROFILE: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+      XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'), ARTIFACTORY_TOKEN: 'reader-token'
+    };
+    const requests: HttpRequest[] = [];
+    const http: HttpClient = {
+      fetch: (request) => {
+        requests.push(request);
+        expect(request.headers?.Authorization).toBe('Bearer reader-token');
+        let body: Uint8Array;
+        if (request.url === `${root}/index-v1.json`) {
+          const bytes = archiveFor();
+          body = new TextEncoder().encode(JSON.stringify({
+            formatVersion: 1, source: { id: source.id, name: source.name, updatedAt: '2026-01-01T00:00:00Z' },
+            bundles: [{ id: catalogId, version, name: 'Bundle', description: '', author: 'Test', environments: ['vscode'],
+              tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+              manifest: { path: 'manifest.yml', size: 1, sha256: 'a'.repeat(64) },
+              archive: { path: `${version}/bundle.zip`, size: bytes.length,
+                sha256: createHash('sha256').update(bytes).digest('hex'), mediaType: 'application/zip' } }]
+          }));
+        } else if (request.url === `${root}/${version}/bundle.zip`) {
+          body = archiveFor();
+        } else {
+          throw new Error(`Unexpected Artifactory request: ${request.url}`);
+        }
+        return Promise.resolve({ statusCode: 200, body, finalUrl: request.url, headers: {} });
+      }
+    };
+    const tokens = { getToken: () => Promise.reject(new Error('GitHub credentials must not be used')) };
+    const context = () => createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env });
+    const target: Target = { name: 'copilot', type: 'copilot-cli', scope: 'user', path: targetDir };
+    const install = async () => {
+      const ctx = context();
+      const exitCode = await installBundleWithSource(catalogId, source, target, ctx, http, tokens, 'json');
+      return { exitCode, ctx, lockPath: JSON.parse(ctx.stdout.captured()).data.lockfile as string };
+    };
+    const command = async (args: string[]) => {
+      const ctx = context();
+      const exitCode = await runCli(args, { ctx, http, tokens, commandClasses: [InstallCommand, UpdateCommand], commands: [], name: 'test', version: 'test' });
+      return { exitCode, ctx };
+    };
+    return { catalogId, root, requests, install, command, context, source, target, http, tokens,
+      setVersion: (selected: string, embedded = selected) => {
+        version = selected;
+        manifestVersion = embedded;
+      } };
+  };
+
+  it('persists the Artifactory catalog ID through install replay and update without GitHub access', async () => {
+    const fixture = artifactoryFixture();
+    const installed = await fixture.install();
+    const lock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as Lockfile;
+    expect(Object.keys(lock.bundles)).toEqual([fixture.catalogId]);
+    expect(lock.sources['artifact-source']).toMatchObject({ type: 'artifactory', credentialRef: 'ARTIFACTORY_TOKEN' });
+    expect(JSON.stringify(lock)).not.toContain('reader-token');
+    await rm(path.join(targetDir, 'prompts', 'hello.prompt.md'));
+    const replay = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
+    expect(replay.exitCode).toBe(0);
+    expect(JSON.parse(replay.ctx.stdout.captured()).data.replayed).toEqual([fixture.catalogId]);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    fixture.setVersion('2.0.0');
+    const updated = await fixture.command(['update', '--lockfile', installed.lockPath, '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
+    expect(updated.exitCode).toBe(0);
+    expect(JSON.parse(updated.ctx.stdout.captured()).data.updated).toBe(1);
+    const nextLock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as Lockfile;
+    expect(Object.keys(nextLock.bundles)).toEqual([fixture.catalogId]);
+    expect(nextLock.bundles[fixture.catalogId].version).toBe('2.0.0');
+    const replayUpdated = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
+    expect(replayUpdated.exitCode).toBe(0);
+  });
+
+  it('rejects an Artifactory latest install with a different embedded version before writing', async () => {
+    const fixture = artifactoryFixture();
+    fixture.setVersion('2.0.0', '3.0.0');
+    await expect(installBundleWithSource(fixture.catalogId, fixture.source, fixture.target, fixture.context(), fixture.http, fixture.tokens, 'json'))
+      .rejects.toThrow(/version/i);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
+  it('rejects an Artifactory update version mismatch without changing files or lockfile', async () => {
+    const fixture = artifactoryFixture();
+    const installed = await fixture.install();
+    const oldLock = await readFile(installed.lockPath, 'utf8');
+    const oldContent = await readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8');
+    fixture.setVersion('2.0.0', '3.0.0');
+    const updated = await fixture.command(['update', '--lockfile', installed.lockPath, '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
+    expect(updated.exitCode).toBe(1);
+    expect(JSON.parse(updated.ctx.stdout.captured())).toMatchObject({ status: 'warning', data: { updated: 0 } });
+    expect(JSON.parse(updated.ctx.stdout.captured()).warnings[0]).toMatch(/version/i);
+    expect(await readFile(installed.lockPath, 'utf8')).toBe(oldLock);
+    expect(await readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).toBe(oldContent);
   });
 
   it('installs a local bundle: writes files and records a lockfile entry', async () => {

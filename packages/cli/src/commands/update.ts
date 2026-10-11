@@ -269,14 +269,17 @@ export class UpdateCommand extends BaseUpdateCommand {
         return renderNoUpdates(ctx, fmt, bundleIds.length, skipped.length);
       }
 
-      const { updatedCount, updateResults } = await applyUpdates(toInstall, target, scope, commitMode, lockPath, ctx, http, tokens);
+      const { updatedCount, updateResults, failures } = await applyUpdates(toInstall, target, scope, commitMode, lockPath, ctx, http, tokens);
 
       formatOutput({
-        ctx, command: 'update', output: fmt, status: 'ok',
-        data: { lockfile: lockPath, target: target.name, checked: bundleIds.length, updated: updatedCount, skipped: skipped.length, updates: updateResults },
-        textRenderer: renderUpdateOutput
+        ctx, command: 'update', output: fmt, status: failures.length > 0 ? 'warning' : 'ok',
+        data: { lockfile: lockPath, target: target.name, checked: bundleIds.length, updated: updatedCount, skipped: skipped.length, updates: updateResults, failures },
+        warnings: failures,
+        textRenderer: failures.length > 0
+          ? (data) => `Updated ${String(data.updated)} bundles. ${String(data.failures.length)} updates could not complete. Check the reported failures before retrying.\n`
+          : renderUpdateOutput
       });
-      return 0;
+      return failures.length > 0 ? 1 : 0;
     } catch (err) {
       if (err instanceof RegistryError) {
         return failWith(ctx, fmt, 'update', err);
@@ -545,9 +548,10 @@ async function applyUpdates(
   ctx: Context,
   http: HttpClient,
   tokens: TokenProvider
-): Promise<{ updatedCount: number; updateResults: UpdateEntry[] }> {
+): Promise<{ updatedCount: number; updateResults: UpdateEntry[]; failures: string[] }> {
   let updatedCount = 0;
   const updateResults: UpdateEntry[] = [];
+  const failures: string[] = [];
 
   for (const candidate of toInstall) {
     try {
@@ -555,11 +559,13 @@ async function applyUpdates(
       updateResults.push({ bundleId: candidate.bundleId, from: candidate.from, to: candidate.to });
       updatedCount++;
     } catch (err) {
-      ctx.stderr.write(`Failed to update ${candidate.bundleId}: ${err instanceof Error ? err.message : String(err)}\n`);
+      const failure = `Failed to update ${candidate.bundleId}: ${err instanceof Error ? err.message : String(err)}`;
+      failures.push(failure);
+      ctx.stderr.write(`${failure}\n`);
     }
   }
 
-  return { updatedCount, updateResults };
+  return { updatedCount, updateResults, failures };
 }
 
 async function syncActiveHub(ctx: Context): Promise<void> {
@@ -602,7 +608,8 @@ async function applyUpdate(
 
   const dl = await downloader.download(candidate.installable);
   const files = await extractor.extract(dl.bytes);
-  const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: undefined });
+  const isArtifactory = candidate.source.type === 'artifactory';
+  const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
 
   const writer = writerFor(ctx, target, scope, commitMode);
   const targetFiles = getInstallableBundleFiles(files, manifest);
@@ -624,15 +631,16 @@ async function applyUpdate(
   if (lock === null) {
     return;
   }
-  let nextLock = upsertBundleEntry(lock, manifest.id, entry);
+  const lockKey = isArtifactory ? candidate.installable.ref.bundleId : manifest.id;
+  let nextLock = upsertBundleEntry(lock, lockKey, entry);
   nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
   await writeLockfile(lockPath, nextLock, ctx.fs);
 
   const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
   const existingState = await stateStore.load(target.name);
   const bundles = existingState?.lastInstalledBundles ?? [];
-  const idx = bundles.findIndex((b) => b.bundleId === manifest.id);
-  const bundleState = { bundleId: manifest.id, version: manifest.version, installedAt: new Date().toISOString() };
+  const idx = bundles.findIndex((b) => b.bundleId === lockKey);
+  const bundleState = { bundleId: lockKey, version: manifest.version, installedAt: new Date().toISOString() };
   if (idx === -1) {
     bundles.push(bundleState);
   } else {
