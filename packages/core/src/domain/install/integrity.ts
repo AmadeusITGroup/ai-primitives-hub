@@ -18,6 +18,33 @@
  * its own.
  * @module domain/install/integrity
  */
+import {
+  createHash,
+} from 'node:crypto';
+
+const SHA256_INTEGRITY = /^sha256:([a-f0-9]{64})$/;
+
+/**
+ * Parse canonical archive integrity, returning the bare digest or null.
+ * @param value
+ */
+export function parseArchiveIntegrity(value: string): string | null {
+  return SHA256_INTEGRITY.exec(value)?.[1] ?? null;
+}
+
+/**
+ * Verify bytes against canonical `sha256:<64 lowercase hex>` integrity.
+ * @param bytes
+ * @param integrity
+ */
+export function verifyArchiveIntegrity(bytes: Uint8Array, integrity: string): boolean {
+  const digest = parseArchiveIntegrity(integrity);
+  return digest !== null && createHash('sha256').update(bytes).digest('hex') === digest;
+}
+
+/** Short aliases for callers that work with generic integrity values. */
+export const parseIntegrity = parseArchiveIntegrity;
+export const verifyIntegrity = verifyArchiveIntegrity;
 
 /**
  * Narrow port subset needed to verify a written file. Satisfied by the

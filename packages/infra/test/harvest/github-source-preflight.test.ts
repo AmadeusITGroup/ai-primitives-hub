@@ -40,6 +40,10 @@ class ScenarioApi implements GitHubApi {
     return {} as T;
   }
 
+  public async getJsonWithHeaders<T>(path: string): Promise<{ value: T; headers: Record<string, string> }> {
+    return { value: await this.getJson<T>(path), headers: {} };
+  }
+
   public async getText(path: string): Promise<string> {
     this.calls.push(path);
     return '';

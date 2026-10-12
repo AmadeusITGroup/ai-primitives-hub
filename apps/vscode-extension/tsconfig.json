@@ -9,11 +9,6 @@
     "sourceMap": true,
     "rootDir": "src",
     "strict": true,
-    "moduleResolution": "node",
-    "baseUrl": "./",
-    "paths": {
-      "*": ["node_modules/*"]
-    },
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

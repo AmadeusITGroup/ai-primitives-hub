@@ -43,6 +43,10 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   ActiveHubStore,
+  AnonymousCredentialProvider,
+  ArtifactoryBundleDownloader,
+  ArtifactoryEnvCredentialProvider,
+  ArtifactoryHttpClient,
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
   FileSystemLayoutConfigLoader,
@@ -115,6 +119,7 @@ interface UpdateCandidate {
   repositoryTarget?: GitHubRepositoryTarget;
   authenticationCategory?: Exclude<GitHubSourceAuthCategory, 'unresolved'>;
   downloadTokens?: TokenProvider;
+  artifactoryClient?: ArtifactoryHttpClient;
 }
 
 interface UpdateContext {
@@ -303,7 +308,7 @@ async function detectUpdateContext(opts: UpdateOptions, ctx: Context): Promise<v
 }
 
 function isRemoteSource(type: string): boolean {
-  return type === 'github' || type === 'awesome-copilot' || type === 'skills';
+  return type === 'github' || type === 'awesome-copilot' || type === 'skills' || type === 'artifactory';
 }
 
 /**
@@ -325,7 +330,8 @@ function toRegistrySource(sourceId: string, src: LockfileSourceEntry): RegistryS
     priority: 0,
     config: {
       branch: src.branch,
-      collectionsPath: src.collectionsPath
+      collectionsPath: src.collectionsPath,
+      ...(src.type === 'artifactory' ? { indexFile: src.indexFile, authMode: src.authMode, credentialRef: src.credentialRef } : {})
     }
   };
 }
@@ -401,7 +407,17 @@ async function findUpdateCandidates(
     try {
       let resolverDispatcher = dispatcher;
       let dependencies: SourceAwareUpdateDependencies | undefined;
-      if (sourceAware) {
+      let artifactoryClient: ArtifactoryHttpClient | undefined;
+      if (src.type === 'artifactory') {
+        const credentials = src.authMode === 'bearer' && src.credentialRef !== undefined
+          ? new ArtifactoryEnvCredentialProvider(ctx.env, src.credentialRef, src.url)
+          : new AnonymousCredentialProvider();
+        artifactoryClient = new ArtifactoryHttpClient(http, credentials, src.url);
+        resolverDispatcher = new SourceDispatcher({
+          githubApi, fs: ctx.fs, http,
+          artifactoryCredentialProvider: () => credentials
+        });
+      } else if (sourceAware && src.type !== 'artifactory') {
         dependencies = sourceDependencies.get(entry.sourceId);
         if (dependencies === undefined) {
           dependencies = await sourceAwareUpdateDependencies(entry.sourceId, src, ctx, http);
@@ -430,7 +446,8 @@ async function findUpdateCandidates(
           installable,
           repositoryTarget: dependencies?.repositoryTarget,
           authenticationCategory: dependencies?.authenticationCategory,
-          downloadTokens: dependencies?.downloadTokens
+          downloadTokens: dependencies?.downloadTokens,
+          artifactoryClient
         });
       }
     } catch (error) {
@@ -573,12 +590,14 @@ async function applyUpdate(
   http: HttpClient,
   tokens: TokenProvider
 ): Promise<void> {
-  const downloader = new HttpsBundleDownloader(
-    http,
-    candidate.downloadTokens ?? tokens,
-    candidate.repositoryTarget,
-    candidate.authenticationCategory
-  );
+  const downloader = candidate.source.type === 'artifactory' && candidate.artifactoryClient !== undefined
+    ? new ArtifactoryBundleDownloader(candidate.artifactoryClient)
+    : new HttpsBundleDownloader(
+      http,
+      candidate.downloadTokens ?? tokens,
+      candidate.repositoryTarget,
+      candidate.authenticationCategory
+    );
   const extractor = new ZipBundleExtractor();
 
   const dl = await downloader.download(candidate.installable);

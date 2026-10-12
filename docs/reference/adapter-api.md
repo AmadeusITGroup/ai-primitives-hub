@@ -89,6 +89,12 @@ the delivery fallbacks in a `CompositeTokenProvider`. GitHub-hosted adapters
 receive a `GitHubApiClient`; Azure DevOps receives an
 `AzureDevOpsApiClient`.
 
+## HTTP Redirect Policy
+
+`HttpClient.fetch` follows redirects by default. Set `HttpRequest.followRedirects` to `false` when an adapter needs to inspect a redirect response before sending another request. HTTP implementations must return that response, its `Location` header, and the requested `finalUrl` without following the redirect. `maxRedirects` continues to limit automatic redirect handling when following is enabled.
+
+`ArtifactoryHttpClient` uses this mode to check every redirect destination against the configured origin and source path before forwarding credentials. Its redirect chains are limited to 10 hops, and path-confinement failures are not retried.
+
 ## Adding an Adapter in This Repository
 
 1. Extend the source type and configuration in `packages/core`.

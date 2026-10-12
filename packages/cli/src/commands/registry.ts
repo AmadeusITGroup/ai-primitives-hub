@@ -69,6 +69,9 @@ import {
   HubValidateCommand,
 } from './hub';
 import {
+  HubReplicateCommand,
+} from './hub-replicate';
+import {
   IndexBenchCommand,
 } from './index-bench';
 import {
@@ -188,6 +191,7 @@ export const ALL_COMMAND_CLASSES: CommandClass[] = [
   HubSyncCommand,
   HubRefreshCommand,
   HubValidateCommand,
+  HubReplicateCommand,
   SourceAddCommand,
   SourceListCommand,
   SourceRemoveCommand,
