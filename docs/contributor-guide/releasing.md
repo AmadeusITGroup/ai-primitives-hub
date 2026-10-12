@@ -171,6 +171,20 @@ and CI run. Before completing the release, manually create a remediation
 backlog issue with the advisory IDs and release context. Track updating,
 replacing, or removing the affected dependency promptly.
 
+## Security Scanner Release Gate
+
+A release containing scanner changes must additionally verify:
+
+1. the frozen reference commit and rule-pack digest are recorded;
+2. all migrated rule variants have differential coverage or an approved deviation;
+3. default outputs redact secret evidence;
+4. CI examples use `--ci --ignore-trust none` and least-privilege permissions;
+5. symlink, size, timeout, cancellation, and report-write tests pass;
+6. CLI and extension documentation matches the released options/settings;
+7. the VSIX smoke test works without Python installed.
+Run the [Security Scanner Maintenance](./security-scanner-maintenance.md) checklist before publishing a package or extension release.
+Run the [Security Scanner Maintenance](./security-scanner-maintenance.md) checklist before publishing a package or extension release.
+
 ## Pre-release Testing
 
 Test locally before releasing:

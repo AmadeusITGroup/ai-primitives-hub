@@ -1,0 +1,15 @@
+d96400fa841868211ac0aafa7a97f87c # Fingerprint - LLM01:2025 — Prompt Injection - INJ-004 - Location: tests/fixtures/html_injection.md — Line 13 — Output
+0da122fb77db1de52043b33879573009 # Fingerprint - LLM01:2025 — Prompt Injection - INJ-001 - Location: tests/fixtures/prompt_injection.md — Line 9 — Instructions
+8f2f431948126633482fdfc35a20a0ef # Fingerprint - ASI05:2026 — Unexpected Code Execution (RCE) - ASI-005 - Location: tests/fixtures/agentic_threats.md — Line 13 — Instructions
+ead5a35fe0dd22fc2aeb46b2fb10250a # Fingerprint - LLM05:2025 — Supply Chain Vulnerabilities - MCP-001 - Location: tests/fixtures/html_injection.md — Line 7 — Output
+f532ca2631747c70fe9d8ae3d075f0f5 # Fingerprint - LLM01:2025 — Prompt Injection - MCP-003 - Location: tests/fixtures/html_injection.md — Line 13 — Output
+dc6029cef6a8eaa9f4e8f28e94ac1e3c # Fingerprint - LLM06:2025 — Sensitive Information Disclosure - SEC-001 - Location: tests/fixtures/hardcoded_secrets.md — Line 7 — Configuration
+45eaf3911b76815ea0ff001a0c96b322 # Fingerprint - LLM06:2025 — Sensitive Information Disclosure - SEC-004 - Location: tests/fixtures/hardcoded_secrets.md — Line 15 — Configuration
+e0b14fe692d26b7f88913177d0eeb702 # Fingerprint - LLM02:2025 — Insecure Output Handling - MD-001 - Location: tests/fixtures/html_injection.md — Line 7 — Output
+7e3e3643cadc87d50178b03842f374b1 # Fingerprint - LLM02:2025 — Insecure Output Handling - MD-001 - Location: tests/fixtures/html_injection.md — Line 11 — Output
+1e534d43cf62863f2bbd4d55ce4db89c # Fingerprint - LLM01:2025 — Prompt Injection - INJ-001 - Location: tests/fixtures/html_injection.md — Line 13 — Output
+c48ec3668fd13ece8a9080a52ed63c7d # Fingerprint - LLM01:2025 — Prompt Injection - INJ-002 - Location: tests/fixtures/prompt_injection.md — Line 7
+15695d2ea3d89c9065079e56c1dd0aa9 # Fingerprint - LLM01:2025 — Prompt Injection - INJ-001 - Location: tests/fixtures/prompt_injection.md — Line 10 — Instructions
+d179551e6e3f2ad110310e2e2a738e95 # Fingerprint - LLM01:2025 — Prompt Injection - INJ-001 - Location: tests/fixtures/prompt_injection.md — Line 12 — Instructions
+d78b639c1195111e19b67071afa7460b # Fingerprint - LLM08:2025 — Excessive Agency - LLM-008 - Location: tests/fixtures/agentic_threats.md — Line 12 — Instructions
+fd5091e568e56311bc6960eb2b4e1007 # Fingerprint - ASI01:2026 — Agent Goal Hijack - AGT-003 - Location: tests/fixtures/agentic_threats.md — Line 12 — Instructions

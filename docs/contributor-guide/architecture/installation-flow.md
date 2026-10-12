@@ -84,6 +84,28 @@ flowchart TD
     U --> AA
 ```
 
+## Planned Security Gate for Custom Sources
+
+Custom sources are user-controlled and may contain prompts, skills, hooks, agent
+instructions, or MCP configuration that has not passed the project’s authoring
+review. The security scanner is intended to become a policy-controlled stage
+between manifest/integrity validation and installation side effects:
+
+```mermaid
+flowchart LR
+    EXTRACT["Extract bounded files"] --> VALIDATE["Validate manifest and integrity"]
+    VALIDATE --> SCAN["Scan extracted custom-source content"]
+    SCAN -->|policy passes| ROUTE["Route by selected scope"]
+    SCAN -->|finding or incomplete| STOP["Stop or warn; no writes when blocking"]
+    ROUTE --> TARGET["Write target, MCP state, and lock state"]
+```
+
+This gate is planned rather than enabled in every current installation path. It
+must scan extracted bytes before target files, MCP configuration, lockfiles, or
+installation records are written, and must reuse the shared security contract
+rather than duplicate rules in the installation layer. Report-only, warning,
+and blocking policies remain explicit rollout choices.
+
 ## Binary Safety and Integrity Verification
 
 Bundle files are copied to the target byte-for-byte and verified after every write:
