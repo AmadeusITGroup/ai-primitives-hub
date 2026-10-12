@@ -238,6 +238,41 @@ describe('loadHubSources', () => {
     expect(result).toEqual({ added: 2, updated: 0, skipped: 1, removed: 0 });
   });
 
+  it('continues loading and skips orphan pruning when an existing source update fails', async () => {
+    const existing = makeRegistrySource({
+      id: generateSourceId('awesome-copilot', 'https://github.com/github/awesome-copilot', {
+        branch: 'main',
+        collectionsPath: 'collections'
+      }),
+      hubId: 'hub-a'
+    });
+    const orphan = makeRegistrySource({
+      id: 'orphaned-source',
+      url: 'https://github.com/org/orphaned',
+      hubId: 'hub-a'
+    });
+    ports = makePorts([existing, orphan]);
+    ports.updateSource = vi.fn().mockRejectedValue(new Error('storage unavailable'));
+
+    const result = await loadHubSources(
+      'hub-a',
+      [
+        makeHubSource(),
+        makeHubSource({ id: 'source-2', url: 'https://github.com/org/second' })
+      ],
+      ports,
+      undefined,
+      { concurrency: 2 }
+    );
+
+    expect(result).toEqual({ added: 1, updated: 0, skipped: 1, removed: 0 });
+    expect(ports.addSource).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://github.com/org/second'
+    }));
+    expect(ports.removeSource).not.toHaveBeenCalled();
+    expect(ports.sources).toContainEqual(orphan);
+  });
+
   it('adds sources concurrently without exceeding the configured limit', async () => {
     let activeAdds = 0;
     let maxActiveAdds = 0;
@@ -1060,6 +1095,27 @@ describe('loadHubSourcesProgressively', () => {
     expect(synced.toSorted()).toEqual(addedIds.toSorted());
   });
 
+  it('logs background sync failures without rejecting completion', async () => {
+    const { events, onLog } = collectEvents();
+    const { onComplete } = loadHubSourcesProgressively(
+      'hub-a',
+      [makeHubSource({ id: 's1', url: 'https://github.com/org/one' })],
+      ports,
+      onLog,
+      {
+        syncSource: async () => {
+          throw new Error('remote unavailable');
+        }
+      }
+    );
+
+    await expect(onComplete()).resolves.toBeUndefined();
+    expect(events).toContainEqual(expect.objectContaining({
+      level: 'warn',
+      message: expect.stringContaining('remote unavailable')
+    }));
+  });
+
   it('onFirstSettled resolves after the first sync settles', async () => {
     let releaseFirst!: () => void;
     const firstBlocker = new Promise<void>((r) => {
@@ -1067,6 +1123,10 @@ describe('loadHubSourcesProgressively', () => {
     });
 
     const syncCalls: string[] = [];
+    let syncStarted!: () => void;
+    const syncStartedPromise = new Promise<void>((resolve) => {
+      syncStarted = resolve;
+    });
 
     const { onFirstSettled, onComplete } = loadHubSourcesProgressively(
       'hub-a',
@@ -1076,6 +1136,7 @@ describe('loadHubSourcesProgressively', () => {
       {
         syncSource: async (id) => {
           syncCalls.push(id);
+          syncStarted();
           await firstBlocker;
         }
       }
@@ -1086,8 +1147,9 @@ describe('loadHubSourcesProgressively', () => {
       firstSettled = true;
     });
 
-    await Promise.resolve();
+    await syncStartedPromise;
     expect(firstSettled).toBe(false);
+    expect(syncCalls).toHaveLength(1);
 
     releaseFirst();
     await firstSettledPromise;

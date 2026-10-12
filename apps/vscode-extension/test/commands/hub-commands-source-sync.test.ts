@@ -37,6 +37,16 @@ class MockRegistryManager {
 class MockHubManager {
   private readonly hubConfig: HubConfig;
   private readonly registryManager: any;
+  private resolveProgressiveImportStarted!: () => void;
+  public readonly progressiveImportStarted = new Promise<void>((resolve) => {
+    this.resolveProgressiveImportStarted = resolve;
+  });
+
+  public onRegisteredPromise: Promise<void> = Promise.resolve();
+  public onCompletePromise: Promise<void> = Promise.resolve();
+  public onActiveHubPromise: Promise<void> = Promise.resolve();
+  public completeStarted = false;
+  public readonly setActiveHubCalls: { hubId: string; options?: { loadSources?: boolean } }[] = [];
 
   constructor(config: HubConfig, registryManager?: any) {
     this.hubConfig = config;
@@ -63,6 +73,20 @@ class MockHubManager {
     return 'test-hub-id';
   }
 
+  public async importHubProgressively(reference: any, hubId?: string) {
+    this.resolveProgressiveImportStarted();
+    const importedHubId = await this.importHub(reference, hubId);
+    return {
+      hubId: importedHubId,
+      onRegistered: async () => this.onRegisteredPromise,
+      onFirstSettled: async () => {},
+      onComplete: async () => {
+        this.completeStarted = true;
+        return this.onCompletePromise;
+      }
+    };
+  }
+
   public loadHub(_hubId: string) {
     return {
       config: this.hubConfig,
@@ -74,7 +98,10 @@ class MockHubManager {
     return [];
   }
 
-  public async setActiveHub(_hubId: string) {}
+  public async setActiveHub(hubId: string, options?: { loadSources?: boolean }) {
+    await this.onActiveHubPromise;
+    this.setActiveHubCalls.push({ hubId, options });
+  }
 }
 
 suite('HubCommands Source Sync', () => {
@@ -86,8 +113,11 @@ suite('HubCommands Source Sync', () => {
   let showOpenDialogStub: sinon.SinonStub;
   let showInputBoxStub: sinon.SinonStub;
   let withProgressStub: sinon.SinonStub;
+  let initialSourceSyncPromise: Promise<void> | undefined;
 
   setup(() => {
+    initialSourceSyncPromise = undefined;
+
     // Stub vscode.window methods
     showQuickPickStub = sinon.stub(vscode.window, 'showQuickPick');
     showOpenDialogStub = sinon.stub(vscode.window, 'showOpenDialog');
@@ -153,7 +183,14 @@ suite('HubCommands Source Sync', () => {
       }
     } as any;
 
-    commands = new HubCommands(mockHubManager, mockRegistryManager, context);
+    commands = new HubCommands(
+      mockHubManager,
+      mockRegistryManager,
+      context,
+      (sourceSyncPromise) => {
+        initialSourceSyncPromise = sourceSyncPromise;
+      }
+    );
   });
 
   teardown(() => {
@@ -185,6 +222,48 @@ suite('HubCommands Source Sync', () => {
     const source2 = mockRegistryManager.sources.find((s: any) => s.id === expectedSource2Id);
     assert.ok(source2, `Source 2 should be present with new format ID: ${expectedSource2Id}`);
     assert.strictEqual(source2.hubId, 'test-hub-id', 'Source should have hubId injected');
+  });
+
+  test('waits for registration and tracks background sync before activating the hub', async () => {
+    let releaseRegistration!: () => void;
+    mockHubManager.onRegisteredPromise = new Promise<void>((resolve) => {
+      releaseRegistration = resolve;
+    });
+    let rejectCompletion!: (error: Error) => void;
+    mockHubManager.onCompletePromise = new Promise<void>((_resolve, reject) => {
+      rejectCompletion = reject;
+    });
+    let releaseActiveHub!: () => void;
+    mockHubManager.onActiveHubPromise = new Promise<void>((resolve) => {
+      releaseActiveHub = resolve;
+    });
+
+    showQuickPickStub.resolves({ value: 'local' });
+    showOpenDialogStub.resolves([vscode.Uri.file('/tmp/hub-config.yml')]);
+    showInputBoxStub.resolves('test-hub-id');
+
+    const importPromise = commands.importHub();
+    await mockHubManager.progressiveImportStarted;
+
+    assert.strictEqual(mockHubManager.setActiveHubCalls.length, 0);
+
+    releaseRegistration();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(initialSourceSyncPromise, undefined);
+
+    releaseActiveHub();
+    assert.strictEqual(await importPromise, 'test-hub-id');
+    assert.deepStrictEqual(mockHubManager.setActiveHubCalls, [
+      { hubId: 'test-hub-id', options: { loadSources: false } }
+    ]);
+    assert.strictEqual(mockHubManager.completeStarted, true);
+    const trackedSourceSyncPromise = initialSourceSyncPromise;
+    if (!trackedSourceSyncPromise) {
+      throw new Error('Expected initial source sync promise to be tracked');
+    }
+
+    rejectCompletion(new Error('sync failed'));
+    return trackedSourceSyncPromise;
   });
 
   test('should skip existing sources when importing a hub', async () => {
