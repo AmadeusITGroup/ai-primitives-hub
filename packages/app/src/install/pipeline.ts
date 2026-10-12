@@ -61,6 +61,7 @@ export interface InstallPipelineOptions {
   extractor: BundleExtractor;
   /** Factory that returns the appropriate writer for a given target. */
   writerFactory: (target: Target) => TargetWriter;
+  skipManifestIdValidation?: boolean;
   onEvent?: (event: PipelineEvent) => void;
 }
 
@@ -163,7 +164,7 @@ export class InstallPipeline {
     let manifest;
     try {
       manifest = validateManifest(files, {
-        expectedId: spec.bundleId,
+        expectedId: this.opts.skipManifestIdValidation ? undefined : spec.bundleId,
         expectedVersion: spec.bundleVersion
       });
     } catch (validateError) {

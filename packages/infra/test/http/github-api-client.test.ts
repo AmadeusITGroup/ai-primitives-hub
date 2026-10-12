@@ -33,14 +33,14 @@ class FakeHttpClient implements HttpClient {
     this.queue = Array.isArray(responses) ? [...responses] : [responses];
   }
 
-  public async fetch(request: HttpRequest): Promise<HttpResponse> {
+  public fetch(request: HttpRequest): Promise<HttpResponse> {
     this.lastRequest = request;
     this.requests.push(request);
     const next = this.queue.length > 1 ? this.queue.shift()! : this.queue[0];
     if (next instanceof Error) {
       throw next;
     }
-    return next;
+    return Promise.resolve(next);
   }
 }
 
@@ -50,19 +50,19 @@ class StaticTokenProvider implements TokenProvider {
 
   public constructor(private readonly token: string | undefined) {}
 
-  public async getToken(host: string, target?: GitHubRepositoryTarget): Promise<string | undefined> {
+  public getToken(host: string, target?: GitHubRepositoryTarget): Promise<string | undefined> {
     this.lastHost = host;
     this.lastTarget = target;
-    return this.token;
+    return Promise.resolve(this.token);
   }
 }
 
 class CountingTokenProvider implements TokenProvider {
   public calls = 0;
 
-  public async getToken(): Promise<string | undefined> {
+  public getToken(): Promise<string | undefined> {
     this.calls += 1;
-    return 'should-not-be-used';
+    return Promise.resolve('should-not-be-used');
   }
 }
 
@@ -75,11 +75,12 @@ function jsonResponse(body: unknown, statusCode = 200, headers: Record<string, s
   };
 }
 
-const noSleep = async (): Promise<void> => undefined;
+const noSleep = (): Promise<void> => Promise.resolve();
 
 function recordingSleep(sleeps: number[]): (ms: number) => Promise<void> {
-  return async (ms: number): Promise<void> => {
+  return (ms: number): Promise<void> => {
     sleeps.push(ms);
+    return Promise.resolve();
   };
 }
 
@@ -135,6 +136,14 @@ describe('GitHubApiClient', () => {
   it('parses the JSON body on success', async () => {
     const http = new FakeHttpClient(jsonResponse({ name: 'repo' }));
     await expect(new GitHubApiClient(http).getJson('/repos/o/r')).resolves.toEqual({ name: 'repo' });
+  });
+
+  it('returns response headers with parsed JSON', async () => {
+    const headers = { link: '<https://api.github.com/repos/o/r/releases?page=2>; rel="next"' };
+    const http = new FakeHttpClient(jsonResponse({ name: 'repo' }, 200, headers));
+
+    await expect(new GitHubApiClient(http).getJsonWithHeaders('/repos/o/r'))
+      .resolves.toEqual({ value: { name: 'repo' }, headers });
   });
 
   it('throws a descriptive error on a 404 response', async () => {

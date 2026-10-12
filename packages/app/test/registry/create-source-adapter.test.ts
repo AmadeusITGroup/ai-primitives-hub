@@ -3,6 +3,7 @@ import type {
   GitHubRepositoryTarget,
   GitHubSourceAuthCategory,
   HttpClient,
+  HttpCredentialProvider,
   HttpRequest,
   HttpResponse,
   ProcessResult,
@@ -14,6 +15,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
   createSourceAdapter,
@@ -122,7 +124,8 @@ describe('createSourceAdapter', () => {
     ['github', 'https://github.com/owner/repo'],
     ['skills', 'https://github.com/owner/repo'],
     ['awesome-copilot', 'https://github.com/owner/repo'],
-    ['apm', 'https://github.com/owner/repo']
+    ['apm', 'https://github.com/owner/repo'],
+    ['artifactory', 'https://artifactory.example/repository']
   ] as const)('builds a %s adapter with the matching .type', (type, url) => {
     const adapter = createSourceAdapter(makeSource({ type, url }), makeDeps());
     expect(adapter.type).toBe(type);
@@ -132,6 +135,24 @@ describe('createSourceAdapter', () => {
     expect(() => createSourceAdapter(makeSource({ type: 'nonexistent' as never }), makeDeps())).toThrow(
       'No adapter for source type: nonexistent'
     );
+  });
+
+  describe('Artifactory auth wiring', () => {
+    it('uses the provider-neutral credential factory and never the GitHub fallback chain', () => {
+      const credentials: HttpCredentialProvider = { headersFor: async () => ({}) };
+      const factory = vi.fn(() => credentials);
+      const fallback = new CountingTokenProvider();
+      const source = makeSource({ type: 'artifactory', url: 'https://artifactory.example/repository', config: { indexFile: 'catalog.json' } });
+
+      const adapter = createSourceAdapter(source, makeDeps({
+        artifactoryCredentialFactory: factory,
+        fallbackTokenProviders: [fallback]
+      }));
+
+      expect(adapter.type).toBe('artifactory');
+      expect(factory).toHaveBeenCalledWith(source);
+      expect(fallback.calls).toBe(0);
+    });
   });
 
   describe('GitHub-hosted auth wiring', () => {

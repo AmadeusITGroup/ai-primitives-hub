@@ -150,6 +150,10 @@ describe('expandPath', () => {
     expect(expandPath('~/.config', { USERPROFILE: 'C:/Users/alice' })).toBe('C:/Users/alice/.config');
   });
 
+  it('falls back to USERPROFILE for a ${HOME} token when HOME is unset', () => {
+    expect(expandPath('${HOME}/.copilot', { USERPROFILE: 'C:/Users/alice' })).toBe('C:/Users/alice/.copilot');
+  });
+
   it('leaves unmatched tokens blank rather than throwing', () => {
     expect(expandPath('${UNKNOWN}/x', {})).toBe('/x');
   });

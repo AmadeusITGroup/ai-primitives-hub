@@ -102,6 +102,14 @@ export function findDuplicateSource(
       return false;
     }
 
+    if (source.type === 'artifactory') {
+      const existingIndexFile = existingConfig.indexFile ?? 'index-v1.json';
+      const sourceIndexFile = sourceConfig.indexFile ?? 'index-v1.json';
+      if (existingIndexFile !== sourceIndexFile) {
+        return false;
+      }
+    }
+
     return true;
   });
 }
@@ -190,7 +198,8 @@ export async function loadHubSources(
     // bundles installed from it.
     const sourceId = generateSourceId(hubSource.type, hubSource.url, {
       branch: hubSource.config?.branch,
-      collectionsPath: hubSource.config?.collectionsPath
+      collectionsPath: hubSource.config?.collectionsPath,
+      indexFile: hubSource.config?.indexFile
     });
     protectedSourceIds.add(sourceId);
 

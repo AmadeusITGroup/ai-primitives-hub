@@ -19,7 +19,6 @@ import {
   findProjectConfigPath,
   HubStore,
   NodeHttpClient,
-  readTargets,
   summarizeProxyEnv,
 } from '@ai-primitives-hub/infra';
 import {
@@ -31,6 +30,7 @@ import {
   Command,
   type Context,
   formatOutput,
+  loadTargets,
   Option,
   type OutputFormat,
   type OutputStatus,
@@ -310,10 +310,21 @@ const checkProjectConfig = async (ctx: Context, verbose: boolean): Promise<Docto
     const { file, exists } = await findProjectConfigPath({ cwd, fs: ctx.fs });
     log(logs, 'output', `file: ${file}, exists: ${exists ? 'true' : 'false'}`);
     if (!exists) {
+      const targets = await loadTargets(ctx);
+      if (targets.length > 0) {
+        const targetNames = targets.map((target) => target.name).join(', ');
+        return {
+          name: 'project-config',
+          status: 'ok',
+          detail: `No project config found. Using target${targets.length === 1 ? '' : 's'} from user config: ${targetNames}.`,
+          logs
+        };
+      }
       return {
         name: 'project-config',
         status: 'warn',
-        detail: `No ai-primitives-hub.yml found from ${cwd} upward. Run \`ai-primitives-hub target add ...\` to create one.`,
+        detail: `No project config found from ${cwd} upward. User-scoped installs do not need one.`
+          + ' For repository installs, run `ai-primitives-hub target add <name> --type <kind> --scope repository`.',
         logs
       };
     }
@@ -344,7 +355,7 @@ const checkProjectConfig = async (ctx: Context, verbose: boolean): Promise<Docto
 const checkTargets = async (ctx: Context, verbose: boolean): Promise<DoctorCheck> => {
   const logs = createLogger(verbose);
   try {
-    const targets = await readTargets({ cwd: ctx.cwd(), fs: ctx.fs });
+    const targets = await loadTargets(ctx);
     log(logs, 'output', `targets: ${targets.map((t) => `${t.name}(${t.type})`).join(', ')}`);
     if (targets.length === 0) {
       return {
