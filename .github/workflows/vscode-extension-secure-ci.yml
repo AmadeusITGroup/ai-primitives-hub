@@ -144,7 +144,7 @@ jobs:
           pnpm dlx license-checker --csv > license-report.csv
 
       - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-reports
           path: |
@@ -297,7 +297,7 @@ jobs:
 
       - name: Upload extension artifacts
         if: ${{ matrix.node-version == env.NODE_VERSION }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vsix-${{ matrix.os }}-node${{ matrix.node-version }}
           path: ${{ env.EXTENSION_DIR }}/*.vsix
@@ -423,7 +423,7 @@ jobs:
           echo "" >> compliance-report.md
 
       - name: Upload compliance report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compliance-report
           path: compliance-report.md
