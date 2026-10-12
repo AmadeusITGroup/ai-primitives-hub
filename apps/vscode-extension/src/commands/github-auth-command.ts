@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
 import {
+  GitHubSessionError,
+  VsCodeSessionTokenProvider,
+} from '../adapters/vscode-session-token-provider';
+import {
   RegistryManager,
 } from '../services/registry-manager';
 import {
@@ -24,13 +28,27 @@ export class GitHubAuthCommand {
         title: 'Authenticating with GitHub...',
         cancellable: false
       }, async () => {
+        await VsCodeSessionTokenProvider.forceAuthentication();
         await this.registryManager.forceAuthentication();
       });
 
-      vscode.window.showInformationMessage('GitHub authentication refreshed successfully');
+      this.logger.info('[GitHubAuth] phase=refresh-complete');
+      await vscode.window.showInformationMessage('GitHub sign-in refreshed. Retry the source operation; repository access has not been verified.');
     } catch (error) {
-      this.logger.error('Failed to refresh GitHub authentication', error as Error);
-      vscode.window.showErrorMessage(`Authentication failed: ${(error as Error).message}`);
+      const failure = error instanceof GitHubSessionError
+        ? error
+        : new GitHubSessionError('FAILED', 'GitHub authentication could not be refreshed. Check the authentication output for details.');
+      this.logger.warn(`[GitHubAuth] phase=refresh-failed outcome=${failure.code}`);
+      if (failure.code === 'CANCELLED') {
+        await vscode.window.showInformationMessage(failure.message);
+        return;
+      }
+      const action = await vscode.window.showErrorMessage(failure.message, 'Show Logs', 'Reload Window');
+      if (action === 'Show Logs') {
+        this.logger.show();
+      } else if (action === 'Reload Window') {
+        await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      }
     }
   }
 }

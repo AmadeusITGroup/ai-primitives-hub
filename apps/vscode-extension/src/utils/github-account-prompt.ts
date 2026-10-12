@@ -1,4 +1,6 @@
-import * as vscode from 'vscode';
+import {
+  VsCodeSessionTokenProvider,
+} from '../adapters/vscode-session-token-provider';
 import {
   Logger,
 } from './logger';
@@ -22,11 +24,6 @@ import {
 export async function promptGitHubAccountSelection(): Promise<void> {
   const logger = Logger.getInstance();
 
-  const session = await vscode.authentication.getSession(
-    'github',
-    ['repo'],
-    { clearSessionPreference: true, createIfNone: true }
-  );
-
-  logger.info(`GitHub account selected: ${session.account.label}`);
+  await VsCodeSessionTokenProvider.selectAccount();
+  logger.info('[GitHubAuth] phase=account-selected');
 }

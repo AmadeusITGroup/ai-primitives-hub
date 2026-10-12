@@ -10,6 +10,9 @@ import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  VsCodeSessionTokenProvider,
+} from '../../src/adapters/vscode-session-token-provider';
+import {
   promptGitHubAccountSelection,
 } from '../../src/utils/github-account-prompt';
 
@@ -19,10 +22,12 @@ suite('promptGitHubAccountSelection', () => {
 
   setup(() => {
     sandbox = sinon.createSandbox();
+    VsCodeSessionTokenProvider.clearCache();
     getSessionStub = sandbox.stub(vscode.authentication, 'getSession');
   });
 
   teardown(() => {
+    VsCodeSessionTokenProvider.clearCache();
     sandbox.restore();
   });
 
@@ -48,7 +53,20 @@ suite('promptGitHubAccountSelection', () => {
 
     await assert.rejects(
       () => promptGitHubAccountSelection(),
-      /User did not consent/
+      /cancelled or access was declined/
     );
+  });
+
+  test('bounds a first-run account picker that never settles', async () => {
+    const clock = sandbox.useFakeTimers();
+    let release!: (value: undefined) => void;
+    getSessionStub.returns(new Promise((resolve) => {
+      release = resolve;
+    }));
+    const result = assert.rejects(promptGitHubAccountSelection(), /60 seconds/);
+    await clock.tickAsync(60_001);
+    await result;
+    release(undefined);
+    await clock.tickAsync(0);
   });
 });

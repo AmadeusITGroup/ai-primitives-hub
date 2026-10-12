@@ -368,6 +368,25 @@ items:
     kind: prompt
 `);
 
+      // Mock the branch head commit SHA (the readme revision). Left unmocked,
+      // getBranchHeadSha() hits an endpoint that rejects with nock's
+      // NetConnectNotAllowedError, which is now retried as a transport error and
+      // would burn ~4s of backoff before the adapter falls back to the branch name.
+      nock('https://api.github.com')
+        .persist()
+        .get('/repos/test-owner/awesome-copilot-broken-readme/commits/main')
+        .reply(200, { sha: 'broken-awesome-sha-1' });
+
+      // A readme pointing at a missing file 404s on the raw host in production.
+      // Mock that explicitly (rather than leaving the URL unmocked) so it stays a
+      // fatal 404 the retry layer never replays — an unmocked URL instead rejects
+      // with nock's NetConnectNotAllowedError, which is now retried as a transport
+      // error and would burst the test's timeout on backoff sleeps.
+      nock('https://raw.githubusercontent.com')
+        .persist()
+        .get('/test-owner/awesome-copilot-broken-readme/main/docs/missing-readme.md')
+        .reply(404);
+
       const brokenAwesomeCopilotReadmePromise = readmeDownload(brokenAwesomeCopilotSource.id);
 
       await testContext.registryManager.addSource(brokenAwesomeCopilotSource);
