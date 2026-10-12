@@ -32,7 +32,6 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   FileSystemLayoutConfigLoader,
-  readTargets,
   type RepositoryCommitMode,
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
@@ -196,8 +195,8 @@ export class UninstallCommand extends BaseUninstallCommand {
     }
 
     try {
-      const targetName = await resolveTargetName(opts.target, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
-      const configuredTarget = await resolveTarget(targetName, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+      const targetName = await resolveTargetName(opts.target, 'uninstall', ctx, () => loadTargets(ctx));
+      const configuredTarget = await resolveTarget(targetName, 'uninstall', ctx, () => loadTargets(ctx));
       const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
       if (opts.all === true) {
@@ -742,8 +741,8 @@ export const createUninstallCommand = (
       }
 
       try {
-        const targetName = await resolveTargetName(opts.target, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
-        const configuredTarget = await resolveTarget(targetName, 'uninstall', ctx, () => readTargets({ cwd: ctx.cwd(), fs: ctx.fs }));
+        const targetName = await resolveTargetName(opts.target, 'uninstall', ctx, () => loadTargets(ctx));
+        const configuredTarget = await resolveTarget(targetName, 'uninstall', ctx, () => loadTargets(ctx));
         const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
         if (opts.all === true) {

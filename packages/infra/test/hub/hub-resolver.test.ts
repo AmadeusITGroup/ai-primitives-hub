@@ -17,6 +17,7 @@ import {
   vi,
 } from 'vitest';
 import {
+  ArtifactoryHubResolver,
   CompositeHubResolver,
   GitHubHubResolver,
   LocalHubResolver,
@@ -304,6 +305,38 @@ describe('normalizeGitHubHubLocation', () => {
   it('folds a nested config path into the ref (documents the root-only limit)', () => {
     expect(normalizeGitHubHubLocation('https://github.com/owner/repo/blob/main/configs/hub-config.yml'))
       .toEqual({ location: 'owner/repo', ref: 'main/configs' });
+  });
+});
+
+describe('ArtifactoryHubResolver', () => {
+  it('reads the confined config file with bearer credentials and never falls back', async () => {
+    const requests: HttpRequest[] = [];
+    const http: HttpClient = {
+      fetch: async (request) => {
+        requests.push(request);
+        return { statusCode: 200, body: new TextEncoder().encode(VALID_YAML), finalUrl: request.url, headers: {} };
+      }
+    };
+    const resolver = new ArtifactoryHubResolver(http, {
+      headersFor: async () => ({ Authorization: 'Bearer private-token' })
+    }, 'https://artifactory.example/repo/hub');
+
+    const ref: HubReference = { type: 'artifactory', location: 'https://artifactory.example/repo/hub', configFile: 'hub-config.yml', authMode: 'bearer', credentialRef: 'PRIVATE_HUB' };
+    await resolver.resolve(ref);
+
+    expect(requests[0].url).toBe('https://artifactory.example/repo/hub/hub-config.yml');
+    expect(requests[0].headers?.Authorization).toBe('Bearer private-token');
+    expect(JSON.stringify(ref)).not.toContain('private-token');
+  });
+
+  it('rejects config path traversal', async () => {
+    const resolver = new ArtifactoryHubResolver(
+      fakeHttpClient(() => ({ statusCode: 200, body: new Uint8Array(), finalUrl: '', headers: {} })),
+      { headersFor: async () => ({}) },
+      'https://artifactory.example/repo/hub'
+    );
+    await expect(resolver.resolve({ type: 'artifactory', location: 'https://artifactory.example/repo/hub', configFile: '../secret.yml' }))
+      .rejects.toThrow(/confined|path/i);
   });
 });
 

@@ -45,6 +45,15 @@ describe('expandPath', () => {
     expect(expandPath('~/.config', { USERPROFILE: 'C:/Users/alice' })).toBe('C:/Users/alice/.config');
   });
 
+  it('falls back to USERPROFILE for a ${HOME} token on Windows', () => {
+    expect(expandPath('${HOME}/.copilot', { USERPROFILE: 'C:/Users/alice' })).toBe('C:/Users/alice/.copilot');
+  });
+
+  it('prefers HOME over USERPROFILE when both are set', () => {
+    expect(expandPath('${HOME}/.copilot', { HOME: '/home/alice', USERPROFILE: 'C:/Users/alice' }))
+      .toBe('/home/alice/.copilot');
+  });
+
   it('replaces an unknown ${VAR} with an empty string', () => {
     // Legacy behaviour, retained for baseDir compatibility. New MCP path
     // resolution uses resolvePathTokens, which throws instead.

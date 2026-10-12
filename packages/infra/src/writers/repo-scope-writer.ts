@@ -88,9 +88,9 @@ interface WriteResult {
  * Repository-scope writer for bundle installations.
  *
  * Places files in .github/ subdirectories based on type:
- * - prompts → .github/copilot/prompts/
- * - instructions → .github/copilot/instructions/
- * - agents → .github/copilot/agents/
+ * - prompts → .github/prompts/
+ * - instructions → .github/instructions/
+ * - agents → .github/agents/
  * - skills → .github/skills/<skill-name>/
  */
 export class RepositoryScopeWriter {
@@ -146,13 +146,13 @@ export class RepositoryScopeWriter {
   private getSubdirectory(type: string): string | null {
     const typeLower = type.toLowerCase();
     if (typeLower === 'prompt') {
-      return 'copilot/prompts';
+      return 'prompts';
     }
     if (typeLower === 'instruction' || typeLower === 'instructions') {
-      return 'copilot/instructions';
+      return 'instructions';
     }
     if (typeLower === 'agent' || typeLower === 'chatmode' || typeLower === 'chat-mode') {
-      return 'copilot/agents';
+      return 'agents';
     }
     if (typeLower === 'skill') {
       return 'skills';
@@ -551,11 +551,11 @@ export class RepositoryScopeWriter {
   public async removeBundleFile(filePath: string): Promise<void> {
     const normalized = filePath.replaceAll('\\', '/');
     const route = [
-      ['prompts/', 'copilot/prompts/'],
-      ['instructions/', 'copilot/instructions/'],
-      ['chat-modes/', 'copilot/agents/'],
-      ['chatmodes/', 'copilot/agents/'],
-      ['agents/', 'copilot/agents/'],
+      ['prompts/', 'prompts/'],
+      ['instructions/', 'instructions/'],
+      ['chat-modes/', 'agents/'],
+      ['chatmodes/', 'agents/'],
+      ['agents/', 'agents/'],
       ['skills/', 'skills/'],
       ['hooks/', 'hooks/'],
       ['plugins/', 'plugins/']

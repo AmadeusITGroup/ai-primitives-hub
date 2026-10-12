@@ -33,6 +33,14 @@ If you're contributing a collection to a source you don't own:
    **AI Primitives Hub: Validate Collections**
 6. Create a new branch, commit, and open a **Pull Request** against the upstream source repository
 
+## Publishing to Artifactory
+
+Artifactory publishing is supported through a generic repository with a hub-owned static index. Publish the bundle manifest, ZIP archive, optional README, and an `index-v1.json` describing those objects. Every object path must be relative to the configured source root and include its exact byte size and lowercase SHA-256 digest.
+
+Keep publication and consumption credentials separate. Publishers need repository deploy/write permission but should not retain delete permission after setup. Consumers need read permission only. Configure consumers with a credential reference rather than embedding a token in the index, URL, hub configuration, or lockfile. Qualify a publication by checking anonymous/private index access, archive download, digest and size verification, ETag refresh, traversal rejection, and reader/publisher permissions.
+
+The CLI uses an environment variable for the configured credential reference; VS Code stores the entered token in SecretStorage. Both clients use the same source-root and integrity checks.
+
 ## Creating a New Source (GitHub Recommended)
 
 ### Setup
