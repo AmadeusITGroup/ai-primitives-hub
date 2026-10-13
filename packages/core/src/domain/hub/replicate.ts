@@ -18,10 +18,11 @@ export interface ReplicationCandidate {
 }
 export interface ReplicationRequest { sourceId: string; bundleId: string; versions: Set<string> }
 export interface ReplicationSelection { selected: ReplicationCandidate[]; unresolved: string[] }
+export interface ReplicationCandidateDiscovery { candidates: ReplicationCandidate[]; warnings: string[] }
 export interface ReplicationResult { index: ArtifactorySourceIndex; hubConfig: HubConfig; warnings: string[]; selected: ReplicationCandidate[] }
 export interface ReplicationSourcePort {
   getHubConfig(ownerRepo: string, ref: string): Promise<Record<string, unknown>>;
-  listReleaseCandidates(owner: string, repo: string, sourceId: string): Promise<ReplicationCandidate[]>;
+  listReleaseCandidates(owner: string, repo: string, sourceId: string): Promise<ReplicationCandidateDiscovery>;
   downloadArchive(candidate: ReplicationCandidate): Promise<Uint8Array>;
 }
 export interface ReplicationPublishOptions { replaceExisting?: boolean }
@@ -45,8 +46,12 @@ export const normalizedReleaseVersion = (manifest: Record<string, unknown>, tag:
 };
 export const selectReplications = (candidates: ReplicationCandidate[], requests: ReplicationRequest[], mode: 'latest' | 'all'): ReplicationSelection => {
   if (mode === 'all') {
-    const available = new Set(candidates.map((candidate) => `${candidate.sourceId}\0${candidate.bundleId}`));
-    return { selected: deduplicate(candidates), unresolved: requests.filter((request) => !available.has(`${request.sourceId}\0${request.bundleId}`)).map((request) => `${request.sourceId}:${request.bundleId}`) };
+    const allModeUnresolved = requests.filter((request) => {
+      const options = candidates.filter((candidate) => candidate.sourceId === request.sourceId && candidate.bundleId === request.bundleId);
+      const explicit = [...request.versions].filter((version) => version !== 'latest');
+      return (request.versions.has('latest') && options.length === 0) || explicit.some((version) => !options.some((candidate) => candidate.version === version));
+    }).map((request) => `${request.sourceId}:${request.bundleId}`);
+    return { selected: deduplicate(candidates), unresolved: allModeUnresolved };
   }
   const byKey = new Map<string, ReplicationCandidate[]>();
   for (const candidate of candidates) {
@@ -56,16 +61,20 @@ export const selectReplications = (candidates: ReplicationCandidate[], requests:
   for (const request of requests) {
     const options = byKey.get(`${request.sourceId}\0${request.bundleId}`) ?? [];
     const explicit = [...request.versions].filter((version) => version !== 'latest');
-    const matches = explicit.length > 0 ? options.filter((candidate) => explicit.includes(candidate.version)) : options;
-    if (matches.length === 0) {
-      unresolved.push(`${request.sourceId}:${request.bundleId}`); continue;
+    const explicitMatches = options.filter((candidate) => explicit.includes(candidate.version));
+    const missingExplicit = explicit.some((version) => !options.some((candidate) => candidate.version === version));
+    selected.push(...explicitMatches);
+    let latest: ReplicationCandidate | undefined;
+    if (request.versions.has('latest')) {
+      const stable = options.filter((candidate) => semver.prerelease(candidate.version) === null);
+      const pool = stable.length > 0 ? stable : options;
+      latest = [...pool].sort((a, b) => semver.rcompare(a.version, b.version))[0];
+      if (latest) {
+        selected.push(latest);
+      }
     }
-    if (explicit.length > 0) {
-      selected.push(...matches);
-    } else {
-      const stable = matches.filter((candidate) => semver.prerelease(candidate.version) === null);
-      const pool = stable.length > 0 ? stable : matches;
-      selected.push([...pool].sort((a, b) => semver.rcompare(a.version, b.version))[0]);
+    if (missingExplicit || (explicit.length === 0 && !latest)) {
+      unresolved.push(`${request.sourceId}:${request.bundleId}`);
     }
   }
   return { selected: deduplicate(selected), unresolved };
@@ -111,6 +120,89 @@ export const requestsFromHubConfig = (hub: Record<string, unknown>): Replication
     }
   }
   return [...requests.values()];
+};
+
+export interface ReplicationProfileResolution { profiles: Record<string, unknown>[]; warnings: string[] }
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+export const resolveReplicatedProfiles = (hub: Record<string, unknown>, candidates: ReplicationCandidate[], selectedCandidates: ReplicationCandidate[] = candidates): ReplicationProfileResolution => {
+  const warnings: string[] = []; const profiles: Record<string, unknown>[] = [];
+  if (hub.profiles === undefined) {
+    return { profiles, warnings };
+  }
+  if (!Array.isArray(hub.profiles)) {
+    return { profiles, warnings: ['Excluded all profiles: hub-config profiles must be a list.'] };
+  }
+  const profileValues = hub.profiles as unknown[];
+  const sourceValues = Array.isArray(hub.sources) ? hub.sources as unknown[] : [];
+  const sources = new Map<string, Record<string, unknown>>();
+  for (const source of sourceValues) {
+    if (isRecord(source) && typeof source.id === 'string') {
+      sources.set(source.id, source);
+    }
+  }
+  for (const [profileIndex, value] of profileValues.entries()) {
+    if (!isRecord(value)) {
+      warnings.push(`Excluded profile #${profileIndex + 1}: profile entry must be a mapping.`);
+      continue;
+    }
+    if (typeof value.id !== 'string' || value.id.length === 0) {
+      warnings.push(`Excluded profile #${profileIndex + 1}: profile id must be a nonempty string.`);
+      continue;
+    }
+    const profileLabel = JSON.stringify(value.id);
+    if (!Array.isArray(value.bundles)) {
+      warnings.push(`Excluded profile ${profileLabel}: bundles must be a list.`);
+      continue;
+    }
+    const issues: string[] = [];
+    const bundleValues = value.bundles as unknown[];
+    for (const [bundleIndex, bundle] of bundleValues.entries()) {
+      if (!isRecord(bundle) || typeof bundle.source !== 'string' || typeof bundle.id !== 'string' || bundle.id.length === 0) {
+        issues.push(`bundle reference #${bundleIndex + 1} must contain string source and id fields`);
+        continue;
+      }
+      const version = bundle.version === undefined ? 'latest' : (typeof bundle.version === 'string' ? bundle.version : '');
+      if (!version) {
+        issues.push(`${bundle.source}:${bundle.id} has an invalid version`);
+        continue;
+      }
+      const source = sources.get(bundle.source);
+      if (!source) {
+        issues.push(`${bundle.source}:${bundle.id}@${version} references an unconfigured source`);
+        continue;
+      }
+      if (source.enabled === false) {
+        issues.push(`${bundle.source}:${bundle.id}@${version} references a disabled source`);
+        continue;
+      }
+      if (source.type !== 'github') {
+        issues.push(`${bundle.source}:${bundle.id}@${version} references source type ${JSON.stringify(source.type ?? '<missing>')}; only GitHub sources can be replicated`);
+        continue;
+      }
+      const matches = (candidate: ReplicationCandidate): boolean =>
+        (candidate.sourceIds ?? [candidate.sourceId]).includes(bundle.source as string)
+        && candidate.bundleId === bundle.id;
+      const options = selectedCandidates.filter((candidate) => matches(candidate));
+      const requestedCandidate = version === 'latest'
+        ? (() => {
+          const stable = options.filter((candidate) => semver.prerelease(candidate.version) === null);
+          const pool = stable.length > 0 ? stable : options;
+          return [...pool].sort((a, b) => semver.rcompare(a.version, b.version))[0];
+        })()
+        : options.find((candidate) => candidate.version === version);
+      if (!requestedCandidate) {
+        issues.push(`${bundle.source}:${bundle.id}@${version} has no compliant release candidate`);
+      } else if (!candidates.some((candidate) => matches(candidate) && candidate.version === requestedCandidate.version)) {
+        issues.push(`${bundle.source}:${bundle.id}@${version} selected ${requestedCandidate.version} but that candidate was not verified in the target`);
+      }
+    }
+    if (issues.length > 0) {
+      warnings.push(`Excluded profile ${profileLabel}: ${issues.join('; ')}.`);
+    } else {
+      profiles.push(value);
+    }
+  }
+  return { profiles, warnings };
 };
 
 export const makeReplicatedEntry = (candidate: ReplicationCandidate, manifestPath: string, archivePath: string, archive: Uint8Array, sha256: (data: Uint8Array) => string): ArtifactoryBundleIndexEntry => {

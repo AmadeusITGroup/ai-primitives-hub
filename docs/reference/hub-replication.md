@@ -4,7 +4,7 @@
 
 ## Scope
 
-The initial implementation processes enabled sources of type `github` and GitHub release assets containing both `deployment-manifest.yml` (or JSON/YAML equivalent) and a `.zip` archive. Other source types are reported or omitted; they are not silently converted through another provider.
+The replication source processes enabled sources of type `github`. A release is a candidate only when its release name is `<collectionid>-v<X.Y.Z>`, it contains one `deployment-manifest.yml` and one `<collectionid>.bundle.zip` (other differently named assets are allowed), and the manifest `id`/`version` match the release name. Noncompliant releases are excluded with a warning that identifies the repository, source, tag/name, and failed asset or manifest check. Other source types are reported and omitted; they are not silently converted through another provider.
 
 The generated tree is:
 
@@ -56,7 +56,7 @@ The command is metadata-only unless both `--publish` and `--review` are provided
 
 Candidates sharing a bundle ID/version are published once only when their repository, release tag, archive URL/size, and manifest bytes/name agree. All selected source aliases are retained for pinned and `latest` profile references after verified publication. Conflicting candidates stop replication before publication; an unverified object excludes every alias for that coordinate.
 
-Stable IDs have the form `<owner>-<repository>-<manifest.id>` when the manifest declares an ID, or `<owner>-<repository>` otherwise. The version remains a separate index coordinate. Unresolved profile references are warnings and are not emitted into generated profiles.
+Stable IDs have the form `<owner>-<repository>-<manifest.id>` when the manifest declares an ID, or `<owner>-<repository>` otherwise. The version remains a separate index coordinate. Warnings identify unresolved or unsupported profile bundle references and the profile containing them; the entire offending profile is excluded from the generated hub config, rather than publishing a partial profile.
 
 ## Publication and resume
 
@@ -68,7 +68,7 @@ Publication is ordered to avoid advertising incomplete content:
 4. refresh the compatibility/latest projection `index-v1.json`;
 5. publish `hub-config.yml` with its source `indexFile` pointing to that exact immutable generation.
 
-Release manifests are parsed, but replication does not validate them against the deployment-manifest schema or verify downloaded archives against upstream checksums.
+The release-name collection ID and SemVer must match the parsed manifest `id` and `version`. Replication does not otherwise validate manifests against the deployment-manifest schema or verify downloaded archives against upstream checksums.
 
 Before each write, the publisher uses `HEAD` and Artifactory checksum metadata. An existing object with the same SHA-256 is skipped. Versioned bundle objects remain immutable: conflicting or unverifiable bytes stop publication by default. Re-running with the same cache and target root resumes matching bundle objects.
 
@@ -76,7 +76,7 @@ Only `sources/replicated/index-v1.json` and `hub-config.yml` are mutable metadat
 
 The generated hub references its immutable catalog generation, not the mutable compatibility projection. Overlapping runs may leave the projection from a different run, but the final hub always resolves the catalog for its own profiles. Catalog generations are retained and never overwritten or deleted by replication. Because source identity includes `indexFile`, successive generations are distinct source snapshots; historical lockfiles retain their original catalog reference. Retention/cleanup is a separate administrative policy.
 
-With `--allow-unverified-existing`, an unverified existing manifest or archive produces a warning, and its bundle is omitted from the generated index and both pinned and `latest` profile references. The flag never overwrites or repairs bundle objects and does not bypass metadata preconditions. The index and hub config must themselves be conditionally uploaded/refreshed or match a verified existing checksum; if either metadata object is skipped unverified, publication fails. An unverified index prevents hub-config publication. The CLI returns exit code `2` for bundle-omission warnings and `1` for publication failures.
+With `--allow-unverified-existing`, an unverified existing manifest or archive produces a warning and its bundle is omitted from the generated index. Any profile that references that bundle is excluded as a whole, not partially rewritten. The flag never overwrites or repairs bundle objects and does not bypass metadata preconditions. The index and hub config must themselves be conditionally uploaded/refreshed or match a verified existing checksum; if either metadata object is skipped unverified, publication fails. An unverified index prevents hub-config publication. The CLI returns exit code `2` for excluded-release, excluded-profile, or bundle-omission warnings and `1` for publication failures. JSON output exposes these messages in top-level `warnings` and `data.diagnostics`; legacy `data.unresolvedProfiles` remains an alias, although it now includes release diagnostics too.
 
 Each run fetches the source hub config and every release-list page again so branch updates and newly published releases are discovered. These metadata requests count against `--request-budget`; only manifest and archive downloads are reused from the cache by asset URL. The budget must cover the metadata requests even when reusing a cache directory.
 

@@ -55,7 +55,7 @@ profiles:
 
 class RecordingHttp implements HttpClient {
   public readonly requests: HttpRequest[] = [];
-  public constructor(private readonly unverifiedSuffix?: string) {}
+  public constructor(private readonly unverifiedSuffix?: string, private readonly noncompliantRelease = false) {}
   public async fetch(request: HttpRequest): Promise<HttpResponse> {
     this.requests.push(request);
     if (request.url.startsWith('https://artifactory.example/')) {
@@ -68,12 +68,12 @@ class RecordingHttp implements HttpClient {
       body = new TextEncoder().encode(JSON.stringify({ content: Buffer.from(hub).toString('base64') }));
     } else if (request.url.includes('/releases')) {
       body = new TextEncoder().encode(JSON.stringify([{
-        tag_name: 'bundle-v1.0.0',
-        name: 'Bundle 1.0.0',
+        tag_name: this.noncompliantRelease ? '1.0.0' : 'bundle-v1.0.0',
+        name: this.noncompliantRelease ? '1.0.0' : 'bundle-v1.0.0',
         published_at: '2026-01-01T00:00:00Z',
         assets: [
           { name: 'deployment-manifest.yml', url: 'https://api.github.com/assets/manifest', size: manifest.length },
-          { name: 'bundle.zip', url: 'https://api.github.com/assets/archive', size: 4 }
+          { name: this.noncompliantRelease ? 'bundle.zip' : 'bundle.bundle.zip', url: 'https://api.github.com/assets/archive', size: 4 }
         ]
       }]));
     } else if (request.url.endsWith('/assets/manifest')) {
@@ -120,6 +120,36 @@ describe('hub replicate command', () => {
     ]);
     expect(ctx.stdout.captured()).not.toContain('github-private-token');
     expect(JSON.parse(ctx.stdout.captured()).data.selectedBundles).toBe(1);
+  });
+
+  it('surfaces release and profile exclusions in warning output without publishing', async () => {
+    const http = new RecordingHttp(undefined, true);
+    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test' } });
+    const exitCode = await runCli([
+      'hub', 'replicate',
+      '--source-hub', 'owner/hub',
+      '--target-root', 'https://artifactory.example/replicated',
+      '--mode', 'latest',
+      '--output', 'json',
+      '--cache-dir', `/tmp/aph-replicate-warning-${process.pid}-${Date.now()}`
+    ], {
+      ctx,
+      http,
+      tokens: tokenProvider,
+      commandClasses: [HubReplicateCommand],
+      commands: [],
+      name: 'ai-primitives-hub',
+      version: 'test'
+    });
+
+    expect(exitCode).toBe(2);
+    const output = JSON.parse(ctx.stdout.captured());
+    expect(output.status).toBe('warning');
+    expect(output.data.diagnostics).toEqual(output.warnings);
+    expect(output.data.unresolvedProfiles).toEqual(output.warnings);
+    expect(output.warnings.some((warning: string) => warning.includes('release name must match <collectionid>-vX.Y.Z'))).toBe(true);
+    expect(output.warnings.some((warning: string) => warning.includes('Excluded profile "default"'))).toBe(true);
+    expect(http.requests.some((request) => request.method === 'PUT')).toBe(false);
   });
 
   it('uploads the hub config at the target root and everything else under sources/replicated', async () => {
@@ -173,15 +203,16 @@ describe('hub replicate command', () => {
     expect(exitCode).toBe(2);
     const output = JSON.parse(ctx.stdout.captured());
     expect(output.status).toBe('warning');
-    expect(output.warnings).toHaveLength(1);
+    expect(output.warnings).toHaveLength(2);
     expect(output.warnings[0]).toContain('owner-repo-bundle@1.0.0');
+    expect(output.warnings[1]).toContain('Excluded profile "default"');
     expect(output.data.index.bundles).toEqual([]);
     const indexPut = http.requests.find((request) => request.method === 'PUT' && request.url.endsWith('/index-v1.json'));
     const hubPut = http.requests.find((request) => request.method === 'PUT' && request.url.endsWith('/hub-config.yml'));
     expect(indexPut).toBeDefined();
     expect(hubPut).toBeDefined();
     expect(JSON.parse(new TextDecoder().decode(indexPut?.body as Uint8Array)).bundles).toEqual([]);
-    expect(JSON.parse(new TextDecoder().decode(hubPut?.body as Uint8Array)).profiles[0].bundles).toEqual([]);
+    expect(JSON.parse(new TextDecoder().decode(hubPut?.body as Uint8Array)).profiles).toEqual([]);
     expect(ctx.stdout.captured()).not.toContain('publisher-token');
     expect(ctx.stdout.captured()).not.toContain('github-private-token');
   });

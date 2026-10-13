@@ -39,7 +39,7 @@ const sourceFor = (candidates: ReplicationCandidate[]): ReplicationSourcePort =>
       ])
     }]
   })),
-  listReleaseCandidates: vi.fn(() => Promise.resolve(candidates)),
+  listReleaseCandidates: vi.fn(() => Promise.resolve({ candidates, warnings: [] })),
   downloadArchive: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3])))
 });
 
@@ -131,7 +131,7 @@ describe('replicateHub', () => {
     const aliases = ['a', 'b'];
     const source: ReplicationSourcePort = {
       getHubConfig: vi.fn(() => Promise.resolve({ version: '1.0.0', sources: aliases.map((id) => ({ id, type: 'github', url: 'https://github.com/owner/repo' })), profiles: aliases.map((id) => ({ id, bundles: [c.version, 'latest'].map((version) => ({ source: id, id: c.bundleId, version, required: true })) })) })),
-      listReleaseCandidates: vi.fn((_owner, _repo, sourceId) => Promise.resolve([{ ...c, sourceId }])),
+      listReleaseCandidates: vi.fn((_owner, _repo, sourceId) => Promise.resolve({ candidates: [{ ...c, sourceId }], warnings: [] })),
       downloadArchive: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3])))
     };
     const publisher: ReplicationPublisherPort = { publish: vi.fn(() => Promise.resolve('uploaded' as const)) };
@@ -146,12 +146,44 @@ describe('replicateHub', () => {
     const unverifiedPublisher: ReplicationPublisherPort = { publish: vi.fn((path: string) => Promise.resolve(path.endsWith('.zip') ? 'skipped-unverified' as const : 'uploaded' as const)) };
     const unverified = await replicateHub({ sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root', mode, publish: true }, source, unverifiedPublisher);
     expect(unverified.index.bundles).toEqual([]);
-    expect(unverified.hubConfig.profiles.map((profile) => profile.bundles)).toEqual([[], []]);
-    expect(unverified.warnings).toHaveLength(1);
+    expect(unverified.hubConfig.profiles).toEqual([]);
+    expect(unverified.warnings).toHaveLength(3);
+    expect(unverified.warnings[0]).toContain(`${c.bundleId}@${c.version}`);
+    expect(unverified.warnings[0]).toMatch(/unverified/i);
+    expect(unverified.warnings.slice(1).every((warning) => warning.includes('Excluded profile'))).toBe(true);
   });
 
   it('does not download archives during dry-run and reports unresolved profiles', async () => {
-    const source: ReplicationSourcePort = { getHubConfig: vi.fn(async () => ({ sources: [{ id: 's', type: 'github', url: 'https://github.com/owner/repo' }], profiles: [{ id: 'p', bundles: [{ source: 's', id: 'missing', version: 'latest' }] }] })), listReleaseCandidates: vi.fn(async () => [c]), downloadArchive: vi.fn() }; const result = await replicateHub({ sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root', mode: 'latest' }, source); expect(source.downloadArchive).not.toHaveBeenCalled(); expect(result.warnings).toContain('Unresolved profile bundle: s:missing');
+    const source: ReplicationSourcePort = { getHubConfig: vi.fn(async () => ({ sources: [{ id: 's', type: 'github', url: 'https://github.com/owner/repo' }], profiles: [{ id: 'p', bundles: [{ source: 's', id: 'missing', version: 'latest' }] }] })), listReleaseCandidates: vi.fn(async () => ({ candidates: [c], warnings: [] })), downloadArchive: vi.fn() }; const result = await replicateHub({ sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root', mode: 'latest' }, source); expect(source.downloadArchive).not.toHaveBeenCalled(); expect(result.warnings).toContain('Excluded profile "p": s:missing@latest has no compliant release candidate.');
+  });
+
+  it('reports excluded releases and excludes an entire profile with unresolved bundle references', async () => {
+    const releaseWarning = 'Excluded GitHub release owner/repo#tag="1.0.3" name="1.0.3": release name must match <collectionid>-vX.Y.Z.';
+    const source: ReplicationSourcePort = {
+      getHubConfig: vi.fn(() => Promise.resolve({
+        version: '1.0.0',
+        sources: [{ id: 's', type: 'github', url: 'https://github.com/owner/repo' }],
+        profiles: [
+          { id: 'ready', bundles: [{ source: 's', id: c.bundleId, version: 'latest', required: true }] },
+          { id: 'broken', bundles: [
+            { source: 's', id: c.bundleId, version: 'latest', required: true },
+            { source: 's', id: 'missing-bundle', version: '1.0.0', required: true }
+          ] }
+        ]
+      })),
+      listReleaseCandidates: vi.fn(() => Promise.resolve({ candidates: [c], warnings: [releaseWarning] })),
+      downloadArchive: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3])))
+    };
+    const publisher: ReplicationPublisherPort = { publish: vi.fn(() => Promise.resolve('uploaded' as const)) };
+
+    const result = await replicateHub({ sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root', mode: 'latest', publish: true }, source, publisher);
+
+    expect(result.warnings).toEqual([
+      releaseWarning,
+      'Excluded profile "broken": s:missing-bundle@1.0.0 has no compliant release candidate.'
+    ]);
+    expect(result.hubConfig.profiles.map((profile) => profile.id)).toEqual(['ready']);
+    expect(result.hubConfig.profiles[0].bundles).toEqual([{ source: 'replicated', id: c.bundleId, version: 'latest', required: true }]);
   });
 
   it('publishes the objects and index under the replicated source path and the hub config at the publisher root', async () => {
@@ -164,7 +196,7 @@ describe('replicateHub', () => {
     };
     const source: ReplicationSourcePort = {
       getHubConfig: vi.fn(() => Promise.resolve({ sources: [{ id: 's', type: 'github', url: 'https://github.com/owner/repo' }], profiles: [{ id: 'p', bundles: [{ source: 's', id: 'owner-repo-bundle', version: 'latest' }] }] })),
-      listReleaseCandidates: vi.fn(() => Promise.resolve([c])),
+      listReleaseCandidates: vi.fn(() => Promise.resolve({ candidates: [c], warnings: [] })),
       downloadArchive: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3])))
     };
 
@@ -181,7 +213,7 @@ describe('replicateHub', () => {
     expect(result.index.bundles[0].manifest.path).toBe('bundles/owner-repo-bundle/1.0.0/deployment-manifest.yml');
   });
 
-  it.each(['deployment-manifest.yml', '.zip'])('omits an unverified %s bundle from emitted metadata and keeps other verified bundles', async (suffix) => {
+  it.each(['deployment-manifest.yml', '.zip'])('omits an unverified %s bundle and excludes profiles that reference it', async (suffix) => {
     const other: ReplicationCandidate = {
       ...c,
       bundleId: 'owner-repo-other',
@@ -204,13 +236,12 @@ describe('replicateHub', () => {
     }, sourceFor([c, other]), publisher);
 
     expect(result.index.bundles.map((bundle) => bundle.id)).toEqual([other.bundleId]);
-    expect(result.hubConfig.profiles[0].bundles).toEqual([
-      { source: 'replicated', id: other.bundleId, version: '2.0.0', required: true },
-      { source: 'replicated', id: other.bundleId, version: 'latest', required: true }
-    ]);
-    expect(result.warnings).toHaveLength(1);
+    expect(result.hubConfig.profiles).toEqual([]);
+    expect(result.warnings).toHaveLength(2);
     expect(result.warnings[0]).toContain(`${c.bundleId}@${c.version}`);
     expect(result.warnings[0]).toMatch(/unverified/i);
+    expect(result.warnings[1]).toContain('Excluded profile "p"');
+    expect(result.warnings[1]).toContain(`${c.bundleId}@${c.version}`);
     if (suffix === 'deployment-manifest.yml') {
       expect(publisher.publish).not.toHaveBeenCalledWith(
         `sources/replicated/bundles/${c.bundleId}/${c.version}/${c.bundleId}-${c.version}.zip`, expect.anything(), 'application/zip'
