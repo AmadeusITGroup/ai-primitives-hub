@@ -766,7 +766,7 @@
     "@o3r/eslint-plugin": "^15.0.0",
     "@playwright/test": "^1.61.1",
     "@stylistic/eslint-plugin": "^5.10.0",
-    "@types/adm-zip": "^0.5.8",
+    "@types/adm-zip": "^0.6.0",
     "@types/archiver": "^7.0.0",
     "@types/fs-extra": "^11.0.4",
     "@types/glob": "^9.0.0",
