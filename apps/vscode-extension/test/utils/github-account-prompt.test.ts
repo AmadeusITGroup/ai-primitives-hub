@@ -13,6 +13,8 @@ import {
   VsCodeSessionTokenProvider,
 } from '../../src/adapters/vscode-session-token-provider';
 import {
+  ensureGitHubAccountSelection,
+  offerGitHubAccountSelection,
   promptGitHubAccountSelection,
 } from '../../src/utils/github-account-prompt';
 
@@ -68,5 +70,49 @@ suite('promptGitHubAccountSelection', () => {
     await result;
     release(undefined);
     await clock.tickAsync(0);
+  });
+
+  test('lets first-run users continue without GitHub for Artifactory or local hubs', async () => {
+    getSessionStub.resolves(undefined);
+    const showMessageStub = sandbox.stub(vscode.window, 'showInformationMessage').resolves('Continue without GitHub' as any);
+
+    assert.strictEqual(await offerGitHubAccountSelection(), false);
+    assert.match(showMessageStub.firstCall.args[0], /GitHub hubs/);
+    assert.match(showMessageStub.firstCall.args[0], /Artifactory or local hubs/);
+    assert.deepStrictEqual(showMessageStub.firstCall.args.slice(1), ['Continue without GitHub', 'Sign in']);
+    assert.strictEqual(getSessionStub.calledOnce, true);
+  });
+
+  test('opens GitHub sign-in only after the user chooses Sign in', async () => {
+    const session = {
+      accessToken: 'gho_test',
+      account: { id: 'id-1', label: 'alice' },
+      id: 'session-1',
+      scopes: ['repo']
+    };
+    getSessionStub.onCall(0).resolves(undefined);
+    getSessionStub.onCall(1).resolves(session as any);
+    const showMessageStub = sandbox.stub(vscode.window, 'showInformationMessage').resolves('Sign in' as any);
+
+    assert.strictEqual(await offerGitHubAccountSelection(), true);
+    assert.ok(showMessageStub.calledOnce);
+    assert.ok(getSessionStub.calledWith('github', ['repo'], { clearSessionPreference: true, createIfNone: true }));
+  });
+
+  test('keeps an optional first-run prompt dismissible when the native sign-in is cancelled', async () => {
+    getSessionStub.onCall(0).resolves(undefined);
+    getSessionStub.onCall(1).rejects(new Error('User did not consent'));
+    sandbox.stub(vscode.window, 'showInformationMessage').resolves('Sign in' as any);
+
+    assert.strictEqual(await offerGitHubAccountSelection(), false);
+  });
+
+  test('requires sign-in after a user chooses a GitHub hub', async () => {
+    getSessionStub.resolves(undefined);
+    const showMessageStub = sandbox.stub(vscode.window, 'showInformationMessage').resolves('Cancel import' as any);
+
+    await assert.rejects(() => ensureGitHubAccountSelection(), /GitHub sign-in is required/);
+    assert.ok(showMessageStub.calledOnce);
+    assert.deepStrictEqual(showMessageStub.firstCall.args.slice(1), ['Cancel import', 'Sign in']);
   });
 });

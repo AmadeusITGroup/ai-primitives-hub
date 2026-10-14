@@ -78,7 +78,7 @@ import {
   CONCURRENCY_CONSTANTS,
 } from '../utils/constants';
 import {
-  promptGitHubAccountSelection,
+  ensureGitHubAccountSelection,
 } from '../utils/github-account-prompt';
 import {
   Logger,
@@ -382,7 +382,7 @@ export class HubManager {
   public async importHubConfig(reference: HubReference, hubId?: string): Promise<string> {
     if (requiresGitHubAuthentication(reference)) {
       validateHubReference(reference);
-      await promptGitHubAccountSelection();
+      await ensureGitHubAccountSelection();
     }
     const resolvedHubId = await this.appHubManager.importHub(reference, hubId);
 

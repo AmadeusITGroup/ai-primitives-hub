@@ -43,7 +43,14 @@ const repoFromUrl = (url: string): { owner: string; repo: string } => {
  */
 export async function replicateHub(options: ReplicateOptions, source: ReplicationSourcePort, publisher?: ReplicationPublisherPort): Promise<ReplicationResult> {
   const raw = await source.getHubConfig(options.sourceHub, options.sourceRef);
-  const enabled = (Array.isArray(raw.sources) ? raw.sources : []).filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && item.enabled !== false && item.type === 'github' && typeof item.id === 'string');
+  const configuredSources: unknown[] = Array.isArray(raw.sources) ? raw.sources as unknown[] : [];
+  const enabled = configuredSources.filter((item): item is Record<string, unknown> => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return false;
+    }
+    const sourceRecord = item as Record<string, unknown>;
+    return sourceRecord.enabled !== false && sourceRecord.type === 'github' && typeof sourceRecord.id === 'string';
+  });
   const groups: ReplicationCandidateDiscovery[] = []; const workers = Math.max(1, Math.floor(options.workers ?? 4));
   for (let offset = 0; offset < enabled.length; offset += workers) {
     const batch = enabled.slice(offset, offset + workers); groups.push(...await Promise.all(batch.map(async (item) => {

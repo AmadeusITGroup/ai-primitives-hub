@@ -27,3 +27,55 @@ export async function promptGitHubAccountSelection(): Promise<void> {
   await VsCodeSessionTokenProvider.selectAccount();
   logger.info('[GitHubAuth] phase=account-selected');
 }
+
+const hasGitHubSession = async (): Promise<boolean> => {
+  try {
+    return (await vscode.authentication.getSession('github', ['repo'], { createIfNone: false })) !== undefined;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Offer sign-in during first-run setup without blocking non-GitHub hubs.
+ * @returns Whether a GitHub session is available after the offer.
+ */
+export async function offerGitHubAccountSelection(): Promise<boolean> {
+  if (await hasGitHubSession()) {
+    return true;
+  }
+  const choice = await vscode.window.showInformationMessage(
+    'Sign in to use GitHub hubs. You can continue without GitHub to use Artifactory or local hubs.',
+    'Continue without GitHub',
+    'Sign in'
+  );
+  if (choice !== 'Sign in') {
+    return false;
+  }
+  try {
+    await promptGitHubAccountSelection();
+    return true;
+  } catch {
+    Logger.getInstance().info('GitHub sign-in was skipped during hub setup');
+    return false;
+  }
+}
+
+/**
+ * Require a GitHub session for a GitHub-backed hub import.
+ * @throws {Error} If the user cancels the sign-in flow.
+ */
+export async function ensureGitHubAccountSelection(): Promise<void> {
+  if (await hasGitHubSession()) {
+    return;
+  }
+  const choice = await vscode.window.showInformationMessage(
+    'Sign in to import this GitHub hub.',
+    'Cancel import',
+    'Sign in'
+  );
+  if (choice !== 'Sign in') {
+    throw new Error('GitHub sign-in is required to import this GitHub hub.');
+  }
+  await promptGitHubAccountSelection();
+}

@@ -191,12 +191,17 @@ suite('HubManager', () => {
 
     test('prompts for GitHub authentication when importing a GitHub hub', async () => {
       VsCodeSessionTokenProvider.clearCache();
-      const getSessionStub = sinon.stub(vscode.authentication, 'getSession').resolves({
+      const session = {
         accessToken: 'gho_test',
         account: { id: 'test-user', label: 'test-user' },
         id: 'test-session',
         scopes: ['repo']
-      });
+      };
+      const getSessionStub = sinon.stub(vscode.authentication, 'getSession');
+      getSessionStub.onCall(0).resolves(undefined);
+      getSessionStub.onCall(1).resolves(session);
+      getSessionStub.onCall(2).resolves(session);
+      const showInformationStub = sinon.stub(vscode.window, 'showInformationMessage').resolves('Sign in' as any);
       const hubConfig = authPolicyHubConfig;
       const scope = nock('https://raw.githubusercontent.com')
         .get('/owner/repo/main/hub-config.yml')
@@ -208,9 +213,11 @@ suite('HubManager', () => {
 
         assert.ok(getSessionStub.calledWith('github', ['repo'], { clearSessionPreference: true, createIfNone: true }));
         assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+        assert.ok(showInformationStub.calledOnce);
         assert.ok(scope.isDone());
       } finally {
         getSessionStub.restore();
+        showInformationStub.restore();
         nock.cleanAll();
         VsCodeSessionTokenProvider.clearCache();
       }
