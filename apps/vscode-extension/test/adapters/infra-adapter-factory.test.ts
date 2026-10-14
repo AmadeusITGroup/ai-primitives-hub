@@ -111,4 +111,15 @@ suite('createRegistryAdapter', () => {
 
     assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
   });
+
+  test('does not request GitHub authentication for an Artifactory source', async () => {
+    const source = makeSource({ type: 'artifactory', url: 'https://artifactory.example/repository' });
+    const scope = nock('https://artifactory.example').get('/repository/index-v1.json').reply(401);
+
+    const validation = await createRegistryAdapter(source).validate();
+
+    assert.strictEqual(validation.valid, false);
+    assert.strictEqual(getSessionStub.called, false);
+    assert.ok(scope.isDone());
+  });
 });

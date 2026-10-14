@@ -41,6 +41,7 @@ import {
   CompositeTokenProvider,
   GhCliTokenProvider,
   GitHubHubResolver,
+  isGitHubHost,
   isWithinSourceRoot,
   LocalHubResolver,
   NodeFileSystem,
@@ -71,10 +72,14 @@ import {
   ProfileChanges,
   ProfileDeactivationResult,
   validateHubConfig,
+  validateHubReference,
 } from '../types/hub';
 import {
   CONCURRENCY_CONSTANTS,
 } from '../utils/constants';
+import {
+  promptGitHubAccountSelection,
+} from '../utils/github-account-prompt';
 import {
   Logger,
 } from '../utils/logger';
@@ -163,6 +168,20 @@ async function hydrateArtifactorySources(
   });
 }
 
+const requiresGitHubAuthentication = (reference: HubReference): boolean => {
+  if (reference.type === 'github') {
+    return true;
+  }
+  if (reference.type !== 'url') {
+    return false;
+  }
+  try {
+    return isGitHubHost(new URL(reference.location).hostname);
+  } catch {
+    return false;
+  }
+};
+
 export class HubManager {
   private readonly storage: HubStorage;
   private readonly validator: SchemaValidator;
@@ -236,7 +255,7 @@ export class HubManager {
     // RegistryManager's source adapters (VS Code session, then `gh` CLI) —
     // see src/adapters/infra-adapter-factory.ts.
     const httpClient = new NodeHttpClient();
-    const tokenProvider = new CompositeTokenProvider([new VsCodeSessionTokenProvider(true), new GhCliTokenProvider()]);
+    const tokenProvider = new CompositeTokenProvider([new VsCodeSessionTokenProvider(false), new GhCliTokenProvider()]);
     const resolver = new CompositeHubResolver(
       new GitHubHubResolver(httpClient, tokenProvider),
       new LocalHubResolver(new NodeFileSystem()),
@@ -361,6 +380,10 @@ export class HubManager {
    * @returns Hub identifier
    */
   public async importHubConfig(reference: HubReference, hubId?: string): Promise<string> {
+    if (requiresGitHubAuthentication(reference)) {
+      validateHubReference(reference);
+      await promptGitHubAccountSelection();
+    }
     const resolvedHubId = await this.appHubManager.importHub(reference, hubId);
 
     // appHubManager writes through the raw HubStore, bypassing HubStorage's

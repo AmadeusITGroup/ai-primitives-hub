@@ -141,9 +141,6 @@ import {
   getValidUpdateCheckFrequency,
 } from './utils/config-type-guards';
 import {
-  promptGitHubAccountSelection,
-} from './utils/github-account-prompt';
-import {
   Logger,
 } from './utils/logger';
 import {
@@ -1628,8 +1625,6 @@ export class PromptRegistryExtension {
 
       if (hubs.length === 0 && !activeHubResult) {
         // Scenario 1: First-time installation, no hubs
-        this.logger.info('First-time hub setup: prompting for GitHub account');
-        await promptGitHubAccountSelection();
         this.logger.info('First-time hub setup: showing hub selector');
         initialized = await this.showFirstRunHubSelector();
 

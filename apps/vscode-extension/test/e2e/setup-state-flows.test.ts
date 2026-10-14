@@ -778,13 +778,12 @@ suite('E2E: Setup State Flows', () => {
     });
   });
 
-  suite('14.8: GitHub Account Selection and Setup State Integration', () => {
+  suite('14.8: GitHub Hub Authentication and Setup State Integration', () => {
     /**
-     * Verifies that when promptGitHubAccountSelection throws (user dismisses
-     * the picker), callers can route the error to markIncomplete().
-     * This mirrors the catch-block wiring in Extension.initializeHub().
+     * Verifies that cancelling GitHub authentication for a GitHub hub can route
+     * the import error to markIncomplete() during first-run setup.
      */
-    test('account selection failure during first-time setup leads to incomplete state', async () => {
+    test('cancelling GitHub authentication for a GitHub hub leaves setup incomplete', async () => {
       const getSessionStub = sandbox.stub(vscode.authentication, 'getSession')
         .rejects(new Error('User did not consent to the required permissions.'));
 
@@ -817,7 +816,7 @@ suite('E2E: Setup State Flows', () => {
         'Must use clearSessionPreference to force the account picker');
     });
 
-    test('successful account selection allows setup to complete', async () => {
+    test('successful GitHub account selection allows the GitHub hub import to proceed', async () => {
       sandbox.stub(vscode.authentication, 'getSession').resolves({
         accessToken: 'gho_test',
         account: { id: 'id-1', label: 'alice' },

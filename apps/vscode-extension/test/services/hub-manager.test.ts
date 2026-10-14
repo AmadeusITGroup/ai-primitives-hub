@@ -6,8 +6,16 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  GhCliTokenProvider,
+} from '@ai-primitives-hub/infra';
 import * as yaml from 'js-yaml';
 import nock from 'nock';
+import * as sinon from 'sinon';
+import * as vscode from 'vscode';
+import {
+  VsCodeSessionTokenProvider,
+} from '../../src/adapters/vscode-session-token-provider';
 import {
   HubManager,
 } from '../../src/services/hub-manager';
@@ -53,6 +61,17 @@ class MockSchemaValidator {
     });
   }
 }
+
+const authPolicyHubConfig = `
+version: 1.0.0
+metadata:
+  name: Auth policy test hub
+  description: Test hub authentication
+  maintainer: test
+  updatedAt: "2026-01-01T00:00:00Z"
+sources: []
+profiles: []
+`;
 
 suite('HubManager', () => {
   let hubManager: HubManager;
@@ -143,6 +162,81 @@ suite('HubManager', () => {
         async () => await hubManager.importHub(localRef, 'test-invalid'),
         /Hub validation failed/
       );
+    });
+  });
+
+  suite('Hub authentication policy', () => {
+    test('checks GitHub hub availability without prompting for sign-in', async () => {
+      const getSessionStub = sinon.stub(vscode.authentication, 'getSession').resolves(undefined);
+      const ghTokenStub = sinon.stub(GhCliTokenProvider.prototype, 'getToken').resolves(undefined);
+      const hubConfig = authPolicyHubConfig;
+      const scope = nock('https://raw.githubusercontent.com')
+        .get('/owner/repo/main/hub-config.yml')
+        .query(true)
+        .reply(200, hubConfig);
+      VsCodeSessionTokenProvider.clearCache();
+
+      try {
+        assert.strictEqual(await hubManager.verifyHubAvailability({ type: 'github', location: 'owner/repo' }), true);
+        assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+        assert.strictEqual(getSessionStub.calledWith('github', ['repo'], { createIfNone: true }), false);
+        assert.ok(scope.isDone());
+      } finally {
+        getSessionStub.restore();
+        ghTokenStub.restore();
+        nock.cleanAll();
+        VsCodeSessionTokenProvider.clearCache();
+      }
+    });
+
+    test('prompts for GitHub authentication when importing a GitHub hub', async () => {
+      VsCodeSessionTokenProvider.clearCache();
+      const getSessionStub = sinon.stub(vscode.authentication, 'getSession').resolves({
+        accessToken: 'gho_test',
+        account: { id: 'test-user', label: 'test-user' },
+        id: 'test-session',
+        scopes: ['repo']
+      });
+      const hubConfig = authPolicyHubConfig;
+      const scope = nock('https://raw.githubusercontent.com')
+        .get('/owner/repo/main/hub-config.yml')
+        .query(true)
+        .reply(200, hubConfig);
+
+      try {
+        await hubManager.importHubConfig({ type: 'github', location: 'owner/repo', ref: 'main' }, 'test-github-auth');
+
+        assert.ok(getSessionStub.calledWith('github', ['repo'], { clearSessionPreference: true, createIfNone: true }));
+        assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+        assert.ok(scope.isDone());
+      } finally {
+        getSessionStub.restore();
+        nock.cleanAll();
+        VsCodeSessionTokenProvider.clearCache();
+      }
+    });
+
+    test('does not request GitHub authentication when importing an Artifactory hub', async () => {
+      const getSessionStub = sinon.stub(vscode.authentication, 'getSession').rejects(new Error('Unexpected GitHub prompt'));
+      const hubConfig = authPolicyHubConfig;
+      const scope = nock('https://artifactory.example')
+        .get('/repository/hub-config.yml')
+        .reply(200, hubConfig);
+
+      try {
+        await hubManager.importHubConfig({
+          type: 'artifactory',
+          location: 'https://artifactory.example/repository',
+          configFile: 'hub-config.yml',
+          authMode: 'anonymous'
+        }, 'test-artifactory-auth');
+
+        assert.strictEqual(getSessionStub.called, false);
+        assert.ok(scope.isDone());
+      } finally {
+        getSessionStub.restore();
+        nock.cleanAll();
+      }
     });
   });
 
@@ -508,22 +602,34 @@ suite('HubManager', () => {
 
       await assert.rejects(
         async () => await hubManager.importHub(badRef),
-        /Invalid GitHub location format/
+        /Invalid GitHub repository format/
       );
     });
 
     test('should accept valid GitHub location', async () => {
-      // This will fail at fetch stage, but reference validation should pass
       const validRef: HubReference = {
         type: 'github',
         location: 'owner/repo'
       };
+      const getSessionStub = sinon.stub(vscode.authentication, 'getSession').resolves({
+        accessToken: 'gho_test',
+        account: { id: 'test-user', label: 'test-user' },
+        id: 'test-session',
+        scopes: ['repo']
+      });
+      const scope = nock('https://raw.githubusercontent.com')
+        .get('/owner/repo/main/hub-config.yml')
+        .query(true)
+        .reply(404);
 
-      // Will fail at fetch, not at validation
-      await assert.rejects(
-        async () => await hubManager.importHub(validRef),
-        /Failed to fetch/
-      );
+      try {
+        await assert.rejects(async () => await hubManager.importHub(validRef), /Failed to fetch/);
+        assert.ok(scope.isDone());
+      } finally {
+        getSessionStub.restore();
+        nock.cleanAll();
+        VsCodeSessionTokenProvider.clearCache();
+      }
     });
   });
 
@@ -1300,12 +1406,24 @@ profiles: []
       location: 'old-owner/old-repo'
     };
 
-    const hubId = await hubManager.importHub(reference, 'redirect-test-hub');
-    assert.strictEqual(hubId, 'redirect-test-hub');
+    VsCodeSessionTokenProvider.clearCache();
+    const getSessionStub = sinon.stub(vscode.authentication, 'getSession').resolves({
+      accessToken: 'gho_test',
+      account: { id: 'test-user', label: 'test-user' },
+      id: 'test-session',
+      scopes: ['repo']
+    });
+    try {
+      const hubId = await hubManager.importHub(reference, 'redirect-test-hub');
+      assert.strictEqual(hubId, 'redirect-test-hub');
 
-    // Verify hub was imported successfully
-    const loaded = await storage.loadHub('redirect-test-hub');
-    assert.strictEqual(loaded.config.metadata.name, 'Redirect Test Hub');
+      const loaded = await storage.loadHub('redirect-test-hub');
+      assert.strictEqual(loaded.config.metadata.name, 'Redirect Test Hub');
+    } finally {
+      getSessionStub.restore();
+      nock.cleanAll();
+      VsCodeSessionTokenProvider.clearCache();
+    }
   });
 
   test('should follow HTTP 302 redirects when syncing hub', async () => {
