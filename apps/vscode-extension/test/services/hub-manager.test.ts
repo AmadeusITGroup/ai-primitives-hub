@@ -178,7 +178,7 @@ suite('HubManager', () => {
 
       try {
         assert.strictEqual(await hubManager.verifyHubAvailability({ type: 'github', location: 'owner/repo' }), true);
-        assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+        assert.ok(getSessionStub.calledWith('github', ['repo'], { silent: true }));
         assert.strictEqual(getSessionStub.calledWith('github', ['repo'], { createIfNone: true }), false);
         assert.ok(scope.isDone());
       } finally {
@@ -212,7 +212,7 @@ suite('HubManager', () => {
         await hubManager.importHubConfig({ type: 'github', location: 'owner/repo', ref: 'main' }, 'test-github-auth');
 
         assert.ok(getSessionStub.calledWith('github', ['repo'], { clearSessionPreference: true, createIfNone: true }));
-        assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+        assert.ok(getSessionStub.calledWith('github', ['repo'], { silent: true }));
         assert.ok(showInformationStub.calledOnce);
         assert.ok(scope.isDone());
       } finally {

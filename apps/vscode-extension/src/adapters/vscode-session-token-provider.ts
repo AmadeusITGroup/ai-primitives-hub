@@ -29,7 +29,7 @@ const SESSION_TIMEOUT_MS = 60_000;
 const tokenCache = new Map<boolean, { token: string; expiresAt: number }>();
 const tokenRequests = new Map<boolean, Promise<string | undefined>>();
 let cacheGeneration = 0;
-type SessionMode = 'prompt' | 'passive' | 'silent' | 'force' | 'force-select' | 'select';
+type SessionMode = 'prompt' | 'silent' | 'force' | 'force-select' | 'select';
 // Keep native requests until THEY settle: a local timeout cannot cancel VS Code.
 const nativeRequests = new Map<SessionMode, Promise<vscode.AuthenticationSession | undefined>>();
 let interactiveRequest: { kind: 'select' | 'force'; token: Promise<string | undefined> } | undefined;
@@ -45,7 +45,6 @@ export class GitHubSessionError extends Error {
 
 const sessionOptions: Record<SessionMode, vscode.AuthenticationGetSessionOptions> = {
   prompt: { createIfNone: true },
-  passive: { createIfNone: false },
   silent: { silent: true },
   force: { forceNewSession: true },
   'force-select': { forceNewSession: true, clearSessionPreference: true },
@@ -57,11 +56,7 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
 
   /**
    * Create a new VsCodeSessionTokenProvider.
-   * @param createIfNone - Whether to prompt the user to sign in if no
-   * VS Code GitHub session exists yet. Defaults to `true`, matching
-   * most of the extension's existing inline auth chains
-   * (`github-adapter.ts`, `apm-adapter.ts`, `awesome-copilot-adapter.ts`)
-   * - `skills-adapter.ts` is the one exception, passing `false`.
+   * @param createIfNone - Prompt for sign-in when no GitHub session exists; false uses a silent lookup.
    */
   public constructor(private readonly createIfNone = true) {}
 
@@ -222,7 +217,7 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
     }
 
     if (interactiveRequest) {
-      // Neither prompting nor passive reads may publish an older session during refresh.
+      // Neither prompting nor silent reads may publish an older session during refresh.
       return interactiveRequest.token.catch(() => undefined);
     }
 
@@ -236,7 +231,7 @@ export class VsCodeSessionTokenProvider implements TokenProvider {
       return pending;
     }
 
-    const normalMode = this.createIfNone ? 'prompt' : 'passive';
+    const normalMode = this.createIfNone ? 'prompt' : 'silent';
     // A separate silent lookup can observe a completed browser sign-in without
     // rejoining VS Code's stuck prompt or opening more browser windows.
     const request = this.resolveToken(nativeRequests.has(normalMode) ? 'silent' : normalMode);

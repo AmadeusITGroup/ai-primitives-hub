@@ -74,6 +74,12 @@ import {
   validateHubConfig,
   validateHubReference,
 } from '../types/hub';
+import type {
+  InstalledBundle,
+  InstallOptions,
+  Profile,
+  RegistrySource,
+} from '../types/registry';
 import {
   CONCURRENCY_CONSTANTS,
 } from '../utils/constants';
@@ -182,6 +188,22 @@ const requiresGitHubAuthentication = (reference: HubReference): boolean => {
   }
 };
 
+type HubLinkedProfile = Profile & { hubId?: string };
+
+interface HubRegistryBridge {
+  addSource(source: RegistrySource): Promise<void>;
+  deactivateProfile(profileId: string): Promise<void>;
+  installBundles(bundles: { bundleId: string; options: InstallOptions }[]): Promise<void>;
+  listInstalledBundles(): Promise<InstalledBundle[]>;
+  listProfiles(): Promise<HubLinkedProfile[]>;
+  listSources(): Promise<RegistrySource[]>;
+  remapBundleSource(oldSourceId: string, newSourceId: string): Promise<void>;
+  removeSource(sourceId: string): Promise<void>;
+  syncSource(sourceId: string): Promise<void>;
+  updateProfile(profileId: string, updates: Partial<Profile>): Promise<void>;
+  updateSource(sourceId: string, updates: Partial<RegistrySource>): Promise<void>;
+}
+
 export class HubManager {
   private readonly storage: HubStorage;
   private readonly validator: SchemaValidator;
@@ -213,7 +235,7 @@ export class HubManager {
     validator: SchemaValidator,
     extensionPath: string,
     private readonly bundleInstaller?: any,
-    private readonly registryManager?: any,
+    private readonly registryManager?: HubRegistryBridge,
     private readonly secrets?: vscode.SecretStorage
   ) {
     if (!storage) {
@@ -329,12 +351,13 @@ export class HubManager {
     }
 
     // 2. Deactivate and remove sources linked to this hub
-    if (this.registryManager) {
-      const sources = await this.registryManager.listSources();
+    const registryManager = this.registryManager;
+    if (registryManager) {
+      const sources = await registryManager.listSources();
       for (const source of sources) {
         if (source.hubId === hubId) {
           try {
-            await this.registryManager.removeSource(source.id);
+            await registryManager.removeSource(source.id);
             this.logger.info(`Removed source ${source.id} linked to hub ${hubId}`);
           } catch (error) {
             this.logger.warn(`Failed to remove source ${source.id}`, error);
@@ -343,11 +366,11 @@ export class HubManager {
       }
 
       // 3. Deactivate profiles linked to this hub
-      const profiles = await this.registryManager.listProfiles();
+      const profiles = await registryManager.listProfiles();
       for (const profile of profiles) {
         if (profile.hubId === hubId && profile.active) {
           try {
-            await this.registryManager.updateProfile(profile.id, { active: false });
+            await registryManager.updateProfile(profile.id, { active: false });
             this.logger.info(`Deactivated profile ${profile.id} linked to hub ${hubId}`);
           } catch (error) {
             this.logger.warn(`Failed to deactivate profile ${profile.id}`, error);
@@ -403,7 +426,8 @@ export class HubManager {
   ): Promise<{ hubId: string } & ProgressiveLoadResult> {
     const resolvedHubId = await this.importHubConfig(reference, hubId);
 
-    if (!this.registryManager) {
+    const registryManager = this.registryManager;
+    if (!registryManager) {
       return {
         hubId: resolvedHubId,
         onRegistered: () => Promise.resolve(),
@@ -418,18 +442,18 @@ export class HubManager {
       resolvedHubId,
       sources,
       {
-        listSources: () => this.registryManager.listSources(),
-        addSource: (s) => this.registryManager.addSource(s),
-        updateSource: (id, u) => this.registryManager.updateSource(id, u),
-        removeSource: (id) => this.registryManager.removeSource(id),
-        listInstalledBundles: () => this.registryManager.listInstalledBundles(),
-        remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
+        listSources: () => registryManager.listSources(),
+        addSource: (s) => registryManager.addSource(s),
+        updateSource: (id, u) => registryManager.updateSource(id, u),
+        removeSource: (id) => registryManager.removeSource(id),
+        listInstalledBundles: () => registryManager.listInstalledBundles(),
+        remapBundleSource: (oldSourceId, newSourceId) => registryManager.remapBundleSource(oldSourceId, newSourceId)
       },
       this.translateLogEvent,
       {
         concurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
         syncConcurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
-        syncSource: (id) => this.registryManager.syncSource(id).catch((e: unknown) => {
+        syncSource: (id) => registryManager.syncSource(id).catch((e: unknown) => {
           this.logger.warn(`Failed to sync hub source ${id}`, e);
         })
       }
@@ -681,25 +705,26 @@ export class HubManager {
 
       // Load hub sources into RegistryManager when activating, syncing each in
       // the background so the marketplace/tree fill in progressively.
-      if (this.registryManager && options?.loadSources !== false) {
+      const registryManager = this.registryManager;
+      if (registryManager && options?.loadSources !== false) {
         const hubData = await this.storage.loadHub(hubId);
         const sources = await hydrateArtifactorySources(hubData.config.sources ?? [], hubData.reference, this.secrets);
         const { onComplete } = loadHubSourcesProgressively(
           hubId,
           sources,
           {
-            listSources: () => this.registryManager.listSources(),
-            addSource: (s) => this.registryManager.addSource(s),
-            updateSource: (id, u) => this.registryManager.updateSource(id, u),
-            removeSource: (id) => this.registryManager.removeSource(id),
-            listInstalledBundles: () => this.registryManager.listInstalledBundles(),
-            remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
+            listSources: () => registryManager.listSources(),
+            addSource: (s) => registryManager.addSource(s),
+            updateSource: (id, u) => registryManager.updateSource(id, u),
+            removeSource: (id) => registryManager.removeSource(id),
+            listInstalledBundles: () => registryManager.listInstalledBundles(),
+            remapBundleSource: (oldSourceId, newSourceId) => registryManager.remapBundleSource(oldSourceId, newSourceId)
           },
           this.translateLogEvent,
           {
             concurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
             syncConcurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
-            syncSource: (id) => this.registryManager.syncSource(id).catch((e: unknown) => {
+            syncSource: (id) => registryManager.syncSource(id).catch((e: unknown) => {
               this.logger.warn(`Failed to sync hub source ${id}`, e);
             })
           }
@@ -737,7 +762,8 @@ export class HubManager {
    * @param options Optional source loading orchestration settings.
    */
   public async loadHubSources(hubId: string, options?: LoadHubSourcesOptions): Promise<void> {
-    if (!this.registryManager) {
+    const registryManager = this.registryManager;
+    if (!registryManager) {
       this.logger.warn('RegistryManager not available, skipping source loading');
       return;
     }
@@ -752,12 +778,12 @@ export class HubManager {
         hubId,
         hubSources,
         {
-          listSources: () => this.registryManager.listSources(),
-          addSource: (source) => this.registryManager.addSource(source),
-          updateSource: (sourceId, updates) => this.registryManager.updateSource(sourceId, updates),
-          removeSource: (sourceId) => this.registryManager.removeSource(sourceId),
-          listInstalledBundles: () => this.registryManager.listInstalledBundles(),
-          remapBundleSource: (oldSourceId, newSourceId) => this.registryManager.remapBundleSource(oldSourceId, newSourceId)
+          listSources: () => registryManager.listSources(),
+          addSource: (source) => registryManager.addSource(source),
+          updateSource: (sourceId, updates) => registryManager.updateSource(sourceId, updates),
+          removeSource: (sourceId) => registryManager.removeSource(sourceId),
+          listInstalledBundles: () => registryManager.listInstalledBundles(),
+          remapBundleSource: (oldSourceId, newSourceId) => registryManager.remapBundleSource(oldSourceId, newSourceId)
         },
         this.translateLogEvent,
         options

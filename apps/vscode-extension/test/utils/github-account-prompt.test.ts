@@ -50,6 +50,29 @@ suite('promptGitHubAccountSelection', () => {
     assert.strictEqual(options.createIfNone, true, 'must trigger sign-in if no accounts');
   });
 
+  test('uses the newly selected account after replacing a cached GitHub session', async () => {
+    const firstSession = {
+      accessToken: 'gho_first',
+      account: { id: 'id-1', label: 'first' },
+      id: 'session-1',
+      scopes: ['repo']
+    };
+    const selectedSession = {
+      accessToken: 'gho_second',
+      account: { id: 'id-2', label: 'second' },
+      id: 'session-2',
+      scopes: ['repo']
+    };
+    getSessionStub.onCall(0).resolves(firstSession as any);
+    getSessionStub.onCall(1).resolves(selectedSession as any);
+    getSessionStub.onCall(2).resolves(selectedSession as any);
+    const provider = new VsCodeSessionTokenProvider(false);
+
+    assert.strictEqual(await provider.getToken('github.com'), 'gho_first');
+    await promptGitHubAccountSelection();
+    assert.strictEqual(await provider.getToken('github.com'), 'gho_second');
+  });
+
   test('propagates errors from getSession (user cancel or unexpected failure)', async () => {
     getSessionStub.rejects(new Error('User did not consent'));
 

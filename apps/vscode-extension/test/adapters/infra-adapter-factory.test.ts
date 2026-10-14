@@ -104,12 +104,12 @@ suite('createRegistryAdapter', () => {
     assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: true }));
   });
 
-  test('requests createIfNone: false for a skills source', async () => {
+  test('uses a silent GitHub session lookup for a skills source', async () => {
     const adapter = createRegistryAdapter(makeSource({ type: 'skills', url: 'https://github.com/owner/repo' }));
 
     await adapter.fetchBundles().catch(() => undefined);
 
-    assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+    assert.ok(getSessionStub.calledWith('github', ['repo'], { silent: true }));
   });
 
   test('does not request GitHub authentication for an Artifactory source', async () => {

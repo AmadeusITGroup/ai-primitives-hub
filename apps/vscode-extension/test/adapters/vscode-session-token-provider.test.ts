@@ -90,13 +90,13 @@ suite('VsCodeSessionTokenProvider', () => {
     assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: true }));
   });
 
-  test('passes a caller-supplied createIfNone through to vscode.authentication.getSession', async () => {
+  test('uses a silent session lookup when createIfNone is false', async () => {
     getSessionStub.resolves(undefined);
 
     const provider = new VsCodeSessionTokenProvider(false);
     await provider.getToken('github.com');
 
-    assert.ok(getSessionStub.calledWith('github', ['repo'], { createIfNone: false }));
+    assert.ok(getSessionStub.calledWith('github', ['repo'], { silent: true }));
   });
 
   test('deduplicates concurrent GitHub session requests across provider instances', async () => {
