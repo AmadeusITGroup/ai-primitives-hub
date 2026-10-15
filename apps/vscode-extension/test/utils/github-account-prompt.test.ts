@@ -88,8 +88,8 @@ suite('promptGitHubAccountSelection', () => {
     getSessionStub.returns(new Promise((resolve) => {
       release = resolve;
     }));
-    const result = assert.rejects(promptGitHubAccountSelection(), /60 seconds/);
-    await clock.tickAsync(60_001);
+    const result = assert.rejects(promptGitHubAccountSelection(), /5 minutes/);
+    await clock.tickAsync(300_001);
     await result;
     release(undefined);
     await clock.tickAsync(0);
@@ -104,6 +104,14 @@ suite('promptGitHubAccountSelection', () => {
     assert.match(showMessageStub.firstCall.args[0], /Artifactory or local hubs/);
     assert.deepStrictEqual(showMessageStub.firstCall.args.slice(1), ['Continue without GitHub', 'Sign in']);
     assert.strictEqual(getSessionStub.calledOnce, true);
+  });
+
+  test('skips the optional prompt when another GitHub auth provider is available', async () => {
+    const showMessageStub = sandbox.stub(vscode.window, 'showInformationMessage');
+
+    assert.strictEqual(await offerGitHubAccountSelection(async () => true), true);
+    assert.strictEqual(showMessageStub.called, false);
+    assert.strictEqual(getSessionStub.called, false);
   });
 
   test('opens GitHub sign-in only after the user chooses Sign in', async () => {

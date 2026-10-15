@@ -1629,7 +1629,7 @@ export class PromptRegistryExtension {
       if (hubs.length === 0 && !activeHubResult) {
         // Scenario 1: First-time installation, no hubs
         this.logger.info('Offering optional GitHub sign-in before hub selection');
-        await offerGitHubAccountSelection();
+        await offerGitHubAccountSelection(() => hubManager.hasGitHubAuthentication());
         this.logger.info('First-time hub setup: showing hub selector');
         initialized = await this.showFirstRunHubSelector();
 

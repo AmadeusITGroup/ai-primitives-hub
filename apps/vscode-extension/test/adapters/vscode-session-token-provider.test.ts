@@ -134,8 +134,14 @@ suite('VsCodeSessionTokenProvider', () => {
       ? Promise.resolve({ accessToken: 'recovered' })
       : stuck);
     const provider = new VsCodeSessionTokenProvider();
-    const first = provider.getToken('github.com');
+    let firstResolved = false;
+    const first = provider.getToken('github.com').then((token) => {
+      firstResolved = true;
+      return token;
+    });
     await clock.tickAsync(60_001);
+    assert.strictEqual(firstResolved, false);
+    await clock.tickAsync(240_000);
     assert.strictEqual(await first, undefined);
     const retry = provider.getToken('github.com');
     await clock.tickAsync(60_001);
@@ -170,7 +176,7 @@ suite('VsCodeSessionTokenProvider', () => {
       releases.push(resolve);
     }));
     const warning = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
-    const provider = new VsCodeSessionTokenProvider();
+    const provider = new VsCodeSessionTokenProvider(false);
     for (let i = 0; i < 2; i++) {
       const attempt = provider.getToken('github.com');
       await clock.tickAsync(60_001);
@@ -192,8 +198,8 @@ suite('VsCodeSessionTokenProvider', () => {
     getSessionStub.callsFake((_provider, _scopes, options) => options.clearSessionPreference
       ? Promise.resolve({ accessToken: 'recovered' })
       : stuck);
-    const first = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /60 seconds/);
-    await clock.tickAsync(60_001);
+    const first = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /5 minutes/);
+    await clock.tickAsync(300_001);
     await first;
     await VsCodeSessionTokenProvider.forceAuthentication();
     assert.strictEqual(await new VsCodeSessionTokenProvider().getToken('github.com'), 'recovered');
@@ -241,8 +247,8 @@ suite('VsCodeSessionTokenProvider', () => {
       : Promise.resolve({ accessToken: 'usable' }));
     try {
       for (let i = 0; i < 2; i++) {
-        const result = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /60 seconds/);
-        await clock.tickAsync(60_001);
+        const result = assert.rejects(VsCodeSessionTokenProvider.forceAuthentication(), /5 minutes/);
+        await clock.tickAsync(300_001);
         await result;
       }
       const provider = new VsCodeSessionTokenProvider();

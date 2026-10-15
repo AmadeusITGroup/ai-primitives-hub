@@ -211,6 +211,7 @@ export class HubManager {
   private readonly logger: Logger;
   private readonly appHubManager: AppHubManager;
   private readonly profileLifecycleDeps: ProfileLifecycleDeps;
+  private readonly githubTokenProvider: CompositeTokenProvider;
   private readonly translateLogEvent: (event: LogEvent) => void;
   private readonly _onHubImported = new vscode.EventEmitter<string>();
   private readonly _onHubDeleted = new vscode.EventEmitter<string>();
@@ -277,11 +278,11 @@ export class HubManager {
     // RegistryManager's source adapters (VS Code session, then `gh` CLI) —
     // see src/adapters/infra-adapter-factory.ts.
     const httpClient = new NodeHttpClient();
-    const tokenProvider = new CompositeTokenProvider([new VsCodeSessionTokenProvider(false), new GhCliTokenProvider()]);
+    this.githubTokenProvider = new CompositeTokenProvider([new VsCodeSessionTokenProvider(false), new GhCliTokenProvider()]);
     const resolver = new CompositeHubResolver(
-      new GitHubHubResolver(httpClient, tokenProvider),
+      new GitHubHubResolver(httpClient, this.githubTokenProvider),
       new LocalHubResolver(new NodeFileSystem()),
-      new UrlHubResolver(httpClient, tokenProvider),
+      new UrlHubResolver(httpClient, this.githubTokenProvider),
       new ArtifactoryHubResolver(httpClient, (reference, root) => {
         if (reference.authMode !== 'bearer') {
           return new AnonymousCredentialProvider();
@@ -380,13 +381,11 @@ export class HubManager {
     }
   }
 
-  /**
-   * No-op retained for backward compatibility: the previous inline
-   * VS Code/gh-cli auth chain cached a resolved token on `this`, but the
-   * `TokenProvider` chain wired into the constructor (see
-   * `VsCodeSessionTokenProvider`/`GhCliTokenProvider`) re-resolves a
-   * fresh token on every call, so there is no cache left to clear.
-   */
+  public async hasGitHubAuthentication(): Promise<boolean> {
+    return (await this.githubTokenProvider.getToken('github.com')) !== undefined;
+  }
+
+  /** Clear cached GitHub sessions after an explicit authentication reset. */
   public clearAuthCache(): void {
     VsCodeSessionTokenProvider.clearCache();
     this.logger.info('[HubManager] Authentication cache cleared');
@@ -405,7 +404,7 @@ export class HubManager {
   public async importHubConfig(reference: HubReference, hubId?: string): Promise<string> {
     if (requiresGitHubAuthentication(reference)) {
       validateHubReference(reference);
-      await ensureGitHubAccountSelection();
+      await ensureGitHubAccountSelection(() => this.hasGitHubAuthentication());
     }
     const resolvedHubId = await this.appHubManager.importHub(reference, hubId);
 

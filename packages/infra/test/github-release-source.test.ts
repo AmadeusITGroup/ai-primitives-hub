@@ -114,6 +114,21 @@ describe('GitHubReleaseSource', () => {
     ]);
   });
 
+  it('accepts prerelease coordinates and preserves latest fallback and pinned selection', async () => {
+    const prerelease = release('1.0.0-alpha.1');
+    const http = new FakeHttpClient()
+      .addRoute({ url: firstPageUrl, status: 200, body: JSON.stringify([prerelease]) })
+      .addRoute({ url: prerelease.assets[0].url, status: 200, body: 'id: bundle\nversion: 1.0.0-alpha.1\n' });
+    const source = new GitHubReleaseSource(new GitHubApiClient(http));
+    const candidates = (await source.listReleaseCandidates('owner', 'repo', 'source')).candidates;
+    const request = { sourceId: 'source', bundleId: 'owner-repo-bundle', versions: new Set(['latest']) };
+
+    expect(candidates.map((candidate) => candidate.version)).toEqual(['1.0.0-alpha.1']);
+    expect(selectReplications(candidates, [request], 'latest').selected[0].version).toBe('1.0.0-alpha.1');
+    expect(selectReplications(candidates, [{ ...request, versions: new Set(['1.0.0-alpha.1']) }], 'latest').unresolved)
+      .toEqual([]);
+  });
+
   it('ignores releases that do not meet the release-name, asset, and manifest coordinate convention', async () => {
     const legacyManifestUrl = 'https://raw.githubusercontent.com/owner/repo/legacy/deployment-manifest.yml';
     const legacyArchiveUrl = 'https://github.com/owner/repo/releases/download/1.0.3/workflow-nevio-1.0.3.zip';
@@ -174,17 +189,27 @@ version: 1.0.2
     expect(http.calls.map((call) => call.url)).toEqual([firstPageUrl, mismatchedManifestUrl, versionMismatchManifestUrl]);
   });
 
-  it('warns and excludes a release whose manifest asset cannot be downloaded', async () => {
+  it.each([404, 410])('warns and excludes a release when its manifest asset returns HTTP %i', async (status) => {
     const validRelease = release('1.0.0');
     const http = new FakeHttpClient()
       .addRoute({ url: firstPageUrl, status: 200, body: JSON.stringify([validRelease]) })
-      .addRoute({ url: validRelease.assets[0].url, status: 404, body: 'not found' });
+      .addRoute({ url: validRelease.assets[0].url, status, body: 'not found' });
 
     const discovery = await new GitHubReleaseSource(new GitHubApiClient(http)).listReleaseCandidates('owner', 'repo', 'source');
 
     expect(discovery.candidates).toEqual([]);
     expect(discovery.warnings[0]).toContain('deployment-manifest.yml download failed');
-    expect(discovery.warnings[0]).toContain('GitHub API error: 404');
+    expect(discovery.warnings[0]).toContain(`GitHub API error: ${String(status)}`);
+  });
+
+  it('stops release discovery when a manifest asset fails for a reason other than a missing asset', async () => {
+    const validRelease = release('1.0.0');
+    const http = new FakeHttpClient()
+      .addRoute({ url: firstPageUrl, status: 200, body: JSON.stringify([validRelease]) })
+      .addRoute({ url: validRelease.assets[0].url, status: 403, body: 'forbidden' });
+
+    await expect(new GitHubReleaseSource(new GitHubApiClient(http)).listReleaseCandidates('owner', 'repo', 'source'))
+      .rejects.toMatchObject({ statusCode: 403 });
   });
 
   it('keeps manifest request-budget exhaustion fatal', async () => {
@@ -193,7 +218,11 @@ version: 1.0.2
     const source = new GitHubReleaseSource(new GitHubApiClient(http), undefined, 1);
 
     await expect(source.listReleaseCandidates('owner', 'repo', 'source'))
-      .rejects.toThrow('GitHub request budget (1) exhausted');
+      .rejects.toMatchObject({
+        name: 'GitHubRequestBudgetError',
+        budget: 1,
+        message: 'GitHub request budget (1) exhausted; rerun with the same cache directory.'
+      });
   });
 
   it('follows every Link page and keeps all/latest selection over collected releases', async () => {
@@ -256,7 +285,11 @@ version: 1.0.2
     const source = new GitHubReleaseSource(new GitHubApiClient(http), undefined, 1);
 
     await expect(source.listReleaseCandidates('owner', 'repo', 'source'))
-      .rejects.toThrow('GitHub request budget (1) exhausted');
+      .rejects.toMatchObject({
+        name: 'GitHubRequestBudgetError',
+        budget: 1,
+        message: 'GitHub request budget (1) exhausted; rerun with the same cache directory.'
+      });
 
     expect(source.requestCount).toBe(1);
     expect(http.calls.map((call) => call.url)).toEqual([firstPageUrl]);

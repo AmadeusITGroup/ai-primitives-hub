@@ -8,8 +8,11 @@ import {
   normalizedReleaseVersion,
   stableReplicatedBundleId,
 } from '@ai-primitives-hub/core';
-/* eslint-disable @stylistic/max-len, @stylistic/max-statements-per-line, @typescript-eslint/naming-convention, @typescript-eslint/member-ordering -- focused GitHub adapter */
 import * as yaml from 'js-yaml';
+import {
+  GitHubApiError,
+} from '../http/github-api-client';
+/* eslint-disable @stylistic/max-len, @stylistic/max-statements-per-line, @typescript-eslint/naming-convention, @typescript-eslint/member-ordering -- focused GitHub adapter */
 
 interface ReleaseAsset { name?: string; url?: string; size?: number }
 interface Release { tag_name?: string; name?: string; published_at?: string; draft?: boolean; assets?: ReleaseAsset[] }
@@ -26,8 +29,15 @@ const nextPageUrl = (link: string | undefined): string | undefined => {
   return undefined;
 };
 interface ReleaseCoordinate { collectionId: string; version: string }
+export class GitHubRequestBudgetError extends Error {
+  public constructor(public readonly budget: number) {
+    super(`GitHub request budget (${budget}) exhausted; rerun with the same cache directory.`);
+    this.name = 'GitHubRequestBudgetError';
+  }
+}
+
 const releaseCoordinate = (name: string | undefined): ReleaseCoordinate | undefined => {
-  const match = /^([A-Za-z0-9][A-Za-z0-9._-]*)-v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.exec(name ?? '');
+  const match = /^([A-Za-z0-9][A-Za-z0-9._-]*?)-v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/.exec(name ?? '');
   if (!match) {
     return undefined;
   }
@@ -39,7 +49,7 @@ export class GitHubReleaseSource implements ReplicationSourcePort {
   private used = 0;
   private async request<T>(load: () => Promise<T>): Promise<T> {
     if (this.used >= this.budget) {
-      throw new Error(`GitHub request budget (${this.budget}) exhausted; rerun with the same cache directory.`);
+      throw new GitHubRequestBudgetError(this.budget);
     } this.used += 1; return load();
   }
 
@@ -108,11 +118,13 @@ export class GitHubReleaseSource implements ReplicationSourcePort {
       try {
         manifestBytes = await this.get(`manifest:${manifestAsset.url}`, () => this.api.download(manifestAsset.url!), (value) => value, (value) => value);
       } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        if (/GitHub request budget \(\d+\) exhausted/.test(reason)) {
+        if (error instanceof GitHubRequestBudgetError) {
           throw error;
         }
-        warnings.push(`Excluded GitHub release ${label}: deployment-manifest.yml download failed (${JSON.stringify(reason)}).`);
+        if (!(error instanceof GitHubApiError) || (error.statusCode !== 404 && error.statusCode !== 410)) {
+          throw error;
+        }
+        warnings.push(`Excluded GitHub release ${label}: deployment-manifest.yml download failed (${JSON.stringify(error.message)}).`);
         continue;
       }
       let parsed: unknown;

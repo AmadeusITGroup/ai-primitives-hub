@@ -98,6 +98,31 @@ describe('createSourceSyncQueue', () => {
     ]);
   });
 
+  it('settles queued work when the error callback throws', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queue = createSourceSyncQueue(async () => {
+      await pending;
+      throw new Error('sync failed');
+    }, 1, () => {
+      throw new Error('error callback failed');
+    });
+    const firstSettled = queue.onFirstSettled();
+    queue.enqueue('s1');
+    let idleResolved = false;
+    const idle = queue.onIdle().then(() => {
+      idleResolved = true;
+    });
+
+    await Promise.resolve();
+    expect(idleResolved).toBe(false);
+    release();
+    await Promise.all([firstSettled, idle]);
+    expect(idleResolved).toBe(true);
+  });
+
   it('reports sync failures before continuing the queue', async () => {
     const failures: { sourceId: string; error: Error }[] = [];
     const queue = createSourceSyncQueue(

@@ -1115,6 +1115,7 @@ async function performRemoteInstall(
       expectedId: opts.sourceConfig === undefined ? spec.bundleId : undefined,
       expectedVersion: isArtifactory ? installable.ref.bundleVersion : (spec.bundleVersion === 'latest' ? undefined : spec.bundleVersion)
     });
+    const lockKey = isArtifactory ? installable.ref.bundleId : manifest.id;
     if (opts.dryRun === true) {
       formatOutput({
         ctx,
@@ -1124,7 +1125,7 @@ async function performRemoteInstall(
         data: {
           dryRun: true,
           target: effectiveTarget.name,
-          bundle: { id: manifest.id, version: manifest.version },
+          bundle: { id: lockKey, version: manifest.version },
           source: { type: opts.sourceConfig?.type ?? 'github', repo: repoSlug, downloadUrl: installable.downloadUrl },
           sha256: dl.sha256,
           files: [...files.keys()]
@@ -1154,7 +1155,6 @@ async function performRemoteInstall(
     if (scope === 'repository') {
       entry.commitMode = commitMode;
     }
-    const lockKey = isArtifactory ? installable.ref.bundleId : manifest.id;
     let nextLock = upsertBundleEntry(existing, lockKey, entry);
     const sourceConfig = opts.sourceConfig;
     const collectionsPath = sourceConfig?.config?.collectionsPath;
@@ -1179,7 +1179,7 @@ async function performRemoteInstall(
       status: 'ok',
       data: {
         target: effectiveTarget.name,
-        bundle: { id: manifest.id, version: manifest.version },
+        bundle: { id: lockKey, version: manifest.version },
         source: { type: opts.sourceConfig?.type ?? 'github', repo: repoSlug, sourceId: installable.ref.sourceId },
         sha256: dl.sha256,
         written: result.written,

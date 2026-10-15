@@ -28,6 +28,7 @@ export class ArtifactorySourceAdapter extends BaseSourceAdapter {
   private index?: ArtifactorySourceIndex;
   private etag?: string;
   private indexRequest?: Promise<ArtifactorySourceIndex>;
+  private readonly returnedEntries = new Map<string, ArtifactoryBundleIndexEntry>();
   public constructor(source: RegistrySource, private readonly client: ArtifactoryHttpClient) {
     super(source);
   }
@@ -56,17 +57,31 @@ export class ArtifactorySourceAdapter extends BaseSourceAdapter {
     return this.index;
   }
 
+  private entryKey(bundleId: string, version: string): string {
+    return JSON.stringify([bundleId, version]);
+  }
+
   private async entry(bundle: Bundle): Promise<ArtifactoryBundleIndexEntry> {
-    const found = (await this.load()).bundles.find((item) => item.id === bundle.id && item.version === bundle.version);
-    if (!found) {
+    const key = this.entryKey(bundle.id, bundle.version);
+    const current = (await this.load()).bundles.find((item) => item.id === bundle.id && item.version === bundle.version);
+    if (current) {
+      this.returnedEntries.set(key, current);
+      return current;
+    }
+    const returned = this.returnedEntries.get(key);
+    if (!returned) {
       throw new Error(`Bundle ${bundle.id}@${bundle.version} was not found.`);
     }
-    return found;
+    return returned;
   }
 
   public async fetchBundles(): Promise<Bundle[]> {
     const index = await this.load(true);
-    return [...index.bundles].sort((a, b) => a.id.localeCompare(b.id) || compareSemVer(b.version, a.version)).map((item) => ({ id: item.id, name: item.name, version: item.version, description: item.description, author: item.author, sourceId: this.source.id, environments: item.environments, tags: item.tags, lastUpdated: item.lastUpdated, size: sizeText(item.archive.size), dependencies: item.dependencies, homepage: item.homepage, repository: item.repository, license: item.license, manifestUrl: this.client.urlFor(item.manifest.path), downloadUrl: this.client.urlFor(item.archive.path), checksum: { algorithm: 'sha256', hash: item.archive.sha256 }, readmeUrl: item.readme ? this.client.urlFor(item.readme.path) : undefined, readmeRevision: item.revision }));
+    const items = [...index.bundles].sort((a, b) => a.id.localeCompare(b.id) || compareSemVer(b.version, a.version));
+    for (const item of items) {
+      this.returnedEntries.set(this.entryKey(item.id, item.version), item);
+    }
+    return items.map((item) => ({ id: item.id, name: item.name, version: item.version, description: item.description, author: item.author, sourceId: this.source.id, environments: item.environments, tags: item.tags, lastUpdated: item.lastUpdated, size: sizeText(item.archive.size), dependencies: item.dependencies, homepage: item.homepage, repository: item.repository, license: item.license, manifestUrl: this.client.urlFor(item.manifest.path), downloadUrl: this.client.urlFor(item.archive.path), checksum: { algorithm: 'sha256', hash: item.archive.sha256 }, readmeUrl: item.readme ? this.client.urlFor(item.readme.path) : undefined, readmeRevision: item.revision }));
   }
 
   public async downloadBundle(bundle: Bundle): Promise<Buffer> {

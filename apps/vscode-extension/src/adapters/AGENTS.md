@@ -50,7 +50,7 @@ Resolved in order, via a single `CompositeTokenProvider` built per source by `cr
 3. GitHub CLI (`gh auth token`, `@ai-primitives-hub/infra`'s `GhCliTokenProvider`, the second `fallbackTokenProviders` entry)
 4. No auth (public repos only)
 
-`infra-adapter-factory.ts` builds two fallback chains differing only in the VS Code session step's `createIfNone` policy: `true` (prompts the user to sign in) for every type except `skills`, which passes `false` - matching that one source type's pre-cutover exception.
+`infra-adapter-factory.ts` uses an interactive VS Code session lookup for `github`, `awesome-copilot`, and `apm` sources. Other source types use a silent lookup and do not prompt for GitHub sign-in. The GitHub CLI remains the next fallback for GitHub-backed sources.
 
 ## Existing Adapters (live implementation: `packages/infra/src/adapters/`)
 

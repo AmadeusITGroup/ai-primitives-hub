@@ -198,6 +198,7 @@ suite('HubManager', () => {
         scopes: ['repo']
       };
       const getSessionStub = sinon.stub(vscode.authentication, 'getSession');
+      const ghTokenStub = sinon.stub(GhCliTokenProvider.prototype, 'getToken').resolves(undefined);
       getSessionStub.onCall(0).resolves(undefined);
       getSessionStub.onCall(1).resolves(session);
       getSessionStub.onCall(2).resolves(session);
@@ -217,6 +218,32 @@ suite('HubManager', () => {
         assert.ok(scope.isDone());
       } finally {
         getSessionStub.restore();
+        ghTokenStub.restore();
+        showInformationStub.restore();
+        nock.cleanAll();
+        VsCodeSessionTokenProvider.clearCache();
+      }
+    });
+
+    test('uses GitHub CLI authentication for a GitHub hub without prompting for a VS Code session', async () => {
+      VsCodeSessionTokenProvider.clearCache();
+      const getSessionStub = sinon.stub(vscode.authentication, 'getSession').resolves(undefined);
+      const ghTokenStub = sinon.stub(GhCliTokenProvider.prototype, 'getToken').resolves('gho_cli');
+      const showInformationStub = sinon.stub(vscode.window, 'showInformationMessage');
+      const scope = nock('https://raw.githubusercontent.com')
+        .get('/owner/repo/main/hub-config.yml')
+        .query(true)
+        .reply(200, authPolicyHubConfig);
+
+      try {
+        await hubManager.importHubConfig({ type: 'github', location: 'owner/repo', ref: 'main' }, 'test-github-cli-auth');
+
+        assert.strictEqual(showInformationStub.called, false);
+        assert.ok(ghTokenStub.calledWith('github.com'));
+        assert.ok(scope.isDone());
+      } finally {
+        getSessionStub.restore();
+        ghTokenStub.restore();
         showInformationStub.restore();
         nock.cleanAll();
         VsCodeSessionTokenProvider.clearCache();

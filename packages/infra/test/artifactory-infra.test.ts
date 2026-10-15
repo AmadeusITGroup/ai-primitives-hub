@@ -227,6 +227,28 @@ describe('Artifactory source adapter and resolver', () => {
     expect(http.requests[1].headers?.['If-None-Match']).toBe('index-1');
   });
 
+  it('downloads a previously returned bundle after a later index refresh', async () => {
+    const updated = index();
+    updated.bundles[0] = {
+      ...updated.bundles[0],
+      version: '2.0.0',
+      manifest: { ...updated.bundles[0].manifest, path: 'bundles/bundle/2.0.0/deployment-manifest.yml' },
+      archive: { ...updated.bundles[0].archive, path: 'bundles/bundle/2.0.0/bundle.zip' }
+    };
+    const encode = (value: unknown): Uint8Array => new TextEncoder().encode(JSON.stringify(value));
+    const http = new FakeHttpClient([
+      makeResponse(200, encode(index()), { etag: 'index-1' }),
+      makeResponse(200, encode(updated), { etag: 'index-2' }),
+      makeResponse(200, archive)
+    ]);
+    const adapter = new ArtifactorySourceAdapter(source, new ArtifactoryHttpClient(http, new FakeCredentials(), source.url));
+    const [previousBundle] = await adapter.fetchBundles();
+
+    expect((await adapter.fetchBundles())[0].version).toBe('2.0.0');
+    await expect(adapter.downloadBundle(previousBundle)).resolves.toEqual(Buffer.from(archive));
+    expect(http.requests[2].url).toBe(`${source.url}/bundles/bundle/1.0.0/bundle.zip`);
+  });
+
   it('maps the static index to Bundle and verifies downloaded bytes', async () => {
     const http = httpClientForIndexAndArchive();
     const adapter = new ArtifactorySourceAdapter(

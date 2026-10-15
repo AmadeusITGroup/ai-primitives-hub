@@ -63,7 +63,11 @@ export function createSourceSyncQueue(
     activeSyncs++;
     void syncSource(sourceId).catch((error: unknown) => {
       const normalizedError = error instanceof Error ? error : new Error(String(error));
-      onError?.(sourceId, normalizedError);
+      try {
+        onError?.(sourceId, normalizedError);
+      } catch {
+        return;
+      }
     }).finally(() => {
       activeSyncs--;
       startAvailableSyncs();

@@ -31,18 +31,23 @@ export async function promptGitHubAccountSelection(): Promise<void> {
 
 const hasGitHubSession = async (): Promise<boolean> => {
   try {
-    return (await vscode.authentication.getSession('github', ['repo'], { silent: true })) !== undefined;
+    return (await new VsCodeSessionTokenProvider(false).getToken('github.com')) !== undefined;
   } catch {
     return false;
   }
 };
 
+type GitHubAuthenticationCheck = () => Promise<boolean>;
+
 /**
  * Offer sign-in during first-run setup without blocking non-GitHub hubs.
+ * @param hasGitHubAuth
  * @returns Whether a GitHub session is available after the offer.
  */
-export async function offerGitHubAccountSelection(): Promise<boolean> {
-  if (await hasGitHubSession()) {
+export async function offerGitHubAccountSelection(
+  hasGitHubAuth: GitHubAuthenticationCheck = hasGitHubSession
+): Promise<boolean> {
+  if (await hasGitHubAuth()) {
     return true;
   }
   const choice = await vscode.window.showInformationMessage(
@@ -64,10 +69,13 @@ export async function offerGitHubAccountSelection(): Promise<boolean> {
 
 /**
  * Require a GitHub session for a GitHub-backed hub import.
+ * @param hasGitHubAuth
  * @throws {Error} If the user cancels the sign-in flow.
  */
-export async function ensureGitHubAccountSelection(): Promise<void> {
-  if (await hasGitHubSession()) {
+export async function ensureGitHubAccountSelection(
+  hasGitHubAuth: GitHubAuthenticationCheck = hasGitHubSession
+): Promise<void> {
+  if (await hasGitHubAuth()) {
     return;
   }
   const choice = await vscode.window.showInformationMessage(
