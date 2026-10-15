@@ -111,9 +111,10 @@ export class UserScopeService implements IScopeService {
     };
   }
 
-  private getTargetBaseDirectory(): string {
-    const wslUserDir = this.getWindowsWslUserDir();
-    if (this.isRunningInWSL() && !wslUserDir && !this.warnedWslFallback) {
+  private getTargetBaseDirectory(type: CopilotFileType): string {
+    const useWslHome = this.isRunningInWSL() && type === 'skill';
+    const wslUserDir = useWslHome ? undefined : this.getWindowsWslUserDir();
+    if (this.isRunningInWSL() && !useWslHome && !wslUserDir && !this.warnedWslFallback) {
       this.warnedWslFallback = true;
       this.logger.warn('[UserScopeService] Unable to resolve Windows path from WSL. Generic Copilot primitives may not be visible.');
       void vscode.window.showWarningMessage('AI Primitives Hub: Unable to resolve Windows path from WSL. Generic Copilot primitives may not be visible.');
@@ -128,7 +129,7 @@ export class UserScopeService implements IScopeService {
     if (route === undefined) {
       throw new Error(`No ${type} route defined for target ${this.targetType}`);
     }
-    return path.join(this.getTargetBaseDirectory(), route);
+    return path.join(this.getTargetBaseDirectory(type), route);
   }
 
   private transformContent(filePath: string, content: string): string {

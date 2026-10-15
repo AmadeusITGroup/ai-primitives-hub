@@ -107,6 +107,19 @@ suite('UserScopeService - WSL Support', () => {
       assert.strictEqual(promptsDir, path.join(windowsHome, '.copilot', 'prompts'));
     });
 
+    test('should use the WSL home for user-scoped skills', () => {
+      const windowsHome = path.join(tempDir, 'mnt', 'c', 'Users', 'testuser');
+      const wslHome = path.join(tempDir, 'home', 'testuser');
+      stubWSLEnvironment(windowsHome, 'vscode');
+      const mockContext = createMockContext(wslHome);
+      const service = new UserScopeService(mockContext, wslHome);
+
+      assert.strictEqual(
+        service.getCopilotSkillsDirectory(),
+        `${path.join(wslHome, '.copilot', 'skills')}${path.sep}`
+      );
+    });
+
     const uriSchemeCases: string[] = ['vscode', 'vscode-insiders'];
 
     uriSchemeCases.forEach((uriScheme) => {
