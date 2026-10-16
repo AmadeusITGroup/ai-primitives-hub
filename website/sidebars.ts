@@ -64,6 +64,7 @@ const sidebars: SidebarsConfig = {
             { type: "doc", id: "contributor-guide/testing/golden-path", label: "Golden Path Test Cases" },
             { type: "doc", id: "contributor-guide/testing/test-plan", label: "Full Test Plan" },
             { type: "doc", id: "contributor-guide/testing/ssh-remote", label: "Testing SSH Remote" },
+            { type: "doc", id: "contributor-guide/testing/wsl-user-scope-customization-discovery", label: "Testing WSL Customization Discovery" },
           ],
         },
         { type: "doc", id: "contributor-guide/validation", label: "Validation" },

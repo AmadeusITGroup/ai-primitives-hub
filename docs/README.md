@@ -50,6 +50,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Releasing](contributor-guide/releasing.md)** — Release process
 - **[Golden Path Test Cases](contributor-guide/testing/golden-path.md)** — The three mandatory manual scenarios, and the release gate
 - **[Full Test Plan](contributor-guide/testing/test-plan.md)** — All 19 plans, for area-by-area manual coverage
+- **[Testing User-Scoped Customization Discovery in WSL](contributor-guide/testing/wsl-user-scope-customization-discovery.md)** — WSL path analysis and cross-harness test matrix
 
 ---
 
