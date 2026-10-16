@@ -102,7 +102,7 @@ export class HubReplicateCommand extends Command {
         command: 'hub.replicate',
         output: fmt,
         status: result.warnings.length > 0 ? 'warning' : 'ok',
-        data: { mode, publish: this.publish, selectedBundles: result.selected.length, unresolvedProfiles: result.warnings, index: result.index, targetRoot: target },
+        data: { mode, publish: this.publish, selectedBundles: result.selected.length, diagnostics: result.warnings, unresolvedProfiles: result.warnings, index: result.index, targetRoot: target },
         warnings: result.warnings
       });
       return result.warnings.length > 0 ? 2 : 0;

@@ -134,16 +134,22 @@ abstract class BaseUpdateCommand extends Command {
 
 type UpdateEntry = { bundleId: string; from: string; to: string };
 
-function renderDryRunOutput(d: { checked: number; updates: UpdateEntry[] }): string {
-  if (d.updates.length === 0) {
-    return `All bundles are up to date. (checked ${String(d.checked)})
-`;
+function renderDryRunOutput(d: { checked: number; updates: UpdateEntry[]; failures?: string[] }): string {
+  const failureCount = d.failures?.length ?? 0;
+  const lines = d.updates.length > 0
+    ? [`Available updates (${String(d.updates.length)}):`, ...d.updates.map((update) => `  ${update.bundleId}: ${update.from} → ${update.to}`)]
+    : [];
+  if (failureCount > 0) {
+    if (lines.length === 0) {
+      return `Update check is incomplete. ${String(failureCount)} bundle${failureCount === 1 ? '' : 's'} could not be checked. Review the reported failures.\n`;
+    }
+    lines.push('', `Update check is incomplete. ${String(failureCount)} bundle${failureCount === 1 ? '' : 's'} could not be checked. Review the reported failures.`);
+    return lines.join('\n') + '\n';
   }
-  const lines = [`Available updates (${String(d.updates.length)}):`];
-  for (const u of d.updates) {
-    lines.push(`  ${u.bundleId}: ${u.from} → ${u.to}`);
+  if (lines.length === 0) {
+    return `All bundles are up to date. (checked ${String(d.checked)})\n`;
   }
-  lines.push('\nRe-run without --dry-run to apply.');
+  lines.push('', 'Re-run without --dry-run to apply.');
   return lines.join('\n') + '\n';
 }
 
@@ -258,25 +264,38 @@ export class UpdateCommand extends BaseUpdateCommand {
         const src = lock.sources[lock.bundles[id].sourceId];
         return src !== undefined && isRemoteSource(src.type);
       });
-      const { candidates, skipped } = await findUpdateCandidates(remoteBundleIds, lock, ctx, http, tokens);
+      const { candidates, skipped, failures: discoveryFailures } = await findUpdateCandidates(remoteBundleIds, lock, ctx, http, tokens);
 
       if (this.dryRun) {
-        return renderDryRun(ctx, fmt, lockPath, bundleIds.length, skipped.length, candidates);
+        return renderDryRun(ctx, fmt, lockPath, bundleIds.length, skipped.length, candidates, discoveryFailures);
       }
 
       const toInstall = await selectUpdatesInteractively(this.interactive, candidates);
       if (toInstall.length === 0) {
-        return renderNoUpdates(ctx, fmt, bundleIds.length, skipped.length);
+        return renderNoUpdates(ctx, fmt, bundleIds.length, skipped.length, discoveryFailures);
       }
 
-      const { updatedCount, updateResults } = await applyUpdates(toInstall, target, scope, commitMode, lockPath, ctx, http, tokens);
+      const { updatedCount, updateResults, failures: updateFailures } = await applyUpdates(toInstall, target, scope, commitMode, lockPath, ctx, http, tokens);
+      const failures = [...discoveryFailures, ...updateFailures];
 
       formatOutput({
-        ctx, command: 'update', output: fmt, status: 'ok',
-        data: { lockfile: lockPath, target: target.name, checked: bundleIds.length, updated: updatedCount, skipped: skipped.length, updates: updateResults },
-        textRenderer: renderUpdateOutput
+        ctx, command: 'update', output: fmt, status: failures.length > 0 ? 'warning' : 'ok',
+        data: { lockfile: lockPath, target: target.name, checked: bundleIds.length, updated: updatedCount, skipped: skipped.length, updates: updateResults, failures },
+        warnings: failures,
+        textRenderer: failures.length > 0
+          ? (data) => {
+            const lines = data.updates.length > 0
+              ? [`Updated ${String(data.updates.length)} bundle${data.updates.length === 1 ? '' : 's'}:`, ...data.updates.map((update) => `  ${update.bundleId}: ${update.from} → ${update.to}`)]
+              : ['No bundles were updated.'];
+            const failureSummary = data.failures.length === 1
+              ? '1 update check or installation failed.'
+              : `${String(data.failures.length)} update checks or installations failed.`;
+            lines.push('', failureSummary, 'Review the reported failures.');
+            return lines.join('\n') + '\n';
+          }
+          : renderUpdateOutput
       });
-      return 0;
+      return failures.length > 0 ? 1 : 0;
     } catch (err) {
       if (err instanceof RegistryError) {
         return failWith(ctx, fmt, 'update', err);
@@ -393,9 +412,10 @@ async function findUpdateCandidates(
   ctx: Context,
   http: HttpClient,
   tokens: TokenProvider
-): Promise<{ candidates: UpdateCandidate[]; skipped: string[] }> {
+): Promise<{ candidates: UpdateCandidate[]; skipped: string[]; failures: string[] }> {
   const candidates: UpdateCandidate[] = [];
   const skipped: string[] = [];
+  const failures: string[] = [];
   const sourceAware = isGitHubAppAuthEnabled(ctx.env);
   const githubApi = new GitHubApiClient(http, { tokenProvider: tokens });
   const dispatcher = new SourceDispatcher({ githubApi, fs: ctx.fs });
@@ -455,10 +475,11 @@ async function findUpdateCandidates(
         throw error;
       }
       skipped.push(bundleId);
+      failures.push(`Failed to check updates for ${bundleId}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  return { candidates, skipped };
+  return { candidates, skipped, failures };
 }
 
 function renderDryRun(
@@ -467,18 +488,21 @@ function renderDryRun(
   lockPath: string,
   checked: number,
   skippedCount: number,
-  candidates: UpdateCandidate[]
+  candidates: UpdateCandidate[],
+  failures: string[]
 ): number {
   formatOutput({
-    ctx, command: 'update', output: fmt, status: 'ok',
+    ctx, command: 'update', output: fmt, status: failures.length > 0 ? 'warning' : 'ok',
     data: {
       dryRun: true, lockfile: lockPath,
       checked, updated: 0, skipped: skippedCount,
-      updates: candidates.map((c) => ({ bundleId: c.bundleId, from: c.from, to: c.to }))
+      updates: candidates.map((c) => ({ bundleId: c.bundleId, from: c.from, to: c.to })),
+      failures
     },
+    warnings: failures,
     textRenderer: renderDryRunOutput
   });
-  return 0;
+  return failures.length > 0 ? 1 : 0;
 }
 
 async function selectUpdatesInteractively(interactive: boolean, candidates: UpdateCandidate[]): Promise<UpdateCandidate[]> {
@@ -499,13 +523,16 @@ async function selectUpdatesInteractively(interactive: boolean, candidates: Upda
   return answers.selected;
 }
 
-function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skippedCount: number): number {
+function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skippedCount: number, failures: string[]): number {
   formatOutput({
-    ctx, command: 'update', output: fmt, status: 'ok',
-    data: { checked, updated: 0, skipped: skippedCount, updates: [] },
-    textRenderer: () => `All bundles are up to date. (checked ${String(checked)})\n`
+    ctx, command: 'update', output: fmt, status: failures.length > 0 ? 'warning' : 'ok',
+    data: { checked, updated: 0, skipped: skippedCount, updates: [], failures },
+    warnings: failures,
+    textRenderer: () => failures.length > 0
+      ? `Update check is incomplete. ${String(failures.length)} bundle(s) could not be checked. Review the reported failures.\n`
+      : `All bundles are up to date. (checked ${String(checked)})\n`
   });
-  return 0;
+  return failures.length > 0 ? 1 : 0;
 }
 
 /**
@@ -545,9 +572,10 @@ async function applyUpdates(
   ctx: Context,
   http: HttpClient,
   tokens: TokenProvider
-): Promise<{ updatedCount: number; updateResults: UpdateEntry[] }> {
+): Promise<{ updatedCount: number; updateResults: UpdateEntry[]; failures: string[] }> {
   let updatedCount = 0;
   const updateResults: UpdateEntry[] = [];
+  const failures: string[] = [];
 
   for (const candidate of toInstall) {
     try {
@@ -555,11 +583,12 @@ async function applyUpdates(
       updateResults.push({ bundleId: candidate.bundleId, from: candidate.from, to: candidate.to });
       updatedCount++;
     } catch (err) {
-      ctx.stderr.write(`Failed to update ${candidate.bundleId}: ${err instanceof Error ? err.message : String(err)}\n`);
+      const failure = `Failed to update ${candidate.bundleId}: ${err instanceof Error ? err.message : String(err)}`;
+      failures.push(failure);
     }
   }
 
-  return { updatedCount, updateResults };
+  return { updatedCount, updateResults, failures };
 }
 
 async function syncActiveHub(ctx: Context): Promise<void> {
@@ -602,7 +631,8 @@ async function applyUpdate(
 
   const dl = await downloader.download(candidate.installable);
   const files = await extractor.extract(dl.bytes);
-  const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: undefined });
+  const isArtifactory = candidate.source.type === 'artifactory';
+  const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
 
   const writer = writerFor(ctx, target, scope, commitMode);
   const targetFiles = getInstallableBundleFiles(files, manifest);
@@ -624,15 +654,16 @@ async function applyUpdate(
   if (lock === null) {
     return;
   }
-  let nextLock = upsertBundleEntry(lock, manifest.id, entry);
+  const lockKey = isArtifactory ? candidate.installable.ref.bundleId : manifest.id;
+  let nextLock = upsertBundleEntry(lock, lockKey, entry);
   nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
   await writeLockfile(lockPath, nextLock, ctx.fs);
 
   const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
   const existingState = await stateStore.load(target.name);
   const bundles = existingState?.lastInstalledBundles ?? [];
-  const idx = bundles.findIndex((b) => b.bundleId === manifest.id);
-  const bundleState = { bundleId: manifest.id, version: manifest.version, installedAt: new Date().toISOString() };
+  const idx = bundles.findIndex((b) => b.bundleId === lockKey);
+  const bundleState = { bundleId: lockKey, version: manifest.version, installedAt: new Date().toISOString() };
   if (idx === -1) {
     bundles.push(bundleState);
   } else {

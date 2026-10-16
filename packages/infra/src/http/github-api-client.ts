@@ -67,6 +67,13 @@ export interface GitHubClientEvent {
 
 export type GitHubClientEventHandler = (event: GitHubClientEvent) => void;
 
+export class GitHubApiError extends Error {
+  public constructor(public readonly statusCode: number, message: string) {
+    super(message);
+    this.name = 'GitHubApiError';
+  }
+}
+
 export interface RateLimitTelemetry {
   limit: number | undefined;
   remaining: number | undefined;
@@ -325,19 +332,19 @@ export class GitHubApiClient implements GitHubApi {
       if (!retryable || classification.kind === 'fatal' || attempt > this.maxRetries) {
         const reason = retryable ? classification.reason : `non-idempotent ${method} not retried`;
         this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason });
-        throw new Error(describeError(response, url));
+        throw new GitHubApiError(response.statusCode, describeError(response, url));
       }
       const requiredSleepMs = this.computeSleep(classification, attempt, response);
       const rateLimited = classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit';
       const remainingSleepMs = this.maxTotalSleepMs - totalSleepMs;
       if (rateLimited && (requiredSleepMs > this.maxSleepMs || requiredSleepMs > remainingSleepMs)) {
         this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: 'rate-limit wait exceeds budget' });
-        throw new Error(`GitHub API error: ${response.statusCode} - GitHub rate limit exceeded. Retry after ${Math.ceil(requiredSleepMs / 1000)} seconds. (${url})`);
+        throw new GitHubApiError(response.statusCode, `GitHub API error: ${response.statusCode} - GitHub rate limit exceeded. Retry after ${Math.ceil(requiredSleepMs / 1000)} seconds. (${url})`);
       }
       const sleepMs = Math.min(requiredSleepMs, this.maxSleepMs);
       if (sleepMs > remainingSleepMs) {
         this.onEvent({ kind: 'give-up', url, attempt, status: response.statusCode, reason: 'cumulative retry wait exceeds budget' });
-        throw new Error(describeError(response, url));
+        throw new GitHubApiError(response.statusCode, describeError(response, url));
       }
       this.onEvent({
         kind: classification.kind === 'rate-limit' || classification.kind === 'secondary-rate-limit' ? 'rate-limit' : 'retry',

@@ -26,34 +26,62 @@ const digest = (bytes: Uint8Array): string => createHash('sha256').update(bytes)
 export class ArtifactorySourceAdapter extends BaseSourceAdapter {
   public readonly type = 'artifactory';
   private index?: ArtifactorySourceIndex;
+  private etag?: string;
+  private indexRequest?: Promise<ArtifactorySourceIndex>;
+  private readonly returnedEntries = new Map<string, ArtifactoryBundleIndexEntry>();
   public constructor(source: RegistrySource, private readonly client: ArtifactoryHttpClient) {
     super(source);
   }
 
-  private async load(): Promise<ArtifactorySourceIndex> {
-    if (this.index) {
+  private load(refresh = false): Promise<ArtifactorySourceIndex> {
+    if (this.index && !refresh) {
+      return Promise.resolve(this.index);
+    }
+    this.indexRequest ??= this.refreshIndex().finally(() => {
+      this.indexRequest = undefined;
+    });
+    return this.indexRequest;
+  }
+
+  private async refreshIndex(): Promise<ArtifactorySourceIndex> {
+    const result = await this.client.getIndex(this.source.config?.indexFile ?? 'index-v1.json', this.etag);
+    if (result.status === 'not-modified' && this.index) {
       return this.index;
     }
-    const result = await this.client.getIndex(this.source.config?.indexFile ?? 'index-v1.json');
     const validation = validateArtifactorySourceIndex(result.value, this.source.hubSourceId ? { hubSourceId: this.source.hubSourceId } : undefined);
     if (!validation.valid) {
       throw new RegistryError({ code: 'ARTIFACTORY.INDEX_INVALID', message: `Invalid Artifactory index: ${validation.errors.join('; ')}` });
     }
     this.index = result.value as ArtifactorySourceIndex;
+    this.etag = result.etag;
     return this.index;
   }
 
+  private entryKey(bundleId: string, version: string): string {
+    return JSON.stringify([bundleId, version]);
+  }
+
   private async entry(bundle: Bundle): Promise<ArtifactoryBundleIndexEntry> {
-    const found = (await this.load()).bundles.find((item) => item.id === bundle.id && item.version === bundle.version);
-    if (!found) {
+    const key = this.entryKey(bundle.id, bundle.version);
+    const current = (await this.load()).bundles.find((item) => item.id === bundle.id && item.version === bundle.version);
+    if (current) {
+      this.returnedEntries.set(key, current);
+      return current;
+    }
+    const returned = this.returnedEntries.get(key);
+    if (!returned) {
       throw new Error(`Bundle ${bundle.id}@${bundle.version} was not found.`);
     }
-    return found;
+    return returned;
   }
 
   public async fetchBundles(): Promise<Bundle[]> {
-    const index = await this.load();
-    return [...index.bundles].sort((a, b) => a.id.localeCompare(b.id) || compareSemVer(b.version, a.version)).map((item) => ({ id: item.id, name: item.name, version: item.version, description: item.description, author: item.author, sourceId: this.source.id, environments: item.environments, tags: item.tags, lastUpdated: item.lastUpdated, size: sizeText(item.archive.size), dependencies: item.dependencies, homepage: item.homepage, repository: item.repository, license: item.license, manifestUrl: this.client.urlFor(item.manifest.path), downloadUrl: this.client.urlFor(item.archive.path), checksum: { algorithm: 'sha256', hash: item.archive.sha256 }, readmeUrl: item.readme ? this.client.urlFor(item.readme.path) : undefined, readmeRevision: item.revision }));
+    const index = await this.load(true);
+    const items = [...index.bundles].sort((a, b) => a.id.localeCompare(b.id) || compareSemVer(b.version, a.version));
+    for (const item of items) {
+      this.returnedEntries.set(this.entryKey(item.id, item.version), item);
+    }
+    return items.map((item) => ({ id: item.id, name: item.name, version: item.version, description: item.description, author: item.author, sourceId: this.source.id, environments: item.environments, tags: item.tags, lastUpdated: item.lastUpdated, size: sizeText(item.archive.size), dependencies: item.dependencies, homepage: item.homepage, repository: item.repository, license: item.license, manifestUrl: this.client.urlFor(item.manifest.path), downloadUrl: this.client.urlFor(item.archive.path), checksum: { algorithm: 'sha256', hash: item.archive.sha256 }, readmeUrl: item.readme ? this.client.urlFor(item.readme.path) : undefined, readmeRevision: item.revision }));
   }
 
   public async downloadBundle(bundle: Bundle): Promise<Buffer> {
@@ -73,12 +101,12 @@ export class ArtifactorySourceAdapter extends BaseSourceAdapter {
   }
 
   public async fetchMetadata(): Promise<SourceMetadata> {
-    const index = await this.load(); return { name: index.source.name, description: index.source.description ?? '', bundleCount: index.bundles.length, lastUpdated: index.source.updatedAt, version: '1' };
+    const index = await this.load(true); return { name: index.source.name, description: index.source.description ?? '', bundleCount: index.bundles.length, lastUpdated: index.source.updatedAt, version: '1' };
   }
 
   public async validate(): Promise<ValidationResult> {
     try {
-      const index = await this.load(); return { valid: true, errors: [], bundlesFound: index.bundles.length };
+      const index = await this.load(true); return { valid: true, errors: [], bundlesFound: index.bundles.length };
     } catch (error) {
       return { valid: false, errors: [error instanceof Error ? error.message : String(error)] };
     }

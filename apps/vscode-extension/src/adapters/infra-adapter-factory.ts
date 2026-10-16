@@ -7,11 +7,9 @@
  * the `gh` CLI) - so `RegistryManager` can build `infra`'s `SourceAdapter`s
  * instead of maintaining eight parallel `src/adapters/*` implementations.
  *
- * Per source-type auth policy: every type except `skills` passes
- * `createIfNone: true` to the VS Code session step (prompts the user to
- * sign in if no session exists yet), matching 3 of the 4 GitHub-hosted
- * extension adapters this replaces. `skills` passes `false`, matching that
- * one adapter's own existing exception (see `vscode-session-token-provider.ts`).
+ * GitHub release, Awesome Copilot, and APM sources can prompt for a VS Code
+ * GitHub session. Other source types use a silent session lookup because they
+ * do not require GitHub authentication; Skills keeps its existing silent policy.
  * @module adapters/infra-adapter-factory
  */
 import {
@@ -109,6 +107,7 @@ const silentDeps: SourceAdapterFactoryDeps = {
   processRunner,
   fallbackTokenProviders: [new VsCodeSessionTokenProvider(false), ghCliTokenProvider]
 };
+const githubPromptingSourceTypes = new Set<RegistrySource['type']>(['github', 'awesome-copilot', 'apm']);
 
 /**
  * Build the `infra`-backed adapter for a `RegistrySource`, matching the
@@ -127,7 +126,7 @@ export function createRegistryAdapter(source: RegistrySource, vault?: SourceToke
  * @param vault
  */
 export function createCoreRegistryAdapter(source: RegistrySource, vault?: SourceTokenVault): SourceAdapter {
-  const baseDeps = source.type === 'skills' ? silentDeps : promptingDeps;
+  const baseDeps = githubPromptingSourceTypes.has(source.type) ? promptingDeps : silentDeps;
   const deps: SourceAdapterFactoryDeps = vault === undefined
     ? baseDeps
     : {

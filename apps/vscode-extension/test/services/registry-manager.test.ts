@@ -7,7 +7,18 @@
 
 import * as assert from 'node:assert';
 import {
+  Buffer,
+} from 'node:buffer';
+import type {
+  BundleRef,
+} from '@ai-primitives-hub/core';
+import {
+  CompositeBundleProvider,
+  computeGitBlobSha,
+  createSourceRevision,
+  GhCliTokenProvider,
   GitHubApiClient,
+  NodeHttpClient,
 } from '@ai-primitives-hub/infra';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
@@ -30,6 +41,10 @@ import {
   BundleBuilder,
   TEST_SOURCE_IDS,
 } from '../helpers/bundle-test-helpers';
+import {
+  createE2ETestContext,
+  type E2ETestContext,
+} from '../helpers/e2e-test-helpers';
 
 suite('RegistryManager - Settings Export/Import Behavior', () => {
   let sandbox: sinon.SinonSandbox;
@@ -1344,6 +1359,141 @@ suite('RegistryManager - Adapter Cache Clearing', () => {
       registryManager.clearAdapterCache('source-1');
       registryManager.clearAdapterCache('');
     });
+  });
+});
+
+suite('RegistryManager - Native Primitive Credentials', () => {
+  let sandbox: sinon.SinonSandbox;
+  let context: E2ETestContext;
+  let secrets: Map<string, string>;
+  let expectedToken: string;
+  let revision: string;
+  const source: RegistrySource = { id: 'native-private', name: 'Native Private', type: 'github',
+    url: 'https://github.com/owner/private', enabled: true, priority: 1, private: true };
+
+  setup(async () => {
+    sandbox = sinon.createSandbox();
+    context = await createE2ETestContext();
+    sandbox.stub(process, 'env').value({ ...process.env, XDG_CACHE_HOME: `${context.tempStoragePath}/cache` });
+    secrets = new Map([[SourceTokenVault.key(source.id), 'source-token']]);
+    expectedToken = 'source-token';
+    revision = 'a'.repeat(40);
+    sandbox.stub(context.mockContext.secrets, 'get').callsFake((key: string) => Promise.resolve(secrets.get(key)));
+    sandbox.stub(context.mockContext.secrets, 'store').callsFake((key: string, value: string) => {
+      secrets.set(key, value);
+      return Promise.resolve();
+    });
+    sandbox.stub(vscode.authentication, 'getSession').resolves(undefined);
+    sandbox.stub(GhCliTokenProvider.prototype, 'getToken').resolves(undefined);
+    sandbox.stub(NodeHttpClient.prototype, 'fetch').callsFake((request) => {
+      const authorized = request.headers?.Authorization === `token ${expectedToken}`;
+      const primitive = `# Private primitive ${context.tempStoragePath}`;
+      let value: unknown = {};
+      if (request.url.includes('/commits/')) {
+        value = { sha: revision };
+      } else if (request.url.includes('/git/trees/')) {
+        value = { sha: revision, truncated: false, tree: [{ path: 'prompts/private.prompt.md', type: 'blob', sha: computeGitBlobSha(Buffer.from(primitive)), size: 20 }] };
+      }
+      const body = request.url.startsWith('https://raw.githubusercontent.com/') ? primitive : JSON.stringify(value);
+      return Promise.resolve({ statusCode: authorized ? 200 : 401, headers: {}, finalUrl: request.url, body: new TextEncoder().encode(body) });
+    });
+    await context.storage.addSource(source);
+  });
+
+  teardown(async () => {
+    sandbox.restore();
+    await context.cleanup();
+  });
+
+  const list = async (): Promise<{ provider: Awaited<ReturnType<RegistryManager['createPrimitiveBundleProvider']>>; refs: BundleRef[] }> => {
+    const provider = await context.registryManager.createPrimitiveBundleProvider();
+    const refs: BundleRef[] = [];
+    for await (const ref of provider.listBundles()) {
+      refs.push(ref);
+    }
+    return { provider, refs };
+  };
+
+  test('harvests private primitive contents using the migrated vault credential', async () => {
+    const { provider, refs } = await list();
+    assert.strictEqual(refs.length, 1);
+    assert.strictEqual(refs[0].bundleVersion, revision);
+    const manifest = await provider.readManifest(refs[0]);
+    assert.strictEqual(manifest.items?.[0]?.path, 'prompts/private.prompt.md');
+    assert.strictEqual(await provider.readFile(refs[0], 'prompts/private.prompt.md'), `# Private primitive ${context.tempStoragePath}`);
+    assert.ok(!JSON.stringify(await context.storage.loadConfig()).includes('source-token'));
+  });
+
+  test('resolves the remote revision for the public index key instead of falling back to cached metadata', async () => {
+    const key = await context.registryManager.getPrimitiveIndexKey('private-profile');
+    assert.strictEqual(key.sourceRevision, createSourceRevision([{ sourceId: source.id, url: source.url, branch: 'main', revision }]));
+    assert.ok(!JSON.stringify(key).includes('source-token'));
+  });
+
+  test('fresh provider and index-key operations use a rotated credential', async () => {
+    expectedToken = 'rotated-token';
+    revision = 'b'.repeat(40);
+    await context.registryManager.updateSource(source.id, { token: expectedToken });
+    const { refs } = await list();
+    assert.strictEqual(refs.length, 1);
+    const key = await context.registryManager.getPrimitiveIndexKey('rotated-profile');
+    assert.strictEqual(key.sourceRevision, createSourceRevision([{ sourceId: source.id, url: source.url, branch: 'main', revision }]));
+    assert.ok(!JSON.stringify(await context.storage.loadConfig()).includes('rotated-token'));
+  });
+
+  test('local primitive sources remain configured when SecretStorage reads fail', async () => {
+    await context.storage.removeSource(source.id);
+    const local: RegistrySource = { ...source, id: 'local-source', type: 'local', url: context.tempStoragePath, private: false };
+    await context.storage.addSource(local);
+    (context.mockContext.secrets.get as sinon.SinonStub).rejects(new Error('SecretStorage unavailable'));
+    const provider = await context.registryManager.createPrimitiveBundleProvider();
+    assert.deepStrictEqual((provider as CompositeBundleProvider).getSourceIds(), [local.id]);
+  });
+
+  test('one unavailable source credential does not discard a healthy native source', async () => {
+    const healthy = { ...source, id: 'healthy-native' };
+    await context.storage.addSource(healthy);
+    secrets.set(SourceTokenVault.key(healthy.id), expectedToken);
+    (context.mockContext.secrets.get as sinon.SinonStub).withArgs(SourceTokenVault.key(source.id)).rejects(new Error('credential read unavailable'));
+    const { refs } = await list();
+    assert.deepStrictEqual(refs.map((ref) => ref.sourceId), [healthy.id]);
+  });
+
+  test('keeps the explicit source credential ahead of the deprecated global fallback', async () => {
+    sandbox.stub(vscode.workspace, 'getConfiguration').returns({ get: (setting: string, fallback: unknown) => setting === 'githubToken' ? 'global-token' : fallback } as any);
+    const { refs } = await list();
+    assert.strictEqual(refs.length, 1);
+    assert.strictEqual(refs[0].bundleVersion, revision);
+  });
+
+  test('does not apply the GitHub fallback to a protected Artifactory primitive source', async () => {
+    await context.storage.removeSource(source.id);
+    const artifact: RegistrySource = { ...source, type: 'artifactory', url: 'https://artifact.example/repo', config: { authMode: 'bearer' } };
+    await context.storage.addSource(artifact);
+    sandbox.stub(vscode.workspace, 'getConfiguration').returns({ get: (setting: string, fallback: unknown) => setting === 'githubToken' ? 'global-token' : fallback } as any);
+    (NodeHttpClient.prototype.fetch as sinon.SinonStub).callsFake((request) => {
+      assert.strictEqual(request.url, `${artifact.url}/index-v1.json`);
+      assert.strictEqual(request.headers?.Authorization, 'Bearer source-token');
+      const item = { id: 'artifact-bundle', version: '1.0.0', name: 'Artifact', description: '', author: 'Test',
+        environments: ['vscode'], tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+        manifest: { path: 'manifest.yml', size: 1, sha256: 'a'.repeat(64) }, archive: { path: 'bundle.zip', size: 1, sha256: 'b'.repeat(64), mediaType: 'application/zip' } };
+      return Promise.resolve({ statusCode: 200, headers: {}, finalUrl: request.url, body: new TextEncoder().encode(JSON.stringify({
+        formatVersion: 1, source: { id: source.id, name: source.name, updatedAt: item.lastUpdated }, bundles: [item]
+      })) });
+    });
+    const { refs, provider } = await list();
+    assert.deepStrictEqual((provider as CompositeBundleProvider).getSourceErrors(), []);
+    assert.deepStrictEqual(refs.map((ref) => ref.bundleId), ['artifact-bundle']);
+  });
+
+  test('preserves the deprecated fallback for private Awesome Copilot sources without explicit tokens', async () => {
+    await context.storage.removeSource(source.id);
+    await context.storage.addSource({ ...source, type: 'awesome-copilot' });
+    secrets.clear();
+    expectedToken = 'global-token';
+    sandbox.stub(vscode.workspace, 'getConfiguration').returns({ get: (setting: string, fallback: unknown) => setting === 'githubToken' ? expectedToken : fallback } as any);
+    const key = await context.registryManager.getPrimitiveIndexKey('legacy-profile');
+    assert.strictEqual(key.sourceRevision, createSourceRevision([{ sourceId: source.id, url: source.url, branch: 'main', revision }]));
   });
 });
 

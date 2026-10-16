@@ -1,14 +1,18 @@
 import type {
   GitHubApi,
   ReplicationCandidate,
+  ReplicationCandidateDiscovery,
   ReplicationSourcePort,
 } from '@ai-primitives-hub/core';
 import {
   normalizedReleaseVersion,
   stableReplicatedBundleId,
 } from '@ai-primitives-hub/core';
-/* eslint-disable @stylistic/max-len, @stylistic/max-statements-per-line, @typescript-eslint/naming-convention, @typescript-eslint/member-ordering -- focused GitHub adapter */
 import * as yaml from 'js-yaml';
+import {
+  GitHubApiError,
+} from '../http/github-api-client';
+/* eslint-disable @stylistic/max-len, @stylistic/max-statements-per-line, @typescript-eslint/naming-convention, @typescript-eslint/member-ordering -- focused GitHub adapter */
 
 interface ReleaseAsset { name?: string; url?: string; size?: number }
 interface Release { tag_name?: string; name?: string; published_at?: string; draft?: boolean; assets?: ReleaseAsset[] }
@@ -24,12 +28,28 @@ const nextPageUrl = (link: string | undefined): string | undefined => {
   }
   return undefined;
 };
+interface ReleaseCoordinate { collectionId: string; version: string }
+export class GitHubRequestBudgetError extends Error {
+  public constructor(public readonly budget: number) {
+    super(`GitHub request budget (${budget}) exhausted; rerun with the same cache directory.`);
+    this.name = 'GitHubRequestBudgetError';
+  }
+}
+
+const releaseCoordinate = (name: string | undefined): ReleaseCoordinate | undefined => {
+  const match = /^([A-Za-z0-9][A-Za-z0-9._-]*?)-v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/.exec(name ?? '');
+  if (!match) {
+    return undefined;
+  }
+  const version = normalizedReleaseVersion({ version: match[2] }, '');
+  return version ? { collectionId: match[1], version } : undefined;
+};
 export class GitHubReleaseSource implements ReplicationSourcePort {
   public constructor(private readonly api: GitHubApi, private readonly cache?: ReplicationCache, private readonly budget = 600) {}
   private used = 0;
   private async request<T>(load: () => Promise<T>): Promise<T> {
     if (this.used >= this.budget) {
-      throw new Error(`GitHub request budget (${this.budget}) exhausted; rerun with the same cache directory.`);
+      throw new GitHubRequestBudgetError(this.budget);
     } this.used += 1; return load();
   }
 
@@ -49,7 +69,7 @@ export class GitHubReleaseSource implements ReplicationSourcePort {
     } return parsed as Record<string, unknown>;
   }
 
-  public async listReleaseCandidates(owner: string, repo: string, sourceId: string): Promise<ReplicationCandidate[]> {
+  public async listReleaseCandidates(owner: string, repo: string, sourceId: string): Promise<ReplicationCandidateDiscovery> {
     const releases: Release[] = []; const visited = new Set<string>(); let pageUrl: string | undefined = `/repos/${owner}/${repo}/releases?per_page=100`;
     while (pageUrl) {
       const currentUrl: string = pageUrl; if (visited.has(currentUrl)) {
@@ -61,21 +81,73 @@ export class GitHubReleaseSource implements ReplicationSourcePort {
       });
       releases.push(...page.releases); pageUrl = page.next;
     }
-    const result: ReplicationCandidate[] = []; for (const release of releases) {
+    const candidates: ReplicationCandidate[] = []; const warnings: string[] = [];
+    for (const release of releases) {
       if (release.draft) {
         continue;
-      } const assets = release.assets ?? []; const manifest = assets.find((asset) => ['deployment-manifest.yml', 'deployment-manifest.yaml', 'deployment-manifest.json'].includes(asset.name ?? '')); const archive = assets.find((asset) => asset.name?.endsWith('.zip')); if (!manifest?.url || !archive?.url || !manifest.name) {
+      }
+      const label = `${owner}/${repo} [source=${JSON.stringify(sourceId)}]#tag=${JSON.stringify(release.tag_name ?? '<missing>')} name=${JSON.stringify(release.name ?? '<missing>')}`;
+      const assets = release.assets ?? [];
+      const assetNames = JSON.stringify(assets.map((asset) => asset.name ?? '<unnamed>'));
+      const coordinate = releaseCoordinate(release.name);
+      if (!coordinate) {
+        warnings.push(`Excluded GitHub release ${label}: release name must match <collectionid>-vX.Y.Z. Assets found: ${assetNames}.`);
         continue;
-      } const manifestBytes = await this.get(`manifest:${manifest.url}`, () => this.api.download(manifest.url!), (value) => value, (value) => value); let parsed: unknown; try {
-        parsed = manifest.name.endsWith('.json') ? JSON.parse(new TextDecoder().decode(manifestBytes)) : yaml.load(new TextDecoder().decode(manifestBytes));
+      }
+      if (!release.tag_name) {
+        warnings.push(`Excluded GitHub release ${label}: tag_name is missing. Assets found: ${assetNames}.`);
+        continue;
+      }
+      const manifests = assets.filter((asset) => asset.name === 'deployment-manifest.yml');
+      const archives = assets.filter((asset) => asset.name === `${coordinate.collectionId}.bundle.zip`);
+      if (manifests.length !== 1 || archives.length !== 1) {
+        const reasons = [
+          ...(manifests.length === 1 ? [] : [`expected one deployment-manifest.yml (found ${manifests.length})`]),
+          ...(archives.length === 1 ? [] : [`expected one ${coordinate.collectionId}.bundle.zip (found ${archives.length})`])
+        ];
+        warnings.push(`Excluded GitHub release ${label}: ${reasons.join('; ')}. Assets found: ${assetNames}.`);
+        continue;
+      }
+      const manifestAsset = manifests[0];
+      const archiveAsset = archives[0];
+      if (!manifestAsset.url || !archiveAsset.url) {
+        warnings.push(`Excluded GitHub release ${label}: a required asset has no download URL.`);
+        continue;
+      }
+      let manifestBytes: Uint8Array;
+      try {
+        manifestBytes = await this.get(`manifest:${manifestAsset.url}`, () => this.api.download(manifestAsset.url!), (value) => value, (value) => value);
+      } catch (error) {
+        if (error instanceof GitHubRequestBudgetError) {
+          throw error;
+        }
+        if (!(error instanceof GitHubApiError) || (error.statusCode !== 404 && error.statusCode !== 410)) {
+          throw error;
+        }
+        warnings.push(`Excluded GitHub release ${label}: deployment-manifest.yml download failed (${JSON.stringify(error.message)}).`);
+        continue;
+      }
+      let parsed: unknown;
+      try {
+        parsed = yaml.load(new TextDecoder().decode(manifestBytes));
       } catch {
+        warnings.push(`Excluded GitHub release ${label}: deployment-manifest.yml is not valid YAML.`);
         continue;
-      } if (!parsed || typeof parsed !== 'object') {
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        warnings.push(`Excluded GitHub release ${label}: deployment-manifest.yml must contain a mapping.`);
         continue;
-      } const version = normalizedReleaseVersion(parsed as Record<string, unknown>, release.tag_name ?? ''); if (!version) {
+      }
+      const manifest = parsed as Record<string, unknown>;
+      const version = normalizedReleaseVersion(manifest, '');
+      if (manifest.id !== coordinate.collectionId || version !== coordinate.version) {
+        warnings.push(`Excluded GitHub release ${label}: manifest id/version ${JSON.stringify(manifest.id ?? '<missing>')}@${JSON.stringify(manifest.version ?? '<missing>')} must match ${coordinate.collectionId}@${coordinate.version}.`);
         continue;
-      } const bundleId = stableReplicatedBundleId(`${owner}/${repo}`, parsed as Record<string, unknown>); result.push({ sourceId, repo: `${owner}/${repo}`, tag: release.tag_name ?? '', publishedAt: release.published_at ?? '', releaseName: release.name ?? '', manifest: parsed as Record<string, unknown>, manifestBytes, manifestName: manifest.name, archiveUrl: archive.url, archiveSize: archive.size ?? 0, version, bundleId });
-    } return result;
+      }
+      const bundleId = stableReplicatedBundleId(`${owner}/${repo}`, manifest);
+      candidates.push({ sourceId, repo: `${owner}/${repo}`, tag: release.tag_name, publishedAt: release.published_at ?? '', releaseName: release.name ?? '', manifest, manifestBytes, manifestName: manifestAsset.name!, archiveUrl: archiveAsset.url, archiveSize: archiveAsset.size ?? 0, version, bundleId });
+    }
+    return { candidates, warnings };
   }
 
   public downloadArchive(candidate: ReplicationCandidate): Promise<Uint8Array> {

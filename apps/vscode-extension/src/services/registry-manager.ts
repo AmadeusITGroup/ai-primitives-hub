@@ -260,7 +260,7 @@ export class RegistryManager {
         // revision. Resolve the same revision here so CLI and VS Code converge
         // on one namespaced index instead of creating client-specific copies.
         try {
-          const enrichedSource = this.enrichSourceWithGlobalToken(source);
+          const enrichedSource = await this.enrichSourceWithVaultToken(source);
           const tokenProviders = [
             ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token)] : []),
             new VsCodeSessionTokenProvider(true),
@@ -311,7 +311,7 @@ export class RegistryManager {
    */
   private enrichSourceWithGlobalToken(source: RegistrySource): RegistrySource {
     // The deprecated setting is a GitHub-only compatibility fallback.
-    if (source.type !== 'github') {
+    if (!new Set(['github', 'awesome-copilot', 'skills', 'apm']).has(source.type)) {
       return source;
     }
     // If source already has a token, don't override it
@@ -334,6 +334,13 @@ export class RegistryManager {
     return source;
   }
 
+  private async enrichSourceWithVaultToken(source: RegistrySource): Promise<RegistrySource> {
+    if (source.type === 'local' || source.type.startsWith('local-')) {
+      return source;
+    }
+    return this.enrichSourceWithGlobalToken({ ...source, token: await this.tokenVault.get(source.id) });
+  }
+
   /**
    * Load adapters for all sources
    */
@@ -344,7 +351,7 @@ export class RegistryManager {
     for (const source of sources) {
       if (source.enabled) {
         try {
-          const enrichedSource = this.enrichSourceWithGlobalToken({ ...source, token: await this.tokenVault.get(source.id) });
+          const enrichedSource = await this.enrichSourceWithVaultToken(source);
           const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
           this.adapters.set(source.id, adapter);
         } catch (error) {
@@ -862,21 +869,35 @@ export class RegistryManager {
   public async addSource(source: RegistrySource): Promise<void> {
     this.logger.info(`Adding source: ${source.name}`);
 
-    if (source.token?.trim()) {
-      await this.tokenVault.set(source.id, source.token.trim());
-    }
+    const token = source.token?.trim();
+    const validationVault = token ? this.tokenVault.withToken(source.id, token) : this.tokenVault;
     const sourceWithoutToken = { ...source, token: undefined };
     // Validate source (with global GitHub token compatibility only)
-    const enrichedSource = this.enrichSourceWithGlobalToken(sourceWithoutToken);
-    const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
+    const enrichedSource = this.enrichSourceWithGlobalToken({ ...sourceWithoutToken, token });
+    const adapter = createRegistryAdapter(enrichedSource, validationVault);
     const validation = await adapter.validate();
 
     if (!validation.valid) {
       throw new Error(`Source validation failed: ${validation.errors.join(', ')}`);
     }
 
+    const previousToken = token ? await this.tokenVault.get(source.id) : undefined;
     await this.storage.addSource(sourceWithoutToken);
-    this.adapters.set(source.id, adapter);
+    try {
+      if (token) {
+        await this.tokenVault.set(source.id, token);
+      }
+    } catch (error) {
+      const rollback = await Promise.allSettled([
+        this.storage.removeSource(source.id),
+        previousToken === undefined ? this.tokenVault.delete(source.id) : this.tokenVault.set(source.id, previousToken)
+      ]);
+      if (rollback.some((result) => result.status === 'rejected')) {
+        this.logger.error(`Could not fully roll back source '${source.id}'. Check registry and SecretStorage before retrying.`);
+      }
+      throw error;
+    }
+    this.adapters.set(source.id, createRegistryAdapter(enrichedSource, this.tokenVault));
 
     // Update cache
     this.sourcesCache = await this.storage.getSources();
@@ -1070,9 +1091,9 @@ export class RegistryManager {
   public async createPrimitiveBundleProvider(): Promise<BundleProvider> {
     const sources = await this.storage.getSources();
     const blobCache = new BlobCache(path.join(new XdgAppStorage().getPaths().cache, 'primitive-index-blobs'));
-    const entries = sources
+    const entries = (await Promise.all(sources
       .filter((source) => source.enabled)
-      .flatMap((source) => {
+      .map(async (source) => {
         // Plugin sources are not part of the extension registry source union
         // yet; do not route them through the catalog adapter as a semantic
         // primitive provider until their native plugin tree is implemented.
@@ -1080,7 +1101,7 @@ export class RegistryManager {
           return [];
         }
         try {
-          const enrichedSource = this.enrichSourceWithGlobalToken(source);
+          const enrichedSource = await this.enrichSourceWithVaultToken(source);
           const tokenProviders = [
             ...(enrichedSource.token ? [new StaticTokenProvider(enrichedSource.token)] : []),
             new VsCodeSessionTokenProvider(true),
@@ -1111,7 +1132,7 @@ export class RegistryManager {
           );
           return [];
         }
-      });
+      }))).flat();
     return new CompositeBundleProvider(entries, {
       onSourceError: (sourceId, error) => {
         this.logger.warn(
@@ -1206,13 +1227,13 @@ export class RegistryManager {
    * @param source
    */
   public async validateSource(source: RegistrySource): Promise<ValidationResult> {
-    if (source.token?.trim()) {
-      await this.tokenVault.set(source.id, source.token.trim());
-    }
+    const token = source.token?.trim();
+    const validationVault = token ? this.tokenVault.withToken(source.id, token) : this.tokenVault;
     const sourceWithoutToken = { ...source, token: undefined };
-    const enrichedSource = this.enrichSourceWithGlobalToken(sourceWithoutToken);
-    const adapter = createRegistryAdapter(enrichedSource, this.tokenVault);
-    return await adapter.validate();
+    const enrichedSource = this.enrichSourceWithGlobalToken({ ...sourceWithoutToken, token });
+    const adapter = createRegistryAdapter(enrichedSource, validationVault);
+    const validation = await adapter.validate();
+    return { ...validation, warnings: validation.warnings ?? [] };
   }
 
   /**

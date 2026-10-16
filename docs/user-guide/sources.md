@@ -27,7 +27,11 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 
 An Artifactory source uses a credential-free HTTPS repository root and a static `index-v1.json` file by default. For local development only, `http://localhost`, `http://127.0.0.1`, and `http://[::1]` are accepted with a warning; non-loopback HTTP remains rejected. The index references each bundle's manifest and ZIP archive with a relative path, size, and lowercase SHA-256 digest. Custom index paths can be configured with `indexFile`.
 
-Do not put credentials in the source URL, hub configuration, index, or lockfile. For private sources, configure Bearer authentication with a source-scoped credential reference. The CLI resolves that reference as an environment-variable name; the VS Code extension treats it only as a label/key and stores the token in SecretStorage. Authentication failures are reported and do not fall back to GitHub.
+Keep Artifactory token values out of source URLs, hub configurations, index files, and lockfiles. For CLI use, set a credential reference to the environment variable that holds the token. In VS Code, importing an Artifactory hub asks for a credential label, while adding a source directly asks for the token. The extension stores each token securely and uses it for private-source indexing and revision checks. Authentication failures are reported and do not switch to GitHub. Artifactory hubs and sources do not require GitHub sign-in. Choose public access or provide an Artifactory Bearer token for private access.
+
+The CLI records Artifactory installations under the catalog bundle ID, which may differ from the ZIP manifest ID. Install and update validate the manifest version against the resolved catalog version before writing. Lockfile replay resolves that catalog ID at the exact locked version and verifies the archive checksum using only Artifactory credentials. Older lockfiles written under the short manifest ID must be recreated by reinstalling the catalog ID; the CLI does not guess aliases or silently migrate entries. Keep the referenced catalog generation available for replay; a directly configured mutable index must retain its locked versions. Version mismatches are rejected before writing that bundle's files or lockfile entry. Failed updates are reported with a nonzero exit code rather than as successful upgrades.
+
+Catalog synchronization, metadata requests, validation, and bundle resolution revalidate the Artifactory index on each operation, using its ETag when available. A `304` reuses the last validated index; a changed index is validated before replacing it. Refresh failures are reported rather than silently treated as a fresh catalog. Concurrent refreshes share one request. Archive and README downloads use the validated catalog snapshot and do not refresh the index again.
 
 Artifactory index and bundle downloads follow at most 10 redirect hops within the configured source root. Each destination is checked before the next request is sent. Cross-origin redirects, redirects outside the source path, and ambiguous encoded paths are rejected without forwarding the token or contacting the destination.
 
@@ -36,7 +40,11 @@ Artifactory tokens are created in the Artifactory Administration UI (user profil
 ## Adding a Source
 
 Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
-macOS) and run **AI Primitives Hub: Add Source**. Choose **Artifactory** to enter the source root, index file, and token. When prompted, enter a label such as `ARTIFACTORY_READER_TOKEN` first, then paste the Artifactory token value in the password field. The label is only a SecretStorage key; it is not an environment variable and is not the token. The token is stored in VS Code SecretStorage.
+macOS) and run **AI Primitives Hub: Add Source**. Choose **Artifactory**, enter a name, the source root and index file, then choose **Public** for anonymous access or **Private** for Bearer authentication. Private access requires the complete Artifactory token in the password-protected prompt, without a `Bearer ` prefix. Enter the source priority to continue.
+
+When you add an Artifactory source directly in VS Code, enter the token in the password-protected prompt. The extension validates the token before saving it for that source. If you cancel or validation fails, any saved token remains unchanged. The token does not appear in source settings.
+
+For private GitHub sources, the extension uses the saved token to index content and check repository revisions. A source token takes precedence over the deprecated global GitHub token. The global token is used only for GitHub-backed sources, never for Artifactory or local sources.
 
 CLI users can add the same source without storing a token in configuration:
 
