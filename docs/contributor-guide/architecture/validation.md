@@ -10,6 +10,7 @@ JSON Schema validation for collections, APM packages, and hub configurations.
 | **ValidateCollectionsCommand** | Command handler for collection validation |
 | **ValidateApmCommand** | Command handler for APM package validation |
 | **HubManager** | Hub configuration validation and runtime checks |
+| **validateAgentPluginItem** | Pure Agent Plugins 1.0.0 `plugin.json` checks plus the plugin-root rule (`packages/core/src/domain/plugin/agent-plugin-spec.ts`). Wired by app `validateCollectionFile` for `kind: plugin` items: fatal issues become errors, non-fatal issues become warnings |
 
 ## SchemaValidator API
 
@@ -107,6 +108,24 @@ The extension provides JSON Schema validation for all major configuration file t
 - MCP server configuration validation
 
 See [Author Guide: Collection Schema](../../author-guide/collection-schema.md) for complete reference.
+
+### Agent Plugins Manifest Schema
+
+**Location:** `packages/core/src/public/schemas/agent-plugins/1.0.0/plugin.schema.json` (exported as `AGENT_PLUGIN_MANIFEST_SCHEMA`)  
+**Validates:** the root `plugin.json` of `kind: plugin` collection items
+
+The schema is vendored unmodified from
+[agentplugins/agent-plugins-spec](https://github.com/agentplugins/agent-plugins-spec/blob/d92e6f443b8edcea42c039727a82afdc565779e2/schemas/1.0.0/plugin.schema.json)
+(Apache-2.0). Core has no JSON Schema engine, and the spec splits violations into
+fatal and non-fatal, so the rules are hand-written in `validateAgentPluginManifest` /
+`validateAgentPluginItem` and a parity test (`packages/core/test/domain/plugin/agent-plugin-spec.test.ts`)
+asserts the constants match the vendored file.
+
+**Validation features:**
+- Fatal: unreadable / non-JSON / non-object manifest, missing or unsupported `$schema`, invalid `name`, wrongly typed standard fields, non-object `author`
+- Non-fatal: unknown top-level fields, non-object `extensions` or extension entries
+- APH packaging rule (fatal): the item path must be `<plugin-root>/plugin.json` below the repository root, and `name` must equal the plugin root's directory name, because bundling archives `dirname(item.path)` under that name
+- Input is the item path and the manifest text; callers do the file IO, so the same checks can run on an authoring tree or an extracted archive
 
 ### APM Schema
 

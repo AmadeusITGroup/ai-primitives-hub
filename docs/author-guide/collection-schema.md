@@ -73,6 +73,30 @@ display:                            # Optional. UI preferences
   show_badge: true                  # Show badge in UI
 ```
 
+## Plugin Items
+
+A `kind: plugin` item points to the root manifest of an
+[Agent Plugins](https://agent-plugins.org/specification) plugin:
+
+```yaml
+items:
+  - path: plugins/my-plugin/plugin.json
+    kind: plugin
+```
+
+The directory that contains `plugin.json` is the plugin root, and the whole
+directory is bundled. `plugin.json` must be an Agent Plugins 1.0.0 manifest, and
+its `name` must equal the directory name:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "my-plugin"
+}
+```
+
+See [Validating Collections](./validation.md#plugin-manifests) for the full list of checks.
+
 ## MCP Input Definitions
 
 Use `mcp.inputs` to declare secrets or user-configurable values. VS Code will prompt the user when the server starts. Inputs are referenced in server configuration using `${input:id}`.
