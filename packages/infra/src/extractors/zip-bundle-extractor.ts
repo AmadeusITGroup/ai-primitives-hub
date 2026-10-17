@@ -49,6 +49,42 @@ export class ZipBundleExtractor implements BundleExtractor {
   }
 }
 
+/**
+ * Read the Unix permission bits (`rwxrwxrwx` only) recorded for each file
+ * entry of a zip, keyed by the
+ * same normalised path `ZipBundleExtractor.extract` uses. Entries with no
+ * recorded Unix mode (e.g. zips made on Windows) are omitted.
+ * @param bytes Raw zip bytes.
+ * @returns Map of relative paths to permission bits.
+ */
+export function readZipEntryModes(bytes: Uint8Array): ReadonlyMap<string, number> {
+  let zip: AdmZip;
+  try {
+    zip = new AdmZip(Buffer.from(bytes));
+  } catch (error) {
+    throw new Error(`Failed to read bundle: ${(error as Error).message}`);
+  }
+  const modes = new Map<string, number>();
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory) {
+      continue;
+    }
+    const path = normalizeZipPath(entry.entryName);
+    if (path === undefined) {
+      throw new Error(`Unsafe ZIP path: ${entry.entryName}`);
+    }
+    // External attributes carry the Unix mode in the high 16 bits. Keep
+    // only rwxrwxrwx: setuid/setgid/sticky are attacker-controlled archive
+    // metadata (GHSA-679w-jf3m-wh39).
+    // eslint-disable-next-line no-bitwise -- Required for ZIP external attributes
+    const mode = (entry.attr >>> 16) & 0o777;
+    if (mode !== 0) {
+      modes.set(path, mode);
+    }
+  }
+  return modes;
+}
+
 function normalizeZipPath(entryName: string): string | undefined {
   const path = entryName.replaceAll('\\', '/');
   if (path.startsWith('/') || /^[A-Za-z]:\//.test(path)) {
