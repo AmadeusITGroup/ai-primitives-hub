@@ -34,4 +34,5 @@ export * from './hub/validate';
 export * from './hub/replicate';
 export * from './primitive/types';
 export * from './skill/validate';
+export * from './plugin/agent-plugin-spec';
 export * from './mcp';
