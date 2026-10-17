@@ -644,6 +644,7 @@ flowchart LR
 | `update` | Check updates | `--dry-run`, `--lockfile <path>` |
 | `status` | Show status | |
 | `doctor` | Health check | |
+| `doctor diagnostics` | End-to-end smoke test in a throwaway workspace. `HOME`/`USERPROFILE`, every XDG base dir (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_RUNTIME_DIR`) and `TMPDIR` point inside the workspace, so the run never reads or writes your real ai-primitives-hub state, and your global git config doesn't apply when the fixture repository is created. Bundle archives are materialised byte-for-byte, keeping executable bits | `--retain-workspace`, `-v` |
 | `explain <code>` | Explain error | |
 | `discover` | Discover primitives (context detection; `--ai` and `--interactive` reserved for future use) | `--kinds <kinds>`, `--limit <n>` |
 | `config get <key>` | Get config value | |

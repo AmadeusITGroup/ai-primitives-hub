@@ -15,6 +15,7 @@ import {
   spawnSync,
 } from 'node:child_process';
 import {
+  chmod,
   readFile as readBinaryFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -28,6 +29,7 @@ import {
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
+  readZipEntryModes,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
@@ -289,25 +291,57 @@ const resolveWorkspacePath = (): string => {
 };
 
 /**
- * Build an environment bag that isolates XDG config/cache inside the
- * workspace, so the diagnostic run never mutates the user's real
- * ai-primitives-hub state.
+ * Sandbox directories, relative to the diagnostic workspace, for every
+ * per-user location the CLI (or a child process inheriting the step env)
+ * may resolve: HOME, all XDG base dirs, and TMPDIR.
+ */
+const SANDBOX_DIRS = {
+  XDG_CONFIG_HOME: 'xdg',
+  XDG_CACHE_HOME: 'cache',
+  XDG_DATA_HOME: 'xdg-data',
+  XDG_STATE_HOME: 'xdg-state',
+  XDG_RUNTIME_DIR: 'xdg-runtime',
+  TMPDIR: 'tmp'
+} as const;
+
+/**
+ * Build an environment bag that roots HOME, every XDG base directory and
+ * TMPDIR inside the workspace, so the diagnostic run never reads or
+ * mutates the user's real ai-primitives-hub state. Exported for reuse by
+ * other in-process diagnostic drivers.
  * @param parent Parent context.
  * @param workspace Diagnostic workspace.
  * @returns Environment bag.
  */
-const buildDiagnosticEnv = (
+export const buildDiagnosticEnv = (
   parent: Context,
   workspace: string
 ): Record<string, string | undefined> => {
   const base = parent.env as Record<string, string | undefined>;
+  const sandbox = Object.fromEntries(
+    Object.entries(SANDBOX_DIRS).map(([name, dir]) => [name, path.join(workspace, dir)])
+  );
   return {
     ...base,
-    XDG_CONFIG_HOME: path.join(workspace, 'xdg'),
-    XDG_CACHE_HOME: path.join(workspace, 'cache'),
+    ...sandbox,
     HOME: workspace,
     USERPROFILE: workspace
   };
+};
+
+/**
+ * Create the sandbox directories named by `buildDiagnosticEnv`, owner-only
+ * as the XDG spec requires for XDG_RUNTIME_DIR.
+ * @param fsAbstraction Filesystem abstraction.
+ * @param workspace Diagnostic workspace.
+ */
+const createSandboxDirs = async (fsAbstraction: FsAbstraction, workspace: string): Promise<void> => {
+  for (const dir of Object.values(SANDBOX_DIRS)) {
+    await fsAbstraction.mkdir(path.join(workspace, dir), { recursive: true });
+  }
+  if (process.platform !== 'win32') {
+    await chmod(path.join(workspace, SANDBOX_DIRS.XDG_RUNTIME_DIR), 0o700);
+  }
 };
 
 /**
@@ -420,7 +454,7 @@ const prepareWorkspace = async (
   const exportDir = path.join(workspace, 'exports');
   await fsPromises.mkdir(exportDir, { recursive: true });
 
-  initializeGitRepository(workspace);
+  initializeGitRepository(workspace, buildDiagnosticEnv(ctx, workspace));
 
   return {
     bundleDir,
@@ -444,12 +478,19 @@ const prepareWorkspace = async (
 
 /**
  * Initialize the synthetic repository required by governed release planning.
+ * Git runs with the sandboxed diagnostic env, so the user's global git
+ * config (hooks, signing, templates) never applies to the fixture.
  * @param workspace Diagnostic workspace.
+ * @param env Sandboxed diagnostic environment.
  */
-const initializeGitRepository = (workspace: string): void => {
+const initializeGitRepository = (
+  workspace: string,
+  env: Record<string, string | undefined>
+): void => {
   const runGit = (args: string[]): void => {
     const result = spawnSync('git', args, {
       cwd: workspace,
+      env,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -689,23 +730,33 @@ const verifyGovernedArchive = async (
 };
 
 /**
- * Materialize a governed ZIP into a local bundle directory for install/replay
- * diagnostics. The synthetic archive intentionally contains text-only files.
+ * Materialize a bundle ZIP into a local bundle directory for install/replay
+ * diagnostics. Binary-safe: every entry is written as its exact bytes, and
+ * entries the archive records as executable keep their permission bits, so
+ * binary assets and scripts (e.g. in plugins) survive unchanged. Exported for
+ * reuse by other in-process diagnostic drivers.
  * @param fsAbstraction Filesystem abstraction.
  * @param zipPath Bundle ZIP path.
  * @param destination Directory to write.
  * @returns Archive paths written.
  */
-const materializeBundleArchive = async (
+export const materializeBundleArchive = async (
   fsAbstraction: FsAbstraction,
   zipPath: string,
   destination: string
 ): Promise<string[]> => {
-  const files = await new ZipBundleExtractor().extract(await readBinaryFile(zipPath));
+  const zipBytes = await readBinaryFile(zipPath);
+  const files = await new ZipBundleExtractor().extract(zipBytes);
+  const modes = readZipEntryModes(zipBytes);
   for (const [filePath, content] of files) {
     const fullPath = path.join(destination, filePath);
     await fsAbstraction.mkdir(path.dirname(fullPath), { recursive: true });
-    await fsAbstraction.writeFile(fullPath, new TextDecoder().decode(content));
+    await fsAbstraction.writeFileBytes(fullPath, content);
+    const mode = modes.get(filePath);
+    // eslint-disable-next-line no-bitwise -- Required to test the executable permission bits
+    if (mode !== undefined && (mode & 0o111) !== 0 && process.platform !== 'win32') {
+      await chmod(fullPath, mode);
+    }
   }
   return [...files.keys()].toSorted();
 };
@@ -790,6 +841,7 @@ export const runDiagnostics = async (
     // Clean up any leftover from a previous aborted run.
     await fsAbstraction.remove(workspace, { recursive: true });
     await fsAbstraction.mkdir(workspace, { recursive: true });
+    await createSandboxDirs(fsAbstraction, workspace);
 
     const fixtures = await prepareWorkspace(opts.ctx, workspace);
 
