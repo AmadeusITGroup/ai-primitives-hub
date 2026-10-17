@@ -295,7 +295,10 @@ export async function runUserScopeUninstall(
   const skipped: string[] = [];
   for (const file of entry.files) {
     try {
-      await writer.remove(target, file.path);
+      // Manifest-driven installs record where each file landed.
+      await (file.installedPath === undefined
+        ? writer.remove(target, file.path)
+        : writer.remove(target, file.path, file.installedPath));
       removed.push(file.path);
     } catch {
       skipped.push(file.path);

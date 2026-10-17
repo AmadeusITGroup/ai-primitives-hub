@@ -368,6 +368,8 @@ flowchart LR
 
 **Commands:**
 - `install <bundle-id> --from <local-path> --target <target-name>`
+- `install --from <local-path> --target <target-name>` (accepts the manifest id as-is)
+- `install <bundle-id> --source <source-id|hub-id|owner/repo> --target <target-name>` (`--source` is tried in that order)
 - `install <owner/repo> --target <target-name>`
 - `install` (auto-detects from lockfile)
 - `uninstall --lockfile <path>`

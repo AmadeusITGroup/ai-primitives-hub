@@ -13,11 +13,13 @@ import {
   mkdtemp,
   readFile,
   rm,
+  writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type {
-  Lockfile,
+import {
+  type Lockfile,
+  resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import type {
   HttpClient,
@@ -38,6 +40,10 @@ import {
   it,
   vi,
 } from 'vitest';
+import {
+  HubAddCommand,
+  HubUseCommand,
+} from '../../src/commands/hub';
 import {
   createSourceAwareInstallDependencyCache,
   installBundleWithSource,
@@ -449,6 +455,135 @@ describe('install command (local --from mode)', () => {
     const envelope = parseJson<{ lockfile: string }>(result.stdout);
     const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as { bundles: Record<string, unknown> };
     expect(Object.keys(lockContent.bundles)).toEqual(['local-foo']);
+  });
+
+  it('installs --from <dir> without a bundle id, accepting the manifest id', async () => {
+    const result = await run(['install', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    expect(parseJson<{ bundle: { id: string } }>(result.stdout).data.bundle.id).toBe('local-foo');
+  });
+
+  it('still rejects --from <dir> with a bundle id that does not match the manifest', async () => {
+    const result = await run(['install', 'wrong-id', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('BUNDLE.ID_MISMATCH');
+  });
+
+  describe('--source resolved through the hub', () => {
+    const bundleZip = buildZip([...createLegacyReleaseArchive({ id: 'sample-skills', version: '1.8.1' })]
+      .map(([filePath, bytes]) => ({ path: filePath, bytes })));
+    const http: HttpClient = {
+      fetch: async (request: HttpRequest): Promise<HttpResponse> => {
+        if (request.url === 'https://api.github.com/repos/acme-org/sample-skills/releases') {
+          return {
+            statusCode: 200,
+            body: new TextEncoder().encode(JSON.stringify([{
+              tag_name: 'sample-skills-v1.8.1',
+              assets: [{ name: 'bundle.zip', url: 'https://api.github.com/assets/sample' }]
+            }])),
+            finalUrl: request.url,
+            headers: {}
+          };
+        }
+        if (request.url === 'https://api.github.com/assets/sample') {
+          return { statusCode: 200, body: bundleZip, finalUrl: request.url, headers: {} };
+        }
+        throw new Error(`Unexpected request: ${request.url}`);
+      }
+    };
+    const runWithHub = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+      const ctx = createTestContext({
+        cwd: workspace,
+        fs: new NodeFileSystem(),
+        env: {
+          HOME: workspace,
+          USERPROFILE: workspace,
+          XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+          XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+        }
+      });
+      const exitCode = await runCli(argv, {
+        ctx,
+        http,
+        tokens: { getToken: async () => undefined },
+        commandClasses: [...COMMAND_CLASSES, HubAddCommand, HubUseCommand],
+        commands: [],
+        name: 'test',
+        version: 'test'
+      });
+      return { exitCode, stdout: ctx.stdout.captured() };
+    };
+
+    beforeEach(async () => {
+      const hubConfigFile = path.join(workspace, 'hub-config.yml');
+      await writeFile(hubConfigFile, [
+        'version: 1.0.0',
+        'metadata:',
+        '  name: Sample Hub',
+        '  description: Hub with a GitHub source',
+        '  maintainer: test',
+        "  updatedAt: '2026-01-01T00:00:00Z'",
+        'sources:',
+        '  - id: sample-collections',
+        '    name: Sample Collections',
+        '    type: github',
+        '    url: https://github.com/acme-org/sample-skills',
+        '    enabled: true',
+        '    priority: 0',
+        '    hubId: sample-hub',
+        'profiles: []',
+        ''
+      ].join('\n'));
+      expect((await runWithHub(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'sample-hub', '-o', 'json'])).exitCode).toBe(0);
+      expect((await runWithHub(['hub', 'use', 'sample-hub', '-o', 'json'])).exitCode).toBe(0);
+    });
+
+    it('installs <id> --source <source-id> using the active hub source', async () => {
+      const result = await runWithHub([
+        'install', 'acme-org-sample-skills-sample-skills',
+        '--source', 'sample-collections', '--target', 'copilot', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
+        .resolves.toContain('Hello Prompt');
+    });
+
+    it('installs <id> --source <hub-id> using that hub\'s source', async () => {
+      const result = await runWithHub([
+        'install', 'acme-org-sample-skills-sample-skills',
+        '--source', 'sample-hub', '--target', 'copilot', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+    });
+
+    it('reports every lookup it tried when --source matches nothing', async () => {
+      const result = await runWithHub([
+        'install', 'some-bundle', '--source', 'no-such-source', '--target', 'copilot', '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('BUNDLE.NOT_FOUND');
+      expect(result.stdout).toContain('no-such-source');
+      expect(result.stdout).toMatch(/source id.*hub id.*owner\/repo/);
+    });
+
+    it('reports a malformed active hub configuration instead of BUNDLE.NOT_FOUND', async () => {
+      const hubsDir = resolveUserConfigPaths({ XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'), HOME: workspace }).hubs;
+      await writeFile(path.join(hubsDir, 'sample-hub.yml'), 'sources:\n  - id: [unclosed\n');
+
+      const result = await runWithHub([
+        'install', 'some-bundle', '--source', 'demo', '--target', 'copilot', '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.LOAD_FAILED');
+      expect(result.stdout).toContain('hub \\"sample-hub\\" configuration could not be loaded');
+      expect(result.stdout).not.toContain('BUNDLE.NOT_FOUND');
+    });
   });
 
   it('fails with exit 1 when neither <bundle>, --lockfile, --from, nor --source is given', async () => {

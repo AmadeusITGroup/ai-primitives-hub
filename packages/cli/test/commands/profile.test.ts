@@ -12,6 +12,7 @@
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
@@ -21,7 +22,14 @@ import * as path from 'node:path';
 import {
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
+import type {
+  HttpClient,
+  HttpRequest,
+  HttpResponse,
+  ProfileActivationState,
+} from '@ai-primitives-hub/core';
 import {
+  buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
@@ -37,6 +45,9 @@ import {
   HubUseCommand,
 } from '../../src/commands/hub';
 import {
+  InstallCommand,
+} from '../../src/commands/install';
+import {
   ProfileActivateCommand,
   ProfileCurrentCommand,
   ProfileDeactivateCommand,
@@ -47,6 +58,8 @@ import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
 import {
+  createTestContext,
+  runCli,
   runCommand,
 } from '../../src/framework';
 import {
@@ -238,5 +251,213 @@ profiles:
     }
 
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+});
+
+describe('profile activate with a GitHub hub source and {owner}-{repo}-{manifestId} bundle ids', () => {
+  let workspace: string;
+  let targetDir: string;
+
+  const env = (): Record<string, string> => ({
+    HOME: workspace,
+    USERPROFILE: workspace,
+    XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+    XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+  });
+
+  // Fake GitHub: one release of the `sample-skills` bundle (manifest id `sample-skills`).
+  const bundleZip = buildZip([...createLegacyReleaseArchive({ id: 'sample-skills', version: '1.8.1' })]
+    .map(([filePath, bytes]) => ({ path: filePath, bytes })));
+  const http: HttpClient = {
+    fetch: async (request: HttpRequest): Promise<HttpResponse> => {
+      if (request.url === 'https://api.github.com/repos/acme-org/sample-skills/releases') {
+        return {
+          statusCode: 200,
+          body: new TextEncoder().encode(JSON.stringify([{
+            tag_name: 'sample-skills-v1.8.1',
+            assets: [{ name: 'bundle.zip', url: 'https://api.github.com/assets/sample' }]
+          }])),
+          finalUrl: request.url,
+          headers: {}
+        };
+      }
+      if (request.url === 'https://api.github.com/assets/sample') {
+        return { statusCode: 200, body: bundleZip, finalUrl: request.url, headers: {} };
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    }
+  };
+
+  const run = async (argv: string[], fs = new NodeFileSystem()): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({ cwd: workspace, fs, env: env() });
+    const exitCode = await runCli(argv, {
+      ctx,
+      http,
+      tokens: { getToken: async () => undefined },
+      commandClasses: [...COMMAND_CLASSES, InstallCommand],
+      commands: [],
+      name: 'test',
+      version: 'test'
+    });
+    return { exitCode, stdout: ctx.stdout.captured() };
+  };
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-profile-github-test-'));
+    targetDir = path.join(workspace, 'target');
+    await mkdir(targetDir, { recursive: true });
+    const hubConfigFile = path.join(workspace, 'hub-config.yml');
+    await writeFile(hubConfigFile, `version: 1.0.0
+metadata:
+  name: Sample Hub
+  description: Hub with a GitHub source
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: sample-collections
+    name: Sample Collections
+    type: github
+    url: https://github.com/acme-org/sample-skills
+    enabled: true
+    priority: 0
+    hubId: sample-hub
+profiles:
+  - id: organization-sample-developer
+    name: Sample Developer
+    description: Versionless hub id
+    bundles:
+      - id: acme-org-sample-skills-sample-skills
+        version: latest
+        source: sample-collections
+        required: true
+  - id: wrong-bundle
+    name: Wrong bundle
+    description: Hub id naming another bundle of the same repo
+    bundles:
+      - id: acme-org-sample-skills-other-bundle
+        version: latest
+        source: sample-collections
+        required: true
+`);
+    expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'sample-hub', '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'use', 'sample-hub', '-o', 'json'])).exitCode).toBe(0);
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('activates a profile whose bundle id is the versionless {owner}-{repo}-{manifestId}', async () => {
+    const result = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
+      .resolves.toContain('Hello Prompt');
+  });
+
+  it('switching profiles deactivates the previous one and records only installed bundles', async () => {
+    const first = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+    expect(first.exitCode, first.stdout).toBe(0);
+    const firstState = (JSON.parse(first.stdout) as JsonEnvelope<{ state: ProfileActivationState }>).data.state;
+    // The installed manifest version is recorded, not the profile's `latest`.
+    expect(firstState.syncedBundleVersions).toEqual({ 'acme-org-sample-skills-sample-skills': '1.8.1' });
+
+    const second = await run(['profile', 'activate', 'wrong-bundle', '--target', 'copilot', '-o', 'json']);
+    expect(second.exitCode).toBe(1);
+    const secondState = (JSON.parse(second.stdout) as JsonEnvelope<{ state: ProfileActivationState }>).data.state;
+    expect(secondState.syncedBundles).toEqual([]);
+
+    // The previous profile's files are gone and the new one is current.
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+    const current = await run(['profile', 'current', '-o', 'json']);
+    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active)
+      .toEqual({ hubId: 'sample-hub', profileId: 'wrong-bundle' });
+    const shown = await run(['profile', 'show', 'organization-sample-developer', '-o', 'json']);
+    expect((JSON.parse(shown.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).toBe(false);
+  });
+
+  it('replays the activated profile\'s lockfile into a clean target', async () => {
+    const activated = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+    expect(activated.exitCode, activated.stdout).toBe(0);
+    const lockfile = path.join(workspace, 'replay.lock.json');
+    await writeFile(lockfile, await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8'));
+    // The lockfile keeps the hub's versionless bundle id as its key.
+    expect(Object.keys((JSON.parse(await readFile(lockfile, 'utf8')) as { bundles: object }).bundles))
+      .toEqual(['acme-org-sample-skills-sample-skills']);
+    const cleanDir = path.join(workspace, 'clean-target');
+    await mkdir(cleanDir, { recursive: true });
+    expect((await run(['target', 'add', 'clean', '--type', 'copilot-cli', '--path', cleanDir, '-o', 'json'])).exitCode).toBe(0);
+
+    const replay = await run(['install', '--lockfile', lockfile, '--target', 'clean', '-o', 'json']);
+
+    expect(replay.exitCode, replay.stdout).toBe(0);
+    await expect(readFile(path.join(cleanDir, 'prompts', 'hello.prompt.md'), 'utf8'))
+      .resolves.toContain('Hello Prompt');
+  });
+
+  it('fails when the activation state cannot be saved after the install', async () => {
+    // Fault-inject the activation store's files: the pre-install save
+    // succeeds, the save of the installed outcome fails.
+    let activationWrites = 0;
+    class FailingActivationFs extends NodeFileSystem {
+      public override async writeJson(filePath: string, value: unknown): Promise<void> {
+        if (filePath.includes('profile-activations')) {
+          activationWrites += 1;
+          if (activationWrites === 2) {
+            throw new Error('EACCES: permission denied');
+          }
+        }
+        await super.writeJson(filePath, value);
+      }
+    }
+
+    const result = await run(
+      ['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'],
+      new FailingActivationFs()
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('HUB.ACTIVATION_FAILED');
+    expect(result.stdout).toContain('EACCES: permission denied');
+    // The failed activation is rolled back, not left half-active.
+    const current = await run(['profile', 'current', '-o', 'json']);
+    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
+  it('rolls the activation back when the sync fails unexpectedly', async () => {
+    // Fault-inject the lockfile write: the bundle files are already written
+    // and the activation state + hub flag already saved when it fails.
+    const userLockfile = resolveUserConfigPaths(env()).userLockfile;
+    class FailingLockfileFs extends NodeFileSystem {
+      public override async writeFile(filePath: string, contents: string): Promise<void> {
+        if (filePath === userLockfile) {
+          throw new Error('EROFS: read-only file system');
+        }
+        await super.writeFile(filePath, contents);
+      }
+    }
+
+    const result = await run(
+      ['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'],
+      new FailingLockfileFs()
+    );
+
+    // The original (unexpected) error is rethrown after the rollback.
+    expect(result.exitCode).not.toBe(0);
+    const current = await run(['profile', 'current', '-o', 'json']);
+    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+    const shown = await run(['profile', 'show', 'organization-sample-developer', '-o', 'json']);
+    expect((JSON.parse(shown.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).not.toBe(true);
+    expect(await readdir(targetDir, { recursive: true }).then((entries) => entries.filter((e) => e.endsWith('.md'))))
+      .toEqual([]);
+  });
+
+  it('still rejects a manifest whose id is not the bundle named by the profile', async () => {
+    const result = await run(['profile', 'activate', 'wrong-bundle', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('manifest id \\"sample-skills\\" does not match expected');
   });
 });

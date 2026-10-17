@@ -155,7 +155,24 @@ export interface BundleSourceRemap {
  */
 export interface ProfileLifecycleSync {
   deactivateProfile(profileId: string): Promise<void>;
-  installBundles(items: { bundleId: string; options: { scope: 'user'; force: boolean; profileId: string } }[]): Promise<void>;
+  /**
+   * Install the profile's bundles. An implementation that knows which
+   * bundles were actually installed (and at which version) may return a
+   * {@link ProfileBundleSyncResult}; `activateProfile` then records only
+   * those in the activation state. Returning nothing keeps the default:
+   * every profile bundle is recorded at its profile-declared version.
+   */
+  installBundles(
+    items: { bundleId: string; options: { scope: 'user'; force: boolean; profileId: string } }[]
+  ): Promise<ProfileBundleSyncResult | void>;
+}
+
+/**
+ * Optional outcome of {@link ProfileLifecycleSync.installBundles}: the
+ * bundles that were installed, with the version actually installed.
+ */
+export interface ProfileBundleSyncResult {
+  synced: { bundleId: string; version: string }[];
 }
 
 /**

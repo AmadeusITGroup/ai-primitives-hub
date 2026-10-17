@@ -12,6 +12,31 @@ The command is metadata-only by default: it never downloads archives or publishe
 
 `--cache-dir`, `--workers`, and `--request-budget` control persistent metadata/archive reuse, concurrency, and the GitHub request ceiling. Cache files are atomically written with directory mode 700 and file mode 600. No GitHub fallback client or `gh` CLI is used by production replication.
 
+## Bundle Install (CLI)
+
+`ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] --target <target>`
+
+- `--from <dir>` installs a local bundle. Without a bundle id, the manifest `id` is accepted as-is; with a bundle id, it must match the manifest.
+- `--source <value>` is looked up first as a source id (or name) in the active hub, then as a hub id (the hub's profiles name the source that carries the bundle), and only then used as a GitHub `owner/repo`. When none matches, the command fails with `BUNDLE.NOT_FOUND` and names the three lookups it tried. When none matches and the active hub (or the hub named by `--source`) exists but its configuration cannot be loaded, the command fails with `HUB.LOAD_FAILED`, naming the hub and the load error.
+- GitHub bundle ids may use the hub form `{owner}-{repo}-{manifestId}`, with or without a `-{version}` / `-v{version}` suffix. The repo prefix is compared case-insensitively; in this form the bundle name and any pinned version must match the manifest exactly. For compatibility, the earlier rule still applies too: an id equal to the manifest `id`, or ending in `-{manifestId}-{version}` / `-{manifestId}-v{version}` after any prefix, is accepted, so this check does not by itself confirm which repository a bundle came from. `profile activate` and `install --lockfile` (for GitHub lockfile sources) apply the same rule.
+
+### Where files land
+
+`install`, `install --lockfile`, `profile activate` and `update` place a bundle by its manifest when the manifest's `prompts:` list names the files (`file:` and `type:`), wherever the files sit in the bundle (for example under `.github/`):
+
+- Each item goes to the target layout's route for its type: `skill` → `skills/`, `instructions` → `instructions/`, `prompt` → `prompts/`, `agent` and `chatmode` → `agents/`. Each target maps those routes to its own folders; Kiro, for example, puts instructions and prompts in `steering/`.
+- A skill's whole directory is copied to `skills/<id>/`. Any other item is renamed to `<id>.<type>.md` (for example `<id>.instructions.md`). A trailing type marker in the id is dropped first, so the id `rules.instructions` gives `rules.instructions.md`, not `rules.instructions.instructions.md`. A missing `type:` is detected from the file name and tags.
+- Entries that are not files, such as `mcpServers`, are not placed this way. Entries whose `type:` is not one of the five above, and bundle files no item lists, keep the path-based routing below.
+- When the target cannot place an item (its type is excluded by the target's `--allowed-kinds`, the layout has no route for it, or an earlier item already uses its destination, such as ids `alpha` and `alpha.instructions` of type `instructions`), the install fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing.
+- A skill item's `file:` may name the skill directory (`skills/<name>`) or a file in it (`skills/<name>/SKILL.md`); either way only that skill's directory is copied.
+- Re-installing or updating a bundle that is already in the lockfile removes the files of the previous install that the new one no longer writes (for example a `prompts/x.md` that is now placed as `prompts/x.prompt.md`), compared by installed location.
+
+Bundles whose manifest lists no items keep path-based routing: a file is installed under the target route matching its bundle path prefix (for example `prompts/`, `skills/`), with its name unchanged.
+
+The lockfile keeps bundle-relative `path` entries with their checksums. For items placed by the manifest it also records `installedPath`, the location relative to the target's base directory, which `uninstall` and `profile deactivate` remove. Entries without `installedPath`, including those written by earlier releases, are removed by path routing as before.
+
+Repository-scope VS Code and Copilot CLI targets keep their own `.github/` writer and are not affected.
+
 ## Bundle Management
 
 | Command | Title | Description |

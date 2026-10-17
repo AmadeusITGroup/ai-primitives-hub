@@ -17,13 +17,14 @@ import {
   type LockfileBundleEntry,
   type LockfileSourceEntry,
   readLockfile,
+  removeSupersededFiles,
   resolveUserConfigPaths,
   type TargetWriter,
   TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
+  writeBundleSafely,
   writeLockfile,
-  writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import type {
   GitHubApi,
@@ -38,7 +39,6 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
-  getInstallableBundleFiles,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -635,8 +635,7 @@ async function applyUpdate(
   const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
 
   const writer = writerFor(ctx, target, scope, commitMode);
-  const targetFiles = getInstallableBundleFiles(files, manifest);
-  const result = await writeTargetSafely(writer, target, targetFiles);
+  const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, target, files, manifest);
 
   const entry: LockfileBundleEntry = {
     version: manifest.version,
@@ -644,7 +643,7 @@ async function applyUpdate(
     sourceType: candidate.entry.sourceType,
     checksum: dl.sha256,
     installedAt: new Date().toISOString(),
-    files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
+    files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
   };
   if (scope === 'repository') {
     entry.commitMode = commitMode;
@@ -655,9 +654,11 @@ async function applyUpdate(
     return;
   }
   const lockKey = isArtifactory ? candidate.installable.ref.bundleId : manifest.id;
+  const previousFiles = lock.bundles[lockKey]?.files;
   let nextLock = upsertBundleEntry(lock, lockKey, entry);
   nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
   await writeLockfile(lockPath, nextLock, ctx.fs);
+  await removeSupersededFiles(writer, target, previousFiles, entry.files);
 
   const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
   const existingState = await stateStore.load(target.name);

@@ -11,6 +11,12 @@
  *   profile edit <profileId>
  *   profile publish <profileId> --hub <id>
  *
+ * The activation lifecycle (verify the profile, enforce one active
+ * profile, save activation state, set the hub `active` flag) is app's
+ * `activateProfile`/`deactivateProfile` (`registry/profile-lifecycle.ts`),
+ * shared with the VS Code extension. The CLI supplies the
+ * `ProfileLifecycleSync` that writes the bundles.
+ *
  * Activation writes bundle files to every configured target (optionally
  * filtered via `--target`), reusing the same fetch/write primitives as
  * `install.ts` (`fetchFilesForSource`, `createWriterFactory`) and the same
@@ -25,33 +31,40 @@
  */
 import * as path from 'node:path';
 import {
+  activateProfile,
   checksumFiles,
+  deactivateProfile,
   emptyLockfile,
+  githubRepoSlugForSource,
+  type HubConfigStore,
   type HubManager,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  type ProfileLifecycleDeps,
   readLockfile,
   resolveUserConfigPaths,
   type TargetWriter,
   UninstallPipeline,
   upsertBundleEntry,
   upsertSource,
+  writeBundleSafely,
   writeLockfile,
-  writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import {
-  getInstallableBundleFiles,
   type HttpClient,
   type HubProfile,
   type HubProfileBundle,
   type ProfileActivationState,
+  type ProfileBundleSyncResult,
+  type ProfileLifecycleSync,
   type RegistrySource,
   type Target,
   type TokenProvider,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
+  HubStore,
   isGitHubAppAuthEnabled,
   ProfileActivationStore,
 } from '@ai-primitives-hub/infra';
@@ -92,6 +105,8 @@ import {
 export interface BuiltHubMgr {
   mgr: HubManager;
   activations: ProfileActivationStore;
+  /** Hub config store (same directory as `mgr`'s), for app's profile lifecycle. */
+  hubs: HubConfigStore;
   http: HttpClient;
   tokens: TokenProvider;
 }
@@ -114,6 +129,9 @@ export const buildHubMgr = (ctx: Context, http?: HttpClient, tokens?: TokenProvi
   return {
     mgr,
     activations: new ProfileActivationStore(hubsDir, ctx.fs),
+    // `HubStore` keeps no cache, so this instance and the one inside `mgr`
+    // always see the same files.
+    hubs: new HubStore(hubsDir, ctx.fs),
     http: httpClient,
     tokens: tokenProvider
   };
@@ -403,16 +421,17 @@ async function activateBundleForTarget(
     }
     const manifest = validateManifest(files, {
       expectedId: bundleRef.id,
-      expectedVersion: bundleRef.version === 'latest' ? undefined : bundleRef.version
+      expectedVersion: bundleRef.version === 'latest' ? undefined : bundleRef.version,
+      // Hub profiles name GitHub bundles `{owner}-{repo}-{manifestId}`.
+      sourceRepoSlug: githubRepoSlugForSource(src)
     });
-    const targetFiles = getInstallableBundleFiles(files, manifest);
-    const result = await writeTargetSafely(writer, target, targetFiles);
+    const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, target, files, manifest);
     const entry: LockfileBundleEntry = {
       version: manifest.version,
       sourceId: src.id,
       sourceType: src.type,
       installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
+      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
     };
     if (target.scope === 'repository') {
       entry.commitMode = target.commitMode ?? 'commit';
@@ -476,11 +495,14 @@ export interface ProfileActivationResult {
 }
 
 /**
- * Deactivate whatever profile(s) were previously active, then fetch and
- * write every bundle in `profile` to every target, updating each
- * target's lockfile and the shared `ProfileActivationStore`. Shared by
- * `ProfileActivateCommand` and `apply.ts` (`apply` is, in effect,
- * "re-activate whatever profile is currently active").
+ * Deactivate whatever profile(s) were previously active, then activate
+ * `profile` through app's shared `activateProfile` lifecycle (the one the
+ * VS Code extension uses), with a CLI sync that fetches and writes every
+ * bundle to every target and updates each target's lockfile. The saved
+ * activation state lists only bundles that were installed, at their
+ * installed version. Shared by `ProfileActivateCommand` and `apply.ts`
+ * (`apply` is, in effect, "re-activate whatever profile is currently
+ * active").
  * @param ctx CLI context.
  * @param built HubManager + activation store + HTTP/token deps (from `buildHubMgr`).
  * @param hubId Hub the profile belongs to.
@@ -496,40 +518,202 @@ export async function runProfileActivation(
   targets: Target[]
 ): Promise<ProfileActivationResult> {
   const effectiveTargets = targets.map((target) => resolveEffectiveTarget(ctx, target));
-  // Enforce a single globally-active profile: deactivate whatever was
-  // previously active (if anything) before installing the new one.
-  const previouslyActive = await built.activations.listAll();
-  for (const prev of previouslyActive) {
-    await deactivateProfileBundles(ctx, prev, effectiveTargets);
-    await built.activations.delete(prev.hubId, prev.profileId);
-    const prevActiveHub = await built.mgr.getActiveHub();
-    if (prevActiveHub?.id === prev.hubId) {
-      const prevProfile = prevActiveHub.config.profiles.find((p) => p.id === prev.profileId);
-      if (prevProfile) {
-        await built.mgr.addProfile(prev.hubId, { ...prevProfile, active: false, updatedAt: new Date().toISOString() });
-      }
-    }
+  const lifecycle: ProfileLifecycleStores = { store: built.hubs, activationStore: built.activations };
+  // The CLI's record of what is active is the activation store, not the hub
+  // `active` flag that app's lifecycle scans (`hub sync` rewrites hub configs
+  // and drops that flag). Deactivate every tracked profile first, including
+  // this one when it is re-activated (`apply`), so bundles it no longer
+  // lists are removed.
+  for (const prev of await built.activations.listAll()) {
+    await deactivateTrackedProfile(ctx, lifecycle, prev, effectiveTargets);
   }
 
-  const sources = Object.fromEntries((await built.mgr.listSources(hubId)).map((s) => [s.id, s]));
-  const syncedBundles: string[] = [];
-  const syncedBundleVersions: Record<string, string> = {};
-  const failures: { bundleId: string; target: string; reason: string }[] = [];
-  const writtenByTarget: Record<string, string[]> = {};
+  const sync = createTargetProfileSync({
+    ctx,
+    built,
+    lifecycle,
+    profile,
+    targets: effectiveTargets,
+    sources: Object.fromEntries((await built.mgr.listSources(hubId)).map((s) => [s.id, s]))
+  });
+  const result = await activateProfile({ ...lifecycle, profileSync: sync }, hubId, profile.id, { installBundles: true });
+  // app's lifecycle logs and swallows install errors; the CLI surfaces them.
+  // It saved the activation state and hub `active` flag before installing,
+  // so undo this activation first instead of leaving the profile active.
+  if (sync.report.error !== undefined) {
+    await rollbackProfileActivation(ctx, lifecycle, hubId, profile.id, effectiveTargets, sync.report);
+    throw sync.report.error;
+  }
+  if (!result.success) {
+    // e.g. the activation state could not be saved after the install.
+    await rollbackProfileActivation(ctx, lifecycle, hubId, profile.id, effectiveTargets, sync.report);
+    throw new RegistryError({
+      code: 'HUB.ACTIVATION_FAILED',
+      message: `profile activate: ${result.error ?? 'activation failed'}`,
+      hint: 'Check that the hubs configuration directory is writable, then re-run the command.',
+      context: { hubId, profileId: profile.id }
+    });
+  }
+  const state = await built.activations.get(hubId, profile.id);
+  if (state === null) {
+    throw new Error(`profile activate: no activation state recorded for "${profile.id}"`);
+  }
+  return { state, written: sync.report.written, failures: sync.report.failures };
+}
+
+/** The stores app's profile lifecycle needs, without a registry sync. */
+type ProfileLifecycleStores = Pick<ProfileLifecycleDeps, 'store' | 'activationStore'>;
+
+/**
+ * Remove a tracked profile's bundles from the targets, then clear its
+ * activation state and hub `active` flag through app's lifecycle.
+ * @param ctx CLI context.
+ * @param lifecycle Hub config and activation stores.
+ * @param state Activation state of the profile to deactivate.
+ * @param targets Targets to remove the profile's bundles from.
+ */
+async function deactivateTrackedProfile(
+  ctx: Context,
+  lifecycle: ProfileLifecycleStores,
+  state: ProfileActivationState,
+  targets: Target[]
+): Promise<void> {
+  await deactivateProfileBundles(ctx, state, targets);
+  const result = await deactivateProfile(lifecycle, state.hubId, state.profileId);
+  if (!result.success) {
+    // The hub or profile no longer exists, so there is no flag to clear;
+    // the activation state must still go.
+    await lifecycle.activationStore.delete(state.hubId, state.profileId);
+  }
+}
+
+/**
+ * Best-effort undo of a failed activation: deactivate the profile from
+ * the state app's lifecycle saved (removes the bundles recorded in target
+ * lockfiles, clears the activation state and hub `active` flag), then roll
+ * back any file the sync wrote that no lockfile recorded. Never throws, so
+ * the caller can rethrow the original failure.
+ * @param ctx CLI context.
+ * @param lifecycle Hub config and activation stores.
+ * @param hubId Hub the profile belongs to.
+ * @param profileId Profile being activated.
+ * @param targets Targets the activation wrote to.
+ * @param report The sync's report (absolute paths written per target).
+ */
+async function rollbackProfileActivation(
+  ctx: Context,
+  lifecycle: ProfileLifecycleStores,
+  hubId: string,
+  profileId: string,
+  targets: Target[],
+  report: TargetProfileSyncReport
+): Promise<void> {
+  try {
+    const state = await lifecycle.activationStore.get(hubId, profileId);
+    if (state !== null) {
+      await deactivateTrackedProfile(ctx, lifecycle, state, targets);
+    }
+  } catch {
+    // Best effort; the original failure is what the caller reports.
+  }
+  for (const target of targets) {
+    const written = report.written[target.name] ?? [];
+    const writer = createWriterFactory(ctx, {})(target);
+    if (written.length === 0 || writer.rollback === undefined) {
+      continue;
+    }
+    try {
+      await writer.rollback(target, written);
+    } catch {
+      // Best effort.
+    }
+  }
+}
+
+/**
+ * What the CLI's profile sync did, read back by {@link runProfileActivation}.
+ */
+interface TargetProfileSyncReport {
+  written: Record<string, string[]>;
+  failures: { bundleId: string; target: string; reason: string }[];
+  /** Unexpected error (e.g. lockfile I/O) that app's lifecycle would otherwise swallow. */
+  error?: Error;
+}
+
+interface TargetProfileSyncOptions {
+  ctx: Context;
+  built: BuiltHubMgr;
+  lifecycle: ProfileLifecycleStores;
+  profile: HubProfile;
+  targets: Target[];
+  sources: Record<string, RegistrySource>;
+}
+
+/**
+ * The CLI's `ProfileLifecycleSync` for app's `activateProfile`: installs
+ * a profile's bundles onto every selected target (updating each target's
+ * lockfile) and removes a deactivated profile's bundles from them.
+ * @param opts Context, hub deps, profile, targets, and the hub's sources.
+ * @returns The sync, plus the report it fills in.
+ */
+function createTargetProfileSync(
+  opts: TargetProfileSyncOptions
+): ProfileLifecycleSync & { report: TargetProfileSyncReport } {
+  const report: TargetProfileSyncReport = { written: {}, failures: [] };
+  return {
+    report,
+    deactivateProfile: async (profileId) => {
+      const states = (await opts.built.activations.listAll()).filter((s) => s.profileId === profileId);
+      for (const state of states) {
+        await deactivateTrackedProfile(opts.ctx, opts.lifecycle, state, opts.targets);
+      }
+    },
+    installBundles: async (items) => {
+      try {
+        return await installProfileBundles(opts, items.map((item) => item.bundleId), report);
+      } catch (err) {
+        report.error = err instanceof Error ? err : new Error(String(err));
+        throw report.error;
+      }
+    }
+  };
+}
+
+/**
+ * Write the named profile bundles to every target and update each
+ * target's lockfile, recording per-bundle/per-target failures.
+ * @param opts Sync options.
+ * @param bundleIds Bundle ids to install, in profile order.
+ * @param report Report to fill in.
+ * @returns The bundles installed on at least one target, with their installed version.
+ */
+async function installProfileBundles(
+  opts: TargetProfileSyncOptions,
+  bundleIds: string[],
+  report: TargetProfileSyncReport
+): Promise<ProfileBundleSyncResult> {
+  const { ctx, built } = opts;
+  const bundleRefs = bundleIds
+    .map((id) => opts.profile.bundles.find((b) => b.id === id))
+    .filter((b): b is HubProfileBundle => b !== undefined);
+  const synced = new Map<string, string>();
   const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
     ? createSourceAwareInstallDependencyCache(built.http, ctx)
     : undefined;
 
-  for (const target of effectiveTargets) {
+  for (const target of opts.targets) {
     const writer = createWriterFactory(ctx, {})(target);
     const written: string[] = [];
+    // Filled as bundles are written, so a failed activation can roll back
+    // files no lockfile recorded yet.
+    report.written[target.name] = written;
     const lockPath = lockfilePathForTarget(ctx, target);
     let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
 
-    for (const bundleRef of profile.bundles) {
+    for (const bundleRef of bundleRefs) {
       const outcome = await activateBundleForTarget(
         bundleRef,
-        sources,
+        opts.sources,
         target,
         writer,
         built.http,
@@ -538,32 +722,17 @@ export async function runProfileActivation(
         sourceAwareDependencyCache
       );
       if (!outcome.ok) {
-        failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
+        report.failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
         continue;
       }
       written.push(...outcome.written);
       lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
       lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
-      syncedBundleVersions[bundleRef.id] = outcome.entry.version;
-      if (!syncedBundles.includes(bundleRef.id)) {
-        syncedBundles.push(bundleRef.id);
-      }
+      synced.set(bundleRef.id, outcome.entry.version);
     }
     await writeLockfile(lockPath, lock, ctx.fs);
-    writtenByTarget[target.name] = written;
   }
-
-  const state: ProfileActivationState = {
-    hubId,
-    profileId: profile.id,
-    activatedAt: new Date().toISOString(),
-    syncedBundles,
-    syncedBundleVersions
-  };
-  await built.activations.save(hubId, profile.id, state);
-  await built.mgr.addProfile(hubId, { ...profile, active: true, updatedAt: new Date().toISOString() });
-
-  return { state, written: writtenByTarget, failures };
+  return { synced: [...synced].map(([bundleId, version]) => ({ bundleId, version })) };
 }
 
 /**
@@ -662,7 +831,16 @@ export class ProfileActivateCommand extends BaseProfileCommand {
       return 0;
     }
 
-    const { state, written, failures } = await runProfileActivation(ctx, built, hubId, profile, targets);
+    let activation: ProfileActivationResult;
+    try {
+      activation = await runProfileActivation(ctx, built, hubId, profile, targets);
+    } catch (err) {
+      if (err instanceof RegistryError) {
+        return failWith(ctx, fmt, 'profile', err);
+      }
+      throw err;
+    }
+    const { state, written, failures } = activation;
 
     const status = failures.length === 0 ? 'ok' : 'warning';
     formatOutput({
@@ -735,16 +913,7 @@ export class ProfileDeactivateCommand extends BaseProfileCommand {
     }
 
     const targets = await loadTargets(ctx);
-    await deactivateProfileBundles(ctx, cur, targets);
-    await built.activations.delete(cur.hubId, cur.profileId);
-
-    const activeHub = await built.mgr.getActiveHub();
-    if (activeHub?.id === cur.hubId) {
-      const p = activeHub.config.profiles.find((pp) => pp.id === cur.profileId);
-      if (p) {
-        await built.mgr.addProfile(cur.hubId, { ...p, active: false, updatedAt: new Date().toISOString() });
-      }
-    }
+    await deactivateTrackedProfile(ctx, { store: built.hubs, activationStore: built.activations }, cur, targets);
 
     formatOutput({
       ctx, command: 'profile.deactivate', output: fmt, status: 'ok',

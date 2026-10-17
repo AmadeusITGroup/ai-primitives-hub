@@ -302,6 +302,43 @@ describe('profile-lifecycle', () => {
       expect(events.some((e) => e.level === 'warn' && e.message.includes('registry sync not available'))).toBe(true);
     });
 
+    it('records only the bundles profileSync reports as installed, at their installed versions', async () => {
+      store = makeStore({
+        'test-hub': {
+          config: makeConfig([makeProfile({
+            bundles: [
+              { id: 'bundle-1', version: 'latest', source: 'test-source', required: true },
+              { id: 'bundle-2', version: '2.0.0', source: 'test-source', required: true }
+            ]
+          })]),
+          reference: REF
+        }
+      });
+      const profileSync = makeProfileSync();
+      (profileSync.installBundles as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        synced: [{ bundleId: 'bundle-1', version: '1.4.0' }]
+      });
+      deps = { store, activationStore, profileSync };
+
+      const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
+
+      expect(result.success).toBe(true);
+      const state = await activationStore.get('test-hub', 'profile-1');
+      expect(state?.syncedBundles).toEqual(['bundle-1']);
+      expect(state?.syncedBundleVersions).toEqual({ 'bundle-1': '1.4.0' });
+    });
+
+    it('records every profile bundle at its declared version when profileSync returns nothing', async () => {
+      const profileSync = makeProfileSync();
+      deps = { store, activationStore, profileSync };
+
+      await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
+
+      const state = await activationStore.get('test-hub', 'profile-1');
+      expect(state?.syncedBundles).toEqual(['bundle-1']);
+      expect(state?.syncedBundleVersions).toEqual({ 'bundle-1': '1.0.0' });
+    });
+
     it('succeeds even if profileSync.installBundles throws', async () => {
       const profileSync = makeProfileSync();
       (profileSync.installBundles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
@@ -309,6 +346,23 @@ describe('profile-lifecycle', () => {
 
       const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
       expect(result.success).toBe(true);
+    });
+
+    it('fails when the installed outcome cannot be saved', async () => {
+      const profileSync = makeProfileSync();
+      (profileSync.installBundles as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        synced: [{ bundleId: 'bundle-1', version: '1.0.0' }]
+      });
+      // First save (pre-install state) succeeds; the post-install save fails.
+      (activationStore.save as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('disk full'));
+      deps = { store, activationStore, profileSync };
+
+      const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('disk full');
     });
 
     it('emits diagnostic log events', async () => {

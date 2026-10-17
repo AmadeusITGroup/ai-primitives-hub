@@ -382,54 +382,90 @@ export class FileTreeTargetWriter implements TargetWriter {
   ): Promise<TargetWriteResult> {
     const layout = await this.resolveLayout(target);
     const baseDir = expandPath(layout.baseDir, this.opts.env);
-    const allowed = target.allowedKinds === undefined
-      ? null
-      : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
+    const allowed = allowedKindSet(target);
     const written: string[] = [];
     const writtenBundlePaths: string[] = [];
+    const installedPaths: Record<string, string> = {};
     const skipped: string[] = [];
-
-    for (const item of items) {
-      const type = item.type ?? determineFileType(item.file, item.tags);
-      const routeKey = KIND_TO_ROUTE_KEY[type];
-      if (allowed !== null && !allowed.has(copilotTypeToPrimitiveKind(type))) {
-        skipped.push(item.file);
-        continue;
-      }
-      const outPrefix = layout.kindRoutes[routeKey];
-      if (outPrefix === undefined) {
-        // Target's layout has no route for this kind at all.
-        skipped.push(item.file);
-        continue;
-      }
-
-      if (type === 'skill') {
-        const wroteAny = await this.writeSkillItem(baseDir, outPrefix, item, files, written);
-        if (wroteAny) {
-          for (const bundlePath of files.keys()) {
-            const sourcePrefix = `${path.posix.dirname(item.file)}/`;
-            if (bundlePath.startsWith(sourcePrefix)) {
-              writtenBundlePaths.push(bundlePath);
-            }
-          }
-        } else {
-          skipped.push(item.file);
-        }
-        continue;
-      }
-
-      const bytes = files.get(item.file);
-      if (bytes === undefined) {
-        skipped.push(item.file);
-        continue;
-      }
-      const outPath = path.join(baseDir, outPrefix, getTargetFileName(item.id, type));
-      await this.writeContent(target, item.file, bytes, outPath);
+    const record = (bundlePath: string, outPath: string): void => {
       written.push(outPath);
-      writtenBundlePaths.push(item.file);
+      writtenBundlePaths.push(bundlePath);
+      installedPaths[bundlePath] = toInstalledPath(baseDir, outPath);
+    };
+    let pendingWritePath: string | null = null;
+
+    const taken = new Set<string>();
+
+    try {
+      for (const item of items) {
+        const placement = placeManifestItem(item, files, layout, allowed);
+        // Never let a later item silently overwrite an earlier item's file.
+        if (placement === null || !claimDestinations(placement, taken)) {
+          skipped.push(item.file);
+          continue;
+        }
+        for (const { bundlePath, tail } of placement.sources) {
+          const outPath = path.join(baseDir, placement.outDir, tail);
+          const bytes = files.get(bundlePath) as Uint8Array;
+          // Keep the path visible to the catch block before write starts:
+          // a filesystem can persist the file and then throw.
+          pendingWritePath = outPath;
+          if (placement.type === 'skill') {
+            // Skill directories carry arbitrary assets (scripts, images,
+            // office documents) — copy byte-for-byte, never transform.
+            await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
+            await this.opts.fs.writeFileBytes(outPath, bytes);
+            await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+          } else {
+            await this.writeContent(target, bundlePath, bytes, outPath);
+          }
+          pendingWritePath = null;
+          record(bundlePath, outPath);
+        }
+      }
+    } catch (cause) {
+      const rollbackPaths = pendingWritePath === null
+        ? written
+        : [...written, pendingWritePath];
+      await this.rollback(target, rollbackPaths);
+      throw cause;
     }
 
-    return { written, skipped, writtenBundlePaths };
+    return { written, skipped, writtenBundlePaths, installedPaths };
+  }
+
+  /**
+   * Determine, without touching the filesystem, which manifest items
+   * {@link writeManifestItems} can place.
+   * @param target - Target chosen via `--target <name>`.
+   * @param files - Extracted bundle files.
+   * @param items - Manifest-derived placement instructions.
+   * @returns `writable` lists every bundle path the items would write
+   *   (a skill item contributes every file of its directory); `skipped`
+   *   lists the `file` of each item that cannot be placed, including an
+   *   item whose destination an earlier item already takes.
+   */
+  public async preflightManifestItems(
+    target: Target,
+    files: ExtractedFiles,
+    items: readonly ManifestPlacementItem[]
+  ): Promise<TargetWritePlan> {
+    const layout = await this.resolveLayout(target);
+    const allowed = allowedKindSet(target);
+    const writable: string[] = [];
+    const skipped: string[] = [];
+    const taken = new Set<string>();
+    for (const item of items) {
+      const placement = placeManifestItem(item, files, layout, allowed);
+      // Two items mapping to one destination (e.g. ids `alpha` and
+      // `alpha.instructions`) would overwrite each other: skip the later one.
+      if (placement === null || !claimDestinations(placement, taken)) {
+        skipped.push(item.file);
+        continue;
+      }
+      writable.push(...placement.sources.map((source) => source.bundlePath));
+    }
+    return { writable, skipped };
   }
 
   private async resolveLayout(target: Target): Promise<TargetLayout> {
@@ -440,57 +476,47 @@ export class FileTreeTargetWriter implements TargetWriter {
   }
 
   /**
-   * Copy every bundle file under a skill's `skills/<sourceId>/` prefix
-   * into `{baseDir}/{outPrefix}/{normalizedId}/`, preserving each file's
-   * relative path under the skill root.
-   * @param baseDir - Expanded target base directory.
-   * @param outPrefix - Layout output subdirectory for the `skill` kind.
-   * @param item - Skill placement item (its `file` points at the skill's
-   *   manifest file, e.g. `skills/my-skill/SKILL.md`).
-   * @param files - Extracted bundle files.
-   * @param written - Accumulator for written absolute paths.
-   * @returns true if at least one file was written.
+   * Compute, without touching the filesystem, where each recorded file
+   * lives relative to the target's base directory: its `installedPath`
+   * when present, otherwise the path-routed destination of `path` — the
+   * same location {@link remove} would delete.
+   * @param target - Target chosen via `--target <name>`.
+   * @param files - Recorded files (lockfile `path` + optional `installedPath`).
+   * @returns One `/`-separated base-relative location per file, or `null`
+   *   for a path-routed file the layout does not route.
    */
-  private async writeSkillItem(
-    baseDir: string,
-    outPrefix: string,
-    item: ManifestPlacementItem,
-    files: ExtractedFiles,
-    written: string[]
-  ): Promise<boolean> {
-    if (getSkillName(item.file) === null) {
-      return false;
-    }
-    const targetSkillId = normalizePromptId(item.id);
-    const sourcePrefix = `${path.posix.dirname(item.file)}/`;
-    let wroteAny = false;
-
-    for (const [bundlePath, bytes] of files) {
-      if (!bundlePath.startsWith(sourcePrefix)) {
-        continue;
+  public async installedLocations(
+    target: Target,
+    files: readonly { path: string; installedPath?: string }[]
+  ): Promise<(string | null)[]> {
+    const layout = await this.resolveLayout(target);
+    return files.map((file) => {
+      if (file.installedPath !== undefined) {
+        return path.posix.normalize(file.installedPath.replaceAll('\\', '/'));
       }
-      const tail = bundlePath.slice(sourcePrefix.length);
-      const outPath = path.join(baseDir, outPrefix, targetSkillId, tail);
-      // Skill directories carry arbitrary assets (scripts, images,
-      // office documents) — copy byte-for-byte, never transform.
-      await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-      await this.opts.fs.writeFileBytes(outPath, bytes);
-      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
-      written.push(outPath);
-      wroteAny = true;
-    }
-
-    return wroteAny;
+      const route = pickRoute(file.path, layout.kindRoutes);
+      return route === null
+        ? null
+        : path.posix.normalize(path.posix.join(route.outPrefix.replaceAll('\\', '/'), route.tail));
+    });
   }
 
   /**
    * Remove a file from the target.
    * @param target - Target chosen via `--target <name>`.
    * @param filePath - Relative file path to remove (from bundle root).
+   * @param installedPath - Output path relative to the target's base
+   *   directory, as recorded from `installedPaths` by a manifest-driven
+   *   install. When given, it is removed instead of the path recomputed
+   *   from `filePath`; a path that leaves the base directory is refused.
    */
-  public async remove(target: Target, filePath: string): Promise<void> {
+  public async remove(target: Target, filePath: string, installedPath?: string): Promise<void> {
     const layout = await this.resolveLayout(target);
     const baseDir = expandPath(layout.baseDir, this.opts.env);
+    if (installedPath !== undefined) {
+      await this.opts.fs.remove(resolveInstalledPath(baseDir, installedPath));
+      return;
+    }
     const route = pickRoute(filePath, layout.kindRoutes);
     if (route === null) {
       return; // Unrouted file, nothing to do
@@ -499,6 +525,176 @@ export class FileTreeTargetWriter implements TargetWriter {
     await this.opts.fs.remove(outPath);
   }
 }
+
+/**
+ * Where one manifest item goes: its Copilot type, the output directory
+ * (relative to the layout base directory) and every bundle file it writes
+ * with its path below that directory.
+ */
+interface ManifestItemPlacement {
+  type: CopilotFileType;
+  outDir: string;
+  sources: { bundlePath: string; tail: string }[];
+}
+
+const allowedKindSet = (target: Target): Set<string> | null =>
+  target.allowedKinds === undefined
+    ? null
+    : new Set(target.allowedKinds.map((kind) => normalizePrimitiveKind(kind) ?? kind));
+
+/**
+ * Decide where a manifest item is written, or `null` when the target
+ * cannot place it: its kind is excluded by `allowedKinds`, the layout has
+ * no route for its type, a skill item does not point into a `skills/`
+ * directory or that directory has no files, or the item's file is missing.
+ * The type (explicit or auto-detected from `file`/`tags`) selects the
+ * layout route via {@link KIND_TO_ROUTE_KEY}. Non-skill files are renamed
+ * to `{id}.{type-extension}`; a skill's whole source directory is copied
+ * into `{route}/{normalizedId}/`.
+ * @param item - Manifest placement item.
+ * @param files - Extracted bundle files.
+ * @param layout - Resolved target layout.
+ * @param allowed - Normalized `allowedKinds`, or `null` for all kinds.
+ * @returns The placement, or `null` when the item is skipped.
+ */
+const placeManifestItem = (
+  item: ManifestPlacementItem,
+  files: ExtractedFiles,
+  layout: TargetLayout,
+  allowed: Set<string> | null
+): ManifestItemPlacement | null => {
+  const type = item.type ?? determineFileType(item.file, item.tags);
+  if (allowed !== null && !allowed.has(copilotTypeToPrimitiveKind(type))) {
+    return null;
+  }
+  const outPrefix = layout.kindRoutes[KIND_TO_ROUTE_KEY[type]];
+  if (outPrefix === undefined) {
+    // Target's layout has no route for this kind at all.
+    return null;
+  }
+
+  if (type === 'skill') {
+    const sourcePrefix = skillSourcePrefix(item.file);
+    if (sourcePrefix === null) {
+      return null;
+    }
+    const sources = [...files.keys()]
+      .filter((bundlePath) => bundlePath.startsWith(sourcePrefix))
+      .map((bundlePath) => ({ bundlePath, tail: bundlePath.slice(sourcePrefix.length) }));
+    return sources.length === 0
+      ? null
+      : staysInside({ type, outDir: path.join(outPrefix, normalizePromptId(item.id)), sources });
+  }
+
+  if (!files.has(item.file) || !isPlainFileName(item.id)) {
+    return null;
+  }
+  return staysInside({
+    type,
+    outDir: outPrefix,
+    sources: [{ bundlePath: item.file, tail: getTargetFileName(item.id, type) }]
+  });
+};
+
+/**
+ * Whether a manifest item id can be used as a single file name: no path
+ * separators and not `.`/`..`. The manifest is untrusted input, so an id
+ * like `../../x` must never pick the output location.
+ * @param id - Manifest item id.
+ * @returns Whether the id is a plain file name.
+ */
+const isPlainFileName = (id: string): boolean =>
+  id.length > 0 && !/[/\\]/.test(id) && id !== '.' && id !== '..';
+
+/**
+ * Keep a placement only when every destination stays below the layout
+ * base directory (relative, no `..` segment after normalization).
+ * @param placement - Candidate placement.
+ * @returns The placement, or `null` when a destination would escape.
+ */
+const staysInside = (placement: ManifestItemPlacement): ManifestItemPlacement | null => {
+  for (const { tail } of placement.sources) {
+    const relative = path.normalize(path.join(placement.outDir, tail));
+    if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
+      return null;
+    }
+  }
+  return placement;
+};
+
+/**
+ * The bundle-path prefix of a skill item's directory: everything up to
+ * and including `skills/<name>/`, whether the item names the directory
+ * itself (`skills/foo`, `skills/foo/`) or a file inside it
+ * (`.github/skills/foo/SKILL.md`). Mirrors `getSkillName`'s match.
+ * @param file - Skill item `file`.
+ * @returns The `/`-terminated prefix, or `null` when the path is not under
+ *   a `skills/<name>` directory.
+ */
+export const skillSourcePrefix = (file: string): string | null => {
+  if (getSkillName(file) === null) {
+    return null;
+  }
+  const normalized = file.replaceAll('\\', '/');
+  const match = /(?:^|\/)skills\/[^/]+(?:\/|$)/i.exec(normalized);
+  if (match === null) {
+    return null;
+  }
+  const root = normalized.slice(0, match.index + match[0].length).replace(/\/$/, '');
+  return `${root}/`;
+};
+
+/**
+ * Reserve every destination of a placement (relative to the layout base
+ * directory), unless one is already reserved by an earlier item.
+ * @param placement - Placement to reserve.
+ * @param taken - Destinations reserved so far; updated on success.
+ * @returns `false` (reserving nothing) when any destination is taken.
+ */
+const claimDestinations = (placement: ManifestItemPlacement, taken: Set<string>): boolean => {
+  const destinations = placement.sources.map(({ tail }) => path.join(placement.outDir, tail));
+  if (destinations.some((destination) => taken.has(destination))) {
+    return false;
+  }
+  for (const destination of destinations) {
+    taken.add(destination);
+  }
+  return true;
+};
+
+/**
+ * Express an absolute output path relative to the layout base directory,
+ * `/`-separated so lockfiles are portable across platforms.
+ * @param baseDir - Expanded layout base directory.
+ * @param outPath - Absolute output path below it.
+ * @returns The base-relative path.
+ */
+const toInstalledPath = (baseDir: string, outPath: string): string =>
+  path.relative(baseDir, outPath).split(path.sep).join('/');
+
+/**
+ * Resolve a recorded base-relative output path, refusing anything that
+ * would leave the base directory (the lockfile is user-editable).
+ * @param baseDir - Expanded layout base directory.
+ * @param installedPath - Recorded base-relative path.
+ * @returns Absolute output path.
+ * @throws {Error} When the path is absolute or escapes `baseDir`.
+ */
+const resolveInstalledPath = (baseDir: string, installedPath: string): string => {
+  // Build the path exactly as the write did (`path.join(baseDir, …)`), so it
+  // names the same file. `path.resolve` is used only for the escape check: on
+  // Windows it adds a drive letter to a drive-less base like `\home\u`.
+  const outPath = path.join(baseDir, installedPath);
+  const relative = path.relative(path.resolve(baseDir), path.resolve(outPath));
+  if (path.isAbsolute(installedPath)
+    || relative.length === 0
+    || relative === '..'
+    || relative.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relative)) {
+    throw new Error(`installed path "${installedPath}" is outside the target directory`);
+  }
+  return outPath;
+};
 
 interface PickedRoute {
   prefix: string;

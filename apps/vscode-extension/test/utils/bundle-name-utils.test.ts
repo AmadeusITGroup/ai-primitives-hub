@@ -8,7 +8,6 @@ import {
   generateBuildScriptBundleId,
   generateGitHubBundleId,
   generateSanitizedId,
-  isManifestIdMatch,
 } from '../../src/utils/bundle-name-utils';
 
 suite('bundleNameUtils', () => {
@@ -77,32 +76,6 @@ suite('bundleNameUtils', () => {
       assert.strictEqual(formatByteSize(1024 * 1024), '1.0 MB');
       assert.strictEqual(formatByteSize(1.5 * 1024 * 1024), '1.5 MB');
       assert.strictEqual(formatByteSize(10 * 1024 * 1024), '10.0 MB');
-    });
-  });
-
-  suite('isManifestIdMatch', () => {
-    test('should match exact IDs', () => {
-      assert.ok(isManifestIdMatch('my-bundle', '1.0.0', 'my-bundle'));
-      assert.ok(isManifestIdMatch('owner-repo-v1.0.0', '1.0.0', 'owner-repo-v1.0.0'));
-    });
-
-    test('should match suffix pattern with v prefix', () => {
-      assert.ok(isManifestIdMatch('collection', '1.0.0', 'owner-repo-collection-v1.0.0'));
-      assert.ok(isManifestIdMatch('test2', '1.0.2', 'org-repo-test2-v1.0.2'));
-    });
-
-    test('should match suffix pattern without v prefix', () => {
-      assert.ok(isManifestIdMatch('collection', '1.0.0', 'owner-repo-collection-1.0.0'));
-      assert.ok(isManifestIdMatch('test2', '1.0.2', 'org-repo-test2-1.0.2'));
-    });
-
-    test('should not match mismatched IDs', () => {
-      assert.ok(!isManifestIdMatch('wrong', '1.0.0', 'owner-repo-collection-v1.0.0'));
-      assert.ok(!isManifestIdMatch('collection', '2.0.0', 'owner-repo-collection-v1.0.0'));
-    });
-
-    test('should handle special characters in repo names', () => {
-      assert.ok(isManifestIdMatch('test2', '1.0.2', 'org-repo.name-test2-1.0.2'));
     });
   });
 

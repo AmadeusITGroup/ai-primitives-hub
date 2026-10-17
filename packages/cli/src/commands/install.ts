@@ -8,7 +8,8 @@
  * Lockfile integration uses `app`'s dict-based `Lockfile` (extension-compatible
  * schema, `bundles: Record<bundleId, LockfileBundleEntry>`) rather than the
  * reference branch's array-of-entries schema. There is no per-entry `target`
- * field — repository scope always writes to `.github/` regardless of target,
+ * field — repository scope writes under the target's own layout base directory
+ * (e.g. `.github/` for VS Code, `.kiro/` for Kiro; see `default-layouts.json`),
  * and user-scope installs get their own lockfile file
  * (`resolveUserConfigPaths(env).userLockfile`) rather than the project-root one.
  * `SourceDispatcher`/`GitHubBundleResolver` take a shared `GitHubApi` client
@@ -20,17 +21,20 @@ import {
   checksumFiles,
   emptyLockfile,
   FileTreeTargetWriter,
+  githubRepoSlugForSource,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
   readLockfile,
+  removeSupersededFiles,
+  resolveInstallSource,
   resolveUserConfigPaths,
   type TargetWriter,
   TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
+  writeBundleSafely,
   writeLockfile,
-  writeTargetSafely,
 } from '@ai-primitives-hub/app';
 import type {
   BundleResolver,
@@ -44,7 +48,6 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
-  getInstallableBundleFiles,
   parseBundleSpec,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -314,6 +317,12 @@ export interface InstallOptions {
    * If provided, SourceDispatcher will select the appropriate resolver.
    */
   sourceConfig?: RegistrySource;
+  /**
+   * `owner/repo` of a GitHub source resolved from `--source`. When set,
+   * the remote install checks the bundle id against the manifest with the
+   * source-aware rule (accepting `{owner}-{repo}-{manifestId}` ids).
+   */
+  sourceRepoSlug?: string;
   /** Reuse source-aware preflight and token providers across bundle requests. */
   sourceAwareDependencyCache?: SourceAwareInstallDependencyCache;
   /**
@@ -546,8 +555,76 @@ async function executeInstallMode(
       return await performLockfileInstall(opts, target, ctx, fmt);
     }
     default: {
-      return await performRemoteInstall(opts, target, ctx, fmt);
+      return await performRemoteInstall(await resolveRemoteSourceOption(opts, ctx), target, ctx, fmt);
     }
+  }
+}
+
+/**
+ * Resolve `install <bundle-id> --source <value>` for a remote install:
+ * `<value>` is tried as a source id in the active hub, then as a hub id
+ * (see `resolveInstallSource` in `app`), and only then as a GitHub
+ * `owner/repo` slug.
+ * @param opts Install options.
+ * @param ctx CLI context.
+ * @returns Options carrying the resolved source, or `opts` unchanged.
+ * @throws {RegistryError} `BUNDLE.NOT_FOUND` when `<value>` matches nothing.
+ */
+async function resolveRemoteSourceOption(opts: InstallOptions, ctx: Context): Promise<InstallOptions> {
+  const value = opts.source;
+  if (opts.sourceConfig !== undefined || value === undefined || value.length === 0 || opts.bundle === undefined) {
+    return opts;
+  }
+  let bundleId: string;
+  try {
+    bundleId = parseBundleSpec(opts.bundle).bundleId;
+  } catch {
+    return opts; // performRemoteInstall reports the invalid spec.
+  }
+  const source = await lookupHubSource(opts, ctx, value, bundleId);
+  if (source !== null) {
+    return {
+      ...opts,
+      source: extractRepoSlug(source.url),
+      sourceConfig: source,
+      sourceRepoSlug: githubRepoSlugForSource(source)
+    };
+  }
+  if (value.includes('/')) {
+    // `owner/repo` (or a URL): keep the historical GitHub-slug behavior.
+    return opts;
+  }
+  throw new RegistryError({
+    code: 'BUNDLE.NOT_FOUND',
+    message: `install: --source "${value}" matched no source id in the active hub, no hub id, and is not a GitHub owner/repo`,
+    hint: 'Run `ai-primitives-hub source list` or `ai-primitives-hub hub list` to see valid ids, or pass --source <owner/repo>.',
+    context: { bundle: opts.bundle, source: value, tried: ['source id', 'hub id', 'GitHub owner/repo'] }
+  });
+}
+
+/**
+ * Hub lookup for {@link resolveRemoteSourceOption}. A hub configuration
+ * that cannot be loaded is reported (`HUB.LOAD_FAILED`), except for an
+ * `owner/repo` value, which never needs the hub.
+ * @param opts Install options (HTTP/token seams).
+ * @param ctx CLI context.
+ * @param value `--source` value.
+ * @param bundleId Bundle id being installed.
+ * @returns Resolved source, or null.
+ */
+async function lookupHubSource(
+  opts: InstallOptions,
+  ctx: Context,
+  value: string,
+  bundleId: string
+): Promise<RegistrySource | null> {
+  try {
+    return await resolveInstallSource(createHubManager({ ctx, http: opts.http, tokens: opts.tokens }), value, bundleId);
+  } catch (err) {
+    if (value.includes('/')) {
+      return null; // `owner/repo`: fall back to the GitHub slug.
+    }
+    throw err;
   }
 }
 
@@ -863,8 +940,9 @@ async function performLocalInstall(
   try {
     const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
     const files = await readLocalBundle(opts.from as string, ctx.fs);
+    // No bundle id on the command line: accept the manifest id as-is.
     const manifest = validateManifest(files, {
-      expectedId: opts.bundle ?? '',
+      expectedId: opts.bundle !== undefined && opts.bundle.length > 0 ? opts.bundle : undefined,
       expectedVersion: undefined
     });
     if (opts.dryRun === true) {
@@ -886,8 +964,7 @@ async function performLocalInstall(
     }
     const writerFactory = createWriterFactory(ctx, opts);
     const writer = writerFactory(effectiveTarget);
-    const targetFiles = getInstallableBundleFiles(files, manifest);
-    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
+    const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, effectiveTarget, files, manifest);
 
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
@@ -899,17 +976,19 @@ async function performLocalInstall(
       sourceId: localSourceId,
       sourceType: 'local',
       installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
+      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
     };
     if (scope === 'repository') {
       entry.commitMode = commitMode;
     }
+    const previousFiles = existing.bundles[manifest.id]?.files;
     let nextLock = upsertBundleEntry(existing, manifest.id, entry);
     nextLock = upsertSource(nextLock, localSourceId, {
       type: 'local',
       url: path.resolve(ctx.cwd(), opts.from as string)
     });
     await writeLockfile(lockPath, nextLock, ctx.fs);
+    await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
 
     await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
 
@@ -1111,8 +1190,13 @@ async function performRemoteInstall(
     }
     const dl = await downloader.download(installable);
     const files = await extractor.extract(dl.bytes);
+    // A plain `owner/repo` source and a GitHub source resolved from
+    // `--source` check the id source-aware; other hub-driven installs keep
+    // accepting the manifest id as-is.
+    const sourceRepoSlug = opts.sourceConfig === undefined ? repoSlug : opts.sourceRepoSlug;
     const manifest = validateManifest(files, {
-      expectedId: opts.sourceConfig === undefined ? spec.bundleId : undefined,
+      expectedId: opts.sourceConfig === undefined || opts.sourceRepoSlug !== undefined ? spec.bundleId : undefined,
+      sourceRepoSlug,
       expectedVersion: isArtifactory ? installable.ref.bundleVersion : (spec.bundleVersion === 'latest' ? undefined : spec.bundleVersion)
     });
     const lockKey = isArtifactory ? installable.ref.bundleId : manifest.id;
@@ -1138,8 +1222,7 @@ async function performRemoteInstall(
     }
     const writerFactory = createWriterFactory(ctx, opts);
     const writer = writerFactory(effectiveTarget);
-    const targetFiles = getInstallableBundleFiles(files, manifest);
-    const result = await writeTargetSafely(writer, effectiveTarget, targetFiles);
+    const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, effectiveTarget, files, manifest);
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
     const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
@@ -1150,11 +1233,12 @@ async function performRemoteInstall(
       sourceType: installable.ref.sourceType,
       checksum: dl.sha256,
       installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys())
+      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
     };
     if (scope === 'repository') {
       entry.commitMode = commitMode;
     }
+    const previousFiles = existing.bundles[lockKey]?.files;
     let nextLock = upsertBundleEntry(existing, lockKey, entry);
     const sourceConfig = opts.sourceConfig;
     const collectionsPath = sourceConfig?.config?.collectionsPath;
@@ -1171,6 +1255,7 @@ async function performRemoteInstall(
         : {})
     });
     await writeLockfile(lockPath, nextLock, ctx.fs);
+    await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
 
     formatOutput({
       ctx,
@@ -1463,7 +1548,7 @@ async function replaySingleEntry(
     if (files === null) {
       return handleFetchFailure(bundleId, src, verbose, ctx);
     }
-    await validateAndWrite(files, bundleId, entry, writer, target, ctx, verbose, src.type);
+    await validateAndWrite(files, bundleId, entry, writer, target, ctx, verbose, src);
     return { success: true, reason: '' };
   } catch (cause) {
     return handleInstallError(bundleId, cause, verbose, ctx);
@@ -1478,13 +1563,16 @@ async function validateAndWrite(
   target: Target,
   ctx: Context,
   verbose: boolean,
-  sourceType: string
+  src: LockfileSourceEntry
 ): Promise<void> {
   const manifest = validateManifest(files, {
-    expectedId: sourceType === 'artifactory' ? undefined : bundleId,
-    expectedVersion: entry.version
+    expectedId: src.type === 'artifactory' ? undefined : bundleId,
+    expectedVersion: entry.version,
+    // Lockfile keys written by `profile activate` keep the hub's
+    // `{owner}-{repo}-{manifestId}` id; match it against the source repo.
+    sourceRepoSlug: githubRepoSlugForSource(src)
   });
-  await writeTargetSafely(writer, target, getInstallableBundleFiles(files, manifest));
+  await writeBundleSafely(writer, target, files, manifest);
   if (verbose) {
     ctx.stdout.write(`[verbose] Successfully installed ${bundleId}\n`);
   }

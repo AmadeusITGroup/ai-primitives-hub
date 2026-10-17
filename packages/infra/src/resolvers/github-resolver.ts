@@ -34,6 +34,7 @@ import {
   generateSourceId,
   type GitHubApi,
   type Installable,
+  parseBundleId,
 } from '@ai-primitives-hub/core';
 
 /**
@@ -179,7 +180,7 @@ export class GitHubBundleResolver implements BundleResolver {
     if (releases.length === 0) {
       return null;
     }
-    const { collection: bundleName } = decomposeBundleId(spec.bundleId, this.opts.repoSlug);
+    const { name: bundleName } = parseBundleId(spec.bundleId, this.opts.repoSlug);
     const wantVersion = spec.bundleVersion;
     const release: GitHubRelease | undefined = wantVersion === undefined || wantVersion === 'latest'
       ? this.findLatestRelease(releases, bundleName)
@@ -259,39 +260,4 @@ export class GitHubBundleResolver implements BundleResolver {
 export const extractSemver = (tag: string): string | null => {
   const m = /(?:^|-)v?(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)$/.exec(tag);
   return m === null ? null : m[1];
-};
-
-/**
- * Decompose a bundle ID into its components: source (owner-repo), collection, and version.
- * This makes the mechanism resilient to repository renames by separating the collection name
- * from the repository name.
- * @param bundleId Bundle ID to decompose.
- * @param repoSlug Repository slug (e.g., "owner/some.repo-name").
- * @returns Object with source, collection, and version components.
- */
-const decomposeBundleId = (bundleId: string, repoSlug: string): { source: string | null; collection: string | null; version: string | null } => {
-  // Convention: the bundle ID format is {owner}-{repo}-{collection}-{version}
-  // The repo may contain dots (e.g., "genai.clean-code-in-the-cloud-skills-collection")
-  // We need to extract the collection name by removing the repo prefix from the bundle ID
-  // First, extract the version suffix if present
-  const versionPattern = /-v?\d{1,3}\.\d{1,3}\.\d{1,3}(?:-[a-zA-Z0-9._-]{1,50})?$/;
-  const versionMatch = versionPattern.exec(bundleId);
-  const version = versionMatch ? versionMatch[0] : null;
-  const withoutVersion = bundleId.replace(versionPattern, '');
-
-  // Convert repoSlug to bundle ID format (replace '/' with '-')
-  const repoPrefix = repoSlug.replace('/', '-');
-
-  // The bundle ID format is {owner}-{repo}-{collection}
-  // Remove the repo prefix from the bundle ID to get the collection
-  if (withoutVersion.startsWith(repoPrefix + '-')) {
-    const collection = withoutVersion.slice(repoPrefix.length + 1);
-    const source = withoutVersion.slice(0, repoPrefix.length);
-    return { source, collection, version };
-  }
-
-  // Fallback: if the bundle ID doesn't start with the repo prefix,
-  // assume it's already the collection name (e.g., from primitive index)
-  // Use the repoSlug as the source
-  return { source: repoSlug, collection: withoutVersion, version };
 };

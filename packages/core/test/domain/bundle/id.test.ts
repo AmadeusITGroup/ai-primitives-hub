@@ -7,6 +7,8 @@ import {
   generateBundleId,
   generateGitHubReleaseBundleId,
   isManifestIdMatch,
+  isSourceAwareManifestIdMatch,
+  parseBundleId,
 } from '../../../src/domain/bundle/id';
 
 describe('generateBundleId', () => {
@@ -76,5 +78,45 @@ describe('isManifestIdMatch', () => {
 
   it('rejects a manifest id that is unrelated to the bundle id', () => {
     expect(isManifestIdMatch('completely-different', '1.0.0', 'owner-repo-test2-v1.0.0')).toBe(false);
+  });
+});
+
+const SAMPLE_REPO = 'acme-org/sample-skills';
+const SAMPLE_HUB_ID = 'acme-org-sample-skills-sample-skills';
+
+describe('parseBundleId', () => {
+  it('strips the repo prefix from a versionless hub id', () => {
+    expect(parseBundleId(SAMPLE_HUB_ID, SAMPLE_REPO)).toEqual({ name: 'sample-skills', version: null });
+  });
+
+  it('parses a version suffix with or without a v prefix', () => {
+    expect(parseBundleId(`${SAMPLE_HUB_ID}-1.8.1`, SAMPLE_REPO)).toEqual({ name: 'sample-skills', version: '1.8.1' });
+    expect(parseBundleId(`${SAMPLE_HUB_ID}-v1.8.1`, SAMPLE_REPO)).toEqual({ name: 'sample-skills', version: '1.8.1' });
+  });
+
+  it('compares the repo prefix case-insensitively', () => {
+    expect(parseBundleId('acme-org-repo-x', 'Acme-Org/repo')).toEqual({ name: 'x', version: null });
+  });
+
+  it('falls back to the id without version when the repo prefix does not match', () => {
+    expect(parseBundleId('my-bundle-v2.0.0', SAMPLE_REPO)).toEqual({ name: 'my-bundle', version: '2.0.0' });
+  });
+});
+
+describe('isSourceAwareManifestIdMatch', () => {
+  it('accepts a versionless {owner}-{repo}-{manifestId} id', () => {
+    expect(isSourceAwareManifestIdMatch('sample-skills', '1.8.1', SAMPLE_HUB_ID, SAMPLE_REPO)).toBe(true);
+  });
+
+  it('rejects a different bundle name from the same repo', () => {
+    expect(isSourceAwareManifestIdMatch('other-bundle', '1.8.1', SAMPLE_HUB_ID, SAMPLE_REPO)).toBe(false);
+  });
+
+  it('rejects an id with another repo prefix', () => {
+    expect(isSourceAwareManifestIdMatch('sample-skills', '1.8.1', 'other-org-other-repo-sample-skills', SAMPLE_REPO)).toBe(false);
+  });
+
+  it('rejects a pinned version that differs from the manifest version', () => {
+    expect(isSourceAwareManifestIdMatch('sample-skills', '1.8.1', `${SAMPLE_HUB_ID}-1.7.2`, SAMPLE_REPO)).toBe(false);
   });
 });
