@@ -20,6 +20,7 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  defaultCacheDir,
   NodeFileSystem,
   XdgAppStorage,
 } from '@ai-primitives-hub/infra';
@@ -51,7 +52,9 @@ const SANDBOX_VARS = [
   'XDG_CACHE_HOME',
   'XDG_STATE_HOME',
   'XDG_RUNTIME_DIR',
-  'TMPDIR'
+  'TMPDIR',
+  'TEMP',
+  'TMP'
 ] as const;
 
 const isInside = (root: string, candidate: string): boolean => {
@@ -71,11 +74,15 @@ describe('buildDiagnosticEnv', () => {
       HOME: path.join(path.sep, 'real', 'home'),
       USERPROFILE: path.join(path.sep, 'real', 'home'),
       TMPDIR: path.join(path.sep, 'real', 'tmp'),
+      TEMP: path.join(path.sep, 'real', 'tmp'),
+      TMP: path.join(path.sep, 'real', 'tmp'),
+      // Ranked above XDG_CACHE_HOME by the cache resolver.
+      AI_PRIMITIVES_HUB_CACHE: path.join(path.sep, 'real', 'cache'),
       PATH: '/usr/bin'
     }
   });
 
-  it('roots HOME, every XDG base dir and TMPDIR under the diagnostics workspace', () => {
+  it('roots HOME, every XDG base dir and the temp dirs under the diagnostics workspace', () => {
     const env = buildDiagnosticEnv(parent, workspace);
     for (const name of SANDBOX_VARS) {
       expect(env[name], name).toBeDefined();
@@ -89,6 +96,13 @@ describe('buildDiagnosticEnv', () => {
     for (const [key, value] of Object.entries(paths)) {
       expect(isInside(workspace, value), `${key}=${value}`).toBe(true);
     }
+  });
+
+  it('drops a parent AI_PRIMITIVES_HUB_CACHE override so the cache resolves inside the workspace', () => {
+    const env = buildDiagnosticEnv(parent, workspace);
+    expect(env).not.toHaveProperty('AI_PRIMITIVES_HUB_CACHE');
+    const cache = defaultCacheDir(env);
+    expect(isInside(workspace, cache), `cache=${cache}`).toBe(true);
   });
 });
 
@@ -164,11 +178,14 @@ describe('doctor diagnostics process-level isolation', () => {
       saved[name] = process.env[name];
       delete process.env[name];
     }
-    // A fresh, throwaway process HOME/TMPDIR with no XDG vars: every XDG
+    // A fresh, throwaway process HOME/temp dir with no XDG vars: every XDG
     // fallback (`os.homedir()`, `os.tmpdir()`) now points into `sandbox`.
+    // `os.tmpdir()` reads TMPDIR on POSIX and TEMP/TMP on Windows.
     process.env.HOME = processHome;
     process.env.USERPROFILE = processHome;
     process.env.TMPDIR = processTmp;
+    process.env.TEMP = processTmp;
+    process.env.TMP = processTmp;
   });
 
   afterEach(async () => {

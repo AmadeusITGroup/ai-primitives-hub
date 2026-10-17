@@ -293,7 +293,8 @@ const resolveWorkspacePath = (): string => {
 /**
  * Sandbox directories, relative to the diagnostic workspace, for every
  * per-user location the CLI (or a child process inheriting the step env)
- * may resolve: HOME, all XDG base dirs, and TMPDIR.
+ * may resolve: HOME, all XDG base dirs, and the temp dir (TMPDIR on POSIX,
+ * TEMP/TMP on Windows).
  */
 const SANDBOX_DIRS = {
   XDG_CONFIG_HOME: 'xdg',
@@ -301,14 +302,24 @@ const SANDBOX_DIRS = {
   XDG_DATA_HOME: 'xdg-data',
   XDG_STATE_HOME: 'xdg-state',
   XDG_RUNTIME_DIR: 'xdg-runtime',
-  TMPDIR: 'tmp'
+  TMPDIR: 'tmp',
+  TEMP: 'tmp',
+  TMP: 'tmp'
 } as const;
 
 /**
+ * Path overrides that the storage resolvers rank above the XDG base dirs.
+ * They are removed from the sandbox env so resolution falls through to the
+ * sandboxed XDG dirs instead of the user's real locations.
+ */
+const PATH_OVERRIDES_ABOVE_XDG = ['AI_PRIMITIVES_HUB_CACHE'] as const;
+
+/**
  * Build an environment bag that roots HOME, every XDG base directory and
- * TMPDIR inside the workspace, so the diagnostic run never reads or
- * mutates the user's real ai-primitives-hub state. Exported for reuse by
- * other in-process diagnostic drivers.
+ * the temp dir inside the workspace, and drops path overrides that would
+ * beat them, so the diagnostic run never reads or mutates the user's real
+ * ai-primitives-hub state. Exported for reuse by other in-process
+ * diagnostic drivers.
  * @param parent Parent context.
  * @param workspace Diagnostic workspace.
  * @returns Environment bag.
@@ -317,7 +328,11 @@ export const buildDiagnosticEnv = (
   parent: Context,
   workspace: string
 ): Record<string, string | undefined> => {
-  const base = parent.env as Record<string, string | undefined>;
+  const overrides: readonly string[] = PATH_OVERRIDES_ABOVE_XDG;
+  const base = Object.fromEntries(
+    Object.entries(parent.env as Record<string, string | undefined>)
+      .filter(([name]) => !overrides.includes(name))
+  );
   const sandbox = Object.fromEntries(
     Object.entries(SANDBOX_DIRS).map(([name, dir]) => [name, path.join(workspace, dir)])
   );
