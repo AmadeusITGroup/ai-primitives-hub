@@ -16,7 +16,7 @@ tags:                               # Optional. For discoverability
 
 items:                              # Required. List of resources (max 50)
   - path: prompts/write-tests.prompt.md   # Required. Relative path to file
-    kind: prompt                          # Required. One of: prompt, instruction, chat-mode, agent
+    kind: prompt                          # Required. See "Item Kinds" below (e.g., prompt, instruction, chat-mode, agent, skill, plugin)
     title: Test Writer                    # Optional. Display title
     description: Generates unit tests     # Optional. Item description
     tags: [testing, pytest]               # Optional. Item-level tags
@@ -72,6 +72,13 @@ display:                            # Optional. UI preferences
   ordering: manual                  # manual or alphabetical
   show_badge: true                  # Show badge in UI
 ```
+
+## Item Kinds
+
+The `items[].kind` field accepts any of the primitive kinds defined in `collection.schema.json`:
+
+- **Portable / cross-client:** `prompt`, `instruction`, `chat-mode`, `agent`, `skill`, `plugin`, `hook`, `mcp-server`
+- **Harness-specific:** `steering`, `spec`, `command`, `rule`, `output-style`, `tool`, `power`, `knowledge`, `playbook`
 
 ## Plugin Items
 

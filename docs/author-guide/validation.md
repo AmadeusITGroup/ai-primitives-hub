@@ -23,7 +23,7 @@ The CLI also checks plugin manifests, described in [Plugin Manifests](#plugin-ma
 | Required fields | `id`, `name`, `description`, `items` |
 | ID format | Lowercase letters, numbers, hyphens only |
 | Item paths | Valid relative paths |
-| Item kinds | One of the kinds listed in the [collection schema](./collection-schema.md), such as `prompt`, `instruction`, `agent`, `skill` or `plugin` |
+| Item kinds | One of the kinds listed in the [collection schema](./collection-schema.md#item-kinds), such as `prompt`, `instruction`, `agent`, `skill` or `plugin` |
 | File references | Referenced files exist |
 | Duplicate IDs | No two collections share the same ID |
 | Duplicate names | No two collections share the same name |
@@ -67,7 +67,7 @@ Skills and `mcp.json` inside a plugin are not validated yet.
 → Use only lowercase letters, numbers, and hyphens (e.g., `my-collection`)
 
 **Invalid item kind**
-→ Use one of the kinds listed in the [collection schema](./collection-schema.md)
+→ Use one of the kinds listed in the [collection schema](./collection-schema.md#item-kinds)
 
 **File not found**
 → Check that the path in `items[].path` points to an existing file
