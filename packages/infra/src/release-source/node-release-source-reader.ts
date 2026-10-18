@@ -70,10 +70,10 @@ const readGitBlob = (repoRoot: string, revision: string, repositoryPath: string)
 const listGitTreeFiles = (repoRoot: string, revision: string, repositoryDirectory: string): string[] => {
   const normalizedDirectory = normalizeRepoRelativePath(repositoryDirectory);
   const output = normalizedDirectory === '.'
-    ? runGit(repoRoot, ['ls-tree', '-r', '--name-only', revision])
-    : runGit(repoRoot, ['ls-tree', '-r', '--name-only', revision, '--', normalizedDirectory]);
+    ? runGit(repoRoot, ['ls-tree', '-r', '-z', '--name-only', revision])
+    : runGit(repoRoot, ['ls-tree', '-r', '-z', '--name-only', revision, '--', normalizedDirectory]);
   return output
-    .split('\n')
+    .split('\0')
     .filter((entry): entry is string => entry.length > 0)
     .map((entry) => normalizeRepoRelativePath(entry))
     .filter((entry) => normalizedDirectory === '.' || entry === normalizedDirectory || entry.startsWith(`${normalizedDirectory}/`));

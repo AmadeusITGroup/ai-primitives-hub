@@ -213,16 +213,26 @@ items:
     );
   });
 
-  it('canonicalizes item kind aliases', async () => {
+  it('canonicalizes item kind aliases and packages skill directories for aliased kinds', async () => {
     const sources = createSources();
-    commit(sources, COLLECTION_FILE, 'id: example\nname: Example\nitems:\n  - path: prompts/hello.prompt.md\n    kind: Instructions\n');
+    commit(sources, COLLECTION_FILE, 'id: example\nname: Example\nitems:\n  - path: prompts/hello.prompt.md\n    kind: Instructions\n  - path: skills/example/SKILL.md\n    kind: Skills\n');
 
-    const manifest = (await createReleaseManifestPlan(governedOptions, sources)).manifest as {
+    const plan = await createReleaseManifestPlan(governedOptions, sources);
+    const manifest = plan.manifest as {
       items: { kind: string }[];
       prompts: { type: string }[];
     };
     expect(manifest.items[0].kind).toBe('instruction');
     expect(manifest.prompts[0].type).toBe('instructions');
+    expect(manifest.items[1].kind).toBe('skill');
+    expect(plan.entries.map((entry) => entry.path)).toContain('skills/example/references/reference.md');
+
+    const legacyPlan = await createLegacyReleaseManifestPlan({
+      repoRoot: '/repo',
+      collectionFile: COLLECTION_FILE,
+      version: '1.2.3'
+    }, sources);
+    expect(legacyPlan.entries.map((entry) => entry.path)).toContain('skills/example/references/reference.md');
   });
 
   it('requires a collection id and name', async () => {

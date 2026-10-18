@@ -81,6 +81,16 @@ describe('NodeReleaseSourceReader', () => {
       ]);
     });
 
+    it('lists and reads committed files with non-ASCII names without C-quoting', async () => {
+      writeFile(repo, 'skills/example/café.md', '# Café\n');
+      git(repo, ['add', '.']);
+      git(repo, ['commit', '-m', 'Non-ASCII file']);
+
+      const tree = await reader.openRevision(repo);
+      expect(await tree.listFiles('skills/example')).toContain('skills/example/café.md');
+      expect(decode(await tree.readFile('skills/example/café.md'))).toBe('# Café\n');
+    });
+
     it('reads a committed binary asset larger than 1 MiB byte-for-byte', async () => {
       // Exceeds Node's default spawnSync maxBuffer; includes invalid UTF-8.
       const asset = Buffer.alloc(3 * 1024 * 1024);

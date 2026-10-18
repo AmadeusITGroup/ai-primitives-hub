@@ -247,8 +247,9 @@ export async function createLegacyReleaseManifestPlan(
     const itemPath = normalizeRepoRelativePath(item.path);
     const itemBytes = await workingTree.readFile(itemPath);
     prompts.push(createLegacyManifestItem(item, itemPath, decodeUtf8(itemBytes)));
+    const kind = normalizePrimitiveKind(item.kind.trim()) ?? item.kind.trim().toLowerCase();
 
-    for (const entryPath of await resolveLegacyItemPaths(workingTree, itemPath, item.kind)) {
+    for (const entryPath of await resolveLegacyItemPaths(workingTree, itemPath, kind)) {
       if (!entriesByPath.has(entryPath)) {
         entriesByPath.set(entryPath, {
           path: entryPath,
@@ -355,7 +356,8 @@ const collectItemEntries = async (
   const entries = new Map<string, ReleaseArchiveEntry>();
   for (const item of items) {
     const itemPath = normalizeRepoRelativePath(item.path);
-    const paths = item.kind === 'skill' || item.kind === 'plugin'
+    const kind = normalizeKind(item.kind);
+    const paths = kind === 'skill' || kind === 'plugin'
       ? await listInstallableSkillFiles(sourceTree, path.posix.dirname(itemPath))
       : [itemPath];
     for (const entryPath of paths) {
