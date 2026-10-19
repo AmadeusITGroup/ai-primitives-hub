@@ -12,6 +12,10 @@
  * unchanged, so the two copies may coexist; behavior here (error messages,
  * manifest key order, YAML format) is kept byte-identical to that source.
  *
+ * Each archive entry carries the permission bits to write: installable files
+ * the source tree reports as executable get {@link RELEASE_EXECUTABLE_FILE_MODE},
+ * everything else {@link RELEASE_FILE_MODE}. Modes are not part of the manifest.
+ *
  * Pure domain logic over the injected {@link ReleaseSourceReader} port: no
  * `node:fs`, no `node:child_process`.
  * @module domain/collection/release-manifest-plan
@@ -45,11 +49,22 @@ export const LEGACY_RELEASE_WARNING = 'No committed LICENSE, COPYING, or NOTICE 
   + 'building a legacy bundle without governed release evidence. '
   + 'Add license text to enable governed self-contained releases.';
 
+/** Permission bits of a non-executable archive entry (`rw-r--r--`). */
+export const RELEASE_FILE_MODE = 0o644;
+
+/** Permission bits of an executable archive entry (`rwxr-xr-x`). */
+export const RELEASE_EXECUTABLE_FILE_MODE = 0o755;
+
 /** Exact data written to one archive entry. */
 export interface ReleaseArchiveEntry {
   path: string;
   role: ReleaseManifestFileRole;
   bytes: Uint8Array;
+  /**
+   * POSIX permission bits written to the ZIP entry: always
+   * {@link RELEASE_FILE_MODE} or {@link RELEASE_EXECUTABLE_FILE_MODE}.
+   */
+  mode: number;
 }
 
 /** A planned manifest paired with the exact files it inventories. */
@@ -141,7 +156,8 @@ export async function createReleaseManifestPlan(
     {
       path: sourceSnapshotPath,
       role: 'metadata',
-      bytes: await sourceTree.readFile(collectionPath)
+      bytes: await sourceTree.readFile(collectionPath),
+      mode: RELEASE_FILE_MODE
     }
   ];
 
@@ -149,7 +165,12 @@ export async function createReleaseManifestPlan(
   let readmePath: string | undefined;
   if (readmeSourcePath !== null) {
     readmePath = 'README.md';
-    entries.push({ path: readmePath, role: 'metadata', bytes: await sourceTree.readFile(readmeSourcePath) });
+    entries.push({
+      path: readmePath,
+      role: 'metadata',
+      bytes: await sourceTree.readFile(readmeSourcePath),
+      mode: RELEASE_FILE_MODE
+    });
   }
 
   const licenseSourcePath = await findLicensePath(sourceTree);
@@ -160,7 +181,8 @@ export async function createReleaseManifestPlan(
   entries.push({
     path: licensePath,
     role: 'metadata',
-    bytes: await sourceTree.readFile(licenseSourcePath)
+    bytes: await sourceTree.readFile(licenseSourcePath),
+    mode: RELEASE_FILE_MODE
   });
 
   assertUniqueArchivePaths(entries);
@@ -254,7 +276,8 @@ export async function createLegacyReleaseManifestPlan(
         entriesByPath.set(entryPath, {
           path: entryPath,
           role: 'installable',
-          bytes: await workingTree.readFile(entryPath)
+          bytes: await workingTree.readFile(entryPath),
+          mode: await installableMode(workingTree, entryPath)
         });
       }
     }
@@ -365,13 +388,23 @@ const collectItemEntries = async (
         entries.set(entryPath, {
           path: entryPath,
           role: 'installable',
-          bytes: await sourceTree.readFile(entryPath)
+          bytes: await sourceTree.readFile(entryPath),
+          mode: await installableMode(sourceTree, entryPath)
         });
       }
     }
   }
   return [...entries.values()];
 };
+
+/**
+ * Archive mode of one installable file. Trees without `isExecutable` have no
+ * executable files.
+ * @param tree - Tree the file is read from.
+ * @param entryPath - Normalized repo-relative path.
+ */
+const installableMode = async (tree: ReleaseSourceTree, entryPath: string): Promise<number> =>
+  (await tree.isExecutable?.(entryPath)) === true ? RELEASE_EXECUTABLE_FILE_MODE : RELEASE_FILE_MODE;
 
 const listInstallableSkillFiles = async (sourceTree: ReleaseSourceTree, directory: string): Promise<string[]> =>
   (await sourceTree.listFiles(directory)).filter((entry) => !isIgnoredPath(entry)).toSorted(comparePaths);

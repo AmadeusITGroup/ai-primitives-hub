@@ -4,7 +4,8 @@
  *
  * Governed release planning reads exact bytes from an immutable Git
  * revision; the legacy compatibility path reads the working tree. Both are
- * addressed by repo-relative POSIX paths. Concrete adapters live in `infra`
+ * addressed by repo-relative POSIX paths, and may report which files are
+ * executable so archives keep their permission bits. Concrete adapters live in `infra`
  * (`NodeReleaseSourceReader`); tests inject an in-memory double.
  * @module ports/release-source
  */
@@ -22,6 +23,15 @@ export interface ReleaseSourceTree {
    * @returns Normalized repo-relative file paths, in no guaranteed order.
    */
   listFiles(repositoryDirectory: string): Promise<string[]>;
+  /**
+   * Report whether one file is recorded as executable: Git mode `100755`
+   * for a revision, the owner execute bit for a working tree. Symlinks and
+   * absent paths are never executable. Optional: trees that cannot tell may
+   * omit it and are treated as having no executable files.
+   * @param repositoryPath Repo-relative path of the file.
+   * @returns `true` only for an executable regular file.
+   */
+  isExecutable?(repositoryPath: string): Promise<boolean>;
 }
 
 /** A tree pinned to an immutable Git object id. */
