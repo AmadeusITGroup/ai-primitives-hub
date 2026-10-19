@@ -105,3 +105,131 @@ items: []
     expect(generateMarkdown(result, 1)).toContain('### Warnings');
   });
 });
+describe('plugin items', () => {
+  const SCHEMA_URI = 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json';
+  const PREFIX = 'collections/foo.collection.yml: items[0] plugin';
+  const validManifest = (name: string): Record<string, unknown> => ({
+    $schema: SCHEMA_URI,
+    name,
+    version: '1.0.0',
+    description: 'Test plugin.',
+    author: { name: 'Test' }
+  });
+  const writePlugin = (relDir: string, manifest: unknown): string => {
+    fs.mkdirSync(path.join(tempDir, relDir), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, relDir, 'plugin.json'), JSON.stringify(manifest, null, 2));
+    return `${relDir}/plugin.json`;
+  };
+  const writeReadme = (): void => {
+    fs.writeFileSync(path.join(tempDir, 'README.md'), '# Foo\n');
+  };
+  const pluginCollection = (itemPath: string, kind = 'plugin', file = 'foo'): string => {
+    const content = `id: ${file}
+name: ${file}
+readme:
+  path: README.md
+items:
+  - path: ${itemPath}
+    kind: ${kind}
+`;
+    const collectionFile = path.join('collections', `${file}.collection.yml`);
+    fs.writeFileSync(path.join(tempDir, collectionFile), content);
+    return collectionFile;
+  };
+  beforeEach(writeReadme);
+
+  it('accepts a spec-compliant root plugin manifest without warnings', () => {
+    const itemPath = writePlugin('plugins/aph-e2e-plugin', validManifest('aph-e2e-plugin'));
+    const result = validateCollectionFile(tempDir, pluginCollection(itemPath));
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('reports a string author as an error prefixed with the item', () => {
+    const itemPath = writePlugin('plugins/aph-e2e-plugin', { ...validManifest('aph-e2e-plugin'), author: 'someone' });
+    const result = validateCollectionFile(tempDir, pluginCollection(itemPath));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      expect.stringContaining(`${PREFIX} plugins/aph-e2e-plugin/plugin.json: "author" must be an object`)
+    ]);
+  });
+
+  it('reports an unknown top-level field as a warning only', () => {
+    const itemPath = writePlugin('plugins/aph-e2e-plugin', { ...validManifest('aph-e2e-plugin'), hooks: 'hooks.json' });
+    const result = validateCollectionFile(tempDir, pluginCollection(itemPath));
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toEqual([
+      expect.stringContaining(`${PREFIX} plugins/aph-e2e-plugin/plugin.json: unknown top-level field "hooks"`)
+    ]);
+  });
+
+  it('rejects a nested manifest that is not at the plugin root', () => {
+    const itemPath = writePlugin('plugins/aph-e2e-legacy-nested/.github/plugin', {
+      name: 'aph-e2e-legacy-nested',
+      version: '1.0.0',
+      items: [{ kind: 'skill', path: 'skills/x/SKILL.md' }]
+    });
+    const result = validateCollectionFile(tempDir, pluginCollection(itemPath));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining('missing required field "$schema"'),
+      expect.stringContaining('must match its directory "plugin"')
+    ]));
+    expect(result.warnings).toEqual([expect.stringContaining('unknown top-level field "items"')]);
+  });
+
+  it('rejects a manifest whose name differs from its directory', () => {
+    const itemPath = writePlugin('plugins', validManifest('aph-scaffolded'));
+    const result = validateCollectionFile(tempDir, pluginCollection(itemPath));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      expect.stringContaining(`${PREFIX} plugins/plugin.json: plugin name "aph-scaffolded" must match its directory "plugins"`)
+    ]);
+  });
+
+  it('reports only the missing-file error when plugin.json does not exist', () => {
+    const result = validateCollectionFile(tempDir, pluginCollection('plugins/missing/plugin.json'));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      'collections/foo.collection.yml: items[0] referenced file not found: plugins/missing/plugin.json'
+    ]);
+  });
+
+  it('reports a directory item path as a manifest-path error without throwing', () => {
+    writePlugin('plugins/aph-e2e-plugin', validManifest('aph-e2e-plugin'));
+    const result = validateCollectionFile(tempDir, pluginCollection('plugins/aph-e2e-plugin'));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      expect.stringContaining(`${PREFIX} plugins/aph-e2e-plugin: plugin item path must point to the plugin's root plugin.json`)
+    ]);
+  });
+
+  it('reports a plugin.json directory as unreadable without throwing', () => {
+    fs.mkdirSync(path.join(tempDir, 'plugins', 'odd', 'plugin.json'), { recursive: true });
+    const result = validateCollectionFile(tempDir, pluginCollection('plugins/odd/plugin.json'));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([expect.stringContaining('plugin.json is not a readable file')]);
+  });
+
+  it('validates plugin items regardless of kind casing', () => {
+    const itemPath = writePlugin('plugins/aph-e2e-plugin', { ...validManifest('aph-e2e-plugin'), author: 'someone' });
+    const result = validateCollectionFile(tempDir, pluginCollection(itemPath, 'Plugin'));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([expect.stringContaining('"author" must be an object')]);
+  });
+
+  it('aggregates plugin warnings across collections', () => {
+    const good = writePlugin('plugins/good', validManifest('good'));
+    const extra = writePlugin('plugins/extra', { ...validManifest('extra'), hooks: 'hooks.json' });
+    const result = validateAllCollections(tempDir, [
+      pluginCollection(good, 'plugin', 'one'),
+      pluginCollection(extra, 'plugin', 'two')
+    ]);
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([
+      expect.stringContaining('collections/two.collection.yml: items[0] plugin plugins/extra/plugin.json: unknown top-level field "hooks"')
+    ]);
+  });
+});

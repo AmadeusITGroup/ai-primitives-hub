@@ -4,7 +4,9 @@
  *
  * File-IO dependent collection reading functions.
  * Pure validation functions are in `@ai-primitives-hub/core`'s
- * `domain/collection/validate.ts`.
+ * `domain/collection/validate.ts` and, for `kind: plugin` items,
+ * `domain/plugin/agent-plugin-spec.ts`; this module only reads the files
+ * and maps their results to errors and warnings.
  *
  * Ported from the reference branch's `app/src/collection/read-collection.ts`,
  * with one addition: `writeCollection`. The reference branch itself has
@@ -25,6 +27,7 @@ import type {
 import {
   normalizeRepoRelativePath,
   SCHEMA_DIR,
+  validateAgentPluginItem,
   validateCollectionObject,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
@@ -55,8 +58,22 @@ export function loadItemKindsFromSchema(schemaDir?: string): string[] {
 }
 
 /**
+ * Read a plugin manifest for validation.
+ * @param manifestAbs - Absolute path to the plugin item's `plugin.json`
+ * @returns File content, or null when it is not a readable regular file
+ */
+function readPluginManifestText(manifestAbs: string): string | null {
+  try {
+    return fs.statSync(manifestAbs).isFile() ? fs.readFileSync(manifestAbs, 'utf8') : null;
+  } catch {
+    return null;
+  }
+}
+/**
  * Validate a collection file from disk.
- * Checks YAML syntax, required fields, and referenced file existence.
+ * Checks YAML syntax, required fields, referenced file existence, and
+ * Agent Plugins 1.0.0 manifests for `kind: plugin` items (fatal issues
+ * become errors, non-fatal issues become warnings).
  * @param repoRoot - Repository root path
  * @param collectionFile - Collection file path (absolute or repo-relative)
  * @returns Validation result with parsed collection
@@ -103,6 +120,14 @@ export function validateCollectionFile(
       const itemAbs = path.join(repoRoot, relPath);
       if (!fs.existsSync(itemAbs)) {
         errors.push(`${rel}: items[${idx}] referenced file not found: ${relPath}`);
+        return;
+      }
+      if (typeof item.kind === 'string' && item.kind.trim().toLowerCase() === 'plugin') {
+        const plugin = validateAgentPluginItem({ itemPath: relPath, manifestText: readPluginManifestText(itemAbs) });
+        for (const issue of plugin.issues) {
+          const message = `${rel}: items[${idx}] plugin ${relPath}: ${issue.message}`;
+          (issue.severity === 'fatal' ? errors : warnings).push(message);
+        }
       }
     });
   }

@@ -215,6 +215,46 @@ items:
       const envelope = parseJson<{ ok: boolean }>(result.stdout);
       expect(envelope.data.ok).toBe(false);
     });
+
+    describe('plugin items', () => {
+      const writePluginCollection = async (name: string, manifest: Record<string, unknown>): Promise<string> => {
+        await mkdir(path.join(workspace, 'plugins', name), { recursive: true });
+        await writeFile(
+          path.join(workspace, 'plugins', name, 'plugin.json'),
+          JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', name, ...manifest })
+        );
+        await writeFile(path.join(workspace, 'README.md'), '# Plug\n');
+        const collectionFile = `collections/${name}.collection.yml`;
+        await writeFile(
+          path.join(workspace, collectionFile),
+          `id: ${name}\nname: ${name}\nreadme:\n  path: README.md\nitems:\n  - path: plugins/${name}/plugin.json\n    kind: plugin\n`
+        );
+        return collectionFile;
+      };
+
+      it('fails when a plugin manifest violates Agent Plugins 1.0.0', async () => {
+        const collectionFile = await writePluginCollection('bad-author', { author: 'someone' });
+        const result = await run(['collection', 'validate', '--collection-file', collectionFile, '-o', 'json']);
+        expect(result.exitCode).toBe(1);
+        const envelope = parseJson<{ ok: boolean; errors: string[] }>(result.stdout);
+        expect(envelope.data.ok).toBe(false);
+        expect(envelope.data.errors).toEqual([
+          expect.stringContaining('items[0] plugin plugins/bad-author/plugin.json: "author" must be an object')
+        ]);
+      });
+
+      it('passes with a warning for an unknown plugin manifest field', async () => {
+        const collectionFile = await writePluginCollection('extra-field', { hooks: 'hooks.json' });
+        const result = await run(['collection', 'validate', '--collection-file', collectionFile, '-o', 'json']);
+        expect(result.exitCode).toBe(0);
+        const envelope = parseJson<{ ok: boolean }>(result.stdout);
+        expect(envelope.data.ok).toBe(true);
+        expect(envelope.status).toBe('warning');
+        expect(envelope.warnings).toEqual([
+          expect.stringContaining('items[0] plugin plugins/extra-field/plugin.json: unknown top-level field "hooks"')
+        ]);
+      });
+    });
   });
 
   describe('collection affected', () => {

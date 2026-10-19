@@ -16,7 +16,7 @@ tags:                               # Optional. For discoverability
 
 items:                              # Required. List of resources (max 50)
   - path: prompts/write-tests.prompt.md   # Required. Relative path to file
-    kind: prompt                          # Required. One of: prompt, instruction, chat-mode, agent
+    kind: prompt                          # Required. See "Item Kinds" below (e.g., prompt, instruction, chat-mode, agent, skill, plugin)
     title: Test Writer                    # Optional. Display title
     description: Generates unit tests     # Optional. Item description
     tags: [testing, pytest]               # Optional. Item-level tags
@@ -72,6 +72,37 @@ display:                            # Optional. UI preferences
   ordering: manual                  # manual or alphabetical
   show_badge: true                  # Show badge in UI
 ```
+
+## Item Kinds
+
+The `items[].kind` field accepts any of the primitive kinds defined in `collection.schema.json`:
+
+- **Portable / cross-client:** `prompt`, `instruction`, `chat-mode`, `agent`, `skill`, `plugin`, `hook`, `mcp-server`
+- **Harness-specific:** `steering`, `spec`, `command`, `rule`, `output-style`, `tool`, `power`, `knowledge`, `playbook`
+
+## Plugin Items
+
+A `kind: plugin` item points to the root manifest of an
+[Agent Plugins](https://agent-plugins.org/specification) plugin:
+
+```yaml
+items:
+  - path: plugins/my-plugin/plugin.json
+    kind: plugin
+```
+
+The directory that contains `plugin.json` is the plugin root, and the whole
+directory is bundled. `plugin.json` must be an Agent Plugins 1.0.0 manifest, and
+its `name` must equal the directory name:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "my-plugin"
+}
+```
+
+See [Validating Collections](./validation.md#plugin-manifests) for the full list of checks.
 
 ## MCP Input Definitions
 

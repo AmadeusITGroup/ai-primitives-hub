@@ -41,6 +41,15 @@ export { default as HUB_CONFIG_SCHEMA } from './public/schemas/hub-config.schema
 export { default as ARTIFACTORY_SOURCE_INDEX_SCHEMA } from './public/schemas/artifactory-source-index.schema.json';
 
 /**
+ * Agent Plugins 1.0.0 `plugin.json` schema, vendored unmodified from
+ * https://github.com/agentplugins/agent-plugins-spec/blob/d92e6f443b8edcea42c039727a82afdc565779e2/schemas/1.0.0/plugin.schema.json
+ * (Copyright the Agent Plugins authors, Apache-2.0). Per the spec (§5.2),
+ * clients must not fetch the schema at load time, so it ships embedded.
+ * The validation rules live in `domain/plugin/agent-plugin-spec.ts`.
+ */
+export { default as AGENT_PLUGIN_MANIFEST_SCHEMA } from './public/schemas/agent-plugins/1.0.0/plugin.schema.json';
+
+/**
  * Phase 1 scaffolding marker, kept until `infra`/`app`/`cli` each have real
  * code of their own to depend on instead of this placeholder re-export
  * chain (see those packages' `src/index.ts`) — removed in Phase 5 once
