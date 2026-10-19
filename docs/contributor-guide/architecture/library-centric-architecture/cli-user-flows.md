@@ -575,7 +575,7 @@ flowchart LR
 ### Bundle Commands
 | Command | Purpose | Key Options |
 |---------|---------|------------|
-| `bundle build` | Build bundle ZIP | `--collection-file <path>`, `--version <version>`, `--out-dir <dir>`, `--repo-slug <slug>` |
+| `bundle build` | Build bundle ZIP (fails on invalid Agent Plugin items) | `--collection-file <path>`, `--version <version>`, `--out-dir <dir>`, `--repo-slug <slug>` |
 | `bundle manifest` | Generate manifest | `--collection-file <path>`, `--version <version>`, `--out-file <path>` |
 
 ### Hub Commands

@@ -13,6 +13,9 @@ import {
   execFileSync,
 } from 'node:child_process';
 import {
+  existsSync,
+} from 'node:fs';
+import {
   mkdir,
   mkdtemp,
   readFile,
@@ -777,6 +780,129 @@ items:
       expect(envelope.errors[0]).toMatchObject({
         code: 'INTERNAL.UNEXPECTED',
         message: 'Collection item kind is not a canonical primitive kind: unknown-kind'
+      });
+    });
+
+    describe('plugin items', () => {
+      const SCHEMA_URI = 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json';
+      const validManifest = (name: string): Record<string, unknown> => ({
+        $schema: SCHEMA_URI,
+        name,
+        version: '1.0.0',
+        description: 'Test plugin.',
+        author: { name: 'Test' }
+      });
+      const writeManifest = async (manifestDir: string, manifest: Record<string, unknown>): Promise<void> => {
+        await mkdir(path.join(workspace, manifestDir), { recursive: true });
+        await writeFile(path.join(workspace, manifestDir, 'plugin.json'), JSON.stringify(manifest));
+      };
+      const writePluginFixture = async (
+        name: string,
+        manifest: Record<string, unknown>,
+        { manifestDir = `plugins/${name}`, id = name }: { manifestDir?: string; id?: string } = {}
+      ): Promise<string> => {
+        await writeManifest(manifestDir, manifest);
+        await mkdir(path.join(workspace, 'plugins', name, 'skills', 'demo'), { recursive: true });
+        await writeFile(path.join(workspace, 'plugins', name, 'skills', 'demo', 'SKILL.md'), '# Demo\n');
+        await writeFile(path.join(workspace, 'README.md'), '# Plug\n');
+        const collectionFile = `collections/${id}.collection.yml`;
+        await writeFile(
+          path.join(workspace, collectionFile),
+          `id: ${id}\nname: ${id}\nreadme:\n  path: README.md\nitems:\n  - path: ${manifestDir}/plugin.json\n    kind: plugin\n`
+        );
+        commitFixtureChanges();
+        return collectionFile;
+      };
+      const buildJson = (collectionFile: string): ReturnType<typeof run> => run([
+        'bundle', 'build', '--version', '1.0.0', '--collection-file', collectionFile, '-o', 'json'
+      ]);
+      const validateJson = async (collectionFile: string): Promise<{ errors: string[]; warnings: string[] }> => {
+        const result = await run(['collection', 'validate', '--collection-file', collectionFile, '-o', 'json']);
+        const envelope = parseJson<{ errors: string[] }>(result.stdout);
+        return { errors: envelope.data.errors, warnings: envelope.warnings };
+      };
+      const artifactsExist = (id: string): boolean[] => [
+        existsSync(path.join(workspace, 'dist', id, `${id}.bundle.zip`)),
+        existsSync(path.join(workspace, 'dist', id, 'deployment-manifest.yml'))
+      ];
+      interface ErrorEnvelope {
+        status: string;
+        errors: { code: string; message: string; context: { errors: string[] } }[];
+      }
+      const { $schema: _schema, ...withoutSchema } = validManifest('no-schema');
+
+      it.each([
+        { label: 'a missing "$schema"', name: 'no-schema', id: 'no-schema', manifest: withoutSchema, manifestDir: undefined },
+        { label: 'an invalid "name"', name: 'Bad_Name', id: 'bad-name', manifest: validManifest('Bad_Name'), manifestDir: undefined },
+        { label: 'a string "author"', name: 'bad-author', id: 'bad-author', manifest: { ...validManifest('bad-author'), author: 'someone' }, manifestDir: undefined },
+        { label: 'a plugin.json outside the plugin root', name: 'nested', id: 'nested', manifest: validManifest('nested'), manifestDir: 'plugins/nested/.github/plugin' }
+      ])('fails with exit 1 and writes no artifacts for $label', async ({ name, id, manifest, manifestDir }) => {
+        const collectionFile = await writePluginFixture(name, manifest, { manifestDir, id });
+
+        const result = await buildJson(collectionFile);
+
+        expect(result.exitCode).toBe(1);
+        const envelope = JSON.parse(result.stdout) as ErrorEnvelope;
+        expect(envelope.status).toBe('error');
+        expect(envelope.errors[0].code).toBe('PLUGIN.INVALID_MANIFEST');
+        const validation = await validateJson(collectionFile);
+        expect(validation.errors.length).toBeGreaterThan(0);
+        expect(envelope.errors[0].context.errors).toEqual(validation.errors);
+        expect(envelope.errors[0].message).toBe(validation.errors.join('\n'));
+        expect(artifactsExist(id)).toEqual([false, false]);
+      });
+
+      it('reports the plugin error in text mode', async () => {
+        const collectionFile = await writePluginFixture('bad-author', { ...validManifest('bad-author'), author: 'someone' });
+
+        const result = await run(['bundle', 'build', '--version', '1.0.0', '--collection-file', collectionFile]);
+
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(
+          'error[PLUGIN.INVALID_MANIFEST]: collections/bad-author.collection.yml: items[0] plugin plugins/bad-author/plugin.json: "author" must be an object'
+        );
+      });
+
+      it('validates the committed plugin.json, not the working tree', async () => {
+        const collectionFile = await writePluginFixture('demo', { ...validManifest('demo'), author: 'someone' });
+        await writeManifest('plugins/demo', validManifest('demo'));
+        expect((await buildJson(collectionFile)).exitCode).toBe(1);
+
+        commitFixtureChanges();
+        await writeManifest('plugins/demo', { ...validManifest('demo'), author: 'someone' });
+        const result = await buildJson(collectionFile);
+        expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+      });
+
+      it('builds with warnings for non-fatal plugin issues', async () => {
+        const collectionFile = await writePluginFixture('extra-field', { ...validManifest('extra-field'), hooks: 'hooks.json' });
+
+        const result = await buildJson(collectionFile);
+
+        expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+        const envelope = parseJson<{ zipAsset: string }>(result.stdout);
+        expect(envelope.status).toBe('warning');
+        expect(envelope.warnings).toEqual((await validateJson(collectionFile)).warnings);
+        expect(envelope.warnings).toEqual([expect.stringContaining('unknown top-level field "hooks"')]);
+        expect(existsSync(envelope.data.zipAsset)).toBe(true);
+      });
+
+      it('builds a spec-compliant plugin into the archive', async () => {
+        const collectionFile = await writePluginFixture('demo', validManifest('demo'));
+
+        const result = await buildJson(collectionFile);
+
+        expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+        const envelope = parseJson<{ zipAsset: string }>(result.stdout);
+        expect(envelope.status).toBe('ok');
+        expect(envelope.warnings).toEqual([]);
+        const files = await new ZipBundleExtractor().extract(await readFile(envelope.data.zipAsset));
+        const manifest = validateManifest(files, { expectedId: 'demo', expectedVersion: '1.0.0' });
+        expect([...files.keys()]).toEqual(expect.arrayContaining([
+          'plugins/demo/plugin.json',
+          'plugins/demo/skills/demo/SKILL.md'
+        ]));
+        expect(manifest.items).toMatchObject([{ id: 'demo', kind: 'plugin', path: 'plugins/demo/plugin.json' }]);
       });
     });
 
