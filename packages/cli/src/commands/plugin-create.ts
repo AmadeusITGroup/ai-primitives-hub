@@ -3,8 +3,9 @@
  *
  * Scaffolds an Agent Plugins 1.0.0 plugin at `<path>/<name>/plugin.json`
  * (default `plugins/<name>/plugin.json`) through app's `createPlugin`, and
- * optionally adds it to a collection. Invalid names are rejected before
- * anything is written; an existing manifest is never overwritten.
+ * optionally adds it to a collection. Invalid names and an unreadable
+ * `--collection` are rejected before anything is written; an existing
+ * manifest is never overwritten.
  *
  * Usage:
  *   ai-primitives-hub plugin create my-plugin \
@@ -18,8 +19,10 @@ import {
   readCollection,
   writeCollection,
 } from '@ai-primitives-hub/app';
-import type {
-  CollectionItem,
+import {
+  AGENT_PLUGIN_NAME_MAX_LENGTH,
+  type Collection,
+  type CollectionItem,
 } from '@ai-primitives-hub/core';
 import {
   Command,
@@ -37,6 +40,11 @@ const ERROR_CODES: Record<CreatePluginErrorCode, string> = {
   'scaffold-failed': 'FS.SCAFFOLD_FAILED'
 };
 
+const collectionUpdateError = (error: unknown): RegistryError => new RegistryError({
+  code: 'FS.COLLECTION_UPDATE_FAILED',
+  message: `Failed to add plugin to collection: ${(error as Error).message}`
+});
+
 /**
  * Plugin create command class.
  */
@@ -50,9 +58,10 @@ export class PluginCreateCommand extends Command {
       Usage: ai-primitives-hub plugin create <name> [options]
 
       Writes <path>/<name>/plugin.json with $schema, name, version, description and author.
-      <name> must be 1-64 lowercase letters, digits, "." or "-", start and end with a
-      letter or digit, and contain no "--" or "..". Invalid names are rejected and
-      nothing is written. An existing plugin.json is never overwritten.
+      <name> must follow the Agent Plugins 1.0.0 name rule (e.g. my-plugin, acme.tools;
+      at most ${AGENT_PLUGIN_NAME_MAX_LENGTH} characters). Invalid names are rejected with the rule and a
+      suggested name, and nothing is written. With --collection, a missing collection
+      is also rejected before writing. An existing plugin.json is never overwritten.
 
       Options:
         --description <text>   Plugin description
@@ -86,6 +95,22 @@ export class PluginCreateCommand extends Command {
       const outputPath = this.pathOption || 'plugins';
       const parentDir = path.isAbsolute(outputPath) ? outputPath : path.join(ctx.cwd(), outputPath);
 
+      // Read the collection before scaffolding: a missing or unreadable
+      // collection must fail with nothing written, since an existing
+      // plugin.json is never overwritten and would block a corrected rerun.
+      const collectionFile = this.collection
+        ? path.join(ctx.cwd(), 'collections', `${this.collection}.collection.yml`)
+        : undefined;
+      let collection: Collection | undefined;
+      if (collectionFile) {
+        try {
+          collection = readCollection(ctx.cwd(), collectionFile);
+        } catch (error) {
+          renderError(collectionUpdateError(error), ctx);
+          return 1;
+        }
+      }
+
       const result = await createPlugin({
         parentDir,
         name: this.name,
@@ -106,13 +131,8 @@ export class PluginCreateCommand extends Command {
       }
 
       // Add to collection if specified
-      if (this.collection) {
-        const collectionId = this.collection;
-        const collectionFile = path.join(ctx.cwd(), 'collections', `${collectionId}.collection.yml`);
-
+      if (collection && collectionFile) {
         try {
-          const collection = readCollection(ctx.cwd(), collectionFile);
-
           // Repo-root relative path to the plugin's root plugin.json
           const relativePath = path.relative(ctx.cwd(), result.manifestPath).replace(/\\/g, '/');
 
@@ -126,11 +146,7 @@ export class PluginCreateCommand extends Command {
           collection.items.push(newItem);
           writeCollection(ctx.cwd(), collectionFile, collection);
         } catch (error) {
-          const err = new RegistryError({
-            code: 'FS.COLLECTION_UPDATE_FAILED',
-            message: `Failed to add plugin to collection: ${(error as Error).message}`
-          });
-          renderError(err, ctx);
+          renderError(collectionUpdateError(error), ctx);
           return 1;
         }
       }

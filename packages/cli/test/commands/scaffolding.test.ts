@@ -226,6 +226,14 @@ describe('scaffolding generator commands', () => {
       expect(await readFile(collectionFile(), 'utf8')).toBe(before);
     });
 
+    it('writes nothing when --collection names a missing collection, so a corrected rerun succeeds', async () => {
+      const result = await run(['plugin', 'create', 'my-plugin', '--collection', 'missing']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('FS.COLLECTION_UPDATE_FAILED');
+      expect(existsSync(path.join(workspace, 'plugins'))).toBe(false);
+      expect((await run(['plugin', 'create', 'my-plugin', '--collection', 'foo'])).exitCode).toBe(0);
+    });
+
     it('refuses to overwrite an existing plugin.json', async () => {
       expect((await run(['plugin', 'create', 'my-plugin'])).exitCode).toBe(0);
       const manifestPath = path.join(workspace, 'plugins', 'my-plugin', 'plugin.json');

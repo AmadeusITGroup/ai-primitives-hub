@@ -119,8 +119,9 @@ changes the parent directory (default `plugins/`). The manifest passes
 
 The name must be 1–64 characters of lowercase letters, digits, `.` and `-`, start
 and end with a letter or digit, and contain no `--` or `..`. An invalid name such as
-`My_Plugin` is rejected with a suggested valid name, and nothing is written. An
-existing `plugin.json` is never overwritten.
+`My_Plugin` is rejected with a suggested valid name, and nothing is written. A
+`--collection` id that has no `collections/<id>.collection.yml` is also rejected
+before anything is written. An existing `plugin.json` is never overwritten.
 
 Add components inside the plugin directory, for example a skill:
 
