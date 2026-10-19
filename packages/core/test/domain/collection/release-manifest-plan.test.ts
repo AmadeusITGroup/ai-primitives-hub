@@ -18,6 +18,8 @@ import {
   isMissingSourceLicenseError,
   LEGACY_RELEASE_WARNING,
   NO_SOURCE_LICENSE_MESSAGE,
+  RELEASE_EXECUTABLE_FILE_MODE,
+  RELEASE_FILE_MODE,
   serializeReleaseManifest,
 } from '../../../src/domain/collection/release-manifest-plan';
 import type {
@@ -429,5 +431,96 @@ describe('binary skill assets', () => {
       version: '1.2.3'
     }, createBinarySources());
     expect(plan.entries.find((entry) => entry.path === BINARY_PATH)?.bytes).toEqual(BINARY);
+  });
+});
+
+describe('archive entry modes', () => {
+  const SCRIPT_PATH = 'skills/example/scripts/run.sh';
+  const SCRIPT = '#!/bin/sh\necho run\n';
+
+  /**
+   * Add a script file to a tree and, when `executable` is given, the
+   * optional `isExecutable` capability reporting those paths.
+   * @param tree - Base tree.
+   * @param executable - Paths the tree reports as executable.
+   */
+  const withScript = (tree: ReleaseSourceTree, executable?: ReadonlySet<string>): ReleaseSourceTree => ({
+    readFile: (repositoryPath) => (repositoryPath === SCRIPT_PATH
+      ? Promise.resolve(encoder.encode(SCRIPT))
+      : tree.readFile(repositoryPath)),
+    listFiles: async (directory) => [
+      ...await tree.listFiles(directory),
+      ...(directory === '.' || SCRIPT_PATH.startsWith(`${directory}/`) ? [SCRIPT_PATH] : [])
+    ],
+    ...(executable === undefined
+      ? {}
+      : { isExecutable: (repositoryPath: string) => Promise.resolve(executable.has(repositoryPath)) })
+  });
+
+  const createScriptSources = (executable?: ReadonlySet<string>): FakeSources => {
+    const sources = createSources();
+    const base = createSources();
+    sources.openRevision = async (repoRoot, revision) => {
+      const tree = await base.openRevision(repoRoot, revision);
+      return { revision: tree.revision, ...withScript(tree, executable) };
+    };
+    sources.openWorkingTree = (repoRoot) => withScript(base.openWorkingTree(repoRoot), executable);
+    return sources;
+  };
+
+  const modesOf = (plan: { entries: { path: string; mode: number }[] }): Record<string, number> =>
+    Object.fromEntries(plan.entries.map((entry) => [entry.path, entry.mode]));
+
+  it('pins the two permission values written to archive entries', () => {
+    expect(RELEASE_FILE_MODE).toBe(0o644);
+    expect(RELEASE_EXECUTABLE_FILE_MODE).toBe(0o755);
+  });
+
+  it('marks executable installable files 0755 and everything else, including metadata, 0644', async () => {
+    // LICENSE is reported executable to prove metadata copies are never executable.
+    const plan = await createReleaseManifestPlan(
+      governedOptions,
+      createScriptSources(new Set([SCRIPT_PATH, 'LICENSE']))
+    );
+    expect(modesOf(plan)).toEqual({
+      LICENSE: 0o644,
+      'README.md': 0o644,
+      'metadata/source/collections/example.collection.yml': 0o644,
+      'prompts/hello.prompt.md': 0o644,
+      'skills/example/SKILL.md': 0o644,
+      'skills/example/references/reference.md': 0o644,
+      [SCRIPT_PATH]: 0o755
+    });
+  });
+
+  it('treats a tree without isExecutable as all 0644', async () => {
+    const plan = await createReleaseManifestPlan(governedOptions, createScriptSources());
+    expect(plan.entries.length).toBeGreaterThan(0);
+    expect(new Set(plan.entries.map((entry) => entry.mode))).toEqual(new Set([0o644]));
+  });
+
+  it('leaves the deployment manifest unchanged by entry modes', async () => {
+    const executablePlan = await createReleaseManifestPlan(governedOptions, createScriptSources(new Set([SCRIPT_PATH])));
+    const plainPlan = await createReleaseManifestPlan(governedOptions, createScriptSources());
+    expect(executablePlan.manifest).toEqual(plainPlan.manifest);
+    const files = executablePlan.manifest.files as Record<string, unknown>[];
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      expect(Object.keys(file)).toEqual(['path', 'role', 'size', 'sha256']);
+    }
+  });
+
+  it('marks executable working-tree files 0755 in the legacy plan', async () => {
+    const plan = await createLegacyReleaseManifestPlan({
+      repoRoot: '/repo',
+      collectionFile: COLLECTION_FILE,
+      version: '1.2.3'
+    }, createScriptSources(new Set([SCRIPT_PATH])));
+    expect(modesOf(plan)).toEqual({
+      'prompts/hello.prompt.md': 0o644,
+      'skills/example/SKILL.md': 0o644,
+      'skills/example/references/reference.md': 0o644,
+      [SCRIPT_PATH]: 0o755
+    });
   });
 });
