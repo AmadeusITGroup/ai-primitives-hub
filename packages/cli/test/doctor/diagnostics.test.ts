@@ -78,6 +78,8 @@ describe('buildDiagnosticEnv', () => {
       TMP: path.join(path.sep, 'real', 'tmp'),
       // Ranked above XDG_CACHE_HOME by the cache resolver.
       AI_PRIMITIVES_HUB_CACHE: path.join(path.sep, 'real', 'cache'),
+      // Ranked above HOME/XDG_CONFIG_HOME by git.
+      GIT_CONFIG_GLOBAL: path.join(path.sep, 'real', 'home', '.gitconfig'),
       PATH: '/usr/bin'
     }
   });
@@ -98,9 +100,10 @@ describe('buildDiagnosticEnv', () => {
     }
   });
 
-  it('drops a parent AI_PRIMITIVES_HUB_CACHE override so the cache resolves inside the workspace', () => {
+  it('drops parent AI_PRIMITIVES_HUB_CACHE and GIT_CONFIG_GLOBAL overrides so resolution stays inside the workspace', () => {
     const env = buildDiagnosticEnv(parent, workspace);
     expect(env).not.toHaveProperty('AI_PRIMITIVES_HUB_CACHE');
+    expect(env).not.toHaveProperty('GIT_CONFIG_GLOBAL');
     const cache = defaultCacheDir(env);
     expect(isInside(workspace, cache), `cache=${cache}`).toBe(true);
   });

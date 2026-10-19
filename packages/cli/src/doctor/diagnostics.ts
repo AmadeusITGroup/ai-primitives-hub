@@ -308,11 +308,15 @@ const SANDBOX_DIRS = {
 } as const;
 
 /**
- * Path overrides that the storage resolvers rank above the XDG base dirs.
- * They are removed from the sandbox env so resolution falls through to the
- * sandboxed XDG dirs instead of the user's real locations.
+ * Path overrides that the storage resolvers or child tools (such as `git`)
+ * rank above the sandboxed HOME and XDG base dirs. They are removed from the
+ * sandbox env so resolution falls through to the sandboxed dirs instead of
+ * the user's real locations.
  */
-const PATH_OVERRIDES_ABOVE_XDG = ['AI_PRIMITIVES_HUB_CACHE'] as const;
+const PATH_OVERRIDES_ABOVE_XDG = [
+  'AI_PRIMITIVES_HUB_CACHE',
+  'GIT_CONFIG_GLOBAL'
+] as const;
 
 /**
  * Build an environment bag that roots HOME, every XDG base directory and
