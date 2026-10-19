@@ -67,7 +67,7 @@ graph TD
 - `ports/` - Port interfaces for external implementations
   - `filesystem.ts`, `http.ts`, `github-api.ts`, `clock.ts`, `process-runner.ts`
   - `bundle-downloader.ts`, `bundle-extractor.ts`, `source-adapter.ts`, `source-resolver.ts`
-  - `release-source.ts` (Git revision tree, working tree, and `origin` remote read by release planning)
+  - `release-source.ts` (Git revision tree, working tree, executable bit, and `origin` remote read by release planning)
   - `target-writer.ts`, `layout-config-loader.ts`, `resource-transformer.ts`
   - `app-storage.ts` (universal XDG-based storage abstraction)
   - `registry-operations.ts`, `update-notifier.ts`, `update-store.ts`, `telemetry.ts`
@@ -106,7 +106,7 @@ graph TD
 - `http/` - `NodeHttpClient` and GitHub host helpers
 - `hub/` - Hub config parsing
 - `process/` - `NodeProcessRunner` implementation
-- `release-source/` - `NodeReleaseSourceReader` (`ReleaseSourceReader` over the Git revision tree, working tree, and `origin` remote)
+- `release-source/` - `NodeReleaseSourceReader` (`ReleaseSourceReader` over the Git revision tree, working tree, executable bit (Git mode `100755`), and `origin` remote)
 - `resolvers/` - Path resolution helpers
 - `scaffolding/` - `TemplateEngine` and template files
 - `search/` - BM25 search engine, `PrimitiveIndex`, tokenizer, tuning

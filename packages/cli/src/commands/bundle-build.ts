@@ -11,6 +11,9 @@
  *     the archive.
  *   - `archiver` is configured with maximum zlib compression for
  *     deterministic byte-identical output across runs.
+ *   - Entry modes come from the release plan: `0755` for executable
+ *     installable files (Git mode `100755`; the owner execute bit for legacy
+ *     working-tree builds), `0644` otherwise. The umask is never consulted.
  * @module commands/bundle-build
  */
 // archiver needs a real Node WriteStream. Context.fs is a high-level
@@ -78,7 +81,7 @@ const FIXED_DATE = new Date('1980-01-01T00:00:00.000Z');
 const createDeterministicZip = (input: {
   zipPath: string;
   manifest: string;
-  entries: { path: string; bytes: Uint8Array }[];
+  entries: { path: string; bytes: Uint8Array; mode: number }[];
 }): Promise<void> => {
   // The single archiver/streams use site in this command file.
   // Reproducible timestamps, sorted entry order, max zlib compression.
@@ -121,11 +124,12 @@ const createDeterministicZip = (input: {
     const sorted = input.entries
       .map((entry) => ({
         path: normalizeRepoRelativePath(entry.path),
-        bytes: entry.bytes
+        bytes: entry.bytes,
+        mode: entry.mode
       }))
       .toSorted((a, b) => (a.path < b.path ? -1 : (a.path > b.path ? 1 : 0)));
     for (const entry of sorted) {
-      archive.append(Buffer.from(entry.bytes), { name: entry.path, date: FIXED_DATE });
+      archive.append(Buffer.from(entry.bytes), { name: entry.path, date: FIXED_DATE, mode: entry.mode });
     }
     archive.finalize().catch(() => { /* handled by archive.on('error') above */ });
   });
