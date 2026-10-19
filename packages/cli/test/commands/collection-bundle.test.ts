@@ -644,6 +644,38 @@ items:
       expect(manifest.readme).toBe('README.md');
     });
 
+    it('derives the bundle id from --repo-slug, collection id, and version', async () => {
+      const result = await run([
+        'bundle', 'build', '--version', '1.0.0', '--repo-slug', 'owner/repo', '-o', 'json'
+      ]);
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+      expect(parseJson<{ bundleId: string }>(result.stdout).data.bundleId).toBe('owner-repo-foo-v1.0.0');
+    });
+
+    it('fails with exit 1 on a planning error other than missing license evidence', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+items:
+  - path: prompts/hello.prompt.md
+    kind: unknown-kind
+`
+      );
+      commitFixtureChanges();
+
+      const result = await run([
+        'bundle', 'build', '--version', '1.0.0', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { status: string; errors: { code: string; message: string }[] };
+      expect(envelope.status).toBe('error');
+      expect(envelope.errors[0]).toMatchObject({
+        code: 'INTERNAL.UNEXPECTED',
+        message: 'Collection item kind is not a canonical primitive kind: unknown-kind'
+      });
+    });
+
     it('defaults to the first collection file under collections/ when --collection-file is omitted', async () => {
       const result = await run([
         'bundle', 'build', '--version', '1.0.0', '-o', 'json'

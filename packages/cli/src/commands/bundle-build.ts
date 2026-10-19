@@ -26,20 +26,17 @@ import {
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
+  planBundleRelease,
+} from '@ai-primitives-hub/app';
+import {
+  generateBundleId,
   normalizeRepoRelativePath,
+  serializeReleaseManifest,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
-import {
-  createLegacyReleaseManifestPlan,
-  createReleaseManifestPlan,
-  generateBundleId,
-  isMissingSourceLicenseError,
-  LEGACY_RELEASE_WARNING,
-  serializeReleaseManifest,
-} from '@prompt-registry/collection-scripts';
 import archiver from 'archiver';
 import {
   Command,
@@ -198,25 +195,11 @@ export class BundleBuildCommand extends Command {
       // injected working directories (Context invariant).
       const outDirRel = this.outDir ?? 'dist';
       const outDir = path.isAbsolute(outDirRel) ? outDirRel : path.join(cwd, outDirRel);
-      const warnings: string[] = [];
-      let releasePlan;
-      try {
-        releasePlan = createReleaseManifestPlan({
-          repoRoot: cwd,
-          collectionFile,
-          version
-        });
-      } catch (err) {
-        if (!isMissingSourceLicenseError(err)) {
-          throw err;
-        }
-        releasePlan = createLegacyReleaseManifestPlan({
-          repoRoot: cwd,
-          collectionFile,
-          version
-        });
-        warnings.push(LEGACY_RELEASE_WARNING);
-      }
+      const { plan: releasePlan, warnings } = await planBundleRelease({
+        repoRoot: cwd,
+        collectionFile,
+        version
+      });
       const collectionId = String(releasePlan.manifest.id);
       if (typeof collectionId !== 'string' || collectionId.length === 0) {
         throw new RegistryError({

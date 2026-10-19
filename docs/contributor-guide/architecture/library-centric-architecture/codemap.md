@@ -53,7 +53,7 @@ graph TD
 **Key Modules**:
 - `domain/` - Domain types and business logic
   - `bundle/` - Bundle types (`BundleManifest`, `BundleRef`, `HarvestedFile`, `BundleProvider`)
-  - `collection/` - Collection types and validation
+  - `collection/` - Collection types, validation, and release-manifest planning (`release-manifest-plan.ts`: governed and legacy `bundle build` manifests and archive entries)
   - `discovery/` - Discovery types
   - `hub/` - Hub configuration types and validation
   - `install/` - Installation types (`Target`, `Installable`, `CopilotFileType`, layout, transforms)
@@ -67,6 +67,7 @@ graph TD
 - `ports/` - Port interfaces for external implementations
   - `filesystem.ts`, `http.ts`, `github-api.ts`, `clock.ts`, `process-runner.ts`
   - `bundle-downloader.ts`, `bundle-extractor.ts`, `source-adapter.ts`, `source-resolver.ts`
+  - `release-source.ts` (Git revision tree, working tree, and `origin` remote read by release planning)
   - `target-writer.ts`, `layout-config-loader.ts`, `resource-transformer.ts`
   - `app-storage.ts` (universal XDG-based storage abstraction)
   - `registry-operations.ts`, `update-notifier.ts`, `update-store.ts`, `telemetry.ts`
@@ -105,6 +106,7 @@ graph TD
 - `http/` - `NodeHttpClient` and GitHub host helpers
 - `hub/` - Hub config parsing
 - `process/` - `NodeProcessRunner` implementation
+- `release-source/` - `NodeReleaseSourceReader` (`ReleaseSourceReader` over the Git revision tree, working tree, and `origin` remote)
 - `resolvers/` - Path resolution helpers
 - `scaffolding/` - `TemplateEngine` and template files
 - `search/` - BM25 search engine, `PrimitiveIndex`, tokenizer, tuning
@@ -140,6 +142,7 @@ graph TD
   - `install-bundle.ts`, `uninstall-bundle.ts`, `pipeline.ts`
   - `layout-resolver.ts` - Layout configuration resolution
 - `registry/` - Registry management (hub, profile, activation, user config paths)
+- `release/` - `planBundleRelease` (governed release plan with legacy fallback for `bundle build`)
 - `search/` - Search orchestration
 - `transform/` - Multi-target content transforms (`kiro-transformer`, windsurf/devin, claude-code)
 - `writers/` - Application-level writers

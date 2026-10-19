@@ -33,36 +33,47 @@ sequenceDiagram
 
 ## 2. Bundle Build Flow
 
+Release planning lives in `packages/`: the `planBundleRelease` use case (`app`) runs the core planner (`core/domain/collection/release-manifest-plan.ts`) over the `ReleaseSourceReader` port, implemented by `NodeReleaseSourceReader` (`infra`). The legacy `lib/` package keeps its own copy of this logic for its publisher and is not used by the CLI.
+
 ```mermaid
 sequenceDiagram
     participant User
     participant CLI as Build Command
-    participant Col as Collection Reader
-    participant Manifest as Manifest Generator
+    participant App as planBundleRelease (app)
+    participant Plan as Release Planner (core)
+    participant Src as NodeReleaseSourceReader (infra)
     participant Zip as ZIP Builder
     participant FS as File System
 
     User->>CLI: ai-primitives-hub bundle build
-    CLI->>Col: readCollection(path)
-    Col->>FS: Read collection.yml
-    FS-->>Col: Collection data
-    Col-->>CLI: Collection object
+    CLI->>App: planBundleRelease(repoRoot, collectionFile, version)
+    App->>Plan: createReleaseManifestPlan(options, sources)
+    Plan->>Src: openRevision(HEAD)
+    Src-->>Plan: Committed tree at an immutable revision
+    Plan->>Plan: Items, integrity inventory, provenance
 
-    CLI->>Manifest: createBundleManifest(collection, version)
-    Manifest->>FS: Read item files
-    FS-->>Manifest: Item contents
-    Manifest->>Manifest: Generate manifest YAML
-    Manifest-->>CLI: Manifest path
+    alt Root LICENSE, COPYING, or NOTICE committed
+        Plan-->>App: Governed plan (formatVersion 1)
+    else No license evidence
+        Plan-->>App: Missing source license error
+        App->>Plan: createLegacyReleaseManifestPlan(options, sources)
+        Plan->>Src: openWorkingTree()
+        Plan-->>App: Legacy plan
+        App->>App: Add legacy release warning
+    end
+    App-->>CLI: Plan and warnings
 
-    CLI->>Zip: createDeterministicZip(manifest, items)
-    Zip->>Zip: Sort items
-    Zip->>Zip: Set fixed timestamps
+    CLI->>CLI: serializeReleaseManifest(manifest)
+    CLI->>Zip: createDeterministicZip(manifest, entries)
+    Zip->>Zip: Sort entries, set fixed timestamps
     Zip->>FS: Write ZIP file
-    FS-->>Zip: Confirm write
     Zip-->>CLI: ZIP path
+    CLI->>CLI: validateBuiltArchive(zip)
 
-    CLI-->>User: Bundle built: path/to/bundle.zip
+    CLI-->>User: Built path/to/bundle.zip (bundle id, version)
 ```
+
+Any planning failure other than missing license evidence (unknown item kind, missing file at the revision, unresolvable source repository) fails the command with exit code 1.
 
 ## 3. Primitive Index Harvest Flow
 

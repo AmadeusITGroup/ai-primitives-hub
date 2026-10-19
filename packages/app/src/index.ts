@@ -21,6 +21,7 @@ export * from './writers';
 export * from './stores';
 export * from './update';
 export * from './registry';
+export * from './release';
 export * from './search';
 export * from './transform';
 export * from './replicate/replicate';

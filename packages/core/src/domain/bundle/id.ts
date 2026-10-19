@@ -1,10 +1,12 @@
 /**
  * Domain layer — Bundle ID generation.
  *
- * IMPORTANT: this logic must stay in sync with `src/utils/bundleNameUtils.ts`
- * (`generateBuildScriptBundleId`) and `lib/src/bundle-id.ts`
- * (`generateBundleId`) until those call sites are migrated onto this
- * implementation (migration plan §7.5/§7.7). The format is unchanged:
+ * This is the reference implementation. The extension's
+ * `src/utils/bundleNameUtils.ts` (`generateBuildScriptBundleId`) must stay
+ * in sync with it until that call site is migrated onto this implementation
+ * (migration plan §7.5/§7.7). The legacy `lib/src/bundle-id.ts` is frozen and
+ * may diverge: it replaces only the first `/` in the repo slug, while this
+ * implementation replaces every `/`. Format:
  * `{owner}-{repo}-{collectionId}-v{version}`.
  * @module domain/bundle/id
  */
