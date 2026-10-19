@@ -24,6 +24,9 @@
  * a manifest that is not at the plugin root would pass the spec checks and
  * be silently packaged without the rest of the plugin.
  *
+ * `validateAgentPluginName` exposes the name rule on its own, so callers
+ * that create a plugin (scaffolding) can reject a name before writing.
+ *
  * The rule constants mirror the vendored schema at
  * `public/schemas/agent-plugins/1.0.0/plugin.schema.json`; a parity test
  * guards against drift.
@@ -156,25 +159,36 @@ const checkSchema = (manifest: Record<string, unknown>): AgentPluginIssue[] => {
   return [];
 };
 
-const checkName = (manifest: Record<string, unknown>): AgentPluginIssue[] => {
-  if (!('name' in manifest)) {
-    return [fatal('name-missing', 'missing required field "name"', 'name')];
-  }
-  const { name } = manifest;
+/**
+ * Check a plugin name against the Agent Plugins 1.0.0 name grammar (§5.5).
+ * This is the rule `validateAgentPluginManifest` applies to `name`; use it
+ * to vet a name before anything is written (e.g. when scaffolding).
+ * @param name - Candidate plugin name
+ * @returns A fatal `name-invalid` issue, or null when the name is valid
+ */
+export function validateAgentPluginName(name: unknown): AgentPluginIssue | null {
   if (
     typeof name !== 'string'
     || name.length === 0
     || name.length > AGENT_PLUGIN_NAME_MAX_LENGTH
     || !AGENT_PLUGIN_NAME_PATTERN.test(name)
   ) {
-    return [fatal(
+    return fatal(
       'name-invalid',
       `"name" must be 1-${AGENT_PLUGIN_NAME_MAX_LENGTH} characters of lowercase letters, digits, "." or "-", `
       + `start and end with a letter or digit, and contain no "--" or ".." (got ${JSON.stringify(name)})`,
       'name'
-    )];
+    );
   }
-  return [];
+  return null;
+}
+
+const checkName = (manifest: Record<string, unknown>): AgentPluginIssue[] => {
+  if (!('name' in manifest)) {
+    return [fatal('name-missing', 'missing required field "name"', 'name')];
+  }
+  const issue = validateAgentPluginName(manifest.name);
+  return issue === null ? [] : [issue];
 };
 
 const checkFieldTypes = (manifest: Record<string, unknown>): AgentPluginIssue[] => {

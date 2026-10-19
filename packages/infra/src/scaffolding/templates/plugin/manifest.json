@@ -4,9 +4,9 @@
   "templates": {
     "plugin-md": {
       "path": "plugin.json.template",
-      "description": "Plugin manifest file",
+      "description": "Agent Plugins 1.0.0 manifest (plugin.json)",
       "required": true,
-      "variables": ["name", "description", "version", "author"]
+      "variables": ["schemaUri", "name", "version", "description", "author"]
     }
   }
 }

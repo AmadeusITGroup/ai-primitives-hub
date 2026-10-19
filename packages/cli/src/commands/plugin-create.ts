@@ -1,29 +1,26 @@
 /**
  * `plugin create` subcommand.
  *
- * Creates a new plugin directory with plugin.json using templates.
+ * Scaffolds an Agent Plugins 1.0.0 plugin at `<path>/<name>/plugin.json`
+ * (default `plugins/<name>/plugin.json`) through app's `createPlugin`, and
+ * optionally adds it to a collection. Invalid names are rejected before
+ * anything is written; an existing manifest is never overwritten.
  *
  * Usage:
  *   ai-primitives-hub plugin create my-plugin \
- *     --description "My custom plugin"
+ *     --description "My custom plugin" --collection my-collection
  * @module commands/plugin-create
  */
 import * as path from 'node:path';
 import {
+  createPlugin,
+  type CreatePluginErrorCode,
   readCollection,
   writeCollection,
 } from '@ai-primitives-hub/app';
-import {
-  generateSanitizedId,
-  TemplateContext,
-} from '@ai-primitives-hub/core';
 import type {
   CollectionItem,
 } from '@ai-primitives-hub/core';
-import {
-  TEMPLATE_PATHS,
-  TemplateEngine,
-} from '@ai-primitives-hub/infra';
 import {
   Command,
   type Context,
@@ -34,6 +31,12 @@ import {
   renderError,
 } from '../framework';
 
+const ERROR_CODES: Record<CreatePluginErrorCode, string> = {
+  'invalid-name': 'PRIMITIVE.INVALID_NAME',
+  'already-exists': 'PRIMITIVE.ALREADY_EXISTS',
+  'scaffold-failed': 'FS.SCAFFOLD_FAILED'
+};
+
 /**
  * Plugin create command class.
  */
@@ -41,21 +44,28 @@ export class PluginCreateCommand extends Command {
   public static readonly paths = [['plugin', 'create']];
 
   public static readonly usage = Command.Usage({
-    description: 'Create a new plugin directory',
+    description: 'Create a new Agent Plugins 1.0.0 plugin directory',
     category: 'Primitive',
     details: `
       Usage: ai-primitives-hub plugin create <name> [options]
 
+      Writes <path>/<name>/plugin.json with $schema, name, version, description and author.
+      <name> must be 1-64 lowercase letters, digits, "." or "-", start and end with a
+      letter or digit, and contain no "--" or "..". Invalid names are rejected and
+      nothing is written. An existing plugin.json is never overwritten.
+
       Options:
         --description <text>   Plugin description
-        --version <version>   Plugin version (default: 1.0.0)
+        --version <version>    Plugin version (default: 1.0.0)
         --author <name>        Author name
-        --path <dir>           Output directory (default: plugins/)
+        --path <dir>           Parent directory (default: plugins/); the plugin is written to <dir>/<name>/plugin.json
+        --collection <id>      Add the plugin to collections/<id>.collection.yml
         -o, --output <format>  Output format (text, json, yaml, ndjson)
 
       Examples:
         ai-primitives-hub plugin create my-plugin
         ai-primitives-hub plugin create my-plugin --description "My custom plugin"
+        ai-primitives-hub plugin create my-plugin --collection my-collection
     `
   });
 
@@ -73,34 +83,23 @@ export class PluginCreateCommand extends Command {
     const fmt = (this.output ?? 'text');
 
     try {
-      // Determine plugin name
-      const pluginName = generateSanitizedId(this.name);
-      const displayName = this.name;
-
-      // Build template context
-      const context: TemplateContext = {
-        projectName: pluginName,
-        collectionId: pluginName,
-        name: displayName,
-        description: this.description || `A ${displayName} plugin`,
-        version: this.version || '1.0.0',
-        author: this.author || process.env.USER || 'Your Name'
-      };
-
-      // Determine output path
       const outputPath = this.pathOption || 'plugins';
-      const targetPath = path.isAbsolute(outputPath) ? outputPath : path.join(ctx.cwd(), outputPath);
+      const parentDir = path.isAbsolute(outputPath) ? outputPath : path.join(ctx.cwd(), outputPath);
 
-      // Initialize template engine
-      const templateEngine = new TemplateEngine(TEMPLATE_PATHS.plugin);
-
-      // Scaffold the plugin
-      const result = await templateEngine.scaffoldProject(targetPath, context);
+      const result = await createPlugin({
+        parentDir,
+        name: this.name,
+        description: this.description,
+        version: this.version,
+        author: this.author || process.env.USER || 'Your Name'
+      });
 
       if (!result.success) {
         const err = new RegistryError({
-          code: 'FS.SCAFFOLD_FAILED',
-          message: result.error || 'Scaffolding failed'
+          code: ERROR_CODES[result.error?.code ?? 'scaffold-failed'],
+          message: result.error?.message || 'Scaffolding failed',
+          hint: result.error?.hint,
+          context: { name: this.name, path: result.manifestPath }
         });
         renderError(err, ctx);
         return 1;
@@ -114,15 +113,13 @@ export class PluginCreateCommand extends Command {
         try {
           const collection = readCollection(ctx.cwd(), collectionFile);
 
-          // Calculate repo-root relative path
-          const createdFile = result.createdFiles[0];
-          const relativePath = path.relative(ctx.cwd(), createdFile).replace(/\\/g, '/');
+          // Repo-root relative path to the plugin's root plugin.json
+          const relativePath = path.relative(ctx.cwd(), result.manifestPath).replace(/\\/g, '/');
 
-          // Add item to collection
           const newItem: CollectionItem = {
             path: relativePath,
             kind: 'plugin',
-            name: displayName,
+            name: this.name,
             description: this.description
           };
 
@@ -138,15 +135,14 @@ export class PluginCreateCommand extends Command {
         }
       }
 
-      // Format output
       formatOutput({
         ctx,
         command: 'plugin create',
         output: fmt,
         status: 'ok',
         data: {
-          name: pluginName,
-          path: result.createdFiles[0],
+          name: this.name,
+          path: result.manifestPath,
           createdFiles: result.createdFiles,
           collection: this.collection
         }

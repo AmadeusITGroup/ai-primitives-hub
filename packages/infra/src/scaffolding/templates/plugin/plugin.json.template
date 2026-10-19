@@ -1,6 +1,9 @@
 {
+  "$schema": "{{schemaUri}}",
   "name": "{{name}}",
   "version": "{{version}}",
   "description": "{{description}}",
-  "author": "{{author}}"
+  "author": {
+    "name": "{{author}}"
+  }
 }
