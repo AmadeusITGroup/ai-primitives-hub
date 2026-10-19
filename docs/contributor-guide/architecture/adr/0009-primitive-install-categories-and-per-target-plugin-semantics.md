@@ -133,8 +133,9 @@ Constraints carried in from earlier decisions and from #277:
    `LockfileManager.validate()` checks against that schema but has no
    production caller at `be1d161`, so released extensions are not affected.
    Until VS Code parity, an extension rewrite of the same entry may drop the
-   field. Uninstall then falls back to the owned-name prefix in the target
-   dialect's form (decision 5), which is stable per bundle. The parity PR switches `McpServerManager`
+   field. Uninstall then falls back to matching the bundle segment of the
+   owned names in the target dialect's form (decision 5), which is stable
+   per bundle. The parity PR switches `McpServerManager`
    tracking to `configEntries`.
 
 2. **Kind → category is data in `core`, with per-target overrides in layout
@@ -228,24 +229,41 @@ Constraints carried in from earlier decisions and from #277:
        `[A-Za-z0-9_-]` within a length limit (UNVERIFIED per target). PR-13
        re-checks each target. Where the default is not accepted, that
        target's dialect declares the sanitised form
-       `prompt-registry__<bundleId>[__<pluginName>]__<serverName>`. If the
-       target has a length limit, the part after the bundle prefix is cut
-       to fit and the name ends with `__` plus the first 8 hex characters
-       of the sha256 of the full default-form name, so it stays
-       deterministic. If the bundle prefix alone does not fit, the item is
-       unsupported on that target.
-     - The bundle prefix is unambiguous in both forms. Collection ids match
-       `^[a-z0-9-]+$`
-       (`packages/core/src/public/schemas/collection.schema.json`), so a
-       `<bundleId>` never contains `:` or `_`, and one bundle's prefix
-       never matches another bundle's names. Server keys match
-       `^[a-zA-Z0-9_-]+$`, so in the sanitised form a collection server
-       key containing `__` could equal a plugin server's name. `config`
-       preflight treats two equal owned names in one install as a
+       `prompt-registry__<bundleId>[__<pluginName>]__<serverName>`, with
+       each segment encoded as below.
+     - `bundleId` is the lockfile key, not the collection id: `manifest.id`
+       or an Artifactory ref id (`packages/cli/src/commands/install.ts:1118`),
+       where the deployment manifest only requires a non-empty string
+       (`packages/core/src/public/schemas/deployment-manifest.schema.json:21-24`;
+       lockfile `bundles` keys have no pattern), or `<owner>-<repo>[-<id>]`
+       for replicated bundles (`packages/core/src/domain/hub/replicate.ts:33`).
+       `pluginName` may contain `.`
+       (`packages/core/src/public/schemas/agent-plugins/1.0.0/plugin.schema.json:16`), and plugin `mcp.json`
+       server keys are unconstrained. The helper must therefore guarantee:
+       only characters the target accepts; distinct (`bundleId`,
+       `pluginName`, `serverName`) triples give distinct names, up to a hash
+       collision; the same output in the CLI and the extension; and, in the
+       sanitised form, a bundle segment that matches exactly one encoded
+       `bundleId`. In the sanitised form each segment is lowercased, every
+       character outside `[a-z0-9-]` becomes `-`, and a segment this changed
+       gets `-` plus the first 8 hex characters of the sha256 of the
+       original segment. Encoded segments contain no `_`, so `__` separates
+       them without ambiguity. The default form keeps the extension's rule
+       unchanged. PR-13 fixes the exact algorithm against these invariants.
+     - If the target has a length limit, the part after
+       `prompt-registry__<encoded bundleId>__` is cut to fit and the name
+       ends with `__` plus the first 8 hex characters of the sha256 of the
+       full default-form name, so it stays deterministic. If that prefix
+       plus the 10-character `__<hash8>` suffix exceeds the limit, the item
+       is unsupported on that target.
+     - `config` preflight treats two equal owned names in one install as a
        conflicting destination and rejects the bundle.
      - Uninstall removes the names recorded in `configEntries`
-       (decision 1). The prefix fallback uses the dialect's form
-       (`prompt-registry:<bundleId>:` or `prompt-registry__<bundleId>__`).
+       (decision 1). The fallback splits each name on the dialect's
+       separator and removes it only when its bundle segment equals this
+       bundle's (encoded) `bundleId`. In the default form the fallback is
+       disabled for a `bundleId` that contains `:`; such a bundle relies on
+       `configEntries` alone.
      - The CLI and the extension call the same helper with the same
        dialect, so they write the same names on the same target.
    - **Placeholders.** APH expands `${PLUGIN_ROOT}` to the installed plugin
@@ -262,10 +280,14 @@ Constraints carried in from earlier decisions and from #277:
      (`packages/infra/src/storage/xdg-app-storage.ts`) and in the extension's
      `VsCodeAppStorage`, each under its own root. A plugin's data directory
      is `<pluginData>/<scope>/<scopeKey>/<bundleId>/<pluginName>/`, where
-     `scope` is `user` or `repository`. `scopeKey` is `user` for user scope.
+     `scope` is `user` or `repository`, and `bundleId` and `pluginName` use
+     the sanitised-form segment encoding so each is one safe path segment. `scopeKey` is `user` for user scope.
      For repository scope it is the first 16 hex characters of the sha256 of
-     the canonical repository root: its real path (symlinks resolved), `\`
-     replaced by `/`, no trailing `/`, no case folding. One pure `core`
+     the canonical repository root: its real path (symlinks resolved, in the
+     on-disk casing), `\` replaced by `/`, no trailing `/`, no case folding.
+     The on-disk casing matters on case-insensitive file systems, where
+     Node's JavaScript `fs.realpath` keeps the caller's casing; the port's
+     `realpath` is implemented with `fs.realpath.native`. One pure `core`
      helper computes it from the canonical path, beside `generateSourceId`
      (`packages/core/src/domain/source-id.ts`, which already hashes with
      sha256 and truncates). The real path comes from a `realpath` operation
@@ -398,10 +420,10 @@ Constraints carried in from earlier decisions and from #277:
     | JSON and JSONC config adapter, Node file modes | `infra` | `packages/infra/src/` |
     | the three category strategies (preflight, write, rollback, remove, verify), the plugin extension composing them, `installMcpServers` | `app` | `packages/app/src/install/`, `packages/app/src/writers/file-tree-writer.ts` |
     | `routeKindOf` and `ROUTE_PREFIX_KINDS` (route prefix → kind data) | `core` | moved from `packages/app/src/writers/file-tree-writer.ts` |
-    | owned MCP server names (`generatePrefixedServerName`), default and sanitised forms selected by the dialect | `core` | moved from `apps/vscode-extension/src/services/mcp-config-service.ts` |
+    | owned MCP server names (`generatePrefixedServerName`), default form and sanitised form with per-segment encoding, selected by the dialect | `core` | moved from `apps/vscode-extension/src/services/mcp-config-service.ts` |
     | `AppStoragePaths.pluginData` | `core` port, `infra` and extension adapters | `packages/core/src/ports/app-storage.ts` (ADR-0005) |
     | `scopeKey` helper (sha256 of the canonical repository root, 16 hex) | `core` | beside `packages/core/src/domain/source-id.ts` |
-    | `realpath` on the `FileSystem` port | `core` port, `infra` implementation | `packages/core/src/ports/filesystem.ts` |
+    | `realpath` on the `FileSystem` port, returning the on-disk casing | `core` port, `infra` implementation (`fs.realpath.native`) | `packages/core/src/ports/filesystem.ts` |
     | `PLUGIN_DATA` directory per plugin | `app`, via the `AppStorage` port | decision 5 |
     | `configEntries` in the lockfile entry | `core` schema and types, written by `app` | `lockfile.schema.json`, `packages/app/src/stores/json-lockfile-store.ts` |
     | repository-scope exclusion port (`.git/info/exclude` section) | `core` port, `infra` implementation | logic moved from `packages/infra/src/writers/repo-scope-writer.ts` |
@@ -584,7 +606,7 @@ suite exists (study PR-05). Study PR numbers and the G\* (gap), P\*
 | 1 | **CAT-1** (new) `refactor(core,app,infra)`: install categories, no install behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; the kind/route mismatch warning (decision 3) in `collection validate`, and in `doctor diagnostics --primitives` once PR-05 lands; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | PR-15 | later PRs change one place; adding a kind becomes a table row |
 | 2 | **PR-17** `feat(core,infra)`: kiro routes and power as a directory unit | `power` → `directory` in the table; kiro `hooks/` and `plugins/` routes; kiro and kiro-cli repository `powers/` route removed; Devin `powers/` re-checked | CAT-1 | hooks install on kiro; powers archive completely with unique ids (G08 hook half, G13) |
 | 3 | **PR-12** `fix`: file modes on install | modes applied in the shared file write, so every category gets them | PR-11; CAT-1 preferred | installed scripts are executable (G06 install half) |
-| 4 | **PR-13** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, devin repository path fixed, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default and sanitised forms; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | CAT-1 | collection MCP servers reach the target (G05 collection part) |
+| 4 | **PR-13** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, devin repository path fixed, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form and the sanitised form with per-segment encoding; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | CAT-1 | collection MCP servers reach the target (G05 collection part) |
 | 5 | **PR-14** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | PR-13 | `mcp-server` installs wherever an MCP config exists (G05 item part) |
 | 6 | **PR-18** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks (G11) |
 | 7 | **PR-16** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` and `realpath` on the `FileSystem` port; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; O10 interim rule | PR-13, PR-12, CAT-1, PR-17 (kiro only) | plugins are usable, not inert copies (G10, P8, P10, P12, G08 plugin half) |
