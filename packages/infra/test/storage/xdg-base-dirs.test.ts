@@ -38,6 +38,36 @@ describe('xdgConfigDir', () => {
   });
 });
 
+describe('injected home directory', () => {
+  // The env map, not the process, decides the home fallback, so a caller
+  // that sandboxes HOME (e.g. `doctor diagnostics`) can't leak into the
+  // real user's dirs when it leaves an XDG var unset. os.homedir() reads
+  // USERPROFILE on Windows and HOME elsewhere; the resolver mirrors that.
+  const homeKey = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+  const injectedHome = path.join(path.sep, 'sandbox', 'home');
+  const env: XdgEnv = { [homeKey]: injectedHome };
+
+  it('xdgDataDir falls back to the injected home', () => {
+    expect(xdgDataDir(env)).toBe(path.join(injectedHome, '.local', 'share', 'ai-primitives-hub'));
+  });
+
+  it('xdgConfigDir falls back to the injected home', () => {
+    expect(xdgConfigDir(env)).toBe(path.join(injectedHome, '.config', 'ai-primitives-hub'));
+  });
+
+  it('xdgCacheDir falls back to the injected home', () => {
+    expect(xdgCacheDir(env)).toBe(path.join(injectedHome, '.cache', 'ai-primitives-hub'));
+  });
+
+  it('XDG vars still take precedence over the injected home', () => {
+    expect(xdgDataDir({ ...env, XDG_DATA_HOME: '/xdg/data' })).toBe(path.join('/xdg/data', 'ai-primitives-hub'));
+  });
+
+  it('ignores an empty injected home and falls back to os.homedir()', () => {
+    expect(xdgDataDir({ [homeKey]: '' })).toBe(path.join(homeDir, '.local', 'share', 'ai-primitives-hub'));
+  });
+});
+
 describe('xdgCacheDir', () => {
   it('uses AI_PRIMITIVES_HUB_CACHE when set (highest precedence)', () => {
     const env: XdgEnv = { AI_PRIMITIVES_HUB_CACHE: '/custom/cache', XDG_CACHE_HOME: '/xdg/cache' };

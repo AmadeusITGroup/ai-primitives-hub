@@ -10,13 +10,11 @@
  * (ADR-0005 decision 2's shared resolver) rather than re-implementing
  * `XDG_CONFIG_HOME`/`~/.config` fallback logic inline as the reference
  * branch's own version of this file does — avoids reintroducing the
- * exact duplication that resolver was created to consolidate. One
- * behavioral difference from the reference's own inline version: the
- * no-`XDG_CONFIG_HOME` fallback is `os.homedir()` (via `xdgConfigDir`),
- * not `env.HOME`/`env.USERPROFILE` — matching every other XDG-based path
- * in this codebase (e.g. the harvest cache dir) rather than diverging
- * from them; a caller wanting a fully-hermetic override should still set
- * `XDG_CONFIG_HOME` itself, which both approaches honour identically.
+ * exact duplication that resolver was created to consolidate. The
+ * no-`XDG_CONFIG_HOME` fallback is the env's own home (`HOME`, or
+ * `USERPROFILE` on Windows) via `xdgConfigDir`, then `os.homedir()` —
+ * the same rule as every other XDG-based path in this codebase (e.g. the
+ * harvest cache dir).
  * All artifact names here are the CLI's own, not-yet-released state
  * (rebranded per migration plan §8 decision 3 — `prompt-registry` ->
  * `ai-primitives-hub`); this is unrelated to, and does not rename, the
