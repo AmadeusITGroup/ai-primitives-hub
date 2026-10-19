@@ -82,7 +82,7 @@ Constraints carried in from earlier decisions and from #277:
 6. **Layering holds.** Dependencies point inward (`CLI` and `Extension` →
    `app` → `infra` → `core`, ADR-0001). The extension gains no business rules.
 
-## Options considered
+## Alternatives considered
 
 - **A. Per-kind fixes.** Keep coding each kind in each writer and fix the gaps
   one by one (kiro routes, power packaging, MCP merge, plugin projection).
@@ -120,6 +120,23 @@ Constraints carried in from earlier decisions and from #277:
    shared file write (study PR-12), so `file` and `directory` kinds both get
    them.
 
+   `config` ownership is recorded in the install record, the
+   `LockfileBundleEntry` that both scopes already write (repository
+   `prompt-registry.lock.json` / `prompt-registry.local.lock.json`, and the
+   user-scope lockfile from `lockfilePathForTarget`,
+   `packages/cli/src/framework/target.ts`). PR-13 adds an optional
+   `configEntries: [{ path, key, name }]` to `bundleEntry` in
+   `packages/core/src/public/schemas/lockfile.schema.json`. It is written
+   only when an entry owns config entries, so lockfiles of bundles without
+   MCP stay byte-identical, and the lockfile name and shape stay as ADR-0004
+   requires. `bundleEntry` is `additionalProperties: false`; the extension's
+   `LockfileManager.validate()` checks against that schema but has no
+   production caller at `be1d161`, so released extensions are not affected.
+   Until VS Code parity, an extension rewrite of the same entry may drop the
+   field. Uninstall then falls back to the owned-name prefix (decision 5),
+   which is stable per bundle. The parity PR switches `McpServerManager`
+   tracking to `configEntries`.
+
 2. **Kind → category is data in `core`, with per-target overrides in layout
    data.**
 
@@ -148,14 +165,30 @@ Constraints carried in from earlier decisions and from #277:
    `kindRoutes`. The resolved category for (kind, target, scope) is the
    override if present, else the default.
 
-3. **Support is derived from data, not maintained by hand.** A kind is
-   supported on a target and scope when the resolved category's requirement
-   is met by the resolved layout: a route for `file` and `directory`, an MCP
-   config (or a declared hook config) for `config`, plus any kind-extension
-   requirement (decision 6). This replaces the `PRIMITIVE_SUPPORT_MATRIX`
-   assumed by the study plan, which does not exist and would drift from the
-   layouts. `preflight` and `doctor diagnostics --primitives` both use the
-   same derivation.
+3. **Support is derived from data, not maintained by hand.** Routing stays
+   by bundle path prefix, as today. The kind of a route is
+   `routeKindOf(prefix)`: today's `routeToKind` and `ROUTE_PREFIX_KINDS`
+   (`packages/app/src/writers/file-tree-writer.ts`), moved to `core` as data
+   beside the kind → category table. Then:
+
+   - Kind K is supported on (target, scope) when the resolved layout has at
+     least one `kindRoutes` key with `routeKindOf(key) = K` (for `file` and
+     `directory`), or when the resolved `config` requirement is met (an MCP
+     config, or a declared hook config), plus any kind-extension requirement
+     (decision 6).
+   - A bundle file's kind is the kind of the route it matches, which is what
+     `preflight` and `allowedKinds` filtering already use. A file that
+     matches no route is unsupported.
+   - A manifest item whose declared kind differs from the kind of the route
+     its path matches is routed as today and reported as a warning by
+     `collection validate` and the doctor. Rejecting it would make bundles
+     that install today fail, so that is not decided here.
+
+   The per-kind category override in a layout (decision 2) is keyed by kind
+   and applies to every route of that kind. This replaces the
+   `PRIMITIVE_SUPPORT_MATRIX` assumed by the study plan, which does not exist
+   and would drift from the layouts. `preflight` and
+   `doctor diagnostics --primitives` both use the same derivation.
 
 4. **Directory identity has one rule.** The item id of a `directory` kind is
    the name of `dirname(item.path)`, and packaging collects every file under
@@ -175,9 +208,15 @@ Constraints carried in from earlier decisions and from #277:
      equal its directory name ([Agent Plugins spec §7.1][spec]).
    - **MCP.** The plugin's root `mcp.json` (used only when its `$schema`
      version equals `plugin.json`'s, [spec §10.1][spec]) is projected through
-     the `config` category into the target's MCP config. Server names are
-     prefixed with the bundle and plugin identity, as the extension already
-     does for bundle servers.
+     the `config` category into the target's MCP config. Owned server names
+     use the extension's existing rule, `generatePrefixedServerName`
+     (`apps/vscode-extension/src/services/mcp-config-service.ts`), moved to
+     `core` unchanged: `prompt-registry:<bundleId>:<serverName>` for
+     collection `mcpServers` and `mcp-server` items, and
+     `prompt-registry:<bundleId>:<pluginName>:<serverName>` for plugin
+     servers. The `prompt-registry:` prefix is an existing machine
+     identifier and stays (ADR-0004), so the CLI and the extension write the
+     same names.
    - **Placeholders.** APH expands `${PLUGIN_ROOT}` to the installed plugin
      root and `${PLUGIN_DATA}` to the plugin's data directory, single pass, in
      `args`, `env` values and `cwd` only, never in `command`, `url`, headers or
@@ -185,10 +224,18 @@ Constraints carried in from earlier decisions and from #277:
      `env`, defaults `cwd` to the plugin root, and resolves `./` commands
      against it ([spec §7.2.1, §9.1, §9.2][spec]). The expansion logic is
      pure and unit-tested against the spec's examples.
-   - **`PLUGIN_DATA`.** Created by APH before first use under the injected
-     `AppStorage` data directory (ADR-0005), keyed by plugin identity, not
-     version, so it survives updates. It is removed on uninstall, which the
-     spec permits ([spec §9.1][spec]).
+   - **`PLUGIN_DATA`.** `AppStoragePaths`
+     (`packages/core/src/ports/app-storage.ts`) gains `pluginData: string`.
+     This extends the ADR-0005 port, and both adapters implement it:
+     `<root>/plugin-data` in `XdgAppStorage`
+     (`packages/infra/src/storage/xdg-app-storage.ts`) and in the extension's
+     `VsCodeAppStorage`, each under its own root. A plugin's data directory
+     is `<pluginData>/<scope>/<scopeKey>/<bundleId>/<pluginName>/`, where
+     `scope` is `user` or `repository` and `scopeKey` is `user` or a stable
+     hash of the repository root. It has no version segment, so it survives
+     updates, and no two bundles, scopes or repositories share one. APH
+     creates it before first use and uninstall removes only that directory,
+     which the spec permits ([spec §9.1][spec]).
    - **Other components.** Client-specific directories (`com.<vendor>.<client>/`,
      [spec §8][spec]) and any other content are carried verbatim inside the
      plugin root and not projected. Mapping them to target locations is a
@@ -223,9 +270,7 @@ Constraints carried in from earlier decisions and from #277:
 
    The plugin route must not resolve inside a directory the harness manages
    or scans with a different meaning. The default layouts keep today's
-   `plugins/` routes except where that rule is broken, which PR-16 moves to an
-   `ai-primitives-hub/plugins/` segment under the same base directory
-   (ADR-0004 naming for new artifacts):
+   `plugins/` routes except where that rule is broken or may be broken:
 
    - claude-code user: `~/.claude/plugins/` is Claude Code's managed plugin
      root, holding `cache/`, `data/` and `installed_plugins.json`
@@ -233,12 +278,30 @@ Constraints carried in from earlier decisions and from #277:
    - cursor user: `~/.cursor/plugins/local/` is Cursor's scanned local-plugin
      directory, so a plugin with id `local` would land in it
      ([Cursor plugins reference][cur-ref]).
-   - opencode, both scopes: `.opencode/plugins/` and
-     `~/.config/opencode/plugins/` hold OpenCode's JavaScript plugin modules
-     ([OpenCode plugins][oc-plugins]).
+   - opencode repository: `.opencode/plugins/` holds OpenCode's JavaScript
+     plugin modules ([OpenCode plugins][oc-plugins]).
+   - opencode user: OpenCode's documented global directory is
+     `~/.config/opencode/`, with JS plugins in `~/.config/opencode/plugins/`
+     ([OpenCode plugins][oc-plugins]). APH's opencode user `baseDir` is
+     `${HOME}/.opencode`, so APH writes `~/.opencode/plugins/`. Whether
+     OpenCode also reads `~/.opencode/` is UNVERIFIED. If it does, the
+     route collides as at repository scope; if it does not, every opencode
+     user-scope route is unread and the layout needs a `baseDir` fix. The
+     route is moved either way, and PR-16 re-checks the `baseDir`.
 
-   kiro gains a `plugins/` route (as kiro-cli has) so that projection has a
-   plugin root there.
+   PR-16 moves these routes:
+
+   | target, scope | today | after PR-16 |
+   |---|---|---|
+   | claude-code, user | `~/.claude/plugins/<id>/` | `~/.claude/ai-primitives-hub/plugins/<id>/` |
+   | cursor, user | `~/.cursor/plugins/<id>/` | `~/.cursor/ai-primitives-hub/plugins/<id>/` |
+   | opencode, user | `~/.opencode/plugins/<id>/` | `~/.opencode/ai-primitives-hub/plugins/<id>/` |
+   | opencode, repository | `.opencode/plugins/<id>/` | `.opencode/ai-primitives-hub/plugins/<id>/` |
+
+   The segment uses the new-artifact name `ai-primitives-hub` (ADR-0004). It
+   is not dotted, because the base directory is already hidden and the
+   folder holds installed content, not APH state. kiro gains a `plugins/`
+   route (as kiro-cli has) so that projection has a plugin root there.
 
 8. **Hooks stay `file` until a target's config override is evidenced and
    implemented.** Claude Code reads hooks from `settings.json`
@@ -266,7 +329,8 @@ Constraints carried in from earlier decisions and from #277:
      installed through a registry step ([power installation][kiro-powers-install]).
      kiro and kiro-cli plugins therefore use `project`: skills into
      `.kiro/skills/` or `~/.kiro/skills/` ([Kiro skills][kiro-skills]), MCP into
-     `.kiro/settings/mcp.json` or `~/.kiro/settings/mcp.json`.
+     `.kiro/settings/mcp.json` or `~/.kiro/settings/mcp.json` (layout data;
+     UNVERIFIED against Kiro docs, re-checked by PR-13).
    - **Power** is a `directory` kind. Both formats are directories: Agent
      Plugins format with `plugin.json` ([Kiro powers][kiro-powers],
      [creating powers][kiro-powers-create]), and legacy `POWER.md` with
@@ -292,14 +356,24 @@ Constraints carried in from earlier decisions and from #277:
     | default layout data: routes, overrides, plugin modes, MCP dialects | `infra` | `packages/infra/src/writers/default-layouts.json` |
     | JSON and JSONC config adapter, Node file modes | `infra` | `packages/infra/src/` |
     | the three category strategies (preflight, write, rollback, remove, verify), the plugin extension composing them, `installMcpServers` | `app` | `packages/app/src/install/`, `packages/app/src/writers/file-tree-writer.ts` |
-    | `PLUGIN_DATA` root | `app`, via the `AppStorage` port | `packages/core/src/ports/app-storage.ts` (ADR-0005) |
+    | `routeKindOf` and `ROUTE_PREFIX_KINDS` (route prefix → kind data) | `core` | moved from `packages/app/src/writers/file-tree-writer.ts` |
+    | owned MCP server names (`generatePrefixedServerName`) | `core` | moved from `apps/vscode-extension/src/services/mcp-config-service.ts` |
+    | `AppStoragePaths.pluginData` | `core` port, `infra` and extension adapters | `packages/core/src/ports/app-storage.ts` (ADR-0005) |
+    | `PLUGIN_DATA` directory per plugin | `app`, via the `AppStorage` port | decision 5 |
+    | `configEntries` in the lockfile entry | `core` schema and types, written by `app` | `lockfile.schema.json`, `packages/app/src/stores/json-lockfile-store.ts` |
+    | repository-scope exclusion port (`.git/info/exclude` section) | `core` port, `infra` implementation | logic moved from `packages/infra/src/writers/repo-scope-writer.ts` |
     | writer selection, flags, output | `cli` | `packages/cli/src/commands/install.ts` (`createWriterFactory`) |
 
     `RepositoryScopeWriter` lives in `infra` and cannot call `app`. It first
     uses the `core` category helpers to collapse its duplicated branches. Its
-    placement logic is then retired in favour of the `app` strategies, leaving
-    only repository-specific concerns (git exclusion, commit mode) in the
-    CLI's writer selection.
+    placement logic is then retired in favour of the `app` strategies.
+    Repository-specific behaviour is not moved to a delivery layer: git
+    exclusion becomes a `core` port with an `infra` implementation (today's
+    `.git/info/exclude` section management), and commit mode keeps selecting
+    the lockfile file (`getLockfilePathForMode`). The `app` install and
+    uninstall pipelines call both for repository scope. The CLI only selects
+    the scope and passes flags, so the extension reaches the same behaviour
+    through `app` (decision 11).
 
 11. **The VS Code extension consumes the model through `app` (ADR-0001).**
     The extension already calls `FileTreeTargetWriter.writeManifestItems` for
@@ -329,11 +403,31 @@ with a root `mcp.json` is ❌ at repository scope on every target.
 | windsurf | ✅ | ✅ skills | user ✅ `~/.codeium/windsurf/mcp_config.json` (→ PR-13); repository ❌ no MCP config | today inert copy → `project` | `file` today; `config` (`hooks.json`) UNVERIFIED |
 | claude-code | ✅ incl. `command`, `output-style` | ✅ skills | ✅ `~/.claude.json` / `.mcp.json` (→ PR-13) | today inert copy → `project`, user plugin route moved | `file` today, not read as hooks → `config` (`settings.json`) later |
 | cursor | ✅ incl. `rule` | ✅ skills | ✅ `~/.cursor/mcp.json` / `.cursor/mcp.json` (→ PR-13) | today inert copy → `project`, user plugin route moved | `file` today, not read as hooks → `config` (`hooks.json`) later |
-| opencode | ✅ incl. `tool` | ✅ skills | today's `mcp.json` / `mcpServers` does not match OpenCode's `opencode.json` `mcp` key and server shape ([OpenCode MCP][oc-mcp]) → ❌ until PR-13 adds the dialect | today inert copy into the JS plugin directory → `project`, plugin route moved | `file`; whether OpenCode reads `hooks/` is UNVERIFIED |
-| devin, devin-cli | ✅ incl. `knowledge`, `playbook` | ✅ skills, `power` | APH writes `.devin/mcp.json`; Devin CLI documents `.devin/mcp_config.json` ([Devin MCP][devin-mcp]) → PR-13 fixes the path | today inert copy → `project` | `file` (UNVERIFIED) |
+| opencode | ✅ incl. `tool` | ✅ skills | today's `.opencode/mcp.json` / `mcpServers` does not match OpenCode's `opencode.json`, key `mcp`, server shape `type`, array `command`, `environment` ([OpenCode MCP][oc-mcp]) → PR-13 adds that dialect | today inert copy into the JS plugin directory → `project`, plugin route moved | `file`; whether OpenCode reads `hooks/` is UNVERIFIED |
+| devin, devin-cli | ✅ incl. `knowledge`, `playbook` | ✅ skills, `power` | repository: APH writes `.devin/mcp.json`; Devin CLI documents `.devin/mcp_config.json` ([Devin MCP][devin-mcp]) → PR-13 fixes the path. user: `~/.devin/mcp.json` today; `~/.config/devin/mcp_config.json` is from a search snippet only (UNVERIFIED) | today inert copy → `project` | `file` (UNVERIFIED) |
 
-The `config` column assumes PR-13 has landed. Until then no `config` kind
-installs anywhere, as today.
+✅ in `file` and `directory` means the listed routes exist. A kind with no
+route on that target is ❌ (decision 3); for example `steering`, `rule` and
+`command` have no route on vscode.
+
+Paths without a link are APH's `default-layouts.json` values at `be1d161`.
+That the harness reads them is UNVERIFIED: this covers the MCP paths and
+keys for vscode, copilot-cli, kiro, kiro-cli, windsurf, claude-code and
+cursor; the skills routes on vscode, copilot-cli, claude-code, cursor and
+devin; and VS Code reading `~/.copilot/hooks/` and `.github/hooks/`. Kiro
+skills ([Kiro skills][kiro-skills]) and windsurf skills, a legacy path that
+still works ([Devin Desktop skills][devin-skills]), are documented. The PR
+that changes a cell re-checks it: PR-13 for `config`, PR-16 for skills
+projection.
+
+PR-13 has one outcome for every `config` cell: it writes only to a path
+and dialect that are documented, or confirmed by a recorded manual check.
+So it adds the opencode dialect and fixes the devin repository path. A cell
+that is still UNVERIFIED when PR-13 lands, such as the devin user path, is
+set to unsupported in layout data, never written to a guessed path. The
+same rule applies to the opencode dialect if the generic dialect model
+cannot express it. Nothing regresses, because no `config` kind installs
+anywhere before PR-13.
 
 ### Per-target plugin semantics
 
@@ -377,6 +471,10 @@ baseline everywhere.
   workspace-relative token there is UNVERIFIED. Until this is settled, a plugin
   with a root `mcp.json` is unsupported at repository scope (decision 6 then
   applies); plugins with skills only are unaffected.
+- **O12 — projected skill name collisions.** Answered: a projected skill
+  whose destination exists and is not owned by the same install is a
+  preflight conflict. APH rejects the install and does not namespace the
+  skill, because a skill's `name` must equal its directory name (decision 6).
 - **O14 (open) — `spec` as a directory unit.** A Kiro spec is a folder
   holding `requirements.md` (or `bugfix.md`), `design.md` and `tasks.md`
   ([Kiro specs][kiro-specs]). `spec` stays `file` until the collection
@@ -395,9 +493,10 @@ confirmation when this ADR is accepted.
   writers, and the two copies of the directory installer, collapse into one
   strategy. G09 and the power
   packaging bug (G13) are fixed by the same rule.
-- **Positive:** plugins become usable on every target: their skills are where
-  the harness reads skills, their MCP servers are in the harness's MCP config,
-  and placeholders are resolved.
+- **Positive:** plugins stop being inert copies: their skills go to the
+  layout's skills route, their MCP servers to the layout's MCP config, and
+  placeholders are resolved. Where those routes are only layout data, the
+  harness reading them is UNVERIFIED until PR-13 and PR-16 re-check them.
 - **Positive:** support is derived from the layouts, so the doctor, preflight
   and documentation cannot disagree with what install actually does.
 - **Positive:** the CLI and the extension share one implementation once the
@@ -406,11 +505,16 @@ confirmation when this ADR is accepted.
   output is invisible in the harness's own plugin UI. `native` and `register`
   remain follow-ups.
 - **Negative:** the `config` category needs a per-target MCP dialect (path,
-  root key, server shape), not just `path` and `serversKey`. opencode and
-  devin layouts are already wrong today.
+  root key, server shape), not just `path` and `serversKey`. The opencode
+  and devin MCP data is wrong today; PR-13 adds the opencode dialect and
+  fixes the devin repository path, and sets any still-unverified cell to
+  unsupported.
+- **Negative:** `AppStoragePaths` and `lockfile.schema.json` each gain a
+  field, which both deliveries must implement (ADR-0005 port, ADR-0004
+  lockfile shared with the extension).
 - **Negative:** `PLUGIN_DATA` lives in each client's `AppStorage`, so a plugin
-  installed by the CLI and by the extension gets different data directories
-  and slightly different MCP entries.
+  installed by the CLI and by the extension gets different data directories.
+  Its MCP entries have the same names but different `PLUGIN_DATA` values.
 - **Negative:** repository-scope plugins with MCP servers stay unsupported
   until O10 is settled. Repository-scope powers on Kiro become unsupported.
   Both installed before, as copies the harness did not read.
@@ -424,18 +528,20 @@ confirmation when this ADR is accepted.
 
 Each PR is small, keeps the default behaviour unless it says otherwise, and
 removes its known-gap entries from `doctor diagnostics --primitives` once that
-suite exists (study PR-05). Study PR numbers refer to #277.
+suite exists (study PR-05). Study PR numbers and the G\* (gap), P\*
+(plugin property) and O\* (open question) ids refer to the lists in
+[#277][i277].
 
 | order | PR | content | depends on | value |
 |---|---|---|---|---|
 | 0 | **PR-15** `docs(adr)` | this ADR and its index row | — | an agreed contract |
-| 1 | **CAT-1** (new) `refactor(core,app,infra)`: install categories, no behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer; characterisation tests first | PR-15 | later PRs change one place; adding a kind becomes a table row |
+| 1 | **CAT-1** (new) `refactor(core,app,infra)`: install categories, no behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | PR-15 | later PRs change one place; adding a kind becomes a table row |
 | 2 | **PR-17** `feat(core,infra)`: kiro routes and power as a directory unit | `power` → `directory` in the table; kiro `hooks/` and `plugins/` routes; kiro and kiro-cli repository `powers/` route removed; Devin `powers/` re-checked | CAT-1 | hooks install on kiro; powers archive completely with unique ids (G08 hook half, G13) |
 | 3 | **PR-12** `fix`: file modes on install | modes applied in the shared file write, so every category gets them | PR-11; CAT-1 preferred | installed scripts are executable (G06 install half) |
-| 4 | **PR-13** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data (fixes opencode and devin, or marks them unsupported); JSON/JSONC adapter; ownership records; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | CAT-1 | collection MCP servers reach the target (G05 collection part) |
+| 4 | **PR-13** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, devin repository path fixed, every `config` cell re-checked and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name rule moved to `core`; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | CAT-1 | collection MCP servers reach the target (G05 collection part) |
 | 5 | **PR-14** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | PR-13 | `mcp-server` installs wherever an MCP config exists (G05 item part) |
 | 6 | **PR-18** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks (G11) |
-| 7 | **PR-16** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; claude-code user, cursor user and opencode plugin routes moved; O10 interim rule | PR-13, PR-12, CAT-1 | plugins are usable, not inert copies (G10, P8, P10, P12, G08 plugin half) |
+| 7 | **PR-16** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; O10 interim rule | PR-13, PR-12, CAT-1, PR-17 (kiro only) | plugins are usable, not inert copies (G10, P8, P10, P12, G08 plugin half) |
 | 8 | **CAT-2** (new, optional) `feat`: config-based hooks | `hook` → `config` overrides for claude-code and cursor (windsurf once verified) | PR-13 | hooks fire on those targets |
 | 9 | **CAT-3** (new, optional, per target) `feat`: `native` or `register` mode | only with documentation or a recorded manual check for that target (for example O3a for Kiro) | PR-16 | the harness's own plugin UX where proven |
 | late | **VS Code parity** sub-issue of #277 | extension scope services and `McpServerManager` delegate to the `app` strategies (ADR-0001) | PR-13, PR-16 stable | the same files and lockfile entries from both deliveries |
@@ -472,7 +578,8 @@ are reports, not vendor contracts.
 - [PR #497 maintainer comment][pr497]
 
 [spec]: https://agent-plugins.org/specification
-[clients]: https://github.com/agentplugins/agent-plugins-site/blob/main/lib/compatible-clients.ts
+[clients]: https://github.com/agentplugins/agent-plugins-site/blob/f399975/lib/compatible-clients.ts
+[i277]: https://github.com/AmadeusITGroup/ai-primitives-hub/issues/277
 [vsc-plugins]: https://code.visualstudio.com/docs/copilot/customization/agent-plugins
 [vsc-336882]: https://github.com/microsoft/vscode/issues/336882
 [vsc-335006]: https://github.com/microsoft/vscode/issues/335006
