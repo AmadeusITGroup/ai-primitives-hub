@@ -7,6 +7,9 @@
  * and scripts survive the install/replay steps.
  */
 import {
+  execFileSync,
+} from 'node:child_process';
+import {
   createWriteStream,
 } from 'node:fs';
 import {
@@ -107,6 +110,82 @@ describe('buildDiagnosticEnv', () => {
     const cache = defaultCacheDir(env);
     expect(isInside(workspace, cache), `cache=${cache}`).toBe(true);
   });
+
+  it('drops every inherited GIT_* variable and keeps PATH, GITHUB_* and GH_*', () => {
+    const gitVars = {
+      GIT_DIR: path.join(path.sep, 'user', 'repo', '.git'),
+      GIT_WORK_TREE: path.join(path.sep, 'user', 'repo'),
+      GIT_INDEX_FILE: path.join(path.sep, 'user', 'repo', '.git', 'index'),
+      GIT_OBJECT_DIRECTORY: path.join(path.sep, 'user', 'repo', '.git', 'objects'),
+      GIT_COMMON_DIR: path.join(path.sep, 'user', 'repo', '.git'),
+      GIT_CONFIG: path.join(path.sep, 'user', 'repo', '.git', 'config'),
+      GIT_CONFIG_PARAMETERS: '\'commit.gpgsign\'=\'true\'',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'user.email',
+      GIT_CONFIG_VALUE_0: 'user@example.com'
+    };
+    const env = buildDiagnosticEnv(
+      createTestContext({
+        env: {
+          ...gitVars,
+          PATH: '/usr/bin',
+          GITHUB_REPOSITORY: 'example/repo',
+          GH_TOKEN: 'token-placeholder'
+        }
+      }),
+      workspace
+    );
+
+    expect(Object.keys(env).filter((name) => name.startsWith('GIT_'))).toEqual([]);
+    expect(env.PATH).toBe('/usr/bin');
+    expect(env.GITHUB_REPOSITORY).toBe('example/repo');
+    expect(env.GH_TOKEN).toBe('token-placeholder');
+  });
+});
+
+describe('doctor diagnostics with inherited GIT_* variables', () => {
+  let scratch: string;
+
+  const git = (args: string[]): string =>
+    execFileSync('git', args, { cwd: scratch, encoding: 'utf8', env: { PATH: process.env.PATH } });
+
+  beforeEach(async () => {
+    scratch = await mkdtemp(path.join(os.tmpdir(), 'cli-doctor-git-env-'));
+    git(['init', '-q']);
+  });
+
+  afterEach(async () => {
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it('never touches the repository named by GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE', async () => {
+    const configBefore = await readFile(path.join(scratch, '.git', 'config'));
+    const statusBefore = git(['status', '--porcelain']);
+
+    const result = await runCommand(['doctor', 'diagnostics', '-o', 'json'], {
+      commandClasses: [DoctorDiagnosticsCommand],
+      context: {
+        fs: new NodeFileSystem(),
+        env: {
+          ...process.env,
+          AI_PRIMITIVES_HUB_SKIP_NETWORK: '1',
+          GIT_DIR: path.join(scratch, '.git'),
+          GIT_INDEX_FILE: path.join(scratch, '.git', 'index'),
+          GIT_WORK_TREE: scratch,
+          GIT_CONFIG_PARAMETERS: '\'commit.gpgsign\'=\'true\''
+        }
+      }
+    });
+    const envelope = JSON.parse(result.stdout) as {
+      data: { steps: { name: string; exitCode: number }[] };
+    };
+
+    expect(envelope.data.steps.filter((step) => step.exitCode !== 0)).toEqual([]);
+    expect(envelope.data.steps).toHaveLength(54);
+    expect(await readFile(path.join(scratch, '.git', 'config'))).toEqual(configBefore);
+    expect(git(['status', '--porcelain'])).toBe(statusBefore);
+    expect(result.exitCode).toBe(0);
+  }, 60_000);
 });
 
 describe('materializeBundleArchive', () => {
