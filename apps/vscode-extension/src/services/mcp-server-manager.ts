@@ -473,6 +473,9 @@ export class McpServerManager {
       const tracking = await this.configService.readTrackingMetadata(options.scope);
 
       const serversToInstall: Record<string, any> = {};
+      const location = McpConfigLocator.getMcpConfigLocation(
+        options.scope === 'workspace' ? 'repository' : 'user'
+      );
 
       for (const [serverName, definition] of Object.entries(serversManifest)) {
         const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName);
@@ -482,7 +485,8 @@ export class McpServerManager {
           definition,
           bundleId,
           bundleVersion,
-          bundlePath
+          bundlePath,
+          location?.envPlaceholderStyle
         );
 
         serversToInstall[prefixedName] = serverConfig;
@@ -497,9 +501,6 @@ export class McpServerManager {
         };
       }
 
-      const location = McpConfigLocator.getMcpConfigLocation(
-        options.scope === 'workspace' ? 'repository' : 'user'
-      );
       // See the note in installServersToWorkspace: hosts that cannot resolve
       // `${input:id}` still get the server written, with a warning instead of a hard
       // failure, so the user can supply the value manually.
@@ -629,6 +630,7 @@ export class McpServerManager {
 
       const serversToInstall: Record<string, any> = {};
       const conflicts: string[] = [];
+      const workspaceLocation = this.getWorkspaceMcpLocation(workspaceRoot);
 
       for (const [serverName, definition] of Object.entries(serversManifest)) {
         const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName);
@@ -651,7 +653,8 @@ export class McpServerManager {
           definition,
           bundleId,
           bundleVersion,
-          workspaceRoot
+          workspaceRoot,
+          workspaceLocation.envPlaceholderStyle
         );
 
         serversToInstall[prefixedName] = serverConfig;
@@ -677,7 +680,7 @@ export class McpServerManager {
       // written, because a present-but-unconfigured server is more useful than no
       // server at all — the user can fill the value in directly. We surface a warning
       // so they know the manual step is required.
-      const supportsInputs = this.getWorkspaceMcpLocation(workspaceRoot).supportsInputs;
+      const supportsInputs = workspaceLocation.supportsInputs;
       const unsupportedInputs = this.describeUnsupportedInputs(serversToInstall, supportsInputs);
       if (unsupportedInputs) {
         result.warnings?.push(unsupportedInputs);

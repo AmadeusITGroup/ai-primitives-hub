@@ -478,6 +478,47 @@ mcp:
       expect(cliManifest).toEqual(legacyManifest);
     });
 
+    it('preserves ${env:VAR} and ${env:VAR:-default} placeholders in MCP headers verbatim', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+description: Test collection
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+mcp:
+  items:
+    gateway:
+      type: http
+      url: https://gateway.example.test/mcp
+      headers:
+        x-jira-token: "Token \${env:JIRA_PAT:-}"
+        x-sonar-token: "Token \${env:SONARQUBE_TOKEN}"
+        x-user: \${env:APROACH_USERNAME:-anonymous}
+`
+      );
+
+      const outFile = path.join(workspace, 'manifest.yml');
+      const result = await run([
+        'bundle', 'manifest',
+        '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml',
+        '--out-file', outFile,
+        '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(0);
+
+      const manifest = yaml.load(await readFile(outFile, 'utf8')) as {
+        mcpServers: Record<string, { headers: Record<string, string> }>;
+      };
+      expect(manifest.mcpServers.gateway.headers).toEqual({
+        'x-jira-token': 'Token ${env:JIRA_PAT:-}',
+        'x-sonar-token': 'Token ${env:SONARQUBE_TOKEN}',
+        'x-user': '${env:APROACH_USERNAME:-anonymous}'
+      });
+    });
+
     it('records the declared README basename and matches the legacy generator', async () => {
       await mkdir(path.join(workspace, 'docs'), { recursive: true });
       await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');

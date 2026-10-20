@@ -205,7 +205,8 @@ suite('McpServerManager — host and scope behaviour', () => {
         trackingPath: mockTrackingPath,
         exists: false,
         serversKey: 'mcpServers',
-        supportsInputs: false
+        supportsInputs: false,
+        envPlaceholderStyle: 'bare'
       });
       localSandbox.stub(McpConfigLocator, 'ensureConfigDirectory').resolves();
 
