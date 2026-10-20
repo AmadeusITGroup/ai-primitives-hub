@@ -13,6 +13,13 @@
  * @module domain/bundle/types
  */
 
+import type {
+  SourceType,
+} from '../source/types';
+import {
+  extractBundleIdentity,
+} from './version';
+
 /**
  * Bundle metadata as surfaced by a source adapter.
  */
@@ -96,6 +103,123 @@ export interface BundleRef {
  */
 export function getBundleRefKey(ref: Pick<BundleRef, 'sourceId' | 'bundleId' | 'bundleVersion'>): string {
   return `${ref.sourceId}\u0000${ref.bundleId}\u0000${ref.bundleVersion}`;
+}
+
+/**
+ * Version-agnostic identity for a source-qualified bundle.
+ *
+ * Used by the query-time installation overlay when an index record carries a
+ * Git commit SHA (`GitHubSingleBundleProvider`, `AwesomeCopilotBundleProvider`)
+ * or a consolidated latest semver version that differs from the user's
+ * currently installed version.
+ * @param ref
+ */
+export function getBundleIdentityKey(ref: Pick<BundleRef, 'sourceId' | 'bundleId'>): string {
+  return `${ref.sourceId}\u0000${ref.bundleId}`;
+}
+
+const NORMALIZED_INSTALLED_KEYS_MARKER = '\u0000__normalized__';
+
+/**
+ * Extract the canonical bundle identity, falling back to the raw `bundleId`
+ * when `extractBundleIdentity` throws (for example, when `bundleId` exceeds
+ * `MAX_BUNDLE_ID_LENGTH`).
+ * @param bundleId
+ * @param sourceType
+ */
+export function safeExtractBundleIdentity(bundleId: string, sourceType: SourceType): string {
+  try {
+    return extractBundleIdentity(bundleId, sourceType);
+  } catch {
+    return bundleId;
+  }
+}
+
+/**
+ * Build lookup keys for an installed bundle so query-time installation overlays
+ * match exact `(sourceId, bundleId, bundleVersion)` refs, version-agnostic
+ * `(sourceId, bundleId)` refs, and source-level GitHub bundle refs.
+ * @param entry
+ * @param entry.sourceId
+ * @param entry.bundleId
+ * @param entry.bundleVersion
+ * @param entry.sourceType
+ */
+export function buildInstalledBundleLookupKeys(entry: {
+  sourceId: string;
+  bundleId: string;
+  bundleVersion?: string;
+  sourceType?: string;
+}): string[] {
+  const keys = new Set<string>([
+    getBundleIdentityKey({ sourceId: entry.sourceId, bundleId: entry.bundleId }),
+    getBundleIdentityKey({ sourceId: entry.sourceId, bundleId: entry.sourceId })
+  ]);
+  if (entry.bundleVersion !== undefined && entry.bundleVersion.length > 0) {
+    keys.add(getBundleRefKey({
+      sourceId: entry.sourceId,
+      bundleId: entry.bundleId,
+      bundleVersion: entry.bundleVersion
+    }));
+  }
+  const baseId = safeExtractBundleIdentity(entry.bundleId, (entry.sourceType ?? 'github') as SourceType);
+  if (baseId !== entry.bundleId) {
+    keys.add(getBundleIdentityKey({ sourceId: entry.sourceId, bundleId: baseId }));
+    if (entry.bundleVersion !== undefined && entry.bundleVersion.length > 0) {
+      keys.add(getBundleRefKey({
+        sourceId: entry.sourceId,
+        bundleId: baseId,
+        bundleVersion: entry.bundleVersion
+      }));
+    }
+  }
+  return [...keys];
+}
+
+/**
+ * Expand a list or set of raw installed-bundle keys (3-part `getBundleRefKey`
+ * or 2-part `getBundleIdentityKey`) into a normalized lookup set.
+ * @param installedBundleKeys
+ */
+export function normalizeInstalledBundleKeys(installedBundleKeys: Iterable<string>): Set<string> {
+  if (installedBundleKeys instanceof Set && installedBundleKeys.has(NORMALIZED_INSTALLED_KEYS_MARKER)) {
+    return installedBundleKeys as Set<string>;
+  }
+  const expanded = new Set<string>([NORMALIZED_INSTALLED_KEYS_MARKER]);
+  for (const rawKey of installedBundleKeys) {
+    expanded.add(rawKey);
+    const parts = rawKey.split('\u0000');
+    if (parts.length >= 2 && parts[0] && parts[1]) {
+      const [sourceId, bundleId, bundleVersion] = parts;
+      for (const key of buildInstalledBundleLookupKeys({ sourceId, bundleId, bundleVersion })) {
+        expanded.add(key);
+      }
+    }
+  }
+  return expanded;
+}
+
+/**
+ * Check whether an indexed `BundleRef` matches the current installed-bundle
+ * snapshot.
+ * @param ref
+ * @param installedBundleKeys
+ */
+export function isBundleRefInstalled(
+  ref: Pick<BundleRef, 'sourceId' | 'bundleId' | 'bundleVersion'> & { sourceType?: string },
+  installedBundleKeys: Iterable<string> | ReadonlySet<string>
+): boolean {
+  const lookup = installedBundleKeys instanceof Set && installedBundleKeys.has(NORMALIZED_INSTALLED_KEYS_MARKER)
+    ? installedBundleKeys
+    : normalizeInstalledBundleKeys(installedBundleKeys);
+  if (lookup.has(getBundleRefKey(ref)) || lookup.has(getBundleIdentityKey(ref))) {
+    return true;
+  }
+  const baseId = safeExtractBundleIdentity(ref.bundleId, (ref.sourceType ?? 'github') as SourceType);
+  if (baseId !== ref.bundleId && lookup.has(getBundleIdentityKey({ sourceId: ref.sourceId, bundleId: baseId }))) {
+    return true;
+  }
+  return false;
 }
 
 /**

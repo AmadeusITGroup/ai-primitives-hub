@@ -77,6 +77,27 @@ export function compareVersions(v1: string, v2: string): number {
 }
 
 /**
+ *Compare two semantic versions strictly when both strings are valid/cleanable
+ * semver versions. Returns `undefined` when either string is not a valid
+ * semantic version (for example, a Git commit SHA such as `'9f8e1a2b'`) so
+ * callers can fall back to another ordering signal without numeric coercion.
+ * @param v1 - First version string
+ * @param v2 - Second version string
+ * @returns -1, 0, or 1 when both are valid semver, otherwise undefined
+ */
+export function compareSemverIfValid(v1: string, v2: string): number | undefined {
+  if (!v1 || !v2 || v1.length > MAX_VERSION_LENGTH || v2.length > MAX_VERSION_LENGTH) {
+    return undefined;
+  }
+  const clean1 = semver.clean(v1);
+  const clean2 = semver.clean(v2);
+  if (!clean1 || !clean2) {
+    return undefined;
+  }
+  return semver.compare(clean1, clean2);
+}
+
+/**
  * Determine if an update is available using semver.gt()
  * @param installedVersion - Currently installed version
  * @param latestVersion - Latest available version

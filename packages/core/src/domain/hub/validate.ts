@@ -227,7 +227,17 @@ export function validateHubReference(ref: HubReference): void {
 
   switch (ref.type) {
     case 'github': {
-      if (!/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/.test(ref.location)) {
+      const segments = ref.location.split('/');
+      const [owner, repo] = segments;
+      if (
+        segments.length !== 2
+        || hasPathTraversal(ref.location)
+        || !owner
+        || !repo
+        || repo === '.'
+        || !/^[a-zA-Z0-9_-]+$/.test(owner)
+        || !/^[a-zA-Z0-9_.-]+$/.test(repo)
+      ) {
         throw new Error('Invalid GitHub repository format. Expected: owner/repo');
       }
       break;

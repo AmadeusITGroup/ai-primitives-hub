@@ -84,12 +84,22 @@ describe('sanitizeHubId', () => {
 });
 
 describe('validateHubReference', () => {
-  it('accepts a valid github reference', () => {
+  it('accepts a valid github reference (including dots in repository name)', () => {
     expect(() => validateHubReference({ type: 'github', location: 'owner/repo' })).not.toThrow();
+    expect(() => validateHubReference({ type: 'github', location: 'Amadeus-xDLC/genai.prompt-registry-config' })).not.toThrow();
   });
 
   it('rejects a malformed github reference', () => {
     expect(() => validateHubReference({ type: 'github', location: 'not-owner-slash-repo' })).toThrow(
+      'Expected: owner/repo'
+    );
+    expect(() => validateHubReference({ type: 'github', location: '../repo' })).toThrow(
+      'Expected: owner/repo'
+    );
+    expect(() => validateHubReference({ type: 'github', location: './repo' })).toThrow(
+      'Expected: owner/repo'
+    );
+    expect(() => validateHubReference({ type: 'github', location: 'owner/.' })).toThrow(
       'Expected: owner/repo'
     );
   });
