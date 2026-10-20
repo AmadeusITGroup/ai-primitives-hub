@@ -23,13 +23,19 @@ import type {
 } from './types';
 
 /**
+ * The single collection-id pattern. `collection.schema.json` carries the same
+ * pattern for editors; a test keeps the two in step.
+ */
+export const COLLECTION_ID_PATTERN = /^[a-z0-9-]+$/;
+
+/**
  * Default validation rules for collections.
  * Item kinds are sourced from the canonical PRIMITIVE_KINDS list.
  */
 export const DEFAULT_VALIDATION_RULES: ValidationRules = {
   collectionId: {
     maxLength: 100,
-    pattern: /^[a-z0-9-]+$/,
+    pattern: COLLECTION_ID_PATTERN,
     description: 'lowercase letters, numbers, and hyphens only'
   },
   version: {

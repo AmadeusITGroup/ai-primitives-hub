@@ -18,6 +18,10 @@ import {
   Option,
   type OutputFormat,
 } from '../framework';
+import {
+  executeValidationGovernance,
+  isGovernanceRequested,
+} from './validation-governance';
 
 /**
  * Render skill validation results as text.
@@ -54,6 +58,10 @@ export class SkillValidateCommand extends Command {
       Options:
         -o, --output <format>       Output format (text, json, yaml, ndjson)
         --skills-dir <dir>          Skills directory (default: skills)
+        --governance               Enable governance verdict and scoring
+        --policy <path>            Apply governance policy (enables governance)
+        --min-score <number>       Enforce a 0-100 score floor (enables governance)
+        --report-path <path>       Write provider report (enables governance)
         --verbose                   Print each ok skill in text mode
 
       Examples:
@@ -63,14 +71,21 @@ export class SkillValidateCommand extends Command {
     `
   });
 
-  public output = Option.String('-o', '--output') as OutputFormat | undefined;
+  public output = Option.String('-o,--output');
   public skillsDir = Option.String('--skills-dir');
+  public governance = Option.Boolean('--governance', false);
+  public policy = Option.String('--policy');
+  public minScore = Option.String('--min-score');
+  public reportPath = Option.String('--report-path');
   public verbose = Option.Boolean('--verbose', false);
   public commandContext!: { ctx: Context };
 
   public execute(): Promise<number> {
     const { ctx } = this.commandContext;
-    const fmt = this.output ?? 'text';
+    const fmt = (this.output ?? 'text') as OutputFormat;
+    if (isGovernanceRequested(this)) {
+      return executeValidationGovernance(ctx, { subject: 'primitive', skillsDir: this.skillsDir }, this, fmt);
+    }
     const cwd = ctx.cwd();
     const result = validateAllSkills(cwd, this.skillsDir ?? 'skills');
     formatOutput({

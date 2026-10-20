@@ -360,8 +360,13 @@ export class AwesomeCopilotAdapter extends BaseSourceAdapter {
     return finished;
   }
 
-  public async fetchBundles(): Promise<Bundle[]> {
-    if (this.cache && this.clock.now() - this.cache.cachedAtMs < CACHE_TTL_MS) {
+  /** Read a complete catalog for governance without changing the legacy discovery contract. */
+  public fetchBundlesStrict(): Promise<Bundle[]> {
+    return this.fetchBundles({ strict: true });
+  }
+
+  public async fetchBundles(options?: { strict?: boolean }): Promise<Bundle[]> {
+    if (!options?.strict && this.cache && this.clock.now() - this.cache.cachedAtMs < CACHE_TTL_MS) {
       return this.cache.bundles;
     }
 
@@ -369,6 +374,9 @@ export class AwesomeCopilotAdapter extends BaseSourceAdapter {
     try {
       collectionFiles = await this.listCollectionFiles();
     } catch (error) {
+      if (options?.strict) {
+        throw new Error('Could not read the complete awesome-copilot catalog. Check source configuration and access, then retry.');
+      }
       throw new Error(`Failed to list awesome-copilot collections: ${error instanceof Error ? error.message : error}`);
     }
 
@@ -382,11 +390,15 @@ export class AwesomeCopilotAdapter extends BaseSourceAdapter {
       for (const result of results) {
         if (result.status === 'fulfilled') {
           bundles.push(result.value);
+        } else if (options?.strict) {
+          throw new Error('Could not read every awesome-copilot collection. Check collection definitions and access, then retry.');
         }
       }
     }
 
-    this.cache = { bundles, cachedAtMs: this.clock.now() };
+    if (!options?.strict) {
+      this.cache = { bundles, cachedAtMs: this.clock.now() };
+    }
     return bundles;
   }
 

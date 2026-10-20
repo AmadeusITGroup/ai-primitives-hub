@@ -4,6 +4,11 @@
   "description": "Use-case orchestration for AI Primitives Hub: install/uninstall pipelines, registry (hub/profile), discovery and search, multi-target content transforms. Also the public SDK surface until a standalone sdk package has a real consumer.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./governance": { "types": "./dist/governance/collection-entry.d.ts", "default": "./dist/governance/collection-entry.js" },
+    "./dist/*": "./dist/*"
+  },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -31,6 +36,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "generate:rule-catalogue": "node scripts/generate-rule-catalogue.mjs",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {

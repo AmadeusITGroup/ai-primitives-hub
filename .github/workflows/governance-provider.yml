@@ -1,0 +1,75 @@
+name: Governance Provider Tests
+
+on:
+  pull_request:
+    paths:
+      - packages/**
+      - .github/scripts/hub-governance/**
+      - github-actions/validate-collections/**
+      - .github/workflows/*governance*.yml
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
+      - eslint.shared.mjs
+  push:
+    branches: [main]
+    paths:
+      - packages/**
+      - .github/scripts/hub-governance/**
+      - github-actions/validate-collections/**
+      - .github/workflows/*governance*.yml
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governance-provider-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provider-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout provider implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install provider dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build shared CLI and dependencies
+        run: pnpm --filter @ai-primitives-hub/cli... run build
+
+      - name: Test shared validation and governance
+        run: pnpm --filter '@ai-primitives-hub/*' run test
+
+      - name: Check legacy source adapter compatibility
+        run: pnpm -C packages/core exec tsc --noEmit -p tsconfig.compatibility.json
+
+      - name: Fix lint for shared governance integration
+        run: |
+          pnpm -C packages/core exec eslint src/domain/governance src/ports/source-adapter.ts src/ports/governance-sources.ts test/domain/governance.test.ts test/domain/governance-source-rules.test.ts test/domain/source-adapter-compatibility.test.ts --fix
+          pnpm -C packages/infra exec eslint src/governance test/governance src/adapters/awesome-copilot-adapter.ts src/adapters/local-awesome-copilot-adapter.ts --fix
+          pnpm -C packages/app exec eslint src/governance --fix
+          pnpm -C packages/app exec eslint test/governance --fix
+          pnpm -C packages/cli exec eslint src/commands/validation-governance.ts src/commands/hub.ts src/commands/collection-validate.ts src/commands/skill-validate.ts test/commands/source-checks.test.ts test/commands/validation-governance.test.ts test/governance.test.ts test/governance-subjects.test.ts --fix
+
+      - name: Test reporting and workflow contracts
+        run: node --test .github/scripts/hub-governance/test/*.test.cjs
+
+      - name: Build and test the existing collection action
+        run: |
+          pnpm -C github-actions/validate-collections run build
+          pnpm -C github-actions/validate-collections run test

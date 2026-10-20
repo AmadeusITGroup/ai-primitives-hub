@@ -13,6 +13,7 @@
 import fs from 'fs';
 import path from 'path';
 import { listCollectionFiles, validateAllCollections } from '@prompt-registry/collection-scripts';
+import { runCollectionGovernance } from './governance.js';
 
 // ANSI color codes for terminal output
 const colors = {
@@ -24,7 +25,11 @@ const colors = {
     bold: '\x1b[1m'
 };
 
-function main() {
+async function main() {
+    if (process.env.INPUT_GOVERNANCE === 'true' || process.env['INPUT_POLICY-PATH'] || process.env['INPUT_MIN-SCORE'] || process.env['INPUT_REPORT-PATH'] || process.env['INPUT_CHECK-RELEASES'] === 'true') {
+        process.exitCode = await runCollectionGovernance(process.cwd());
+        return;
+    }
     console.log(`${colors.cyan}${colors.bold}📋 Collection Validation${colors.reset}\n`);
     console.log(`${colors.cyan}Attribution: Inspired by github/awesome-copilot${colors.reset}`);
     console.log(`${colors.cyan}https://github.com/github/awesome-copilot${colors.reset}\n`);
@@ -87,4 +92,7 @@ function main() {
     }
 }
 
-main();
+main().catch((error) => {
+    process.stderr.write(`Collection validation could not complete: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+});

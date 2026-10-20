@@ -1,7 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import Ajv from 'ajv';
-import addFormats from 'ajv-formats';
+import type {
+  SchemaValidationIssue,
+} from '@ai-primitives-hub/core';
+import {
+  AjvSchemaValidator,
+} from '@ai-primitives-hub/infra';
 import {
   Logger,
 } from '../utils/logger';
@@ -24,48 +28,41 @@ export interface ValidationOptions {
 }
 
 /**
- * Service for validating JSON data against JSON schemas
- * Uses AJV (Another JSON Validator) for schema validation
+ * Service for validating JSON data against JSON schemas.
+ * Schema validation is delegated to the shared `AjvSchemaValidator` (infra); this
+ * service keeps only VS Code concerns: schema file loading, message wording and logging.
  */
 export class SchemaValidator {
-  private readonly ajv: Ajv;
-  private readonly schemaCache: Map<string, ReturnType<Ajv['compile']>>;
+  private readonly validator = new AjvSchemaValidator();
+  private readonly schemaCache: Map<string, object>;
   private readonly logger: Logger;
   private readonly extensionPath: string;
 
   constructor(extensionPath?: string) {
-    this.ajv = new Ajv({
-      allErrors: true,
-      strict: false
-    });
-
-    addFormats(this.ajv);
-    this.ajv.addFormat('semver', /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$/);
-
     this.schemaCache = new Map();
     this.logger = Logger.getInstance();
     this.extensionPath = extensionPath || process.cwd();
   }
 
   /**
-   * Load and compile a JSON schema
+   * Load a JSON schema (compiled and cached by the shared validator)
    * @param schemaPath Path to the JSON schema file
-   * @returns Compiled validation function
+   * @returns Parsed schema document
    */
-  private async loadSchema(schemaPath: string): Promise<ReturnType<Ajv['compile']>> {
+  private async loadSchema(schemaPath: string): Promise<object> {
     if (this.schemaCache.has(schemaPath)) {
       return this.schemaCache.get(schemaPath)!;
     }
 
     try {
       const schemaContent = fs.readFileSync(schemaPath, 'utf8');
-      const schema = JSON.parse(schemaContent);
-
-      const validate = this.ajv.compile(schema);
-      this.schemaCache.set(schemaPath, validate);
+      const schema = JSON.parse(schemaContent) as object;
+      // Compile eagerly so an invalid schema fails here, as before.
+      this.validator.validate(schema, undefined);
+      this.schemaCache.set(schemaPath, schema);
 
       this.logger.info(`Loaded schema: ${schemaPath}`);
-      return validate;
+      return schema;
     } catch (error) {
       this.logger.error(`Failed to load schema ${schemaPath}:`, error instanceof Error ? error : undefined);
       throw error;
@@ -74,10 +71,10 @@ export class SchemaValidator {
 
   /**
    * Format AJV errors into user-friendly messages
-   * @param errors AJV error objects
+   * @param errors Schema validation issues
    * @returns Formatted error messages
    */
-  private formatErrors(errors: NonNullable<ReturnType<Ajv['compile']>['errors']>): string[] {
+  private formatErrors(errors: SchemaValidationIssue[]): string[] {
     return errors.map((error) => {
       const dataPath = error.instancePath || '';
       const message = error.message || 'validation failed';
@@ -191,18 +188,18 @@ export class SchemaValidator {
     options: ValidationOptions = {}
   ): Promise<ValidationResult> {
     try {
-      const validate = await this.loadSchema(schemaPath);
-      const valid = validate(data);
+      const schema = await this.loadSchema(schemaPath);
+      const outcome = this.validator.validate(schema, data);
 
       const result: ValidationResult = {
-        valid: valid === true,
+        valid: outcome.valid,
         errors: [],
         warnings: []
       };
 
       // Format validation errors
-      if (!valid && validate.errors) {
-        result.errors = this.formatErrors(validate.errors);
+      if (!outcome.valid) {
+        result.errors = this.formatErrors(outcome.issues);
       }
 
       // Check file references if requested

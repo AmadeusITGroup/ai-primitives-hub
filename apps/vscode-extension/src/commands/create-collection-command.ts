@@ -1,5 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  COLLECTION_ID_PATTERN,
+} from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
 
@@ -92,7 +95,7 @@ export class CreateCollectionCommand {
           if (!value || value.trim().length === 0) {
             return 'ID is required';
           }
-          if (!/^[a-z0-9-]+$/.test(value)) {
+          if (!COLLECTION_ID_PATTERN.test(value)) {
             return 'ID must contain only lowercase letters, numbers, and hyphens';
           }
           return undefined;

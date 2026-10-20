@@ -11,6 +11,10 @@ export {
 } from './create-plugin';
 
 export {
+  type AffectedCollection,
+  affectedCollections,
+} from './affected-collections';
+export {
   createSkill,
   generateSkillContent,
   validateAllSkills,

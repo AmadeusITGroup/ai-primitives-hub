@@ -6,6 +6,18 @@ This document describes the YAML schema for AI Primitives Hub hub configuration 
 
 Hubs are centralized configurations that define bundle sources and profiles for teams or organizations. A hub configuration file allows you to share a curated set of sources and pre-configured profiles.
 
+## Offline Validation and Governance
+
+Use the existing `ai-primitives-hub hub validate` command for offline schema and runtime checks. Add `--governance` for governance rule IDs, verdict, and score. `--policy <path>`, `--min-score <number>`, or `--report-path <path>` also enable governance; `--config <path>` selects the Hub file and `--output json` returns the report in the existing output envelope's `data` field.
+
+Plain validation retains its existing behavior. Governance is offline by default. Add `--check-sources` with governance to check published collection releases (`COL002`) and canonical collection IDs across enabled sources (`COL004`). This mode uses source adapters and existing GitHub authentication routing; it does not replace all legacy deep-validation/profile-version checks. Run plain `--check-sources` separately when those checks are required.
+
+Missing releases and cross-source collisions are verified failures. Inaccessible or incomplete evidence produces unverified errors with no score penalty. Mandatory Hub checks and `COL002` cannot be disabled or downgraded by policy; `COL004` can be overridden with visible policy provenance. Scores are advisory unless a floor is configured, and error findings always fail. See the [validation guide](../author-guide/validation.md#source-checks) for publication requirements and collection-source coverage.
+
+A `hub-governance.yml` next to `hub-config.yml` tunes rules for the hub; PR-scoped runs (`--base-ref`/`--head-ref`) read it from the merge base. See the [rule catalogue](../author-guide/rule-catalogue.md) and the [validation guide](../author-guide/validation.md#governance-configuration-hub-governanceyml).
+
+See [provider governance](https://github.com/AmadeusITGroup/ai-primitives-hub/blob/main/.github/scripts/hub-governance/README.md) for policy format, standard CLI/reusable workflow usage, and release prerequisites. There is no separate custom governance action.
+
 ## Schema Version
 
 Current schema version: Based on JSON Schema draft-07

@@ -24,6 +24,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Collection Scripts](author-guide/collection-scripts.md)** — Shared npm package for validation and building
 - **[Collection Schema](author-guide/collection-schema.md)** — YAML schema reference
 - **[Validation](author-guide/validation.md)** — Validating collections
+- **[Rule catalogue](author-guide/rule-catalogue.md)** — Generated list of governance rules
 - **[Publishing](author-guide/publishing.md)** — Publishing to registries
 
 ---

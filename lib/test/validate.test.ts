@@ -43,6 +43,13 @@ describe('Validation Module', () => {
       assert.ok(Array.isArray(VALIDATION_RULES.itemKinds));
       assert.ok(VALIDATION_RULES.itemKinds.length > 0);
     });
+
+    it('keeps the collection-id pattern in step with the shared collection schema', () => {
+      // lib cannot depend on @ai-primitives-hub/core, so it carries a copy; this test pins it.
+      const schemaPath = path.resolve(__dirname, '../../../packages/core/src/public/schemas/collection.schema.json');
+      const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+      assert.strictEqual(VALIDATION_RULES.collectionId.pattern.source, schema.properties.id.pattern);
+    });
   });
 
   describe('validateCollectionId()', () => {

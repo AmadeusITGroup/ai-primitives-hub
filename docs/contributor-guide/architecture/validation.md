@@ -2,6 +2,19 @@
 
 JSON Schema validation for collections, APM packages, and hub configurations.
 
+## Shared CLI and CI Governance
+
+Governance extends the existing CLI validation commands rather than supplying a separate executable. Delivery code chooses legacy validation or governance based on the explicit `--governance`, `--policy`, `--min-score`, and `--report-path` options. Legacy invocations retain their prior output and behavior.
+
+- **Core (`domain/governance/`):** `types.ts`; `rule-registry.ts` (every rule id, subjects, default severity, floor/configurable/network flags); `rules/` (`collection.ts` COL001–COL006, `hub.ts` HUB001–HUB002, `primitive.ts` skill/agent/prompt/instruction/MCP content rules, `config.ts` CFG002–CFG004); `floor.ts`, `effective-rules.ts`, `score.ts`, `evaluate.ts` (verdict) and `catalogue.ts`. Ports: `release-lookup.ts`, `hub-collection-index.ts`, `schema-validator.ts`, `argv-process-runner.ts`. The consumer schema is `public/schemas/hub-governance.schema.json`; `scripts/assert-schemas.mjs` fails the build if a schema is missing from `dist`. `COLLECTION_ID_PATTERN` (in `domain/collection/validate.ts`) is the single collection-id pattern; tests pin it to `collection.schema.json` and to `lib`.
+- **Infrastructure (`governance/`):** `ajv-schema-validator.ts` (the `SchemaValidator` adapter, also used by the VS Code extension's `SchemaValidator` service), `governance-config.ts` (YAML + schema, CFG001), paginated GitHub release lookup with an ids-only mode for context sources, and strict collection inventories with a worker pool and an overall deadline. Strict Awesome Copilot reads bypass tolerant caches and fail rather than silently dropping malformed definitions.
+- **App (`governance/`):** `load-config.ts` (discovers `hub-governance.yml`; PR-scoped runs read it from the merge base), `run-governance.ts` (hub and primitive subjects), `validate-collection-governance.ts`, `hub-scoped-governance.ts`, `primitive-governance.ts` (local files and fetched bundles), `report.ts` and `generate-catalogue.ts`. Regenerate `docs/author-guide/rule-catalogue.md` with `pnpm -C packages/app run generate:rule-catalogue`; a test fails when it is stale.
+- **CLI:** existing commands delegate to app and use the established output formatter and injected filesystem for reports.
+- **Existing collection action:** uses focused `@ai-primitives-hub/app/governance` and `@ai-primitives-hub/infra` governance/filesystem/HTTP entry points. These keep unrelated search/WASM out of its self-contained Rollup bundle.
+- **Reusable workflow:** executes the standard CLI with governance options, then publishes artifacts, optional bot comments, and the final gate.
+
+Governance remains offline by default. Collection `--check-releases` or Hub governance `--check-sources` explicitly enables source mode. App composes existing adapter/auth routing, and core consumes evidence through `ReleaseLookup` and `HubCollectionIndex`. Unverified data fails the gate without reducing the score; it is never promoted to a verified missing release or clean inventory. Legacy deep Hub validation remains separate for full profile/version resolution. Policy and scoring must not silently trigger network access. See [provider governance](https://github.com/AmadeusITGroup/ai-primitives-hub/blob/main/.github/scripts/hub-governance/README.md) for CI contracts and release checks. The reusable workflow owns CLI installation, standard validation arguments, report publication and the final gate; its scripts isolate execution and report results without defining another validation API or custom action.
+
 ## Components
 
 | Component | Responsibility |

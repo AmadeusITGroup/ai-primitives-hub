@@ -3,15 +3,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "rollup --config rollup.config.js"
+    "build": "rollup --config rollup.config.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@ai-primitives-hub/app": "workspace:*",
+    "@ai-primitives-hub/infra": "workspace:*",
     "@prompt-registry/collection-scripts": "^1.0.5",
     "js-yaml": "^4.3.1"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.0",
+    "@rollup/plugin-terser": "^1.0.0",
     "rollup": "^4.62.2"
   }
 }

@@ -15,13 +15,21 @@
  */
 import * as path from 'node:path';
 import {
+  createCollectionReleaseLookup,
   generateMarkdown,
   listCollectionFiles,
   validateAllCollections,
 } from '@ai-primitives-hub/app';
 import type {
   AllCollectionsResult,
+  HttpClient,
+  TokenProvider,
 } from '@ai-primitives-hub/core';
+import {
+  defaultTokenProvider,
+  NodeHttpClient,
+  NodeProcessRunner,
+} from '@ai-primitives-hub/infra';
 import {
   Command,
   type Context,
@@ -31,6 +39,10 @@ import {
   RegistryError,
   renderError,
 } from '../framework';
+import {
+  executeValidationGovernance,
+  isGovernanceRequested,
+} from './validation-governance';
 
 /**
  * Validation data.
@@ -112,21 +124,51 @@ export class CollectionValidateCommand extends Command {
       Options:
         -o, --output <format>       Output format (text, json, yaml, ndjson)
         --markdown-path <path>     Write markdown report to file
+        --governance               Enable governance verdict and scoring
+        --policy <path>            Apply governance policy (enables governance)
+        --min-score <number>       Enforce a 0-100 score floor (enables governance)
+        --report-path <path>       Write provider report (enables governance)
+        --check-releases           Verify published releases (enables governance/network)
+        --repository <owner/repo>  Repository for release verification
         --collection-file <path>    Collection file path (can be repeated)
+        --root <dir>                Repository root to validate (default: current directory)
+        --base-ref <commit>         PR mode: exact base commit (with --head-ref; enables governance)
+        --head-ref <commit>         PR mode: exact head commit; only collections the PR touched are validated
         --verbose                   Print each ok file in text mode
     `
   });
 
-  public output = Option.String('-o', '--output') as OutputFormat | undefined;
+  public output = Option.String('-o,--output');
   public markdownPath = Option.String('--markdown-path');
+  public governance = Option.Boolean('--governance', false);
+  public policy = Option.String('--policy');
+  public minScore = Option.String('--min-score');
+  public reportPath = Option.String('--report-path');
+  public checkReleases = Option.Boolean('--check-releases', false);
+  public repository = Option.String('--repository');
   public collectionFile = Option.Array('--collection-file');
+  public root = Option.String('--root');
+  public baseRef = Option.String('--base-ref');
+  public headRef = Option.String('--head-ref');
   public verbose = Option.Boolean('--verbose', false);
-  public commandContext!: { ctx: Context };
+  public commandContext!: { ctx: Context; http?: HttpClient; tokens?: TokenProvider };
 
   public async execute(): Promise<number> {
-    const { ctx } = this.commandContext;
-    const fmt = (this.output ?? 'text');
-    const cwd = ctx.cwd();
+    const { ctx, http, tokens } = this.commandContext;
+    const fmt = (this.output ?? 'text') as OutputFormat;
+    if (isGovernanceRequested(this) || this.checkReleases) {
+      const releaseLookup = this.checkReleases && this.repository !== undefined
+        ? createCollectionReleaseLookup(this.repository, {
+          fs: ctx.fs, clock: ctx.clock, httpClient: http ?? new NodeHttpClient(), processRunner: new NodeProcessRunner(),
+          fallbackTokenProviders: tokens === undefined ? [defaultTokenProvider(ctx.env)] : [tokens]
+        })
+        : undefined;
+      return executeValidationGovernance(ctx, {
+        subject: 'collection', collectionFiles: this.collectionFile, checkReleases: this.checkReleases, repository: this.repository, releaseLookup
+      },
+      { ...this, additionalReportPaths: this.markdownPath === undefined ? [] : [this.markdownPath] }, fmt);
+    }
+    const cwd = this.root === undefined ? ctx.cwd() : path.resolve(ctx.cwd(), this.root);
     const collectionsDir = path.join(cwd, 'collections');
     if (!(await ctx.fs.exists(collectionsDir))) {
       const err = new RegistryError({
@@ -154,7 +196,8 @@ export class CollectionValidateCommand extends Command {
 
     if (this.markdownPath !== undefined) {
       const md = generateMarkdown(result, files.length);
-      await ctx.fs.writeFile(this.markdownPath, md);
+      // Relative to the command's working directory, like --report-path, not the process cwd.
+      await ctx.fs.writeFile(path.resolve(ctx.cwd(), this.markdownPath), md);
     }
 
     formatOutput({
