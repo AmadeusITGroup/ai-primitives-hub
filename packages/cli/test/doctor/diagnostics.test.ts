@@ -13,9 +13,7 @@ import {
   createWriteStream,
 } from 'node:fs';
 import {
-  mkdir,
   mkdtemp,
-  readdir,
   readFile,
   rm,
   stat,
@@ -46,28 +44,15 @@ import {
   createTestContext,
   runCommand,
 } from '../../src/framework';
-
-const SANDBOX_VARS = [
-  'HOME',
-  'USERPROFILE',
-  'XDG_CONFIG_HOME',
-  'XDG_DATA_HOME',
-  'XDG_CACHE_HOME',
-  'XDG_STATE_HOME',
-  'XDG_RUNTIME_DIR',
-  'TMPDIR',
-  'TEMP',
-  'TMP'
-] as const;
+import {
+  listTree,
+  SANDBOX_VARS,
+  useProcessIsolation,
+} from '../helpers/process-isolation';
 
 const isInside = (root: string, candidate: string): boolean => {
   const relative = path.relative(root, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-};
-
-const listTree = async (root: string): Promise<string[]> => {
-  const entries = await readdir(root, { recursive: true });
-  return entries.map(String).toSorted();
 };
 
 describe('buildDiagnosticEnv', () => {
@@ -245,43 +230,10 @@ describe('materializeBundleArchive', () => {
 });
 
 describe('doctor diagnostics process-level isolation', () => {
-  let sandbox: string;
-  let processHome: string;
-  let processTmp: string;
-  const saved: Partial<Record<string, string>> = {};
-
-  beforeEach(async () => {
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'cli-doctor-isolation-'));
-    processHome = path.join(sandbox, 'home');
-    processTmp = path.join(sandbox, 'tmp');
-    await mkdir(processHome, { recursive: true });
-    await mkdir(processTmp, { recursive: true });
-    for (const name of SANDBOX_VARS) {
-      saved[name] = process.env[name];
-      delete process.env[name];
-    }
-    // A fresh, throwaway process HOME/temp dir with no XDG vars: every XDG
-    // fallback (`os.homedir()`, `os.tmpdir()`) now points into `sandbox`.
-    // `os.tmpdir()` reads TMPDIR on POSIX and TEMP/TMP on Windows.
-    process.env.HOME = processHome;
-    process.env.USERPROFILE = processHome;
-    process.env.TMPDIR = processTmp;
-    process.env.TEMP = processTmp;
-    process.env.TMP = processTmp;
-  });
-
-  afterEach(async () => {
-    for (const name of SANDBOX_VARS) {
-      if (saved[name] === undefined) {
-        delete process.env[name];
-      } else {
-        process.env[name] = saved[name];
-      }
-    }
-    await rm(sandbox, { recursive: true, force: true });
-  });
+  const isolation = useProcessIsolation();
 
   it('writes nothing outside its workspace when the process has no XDG vars set', async () => {
+    const { processHome, processTmp } = isolation;
     const result = await runCommand(['doctor', 'diagnostics', '-o', 'json'], {
       commandClasses: [DoctorDiagnosticsCommand],
       context: {

@@ -210,12 +210,12 @@ const createCapturingStream = (): CapturedOutputStream => {
  * @param env Environment bag for this command.
  * @returns A context suitable for `runCli`.
  */
-interface StepContext extends Context {
+export interface StepContext extends Context {
   stdout: CapturedOutputStream;
   stderr: CapturedOutputStream;
 }
 
-const createStepContext = (
+export const createStepContext = (
   parent: Context,
   cwd: string,
   env: Record<string, string | undefined>
@@ -228,6 +228,52 @@ const createStepContext = (
     stderr,
     cwd: (): string => cwd,
     env: Object.freeze(env) as Context['env']
+  };
+};
+
+/** Captured result of one dispatched diagnostic command. */
+export interface DispatchedCommand {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+}
+
+/**
+ * Dispatch one command in-process with its own captured Context pinned to
+ * `cwd` and `env`. No `process.env` mutation, no `chdir`.
+ * @param ctx Parent production context.
+ * @param commandClasses Native clipanion command classes to register.
+ * @param argv Command argument vector.
+ * @param cwd Working directory for the command.
+ * @param env Environment bag for the command.
+ * @returns Exit code, captured streams and wall-clock duration.
+ */
+export const dispatchDiagnosticCommand = async (
+  ctx: Context,
+  commandClasses: CommandClass[],
+  argv: string[],
+  cwd: string,
+  env: Record<string, string | undefined>
+): Promise<DispatchedCommand> => {
+  const stepCtx = createStepContext(ctx, cwd, env);
+  const started = Date.now();
+
+  const exitCode = await runCli(argv, {
+    ctx: stepCtx,
+    name: 'ai-primitives-hub',
+    version: CLI_VERSION,
+    commands: [],
+    commandClasses
+  });
+
+  const durationMs = Date.now() - started;
+
+  return {
+    exitCode,
+    stdout: stepCtx.stdout.captured(),
+    stderr: stepCtx.stderr.captured(),
+    durationMs
   };
 };
 
@@ -250,24 +296,19 @@ const runDiagnosticStep = async (
   input?: Record<string, unknown>
 ): Promise<DiagnosticStep> => {
   const env = buildDiagnosticEnv(opts.ctx, workspace);
-  const stepCtx = createStepContext(opts.ctx, workspace, env);
-  const started = Date.now();
-
-  const exitCode = await runCli(argv, {
-    ctx: stepCtx,
-    name: 'ai-primitives-hub',
-    version: CLI_VERSION,
-    commands: [],
-    commandClasses: opts.commandClasses
-  });
-
-  const durationMs = Date.now() - started;
+  const { exitCode, stdout, stderr, durationMs } = await dispatchDiagnosticCommand(
+    opts.ctx,
+    opts.commandClasses,
+    argv,
+    workspace,
+    env
+  );
 
   if (opts.verbose && exitCode !== 0) {
     opts.ctx.stderr.write(
       `  [diagnostics] ${name} exited ${String(exitCode)}\n`
-      + `    stdout: ${stepCtx.stdout.captured().slice(0, 500)}\n`
-      + `    stderr: ${stepCtx.stderr.captured().slice(0, 500)}\n`
+      + `    stdout: ${stdout.slice(0, 500)}\n`
+      + `    stderr: ${stderr.slice(0, 500)}\n`
     );
   }
 
@@ -275,8 +316,8 @@ const runDiagnosticStep = async (
     name,
     argv,
     exitCode,
-    stdout: stepCtx.stdout.captured(),
-    stderr: stepCtx.stderr.captured(),
+    stdout,
+    stderr,
     input,
     durationMs
   };
@@ -287,7 +328,7 @@ const runDiagnosticStep = async (
  * here; callers create and clean it.
  * @returns Absolute path.
  */
-const resolveWorkspacePath = (): string => {
+export const resolveWorkspacePath = (): string => {
   const tmp = os.tmpdir();
   const stamp = `${Date.now()}-${String(Math.random()).slice(2, 8)}`;
   return path.join(tmp, `ai-primitives-hub-doctor-${stamp}`);
@@ -356,11 +397,12 @@ export const buildDiagnosticEnv = (
 
 /**
  * Create the sandbox directories named by `buildDiagnosticEnv`, owner-only
- * as the XDG spec requires for XDG_RUNTIME_DIR.
+ * as the XDG spec requires for XDG_RUNTIME_DIR. Exported for reuse by other
+ * in-process diagnostic drivers.
  * @param fsAbstraction Filesystem abstraction.
  * @param workspace Diagnostic workspace.
  */
-const createSandboxDirs = async (fsAbstraction: FsAbstraction, workspace: string): Promise<void> => {
+export const createSandboxDirs = async (fsAbstraction: FsAbstraction, workspace: string): Promise<void> => {
   for (const dir of Object.values(SANDBOX_DIRS)) {
     await fsAbstraction.mkdir(path.join(workspace, dir), { recursive: true });
   }
@@ -505,12 +547,15 @@ const prepareWorkspace = async (
  * Initialize the synthetic repository required by governed release planning.
  * Git runs with the sandboxed diagnostic env, so the user's global git
  * config (hooks, signing, templates) never applies to the fixture.
+ * Exported for reuse by other in-process diagnostic drivers.
  * @param workspace Diagnostic workspace.
  * @param env Sandboxed diagnostic environment.
+ * @param remoteUrl URL recorded as `origin` (never contacted).
  */
-const initializeGitRepository = (
+export const initializeGitRepository = (
   workspace: string,
-  env: Record<string, string | undefined>
+  env: Record<string, string | undefined>,
+  remoteUrl = 'https://github.com/example/diagnostic-collection.git'
 ): void => {
   const runGit = (args: string[]): void => {
     const result = spawnSync('git', args, {
@@ -529,7 +574,7 @@ const initializeGitRepository = (
   runGit(['config', 'user.email', 'doctor-diagnostics@example.invalid']);
   runGit(['config', 'user.name', 'AI Primitives Hub Diagnostics']);
   runGit(['config', 'commit.gpgsign', 'false']);
-  runGit(['remote', 'add', 'origin', 'https://github.com/example/diagnostic-collection.git']);
+  runGit(['remote', 'add', 'origin', remoteUrl]);
   runGit(['add', '.']);
   runGit(['commit', '-m', 'diagnostic governed collection']);
 };
@@ -1398,4 +1443,15 @@ export const getDiagnosticCommandClasses = (): CommandClass[] => [
   PluginsListCommand,
   ConfigGetCommand,
   VersionComputeCommand
+];
+/**
+ * Native clipanion command classes `doctor diagnostics --primitives` dispatches.
+ * @returns Command class array for the in-process primitive driver.
+ */
+export const getPrimitiveDiagnosticCommandClasses = (): CommandClass[] => [
+  TargetAddCommand,
+  InstallCommand,
+  UninstallCommand,
+  CollectionValidateCommand,
+  BundleBuildCommand
 ];
