@@ -262,4 +262,102 @@ suite('PrimitiveIndexService', () => {
     const result = await service.search({ q: 'hello', limit: 5 });
     assert.strictEqual(result.hits.length, 1);
   });
+
+  test('passes sourceRevisions to buildIndex and short-circuits non-forced rebuilds when snapshot exists', async () => {
+    const indexPath = path.join(tempDir, 'shared', 'primitive-index.v2.json');
+    let providerCalls = 0;
+    const service = new PrimitiveIndexService(context, {
+      profile: 'bm25-v1',
+      indexStore: {
+        getIndexPath: () => indexPath
+      },
+      indexKeyProvider: async () => ({
+        hubId: 'local-hub',
+        sourceRevision: 'rev-1',
+        searchProfileId: 'bm25-v1'
+      }),
+      sourceRevisionsProvider: async () => ({ local: 'sha-1' }),
+      providerFactory: () => {
+        providerCalls += 1;
+        return new LocalFolderBundleProvider({ root: tempDir, sourceId: 'local' });
+      }
+    });
+
+    const first = await service.rebuild({ force: false });
+    assert.strictEqual(first.primitives, 1);
+    assert.strictEqual(first.report.shortCircuited, undefined);
+    assert.strictEqual(providerCalls, 1);
+
+    // A scheduled/non-forced rebuild with the same (hubId, sourceRevision, profile)
+    // short-circuits in buildIndex without reading any bundle files.
+    const second = await service.rebuild({ force: false });
+    assert.strictEqual(second.primitives, 1);
+    assert.strictEqual(second.report.shortCircuited, true);
+
+    // An explicit rebuild() (force=true by default) forces a fresh harvest.
+    const third = await service.rebuild();
+    assert.strictEqual(third.primitives, 1);
+    assert.strictEqual(third.report.shortCircuited, undefined);
+  });
+
+  test('coalesces bursty scheduleRebuild calls while a rebuild is running and supports runWithDeferredRebuild', async () => {
+    let releaseFirstBuild!: () => void;
+    const firstBuildGate = new Promise<void>((resolve) => {
+      releaseFirstBuild = resolve;
+    });
+    let buildCalls = 0;
+    const service = new PrimitiveIndexService(context, {
+      profile: 'bm25-v1',
+      indexPath: path.join(tempDir, 'coalesced-index.json'),
+      providerFactory: async () => {
+        buildCalls += 1;
+        if (buildCalls === 1) {
+          await firstBuildGate;
+        }
+        return new LocalFolderBundleProvider({ root: tempDir, sourceId: 'local' });
+      }
+    });
+
+    // Trigger 1st scheduled rebuild
+    service.scheduleRebuild('source synced 1', 1);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.strictEqual(buildCalls, 1);
+
+    // While 1st rebuild is in flight, fire 5 more scheduleRebuild timers that expire
+    for (let i = 2; i <= 6; i++) {
+      service.scheduleRebuild(`source synced ${i}`, 1);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const waitFor = async (predicate: () => boolean, timeoutMs = 3000): Promise<void> => {
+      const deadline = Date.now() + timeoutMs;
+      while (!predicate() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    };
+
+    // Release 1st build: all 5 pending notifications must coalesce into at most ONE follow-up build
+    releaseFirstBuild();
+    await waitFor(() => buildCalls >= 2);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.strictEqual(buildCalls, 2);
+
+    // Deferring rebuilds during a batch sync suppresses intermediate timers and schedules once at the end
+    await service.runWithDeferredRebuild(async () => {
+      service.scheduleRebuild('batch 1', 1);
+      service.scheduleRebuild('batch 2', 1);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.strictEqual(buildCalls, 2);
+    });
+    await waitFor(() => buildCalls >= 3);
+    assert.strictEqual(buildCalls, 3);
+
+    // If a timer is already pending when runWithDeferredRebuild starts, its reason is preserved even if the batch itself makes no scheduleRebuild calls
+    service.scheduleRebuild('pre-batch timer', 100);
+    await service.runWithDeferredRebuild(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    await waitFor(() => buildCalls >= 4);
+    assert.strictEqual(buildCalls, 4);
+  });
 });

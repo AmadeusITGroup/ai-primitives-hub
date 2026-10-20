@@ -282,6 +282,8 @@ export class BundleScopeCommands {
         await lockfileManager.updateCommitMode(bundleId, newMode);
       }
 
+      this.registryManager.handleWorkspaceFoldersChanged();
+
       vscode.window.showInformationMessage(
         `✓ "${bundleName}" switched to ${newMode} mode.`
       );

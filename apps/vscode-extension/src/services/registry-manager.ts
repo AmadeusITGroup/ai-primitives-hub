@@ -138,6 +138,63 @@ interface UpdateResults {
 }
 
 /**
+ * Wrap a native tree-based `BundleProvider` with a release/adapter-based
+ * fallback (`SourceAdapterBundleProvider`). When a GitHub source has no default
+ * branch commit (`422` on `/commits/main`) or only publishes release archives,
+ * the fallback provider enumerates and extracts its release bundles so the
+ * source is still indexed and persisted in `sourceRevisions`.
+ * @param primary
+ * @param fallbackFactory
+ */
+function createFallbackBundleProvider(
+  primary: BundleProvider,
+  fallbackFactory: () => BundleProvider
+): BundleProvider {
+  let fallbackInstance: BundleProvider | undefined;
+  const getFallback = (): BundleProvider => {
+    fallbackInstance ??= fallbackFactory();
+    return fallbackInstance;
+  };
+  const fallbackRefs = new Set<string>();
+  const refIdentity = (ref: { sourceId: string; bundleId: string; bundleVersion: string }): string =>
+    `${ref.sourceId}\u0000${ref.bundleId}\u0000${ref.bundleVersion}`;
+  return {
+    async* listBundles() {
+      let yieldedFromPrimary = false;
+      try {
+        for await (const ref of primary.listBundles()) {
+          yieldedFromPrimary = true;
+          yield ref;
+        }
+      } catch (error) {
+        if (yieldedFromPrimary) {
+          throw error;
+        }
+        Logger.getInstance().debug(
+          `Native primitive provider failed before yielding bundles; falling back to release adapter: ${error instanceof Error ? error.message : String(error)}`
+        );
+        const fallback = getFallback();
+        let yieldedFromFallback = false;
+        for await (const ref of fallback.listBundles()) {
+          yieldedFromFallback = true;
+          fallbackRefs.add(refIdentity(ref));
+          yield ref;
+        }
+        if (!yieldedFromFallback) {
+          throw error;
+        }
+      }
+    },
+    readManifest: (ref) => fallbackRefs.has(refIdentity(ref))
+      ? getFallback().readManifest(ref)
+      : primary.readManifest(ref),
+    readFile: (ref, relPath) => fallbackRefs.has(refIdentity(ref))
+      ? getFallback().readFile(ref, relPath)
+      : primary.readFile(ref, relPath)
+  };
+}
+
+/**
  * Registry Manager
  * Main entry point for all registry operations
  */
@@ -175,8 +232,16 @@ export class RegistryManager {
   private readonly adapters = new Map<string, IRepositoryAdapter>();
   private readonly versionConsolidator: VersionConsolidator;
   private sourcesCache: RegistrySource[] = [];
-  private readonly primitiveIndexKeyCache = new Map<string, { key: PrimitiveIndexKey; expiresAt: number }>();
-  private readonly primitiveIndexKeyRequests = new Map<string, Promise<PrimitiveIndexKey>>();
+  private readonly primitiveIndexKeyCache = new Map<string, {
+    key: PrimitiveIndexKey;
+    sourceRevisions: Readonly<Record<string, string>>;
+    expiresAt: number;
+  }>();
+
+  private readonly primitiveIndexKeyRequests = new Map<string, Promise<{
+    key: PrimitiveIndexKey;
+    sourceRevisions: Readonly<Record<string, string>>;
+  }>>();
 
   // Event emitters
   private readonly _onBundleInstalled = new vscode.EventEmitter<InstalledBundle>();
@@ -237,15 +302,15 @@ export class RegistryManager {
     this.primitiveIndexKeyCache.clear();
   }
 
-  private async buildPrimitiveIndexKey(
+  private async buildPrimitiveIndexSnapshot(
     searchProfileId: string,
     resolveRemoteRevision = true
-  ): Promise<PrimitiveIndexKey> {
+  ): Promise<{ key: PrimitiveIndexKey; sourceRevisions: Readonly<Record<string, string>> }> {
     const sources = (await this.storage.getSources()).filter((source) => source.enabled);
     const blobCache = new BlobCache(path.join(new XdgAppStorage().getPaths().cache, 'primitive-index-blobs'));
     const snapshot = await Promise.all(sources.map(async (source) => {
       const bundles = await this.storage.getCachedSourceBundles(source.id);
-      let fallbackRevision = createHash('sha256').update(JSON.stringify(bundles
+      const catalogRevision = createHash('sha256').update(JSON.stringify(bundles
         .map((bundle) => ({
           id: bundle.id,
           version: bundle.version,
@@ -254,6 +319,7 @@ export class RegistryManager {
           checksum: bundle.checksum
         }))
         .toSorted((a, b) => `${a.id}@${a.version}`.localeCompare(`${b.id}@${b.version}`)))).digest('hex');
+      let fallbackRevision = catalogRevision;
 
       if (resolveRemoteRevision) {
         // Native GitHub harvesters use the repository head commit as the source
@@ -297,11 +363,48 @@ export class RegistryManager {
       branch: typeof source.config?.branch === 'string' ? source.config.branch : 'main',
       revision: source.revision
     })));
+    const sourceRevisions = Object.fromEntries(snapshot.map((source) => [source.id, source.revision]));
     return {
-      hubId: canonicalizeIndexHubId(hubId ?? 'registry'),
-      sourceRevision,
-      searchProfileId
+      key: {
+        hubId: canonicalizeIndexHubId(hubId ?? 'registry'),
+        sourceRevision,
+        searchProfileId
+      },
+      sourceRevisions
     };
+  }
+
+  private async resolvePrimitiveIndexSnapshot(
+    searchProfileId: string,
+    resolveRemoteRevision = true
+  ): Promise<{ key: PrimitiveIndexKey; sourceRevisions: Readonly<Record<string, string>> }> {
+    const cacheKey = resolveRemoteRevision ? searchProfileId : `${searchProfileId}:cached`;
+    const cached = this.primitiveIndexKeyCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { key: cached.key, sourceRevisions: cached.sourceRevisions };
+    }
+
+    const pending = this.primitiveIndexKeyRequests.get(cacheKey);
+    if (pending) {
+      return pending;
+    }
+
+    const request = this.buildPrimitiveIndexSnapshot(searchProfileId, resolveRemoteRevision);
+    this.primitiveIndexKeyRequests.set(cacheKey, request);
+    try {
+      const snapshot = await request;
+      this.primitiveIndexKeyCache.set(cacheKey, {
+        ...snapshot,
+        // Coalesce repeated search/rebuild calls without allowing a source
+        // change to remain visible after the explicit invalidations above.
+        expiresAt: Date.now() + 30_000
+      });
+      return snapshot;
+    } finally {
+      if (this.primitiveIndexKeyRequests.get(cacheKey) === request) {
+        this.primitiveIndexKeyRequests.delete(cacheKey);
+      }
+    }
   }
 
   /**
@@ -756,6 +859,30 @@ export class RegistryManager {
     };
   }
 
+  private isSourceUpdateNoOp(existing: RegistrySource, updates: Partial<RegistrySource>): boolean {
+    if (updates.token !== undefined) {
+      return false;
+    }
+    for (const [key, value] of Object.entries(updates)) {
+      if (key === 'token') {
+        continue;
+      }
+      const currentValue = (existing as unknown as Record<string, unknown>)[key];
+      if (key === 'metadata' || key === 'config') {
+        if (JSON.stringify(currentValue ?? {}) !== JSON.stringify(value ?? {})) {
+          return false;
+        }
+      } else if (key === 'private') {
+        if (Boolean(currentValue) !== Boolean(value)) {
+          return false;
+        }
+      } else if (currentValue !== value) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /**
    * Set HubManager instance for hub integration
    * @param hubManager
@@ -976,6 +1103,12 @@ export class RegistryManager {
    * @param updates
    */
   public async updateSource(sourceId: string, updates: Partial<RegistrySource>): Promise<void> {
+    const existingSources = await this.storage.getSources();
+    const existingSource = existingSources.find((s) => s.id === sourceId);
+    if (existingSource && this.isSourceUpdateNoOp(existingSource, updates)) {
+      return;
+    }
+
     this.logger.info(`Updating source: ${sourceId}`);
 
     if (updates.token !== undefined) {
@@ -1018,32 +1151,16 @@ export class RegistryManager {
    * @param searchProfileId
    */
   public async getPrimitiveIndexKey(searchProfileId: string): Promise<PrimitiveIndexKey> {
-    const cached = this.primitiveIndexKeyCache.get(searchProfileId);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.key;
-    }
+    return (await this.resolvePrimitiveIndexSnapshot(searchProfileId, true)).key;
+  }
 
-    const pending = this.primitiveIndexKeyRequests.get(searchProfileId);
-    if (pending) {
-      return pending;
-    }
-
-    const request = this.buildPrimitiveIndexKey(searchProfileId);
-    this.primitiveIndexKeyRequests.set(searchProfileId, request);
-    try {
-      const key = await request;
-      this.primitiveIndexKeyCache.set(searchProfileId, {
-        key,
-        // Coalesce repeated search/rebuild calls without allowing a source
-        // change to remain visible after the explicit invalidations above.
-        expiresAt: Date.now() + 30_000
-      });
-      return key;
-    } finally {
-      if (this.primitiveIndexKeyRequests.get(searchProfileId) === request) {
-        this.primitiveIndexKeyRequests.delete(searchProfileId);
-      }
-    }
+  /**
+   * Return the per-source revision hashes for the currently searchable source
+   * snapshot, enabling source-level incremental index builds.
+   * @param searchProfileId
+   */
+  public async getPrimitiveIndexSourceRevisions(searchProfileId: string): Promise<Readonly<Record<string, string>>> {
+    return (await this.resolvePrimitiveIndexSnapshot(searchProfileId, true)).sourceRevisions;
   }
 
   /**
@@ -1056,31 +1173,7 @@ export class RegistryManager {
    * @param searchProfileId
    */
   public async getCachedPrimitiveIndexKey(searchProfileId: string): Promise<PrimitiveIndexKey> {
-    const cacheKey = `${searchProfileId}:cached`;
-    const cached = this.primitiveIndexKeyCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.key;
-    }
-
-    const pending = this.primitiveIndexKeyRequests.get(cacheKey);
-    if (pending) {
-      return pending;
-    }
-
-    const request = this.buildPrimitiveIndexKey(searchProfileId, false);
-    this.primitiveIndexKeyRequests.set(cacheKey, request);
-    try {
-      const key = await request;
-      this.primitiveIndexKeyCache.set(cacheKey, {
-        key,
-        expiresAt: Date.now() + 30_000
-      });
-      return key;
-    } finally {
-      if (this.primitiveIndexKeyRequests.get(cacheKey) === request) {
-        this.primitiveIndexKeyRequests.delete(cacheKey);
-      }
-    }
+    return (await this.resolvePrimitiveIndexSnapshot(searchProfileId, false)).key;
   }
 
   /**
@@ -1114,17 +1207,21 @@ export class RegistryManager {
             }),
             cache: blobCache
           });
+          const createAdapterProvider = (): BundleProvider => new SourceAdapterBundleProvider({
+            adapter: createCoreRegistryAdapter(enrichedSource, this.tokenVault),
+            // Installation state is deliberately applied at query time so the
+            // persisted semantic index remains reusable after install changes.
+            isInstalled: () => false
+          });
           if (nativeProvider) {
-            return [{ sourceId: source.id, provider: nativeProvider }];
+            return [{
+              sourceId: source.id,
+              provider: createFallbackBundleProvider(nativeProvider, createAdapterProvider)
+            }];
           }
           return [{
             sourceId: source.id,
-            provider: new SourceAdapterBundleProvider({
-              adapter: createCoreRegistryAdapter(enrichedSource, this.tokenVault),
-              // Installation state is deliberately applied at query time so the
-              // persisted semantic index remains reusable after install changes.
-              isInstalled: () => false
-            })
+            provider: createAdapterProvider()
           }];
         } catch (error) {
           this.logger.warn(

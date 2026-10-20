@@ -1589,4 +1589,56 @@ suite('RegistryManager - Primitive Index Source Selection', () => {
     assert.strictEqual(refs.length, 1);
     assert.strictEqual(refs[0].sourceId, 'supported-source');
   });
+
+  test('falls back to SourceAdapterBundleProvider lazily when native GitHub tree enumeration fails (e.g. 422 on /commits/main)', async () => {
+    const sources = [
+      {
+        id: 'github-no-main',
+        name: 'GitHub No Main Branch',
+        type: 'github' as const,
+        url: 'https://github.com/example/no-main-branch',
+        enabled: true,
+        priority: 0
+      }
+    ] as RegistrySource[];
+    mockStorage.getSources.resolves(sources);
+    sandbox.stub(GitHubApiClient.prototype, 'getJson').rejects(new Error('GitHub API error: 422'));
+
+    const createdSourceIds: string[] = [];
+    sandbox.stub(InfraAdapterFactory, 'createCoreRegistryAdapter').callsFake((source) => {
+      createdSourceIds.push(source.id);
+      return {
+        source,
+        fetchBundles: async () => [{
+          id: 'release-bundle',
+          name: 'Release Bundle',
+          version: '1.0.0',
+          description: '',
+          author: '',
+          sourceId: source.id,
+          environments: [],
+          tags: [],
+          lastUpdated: '2026-01-01T00:00:00Z',
+          size: '1 KB',
+          dependencies: [],
+          license: 'MIT'
+        }],
+        downloadBundle: async () => Buffer.alloc(0)
+      } as any;
+    });
+
+    const provider = await registryManager.createPrimitiveBundleProvider();
+    // Before listBundles() fails, the fallback adapter has not been instantiated
+    assert.deepStrictEqual(createdSourceIds, []);
+
+    const refs = [];
+    for await (const ref of provider.listBundles()) {
+      refs.push(ref);
+    }
+
+    assert.deepStrictEqual(createdSourceIds, ['github-no-main']);
+    assert.strictEqual(refs.length, 1);
+    assert.strictEqual(refs[0].sourceId, 'github-no-main');
+    assert.strictEqual(refs[0].bundleId, 'release-bundle');
+  });
 });

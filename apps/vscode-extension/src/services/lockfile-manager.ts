@@ -161,10 +161,15 @@ export class LockfileManager {
   private readonly schemaValidator: SchemaValidator;
   private fileWatcher: vscode.FileSystemWatcher | null = null;
   private writeLock: Promise<void> = Promise.resolve();
+  private internalWriteDepth = 0;
+  private lastInternalWrittenContent: string | null = null;
+  private lastInternalDeleted = false;
 
   // Event emitter for lockfile updates
   private readonly _onLockfileUpdated = new vscode.EventEmitter<Lockfile | null>();
   public readonly onLockfileUpdated = this._onLockfileUpdated.event;
+  private readonly _onExternalLockfileUpdated = new vscode.EventEmitter<Lockfile | null>();
+  public readonly onExternalLockfileUpdated = this._onExternalLockfileUpdated.event;
 
   /**
    * Create a new LockfileManager for a specific repository
@@ -188,27 +193,71 @@ export class LockfileManager {
       this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
 
       this.fileWatcher.onDidChange(() => {
+        if (this.shouldSuppressExternalChangeEvent()) {
+          return;
+        }
         this.logger.debug('Lockfile changed externally');
-        void this.emitLockfileUpdated();
+        void this.emitExternalLockfileUpdated();
       });
 
       this.fileWatcher.onDidCreate(() => {
+        if (this.shouldSuppressExternalChangeEvent()) {
+          return;
+        }
         this.logger.debug('Lockfile created externally');
-        void this.emitLockfileUpdated();
+        void this.emitExternalLockfileUpdated();
       });
 
       this.fileWatcher.onDidDelete(() => {
+        if (this.shouldSuppressExternalDeleteEvent()) {
+          return;
+        }
         this.logger.debug('Lockfile deleted externally');
         this._onLockfileUpdated.fire(null);
+        this._onExternalLockfileUpdated.fire(null);
       });
     } catch (error) {
       this.logger.warn('Failed to set up lockfile watcher:', error instanceof Error ? error : undefined);
     }
   }
 
-  private async emitLockfileUpdated(): Promise<void> {
+  private shouldSuppressExternalChangeEvent(): boolean {
+    this.lastInternalDeleted = false;
+    if (this.internalWriteDepth > 0) {
+      return true;
+    }
+    if (this.lastInternalWrittenContent === null) {
+      return false;
+    }
+    try {
+      const currentContent = fs.readFileSync(this.lockfilePath, 'utf8');
+      if (currentContent === this.lastInternalWrittenContent) {
+        return true;
+      }
+    } catch {
+      // File unreadable or missing; allow normal processing
+    }
+    this.lastInternalWrittenContent = null;
+    return false;
+  }
+
+  private shouldSuppressExternalDeleteEvent(): boolean {
+    if (this.internalWriteDepth > 0) {
+      this.lastInternalDeleted = false;
+      return true;
+    }
+    if (this.lastInternalDeleted && !fs.existsSync(this.lockfilePath)) {
+      this.lastInternalDeleted = false;
+      return true;
+    }
+    this.lastInternalDeleted = false;
+    return false;
+  }
+
+  private async emitExternalLockfileUpdated(): Promise<void> {
     const lockfile = await this.read();
     this._onLockfileUpdated.fire(lockfile);
+    this._onExternalLockfileUpdated.fire(lockfile);
   }
 
   /**
@@ -322,14 +371,26 @@ export class LockfileManager {
    * @param lockfilePath - Path to the lockfile to delete
    */
   private async deleteLockfileAtPath(lockfilePath: string): Promise<void> {
+    const isMainLockfile = lockfilePath === this.lockfilePath;
+    if (isMainLockfile) {
+      this.internalWriteDepth += 1;
+    }
     try {
       if (fs.existsSync(lockfilePath)) {
+        if (isMainLockfile) {
+          this.lastInternalDeleted = true;
+          this.lastInternalWrittenContent = null;
+        }
         await fs.promises.unlink(lockfilePath);
         this.logger.debug(`Lockfile deleted: ${lockfilePath}`);
       }
     } catch (error) {
       // Log error but don't throw - continue operation
       this.logger.error(`Failed to delete lockfile at ${lockfilePath}:`, error instanceof Error ? error : undefined);
+    } finally {
+      if (isMainLockfile) {
+        this.internalWriteDepth = Math.max(0, this.internalWriteDepth - 1);
+      }
     }
   }
 
@@ -455,15 +516,26 @@ export class LockfileManager {
       releaseLock = resolve;
     });
 
+    const isMainLockfile = targetPath === this.lockfilePath;
+    let depthIncremented = false;
     try {
       // Wait for any previous write to complete
       await previousLock;
+
+      if (isMainLockfile) {
+        this.internalWriteDepth += 1;
+        depthIncremented = true;
+      }
 
       const tempPath = targetPath + '.tmp';
 
       try {
         // Write to temp file with 2-space indentation
         const content = JSON.stringify(lockfile, null, 2);
+        if (isMainLockfile) {
+          this.lastInternalWrittenContent = content;
+          this.lastInternalDeleted = false;
+        }
         await fs.promises.writeFile(tempPath, content, 'utf8');
 
         // Atomic rename
@@ -482,6 +554,9 @@ export class LockfileManager {
         throw error;
       }
     } finally {
+      if (depthIncremented) {
+        this.internalWriteDepth = Math.max(0, this.internalWriteDepth - 1);
+      }
       releaseLock!();
     }
   }
@@ -1063,6 +1138,7 @@ export class LockfileManager {
       this.fileWatcher = null;
     }
     this._onLockfileUpdated.dispose();
+    this._onExternalLockfileUpdated.dispose();
   }
 }
 

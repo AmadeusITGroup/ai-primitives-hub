@@ -1948,4 +1948,67 @@ suite('LockfileManager', () => {
       assert.strictEqual(bundles[0].sourceId, legacySourceId, 'Multi-segment legacy sourceId preserved');
     });
   });
+
+  suite('onExternalLockfileUpdated watcher correlation', () => {
+    test('suppresses delayed watcher callbacks that match internal writes or deletes, while emitting for genuine external edits', async () => {
+      let onDidChangeCallback: (() => void) | undefined;
+      let onDidDeleteCallback: (() => void) | undefined;
+      const fakeWatcher: vscode.FileSystemWatcher = {
+        ignoreCreateEvents: false,
+        ignoreChangeEvents: false,
+        ignoreDeleteEvents: false,
+        onDidChange: (cb) => {
+          onDidChangeCallback = () => cb(vscode.Uri.file(lockfilePath));
+          return { dispose: () => undefined };
+        },
+        onDidCreate: () => ({ dispose: () => undefined }),
+        onDidDelete: (cb) => {
+          onDidDeleteCallback = () => cb(vscode.Uri.file(lockfilePath));
+          return { dispose: () => undefined };
+        },
+        dispose: () => undefined
+      };
+      sandbox.stub(vscode.workspace, 'createFileSystemWatcher').returns(fakeWatcher);
+
+      const manager = LockfileManager.getInstance(tempDir);
+      const externalEvents: (Lockfile | null)[] = [];
+      manager.onExternalLockfileUpdated((event) => {
+        externalEvents.push(event);
+      });
+
+      // 1. Perform an internal write; invoke watcher callback AFTER createOrUpdate resolves
+      await manager.createOrUpdate(createTestOptions('test-bundle'));
+      assert.ok(onDidChangeCallback, 'Watcher onDidChange should be registered');
+      onDidChangeCallback();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.strictEqual(externalEvents.length, 0, 'Delayed watcher callback for internal write must be suppressed');
+
+      // 2. Perform an external modification on disk; watcher callback MUST fire onExternalLockfileUpdated
+      const diskLockfile = readLockfileFromDisk()!;
+      diskLockfile.generatedBy = 'external-editor';
+      writeLockfile(diskLockfile);
+      onDidChangeCallback();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.strictEqual(externalEvents.length, 1, 'Genuine external edit must fire onExternalLockfileUpdated');
+      assert.strictEqual(externalEvents[0]?.generatedBy, 'external-editor');
+
+      // 3. Perform an internal delete (removing the last bundle); invoke delete callback AFTER remove resolves
+      await manager.remove('test-bundle');
+      assert.ok(onDidDeleteCallback, 'Watcher onDidDelete should be registered');
+      onDidDeleteCallback();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.strictEqual(externalEvents.length, 1, 'Delayed watcher callback for internal delete must be suppressed');
+
+      // 4. Recreate and delete externally: external change clears deletion state so subsequent external delete fires
+      writeLockfile(diskLockfile);
+      onDidChangeCallback();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.strictEqual(externalEvents.length, 2, 'External recreate/change must fire');
+      fs.unlinkSync(lockfilePath);
+      onDidDeleteCallback();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.strictEqual(externalEvents.length, 3, 'Subsequent external delete must fire null');
+      assert.strictEqual(externalEvents[2], null);
+    });
+  });
 });
