@@ -36,3 +36,4 @@ export * from './primitive/types';
 export * from './skill/validate';
 export * from './plugin/agent-plugin-spec';
 export * from './mcp';
+export * from './diagnostics/primitives';

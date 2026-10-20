@@ -26,3 +26,4 @@ export * from './registry-operations';
 export * from './update-store';
 export * from './update-notifier';
 export * from './telemetry';
+export * from './primitive-diagnostics-driver';
