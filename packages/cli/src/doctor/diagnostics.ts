@@ -311,22 +311,26 @@ const SANDBOX_DIRS = {
 } as const;
 
 /**
- * Path overrides that the storage resolvers or child tools (such as `git`)
- * rank above the sandboxed HOME and XDG base dirs. They are removed from the
- * sandbox env so resolution falls through to the sandboxed dirs instead of
- * the user's real locations.
+ * Inherited variables that would beat the sandbox: APH's cache override, and
+ * every GIT_* variable. Git ranks GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE /
+ * GIT_OBJECT_DIRECTORY / GIT_COMMON_DIR above cwd, and GIT_CONFIG /
+ * GIT_CONFIG_GLOBAL / GIT_CONFIG_PARAMETERS / GIT_CONFIG_COUNT/_KEY_n/_VALUE_n
+ * above the sandboxed HOME, so an inherited one (git exports them to hooks)
+ * would point the fixture commit at another repository or inject config.
+ * The prefix does not match GITHUB_* or GH_*, which pass through.
+ * @param name Environment variable name.
+ * @returns True when the variable must be dropped from the sandbox env.
  */
-const PATH_OVERRIDES_ABOVE_XDG = [
-  'AI_PRIMITIVES_HUB_CACHE',
-  'GIT_CONFIG_GLOBAL'
-] as const;
+const isOverrideAboveSandbox = (name: string): boolean =>
+  name === 'AI_PRIMITIVES_HUB_CACHE' || name.startsWith('GIT_');
 
 /**
  * Build an environment bag that roots HOME, every XDG base directory and
- * the temp dir inside the workspace, and drops path overrides that would
- * beat them, so the diagnostic run never reads or mutates the user's real
- * ai-primitives-hub state. Exported for reuse by other in-process
- * diagnostic drivers.
+ * the temp dir inside the workspace, and drops AI_PRIMITIVES_HUB_CACHE and
+ * every inherited GIT_* variable (which would beat them, or point git at
+ * another repository), so the diagnostic run never reads or mutates the
+ * user's real ai-primitives-hub state or git repositories. Exported for
+ * reuse by other in-process diagnostic drivers.
  * @param parent Parent context.
  * @param workspace Diagnostic workspace.
  * @returns Environment bag.
@@ -335,10 +339,9 @@ export const buildDiagnosticEnv = (
   parent: Context,
   workspace: string
 ): Record<string, string | undefined> => {
-  const overrides: readonly string[] = PATH_OVERRIDES_ABOVE_XDG;
   const base = Object.fromEntries(
     Object.entries(parent.env as Record<string, string | undefined>)
-      .filter(([name]) => !overrides.includes(name))
+      .filter(([name]) => !isOverrideAboveSandbox(name))
   );
   const sandbox = Object.fromEntries(
     Object.entries(SANDBOX_DIRS).map(([name, dir]) => [name, path.join(workspace, dir)])
