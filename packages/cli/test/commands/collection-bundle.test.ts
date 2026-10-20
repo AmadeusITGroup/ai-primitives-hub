@@ -583,7 +583,8 @@ items:
     });
   });
 
-  describe('bundle build', () => {
+  // Real Git subprocesses and archive IO need more than five seconds on Windows CI.
+  describe('bundle build', { timeout: 30_000 }, () => {
     it('builds a self-contained governed archive and retains metadata outside target content', async () => {
       await mkdir(path.join(workspace, 'docs'), { recursive: true });
       await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');

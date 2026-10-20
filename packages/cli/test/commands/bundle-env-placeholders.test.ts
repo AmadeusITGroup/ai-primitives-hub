@@ -27,7 +27,8 @@ import {
   runCommand,
 } from '../../src/framework';
 
-describe('bundle build environment placeholders', () => {
+// Real Git subprocesses and archive IO need more than five seconds on Windows CI.
+describe('bundle build environment placeholders', { timeout: 30_000 }, () => {
   for (const governed of [true, false]) {
     it(`preserves placeholders in standalone and archived ${governed ? 'governed' : 'legacy'} manifests`, async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), 'bundle-env-'));
