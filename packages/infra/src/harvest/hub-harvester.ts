@@ -62,6 +62,7 @@ import type {
 } from '../search/types';
 import {
   saveIndex,
+  tryLoadIndex,
 } from '../stores/json-index-store';
 import {
   BlobCache,
@@ -527,6 +528,18 @@ async function harvestHubWithAuth(
   );
 
   logHarvestStart(opts, hubRepo, hubBranch, resolvedToken, tokenSource, sources.length, concurrency);
+  const searchProfileId = opts.searchProfileId ?? 'bm25-v1';
+  let previousIndex: PrimitiveIndex | undefined;
+  if (opts.force !== true) {
+    const existingCandidate = opts.outFile
+      ?? (opts.indexStore?.findLatestIndexPath
+        ? await opts.indexStore.findLatestIndexPath(hubId, searchProfileId, sources.map((s) => s.id))
+        : undefined)
+      ?? outFile;
+    if (existingCandidate) {
+      previousIndex = tryLoadIndex(existingCandidate) ?? undefined;
+    }
+  }
   const result = await runHarvester(
     sources,
     harvestClient,
@@ -537,9 +550,9 @@ async function harvestHubWithAuth(
     hubId,
     sourceClientFactory,
     sourceAuthenticationCategories,
-    sourcePreflightRevisions
+    sourcePreflightRevisions,
+    previousIndex
   );
-  const searchProfileId = opts.searchProfileId ?? 'bm25-v1';
   const indexKey: PrimitiveIndexKey = {
     hubId,
     sourceRevision: result.sourceRevision,
@@ -671,7 +684,8 @@ async function runHarvester(
   hubId: string,
   clientFactory?: (source: HubSourceSpec) => GitHubApi,
   sourceAuthenticationCategories?: ReadonlyMap<string, GitHubSourceAuthCategory>,
-  sourcePreflightRevisions?: ReadonlyMap<string, string>
+  sourcePreflightRevisions?: ReadonlyMap<string, string>,
+  previousIndex?: PrimitiveIndex
 ): Promise<HubHarvestResult> {
   const cache = new BlobCache(path.join(cacheDir, 'blobs'));
   const etagStore = await EtagStore.open(path.join(cacheDir, 'etags.json'));
@@ -688,7 +702,8 @@ async function runHarvester(
     embeddingStrategy: opts.embeddingStrategy,
     searchProfileId: opts.searchProfileId,
     hubId,
-    sourcePreflightRevisions
+    sourcePreflightRevisions,
+    previousIndex
   });
   const result = await harvester.run();
   await etagStore.save();
@@ -777,6 +792,8 @@ export interface HubHarvesterOptions {
   searchProfileId?: string;
   /** Stable hub identity stored in index metadata. */
   hubId?: string;
+  /** Optional prior index instance used to reuse embeddings on warm runs. */
+  previousIndex?: PrimitiveIndex;
 }
 
 /** Outcome of one configured source in a harvest lifecycle operation. */
@@ -859,9 +876,16 @@ export class HubHarvester {
 
     const indexPrimitives = [...fresh.values()].flat();
     const sourceRevision = createSourceRevision([...sourceRevisions.values()]);
+    const sourceRevisionsMap = Object.fromEntries(
+      [...sourceRevisions.values()]
+        .filter((entry) => sourceCoverage.get(entry.sourceId)?.state !== 'failed')
+        .map((entry) => [entry.sourceId, entry.revision])
+    );
     const index = await PrimitiveIndex.buildFromPrimitives(indexPrimitives, {
       hubId: this.opts.hubId,
       sourceRevision,
+      sourceRevisions: sourceRevisionsMap,
+      previousIndex: this.opts.force ? undefined : this.opts.previousIndex,
       embeddings: this.opts.embeddings,
       embeddingStrategy: this.opts.embeddingStrategy,
       searchProfileId: this.opts.searchProfileId,

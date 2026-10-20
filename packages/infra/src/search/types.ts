@@ -161,6 +161,19 @@ export interface BuildOptions {
   hubId?: string;
   /** Stable source snapshot/revision represented by the index. */
   sourceRevision?: string;
+  /** Optional per-source revision map (sourceId -> revision) stored in index metadata. */
+  sourceRevisions?: Readonly<Record<string, string>>;
+  /**
+   * Optional prior index instance used to carry over unchanged source primitives
+   * and reuse pre-tokenized fields and embeddings when `(id, contentHash)` match.
+   */
+  previousIndex?: import('./primitive-index').PrimitiveIndex;
+  /**
+   * When supplied alongside `previousIndex` and `sourceRevisions`, only sources
+   * in this set were re-harvested by the provider; any other source present in
+   * `sourceRevisions` is carried over from `previousIndex`.
+   */
+  changedSourceIds?: ReadonlySet<string>;
   /** Stable app-level search profile that produced this index. */
   searchProfileId?: string;
   embeddings?: EmbeddingProvider;

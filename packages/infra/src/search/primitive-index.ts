@@ -80,6 +80,18 @@ function tokenizeFields(p: Primitive): FieldTokens {
   };
 }
 
+function getPrimitiveSearchSignature(p: Primitive): string {
+  return [
+    p.id,
+    p.contentHash,
+    p.title,
+    p.description,
+    p.tags.join('\u0000'),
+    p.bodyPreview,
+    p.bodySummary ?? ''
+  ].join('\u0000');
+}
+
 /**
  * Compute cosine similarity between two vectors.
  * @param a First vector.
@@ -133,9 +145,37 @@ export class PrimitiveIndex {
     builtAt: string;
     hubId?: string;
     sourceRevision?: string;
+    sourceRevisions?: Record<string, string>;
     searchProfileId?: string;
     embeddingsMeta?: { provider: string; dim: number; strategy?: string; embeddingStrategy?: string };
   } = { schemaVersion: 1, builtAt: new Date().toISOString(), hubId: 'my-hub-id' };
+
+  /**
+   * Check whether embeddings from a previous index are compatible with the
+   * requested embedding provider and strategy.
+   * @param prev
+   * @param opts
+   */
+  private canReuseEmbeddingsFrom(prev: PrimitiveIndex | undefined, opts: BuildOptions): boolean {
+    if (!prev || !opts.embeddings || !prev.meta.embeddingsMeta) {
+      return false;
+    }
+    const requestedProvider = opts.embeddings.name ?? 'custom';
+    const requestedStrategy = opts.embeddingStrategy ?? 'single';
+    const requestedProfile = opts.searchProfileId ?? inferSearchProfileId(opts);
+    if (
+      requestedProfile !== undefined
+      && prev.meta.searchProfileId !== undefined
+      && prev.meta.searchProfileId !== requestedProfile
+    ) {
+      return false;
+    }
+    const prevMeta = prev.meta.embeddingsMeta;
+    const prevStrategy = prevMeta.embeddingStrategy ?? 'single';
+    return prevMeta.provider === requestedProvider
+      && prevMeta.dim === opts.embeddings.dim
+      && prevStrategy === requestedStrategy;
+  }
 
   /**
    * Compute changes between current index and new primitives.
@@ -154,7 +194,7 @@ export class PrimitiveIndex {
       const oldIdx = this.byId.get(id);
       if (oldIdx === undefined) {
         added.push(id);
-      } else if (this.records[oldIdx].primitive.contentHash === prim.contentHash) {
+      } else if (getPrimitiveSearchSignature(this.records[oldIdx].primitive) === getPrimitiveSearchSignature(prim)) {
         unchanged++;
       } else {
         updated.push(id);
@@ -199,6 +239,7 @@ export class PrimitiveIndex {
   ): Promise<PrimitiveIndex> {
     const idx = new PrimitiveIndex();
     let bundleCount = 0;
+    const failedSourceIds = new Set<string>();
     const primitives = await harvest(provider, {
       maxFilesPerBundle: opts.maxFilesPerBundle,
       onBundle: (ref, produced): void => {
@@ -207,14 +248,31 @@ export class PrimitiveIndex {
         opts.onLog?.(`harvested bundle ${ref.bundleId} (${produced} primitive${produced === 1 ? '' : 's'})`);
       },
       onError: (ref, err): void => {
+        const message = err instanceof Error ? err.message : String(err);
+        if (ref?.sourceId && !message.startsWith('not a primitive candidate:')) {
+          failedSourceIds.add(ref.sourceId);
+        }
         opts.onHarvestError?.(ref, err);
-        opts.onLog?.(`harvest error for bundle ${ref?.bundleId ?? 'unknown'}: ${err instanceof Error ? err.message : String(err)}`);
+        opts.onLog?.(`harvest error for bundle ${ref?.bundleId ?? 'unknown'}: ${message}`);
       }
     });
+    if ('getSourceErrors' in provider && typeof (provider as { getSourceErrors?: unknown }).getSourceErrors === 'function') {
+      for (const { sourceId } of (provider as { getSourceErrors: () => readonly { sourceId: string }[] }).getSourceErrors()) {
+        failedSourceIds.add(sourceId);
+      }
+    }
     if (primitives.length > 0) {
       opts.onLog?.(`harvested ${primitives.length} primitive${primitives.length === 1 ? '' : 's'} from ${bundleCount} bundle${bundleCount === 1 ? '' : 's'}`);
     }
-    await idx.reset(primitives, opts);
+    const effectiveSourceRevisions = opts.sourceRevisions && failedSourceIds.size > 0
+      ? Object.fromEntries(
+        Object.entries(opts.sourceRevisions).filter(([sourceId]) => !failedSourceIds.has(sourceId))
+      )
+      : opts.sourceRevisions;
+    await idx.reset(primitives, {
+      ...opts,
+      sourceRevisions: effectiveSourceRevisions
+    });
     return idx;
   }
 
@@ -260,51 +318,69 @@ export class PrimitiveIndex {
     this.resetSync(primitives, opts);
     if (opts.embeddings) {
       const log = opts.onLog;
-      const count = this.records.length;
       const provider = opts.embeddings.name ?? 'custom';
       const strategy = opts.embeddingStrategy ?? 'single';
-      log?.(`computing ${strategy} embeddings with ${provider} (dim=${opts.embeddings.dim}) — this may take a while...`);
+      const expectedStreams = strategy === 'dual' ? ['metadata', 'body'] : ['combined'];
+      const recordsToEmbed = this.records.filter((r) =>
+        !expectedStreams.every((stream) => r.embeddings?.[stream]?.length === opts.embeddings!.dim)
+      );
+      const reusedRecords = this.records.length - recordsToEmbed.length;
 
-      const textsByStream: Record<string, string[]> = {};
-      const streamNames: string[] = [];
-      for (const r of this.records) {
-        const texts = buildEmbeddingTexts(r.primitive, strategy);
-        for (const [name, text] of Object.entries(texts)) {
-          if (!textsByStream[name]) {
-            textsByStream[name] = [];
-            streamNames.push(name);
+      if (recordsToEmbed.length > 0) {
+        log?.(
+          `computing ${strategy} embeddings with ${provider} (dim=${opts.embeddings.dim}) `
+          + `for ${recordsToEmbed.length} primitive${recordsToEmbed.length === 1 ? '' : 's'} `
+          + `(reusing ${reusedRecords}) — this may take a while...`
+        );
+
+        const textsByStream: Record<string, string[]> = {};
+        const streamNames: string[] = [];
+        for (const r of recordsToEmbed) {
+          const texts = buildEmbeddingTexts(r.primitive, strategy);
+          for (const [name, text] of Object.entries(texts)) {
+            if (!textsByStream[name]) {
+              textsByStream[name] = [];
+              streamNames.push(name);
+            }
+            textsByStream[name].push(text);
           }
-          textsByStream[name].push(text);
         }
-      }
 
-      const batchSize = 32;
-      const vectorsByStream: Record<string, Float32Array[]> = {};
-      const startMs = Date.now();
-      for (const name of streamNames) {
-        const texts = textsByStream[name];
-        const vectors: Float32Array[] = [];
-        for (let done = 0; done < texts.length; done += batchSize) {
-          const batch = texts.slice(done, done + batchSize);
-          const batchVectors = await opts.embeddings.embed(batch);
-          vectors.push(...batchVectors);
-        }
-        vectorsByStream[name] = vectors;
-      }
-
-      this.records.forEach((r, i) => {
-        const embeddings: Record<string, Float32Array> = {};
+        const batchSize = 32;
+        const vectorsByStream: Record<string, Float32Array[]> = {};
+        const startMs = Date.now();
         for (const name of streamNames) {
-          embeddings[name] = vectorsByStream[name][i];
+          const texts = textsByStream[name];
+          const vectors: Float32Array[] = [];
+          for (let done = 0; done < texts.length; done += batchSize) {
+            const batch = texts.slice(done, done + batchSize);
+            const batchVectors = await opts.embeddings.embed(batch);
+            vectors.push(...batchVectors);
+          }
+          vectorsByStream[name] = vectors;
         }
-        r.embeddings = embeddings;
-        // Keep the legacy single-vector field populated for older callers.
-        if (embeddings.combined) {
-          r.embedding = embeddings.combined;
-        } else if (streamNames.length === 1) {
-          r.embedding = embeddings[streamNames[0]];
-        }
-      });
+
+        recordsToEmbed.forEach((r, i) => {
+          const embeddings: Record<string, Float32Array> = {};
+          for (const name of streamNames) {
+            embeddings[name] = vectorsByStream[name][i];
+          }
+          r.embeddings = embeddings;
+          // Keep the legacy single-vector field populated for older callers.
+          if (embeddings.combined) {
+            r.embedding = embeddings.combined;
+          } else if (streamNames.length === 1) {
+            r.embedding = embeddings[streamNames[0]];
+          }
+        });
+
+        log?.(
+          `computed ${recordsToEmbed.length * streamNames.length} embeddings `
+          + `(reused ${reusedRecords * expectedStreams.length}) (${strategy}) in ${Date.now() - startMs}ms`
+        );
+      } else {
+        log?.(`reused all ${reusedRecords * expectedStreams.length} embeddings (${strategy}) in 0ms`);
+      }
 
       this.meta.embeddingsMeta = {
         provider,
@@ -312,7 +388,6 @@ export class PrimitiveIndex {
         strategy: 'summary',
         embeddingStrategy: strategy
       };
-      log?.(`computed ${count * streamNames.length} embeddings (${strategy}) in ${Date.now() - startMs}ms`);
     }
   }
 
@@ -325,23 +400,58 @@ export class PrimitiveIndex {
   private resetSync(primitives: Primitive[], opts: BuildOptions): void {
     const startedAt = Date.now();
     const log = opts.onLog;
-    const count = primitives.length;
+
+    // Carry over unchanged sources from previousIndex when a selective source
+    // harvest was performed (changedSourceIds + sourceRevisions).
+    let combinedPrimitives = primitives;
+    if (opts.previousIndex && opts.changedSourceIds && opts.sourceRevisions) {
+      const activeSources = new Set(Object.keys(opts.sourceRevisions));
+      const carriedPrimitives = opts.previousIndex.records
+        .map((r) => r.primitive)
+        .filter((p) => activeSources.has(p.bundle.sourceId) && !opts.changedSourceIds!.has(p.bundle.sourceId));
+      combinedPrimitives = [...carriedPrimitives, ...primitives];
+    }
+
+    const count = combinedPrimitives.length;
     log?.(`indexing ${count} primitive${count === 1 ? '' : 's'}...`);
 
     // Deduplicate by primitiveId; when multiple versions of the same bundle are
     // passed, retain the newer semver version rather than letting an older
     // trailing version overwrite the latest primitive.
     const byId = new Map<string, Primitive>();
-    for (const p of primitives) {
+    for (const p of combinedPrimitives) {
       const existing = byId.get(p.id);
       if (!existing || shouldReplacePrimitive(existing, p)) {
         byId.set(p.id, p);
       }
     }
-    this.records = Array.from(byId.values()).map((primitive) => ({
-      primitive,
-      fields: tokenizeFields(primitive)
-    }));
+
+    const reusableByIdAndHash = new Map<string, InternalRecord>();
+    const reuseEmbeddings = this.canReuseEmbeddingsFrom(opts.previousIndex, opts);
+    if (opts.previousIndex) {
+      for (const prevRecord of opts.previousIndex.records) {
+        reusableByIdAndHash.set(
+          getPrimitiveSearchSignature(prevRecord.primitive),
+          prevRecord
+        );
+      }
+    }
+
+    this.records = Array.from(byId.values()).map((primitive) => {
+      const reusable = reusableByIdAndHash.get(getPrimitiveSearchSignature(primitive));
+      if (reusable) {
+        return {
+          primitive,
+          fields: reusable.fields,
+          ...(reuseEmbeddings && reusable.embedding ? { embedding: reusable.embedding } : {}),
+          ...(reuseEmbeddings && reusable.embeddings ? { embeddings: reusable.embeddings } : {})
+        };
+      }
+      return {
+        primitive,
+        fields: tokenizeFields(primitive)
+      };
+    });
     this.byId = new Map(this.records.map((r, i) => [r.primitive.id, i]));
 
     log?.('building BM25 index and facet maps...');
@@ -353,6 +463,7 @@ export class PrimitiveIndex {
       builtAt: new Date().toISOString(),
       hubId: opts.hubId ?? this.meta.hubId,
       sourceRevision: opts.sourceRevision ?? this.meta.sourceRevision,
+      sourceRevisions: opts.sourceRevisions ? { ...opts.sourceRevisions } : this.meta.sourceRevisions,
       searchProfileId: opts.searchProfileId ?? (opts.embeddings ? inferSearchProfileId(opts) : 'bm25-v1'),
       embeddingsMeta: opts.embeddings ? this.meta.embeddingsMeta : undefined
     };
@@ -704,6 +815,13 @@ export class PrimitiveIndex {
   // --- Queries -----------------------------------------------------------
 
   /**
+   * Per-source revision map stored in index metadata, when available.
+   */
+  public getSourceRevisions(): Readonly<Record<string, string>> | undefined {
+    return this.meta.sourceRevisions ? { ...this.meta.sourceRevisions } : undefined;
+  }
+
+  /**
    * Get a primitive by its ID.
    * @param primitiveId Primitive ID.
    * @returns Primitive or undefined if not found.
@@ -888,7 +1006,10 @@ export class PrimitiveIndex {
     const changes = this.computeChanges(nextById);
     this.cleanupShortlists(changes.removed);
 
-    await this.reset(Array.from(nextById.values()), opts);
+    await this.reset(Array.from(nextById.values()), {
+      ...opts,
+      previousIndex: opts.previousIndex ?? this
+    });
     return { added: changes.added, updated: changes.updated, removed: changes.removed, unchanged: changes.unchanged };
   }
 
@@ -904,6 +1025,7 @@ export class PrimitiveIndex {
       builtAt: this.meta.builtAt,
       hubId: this.meta.hubId,
       sourceRevision: this.meta.sourceRevision ?? null,
+      ...(this.meta.sourceRevisions ? { sourceRevisions: this.meta.sourceRevisions } : {}),
       searchProfileId: this.meta.searchProfileId ?? null,
       embeddingsMeta: this.meta.embeddingsMeta ?? null,
       primitives: this.records.map((r) => {
@@ -934,6 +1056,7 @@ export class PrimitiveIndex {
       builtAt?: string;
       hubId?: string;
       sourceRevision?: string | null;
+      sourceRevisions?: Record<string, string> | null;
       searchProfileId?: string | null;
       embeddingsMeta?: { provider: string; dim: number; strategy?: string; embeddingStrategy?: string } | null;
       primitives: (Primitive & { embedding?: number[]; embeddings?: Record<string, number[]> })[];
@@ -992,6 +1115,7 @@ export class PrimitiveIndex {
       builtAt: data.builtAt ?? new Date(0).toISOString(),
       hubId: data.hubId,
       sourceRevision: data.sourceRevision ?? undefined,
+      sourceRevisions: data.sourceRevisions ?? undefined,
       searchProfileId: data.searchProfileId ?? undefined,
       embeddingsMeta: data.embeddingsMeta ?? undefined
     };

@@ -162,4 +162,109 @@ describe('PrimitiveIndex embeddings', () => {
     expect(res.hits.length).toBeGreaterThan(0);
     expect(res.hits[0].score).toBeGreaterThan(0);
   });
+
+  it('reuses existing embeddings for unchanged primitives during incremental build and refresh', async () => {
+    const baseEmbedder = new TernlightEmbeddingProvider();
+    let embeddedTextsCount = 0;
+    const countingEmbedder = {
+      name: baseEmbedder.name,
+      dim: baseEmbedder.dim,
+      embed: async (texts: string[]): Promise<Float32Array[]> => {
+        embeddedTextsCount += texts.length;
+        return baseEmbedder.embed(texts);
+      }
+    };
+
+    const fixtures = createFixtureBundles();
+    const initialProvider = new FakeBundleProvider(fixtures);
+    const initialIndex = await PrimitiveIndex.buildFrom(initialProvider, {
+      embeddings: countingEmbedder,
+      embeddingStrategy: 'dual',
+      sourceRevisions: { 'gh-main': 'rev-1', 'local-dev': 'rev-1' }
+    });
+
+    const totalPrimitives = initialIndex.stats().primitives;
+    expect(totalPrimitives).toBeGreaterThan(1);
+    // Dual strategy embeds 2 streams (metadata + body) per primitive
+    expect(embeddedTextsCount).toBe(totalPrimitives * 2);
+
+    // Rebuild with exact same content and previousIndex -> 0 new embeddings computed!
+    embeddedTextsCount = 0;
+    const warmIndex = await PrimitiveIndex.buildFrom(initialProvider, {
+      embeddings: countingEmbedder,
+      embeddingStrategy: 'dual',
+      previousIndex: initialIndex,
+      sourceRevisions: { 'gh-main': 'rev-1', 'local-dev': 'rev-1' }
+    });
+    expect(embeddedTextsCount).toBe(0);
+    expect(warmIndex.stats().primitives).toBe(totalPrimitives);
+    expect(warmIndex.getSourceRevisions()).toEqual({ 'gh-main': 'rev-1', 'local-dev': 'rev-1' });
+
+    // Modify one primitive's manifest-derived description (even with unchanged contentHash) -> only 1 primitive (2 streams) embedded!
+    const allPrimitives = warmIndex.all();
+    const modifiedPrimitive = {
+      ...allPrimitives[0],
+      description: 'Updated description for incremental test'
+    };
+    const nextPrimitives = [modifiedPrimitive, ...allPrimitives.slice(1)];
+
+    embeddedTextsCount = 0;
+    const incrementalIndex = await PrimitiveIndex.buildFromPrimitives(nextPrimitives, {
+      embeddings: countingEmbedder,
+      embeddingStrategy: 'dual',
+      previousIndex: warmIndex
+    });
+    expect(embeddedTextsCount).toBe(2);
+    expect(incrementalIndex.get(modifiedPrimitive.id)?.description).toBe('Updated description for incremental test');
+
+    // Changing searchProfileId rejects embedding reuse and recomputes all embeddings
+    embeddedTextsCount = 0;
+    await PrimitiveIndex.buildFromPrimitives(nextPrimitives, {
+      embeddings: countingEmbedder,
+      embeddingStrategy: 'dual',
+      searchProfileId: 'ternlight-dual-v2',
+      previousIndex: incrementalIndex
+    });
+    expect(embeddedTextsCount).toBe(totalPrimitives * 2);
+  });
+
+  it('carries over unchanged sources and prunes removed sources without harvesting or re-embedding', async () => {
+    const baseEmbedder = new TernlightEmbeddingProvider();
+    let embeddedTextsCount = 0;
+    const countingEmbedder = {
+      name: baseEmbedder.name,
+      dim: baseEmbedder.dim,
+      embed: async (texts: string[]): Promise<Float32Array[]> => {
+        embeddedTextsCount += texts.length;
+        return baseEmbedder.embed(texts);
+      }
+    };
+
+    const fixtures = createFixtureBundles();
+    const initialIndex = await PrimitiveIndex.buildFrom(new FakeBundleProvider(fixtures), {
+      embeddings: countingEmbedder,
+      embeddingStrategy: 'dual',
+      sourceRevisions: { 'github-abc': 'rev-1', 'github-def': 'rev-1' }
+    });
+    const abcCount = initialIndex.all().filter((p) => p.bundle.sourceId === 'github-abc').length;
+    const defCount = initialIndex.all().filter((p) => p.bundle.sourceId === 'github-def').length;
+    expect(abcCount).toBeGreaterThan(0);
+    expect(defCount).toBeGreaterThan(0);
+
+    // Remove 'github-def' and keep 'github-abc' unchanged (changedSourceIds is empty)
+    embeddedTextsCount = 0;
+    const emptyProvider = new FakeBundleProvider([]);
+    const prunedIndex = await PrimitiveIndex.buildFrom(emptyProvider, {
+      embeddings: countingEmbedder,
+      embeddingStrategy: 'dual',
+      previousIndex: initialIndex,
+      sourceRevisions: { 'github-abc': 'rev-1' },
+      changedSourceIds: new Set<string>()
+    });
+
+    expect(embeddedTextsCount).toBe(0);
+    expect(prunedIndex.stats().primitives).toBe(abcCount);
+    expect(prunedIndex.all().every((p) => p.bundle.sourceId === 'github-abc')).toBe(true);
+    expect(prunedIndex.getSourceRevisions()).toEqual({ 'github-abc': 'rev-1' });
+  });
 });

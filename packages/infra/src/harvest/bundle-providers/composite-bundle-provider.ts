@@ -67,6 +67,19 @@ export class CompositeBundleProvider implements BundleProvider {
     return this.sourceErrors;
   }
 
+  /**
+   * Create a view of this composite provider that traverses only the specified
+   * source IDs during `listBundles()`. Used by incremental index builds to
+   * harvest only added or changed sources while carrying over unchanged sources.
+   * @param sourceIds
+   */
+  public filterSources(sourceIds: ReadonlySet<string>): CompositeBundleProvider {
+    return new CompositeBundleProvider(
+      this.entries.filter((entry) => sourceIds.has(entry.sourceId)),
+      { onSourceError: this.onSourceError }
+    );
+  }
+
   public async* listBundles(): AsyncIterable<BundleRef> {
     this.sourceErrors = [];
     for (const entry of this.entries) {
