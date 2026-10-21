@@ -61,8 +61,17 @@ mcpServers:
 | `${bundlePath}` | Absolute path to bundle directory |
 | `${bundleId}` | Bundle identifier |
 | `${bundleVersion}` | Bundle version |
-| `${env:VAR_NAME}` | Environment variable |
+| `${env:VAR_NAME}` | Environment variable, resolved by the host at runtime (see below) |
 | `${input:id}` | VS Code input prompt (defined in `mcp.inputs`) |
+
+`${bundlePath}`, `${bundleId}` and `${bundleVersion}` are substituted at install time. `${env:VAR_NAME}` is never resolved at install time, because that would write secrets (tokens, passwords) to the host's MCP config file in cleartext. The placeholder is written instead, translated to the host's runtime syntax by the `mcpConfig.envPlaceholderStyle` field in `default-layouts.json`:
+
+| `envPlaceholderStyle` | Written as | Hosts |
+|---|---|---|
+| `prefixed` (default) | `${env:VAR_NAME}` | VS Code, Cursor, Windsurf, and any host without an explicit style |
+| `bare` | `${VAR_NAME}` | Kiro, Kiro CLI, Claude Code |
+
+A `:-default` suffix is kept as-is (`${env:VAR:-x}` becomes `${VAR:-x}` on `bare` hosts). Kiro only expands variables listed in its "Mcp Approved Env Vars" setting.
 
 ## Input Definitions
 

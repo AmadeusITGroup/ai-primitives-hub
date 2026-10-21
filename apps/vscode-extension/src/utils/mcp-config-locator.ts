@@ -8,6 +8,7 @@ import {
   resolveMcpLayoutConfig,
 } from '@ai-primitives-hub/app';
 import type {
+  McpEnvPlaceholderStyle,
   McpLayoutConfig,
   McpServersKey,
   TargetType,
@@ -46,6 +47,8 @@ export interface McpConfigLocation {
   serversKey: McpServersKey;
   /** Whether the host resolves `${input:id}` placeholders. VS Code Copilot only. */
   supportsInputs: boolean;
+  /** Syntax the host resolves `${env:VAR}` placeholders in at runtime. */
+  envPlaceholderStyle: McpEnvPlaceholderStyle;
 }
 
 export class McpConfigLocator {
@@ -199,7 +202,8 @@ export class McpConfigLocator {
       trackingPath: path.join(path.dirname(configPath), this.TRACKING_FILENAME),
       exists: fs.existsSync(configPath),
       serversKey: mcpLayout.serversKey,
-      supportsInputs: mcpLayout.supportsInputs ?? false
+      supportsInputs: mcpLayout.supportsInputs ?? false,
+      envPlaceholderStyle: mcpLayout.envPlaceholderStyle ?? 'prefixed'
     };
   }
 

@@ -126,7 +126,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${HOME}/.kiro/settings/mcp.json",
-          "serversKey": "mcpServers"
+          "serversKey": "mcpServers",
+          "envPlaceholderStyle": "bare"
         }
       },
       "repository": {
@@ -144,7 +145,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.kiro/settings/mcp.json",
-          "serversKey": "mcpServers"
+          "serversKey": "mcpServers",
+          "envPlaceholderStyle": "bare"
         }
       }
     },
@@ -166,7 +168,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${HOME}/.kiro/settings/mcp.json",
-          "serversKey": "mcpServers"
+          "serversKey": "mcpServers",
+          "envPlaceholderStyle": "bare"
         }
       },
       "repository": {
@@ -186,7 +189,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.kiro/settings/mcp.json",
-          "serversKey": "mcpServers"
+          "serversKey": "mcpServers",
+          "envPlaceholderStyle": "bare"
         }
       }
     },
@@ -239,7 +243,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${HOME}/.claude.json",
-          "serversKey": "mcpServers"
+          "serversKey": "mcpServers",
+          "envPlaceholderStyle": "bare"
         }
       },
       "repository": {
@@ -258,7 +263,8 @@
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
           "path": "${workspaceRoot}/.mcp.json",
-          "serversKey": "mcpServers"
+          "serversKey": "mcpServers",
+          "envPlaceholderStyle": "bare"
         }
       }
     },

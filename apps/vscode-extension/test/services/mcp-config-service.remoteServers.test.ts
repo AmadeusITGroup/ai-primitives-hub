@@ -185,7 +185,7 @@ suite('McpConfigService - Remote Server Support', () => {
       assert.strictEqual(remoteResult.url, `file://${testDir}/local-server`);
     });
 
-    test('should substitute environment variables in URL', () => {
+    test('should keep env placeholders in URL instead of resolving them', () => {
       const originalEnv = process.env.TEST_MCP_HOST;
       process.env.TEST_MCP_HOST = 'mcp.example.com';
 
@@ -205,7 +205,7 @@ suite('McpConfigService - Remote Server Support', () => {
 
         assert.strictEqual(isRemoteServerConfig(result), true);
         const remoteResult = result as McpRemoteServerConfig;
-        assert.strictEqual(remoteResult.url, 'https://mcp.example.com/api/mcp');
+        assert.strictEqual(remoteResult.url, 'https://${env:TEST_MCP_HOST}/api/mcp');
       } finally {
         if (originalEnv === undefined) {
           delete process.env.TEST_MCP_HOST;
@@ -239,8 +239,44 @@ suite('McpConfigService - Remote Server Support', () => {
 
         assert.strictEqual(isRemoteServerConfig(result), true);
         const remoteResult = result as McpRemoteServerConfig;
-        assert.strictEqual(remoteResult.headers?.Authorization, 'Bearer secret-token-123');
+        // The secret must never be written: the placeholder is kept for the host.
+        assert.strictEqual(remoteResult.headers?.Authorization, 'Bearer ${env:TEST_API_TOKEN}');
         assert.strictEqual(remoteResult.headers?.['X-Bundle-Id'], bundleId);
+      } finally {
+        if (originalEnv === undefined) {
+          delete process.env.TEST_API_TOKEN;
+        } else {
+          process.env.TEST_API_TOKEN = originalEnv;
+        }
+      }
+    });
+
+    test('should translate env placeholders to bare syntax for hosts like Kiro without resolving them', () => {
+      const originalEnv = process.env.TEST_API_TOKEN;
+      process.env.TEST_API_TOKEN = 'secret-token-123';
+
+      try {
+        const definition: McpRemoteServerConfig = {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: {
+            'x-jira-token': 'Token ${env:TEST_API_TOKEN}',
+            'x-optional': '${env:TEST_UNSET_VAR:-}'
+          }
+        };
+
+        const result = configService.processServerDefinition(
+          'kiro-http-server',
+          definition,
+          bundleId,
+          bundleVersion,
+          testDir,
+          'bare'
+        ) as McpRemoteServerConfig;
+
+        assert.strictEqual(result.headers?.['x-jira-token'], 'Token ${TEST_API_TOKEN}');
+        assert.strictEqual(result.headers?.['x-optional'], '${TEST_UNSET_VAR:-}');
+        assert.ok(!JSON.stringify(result).includes('secret-token-123'));
       } finally {
         if (originalEnv === undefined) {
           delete process.env.TEST_API_TOKEN;

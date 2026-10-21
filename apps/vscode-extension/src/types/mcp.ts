@@ -3,6 +3,10 @@
  */
 
 // McpServersKey is defined in @ai-primitives-hub/core alongside McpLayoutConfig.
+import type {
+  McpEnvPlaceholderStyle,
+} from '@ai-primitives-hub/core';
+
 export type { McpServersKey } from '@ai-primitives-hub/core';
 
 /**
@@ -150,7 +154,11 @@ export interface McpVariableContext {
   bundlePath: string;
   bundleId: string;
   bundleVersion: string;
-  env: Record<string, string>;
+  /**
+   * Host syntax to translate `${env:VAR}` placeholders into. Env values are
+   * never resolved at install time so secrets are not written to disk.
+   */
+  envPlaceholderStyle: McpEnvPlaceholderStyle;
 }
 
 export interface McpInstallResult {

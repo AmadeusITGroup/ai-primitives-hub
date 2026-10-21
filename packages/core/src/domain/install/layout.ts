@@ -9,6 +9,10 @@
  * Pure domain: no IO, no framework imports.
  * @module domain/install/layout
  */
+import {
+  MCP_ENV_PLACEHOLDER_STYLES,
+  type McpEnvPlaceholderStyle,
+} from '../mcp/env-placeholders';
 
 /**
  * Per-scope layout definition as stored in a layout config file.
@@ -94,6 +98,14 @@ export interface McpLayoutConfig {
    * than relying on the write succeeding.
    */
   readonly supportsInputs?: boolean;
+  /**
+   * Syntax the host uses to resolve environment variables at runtime.
+   * `${env:VAR}` placeholders from bundles are translated to this syntax and
+   * never resolved at install time, so secrets do not reach disk.
+   *
+   * Defaults to `'prefixed'` (`${env:VAR}`, written verbatim) when absent.
+   */
+  readonly envPlaceholderStyle?: McpEnvPlaceholderStyle;
 }
 
 /**
@@ -320,5 +332,13 @@ function validateMcpLayoutConfig(raw: unknown, path: string): void {
   }
   if (obj.supportsInputs !== undefined && typeof obj.supportsInputs !== 'boolean') {
     throw new TypeError(`layout config: "${path}.supportsInputs" must be a boolean`);
+  }
+  if (
+    obj.envPlaceholderStyle !== undefined
+    && !(MCP_ENV_PLACEHOLDER_STYLES as readonly unknown[]).includes(obj.envPlaceholderStyle)
+  ) {
+    throw new TypeError(
+      `layout config: "${path}.envPlaceholderStyle" must be one of ${MCP_ENV_PLACEHOLDER_STYLES.join(', ')}`
+    );
   }
 }

@@ -226,7 +226,8 @@ suite('McpConfigService - Input Merging', () => {
         trackingPath: path.join(testDir, 'mcp-tracking.json'),
         exists: true,
         serversKey: 'servers',
-        supportsInputs: true
+        supportsInputs: true,
+        envPlaceholderStyle: 'prefixed'
       });
       sandbox.stub(McpConfigLocator, 'ensureConfigDirectory').resolves();
 

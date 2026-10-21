@@ -5,8 +5,12 @@ import {
   autoDeriveMissingInputs,
   mergeInputDeclarations,
 } from '@ai-primitives-hub/app';
+import type {
+  McpEnvPlaceholderStyle,
+} from '@ai-primitives-hub/core';
 import {
   collectInputReferences,
+  rewriteEnvPlaceholders,
 } from '@ai-primitives-hub/core';
 import * as fs from 'fs-extra';
 import {
@@ -233,26 +237,34 @@ export class McpConfigService {
     result = result.replace(/\$\{bundleId\}/g, context.bundleId);
     result = result.replace(/\$\{bundleVersion\}/g, context.bundleVersion);
 
-    const envRegex = /\$\{env:([^}]+)\}/g;
-    result = result.replace(envRegex, (_, envVar) => {
-      return context.env[envVar] || process.env[envVar] || '';
-    });
-
-    return result;
+    // `${env:VAR}` is deliberately NOT resolved here: resolving at install time
+    // writes secrets (tokens, passwords) to the host's config file in cleartext.
+    // The placeholder is kept and translated to the host's runtime syntax.
+    return rewriteEnvPlaceholders(result, context.envPlaceholderStyle);
   }
 
+  /**
+   * Turn a bundle server definition into the config written to the host file.
+   * @param serverName - Server name from the bundle manifest.
+   * @param definition - Raw server definition.
+   * @param bundleId - Bundle identifier, for `${bundleId}`.
+   * @param bundleVersion - Bundle version, for `${bundleVersion}`.
+   * @param bundlePath - Bundle install path, for `${bundlePath}`.
+   * @param envPlaceholderStyle - Host syntax for `${env:VAR}` placeholders.
+   */
   public processServerDefinition(
     serverName: string,
     definition: McpServerDefinition,
     bundleId: string,
     bundleVersion: string,
-    bundlePath: string
+    bundlePath: string,
+    envPlaceholderStyle: McpEnvPlaceholderStyle = 'prefixed'
   ): McpServerConfig {
     const context: McpVariableContext = {
       bundlePath,
       bundleId,
       bundleVersion,
-      env: process.env as Record<string, string>
+      envPlaceholderStyle
     };
 
     // Use type guards to properly handle stdio vs remote servers
