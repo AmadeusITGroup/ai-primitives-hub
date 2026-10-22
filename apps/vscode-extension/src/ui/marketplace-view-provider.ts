@@ -11,6 +11,9 @@ import {
 import MarkdownIt from 'markdown-it';
 import sanitizeHtml from 'sanitize-html';
 import * as vscode from 'vscode';
+import type {
+  HubManager,
+} from '../services/hub-manager';
 import {
   PrimitiveIndexService,
 } from '../services/primitive-index-service';
@@ -79,6 +82,7 @@ interface BundlesLoadedMessage {
   };
   setupState: string;
   sourcesCount: number;
+  hasConfiguredHub?: boolean;
 }
 
 interface PrimitiveSearchDiagnostics {
@@ -151,7 +155,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     private readonly context: vscode.ExtensionContext,
     private readonly registryManager: RegistryManager,
     private readonly setupStateManager: SetupStateManager,
-    private readonly primitiveIndexService?: PrimitiveIndexService
+    private readonly primitiveIndexService?: PrimitiveIndexService,
+    private readonly hubManager?: Pick<HubManager, 'getActiveHub' | 'onActiveHubChanged'>
   ) {
     this.logger = Logger.getInstance();
 
@@ -183,6 +188,9 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       // hydration cannot start a marketplace load for every batch.
       this.registryManager.onReadmeDownloaded(() => this.sourceSyncThrottle.trigger())
     );
+    if (this.hubManager) {
+      this.disposables.push(this.hubManager.onActiveHubChanged(() => void this.loadBundles()));
+    }
   }
 
   /**
@@ -415,8 +423,11 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       const availableSources = extractBundleSources(bundles, sources);
       const availableEnvironments = extractAllEnvironments(bundles);
 
-      // Get setup state for empty state UI
+      // Persisted onboarding completion is not proof that an active hub still exists.
       const setupState = await this.setupStateManager.getState();
+      const hasConfiguredHub = this.hubManager
+        ? Boolean(await this.hubManager.getActiveHub())
+        : undefined;
 
       this.latestBundlesMessage = {
         type: 'bundlesLoaded',
@@ -427,7 +438,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
           environments: availableEnvironments
         },
         setupState,
-        sourcesCount: sources.length
+        sourcesCount: sources.length,
+        hasConfiguredHub
       };
       await this.deliverBundles();
 

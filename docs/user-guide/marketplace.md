@@ -12,6 +12,13 @@ Windows/Linux or `Cmd+Shift+P` on macOS) and run
 - **Filter by Source** — Show bundles from specific repositories
 - **Installed Only** — Show only installed bundles
 
+If no active hub is configured, the Marketplace shows a hub setup banner
+even when a manually added source already provides skills or bundles.
+For previously completed or interrupted setup, click **Configure Hub** to choose
+a hub. The banner appears after your existing skill and bundle cards.
+Adding a standalone source does not configure a hub. The banner is cleared once
+a hub is active and setup is complete.
+
 The marketplace builds the primitive index on demand when you search. To start a
 rebuild explicitly, open the Command Palette and run **AI Primitives Hub:
 Rebuild Primitive Index**. The index is also rebuilt automatically after source

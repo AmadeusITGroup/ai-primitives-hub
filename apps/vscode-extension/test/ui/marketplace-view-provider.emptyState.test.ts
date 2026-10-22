@@ -105,10 +105,41 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
   });
 
   teardown(() => {
+    marketplaceProvider.dispose();
     sandbox.restore();
   });
 
   suite('Setup state in bundlesLoaded message', () => {
+    [false, true].forEach((hasConfiguredHub) => {
+      test(`reports actual hub presence (${hasConfiguredHub}) despite a stored complete state`, async () => {
+        mockSetupStateManager.getState.resolves(SetupState.COMPLETE);
+        mockRegistryManager.listSources.resolves([{ id: 'standalone-skills', type: 'skills' } as any]);
+        marketplaceProvider.dispose();
+        marketplaceProvider = new MarketplaceViewProvider(
+          mockContext,
+          mockRegistryManager,
+          mockSetupStateManager,
+          undefined,
+          {
+            getActiveHub: sandbox.stub().resolves(hasConfiguredHub ? { config: {} } : null),
+            onActiveHubChanged: sandbox.stub().returns({ dispose: () => {} })
+          }
+        );
+        marketplaceProvider.resolveWebviewView({
+          webview: mockWebview,
+          onDidChangeVisibility: sandbox.stub().returns({ dispose: () => {} })
+        } as any, {} as any, {} as any);
+        const receiveMessage = mockWebview.onDidReceiveMessage.lastCall.args[0];
+        await receiveMessage({ type: 'ready' });
+
+        const loaded = postedMessages.find((message) => message.type === 'bundlesLoaded');
+        assert.ok(loaded, 'the ready handshake should deliver the catalog');
+        assert.strictEqual(loaded.setupState, SetupState.COMPLETE);
+        assert.strictEqual(loaded.sourcesCount, 1);
+        assert.strictEqual(loaded.hasConfiguredHub, hasConfiguredHub);
+      });
+    });
+
     test('should include setup state in bundlesLoaded message when setup is incomplete', async () => {
       // Requirement 4.1: WHEN the marketplace displays AND no bundles exist AND no hub is configured
       mockSetupStateManager.getState.resolves(SetupState.INCOMPLETE);

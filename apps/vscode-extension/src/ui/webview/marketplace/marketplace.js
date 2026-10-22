@@ -38,6 +38,7 @@
   let openVersionDropdownId = null;
   let setupState = 'complete'; // Default to complete to avoid showing setup prompt unnecessarily
   let sourcesCount = 0;
+  let hasConfiguredHub;
 
   // Handle messages from extension
   window.addEventListener('message', (event) => {
@@ -48,6 +49,7 @@
       filterOptions = message.filterOptions || { tags: [], sources: [], environments: [] };
       setupState = message.setupState || 'complete';
       sourcesCount = message.sourcesCount || 0;
+      hasConfiguredHub = message.hasConfiguredHub;
       updateFilterUI();
       updateMarketplaceSummary();
       renderBundles();
@@ -1039,6 +1041,26 @@
       return;
     }
 
+    var hasNoSources = setupState === 'complete' && sourcesCount === 0;
+    var shouldShowSetupPrompt = hasConfiguredHub === false || setupState === 'incomplete' || setupState === 'not_started' || setupState === 'in_progress' || hasNoSources;
+    var isInitialSetup = setupState === 'not_started';
+    var setupActionLabel = isInitialSetup ? 'Complete Setup' : 'Configure Hub';
+    var setupMessage = hasNoSources
+      ? 'No sources are configured. Complete setup to browse bundles.'
+      : (isInitialSetup
+        ? 'No hub is configured. Complete setup to browse bundles.'
+        : 'A source is configured, but no hub is set up yet. Configure your hub to continue.');
+
+    var setupBanner = shouldShowSetupPrompt
+      ? '<div class="empty-state">'
+      + '<div class="empty-state-icon fa-icon fa-gear"></div>'
+      + '<p>' + setupMessage + '</p>'
+      + '<button class="primary-button" data-action="completeSetup">'
+      + setupActionLabel
+      + '</button>'
+      + '</div>'
+      : '';
+
     // Reflect the number of collections remaining after the active tab,
     // search, and filter criteria have been applied.
     if (filteredBundles.length === 0) {
@@ -1046,10 +1068,7 @@
       var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || selectedContentTypes.length > 0;
 
       if (allBundles.length === 0) {
-        var hasNoSources = setupState === 'complete' && sourcesCount === 0;
-        var shouldShowSetupPrompt = setupState === 'incomplete' || setupState === 'not_started' || setupState === 'in_progress' || hasNoSources;
-
-        var setupMessage = hasNoSources
+        var emptySetupMessage = hasNoSources
           ? 'No sources are configured. Complete setup to browse bundles.'
           : 'No hub is configured. Complete setup to browse bundles.';
 
@@ -1057,7 +1076,7 @@
           ? '<div class="empty-state">'
           + '<div class="empty-state-icon fa-icon fa-gear"></div>'
           + '<div class="empty-state-title">Setup Not Complete</div>'
-          + '<p>' + setupMessage + '</p>'
+          + '<p>' + emptySetupMessage + '</p>'
           + '<button class="primary-button" data-action="completeSetup">'
           + 'Complete Setup'
           + '</button>'
@@ -1139,7 +1158,7 @@
         + '<button class="btn btn-link details-button" data-action="openDetails" data-bundle-id="' + bundle.id + '" title="Open Details" aria-label="Open Details">Details</button>'
         + '</div>'
         + '</div>';
-    }).join('');
+    }).join('') + setupBanner;
 
     // Keep an open version menu visible when a background bundle refresh rerenders the cards.
     if (openVersionDropdownId) {
