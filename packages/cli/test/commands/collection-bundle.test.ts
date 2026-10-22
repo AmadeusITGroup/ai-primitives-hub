@@ -380,7 +380,7 @@ items:
       expect(manifest.prompts[0].tags).toEqual(['splunk']);
     });
 
-    it('generates the expected MCP fields and matches the legacy generator', async () => {
+    it('generates the expected MCP fields in the legacy-compatible manifest shape', async () => {
       await writeFile(
         path.join(workspace, 'collections', 'foo.collection.yml'),
         `id: foo
@@ -417,16 +417,7 @@ mcp:
 `
       );
 
-      const legacyManifestPath = path.join(workspace, 'legacy-manifest.yml');
       const cliManifestPath = path.join(workspace, 'cli-manifest.yml');
-      const legacyGeneratorPath = path.resolve(process.cwd(), '../../lib/bin/generate-manifest.js');
-
-      execFileSync(process.execPath, [
-        legacyGeneratorPath,
-        '1.0.0',
-        '--collection-file', 'collections/foo.collection.yml',
-        '--out', legacyManifestPath
-      ], { cwd: workspace, encoding: 'utf8' });
 
       const result = await run([
         'bundle', 'manifest',
@@ -438,10 +429,29 @@ mcp:
 
       expect(result.exitCode).toBe(0);
 
-      const legacyManifest = yaml.load(await readFile(legacyManifestPath, 'utf8'));
       const cliManifest = yaml.load(await readFile(cliManifestPath, 'utf8'));
 
-      expect(cliManifest).toMatchObject({
+      // Pinned from lib/bin/generate-manifest.js output so parity holds without building lib/.
+      expect(cliManifest).toEqual({
+        id: 'foo',
+        version: '1.0.0',
+        name: 'Foo Collection',
+        description: 'Test collection',
+        author: 'Test Author',
+        tags: ['test'],
+        environments: ['vscode', 'windsurf', 'cursor'],
+        license: 'MIT',
+        repository: '',
+        prompts: [
+          {
+            id: 'hello.prompt',
+            name: 'Hello Prompt',
+            description: '',
+            file: 'prompts/hello.prompt.md',
+            type: 'prompt'
+          }
+        ],
+        dependencies: [],
         mcpServers: {
           'example-server': {
             type: 'stdio',
@@ -475,7 +485,6 @@ mcp:
           }
         ]
       });
-      expect(cliManifest).toEqual(legacyManifest);
     });
 
     it('preserves ${env:VAR} and ${env:VAR:-default} placeholders in MCP headers verbatim', async () => {
@@ -519,7 +528,7 @@ mcp:
       });
     });
 
-    it('records the declared README basename and matches the legacy generator', async () => {
+    it('records the declared README basename in the legacy-compatible manifest shape', async () => {
       await mkdir(path.join(workspace, 'docs'), { recursive: true });
       await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
       await writeFile(
@@ -535,15 +544,7 @@ items:
 `
       );
 
-      const legacyManifestPath = path.join(workspace, 'legacy-manifest.yml');
       const cliManifestPath = path.join(workspace, 'cli-manifest.yml');
-      const legacyGeneratorPath = path.resolve(process.cwd(), '../../lib/bin/generate-manifest.js');
-      execFileSync(process.execPath, [
-        legacyGeneratorPath,
-        '1.0.0',
-        '--collection-file', 'collections/foo.collection.yml',
-        '--out', legacyManifestPath
-      ], { cwd: workspace, encoding: 'utf8' });
 
       const result = await run([
         'bundle', 'manifest',
@@ -555,8 +556,29 @@ items:
 
       expect(result.exitCode).toBe(0);
       const cliManifest = yaml.load(await readFile(cliManifestPath, 'utf8'));
-      expect(cliManifest).toEqual(yaml.load(await readFile(legacyManifestPath, 'utf8')));
-      expect(cliManifest).toMatchObject({ readme: 'collection-overview.md' });
+      // Pinned from lib/bin/generate-manifest.js output so parity holds without building lib/.
+      expect(cliManifest).toEqual({
+        id: 'foo',
+        version: '1.0.0',
+        name: 'Foo Collection',
+        description: 'Test collection',
+        author: 'Prompt Registry',
+        tags: [],
+        environments: ['vscode', 'windsurf', 'cursor'],
+        license: 'MIT',
+        repository: '',
+        prompts: [
+          {
+            id: 'hello.prompt',
+            name: 'Hello Prompt',
+            description: '',
+            file: 'prompts/hello.prompt.md',
+            type: 'prompt'
+          }
+        ],
+        dependencies: [],
+        readme: 'collection-overview.md'
+      });
     });
 
     it('fails with exit 1 when collections/ does not exist and no --collection-file is given', async () => {
