@@ -445,7 +445,7 @@ suite('Marketplace webview behavior', () => {
       }));
       const { document } = harness.dom.window;
       assert.strictEqual(document.querySelector('.empty-state-title')?.textContent, 'Setup Not Complete');
-      assert.strictEqual(document.querySelector('[data-action="completeSetup"]')?.textContent, 'Complete Setup');
+      assert.strictEqual(document.querySelector('[data-action="completeSetup"]')?.textContent, 'Configure Hub');
     } finally {
       harness.dom.window.close();
     }
