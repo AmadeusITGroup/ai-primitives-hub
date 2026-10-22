@@ -780,7 +780,8 @@ export class PromptRegistryExtension {
       this.context,
       this.registryManager,
       this.setupStateManager!,
-      this.primitiveIndexService
+      this.primitiveIndexService,
+      this.hubManager
     );
 
     // Register webview view
