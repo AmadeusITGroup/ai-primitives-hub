@@ -272,7 +272,12 @@ Constraints carried in from earlier decisions and from #277:
      `env` keys. It adds `PLUGIN_ROOT` and `PLUGIN_DATA` to each stdio server's
      `env`, defaults `cwd` to the plugin root, and resolves `./` commands
      against it ([spec §7.2.1, §9.1, §9.2][spec]). The expansion logic is
-     pure and unit-tested against the spec's examples.
+     pure and unit-tested against the spec's examples. `${env:VAR}`
+     placeholders are never resolved at install: as for every MCP write,
+     they are rewritten to the dialect's `envPlaceholderStyle` by
+     `rewriteEnvPlaceholders`
+     (`packages/core/src/domain/mcp/env-placeholders.ts`), so secrets do
+     not reach disk.
    - **`PLUGIN_DATA`.** `AppStoragePaths`
      (`packages/core/src/ports/app-storage.ts`) gains `pluginData: string`.
      This extends the ADR-0005 port, and both adapters implement it:
@@ -412,7 +417,7 @@ Constraints carried in from earlier decisions and from #277:
     |---|---|---|
     | `InstallCategory` (`file`, `directory`, `config`), the kind → category table, `categoryOf(kind)` | `core` | beside `PRIMITIVE_KINDS` in `packages/core/src/domain/primitive/`, or a new `packages/core/src/domain/install/category.ts` |
     | directory identity and packaging rule from the category | `core` | replaces the `skill`/`plugin` checks in `release-manifest-plan.ts` |
-    | layout types: per-kind category override, plugin mode, MCP dialect (path, root key, server shape, input support, server-name form) and their validation | `core` | `packages/core/src/domain/install/layout.ts` (`ScopedLayoutDef`, `McpLayoutConfig`) |
+    | layout types: per-kind category override, plugin mode, MCP dialect (path, root key, server shape, input support, env-placeholder style, server-name form) and their validation | `core` | `packages/core/src/domain/install/layout.ts` (`ScopedLayoutDef`, `McpLayoutConfig`) |
     | support derivation (decision 3) | `core` | pure function over the resolved layout |
     | Agent Plugins MCP translation and placeholder expansion; config-entry ownership model | `core` | `packages/core/src/domain/plugin/`, `packages/core/src/domain/mcp/` |
     | ports: config file read/merge/write, file modes | `core` | `packages/core/src/ports/` (`filesystem.ts`, `target-writer.ts`) |
@@ -570,8 +575,8 @@ confirmation when this ADR is accepted.
   output is invisible in the harness's own plugin UI. `native` and `register`
   remain follow-ups.
 - **Negative:** the `config` category needs a per-target MCP dialect (path,
-  root key, server shape, server-name form), not just `path` and
-  `serversKey`. The opencode and devin MCP data is wrong today; PR-13 adds
+  root key, server shape, server-name form), not just `path`,
+  `serversKey`, `supportsInputs` and `envPlaceholderStyle`. The opencode and devin MCP data is wrong today; PR-13 adds
   the opencode dialect and fixes the devin repository path, and sets any
   still-unverified cell to unsupported. Owned server names may differ
   between targets (default or sanitised form), so tooling that looks for
