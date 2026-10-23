@@ -520,6 +520,8 @@ export class HubManager {
    * @param hubId Hub identifier to delete
    */
   public async deleteHub(hubId: string): Promise<void> {
+    const previouslyActiveHubId = await this.getActiveHubId();
+
     // Cleanup resources linked to this hub before deleting
     await this.cleanupHubResources(hubId);
 
@@ -527,6 +529,16 @@ export class HubManager {
     // same underlying HubStore.remove(), but only HubStorage's own version
     // also evicts the now-deleted hub from its read-through cache.
     await this.storage.deleteHub(hubId);
+
+    if (previouslyActiveHubId === hubId) {
+      const remainingHubIds = await this.storage.listHubs();
+      const nextActiveHubId = remainingHubIds[0] ?? null;
+      await this.setActiveHub(nextActiveHubId);
+      this.logger.info(nextActiveHubId
+        ? `Deleted active hub ${hubId}; switched active hub to ${nextActiveHubId}`
+        : `Deleted active hub ${hubId}; no hubs remain active`);
+    }
+
     this._onHubDeleted.fire(hubId);
   }
 

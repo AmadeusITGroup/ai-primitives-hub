@@ -214,6 +214,37 @@ suite('Hub Cleanup', () => {
         'Profile from other hub should NOT be deactivated'
       );
     });
+
+    test('should switch active hub to another hub when deleting the active one', async () => {
+      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+      const ref: HubReference = { type: 'local', location: fixturePath };
+
+      await hubManager.importHub(ref, 'hub-one');
+      await hubManager.importHub(ref, 'hub-two');
+      await hubManager.setActiveHub('hub-one');
+
+      await hubManager.deleteHub('hub-one');
+
+      const activeHubId = await hubManager.getActiveHubId();
+      assert.strictEqual(activeHubId, 'hub-two', 'Should promote another hub to active after deleting active hub');
+      assert.ok(
+        mockRegistryManager.sources.some((source) => source.hubId === 'hub-two'),
+        'Promoted hub should keep or reload linked sources for rendering'
+      );
+    });
+
+    test('should clear active hub when deleting the last remaining active hub', async () => {
+      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+      const ref: HubReference = { type: 'local', location: fixturePath };
+
+      await hubManager.importHub(ref, 'only-hub');
+      await hubManager.setActiveHub('only-hub');
+
+      await hubManager.deleteHub('only-hub');
+
+      const activeHubId = await hubManager.getActiveHubId();
+      assert.strictEqual(activeHubId, null, 'Should clear active hub when no hubs remain');
+    });
   });
 
   suite('orphaned favorites cleanup', () => {

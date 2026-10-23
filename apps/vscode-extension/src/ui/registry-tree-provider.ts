@@ -472,12 +472,20 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
    */
   private async getHubsItems(): Promise<RegistryTreeItem[]> {
     const hubs = await this.hubManager.listHubs();
-    return hubs.map((hub) => new RegistryTreeItem(
-      hub.name,
-      TreeItemType.HUB,
-      hub,
-      vscode.TreeItemCollapsibleState.Collapsed
-    ));
+    const activeHubId = await this.hubManager.getActiveHubId();
+    return hubs.map((hub) => {
+      const item = new RegistryTreeItem(
+        hub.name,
+        TreeItemType.HUB,
+        hub,
+        vscode.TreeItemCollapsibleState.Collapsed
+      );
+      if (hub.id === activeHubId) {
+        item.description = '[Active]';
+        item.contextValue = 'hub_active';
+      }
+      return item;
+    });
   }
 
   /**

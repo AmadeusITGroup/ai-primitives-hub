@@ -383,6 +383,28 @@ suite('RegistryTreeProvider - Hub Profiles', () => {
     assert.strictEqual(inactiveItem.description, '');
   });
 
+  test('hub list should show Active status for the active hub', async () => {
+    (provider as any).viewMode = 'all';
+
+    hubManagerStub.listHubs.resolves([
+      { id: 'hub-1', name: 'Hub One', description: 'First hub' } as any,
+      { id: 'hub-2', name: 'Hub Two', description: 'Second hub' } as any
+    ]);
+    hubManagerStub.getActiveHubId.resolves('hub-2');
+
+    const hubItems = await (provider as any).getHubsItems();
+
+    const firstHub = hubItems.find((item: RegistryTreeItem) => item.label === 'Hub One');
+    const activeHub = hubItems.find((item: RegistryTreeItem) => item.label === 'Hub Two');
+
+    assert.ok(firstHub);
+    assert.ok(activeHub);
+    assert.strictEqual(firstHub?.description, undefined);
+    assert.strictEqual(activeHub?.description, '[Active]');
+    assert.strictEqual(firstHub?.contextValue, TreeItemType.HUB);
+    assert.strictEqual(activeHub?.contextValue, 'hub_active');
+  });
+
   test('should organize profiles by path', async () => {
     (provider as any).viewMode = 'all';
     const hubId = 'test-hub';

@@ -249,6 +249,12 @@
         "icon": "$(server)"
       },
       {
+        "command": "promptregistry.activateHub",
+        "title": "Activate Hub",
+        "category": "AI Primitives Hub",
+        "icon": "$(check)"
+      },
+      {
         "command": "promptregistry.syncHub",
         "title": "Sync Hub",
         "category": "AI Primitives Hub",
@@ -588,19 +594,24 @@
           "group": "sourceActions@4"
         },
         {
-          "command": "promptregistry.syncHub",
+          "command": "promptregistry.activateHub",
           "when": "view == promptRegistryExplorer && viewItem == hub",
           "group": "hubActions@1"
         },
         {
-          "command": "promptregistry.deleteHub",
-          "when": "view == promptRegistryExplorer && viewItem == hub",
+          "command": "promptregistry.syncHub",
+          "when": "view == promptRegistryExplorer && (viewItem == hub || viewItem == hub_active)",
           "group": "hubActions@2"
         },
         {
-          "command": "promptregistry.openItemRepository",
-          "when": "view == promptRegistryExplorer && viewItem == hub",
+          "command": "promptregistry.deleteHub",
+          "when": "view == promptRegistryExplorer && (viewItem == hub || viewItem == hub_active)",
           "group": "hubActions@3"
+        },
+        {
+          "command": "promptregistry.openItemRepository",
+          "when": "view == promptRegistryExplorer && (viewItem == hub || viewItem == hub_active)",
+          "group": "hubActions@4"
         },
         {
           "command": "promptregistry.openItemRepository",

@@ -47,6 +47,9 @@ class MockHubManager {
   public onActiveHubPromise: Promise<void> = Promise.resolve();
   public completeStarted = false;
   public readonly setActiveHubCalls: { hubId: string; options?: { loadSources?: boolean } }[] = [];
+  public readonly progressiveImportReferences: any[] = [];
+  public hubs: any[] = [];
+  public activeHub: any = null;
 
   constructor(config: HubConfig, registryManager?: any) {
     this.hubConfig = config;
@@ -74,6 +77,7 @@ class MockHubManager {
   }
 
   public async importHubProgressively(reference: any, hubId?: string) {
+    this.progressiveImportReferences.push(reference);
     this.resolveProgressiveImportStarted();
     const importedHubId = await this.importHub(reference, hubId);
     return {
@@ -95,7 +99,34 @@ class MockHubManager {
   }
 
   public listHubs() {
-    return [];
+    return this.hubs;
+  }
+
+  public async getActiveHub() {
+    return this.activeHub;
+  }
+
+  public async getActiveHubId() {
+    return this.activeHub?.id ?? null;
+  }
+
+  public verifyHubAvailabilityDetailed(_reference: any) {
+    return Promise.resolve({ available: true, reason: undefined });
+  }
+
+  public async getHubInfo(hubId: string) {
+    const hub = this.hubs.find((item: any) => item.id === hubId);
+    return {
+      config: {
+        metadata: {
+          name: hub?.name ?? hubId
+        }
+      }
+    };
+  }
+
+  public async deleteHub(hubId: string) {
+    this.hubs = this.hubs.filter((hub: any) => hub.id !== hubId);
   }
 
   public async setActiveHub(hubId: string, options?: { loadSources?: boolean }) {
@@ -113,6 +144,7 @@ suite('HubCommands Source Sync', () => {
   let showOpenDialogStub: sinon.SinonStub;
   let showInputBoxStub: sinon.SinonStub;
   let withProgressStub: sinon.SinonStub;
+  let showWarningMessageStub: sinon.SinonStub;
   let initialSourceSyncPromise: Promise<void> | undefined;
 
   setup(() => {
@@ -123,6 +155,7 @@ suite('HubCommands Source Sync', () => {
     showOpenDialogStub = sinon.stub(vscode.window, 'showOpenDialog');
     showInputBoxStub = sinon.stub(vscode.window, 'showInputBox');
     withProgressStub = sinon.stub(vscode.window, 'withProgress');
+    showWarningMessageStub = sinon.stub(vscode.window, 'showWarningMessage');
     // We don't use showInformationMessage in this test suite directly but good to stub
     sinon.stub(vscode.window, 'showInformationMessage');
 
@@ -307,5 +340,128 @@ suite('HubCommands Source Sync', () => {
 
     // Verify profiles were added to registry
     assert.strictEqual(mockRegistryManager.profiles.length, 0, 'Should not create local profile copies');
+  });
+
+  test('imports and activates a default hub from switch hub options', async () => {
+    showQuickPickStub.callsFake((items: any[]) => {
+      const defaultHubItem = items.find((item) => item.action === 'importDefault');
+      return Promise.resolve(defaultHubItem);
+    });
+
+    await commands.switchHub();
+
+    assert.strictEqual(mockHubManager.progressiveImportReferences.length, 1, 'should import a default hub');
+    assert.strictEqual(
+      mockHubManager.progressiveImportReferences[0].type,
+      'github',
+      'default hub import should pass a GitHub reference'
+    );
+    assert.deepStrictEqual(mockHubManager.setActiveHubCalls, [
+      { hubId: 'test-hub-id', options: { loadSources: false } }
+    ]);
+  });
+
+  test('allows selecting the same default hub when already active without re-importing', async () => {
+    mockHubManager.hubs = [
+      {
+        id: 'amadeus-hub-id',
+        name: 'Amadeus',
+        description: 'Profiles curated by Amadeus',
+        reference: {
+          type: 'github',
+          location: 'Amadeus-xDLC/genai.prompt-registry-config',
+          ref: 'main'
+        }
+      }
+    ];
+    mockHubManager.activeHub = { id: 'amadeus-hub-id', config: { metadata: { name: 'Amadeus' } } };
+
+    showQuickPickStub.callsFake((items: any[]) => {
+      const defaultHubItem = items.find((item) => item.action === 'importDefault');
+      assert.ok(
+        defaultHubItem?.description?.includes('[Active]'),
+        'active default hub should have [Active] marker in description'
+      );
+      return Promise.resolve(defaultHubItem);
+    });
+
+    await commands.switchHub();
+
+    assert.strictEqual(
+      mockHubManager.progressiveImportReferences.length,
+      0,
+      'active default hub should not be re-imported'
+    );
+    assert.deepStrictEqual(mockHubManager.setActiveHubCalls, []);
+    sinon.assert.called(showWarningMessageStub);
+  });
+
+  test('shows only default hubs, import option, and active custom hub entry', async () => {
+    mockHubManager.hubs = [
+      {
+        id: 'custom-hub-id',
+        name: 'My Custom Hub',
+        description: 'Custom',
+        reference: {
+          type: 'github',
+          location: 'example/custom-hub',
+          ref: 'main'
+        }
+      }
+    ];
+    mockHubManager.activeHub = { id: 'custom-hub-id', config: { metadata: { name: 'My Custom Hub' } } };
+
+    showQuickPickStub.callsFake((items: any[]) => {
+      const labels = items.map((item: any) => item.label);
+      assert.ok(labels.some((label: string) => label.includes('Amadeus')));
+      assert.ok(labels.some((label: string) => label.includes('Prompt Registry Community Hub')));
+      assert.ok(labels.some((label: string) => label.includes('Import New Hub')));
+      assert.ok(labels.some((label: string) => label.includes('My Custom Hub')));
+      return Promise.resolve(undefined);
+    });
+
+    await commands.switchHub();
+  });
+
+  test('activates a hub directly from tree item context action', async () => {
+    mockHubManager.activeHub = { id: 'hub-1' };
+
+    const hubTreeItem = {
+      data: {
+        id: 'hub-2'
+      }
+    };
+
+    await commands.activateHub(hubTreeItem);
+
+    assert.deepStrictEqual(mockHubManager.setActiveHubCalls, [
+      { hubId: 'hub-2', options: undefined }
+    ]);
+  });
+
+  test('deleting an active hub does not require manual switch flow', async () => {
+    mockHubManager.hubs = [
+      {
+        id: 'hub-1',
+        name: 'Hub One',
+        description: 'First',
+        reference: { type: 'github', location: 'owner/repo1', ref: 'main' }
+      },
+      {
+        id: 'hub-2',
+        name: 'Hub Two',
+        description: 'Second',
+        reference: { type: 'github', location: 'owner/repo2', ref: 'main' }
+      }
+    ];
+    mockHubManager.activeHub = { id: 'hub-1', config: { metadata: { name: 'Hub One' } } };
+
+    showWarningMessageStub.resolves('Delete');
+
+    const switchHubStub = sinon.stub(commands, 'switchHub').resolves();
+
+    await commands.deleteHub({ data: { id: 'hub-1' } });
+
+    sinon.assert.notCalled(switchHubStub);
   });
 });
