@@ -19,6 +19,17 @@ import {
   type PrimitiveReportMeta,
 } from '../../../../src/domain/diagnostics/primitives';
 
+/** G17 as seeded on be1d161; #526 fixed it, so it is no longer in PRIMITIVE_KNOWN_GAPS. */
+const G17: KnownGap = {
+  key: 'G17/I4/chat-mode@copilot-cli',
+  id: 'G17',
+  invariant: 'I4',
+  match: { kinds: ['chat-mode'], targets: ['copilot-cli'] },
+  observed: { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' },
+  summary: 'copilot-cli rejects chat-mode items'
+};
+/** The be1d161 seed the fixtures below were recorded against. */
+const GAPS: readonly KnownGap[] = [...PRIMITIVE_KNOWN_GAPS.slice(0, 2), G17, ...PRIMITIVE_KNOWN_GAPS.slice(2)];
 const plan = planPrimitiveDiagnostics({ kinds: ['prompt', 'chat-mode'], targets: ['vscode', 'copilot-cli'] });
 const meta: PrimitiveReportMeta = { workspace: '/tmp/ai-primitives-hub-doctor-1-2', workspaceRetained: false, durationMs: 42 };
 
@@ -66,7 +77,7 @@ const shuffled = <T>(items: readonly T[]): T[] => [...items].toReversed();
 
 describe('assemblePrimitiveReport', () => {
   it('assembles a report in plan order whatever the completion order', () => {
-    const report = assemblePrimitiveReport(plan, shuffled(BUNDLES), shuffled(plan.cases.map((c) => caseResult(c))), PRIMITIVE_KNOWN_GAPS, meta);
+    const report = assemblePrimitiveReport(plan, shuffled(BUNDLES), shuffled(plan.cases.map((c) => caseResult(c))), GAPS, meta);
     expect(report.bundles.map((b) => b.id)).toEqual(['aph-e2e-only-prompt', 'aph-e2e-only-chat-mode']);
     expect(report.cases.map((c) => c.id)).toEqual(plan.cases.map((c) => c.id));
     expect(report.filters).toEqual(plan.filters);
@@ -76,7 +87,7 @@ describe('assemblePrimitiveReport', () => {
   });
 
   it('classifies, rolls up and counts', () => {
-    const report = assemblePrimitiveReport(plan, BUNDLES, plan.cases.map((c) => caseResult(c)), PRIMITIVE_KNOWN_GAPS, meta);
+    const report = assemblePrimitiveReport(plan, BUNDLES, plan.cases.map((c) => caseResult(c)), GAPS, meta);
     expect(report.bundles.map((b) => [b.id, b.kinds, b.outcome])).toEqual([
       ['aph-e2e-only-prompt', ['prompt'], 'known-gap'],
       ['aph-e2e-only-chat-mode', ['chat-mode'], 'known-gap']
@@ -108,7 +119,7 @@ describe('assemblePrimitiveReport', () => {
   });
 
   it('fails the run and reports the unused entry when a gap no longer matches (AC5)', () => {
-    const gaps: KnownGap[] = PRIMITIVE_KNOWN_GAPS.filter((g) => g.key !== 'G17/I4/chat-mode@copilot-cli');
+    const gaps: KnownGap[] = GAPS.filter((g) => g.key !== 'G17/I4/chat-mode@copilot-cli');
     const report = assemblePrimitiveReport(plan, BUNDLES, plan.cases.map((c) => caseResult(c)), gaps, meta);
     expect(report.cases.filter((c) => c.outcome === 'fail').map((c) => c.id))
       .toEqual(['aph-e2e-only-chat-mode__copilot-cli__user', 'aph-e2e-only-chat-mode__copilot-cli__repository']);
@@ -118,14 +129,14 @@ describe('assemblePrimitiveReport', () => {
       ? { ...r, effectiveScope: 'repository', checks: r.checks.map((c) => (c.invariant === 'I8' ? pass('I8') : c)) }
       : r));
     const withUnused = assemblePrimitiveReport(planPrimitiveDiagnostics({ kinds: ['prompt'], targets: ['copilot-cli'], scopes: ['repository'] }),
-      BUNDLES.slice(0, 1), fixed.filter((r) => r.id === 'aph-e2e-only-prompt__copilot-cli__repository'), PRIMITIVE_KNOWN_GAPS, meta);
+      BUNDLES.slice(0, 1), fixed.filter((r) => r.id === 'aph-e2e-only-prompt__copilot-cli__repository'), GAPS, meta);
     expect(withUnused.unusedKnownGaps).toEqual([{ key: 'G18/I8/copilot-cli@repository', id: 'G18', invariant: 'I8' }]);
     expect(withUnused.ok).toBe(true);
   });
 
   it('fills unfinished items with a HARNESS check on an internal error', () => {
     const error = { step: 'internal' as const, message: 'onProgress threw' };
-    const report = assemblePrimitiveReport(plan, BUNDLES.slice(0, 1), plan.cases.slice(0, 2).map((c) => caseResult(c)), PRIMITIVE_KNOWN_GAPS, { ...meta, error });
+    const report = assemblePrimitiveReport(plan, BUNDLES.slice(0, 1), plan.cases.slice(0, 2).map((c) => caseResult(c)), GAPS, { ...meta, error });
     expect(report.bundles).toHaveLength(2);
     expect(report.cases).toHaveLength(plan.cases.length);
     const harness = { invariant: 'HARNESS', outcome: 'fail', detail: 'not run: internal error' };
@@ -137,7 +148,7 @@ describe('assemblePrimitiveReport', () => {
 
   it('reports no bundles and no cases for a setup error', () => {
     const error = { step: 'preflight' as const, message: 'found ai-primitives-hub.yml above the diagnostic workspace' };
-    const report = assemblePrimitiveReport(plan, [], [], PRIMITIVE_KNOWN_GAPS, { ...meta, error });
+    const report = assemblePrimitiveReport(plan, [], [], GAPS, { ...meta, error });
     expect(report).toMatchObject({ bundles: [], cases: [], knownGaps: [], unusedKnownGaps: [], ok: false, error });
     expect(report.summary).toEqual({ cases: 0, pass: 0, knownGap: 0, fail: 0, bundles: { bundles: 0, pass: 0, knownGap: 0, fail: 0 } });
   });
@@ -151,7 +162,7 @@ describe('assemblePrimitiveReport', () => {
       id: c.id, effectiveScope: null, status: null, checks: [fail('I0', NOT_EVALUATED)], destinations: [], durationMs: 0
     }));
     const promptOnly = planPrimitiveDiagnostics({ kinds: ['prompt'], targets: ['vscode', 'copilot-cli'] });
-    const report = assemblePrimitiveReport(promptOnly, [cascade], stopped, PRIMITIVE_KNOWN_GAPS, meta);
+    const report = assemblePrimitiveReport(promptOnly, [cascade], stopped, GAPS, meta);
     expect(report.bundles[0].outcome).toBe('fail');
     expect(report.cases.every((c) => c.outcome === 'fail')).toBe(true);
     expect(report.unusedKnownGaps).toEqual([]);

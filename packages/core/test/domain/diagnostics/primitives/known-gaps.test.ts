@@ -20,11 +20,10 @@ const catalogued = new Set<string>(PRIMITIVE_DIAGNOSTIC_BUNDLES.flatMap((b) => b
 const bundleLevel = new Set<string>(INVARIANTS.filter((i) => i.level === 'bundle').map((i) => i.id));
 
 describe('PRIMITIVE_KNOWN_GAPS', () => {
-  it('is exactly the 13 seed entries, in seed order', () => {
+  it('is exactly the 12 seed entries, in seed order', () => {
     expect(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).toEqual([
       'G05/I4/mcp-server',
       'G08/I4/hook@kiro',
-      'G17/I4/chat-mode@copilot-cli',
       'G18/I8/copilot-cli@repository',
       'G15/I2/prompt',
       'G15/I2/instruction',
@@ -36,7 +35,7 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
       'G13/I1/power',
       'G13/I2/power'
     ]);
-    expect(new Set(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).size).toBe(13);
+    expect(new Set(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).size).toBe(12);
   });
 
   it('keys each entry by id and invariant', () => {
@@ -75,8 +74,6 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
     const rejected = { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' };
     expect(byKey.get('G05/I4/mcp-server')).toMatchObject({ match: { kinds: ['mcp-server'] }, observed: rejected });
     expect(byKey.get('G08/I4/hook@kiro')).toMatchObject({ match: { kinds: ['hook'], targets: ['kiro'] }, observed: rejected });
-    expect(byKey.get('G17/I4/chat-mode@copilot-cli'))
-      .toMatchObject({ match: { kinds: ['chat-mode'], targets: ['copilot-cli'] }, observed: rejected });
     expect(byKey.get('G18/I8/copilot-cli@repository')).toEqual(expect.objectContaining({
       match: { targets: ['copilot-cli'], scopes: ['repository'] },
       observed: { effectiveScope: 'user' }

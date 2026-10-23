@@ -74,21 +74,28 @@ describe('classifyCase', () => {
     expect(classifyCase(caseOf('prompt', 'vscode', 'user'), passingCase())).toMatchObject({ outcome: 'pass', gapIds: [] });
   });
 
-  it('absorbs chat-mode on copilot-cli at repository scope with G17 and G18', () => {
-    const checks = [failed('I4', rejected), { invariant: 'I6', outcome: 'not-applicable' } as DiagnosticCheck,
-      pass('I7'), failed('I8', { effectiveScope: 'user' }), { invariant: 'I13', outcome: 'not-applicable' } as DiagnosticCheck];
+  it('absorbs chat-mode on copilot-cli at repository scope with G18 only', () => {
+    const checks = [pass('I4'), pass('I6'), { invariant: 'I7', outcome: 'not-applicable' } as DiagnosticCheck,
+      failed('I8', { effectiveScope: 'user' }), pass('I13')];
     const result = classifyCase(caseOf('chat-mode', 'copilot-cli', 'repository'), checks);
     expect(result.outcome).toBe('known-gap');
-    expect(result.gapIds).toEqual(['G17', 'G18']);
+    expect(result.gapIds).toEqual(['G18']);
     expect(result.checks.map((c) => [c.invariant, c.outcome, c.gapIds])).toEqual([
-      ['I4', 'known-gap', ['G17']],
-      ['I6', 'not-applicable', undefined],
-      ['I7', 'pass', undefined],
+      ['I4', 'pass', undefined],
+      ['I6', 'pass', undefined],
+      ['I7', 'not-applicable', undefined],
       ['I8', 'known-gap', ['G18']],
-      ['I13', 'not-applicable', undefined]
+      ['I13', 'pass', undefined]
     ]);
   });
-
+  it('fails a chat-mode rejection on copilot-cli now that G17 is fixed (#526)', () => {
+    const checks = [failed('I4', rejected), { invariant: 'I6', outcome: 'not-applicable' } as DiagnosticCheck,
+      pass('I7'), pass('I8'), { invariant: 'I13', outcome: 'not-applicable' } as DiagnosticCheck];
+    const result = classifyCase(caseOf('chat-mode', 'copilot-cli', 'user'), checks);
+    expect(result.outcome).toBe('fail');
+    expect(result.checks[0]).toMatchObject({ outcome: 'fail' });
+    expect(result.checks[0].gapIds).toBeUndefined();
+  });
   it('keeps a different failure mode as fail (G05 with status error)', () => {
     const checks = [failed('I4', { status: 'error', errorCode: 'INTERNAL.UNEXPECTED' }), ...passingCase().slice(1)];
     const result = classifyCase(caseOf('mcp-server', 'vscode', 'user'), checks);
