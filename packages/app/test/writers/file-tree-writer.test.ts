@@ -534,4 +534,146 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
     expect(result.written).toEqual([]);
     expect(result.skipped).toEqual(['skills/missing-skill/SKILL.md']);
   });
+
+  it('skips, without overwriting, a later item whose destination an earlier item took', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['instructions/alpha.md', new TextEncoder().encode('# First')],
+      ['instructions/alpha-copy.md', new TextEncoder().encode('# Second')]
+    ]);
+    const items: ManifestPlacementItem[] = [
+      { id: 'alpha', file: 'instructions/alpha.md', type: 'instructions' },
+      { id: 'alpha', file: 'instructions/alpha-copy.md', type: 'instructions' }
+    ];
+
+    const plan = await writer.preflightManifestItems(repoTarget, files, items);
+    const result = await writer.writeManifestItems(repoTarget, files, items);
+
+    expect(plan).toEqual({ writable: ['instructions/alpha.md'], skipped: ['instructions/alpha-copy.md'] });
+    expect(result.skipped).toEqual(['instructions/alpha-copy.md']);
+    expect(Object.keys(result.installedPaths ?? {})).toEqual(['instructions/alpha.md']);
+    expect(await fs.readFile(localPath('/ws', '.github', 'instructions', 'alpha.instructions.md'))).toBe('# First');
+  });
+
+  it('copies only the named skill when a skill item points at its directory or its SKILL.md', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['skills/foo/SKILL.md', new TextEncoder().encode('# Foo')],
+      ['skills/foo/scripts/run.sh', new TextEncoder().encode('#!/bin/sh')],
+      ['skills/bar/SKILL.md', new TextEncoder().encode('# Bar')],
+      ['.github/skills/baz/SKILL.md', new TextEncoder().encode('# Baz')],
+      ['.github/skills/baz/notes.md', new TextEncoder().encode('# Notes')],
+      ['.github/skills/qux/SKILL.md', new TextEncoder().encode('# Qux')]
+    ]);
+    const items: ManifestPlacementItem[] = [
+      { id: 'foo', file: 'skills/foo', type: 'skill' },
+      { id: 'baz', file: '.github/skills/baz/SKILL.md', type: 'skill' }
+    ];
+
+    const result = await writer.writeManifestItems(repoTarget, files, items);
+
+    expect(result.skipped).toEqual([]);
+    expect(result.installedPaths).toEqual({
+      'skills/foo/SKILL.md': 'skills/foo/SKILL.md',
+      'skills/foo/scripts/run.sh': 'skills/foo/scripts/run.sh',
+      '.github/skills/baz/SKILL.md': 'skills/baz/SKILL.md',
+      '.github/skills/baz/notes.md': 'skills/baz/notes.md'
+    });
+    expect(await fs.exists(localPath('/ws', '.github', 'skills', 'foo', 'bar', 'SKILL.md'))).toBe(false);
+  });
+});
+
+describe('FileTreeTargetWriter manifest placement on a Kiro target', () => {
+  const env = { HOME: '/home/u' };
+  const kiroUser: Target = { name: 'kiro-ide', type: 'kiro', scope: 'user' };
+  const kiroDir = localPath('/home/u', '.kiro');
+  const copilotBundle = (): Map<string, Uint8Array> => new Map([
+    ['.github/skills/sample-skill/SKILL.md', new TextEncoder().encode('---\nname: sample-skill\n---\n# Skill')],
+    ['.github/skills/sample-skill/references/notes.md', new TextEncoder().encode('# Notes')],
+    ['.github/instructions/sample-rules.instructions.md', new TextEncoder().encode('# Rules')]
+  ]);
+  const copilotItems: ManifestPlacementItem[] = [
+    { id: 'sample-skill', file: '.github/skills/sample-skill/SKILL.md', type: 'skill' },
+    { id: 'sample-rules', file: '.github/instructions/sample-rules.instructions.md', type: 'instructions' }
+  ];
+
+  it('places .github/ skills under skills/<id>/ and instructions under steering/, recording installed paths', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+
+    const result = await writer.writeManifestItems(kiroUser, copilotBundle(), copilotItems);
+
+    expect(result.written.toSorted()).toEqual([
+      localPath(kiroDir, 'skills', 'sample-skill', 'SKILL.md'),
+      localPath(kiroDir, 'skills', 'sample-skill', 'references', 'notes.md'),
+      localPath(kiroDir, 'steering', 'sample-rules.instructions.md')
+    ].toSorted());
+    expect(result.skipped).toEqual([]);
+    expect(result.installedPaths).toEqual({
+      '.github/skills/sample-skill/SKILL.md': 'skills/sample-skill/SKILL.md',
+      '.github/skills/sample-skill/references/notes.md': 'skills/sample-skill/references/notes.md',
+      '.github/instructions/sample-rules.instructions.md': 'steering/sample-rules.instructions.md'
+    });
+    expect(await fs.readFile(localPath(kiroDir, 'skills', 'sample-skill', 'references', 'notes.md'))).toBe('# Notes');
+  });
+
+  it('preflights items without writing, skipping kinds excluded by allowedKinds', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+
+    const plan = await writer.preflightManifestItems(
+      { ...kiroUser, allowedKinds: ['skill'] },
+      copilotBundle(),
+      copilotItems
+    );
+
+    expect(plan.writable.toSorted()).toEqual([
+      '.github/skills/sample-skill/SKILL.md',
+      '.github/skills/sample-skill/references/notes.md'
+    ]);
+    expect(plan.skipped).toEqual(['.github/instructions/sample-rules.instructions.md']);
+    expect(await fs.exists(localPath(kiroDir, 'skills', 'sample-skill', 'SKILL.md'))).toBe(false);
+  });
+
+  it('removes a renamed output through its recorded installed path', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const result = await writer.writeManifestItems(kiroUser, copilotBundle(), copilotItems);
+
+    for (const [bundlePath, installedPath] of Object.entries(result.installedPaths ?? {})) {
+      await writer.remove(kiroUser, bundlePath, installedPath);
+    }
+
+    for (const outPath of result.written) {
+      expect(await fs.exists(outPath), outPath).toBe(false);
+    }
+  });
+
+  it('refuses a recorded installed path outside the target directory', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed(localPath('/home/u', 'outside.md'), '# Keep');
+    const writer = new FileTreeTargetWriter({ fs, env });
+
+    await expect(writer.remove(kiroUser, 'x.md', '../outside.md')).rejects.toThrow(/outside the target directory/);
+    expect(await fs.exists(localPath('/home/u', 'outside.md'))).toBe(true);
+  });
+
+  it('rolls back what it wrote when a later item write fails', async () => {
+    const fs = new FailAfterFirstWriteFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const files = new Map<string, Uint8Array>([
+      ['a.instructions.md', new TextEncoder().encode('# A')],
+      ['b.instructions.md', new TextEncoder().encode('# B')]
+    ]);
+
+    await expect(writer.writeManifestItems(kiroUser, files, [
+      { id: 'a', file: 'a.instructions.md', type: 'instructions' },
+      { id: 'b', file: 'b.instructions.md', type: 'instructions' }
+    ])).rejects.toThrow('disk full after write');
+
+    expect(await fs.exists(localPath(kiroDir, 'steering', 'a.instructions.md'))).toBe(false);
+    expect(await fs.exists(localPath(kiroDir, 'steering', 'b.instructions.md'))).toBe(false);
+  });
 });

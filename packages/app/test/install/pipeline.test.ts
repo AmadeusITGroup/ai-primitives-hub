@@ -94,6 +94,49 @@ describe('InstallPipeline', () => {
     expect(outcome.manifest.id).toBe('workflow-nevio');
   });
 
+  it('accepts a versionless {owner}-{repo}-{manifestId} hub id when sourceRepoSlug is set', async () => {
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: okExtractor,
+      writerFactory: () => okWriter,
+      sourceRepoSlug: 'Acme-Org/tools'
+    });
+
+    const outcome = await pipeline.run({ bundleId: 'acme-org-tools-my-bundle' }, TARGET);
+
+    expect(outcome.manifest.id).toBe('my-bundle');
+  });
+
+  it('still rejects another bundle name with BUNDLE.ID_MISMATCH when sourceRepoSlug is set', async () => {
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: okExtractor,
+      writerFactory: () => okWriter,
+      sourceRepoSlug: 'acme-org/tools'
+    });
+
+    await expect(pipeline.run({ bundleId: 'acme-org-tools-other-bundle' }, TARGET)).rejects.toMatchObject({
+      code: 'BUNDLE.ID_MISMATCH',
+      stage: 'validate'
+    });
+  });
+
+  it('keeps rejecting the versionless hub id when sourceRepoSlug is absent', async () => {
+    const pipeline = new InstallPipeline({
+      resolver: okResolver,
+      downloader: okDownloader,
+      extractor: okExtractor,
+      writerFactory: () => okWriter
+    });
+
+    await expect(pipeline.run({ bundleId: 'acme-org-tools-my-bundle' }, TARGET)).rejects.toMatchObject({
+      code: 'BUNDLE.ID_MISMATCH',
+      stage: 'validate'
+    });
+  });
+
   it('emits events for every stage in order', async () => {
     const events: PipelineEvent['kind'][] = [];
     const pipeline = new InstallPipeline({

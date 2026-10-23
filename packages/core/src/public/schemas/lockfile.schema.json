@@ -162,6 +162,15 @@
           "type": "string",
           "description": "SHA256 checksum of the file contents",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "installedPath": {
+          "type": "string",
+          "description": "Where the file was installed, relative to the target's base directory. Recorded only when it cannot be derived from path (manifest-driven placement renames files by manifest item id).",
+          "minLength": 1,
+          "examples": [
+            "skills/my-skill/SKILL.md",
+            "steering/my-rules.instructions.md"
+          ]
         }
       },
       "additionalProperties": false

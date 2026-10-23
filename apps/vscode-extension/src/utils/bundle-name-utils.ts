@@ -51,32 +51,6 @@ export interface BundleDetailsResolver {
 }
 
 /**
- * Check if a manifest ID matches a bundle ID.
- *
- * For GitHub bundles, the manifest may contain just the collection ID (e.g., "test2")
- * while bundle.id is the full computed ID (e.g., "owner-repo-test2-v1.0.0" or "owner-repo-test2-1.0.0").
- *
- * This function accepts:
- * - Exact match: manifestId === bundleId
- * - Suffix match with 'v' prefix: bundleId ends with `-{manifestId}-v{manifestVersion}`
- * - Suffix match without 'v' prefix: bundleId ends with `-{manifestId}-{manifestVersion}`
- *
- * IMPORTANT: This logic has also been ported to `@ai-primitives-hub/core`'s
- * `domain/bundle/id.ts` (used by `BundleInstaller.validateBundle()` via
- * `validateManifest()`). Keep both in sync until this call site is migrated
- * onto the core implementation.
- * @param manifestId - The ID from the deployment manifest
- * @param manifestVersion - The version from the deployment manifest
- * @param bundleId - The computed bundle ID
- * @returns true if the manifest ID matches the bundle ID
- */
-export function isManifestIdMatch(manifestId: string, manifestVersion: string, bundleId: string): boolean {
-  return manifestId === bundleId
-    || bundleId.endsWith(`-${manifestId}-v${manifestVersion}`)
-    || bundleId.endsWith(`-${manifestId}-${manifestVersion}`);
-}
-
-/**
  * Generate a canonical bundle ID for GitHub repositories
  * This ensures consistent ID generation across runtime and build scripts
  * @param owner - Repository owner

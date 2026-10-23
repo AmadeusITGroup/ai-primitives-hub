@@ -30,6 +30,7 @@ import type {
   ProfileActivationOptions,
   ProfileActivationResult,
   ProfileActivationState,
+  ProfileBundleSyncResult,
   ProfileChanges,
   ProfileDeactivationResult,
   ProfileLifecycleSync,
@@ -234,7 +235,11 @@ export async function setProfileActiveFlag(
  * profile), resolves and records the profile's bundles as an
  * activation state, flags the profile active in its hub config, and
  * (when requested and a registry sync is available) installs the
- * profile's bundles.
+ * profile's bundles. When the registry sync reports what it installed
+ * (a `ProfileBundleSyncResult`), the activation state is re-saved with
+ * only those bundles and their installed versions. An install failure is
+ * logged and tolerated; a failure to save that outcome is not, and makes
+ * the activation fail.
  *
  * Never throws — failures are captured in the returned result's
  * `success`/`error` fields, mirroring the extension's original
@@ -317,11 +322,25 @@ export async function activateProfile(
         }
       }));
 
+      // Install failures are tolerated (logged); persisting the outcome is
+      // not, so the save below stays outside this try.
+      let syncResult: ProfileBundleSyncResult | undefined;
       try {
-        await deps.profileSync.installBundles(bundlesToInstall);
+        const reported = await deps.profileSync.installBundles(bundlesToInstall);
+        if (reported) {
+          syncResult = reported;
+        }
         log(onLog, 'info', 'Bundle installation complete');
       } catch (error) {
         log(onLog, 'error', 'Batch bundle installation failed', error instanceof Error ? error : new Error(String(error)));
+      }
+      if (syncResult) {
+        // The sync reported what it actually installed: record only that.
+        await deps.activationStore.save(hubId, profileId, {
+          ...activationState,
+          syncedBundles: syncResult.synced.map((s) => s.bundleId),
+          syncedBundleVersions: Object.fromEntries(syncResult.synced.map((s) => [s.bundleId, s.version]))
+        });
       }
     } else if (options.installBundles && !deps.profileSync) {
       log(onLog, 'warn', 'Bundle installation requested but registry sync not available');

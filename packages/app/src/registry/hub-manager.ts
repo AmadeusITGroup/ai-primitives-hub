@@ -367,6 +367,16 @@ export class HubManager {
   }
 
   /**
+   * Check whether a hub config is on disk, without loading (or
+   * validating) it — tells a missing hub from a malformed one.
+   * @param hubId Hub identifier.
+   * @returns true iff the hub's config file exists.
+   */
+  public async hasHub(hubId: string): Promise<boolean> {
+    return this.deps.store.has(hubId);
+  }
+
+  /**
    * Get a single hub by id.
    * @param hubId Hub identifier.
    * @returns Hub info, or null when not found/malformed.

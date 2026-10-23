@@ -90,6 +90,31 @@ describe('GitHubBundleResolver', () => {
     expect(result?.ref.bundleVersion).toBe('1.0.0');
   });
 
+  it('resolves a versionless hub id {owner}-{repo}-{name} to that bundle\'s release', async () => {
+    const githubApi = new FakeGitHubApi().seedJson('/repos/acme-org/sample-skills/releases', [
+      release({ tag_name: 'other-tool-v2.0.0' }),
+      release({ tag_name: 'sample-skills-v1.8.1' })
+    ]);
+    const resolver = new GitHubBundleResolver({ repoSlug: 'acme-org/sample-skills', githubApi });
+
+    const result = await resolver.resolve({
+      bundleId: 'acme-org-sample-skills-sample-skills',
+      bundleVersion: 'latest'
+    });
+    expect(result?.ref.bundleVersion).toBe('1.8.1');
+  });
+
+  it('matches the repo prefix of the bundle id case-insensitively', async () => {
+    const githubApi = new FakeGitHubApi().seedJson('/repos/Acme-Org/repo/releases', [
+      release({ tag_name: 'other-v3.0.0' }),
+      release({ tag_name: 'mybundle-v1.0.0' })
+    ]);
+    const resolver = new GitHubBundleResolver({ repoSlug: 'Acme-Org/repo', githubApi });
+
+    const result = await resolver.resolve({ bundleId: 'acme-org-repo-mybundle', bundleVersion: 'latest' });
+    expect(result?.ref.bundleVersion).toBe('1.0.0');
+  });
+
   it('ignores draft and prerelease releases when picking latest', async () => {
     const githubApi = new FakeGitHubApi().seedJson(RELEASES_PATH, [
       release({ tag_name: 'owner-repo-mybundle-v2.0.0', draft: true }),

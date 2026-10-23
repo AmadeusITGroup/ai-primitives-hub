@@ -38,6 +38,7 @@ import {
 } from '../framework';
 import {
   buildHubMgr,
+  type ProfileActivationResult,
   runProfileActivation,
 } from './profile';
 
@@ -121,7 +122,16 @@ export class ApplyCommand extends Command {
       }));
     }
 
-    const { state, written, failures } = await runProfileActivation(ctx, built, cur.hubId, profile, targets);
+    let activation: ProfileActivationResult;
+    try {
+      activation = await runProfileActivation(ctx, built, cur.hubId, profile, targets);
+    } catch (err) {
+      if (err instanceof RegistryError) {
+        return failWith(ctx, fmt, 'apply', err);
+      }
+      throw err;
+    }
+    const { state, written, failures } = activation;
 
     const status = failures.length === 0 ? 'ok' : 'warning';
     formatOutput({

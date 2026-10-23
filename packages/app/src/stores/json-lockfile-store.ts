@@ -67,6 +67,14 @@ export interface LockfileFileEntry {
    * added (issue #357 Stage 2).
    */
   checksum: string;
+  /**
+   * Where the file was installed, relative to the target's base directory.
+   * Optional: recorded only when the location cannot be recomputed from
+   * `path` (manifest-driven placement renames files and skill directories
+   * by manifest item id). Uninstall removes this path when present and
+   * falls back to routing `path` otherwise, so older entries keep working.
+   */
+  installedPath?: string;
 }
 
 /**
@@ -351,12 +359,15 @@ export const cleanupOrphanedSource = (lock: Lockfile, sourceId: string): Lockfil
  * expects. Excludes `deployment-manifest.yml` — it is bundle metadata,
  * not an installed file — matching every writer's own exclusion of it.
  * @param files - Extracted bundle files (path -> raw bytes).
- * @param includedPaths
+ * @param includedPaths - Bundle paths to include (default: all).
+ * @param installedPaths - Optional `TargetWriteResult.installedPaths`;
+ *   each listed path's entry records its `installedPath`.
  * @returns Per-file checksum entries, manifest excluded.
  */
 export const checksumFiles = (
   files: ExtractedFiles,
-  includedPaths?: Iterable<string>
+  includedPaths?: Iterable<string>,
+  installedPaths?: Readonly<Record<string, string>>
 ): LockfileFileEntry[] => {
   const entries: LockfileFileEntry[] = [];
   const included = includedPaths === undefined ? null : new Set(includedPaths);
@@ -367,9 +378,11 @@ export const checksumFiles = (
     if (included !== null && !included.has(filePath)) {
       continue;
     }
+    const installedPath = installedPaths?.[filePath];
     entries.push({
       path: filePath,
-      checksum: createHash('sha256').update(bytes).digest('hex')
+      checksum: createHash('sha256').update(bytes).digest('hex'),
+      ...(installedPath === undefined ? {} : { installedPath })
     });
   }
   return entries;

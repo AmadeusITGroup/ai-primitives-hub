@@ -62,6 +62,13 @@ export interface InstallPipelineOptions {
   /** Factory that returns the appropriate writer for a given target. */
   writerFactory: (target: Target) => TargetWriter;
   skipManifestIdValidation?: boolean;
+  /**
+   * `owner/repo` of the GitHub source the bundle comes from. When set, the
+   * manifest id check is source-aware: a hub bundle id of the form
+   * `{owner}-{repo}-{manifestId}[-version]` matches the manifest's bare id.
+   * Absent → the id check is unchanged.
+   */
+  sourceRepoSlug?: string;
   onEvent?: (event: PipelineEvent) => void;
 }
 
@@ -165,7 +172,8 @@ export class InstallPipeline {
     try {
       manifest = validateManifest(files, {
         expectedId: this.opts.skipManifestIdValidation ? undefined : spec.bundleId,
-        expectedVersion: spec.bundleVersion
+        expectedVersion: spec.bundleVersion,
+        sourceRepoSlug: this.opts.sourceRepoSlug
       });
     } catch (validateError) {
       const e = validateError as { code?: string; message: string };

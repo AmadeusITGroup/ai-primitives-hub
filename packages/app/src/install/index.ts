@@ -27,8 +27,16 @@ export {
 } from './pipeline';
 
 export {
+  manifestPlacementItems,
+  removeSupersededFiles,
   TargetWriteRejectedError,
+  writeBundleSafely,
   writeTargetSafely,
+} from './target-write';
+
+export type {
+  BundleTargetWrite,
+  RecordedBundleFile,
 } from './target-write';
 
 export type {

@@ -26,6 +26,7 @@ import type {
 } from '../../ports/bundle-extractor';
 import {
   isManifestIdMatch,
+  isSourceAwareManifestIdMatch,
 } from '../bundle/id';
 import {
   isPrimitiveKind,
@@ -45,11 +46,19 @@ export const MANIFEST_FILENAME = 'deployment-manifest.yml';
 export interface ManifestValidationOptions {
   /**
    * Expected bundle id from the BundleSpec. Optional: when omitted,
-   * the manifest's id is accepted as-is. This is used by hub-driven
-   * profile activation, where the hub config carries a synthesized
-   * id that does not necessarily match the bundle's natural id.
+   * the manifest's id is accepted as-is (e.g. `install --from <dir>`
+   * without a bundle id). When set, it must identify the manifest:
+   * see {@link isManifestIdMatch}, or {@link isSourceAwareManifestIdMatch}
+   * when {@link ManifestValidationOptions.sourceRepoSlug} is also set.
    */
   expectedId?: string;
+  /**
+   * Repository slug (`owner/repo`) of the source the bundle comes from.
+   * When set, `expectedId` may also use the `{owner}-{repo}-{manifestId}`
+   * form (with or without a version), as hub profiles do. When unset,
+   * the id check is unchanged.
+   */
+  sourceRepoSlug?: string;
   /** Expected version (skipped when 'latest' or undefined). */
   expectedVersion?: string;
 }
@@ -135,7 +144,7 @@ export const validateManifest = (
   }
   const id = m.id as string;
   const version = m.version as string;
-  if (opts.expectedId !== undefined && !isManifestIdMatch(id, version, opts.expectedId)) {
+  if (opts.expectedId !== undefined && !isExpectedIdMatch(id, version, opts.expectedId, opts.sourceRepoSlug)) {
     throw new ManifestValidationError(
       `manifest id "${id}" does not match expected "${opts.expectedId}"`,
       'BUNDLE.ID_MISMATCH'
@@ -161,6 +170,24 @@ export const validateManifest = (
   validateReleaseManifest(m, files);
   return m as unknown as ReleaseDeploymentManifest;
 };
+
+/**
+ * Apply the source-aware id rule when the source repo is known, the
+ * legacy rule otherwise.
+ * @param manifestId - Manifest `id`.
+ * @param manifestVersion - Manifest `version`.
+ * @param expectedId - Expected bundle id.
+ * @param sourceRepoSlug - Source repository slug, when known.
+ * @returns Whether the manifest matches the expected id.
+ */
+const isExpectedIdMatch = (
+  manifestId: string,
+  manifestVersion: string,
+  expectedId: string,
+  sourceRepoSlug: string | undefined
+): boolean => (sourceRepoSlug === undefined
+  ? isManifestIdMatch(manifestId, manifestVersion, expectedId)
+  : isSourceAwareManifestIdMatch(manifestId, manifestVersion, expectedId, sourceRepoSlug));
 
 /**
  * Determine whether a validated manifest opted into the self-contained

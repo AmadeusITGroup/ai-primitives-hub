@@ -167,3 +167,37 @@ describe('UninstallPipeline.planAll / runAll', () => {
     expect(results).toEqual([]);
   });
 });
+
+describe('UninstallPipeline installed paths', () => {
+  it('passes a recorded installedPath to the writer and omits it for older entries', async () => {
+    const fs = new InMemoryFileSystem();
+    const lockPath = getLockfilePathForMode('/repo', 'commit');
+    const lock = upsertBundleEntry(emptyLockfile('cli@1.0.0'), 'sample-skills', {
+      version: '1.0.0',
+      sourceId: 'local-sample-skills',
+      sourceType: 'local',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      files: [
+        { path: '.github/skills/sample-skill/SKILL.md', checksum: 'abc', installedPath: 'skills/sample-skill/SKILL.md' },
+        { path: 'prompts/legacy.prompt.md', checksum: 'def' }
+      ]
+    });
+    await writeLockfile(lockPath, lock, fs);
+    const calls: unknown[][] = [];
+    const writer: TargetWriter = {
+      write: async () => ({ written: [], skipped: [] }),
+      remove: async (...args) => {
+        calls.push(args.slice(1));
+      }
+    };
+    const pipeline = new UninstallPipeline({ fs, target: TARGET, repositoryPath: '/repo', writerFactory: () => writer });
+
+    const result = await pipeline.run('sample-skills');
+
+    expect(calls).toEqual([
+      ['.github/skills/sample-skill/SKILL.md', 'skills/sample-skill/SKILL.md'],
+      ['prompts/legacy.prompt.md']
+    ]);
+    expect(result.removed).toHaveLength(2);
+  });
+});

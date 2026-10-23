@@ -27,6 +27,16 @@ export interface TargetWriteResult {
    * this when present instead of assuming every extracted file was installed.
    */
   writtenBundlePaths?: string[];
+  /**
+   * Where each written bundle path landed, relative to the target's base
+   * directory (`/`-separated), keyed by bundle-relative path.
+   *
+   * Optional: set only by writers whose output location cannot be
+   * recomputed from the bundle path alone (manifest-driven placement
+   * renames files and skill directories by manifest item id). Installers
+   * record it in the lockfile so uninstall can find the file again.
+   */
+  installedPaths?: Record<string, string>;
 }
 
 /**
@@ -81,6 +91,10 @@ export interface TargetWriter {
    * Remove a single file from the target.
    * @param target Target chosen via `--target <name>`.
    * @param filePath Relative file path to remove.
+   * @param installedPath Optional output path relative to the target's
+   *   base directory, as recorded from `TargetWriteResult.installedPaths`.
+   *   Writers that support it remove that file instead of recomputing the
+   *   location from `filePath`; others may ignore it.
    */
-  remove(target: Target, filePath: string): Promise<void>;
+  remove(target: Target, filePath: string, installedPath?: string): Promise<void>;
 }

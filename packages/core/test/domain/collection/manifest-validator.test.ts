@@ -89,6 +89,37 @@ describe('validateManifest', () => {
     )).toThrowError(expect.objectContaining({ code: 'BUNDLE.ID_MISMATCH' }));
   });
 
+  it('accepts a versionless hub id when the source repo slug is given', () => {
+    const manifest = validateManifest(
+      filesWith('id: sample-skills\nversion: 1.8.1\nname: Sample Skills\n'),
+      {
+        expectedId: 'acme-org-sample-skills-sample-skills',
+        sourceRepoSlug: 'acme-org/sample-skills'
+      }
+    );
+    expect(manifest.id).toBe('sample-skills');
+  });
+
+  it('rejects another bundle name with BUNDLE.ID_MISMATCH even when the source repo slug is given', () => {
+    expect(() => validateManifest(
+      filesWith('id: other-bundle\nversion: 1.8.1\nname: Other\n'),
+      {
+        expectedId: 'acme-org-sample-skills-sample-skills',
+        sourceRepoSlug: 'acme-org/sample-skills'
+      }
+    )).toThrowError(expect.objectContaining({
+      code: 'BUNDLE.ID_MISMATCH',
+      message: expect.stringContaining('"acme-org-sample-skills-sample-skills"')
+    }));
+  });
+
+  it('keeps rejecting a versionless hub id when no source repo slug is given', () => {
+    expect(() => validateManifest(
+      filesWith('id: sample-skills\nversion: 1.8.1\nname: Sample Skills\n'),
+      { expectedId: 'acme-org-sample-skills-sample-skills' }
+    )).toThrowError(expect.objectContaining({ code: 'BUNDLE.ID_MISMATCH' }));
+  });
+
   it('throws BUNDLE.VERSION_MISMATCH when the version does not match expectedVersion', () => {
     expect(() => validateManifest(
       filesWith('id: my-bundle\nversion: 1.0.0\nname: My Bundle\n'),

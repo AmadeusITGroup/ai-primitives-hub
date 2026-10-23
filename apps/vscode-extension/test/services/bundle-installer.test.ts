@@ -203,8 +203,8 @@ suite('BundleInstaller', () => {
       ];
 
       for (const tc of testCases) {
-        // Import the validation function
-        const { isManifestIdMatch } = await import('../../src/utils/bundle-name-utils');
+        // Import the validation function BundleInstaller relies on (via core's validateManifest)
+        const { isManifestIdMatch } = await import('@ai-primitives-hub/core');
         const result = isManifestIdMatch(tc.manifestId, tc.manifestVersion, tc.bundleId);
         assert.strictEqual(result, tc.shouldMatch,
           `${tc.description}: manifestId="${tc.manifestId}" bundleId="${tc.bundleId}" should ${tc.shouldMatch ? 'match' : 'not match'}`);

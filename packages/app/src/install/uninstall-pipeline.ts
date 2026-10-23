@@ -106,15 +106,25 @@ export class UninstallPipeline {
    * Remove files via writer.
    * @param writer - Target writer.
    * @param files - Files to remove.
+   * @param entry
    * @returns Removal result.
    */
-  private async removeFiles(writer: TargetWriter, files: string[]): Promise<{ removed: string[]; skipped: string[] }> {
+  private async removeFiles(
+    writer: TargetWriter,
+    files: string[],
+    entry: LockfileBundleEntry
+  ): Promise<{ removed: string[]; skipped: string[] }> {
     const removed: string[] = [];
     const skipped: string[] = [];
+    // Manifest-driven installs record where each file landed.
+    const installedPaths = new Map(entry.files.map((f) => [f.path, f.installedPath]));
 
     for (const file of files) {
       try {
-        await writer.remove(this.target, file);
+        const installedPath = installedPaths.get(file);
+        await (installedPath === undefined
+          ? writer.remove(this.target, file)
+          : writer.remove(this.target, file, installedPath));
         removed.push(file);
       } catch {
         skipped.push(file);
@@ -186,7 +196,7 @@ export class UninstallPipeline {
     }
 
     const writer = this.writerFactory(this.target);
-    const result = await this.removeFiles(writer, plan.filesToRemove);
+    const result = await this.removeFiles(writer, plan.filesToRemove, plan.lockfileEntry);
 
     await this.removeFromLockfile(id, plan.lockfileEntry, plan.commitMode);
 
@@ -235,7 +245,7 @@ export class UninstallPipeline {
       }
 
       const writer = this.writerFactory(this.target);
-      const result = await this.removeFiles(writer, plan.filesToRemove);
+      const result = await this.removeFiles(writer, plan.filesToRemove, plan.lockfileEntry);
       await this.removeFromLockfile(plan.bundleId, plan.lockfileEntry, plan.commitMode);
 
       results.push({
