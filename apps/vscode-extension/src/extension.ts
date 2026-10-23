@@ -1,5 +1,5 @@
 import {
-  getBundleRefKey,
+  buildInstalledBundleLookupKeys,
 } from '@ai-primitives-hub/core';
 import {
   AppStoragePrimitiveIndexStore,
@@ -150,7 +150,40 @@ import {
   McpConfigLocator,
 } from './utils/mcp-config-locator';
 
-// Module-level variable to store the extension instance for deactivation
+export interface PrimitiveIndexLifecycleEvents {
+  onSourceAdded: vscode.Event<unknown>;
+  onSourceRemoved: vscode.Event<unknown>;
+  onSourceUpdated: vscode.Event<unknown>;
+  onSourceSynced: vscode.Event<unknown>;
+}
+
+/**
+ * Subscribe primitive index rebuild scheduling to source-composition and
+ * source-sync events only. Bundle install/uninstall/update events must not
+ * trigger index rebuilds because installation state is applied at query time.
+ * @param events
+ * @param scheduleRebuild
+ * @param isReady
+ */
+export function bindPrimitiveIndexLifecycle(
+  events: PrimitiveIndexLifecycleEvents,
+  scheduleRebuild: (reason: string) => void,
+  isReady: () => boolean
+): vscode.Disposable[] {
+  const scheduleWhenReady = (reason: string): void => {
+    if (!isReady()) {
+      return;
+    }
+    scheduleRebuild(reason);
+  };
+
+  return [
+    events.onSourceAdded(() => scheduleWhenReady('source added')),
+    events.onSourceRemoved(() => scheduleWhenReady('source removed')),
+    events.onSourceUpdated(() => scheduleWhenReady('source updated')),
+    events.onSourceSynced(() => scheduleWhenReady('source synced'))
+  ];
+}
 let extensionInstance: PromptRegistryExtension | undefined;
 
 interface UnavailableHub {
@@ -380,14 +413,16 @@ export class PromptRegistryExtension {
       profile: 'ternlight-dual-v1',
       indexStore: new AppStoragePrimitiveIndexStore(sharedIndexStorage),
       indexKeyProvider: () => this.registryManager.getPrimitiveIndexKey('ternlight-dual-v1'),
+      sourceRevisionsProvider: () => this.registryManager.getPrimitiveIndexSourceRevisions('ternlight-dual-v1'),
       installedBundleKeysProvider: async () => {
         const installed = await this.registryManager.listInstalledBundles();
         return installed
           .filter((bundle) => bundle.sourceId !== undefined)
-          .map((bundle) => getBundleRefKey({
+          .flatMap((bundle) => buildInstalledBundleLookupKeys({
             sourceId: bundle.sourceId!,
             bundleId: bundle.bundleId,
-            bundleVersion: bundle.version
+            bundleVersion: bundle.version,
+            sourceType: bundle.sourceType
           }));
       },
       providerFactory: () => this.registryManager.createPrimitiveBundleProvider(),
@@ -454,26 +489,14 @@ export class PromptRegistryExtension {
     }
   }
 
-  /** Rebuild the shared primitive index when registry data or install state changes. */
+  /** Rebuild the shared primitive index when hub/source composition or upstream revisions change. */
   private registerPrimitiveIndexLifecycle(): void {
-    const schedule = (reason: string) => this.primitiveIndexService.scheduleRebuild(reason);
-    const scheduleWhenReady = (reason: string) => {
-      if (!this.initialSourceSyncReadyResolved) {
-        return;
-      }
-      schedule(reason);
-    };
-
     this.disposables.push(
-      this.registryManager.onSourceAdded(() => scheduleWhenReady('source added')),
-      this.registryManager.onSourceRemoved(() => scheduleWhenReady('source removed')),
-      this.registryManager.onSourceUpdated(() => scheduleWhenReady('source updated')),
-      this.registryManager.onSourceSynced(() => scheduleWhenReady('source synced')),
-      this.registryManager.onBundleInstalled(() => scheduleWhenReady('bundle installed')),
-      this.registryManager.onBundleUninstalled(() => scheduleWhenReady('bundle uninstalled')),
-      this.registryManager.onBundleUpdated(() => scheduleWhenReady('bundle updated')),
-      this.registryManager.onBundlesInstalled(() => scheduleWhenReady('bundles installed')),
-      this.registryManager.onBundlesUninstalled(() => scheduleWhenReady('bundles uninstalled'))
+      ...bindPrimitiveIndexLifecycle(
+        this.registryManager,
+        (reason) => this.primitiveIndexService.scheduleRebuild(reason),
+        () => this.initialSourceSyncReadyResolved
+      )
     );
   }
 
@@ -512,9 +535,12 @@ export class PromptRegistryExtension {
 
     // Wire event-driven source sync after every hub sync (activation, manual, periodic).
     // This replaces the ad-hoc syncAllSources call that was previously in syncActiveHub().
+    // Defer intermediate per-source index rebuilds until all sources in the hub have synced.
     this.hubManager.onHubSynced(async (hubId) => {
       this.logger.info(`Hub synced (${hubId}), syncing all sources...`);
-      const sourceSyncPromise = this.sourceCommands!.syncAllSources({ silent: true });
+      const sourceSyncPromise = this.primitiveIndexService.runWithDeferredRebuild(
+        () => this.sourceCommands!.syncAllSources({ silent: true })
+      );
       if (!this.initialSourceSyncPromise) {
         this.initialSourceSyncPromise = sourceSyncPromise;
       }
@@ -560,7 +586,10 @@ export class PromptRegistryExtension {
       vscode.commands.registerCommand('promptRegistry.editSource', (sourceId?) => this.sourceCommands!.editSource(sourceId)),
       vscode.commands.registerCommand('promptRegistry.removeSource', (sourceId?) => this.sourceCommands!.removeSource(sourceId)),
       vscode.commands.registerCommand('promptRegistry.syncSource', (sourceId?) => this.sourceCommands!.syncSource(sourceId)),
-      vscode.commands.registerCommand('promptRegistry.syncAllSources', () => this.sourceCommands!.syncAllSources()),
+      vscode.commands.registerCommand(
+        'promptRegistry.syncAllSources',
+        () => this.primitiveIndexService.runWithDeferredRebuild(() => this.sourceCommands!.syncAllSources())
+      ),
       vscode.commands.registerCommand('promptRegistry.toggleSource', (sourceId?) => this.sourceCommands!.toggleSource(sourceId)),
       vscode.commands.registerCommand('promptRegistry.listSources', () => this.sourceCommands!.listSources()),
 
@@ -1022,7 +1051,8 @@ export class PromptRegistryExtension {
    * @returns Disposable subscription that should be added to disposables
    */
   private subscribeLockfileChanges(lockfileManager: LockfileManager): vscode.Disposable {
-    return lockfileManager.onLockfileUpdated(() => {
+    const onExternalUpdate = lockfileManager.onExternalLockfileUpdated ?? lockfileManager.onLockfileUpdated;
+    return onExternalUpdate(() => {
       this.logger.debug('Lockfile changed externally, refreshing repository bundles');
       this.registryManager.handleWorkspaceFoldersChanged();
     });

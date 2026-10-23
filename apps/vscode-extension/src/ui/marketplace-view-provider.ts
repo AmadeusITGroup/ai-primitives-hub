@@ -958,9 +958,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       });
 
       vscode.window.showInformationMessage(`✅ Bundle installed successfully!`);
-
-      // Refresh marketplace
-      await this.loadBundles();
     } catch (error) {
       this.logger.error('Failed to install bundle from marketplace', error as Error);
       vscode.window.showErrorMessage(`Failed to install bundle: ${(error as Error).message}`);
@@ -986,9 +983,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       await this.registryManager.uninstallBundle(installed.bundleId, installed.scope || 'user');
 
       vscode.window.showInformationMessage(`✅ Bundle uninstalled successfully!`);
-
-      // Refresh marketplace
-      await this.loadBundles();
     } catch (error) {
       this.logger.error('Failed to uninstall bundle from marketplace', error as Error);
       vscode.window.showErrorMessage(`Failed to uninstall bundle: ${(error as Error).message}`);
@@ -1031,9 +1025,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       });
 
       vscode.window.showInformationMessage(`✅ Bundle updated successfully!`);
-
-      // Refresh marketplace to show updated state
-      await this.loadBundles();
     } catch (error) {
       this.logger.error('Failed to update bundle from marketplace', error as Error);
       vscode.window.showErrorMessage(`Failed to update bundle: ${(error as Error).message}`);
@@ -1072,9 +1063,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       });
 
       vscode.window.showInformationMessage(`✅ Bundle v${version} installed successfully!`);
-
-      // Refresh marketplace
-      await this.loadBundles();
     } catch (error) {
       this.logger.error('Failed to install specific version from marketplace', error as Error);
       vscode.window.showErrorMessage(`Failed to install bundle v${version}: ${(error as Error).message}`);

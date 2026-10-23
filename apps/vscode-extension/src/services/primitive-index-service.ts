@@ -56,6 +56,8 @@ export interface PrimitiveIndexServiceOptions {
   indexKey?: PrimitiveIndexKey;
   /** Resolve the active hub and source snapshot for each index operation. */
   indexKeyProvider?: () => PrimitiveIndexKey | Promise<PrimitiveIndexKey>;
+  /** Resolve per-source revision hashes for incremental source diffing. */
+  sourceRevisionsProvider?: () => Readonly<Record<string, string>> | Promise<Readonly<Record<string, string>>>;
   /** Resolve a search key without remote revision lookups. */
   searchIndexKeyProvider?: () => PrimitiveIndexKey | Promise<PrimitiveIndexKey>;
   /** Resolve the current installation snapshot for query-time filtering. */
@@ -81,6 +83,7 @@ export class PrimitiveIndexService {
   private readonly indexStore?: PrimitiveIndexStore;
   private readonly indexKey?: PrimitiveIndexKey;
   private readonly indexKeyProvider?: PrimitiveIndexServiceOptions['indexKeyProvider'];
+  private readonly sourceRevisionsProvider?: PrimitiveIndexServiceOptions['sourceRevisionsProvider'];
   private readonly searchIndexKeyProvider?: PrimitiveIndexServiceOptions['searchIndexKeyProvider'];
   private readonly installedBundleKeysProvider?: PrimitiveIndexServiceOptions['installedBundleKeysProvider'];
   private readonly searchIndexSourceIdsProvider?: PrimitiveIndexServiceOptions['searchIndexSourceIdsProvider'];
@@ -88,7 +91,12 @@ export class PrimitiveIndexService {
   private readonly legacyIndexPath?: string;
   private readonly logger = Logger.getInstance();
   private rebuildTimer?: ReturnType<typeof setTimeout>;
+  private rebuildTimerReason?: string;
   private rebuildQueue: Promise<void> = Promise.resolve();
+  private rebuildRunning = false;
+  private pendingScheduledReason?: string;
+  private batchDeferDepth = 0;
+  private deferredBatchReason?: string;
   private disposed = false;
   private emptyIndexRecoveryAttempted = false;
   private fallbackIndexPath?: string;
@@ -105,6 +113,7 @@ export class PrimitiveIndexService {
     this.searchIndexSourceIdsProvider = options.searchIndexSourceIdsProvider;
     this.initializationReady = options.initializationReady;
     this.indexKeyProvider = options.indexKeyProvider;
+    this.sourceRevisionsProvider = options.sourceRevisionsProvider;
     this.searchIndexKeyProvider = options.searchIndexKeyProvider;
     this.indexKey = options.indexKey ?? (!this.indexKeyProvider && this.indexStore
       ? {
@@ -159,14 +168,17 @@ export class PrimitiveIndexService {
     }
   }
 
-  private async performRebuild(): Promise<BuildIndexResult> {
+  private async performRebuild(options?: { force?: boolean }): Promise<BuildIndexResult> {
     const provider = await this.providerFactory();
     const indexKey = this.indexKeyProvider ? await this.indexKeyProvider() : this.indexKey;
+    const sourceRevisions = this.sourceRevisionsProvider ? await this.sourceRevisionsProvider() : undefined;
     const result = await buildIndex({
       provider,
       ...(this.indexStore && indexKey
         ? { indexStore: this.indexStore, indexKey }
         : { outFile: this.indexPath }),
+      sourceRevisions,
+      force: options?.force,
       profile: this.profile,
       onLog: (message) => this.logger.info(`Primitive index rebuild: ${message}`),
       // A transient source/network failure must not replace the last-known-good
@@ -277,6 +289,42 @@ export class PrimitiveIndexService {
     return !timedOut;
   }
 
+  private enqueueScheduledRebuild(reason: string): void {
+    if (this.disposed) {
+      return;
+    }
+
+    if (this.rebuildRunning) {
+      // Coalesce bursty events that arrive while a rebuild is already running
+      // into at most one follow-up rebuild, rather than queueing N sequential
+      // rebuilds onto rebuildQueue.
+      this.pendingScheduledReason = reason;
+      return;
+    }
+
+    this.rebuildRunning = true;
+    this.rebuildQueue = this.rebuildQueue.then(async () => {
+      let currentReason: string | undefined = reason;
+      try {
+        while (currentReason !== undefined && !this.disposed) {
+          const activeReason = currentReason;
+          this.pendingScheduledReason = undefined;
+          try {
+            const result = await this.performRebuild({ force: false });
+            this.logger.info(
+              `Primitive index rebuilt after ${activeReason}: ${result.primitives} primitives from ${result.bundles} bundles`
+            );
+          } catch (error) {
+            this.logger.error(`Primitive index rebuild failed after ${activeReason}`, error as Error);
+          }
+          currentReason = this.pendingScheduledReason;
+        }
+      } finally {
+        this.rebuildRunning = false;
+      }
+    });
+  }
+
   /** Absolute path of the persisted extension index. */
   public getIndexPath(): string {
     return this.indexPath;
@@ -287,12 +335,16 @@ export class PrimitiveIndexService {
     return this.profile;
   }
 
-  /** Rebuild and persist the index from the configured source provider. */
-  public async rebuild(): Promise<BuildIndexResult> {
+  /**
+   * Rebuild and persist the index from the configured source provider.
+   * @param options
+   * @param options.force
+   */
+  public async rebuild(options?: { force?: boolean }): Promise<BuildIndexResult> {
     this.logger.info(`Primitive index rebuild started (profile=${this.profile})`);
     let result!: BuildIndexResult;
     const operation = this.rebuildQueue.then(async () => {
-      result = await this.performRebuild();
+      result = await this.performRebuild({ force: options?.force ?? true });
     });
     this.rebuildQueue = operation.then(() => undefined, () => undefined);
     try {
@@ -368,21 +420,53 @@ export class PrimitiveIndexService {
         const parsed = JSON.parse(raw) as { primitives?: unknown[] };
         if (Array.isArray(parsed.primitives) && parsed.primitives.length === 0) {
           this.emptyIndexRecoveryAttempted = true;
-          await this.rebuild();
+          await this.rebuild({ force: false });
         }
       }
     } catch {
       if (await this.isLegacyIndexCompatible()) {
         return;
       }
-      await this.rebuild();
+      await this.rebuild({ force: false });
+    }
+  }
+
+  /**
+   * Defer scheduled index rebuilds while a multi-source batch operation
+   * (such as `syncAllSources` or `syncHub`) is running, coalescing any
+   * intermediate source events into a single rebuild when the batch finishes.
+   * @param operation
+   * @param completionReason
+   */
+  public async runWithDeferredRebuild<T>(
+    operation: () => Promise<T>,
+    completionReason?: string
+  ): Promise<T> {
+    this.batchDeferDepth += 1;
+    if (this.rebuildTimer) {
+      clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = undefined;
+      this.deferredBatchReason ??= this.rebuildTimerReason;
+      this.rebuildTimerReason = undefined;
+    }
+    try {
+      return await operation();
+    } finally {
+      this.batchDeferDepth = Math.max(0, this.batchDeferDepth - 1);
+      if (this.batchDeferDepth === 0) {
+        const reason = completionReason ?? this.deferredBatchReason;
+        this.deferredBatchReason = undefined;
+        if (reason) {
+          this.scheduleRebuild(reason);
+        }
+      }
     }
   }
 
   /**
    * Schedule a debounced rebuild after a registry lifecycle event.
-   * Rebuilds are serialized so a burst of source-sync events cannot corrupt or
-   * overwrite the persisted index out of order.
+   * Rebuilds are serialized and coalesced so a burst of source-sync events
+   * cannot queue redundant rebuilds or overwrite the persisted index out of order.
    * @param reason
    * @param delayMs
    */
@@ -391,21 +475,19 @@ export class PrimitiveIndexService {
       return;
     }
 
+    if (this.batchDeferDepth > 0) {
+      this.deferredBatchReason = reason;
+      return;
+    }
+
     if (this.rebuildTimer) {
       clearTimeout(this.rebuildTimer);
     }
+    this.rebuildTimerReason = reason;
     this.rebuildTimer = setTimeout(() => {
       this.rebuildTimer = undefined;
-      this.rebuildQueue = this.rebuildQueue.then(async () => {
-        try {
-          const result = await this.performRebuild();
-          this.logger.info(
-            `Primitive index rebuilt after ${reason}: ${result.primitives} primitives from ${result.bundles} bundles`
-          );
-        } catch (error) {
-          this.logger.error(`Primitive index rebuild failed after ${reason}`, error as Error);
-        }
-      });
+      this.rebuildTimerReason = undefined;
+      this.enqueueScheduledRebuild(reason);
     }, delayMs);
   }
 
@@ -415,6 +497,7 @@ export class PrimitiveIndexService {
     if (this.rebuildTimer) {
       clearTimeout(this.rebuildTimer);
       this.rebuildTimer = undefined;
+      this.rebuildTimerReason = undefined;
     }
   }
 }

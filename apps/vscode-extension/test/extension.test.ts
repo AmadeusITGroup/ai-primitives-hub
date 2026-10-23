@@ -2,6 +2,7 @@ import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  bindPrimitiveIndexLifecycle,
   runFirstRunHubSelector,
   startInitialSourceSync,
 } from '../src/extension';
@@ -352,5 +353,71 @@ suite('PromptRegistryExtension first-run hub selector', () => {
 
     assert.strictEqual(configured, false);
     assert.strictEqual(executeCommandStub.calledOnceWithExactly('promptregistry.importHub'), true);
+  });
+});
+
+suite('PromptRegistryExtension primitive index lifecycle', () => {
+  test('rebuilds only on source lifecycle events and ignores bundle install/uninstall/update events', () => {
+    const onSourceAdded = new vscode.EventEmitter<any>();
+    const onSourceRemoved = new vscode.EventEmitter<string>();
+    const onSourceUpdated = new vscode.EventEmitter<string>();
+    const onSourceSynced = new vscode.EventEmitter<any>();
+    const onBundleInstalled = new vscode.EventEmitter<any>();
+    const onBundleUninstalled = new vscode.EventEmitter<string>();
+    const onBundleUpdated = new vscode.EventEmitter<any>();
+    const onBundlesInstalled = new vscode.EventEmitter<any[]>();
+    const onBundlesUninstalled = new vscode.EventEmitter<string[]>();
+
+    const reasons: string[] = [];
+    let ready = true;
+
+    const disposables = bindPrimitiveIndexLifecycle(
+      {
+        onSourceAdded: onSourceAdded.event,
+        onSourceRemoved: onSourceRemoved.event,
+        onSourceUpdated: onSourceUpdated.event,
+        onSourceSynced: onSourceSynced.event
+      },
+      (reason) => reasons.push(reason),
+      () => ready
+    );
+
+    try {
+      // Bundle install/uninstall/update events must never trigger index rebuilds
+      onBundleInstalled.fire({ bundleId: 'bundle-1' });
+      onBundleUninstalled.fire('bundle-1');
+      onBundleUpdated.fire({ bundleId: 'bundle-1' });
+      onBundlesInstalled.fire([{ bundleId: 'bundle-1' }]);
+      onBundlesUninstalled.fire(['bundle-1']);
+      assert.deepStrictEqual(reasons, []);
+
+      // Source events trigger index rebuilds when initial sync is ready
+      onSourceAdded.fire({ id: 'src-1' });
+      onSourceUpdated.fire('src-1');
+      onSourceSynced.fire({ sourceId: 'src-1', bundleCount: 5 });
+      onSourceRemoved.fire('src-1');
+      assert.deepStrictEqual(reasons, [
+        'source added',
+        'source updated',
+        'source synced',
+        'source removed'
+      ]);
+
+      // Events before initial sync readiness are ignored
+      ready = false;
+      onSourceAdded.fire({ id: 'src-2' });
+      assert.strictEqual(reasons.length, 4);
+    } finally {
+      disposables.forEach((d) => d.dispose());
+      onSourceAdded.dispose();
+      onSourceRemoved.dispose();
+      onSourceUpdated.dispose();
+      onSourceSynced.dispose();
+      onBundleInstalled.dispose();
+      onBundleUninstalled.dispose();
+      onBundleUpdated.dispose();
+      onBundlesInstalled.dispose();
+      onBundlesUninstalled.dispose();
+    }
   });
 });

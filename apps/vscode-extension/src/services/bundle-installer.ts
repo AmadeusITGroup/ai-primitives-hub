@@ -356,7 +356,6 @@ export class BundleInstaller {
 
       // Use global storage for bundle cache, same as user scope
       // This prevents polluting the repository with internal extension files
-      this.logger.info(`[BundleInstaller] Installing repository scope bundle to global storage: bundles/${bundleId}`);
       return path.join(this.context.globalStorageUri.fsPath, 'bundles', bundleId);
     }
 
@@ -816,6 +815,9 @@ export class BundleInstaller {
           }
         } else {
           // Standard bundles: copy all extracted files into the bundle cache directory.
+          if (options.scope === 'repository') {
+            this.logger.info(`[BundleInstaller] Installing repository scope bundle to global storage: bundles/${bundle.id}`);
+          }
           installDir = this.getInstallDirectory(bundle.id, options.scope, bundle.name);
           await ensureDirectory(installDir);
           this.logger.debug(`Installation directory: ${installDir}`);
