@@ -4,8 +4,9 @@
  * Which isolated kind each target supports, seeded from the behaviour
  * observed on `be1d161` (requirements Appendix A). A cell the product
  * should support but rejects today is `native` and covered by a known gap
- * (chat-mode on copilot-cli G17, hook on kiro G08, mcp-server everywhere
- * G05). `projected` is reserved for PR-16 and unused here.
+ * (hook on kiro G08, mcp-server everywhere G05). chat-mode on copilot-cli
+ * (G17) installs since #526. `projected` is reserved for PR-16 and unused
+ * here.
  * @module domain/diagnostics/primitives/support-matrix
  */
 import {

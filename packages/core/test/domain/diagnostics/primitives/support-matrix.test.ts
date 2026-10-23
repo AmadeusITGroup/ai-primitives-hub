@@ -49,7 +49,7 @@ describe('PRIMITIVE_SUPPORT_MATRIX', () => {
     }
   });
 
-  it('marks the gapped cells as supported (G05, G08, G17)', () => {
+  it('marks the gapped cells and chat-mode on copilot-cli (G17, fixed by #526) as supported', () => {
     expect(Object.values(PRIMITIVE_SUPPORT_MATRIX['mcp-server']!).every((level) => level === 'native')).toBe(true);
     expect(PRIMITIVE_SUPPORT_MATRIX.hook!.kiro).toBe('native');
     expect(PRIMITIVE_SUPPORT_MATRIX['chat-mode']!['copilot-cli']).toBe('native');

@@ -133,12 +133,12 @@ describe('doctor diagnostics --primitives gap-coverage slice', () => {
 
     expect(report.summary).toEqual({
       cases: 30,
-      pass: 17,
-      knownGap: 13,
+      pass: 18,
+      knownGap: 12,
       fail: 0,
       bundles: { bundles: 5, pass: 0, knownGap: 5, fail: 0 }
     });
-    expect(absorbedById(report)).toEqual({ G05: 6, G08: 2, G13: 2, G15: 4, G17: 2, G18: 5 });
+    expect(absorbedById(report)).toEqual({ G05: 6, G08: 2, G13: 2, G15: 4, G18: 5 });
     expect(report.cases.filter((c) => c.target === 'vscode' && c.gapIds.includes('G08'))).toEqual([]);
     expect(report.unusedKnownGaps).toEqual([]);
     expect(report.ok).toBe(true);

@@ -50,7 +50,11 @@ const g15 = (kind: PrimitiveKind, id: string): KnownGap => ({
   summary: `${kind} manifest id is "${id}" instead of the expected id`
 });
 
-/** Seed known gaps on `be1d161` (requirements Appendix B). */
+/**
+ * Seed known gaps on `be1d161` (requirements Appendix B), minus G17
+ * (chat-mode on copilot-cli), which #526 fixed by placing chat modes
+ * through the `agents/` route.
+ */
 export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
   {
     key: 'G05/I4/mcp-server',
@@ -67,14 +71,6 @@ export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
     match: { kinds: ['hook'], targets: ['kiro'] },
     observed: REJECTED,
     summary: 'kiro rejects hook items (kiro-cli accepts them)'
-  },
-  {
-    key: 'G17/I4/chat-mode@copilot-cli',
-    id: 'G17',
-    invariant: 'I4',
-    match: { kinds: ['chat-mode'], targets: ['copilot-cli'] },
-    observed: REJECTED,
-    summary: 'copilot-cli rejects chat-mode items'
   },
   {
     key: 'G18/I8/copilot-cli@repository',
