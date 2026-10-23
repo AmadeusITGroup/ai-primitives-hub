@@ -15,6 +15,9 @@ import type {
   HttpRequest,
   HttpResponse,
 } from '@ai-primitives-hub/core';
+import {
+  getDefaultUserAgent,
+} from './user-agent';
 
 const DEFAULT_MAX_REDIRECTS = 10;
 /** Default timeout applied to every HTTP request without an explicit timeout. */
@@ -131,7 +134,7 @@ export class NodeHttpClient implements HttpClient {
   private ensureUserAgent(headers?: Record<string, string>): Record<string, string> {
     const result = headers ?? {};
     if (result['User-Agent'] === undefined && result['user-agent'] === undefined) {
-      result['User-Agent'] = 'ai-primitives-hub/1.0';
+      result['User-Agent'] = getDefaultUserAgent();
     }
     return result;
   }

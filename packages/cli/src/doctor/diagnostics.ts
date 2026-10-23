@@ -141,6 +141,9 @@ import {
   type FsAbstraction,
   runCli,
 } from '../framework';
+import {
+  CLI_VERSION,
+} from '../version';
 
 /** Public input options for the diagnostics runner. */
 export interface DiagnosticsOptions {
@@ -253,7 +256,7 @@ const runDiagnosticStep = async (
   const exitCode = await runCli(argv, {
     ctx: stepCtx,
     name: 'ai-primitives-hub',
-    version: '1.0.0',
+    version: CLI_VERSION,
     commands: [],
     commandClasses: opts.commandClasses
   });

@@ -9,3 +9,4 @@ export * from './github-host';
 export * from './github-repository-target';
 export * from './node-http-client';
 export * from './proxy-env';
+export * from './user-agent';
