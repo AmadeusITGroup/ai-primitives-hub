@@ -95,6 +95,52 @@ describe('PrimitiveIndex', () => {
     expect(res.hits.every((hit) => hit.primitive.bundle.bundleId === target!.bundle.bundleId)).toBe(true);
   });
 
+  it('matches query-time installedBundleKeys across version/SHA differences and preserves newest primitive on version collision', () => {
+    const newerPrimitive = {
+      id: 'shared-prim-id',
+      bundle: {
+        sourceId: 'artifactory-src',
+        sourceType: 'artifactory',
+        bundleId: 'my-collection',
+        bundleVersion: '1.2.0',
+        installed: false
+      },
+      kind: 'skill' as const,
+      title: 'Newer Skill Title',
+      description: 'From v1.2.0',
+      path: 'skills/my-skill/SKILL.md',
+      tags: ['test'],
+      bodyPreview: 'Newer body preview',
+      contentHash: 'hash-120'
+    };
+    const olderPrimitive = {
+      ...newerPrimitive,
+      bundle: {
+        ...newerPrimitive.bundle,
+        bundleVersion: '1.0.0'
+      },
+      title: 'Older Skill Title',
+      description: 'From v1.0.0',
+      bodyPreview: 'Older body preview',
+      contentHash: 'hash-100'
+    };
+
+    // Passed in descending order (1.2.0 first, 1.0.0 second) as returned by ArtifactorySourceAdapter
+    const idx = PrimitiveIndex.fromPrimitives([newerPrimitive, olderPrimitive]);
+    expect(idx.all()).toHaveLength(1);
+    expect(idx.get('shared-prim-id')?.title).toBe('Newer Skill Title');
+    expect(idx.get('shared-prim-id')?.bundle.bundleVersion).toBe('1.2.0');
+
+    // User has 1.0.0 installed while 1.2.0 is in the index
+    const res = idx.search({
+      installedOnly: true,
+      installedBundleKeys: ['artifactory-src\u0000my-collection\u00001.0.0']
+    });
+    expect(res.hits).toHaveLength(1);
+    expect(res.hits[0].primitive.bundle.installed).toBe(true);
+    expect(res.hits[0].primitive.title).toBe('Newer Skill Title');
+  });
+
   it('explain mode attaches matches', async () => {
     const idx = await buildIndex();
     const res = idx.search({ q: 'rust', limit: 3, explain: true });

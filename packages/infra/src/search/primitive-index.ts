@@ -15,7 +15,9 @@
 
 import * as crypto from 'node:crypto';
 import {
-  getBundleRefKey,
+  compareSemverIfValid,
+  isBundleRefInstalled,
+  normalizeInstalledBundleKeys,
 } from '@ai-primitives-hub/core';
 import {
   harvest,
@@ -326,10 +328,15 @@ export class PrimitiveIndex {
     const count = primitives.length;
     log?.(`indexing ${count} primitive${count === 1 ? '' : 's'}...`);
 
-    // Deduplicate by primitiveId; later wins.
+    // Deduplicate by primitiveId; when multiple versions of the same bundle are
+    // passed, retain the newer semver version rather than letting an older
+    // trailing version overwrite the latest primitive.
     const byId = new Map<string, Primitive>();
     for (const p of primitives) {
-      byId.set(p.id, p);
+      const existing = byId.get(p.id);
+      if (!existing || shouldReplacePrimitive(existing, p)) {
+        byId.set(p.id, p);
+      }
     }
     this.records = Array.from(byId.values()).map((primitive) => ({
       primitive,
@@ -402,10 +409,10 @@ export class PrimitiveIndex {
     candidates = intersectFacet(candidates, this.facets.tag, query.tags, true);
     if (query.installedOnly) {
       if (query.installedBundleKeys) {
-        const installedKeys = new Set(query.installedBundleKeys);
+        const installedKeys = normalizeInstalledBundleKeys(query.installedBundleKeys);
         const installed = new Set<number>();
         for (const [index, record] of this.records.entries()) {
-          if (installedKeys.has(getBundleRefKey(record.primitive.bundle))) {
+          if (isBundleRefInstalled(record.primitive.bundle, installedKeys)) {
             installed.add(index);
           }
         }
@@ -748,14 +755,14 @@ export class PrimitiveIndex {
     const result = this.rank(query, filtered);
     const hits = query.installedBundleKeys
       ? (() => {
-        const installedKeys = new Set(query.installedBundleKeys);
+        const installedKeys = normalizeInstalledBundleKeys(query.installedBundleKeys);
         return result.hits.map((hit) => ({
           ...hit,
           primitive: {
             ...hit.primitive,
             bundle: {
               ...hit.primitive.bundle,
-              installed: installedKeys.has(getBundleRefKey(hit.primitive.bundle))
+              installed: isBundleRefInstalled(hit.primitive.bundle, installedKeys)
             }
           }
         }));
@@ -872,7 +879,10 @@ export class PrimitiveIndex {
     const incoming = await harvest(provider, { maxFilesPerBundle: opts.maxFilesPerBundle });
     const nextById = new Map<string, Primitive>();
     for (const p of incoming) {
-      nextById.set(p.id, p);
+      const existing = nextById.get(p.id);
+      if (!existing || shouldReplacePrimitive(existing, p)) {
+        nextById.set(p.id, p);
+      }
     }
 
     const changes = this.computeChanges(nextById);
@@ -999,6 +1009,14 @@ function inferSearchProfileId(opts: BuildOptions): string | undefined {
   return opts.embeddingStrategy === 'dual'
     ? 'ternlight-dual-v1'
     : 'ternlight-single-v1';
+}
+
+function shouldReplacePrimitive(existing: Primitive, candidate: Primitive): boolean {
+  if (existing.bundle.bundleVersion === candidate.bundle.bundleVersion) {
+    return true;
+  }
+  const semverComparison = compareSemverIfValid(candidate.bundle.bundleVersion, existing.bundle.bundleVersion);
+  return semverComparison === undefined ? true : semverComparison >= 0;
 }
 
 function addTo(map: Map<string, Set<number>>, key: string, idx: number): void {

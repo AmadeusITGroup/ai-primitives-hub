@@ -7,13 +7,15 @@
  * so CLI and VS Code can share it.
  * @module harvest/bundle-providers/source-adapter-bundle-provider
  */
-import type {
-  Bundle,
-  BundleExtractor,
-  BundleManifest,
-  BundleProvider,
-  BundleRef,
-  SourceAdapter,
+import {
+  type Bundle,
+  type BundleExtractor,
+  type BundleManifest,
+  type BundleProvider,
+  type BundleRef,
+  compareSemverIfValid,
+  safeExtractBundleIdentity,
+  type SourceAdapter,
 } from '@ai-primitives-hub/core';
 import {
   load as parseYaml,
@@ -34,6 +36,12 @@ export interface SourceAdapterBundleProviderOptions {
   extractor?: BundleExtractor;
   /** Optional policy used to project current installation state onto refs. */
   isInstalled?: (bundle: Bundle) => boolean;
+  /**
+   * When true, yields every historical version returned by `adapter.fetchBundles()`.
+   * Defaults to false (consolidating to the latest version per bundle identity)
+   * so primitive harvesting does not download and extract obsolete archives.
+   */
+  allVersions?: boolean;
 }
 
 /**
@@ -47,6 +55,7 @@ export class SourceAdapterBundleProvider implements BundleProvider {
   private readonly adapter: SourceAdapter;
   private readonly extractor: BundleExtractor;
   private readonly isInstalled: (bundle: Bundle) => boolean;
+  private readonly allVersions: boolean;
   private bundles?: Bundle[];
   private readonly extracted = new Map<string, ReadonlyMap<string, Uint8Array>>();
 
@@ -54,10 +63,16 @@ export class SourceAdapterBundleProvider implements BundleProvider {
     this.adapter = options.adapter;
     this.extractor = options.extractor ?? createDefaultExtractor();
     this.isInstalled = options.isInstalled ?? (() => false);
+    this.allVersions = options.allVersions ?? false;
   }
 
   private async loadBundles(): Promise<Bundle[]> {
-    this.bundles ??= await this.adapter.fetchBundles();
+    if (!this.bundles) {
+      const fetched = await this.adapter.fetchBundles();
+      this.bundles = this.allVersions
+        ? fetched
+        : consolidateLatestBundles(fetched, this.adapter.source.type);
+    }
     return this.bundles;
   }
 
@@ -184,4 +199,29 @@ function parseManifest(raw: Uint8Array): BundleManifest {
 
 function createDefaultExtractor(): BundleExtractor {
   return new ZipBundleExtractor();
+}
+
+function consolidateLatestBundles(bundles: readonly Bundle[], sourceType: SourceAdapter['source']['type']): Bundle[] {
+  const latestByIdentity = new Map<string, Bundle>();
+  for (const candidate of bundles) {
+    const identity = safeExtractBundleIdentity(candidate.id, sourceType);
+    const existing = latestByIdentity.get(identity);
+    if (!existing || isNewerBundle(candidate, existing)) {
+      latestByIdentity.set(identity, candidate);
+    }
+  }
+  return [...latestByIdentity.values()];
+}
+
+function isNewerBundle(candidate: Bundle, existing: Bundle): boolean {
+  const semverComparison = compareSemverIfValid(candidate.version, existing.version);
+  if (semverComparison !== undefined) {
+    return semverComparison > 0;
+  }
+  const candidateTime = Date.parse(candidate.lastUpdated);
+  const existingTime = Date.parse(existing.lastUpdated);
+  if (!Number.isNaN(candidateTime) && !Number.isNaN(existingTime) && candidateTime !== existingTime) {
+    return candidateTime > existingTime;
+  }
+  return false;
 }
