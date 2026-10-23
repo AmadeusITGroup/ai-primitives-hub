@@ -212,6 +212,10 @@ jobs:
             echo "@ai-primitives-hub/cli is not part of this release; skipping the CLI version check."
             exit 0
           fi
+          if [[ "$PACKAGE_NAMES" == "cli" ]]; then
+            echo "::error::Release @ai-primitives-hub/cli together with core, infra and app (packages: all)."
+            exit 1
+          fi
 
           expected="ai-primitives-hub $(node -p "require('./packages/cli/package.json').version")"
           actual="$(node packages/cli/bin/ai-primitives-hub.js --version)"

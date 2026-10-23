@@ -59,7 +59,7 @@ The build must precede linting on a clean checkout: package metadata points to
 generated declarations under ignored `dist` directories. A previous local build
 can hide this requirement by leaving those declarations on disk.
 
-The CLI version is read from `packages/cli/package.json`; never hardcode it in source.
+The CLI version is read from `packages/cli/package.json`; never hardcode it in source. Release the CLI together with core, infra and app (`packages: all`).
 
 Review the package versions and lockfile changes in the pull request. The
 generated release branch and pull request make the version change auditable and
