@@ -40,6 +40,9 @@ import type {
   HttpResponse,
   TokenProvider,
 } from '@ai-primitives-hub/core';
+import {
+  getDefaultUserAgent,
+} from './user-agent';
 
 export type GitHubClientEventKind =
   | 'request'
@@ -84,7 +87,7 @@ export interface RateLimitTelemetry {
 export interface GitHubApiClientOptions {
   /** Defaults to `https://api.github.com`. */
   baseUrl?: string;
-  /** Defaults to `ai-primitives-hub/1.0`. */
+  /** Defaults to `getDefaultUserAgent()` (`ai-primitives-hub/1.0` unless a caller set one), read per request. */
   userAgent?: string;
   /** Resolves a bearer token for each request; omit for unauthenticated access. */
   tokenProvider?: TokenProvider;
@@ -111,7 +114,6 @@ export interface GitHubApiClientOptions {
 }
 
 const DEFAULT_BASE_URL = 'https://api.github.com';
-const DEFAULT_USER_AGENT = 'ai-primitives-hub/1.0';
 const NOOP_EVENT_HANDLER: GitHubClientEventHandler = (): void => undefined;
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -123,7 +125,6 @@ interface Classification {
 
 export class GitHubApiClient implements GitHubApi {
   private readonly baseUrl: string;
-  private readonly userAgent: string;
   private readonly maxRetries: number;
   private readonly backoffBaseMs: number;
   private readonly jitterMs: number;
@@ -146,7 +147,6 @@ export class GitHubApiClient implements GitHubApi {
     private readonly options: GitHubApiClientOptions = {}
   ) {
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
-    this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.maxRetries = options.maxRetries ?? 4;
     this.backoffBaseMs = options.backoffBaseMs ?? 250;
     this.jitterMs = options.jitterMs ?? 250;
@@ -175,7 +175,7 @@ export class GitHubApiClient implements GitHubApi {
 
   private async buildHeaders(url: string, accept: string, extraHeaders?: Record<string, string>): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
-      'User-Agent': this.userAgent,
+      'User-Agent': this.options.userAgent ?? getDefaultUserAgent(),
       Accept: accept,
       ...extraHeaders
     };

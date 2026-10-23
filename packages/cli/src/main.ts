@@ -6,6 +6,7 @@
 import {
   defaultTokenProvider,
   NodeHttpClient,
+  setDefaultUserAgent,
 } from '@ai-primitives-hub/infra';
 import {
   ALL_COMMAND_CLASSES,
@@ -14,6 +15,9 @@ import {
   createProductionContext,
   runCli,
 } from './framework';
+import {
+  CLI_VERSION,
+} from './version';
 
 /**
  * Main entry point.
@@ -21,6 +25,7 @@ import {
  */
 async function main(): Promise<number> {
   const ctx = createProductionContext();
+  setDefaultUserAgent(`ai-primitives-hub/${CLI_VERSION}`);
   const http = new NodeHttpClient();
   const tokens = defaultTokenProvider(ctx.env);
 
@@ -29,7 +34,7 @@ async function main(): Promise<number> {
     commands: [],
     commandClasses: ALL_COMMAND_CLASSES,
     name: 'ai-primitives-hub',
-    version: '1.0.0',
+    version: CLI_VERSION,
     http,
     tokens,
     defaultOutput: 'text'

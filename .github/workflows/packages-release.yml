@@ -203,6 +203,24 @@ jobs:
           BUILD_SELECTOR: ${{ steps.selector.outputs.build_selector }}
         run: pnpm --filter "$BUILD_SELECTOR" build
 
+      - name: Verify CLI reported version
+        env:
+          PACKAGE_NAMES: ${{ steps.selector.outputs.names }}
+        run: |
+          set -euo pipefail
+          if [[ " $PACKAGE_NAMES " != *" cli "* ]]; then
+            echo "@ai-primitives-hub/cli is not part of this release; skipping the CLI version check."
+            exit 0
+          fi
+
+          expected="ai-primitives-hub $(node -p "require('./packages/cli/package.json').version")"
+          actual="$(node packages/cli/bin/ai-primitives-hub.js --version)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::The built CLI reports '$actual' but the release expects '$expected'."
+            exit 1
+          fi
+          echo "The built CLI reports '$actual', matching packages/cli/package.json."
+
       - name: Lint and test release packages
         if: ${{ !inputs.skip_checks }}
         env:
