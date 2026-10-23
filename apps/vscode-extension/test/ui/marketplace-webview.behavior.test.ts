@@ -387,4 +387,91 @@ suite('Marketplace webview behavior', () => {
       harness.dom.window.close();
     }
   });
+
+  test('shows Configure Hub for a standalone skills source despite a stored complete state', () => {
+    const harness = createHarness();
+    try {
+      const { document } = harness.dom.window;
+      harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+        data: {
+          type: 'bundlesLoaded',
+          bundles: [{ ...makeBundle(), contentBreakdown: { skills: 1 } }],
+          filterOptions: { tags: [], sources: [], environments: [] },
+          setupState: 'complete',
+          sourcesCount: 1,
+          hasConfiguredHub: false
+        }
+      }));
+
+      const configureHub = document.querySelector('[data-action="completeSetup"]') as unknown as {
+        textContent: string;
+        click: () => void;
+      } | null;
+      assert.ok(configureHub, 'Configure Hub must remain available without a hub');
+      assert.strictEqual(configureHub?.textContent, 'Configure Hub');
+      assert.strictEqual(document.querySelectorAll('.bundle-card').length, 1);
+      assert.ok(document.querySelector('#marketplace > :last-child [data-action="completeSetup"]'),
+        'the hub setup action should follow all skill and collection cards');
+      configureHub.click();
+      assert.ok(harness.messages.some((message) => message.type === 'completeSetup'));
+
+      harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+        data: {
+          type: 'bundlesLoaded',
+          bundles: [makeBundle()],
+          setupState: 'complete',
+          sourcesCount: 1,
+          hasConfiguredHub: true
+        }
+      }));
+      assert.strictEqual(document.querySelector('[data-action="completeSetup"]'), null);
+      assert.strictEqual(document.querySelectorAll('.bundle-card').length, 1);
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('keeps the setup heading only when the Marketplace is empty', () => {
+    const harness = createHarness();
+    try {
+      harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+        data: {
+          type: 'bundlesLoaded',
+          bundles: [],
+          setupState: 'incomplete',
+          sourcesCount: 0,
+          hasConfiguredHub: false
+        }
+      }));
+      const { document } = harness.dom.window;
+      assert.strictEqual(document.querySelector('.empty-state-title')?.textContent, 'Setup Not Complete');
+      assert.strictEqual(document.querySelector('[data-action="completeSetup"]')?.textContent, 'Configure Hub');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('shows the setup banner when setup is incomplete even with populated bundles', () => {
+    const harness = createHarness();
+    try {
+      const { document } = harness.dom.window;
+      harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+        data: {
+          type: 'bundlesLoaded',
+          bundles: [makeBundle()],
+          filterOptions: { tags: ['alpha', 'beta', 'gamma'], sources: [], environments: [] },
+          setupState: 'incomplete',
+          sourcesCount: 1
+        }
+      }));
+
+      assert.doesNotMatch(document.querySelector('#marketplace')?.textContent ?? '', /Setup Not Complete/);
+      assert.match(document.querySelector('#marketplace')?.textContent ?? '', /Configure Hub/);
+      assert.match(document.querySelector('#marketplace')?.textContent ?? '', /no hub is set up yet/);
+      assert.strictEqual(document.querySelectorAll('.bundle-card').length, 1,
+        'bundles should remain visible while the setup warning is displayed');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
 });

@@ -38,6 +38,7 @@
   let openVersionDropdownId = null;
   let setupState = 'complete'; // Default to complete to avoid showing setup prompt unnecessarily
   let sourcesCount = 0;
+  let hasConfiguredHub;
 
   // Handle messages from extension
   window.addEventListener('message', (event) => {
@@ -48,6 +49,7 @@
       filterOptions = message.filterOptions || { tags: [], sources: [], environments: [] };
       setupState = message.setupState || 'complete';
       sourcesCount = message.sourcesCount || 0;
+      hasConfiguredHub = message.hasConfiguredHub;
       updateFilterUI();
       updateMarketplaceSummary();
       renderBundles();
@@ -1039,6 +1041,32 @@
       return;
     }
 
+    var hasNoSources = setupState === 'complete' && sourcesCount === 0;
+    var hasNoSourcesWithConfiguredHub = hasNoSources && hasConfiguredHub === true;
+    var shouldShowSetupPrompt = hasConfiguredHub === false || setupState === 'incomplete' || setupState === 'not_started' || setupState === 'in_progress';
+    var isInitialSetup = setupState === 'not_started';
+    var setupActionLabel = isInitialSetup ? 'Complete Setup' : 'Configure Hub';
+    var setupMessage;
+    if (hasNoSourcesWithConfiguredHub) {
+      setupMessage = 'No sources are configured. Add a source to browse bundles.';
+    } else if (hasNoSources) {
+      setupMessage = 'No sources are configured. Complete setup to browse bundles.';
+    } else if (isInitialSetup) {
+      setupMessage = 'No hub is configured. Complete setup to browse bundles.';
+    } else {
+      setupMessage = 'A source is configured, but no hub is set up yet. Configure your hub to continue.';
+    }
+
+    var setupBanner = shouldShowSetupPrompt
+      ? '<div class="empty-state">'
+      + '<div class="empty-state-icon fa-icon fa-gear"></div>'
+      + '<p>' + setupMessage + '</p>'
+      + '<button class="primary-button" data-action="completeSetup">'
+      + setupActionLabel
+      + '</button>'
+      + '</div>'
+      : '';
+
     // Reflect the number of collections remaining after the active tab,
     // search, and filter criteria have been applied.
     if (filteredBundles.length === 0) {
@@ -1046,10 +1074,16 @@
       var hasFiltersApplied = searchTerm || selectedSource !== 'all' || selectedTags.length > 0 || selectedContentTypes.length > 0;
 
       if (allBundles.length === 0) {
-        var hasNoSources = setupState === 'complete' && sourcesCount === 0;
-        var shouldShowSetupPrompt = setupState === 'incomplete' || setupState === 'not_started' || setupState === 'in_progress' || hasNoSources;
+        if (hasNoSourcesWithConfiguredHub) {
+          marketplace.innerHTML = '<div class="empty-state">'
+            + '<div class="empty-state-icon fa-icon fa-list"></div>'
+            + '<div class="empty-state-title">No sources configured</div>'
+            + '<p>No sources are configured. Add a source to browse bundles.</p>'
+            + '</div>';
+          return;
+        }
 
-        var setupMessage = hasNoSources
+        var emptySetupMessage = hasNoSources
           ? 'No sources are configured. Complete setup to browse bundles.'
           : 'No hub is configured. Complete setup to browse bundles.';
 
@@ -1057,9 +1091,9 @@
           ? '<div class="empty-state">'
           + '<div class="empty-state-icon fa-icon fa-gear"></div>'
           + '<div class="empty-state-title">Setup Not Complete</div>'
-          + '<p>' + setupMessage + '</p>'
+          + '<p>' + emptySetupMessage + '</p>'
           + '<button class="primary-button" data-action="completeSetup">'
-          + 'Complete Setup'
+          + setupActionLabel
           + '</button>'
           + '</div>'
           : '<div class="empty-state">'
@@ -1067,20 +1101,23 @@
             + '<div class="empty-state-title">Syncing sources...</div>'
             + '<p>Bundles will appear as sources are synced</p>'
             + '</div>';
+        return;
       } else if (selectedTab === 'installed' && !allBundles.some((bundle) => bundle.installed === true)) {
         marketplace.innerHTML =
           '<div class="empty-state">'
           + '<div class="empty-state-icon fa-icon fa-box"></div>'
           + '<div class="empty-state-title">No installed bundles</div>'
           + '<p>Install a bundle to see it here</p>'
-          + '</div>';
+          + '</div>'
+          + setupBanner;
       } else if (selectedTab === 'updates' && !allBundles.some((bundle) => bundle.buttonState === 'update')) {
         marketplace.innerHTML =
           '<div class="empty-state">'
           + '<div class="empty-state-icon fa-icon fa-check"></div>'
           + '<div class="empty-state-title">All installed bundles are up to date</div>'
           + '<p>No updates are currently available</p>'
-          + '</div>';
+          + '</div>'
+          + setupBanner;
       } else if (hasFiltersApplied) {
         // Has bundles but filters hide them all
         marketplace.innerHTML =
@@ -1088,14 +1125,16 @@
           + '<div class="empty-state-icon fa-icon fa-magnifying-glass"></div>'
           + '<div class="empty-state-title">No bundles match your filters</div>'
           + '<p>Try adjusting your search or filters</p>'
-          + '</div>';
+          + '</div>'
+          + setupBanner;
       } else {
         marketplace.innerHTML =
           '<div class="empty-state">'
           + '<div class="empty-state-icon fa-icon fa-box"></div>'
           + '<div class="empty-state-title">No bundles found</div>'
           + '<p>Try adjusting your search or filters</p>'
-          + '</div>';
+          + '</div>'
+          + setupBanner;
       }
       return;
     }
@@ -1139,7 +1178,7 @@
         + '<button class="btn btn-link details-button" data-action="openDetails" data-bundle-id="' + bundle.id + '" title="Open Details" aria-label="Open Details">Details</button>'
         + '</div>'
         + '</div>';
-    }).join('');
+    }).join('') + setupBanner;
 
     // Keep an open version menu visible when a background bundle refresh rerenders the cards.
     if (openVersionDropdownId) {
