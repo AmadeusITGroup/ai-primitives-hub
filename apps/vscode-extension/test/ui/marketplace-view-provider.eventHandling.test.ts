@@ -138,6 +138,12 @@ suite('MarketplaceViewProvider - Event Handling', () => {
       assert.ok(mockRegistryManager.onReadmeDownloaded.calledOnce, 'Should register onReadmeDownloaded listener');
       assert.ok(onReadmeDownloadedCallback, 'Should have callback for onReadmeDownloaded');
     });
+
+    test('should register listener for source composition events', () => {
+      assert.ok(mockRegistryManager.onSourceAdded.calledOnce, 'Should register onSourceAdded listener');
+      assert.ok(mockRegistryManager.onSourceRemoved.calledOnce, 'Should register onSourceRemoved listener');
+      assert.ok(mockRegistryManager.onSourceUpdated.calledOnce, 'Should register onSourceUpdated listener');
+    });
   });
 
   suite('README hydration refreshes', () => {

@@ -177,6 +177,15 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       this.registryManager.onBundlesUninstalled((bundleIds) => {
         this.handleBundleEvent('uninstalled', `${bundleIds.length} bundles`, () => this.loadBundles());
       }),
+      this.registryManager.onSourceAdded((source) => {
+        this.handleSourceCompositionChanged(`Source added: ${source.id}`);
+      }),
+      this.registryManager.onSourceRemoved((sourceId) => {
+        this.handleSourceCompositionChanged(`Source removed: ${sourceId}`);
+      }),
+      this.registryManager.onSourceUpdated((sourceId) => {
+        this.handleSourceCompositionChanged(`Source updated: ${sourceId}`);
+      }),
       // Source sync events with debouncing
       this.registryManager.onSourceSynced((event) => this.handleSourceSynced(event)),
       // Auto-update preference changes
@@ -241,6 +250,16 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    */
   private handleSourceSynced(event: { sourceId: string; bundleCount: number }): void {
     this.logger.debug(`Source synced: ${event.sourceId} (${event.bundleCount} bundles)`);
+    this.sourceSyncThrottle.trigger();
+  }
+
+  /**
+   * Refresh marketplace when source set changes (add/remove/update), e.g. hub deletion cleanup.
+   * Route through the same throttle as source syncs to avoid bursty UI reloads.
+   * @param message
+   */
+  private handleSourceCompositionChanged(message: string): void {
+    this.logger.debug(message);
     this.sourceSyncThrottle.trigger();
   }
 
