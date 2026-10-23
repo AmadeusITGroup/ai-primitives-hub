@@ -1,6 +1,6 @@
 {
   "name": "@ai-primitives-hub/infra",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Adapters implementing @ai-primitives-hub/core ports: source adapters, harvest, search, per-target writers, stores, scaffolding.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
