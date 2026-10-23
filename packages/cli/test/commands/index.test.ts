@@ -151,6 +151,20 @@ describe('index commands', () => {
       expect(content.embeddingsMeta?.dim).toBe(384);
     });
 
+    it('reuses existing embeddings on warm --embed builds unless --force is passed', async () => {
+      const warmRun = await run([
+        'index', 'build', '--root', bundleDir, '--out', embeddedIndexFile, '--source-id', 'local-foo-src', '--embed', '-o', 'json'
+      ]);
+      expect(warmRun.exitCode).toBe(0);
+      expect(warmRun.stderr).toContain('reused all 1 embeddings');
+
+      const forcedRun = await run([
+        'index', 'build', '--root', bundleDir, '--out', embeddedIndexFile, '--source-id', 'local-foo-src', '--embed', '--force', '-o', 'json'
+      ]);
+      expect(forcedRun.exitCode).toBe(0);
+      expect(forcedRun.stderr).toContain('computed 1 embeddings');
+    });
+
     it('uses the current directory as the default --root and writes to the XDG cache', async () => {
       const result = await run(['index', 'build', '-o', 'json']);
       expect(result.exitCode).toBe(0);

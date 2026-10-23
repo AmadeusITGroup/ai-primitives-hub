@@ -46,6 +46,7 @@ export class IndexBuildCommand extends Command {
         --source-id <id>          Source ID for the index
         --embed                   Embed primitive text using the local ternlight model
         --embed-strategy <name>   Embedding strategy: single (default) or dual
+        --force                   Force full recomputation without reusing existing embeddings
         -o, --output <format>     Output format (text, json, yaml, ndjson)
 
       Examples:
@@ -63,6 +64,7 @@ export class IndexBuildCommand extends Command {
   public sourceId = Option.String('--source-id');
   public embed = Option.Boolean('--embed', false);
   public embedStrategy = Option.String('--embed-strategy');
+  public force = Option.Boolean('--force', false);
   public output = Option.String('-o,--output');
   public commandContext!: { ctx: Context };
 
@@ -81,6 +83,8 @@ export class IndexBuildCommand extends Command {
       const data: BuildIndexResult = await buildIndex({
         provider,
         outFile,
+        previousIndexPath: outFile,
+        force: this.force,
         hubId: this.sourceId,
         embed: this.embed,
         embedStrategy: this.embedStrategy as 'single' | 'dual' | undefined,
