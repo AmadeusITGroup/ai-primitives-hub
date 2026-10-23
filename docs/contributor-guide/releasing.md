@@ -59,14 +59,7 @@ The build must precede linting on a clean checkout: package metadata points to
 generated declarations under ignored `dist` directories. A previous local build
 can hide this requirement by leaving those declarations on disk.
 
-The CLI has no version of its own in source: `ai-primitives-hub --version`, the
-doctor diagnostics, and the HTTP `User-Agent` (`ai-primitives-hub/<version>`)
-all read `packages/cli/package.json` (see `packages/cli/src/version.ts`; the
-standalone binary's esbuild bundle inlines it). The version bump above is
-therefore the only edit a release needs. When `@ai-primitives-hub/cli` is part
-of the release, the **Verify CLI reported version** step runs the built CLI's
-`--version` right after the build and fails the job if it doesn't print
-`ai-primitives-hub <packages/cli/package.json version>`.
+The CLI version is read from `packages/cli/package.json`; never hardcode it in source.
 
 Review the package versions and lockfile changes in the pull request. The
 generated release branch and pull request make the version change auditable and

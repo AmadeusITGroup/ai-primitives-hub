@@ -129,8 +129,6 @@ export class NodeHttpClient implements HttpClient {
    * one for authenticated requests; the old fetch-based NodeHttpClient got
    * one from the runtime, but node:http does not set it by default.
    * @param headers Request headers (may be undefined).
-   * The default comes from `getDefaultUserAgent()`, read per request so a
-   * value set at startup (e.g. by the CLI) applies to clients built earlier.
    * @returns Headers with a default User-Agent if none was present.
    */
   private ensureUserAgent(headers?: Record<string, string>): Record<string, string> {

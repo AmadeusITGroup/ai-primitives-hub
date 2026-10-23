@@ -87,7 +87,7 @@ export interface RateLimitTelemetry {
 export interface GitHubApiClientOptions {
   /** Defaults to `https://api.github.com`. */
   baseUrl?: string;
-  /** Defaults to `getDefaultUserAgent()` (`ai-primitives-hub/1.0` unless a caller set one), read per request. */
+  /** Defaults to `getDefaultUserAgent()`. */
   userAgent?: string;
   /** Resolves a bearer token for each request; omit for unauthenticated access. */
   tokenProvider?: TokenProvider;
