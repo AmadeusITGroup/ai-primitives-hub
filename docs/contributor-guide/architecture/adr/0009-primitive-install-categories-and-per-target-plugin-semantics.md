@@ -477,7 +477,7 @@ Paths are from `default-layouts.json` (user / repository). ✅ supported,
 "Today" means the behaviour at `be1d161`, measured by the #277 study.
 #526 later moved the five `CopilotFileType`s to manifest placement, which
 uses the same `kindRoutes`; the only cell it changes is `chat-mode` on
-copilot-cli, now placed through the `agents/` route;
+copilot-cli, now placed through the `agents/` route.
 "→" marks the change this ADR decides. Under the O10 interim rule, a plugin
 with a root `mcp.json` is ❌ at repository scope on every target.
 
@@ -497,7 +497,8 @@ with a root `mcp.json` is ❌ at repository scope on every target.
 route on that target is ❌ (decision 3); for example `steering`, `rule` and
 `command` have no route on vscode.
 
-Paths without a link are APH's `default-layouts.json` values at `be1d161`.
+Paths without a link are APH's `default-layouts.json` values at `be1d161`,
+unchanged on `8afc8cb`.
 That the harness reads them is UNVERIFIED: this covers the MCP paths and
 keys for vscode, copilot-cli, kiro, kiro-cli, windsurf, claude-code and
 cursor; the skills routes on vscode, copilot-cli, claude-code, cursor and
