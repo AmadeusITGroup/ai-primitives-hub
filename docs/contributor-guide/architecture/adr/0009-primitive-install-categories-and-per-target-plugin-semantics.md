@@ -18,12 +18,20 @@ per kind, in several places that disagree:
   file collection, id derivation and the directory check). A Kiro `power` is
   therefore archived as one file of two and gets the id `POWER`, so two powers
   collide.
-- User-scope install (`FileTreeTargetWriter.write`,
-  `packages/app/src/writers/file-tree-writer.ts`) has no notion of kind: each
-  file is routed by its bundle path prefix through the layout's `kindRoutes`
-  (`packages/infra/src/writers/default-layouts.json`).
-- Manifest placement (`FileTreeTargetWriter.writeManifestItems`, used by the
-  extension's repository scope) knows only the five `CopilotFileType`s.
+- User-scope install (`writeBundleSafely`,
+  `packages/app/src/install/target-write.ts`, used by CLI `install`,
+  `update` and `profile activate` since #526) has two placement paths that
+  disagree on kind. Manifest items of the five `CopilotFileType`s (`prompt`,
+  `instructions`, `chatmode`, `agent`, `skill`) go through
+  `FileTreeTargetWriter.writeManifestItems`
+  (`packages/app/src/writers/file-tree-writer.ts`): the item's type selects
+  the route through `KIND_TO_ROUTE_KEY`, and files are renamed by item id.
+  Every other bundle file, including every `plugin`, `hook`, `power` and
+  `steering` file, goes through `FileTreeTargetWriter.write`, which has no
+  notion of kind: the file is routed by its bundle path prefix through the
+  layout's `kindRoutes` (`packages/infra/src/writers/default-layouts.json`).
+- Manifest placement (`writeManifestItems`, also used by the extension's
+  repository scope) knows only those five `CopilotFileType`s.
 - Copilot-like repository scope (`RepositoryScopeWriter`,
   `packages/infra/src/writers/repo-scope-writer.ts`) has a hard-coded
   `getSubdirectory` switch and two copies of the same directory installer
@@ -108,7 +116,7 @@ Constraints carried in from earlier decisions and from #277:
 
    | category | unit | identity | install | uninstall | verify |
    |---|---|---|---|---|---|
-   | `file` | one file | derived from the file name, as today | route the file through the layout's `kindRoutes` and write it | remove the recorded file | byte re-read (`verifyWrittenBytes`) |
+   | `file` | one file | as today: the manifest item id for the five `CopilotFileType`s (file renamed `{id}.{ext}`), else the file name | route the file through the layout's `kindRoutes` and write it | remove the recorded file (the lockfile's `installedPath` when the file was renamed) | byte re-read (`verifyWrittenBytes`) |
    | `directory` | the item's directory, `dirname(item.path)`, with every file below it | the directory name | route the whole tree under one destination directory | remove exactly the recorded destination directory | byte re-read of every file |
    | `config` | entries merged into a target config file | prefixed entry name, recorded at install | read, merge, write the target file; foreign entries are preserved | remove only the entries this install recorded; keep the file | each recorded entry is present with the written value |
 
@@ -131,7 +139,7 @@ Constraints carried in from earlier decisions and from #277:
    MCP stay byte-identical, and the lockfile name and shape stay as ADR-0004
    requires. `bundleEntry` is `additionalProperties: false`; the extension's
    `LockfileManager.validate()` checks against that schema but has no
-   production caller at `be1d161`, so released extensions are not affected.
+   production caller at `8afc8cb`, so released extensions are not affected.
    Until VS Code parity, an extension rewrite of the same entry may drop the
    field. Uninstall then falls back to matching the bundle segment of the
    owned names in the target dialect's form (decision 5), which is stable
@@ -167,10 +175,13 @@ Constraints carried in from earlier decisions and from #277:
    override if present, else the default.
 
 3. **Support is derived from data, not maintained by hand.** Routing stays
-   by bundle path prefix, as today. The kind of a route is
-   `routeKindOf(prefix)`: today's `routeToKind` and `ROUTE_PREFIX_KINDS`
+   as today: by item type through `KIND_TO_ROUTE_KEY` for manifest items of
+   the five `CopilotFileType`s (#526), and by bundle path prefix for every
+   other file. The kind of a route is `routeKindOf(prefix)`: today's
+   `routeToKind` and `ROUTE_PREFIX_KINDS`
    (`packages/app/src/writers/file-tree-writer.ts`), moved to `core` as data
-   beside the kind → category table. Then:
+   beside the kind → category table. Both placement paths end on a
+   `kindRoutes` key, so the derivation below covers both. Then:
 
    - Kind K is supported on (target, scope) when the resolved layout has at
      least one `kindRoutes` key with `routeKindOf(key) = K` (for `file` and
@@ -195,7 +206,10 @@ Constraints carried in from earlier decisions and from #277:
 4. **Directory identity has one rule.** The item id of a `directory` kind is
    the name of `dirname(item.path)`, and packaging collects every file under
    it. This rule is driven by the category, so `power` gets it by changing one
-   data row, and future directory kinds get it for free.
+   data row, and future directory kinds get it for free. Install keeps that
+   name: since #526, manifest placement writes a skill to
+   `<skills route>/<normalised item id>/`, and the id `bundle build` writes
+   is already the directory name.
 
 5. **Plugins are projected on every target by default.** A plugin install
    means:
@@ -232,7 +246,7 @@ Constraints carried in from earlier decisions and from #277:
        `prompt-registry__<bundleId>[__<pluginName>]__<serverName>`, with
        each segment encoded as below.
      - `bundleId` is the lockfile key, not the collection id: `manifest.id`
-       or an Artifactory ref id (`packages/cli/src/commands/install.ts:1118`),
+       or an Artifactory ref id (`packages/cli/src/commands/install.ts:1202`),
        where the deployment manifest only requires a non-empty string
        (`packages/core/src/public/schemas/deployment-manifest.schema.json:21-24`;
        lockfile `bundles` keys have no pattern), or `<owner>-<repo>[-<id>]`
@@ -460,14 +474,17 @@ Constraints carried in from earlier decisions and from #277:
 
 Paths are from `default-layouts.json` (user / repository). ✅ supported,
 ❌ unsupported (rejected by default, skippable with `--skip-unsupported`).
-"Today" means the behaviour at `be1d161`, measured by the #277 study;
+"Today" means the behaviour at `be1d161`, measured by the #277 study.
+#526 later moved the five `CopilotFileType`s to manifest placement, which
+uses the same `kindRoutes`; the only cell it changes is `chat-mode` on
+copilot-cli, now placed through the `agents/` route;
 "→" marks the change this ADR decides. Under the O10 interim rule, a plugin
 with a root `mcp.json` is ❌ at repository scope on every target.
 
 | target | `file` | `directory` | `config` (MCP) | plugin | `hook` |
 |---|---|---|---|---|---|
 | vscode, vscode-insiders | ✅ `~/.copilot/` / `.github/` | ✅ skills | ✅ `${vscodeUserDir}/mcp.json` / `.vscode/mcp.json`, key `servers` (today: never written → PR-13) | today inert copy → `project` | `file`, `hooks/` |
-| copilot-cli | ✅ (no `chat-mode` route, G17) | ✅ skills | ✅ `~/.copilot/mcp-config.json` / `.mcp.json` (→ PR-13) | today inert copy → `project` | `file`, `hooks/` ([Copilot CLI config dir][cop-config]) |
+| copilot-cli | ✅ (`chat-mode` placed through `agents/` since #526, G17 fixed) | ✅ skills | ✅ `~/.copilot/mcp-config.json` / `.mcp.json` (→ PR-13) | today inert copy → `project` | `file`, `hooks/` ([Copilot CLI config dir][cop-config]) |
 | kiro | ✅ incl. `steering`, `spec` | ✅ skills; → `power` as a directory, user only | ✅ `~/.kiro/settings/mcp.json` / `.kiro/settings/mcp.json` (→ PR-13) | today ❌ no route → `project`, `plugins/` route added | today ❌ no route → `file`, `hooks/` both scopes |
 | kiro-cli | ✅ incl. `steering`, `spec` | ✅ skills; → `power` as a directory, user only | ✅ as kiro (→ PR-13) | today inert copy → `project` | `file`, `hooks/` |
 | windsurf | ✅ | ✅ skills | user ✅ `~/.codeium/windsurf/mcp_config.json` (→ PR-13); repository ❌ no MCP config | today inert copy → `project` | `file` today; `config` (`hooks.json`) UNVERIFIED |
@@ -608,7 +625,7 @@ suite exists (study PR-05). Study PR numbers and the G\* (gap), P\*
 | order | PR | content | depends on | value |
 |---|---|---|---|---|
 | 0 | **PR-15** `docs(adr)` | this ADR and its index row | — | an agreed contract |
-| 1 | **CAT-1** (new) `refactor(core,app,infra)`: install categories, no install behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; the kind/route mismatch warning (decision 3) in `collection validate`, and in `doctor diagnostics --primitives` once PR-05 lands; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | PR-15 | later PRs change one place; adding a kind becomes a table row |
+| 1 | **CAT-1** (new) `refactor(core,app,infra)`: install categories, no install behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; `KIND_TO_ROUTE_KEY` and `placeManifestItem`'s skill/file split (#526) expressed through the category, so manifest placement and path routing share one rule; the kind/route mismatch warning (decision 3) in `collection validate`, and in `doctor diagnostics --primitives` once PR-05 lands; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | PR-15 | later PRs change one place; adding a kind becomes a table row |
 | 2 | **PR-17** `feat(core,infra)`: kiro routes and power as a directory unit | `power` → `directory` in the table; kiro `hooks/` and `plugins/` routes; kiro and kiro-cli repository `powers/` route removed; Devin `powers/` re-checked | CAT-1 | hooks install on kiro; powers archive completely with unique ids (G08 hook half, G13) |
 | 3 | **PR-12** `fix`: file modes on install | modes applied in the shared file write, so every category gets them | PR-11; CAT-1 preferred | installed scripts are executable (G06 install half) |
 | 4 | **PR-13** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, devin repository path fixed, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form and the sanitised form with per-segment encoding; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | CAT-1 | collection MCP servers reach the target (G05 collection part) |
