@@ -37,6 +37,18 @@ The lockfile keeps bundle-relative `path` entries with their checksums. For item
 
 Repository-scope VS Code and Copilot CLI targets keep their own `.github/` writer and are not affected.
 
+## Plugin Create (CLI)
+
+`ai-primitives-hub plugin create <name> [--path <dir>] [--collection <id>] [--description <text>] [--version <version>] [--author <name>]`
+
+Writes `<dir>/<name>/plugin.json` (default `plugins/<name>/plugin.json`), an Agent Plugins 1.0.0 manifest with `$schema`, `name`, `version` (default `1.0.0`), `description` (default `A <name> plugin`) and an object `author` (default: the `USER` environment variable). The manifest passes `collection validate` as written.
+
+- `<name>` must be 1–64 characters of lowercase letters, digits, `.` and `-`, start and end with a letter or digit, and contain no `--` or `..`. An invalid name fails with `PRIMITIVE.INVALID_NAME` and a suggested valid name, and nothing is written.
+- An existing `plugin.json` is never overwritten; the command fails with `PRIMITIVE.ALREADY_EXISTS`.
+- `--collection <id>` adds a `kind: plugin` item to `collections/<id>.collection.yml`. The collection is read before anything is written, so a missing or unreadable collection fails with `FS.COLLECTION_UPDATE_FAILED` and writes nothing. If writing the collection fails, the files the command created are removed.
+
+See [Plugin Items](../author-guide/collection-schema.md#plugin-items) for the plugin layout.
+
 ## Bundle Management
 
 | Command | Title | Description |
