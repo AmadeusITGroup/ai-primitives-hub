@@ -7,8 +7,10 @@
  */
 import {
   existsSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
+  writeFileSync,
 } from 'node:fs';
 import {
   join,
@@ -73,6 +75,18 @@ describe('TemplateEngine', () => {
       expect(result).toEqual({ success: true, createdFiles: [join(target, 'plugin.json')] });
       expect(readdirSync(join(dir, 'plugins'))).toEqual(['my-plugin']);
       expect(readdirSync(target)).toEqual(['plugin.json']);
+    });
+
+    it('fails instead of replacing an existing file when exclusive', async () => {
+      const target = join(dir, 'plugins', 'my-plugin');
+      mkdirSync(target, { recursive: true });
+      writeFileSync(join(target, 'plugin.json'), '{"keep":true}');
+      const result = await new TemplateEngine(TEMPLATE_PATHS.plugin)
+        .scaffoldProject(target, pluginContext('d'), { exclusive: true });
+      expect(result.success).toBe(false);
+      expect(result.createdFiles).toEqual([]);
+      expect(result.error).toContain('EEXIST');
+      expect(readFileSync(join(target, 'plugin.json'), 'utf8')).toBe('{"keep":true}');
     });
   });
 

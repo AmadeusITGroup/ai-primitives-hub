@@ -217,11 +217,13 @@ export class TemplateEngine {
    * @param name - Template name.
    * @param targetPath - Target file path.
    * @param context - Template context.
+   * @param exclusive - Fail with `EEXIST` instead of replacing an existing entry.
    */
   private async copyTemplate(
     name: string,
     targetPath: string,
-    context: TemplateContext
+    context: TemplateContext,
+    exclusive: boolean
   ): Promise<void> {
     const content = await this.renderTemplate(name, context);
 
@@ -229,8 +231,8 @@ export class TemplateEngine {
     const targetDir = path.dirname(targetPath);
     await fs.mkdir(targetDir, { recursive: true });
 
-    // Write file
-    await fs.writeFile(targetPath, content, 'utf8');
+    // Write file; `wx` also refuses to follow a (dangling) symlink.
+    await fs.writeFile(targetPath, content, { encoding: 'utf8', flag: exclusive ? 'wx' : 'w' });
   }
 
   /**
@@ -275,11 +277,15 @@ export class TemplateEngine {
    * Scaffold a complete project or set of files.
    * @param targetPath - Target directory path.
    * @param context - Template context.
+   * @param options - Optional configuration.
+   * @param options.exclusive - Create each file exclusively: an existing file or
+   *   symlink at a target path fails the scaffold instead of being replaced (default: false).
    * @returns Scaffold result.
    */
   public async scaffoldProject(
     targetPath: string,
-    context: TemplateContext
+    context: TemplateContext,
+    options: { exclusive?: boolean } = {}
   ): Promise<ScaffoldResult> {
     const createdFiles: string[] = [];
 
@@ -303,7 +309,7 @@ export class TemplateEngine {
         const relativePath = this.resolveRelativePath(name, template.path);
         const targetFile = path.join(effectiveTargetPath, relativePath);
 
-        await this.copyTemplate(name, targetFile, context);
+        await this.copyTemplate(name, targetFile, context, options.exclusive === true);
         createdFiles.push(targetFile);
       }
 

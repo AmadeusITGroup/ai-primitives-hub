@@ -97,4 +97,28 @@ describe('createPlugin()', () => {
     expect(result.error?.message).toContain(manifestPath);
     expect(fs.readFileSync(manifestPath, 'utf8')).toBe('{"keep":true}');
   });
+
+  it('reports scaffold-failed when the parent path is a file', async () => {
+    fs.writeFileSync(parentDir, 'not a directory');
+
+    const result = await createPlugin({ parentDir, name: 'my-plugin', author: 'Jane' });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('scaffold-failed');
+  });
+
+  // Creating a symlink needs extra privileges on Windows.
+  it.skipIf(process.platform === 'win32')('does not write through a dangling plugin.json symlink', async () => {
+    const manifestPath = path.join(parentDir, 'my-plugin', 'plugin.json');
+    const outside = path.join(tempDir, 'outside.json');
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+    fs.symlinkSync(outside, manifestPath);
+
+    const result = await createPlugin({ parentDir, name: 'my-plugin', author: 'Jane' });
+
+    expect(result.success).toBe(false);
+    expect(result.createdFiles).toEqual([]);
+    expect(result.error?.code).toBe('already-exists');
+    expect(fs.existsSync(outside)).toBe(false);
+  });
 });

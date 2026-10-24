@@ -79,10 +79,25 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
   if (nameIssue !== null) {
     return fail('invalid-name', `Invalid plugin name: ${nameIssue.message}`, suggestName(name));
   }
-  if (fs.existsSync(manifestPath)) {
-    return fail('already-exists', `Plugin "${name}" already exists at ${manifestPath}`);
+  // lstat, not exists: a dangling plugin.json symlink also counts as existing.
+  // Any other lstat error (e.g. ENOTDIR) is left to the scaffold, which
+  // reports it as scaffold-failed.
+  const alreadyExists = (): CreatePluginResult | undefined => {
+    try {
+      return fs.lstatSync(manifestPath, { throwIfNoEntry: false }) === undefined
+        ? undefined
+        : fail('already-exists', `Plugin "${name}" already exists at ${manifestPath}`);
+    } catch {
+      return undefined;
+    }
+  };
+  const existing = alreadyExists();
+  if (existing) {
+    return existing;
   }
 
+  // Exclusive creation: a manifest that appears after the check above is
+  // reported as already-exists, never replaced.
   const result = await new TemplateEngine(TEMPLATE_PATHS.plugin).scaffoldProject(pluginDir, {
     projectName: name,
     collectionId: name,
@@ -91,8 +106,12 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
     version: options.version || '1.0.0',
     author: options.author,
     schemaUri: AGENT_PLUGIN_MANIFEST_SCHEMA_URI
-  });
+  }, { exclusive: true });
   if (!result.success) {
+    const raced = result.createdFiles.length === 0 ? alreadyExists() : undefined;
+    if (raced) {
+      return raced;
+    }
     return { ...fail('scaffold-failed', result.error || 'Scaffolding failed'), createdFiles: result.createdFiles };
   }
   return { success: true, pluginDir, manifestPath, createdFiles: result.createdFiles };
