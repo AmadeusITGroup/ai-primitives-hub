@@ -27,7 +27,7 @@ The CLI also checks plugin manifests, described in [Plugin Manifests](#plugin-ma
 | File references | Referenced files exist |
 | Duplicate IDs | No two collections share the same ID |
 | Duplicate names | No two collections share the same name |
-| Plugin manifests | `kind: plugin` items point to the plugin's root `plugin.json`, which passes the Agent Plugins 1.0.0 checks (CLI) |
+| Plugin manifests | `kind: plugin` items point to the plugin's root `plugin.json`, which passes the Agent Plugins 1.0.0 checks (CLI `collection validate` and `bundle build`) |
 
 ## Plugin Manifests
 
@@ -57,6 +57,20 @@ These problems are **warnings** and don't fail validation, because clients ignor
 - `extensions` that is not an object, or an `extensions` entry that is not an object.
 
 Skills and `mcp.json` inside a plugin are not validated yet.
+
+### Plugin Checks in `bundle build`
+
+`ai-primitives-hub bundle build` runs the same checks, with the same messages, before it
+packages anything. It checks the **committed** revision, because that is what the bundle
+contains (it checks the working tree only when it falls back to a legacy bundle because
+no license file is committed):
+
+- An error stops the build with `error[PLUGIN.INVALID_MANIFEST]`, lists every plugin
+  error, and writes no ZIP or `deployment-manifest.yml`.
+- Warnings are reported and the bundle is built.
+
+Fixes you have not committed are not seen. Commit `plugin.json` and rebuild, or run
+`collection validate` to check the working tree first.
 
 ## Common Errors
 
