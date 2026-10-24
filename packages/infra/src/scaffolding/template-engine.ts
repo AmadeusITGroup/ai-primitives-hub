@@ -29,19 +29,6 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * Replace all occurrences of a literal string in text.
- * @param text - The text to search in.
- * @param search - The literal string to search for.
- * @param replacement - The replacement string.
- * @returns Text with all occurrences replaced.
- */
-function replaceAll(text: string, search: string, replacement: string): string {
-  const escapedSearch = escapeRegex(search);
-  const regex = new RegExp(escapedSearch, 'g');
-  return text.replace(regex, () => replacement);
-}
-
-/**
  * Replace template variables in text with values.
  * @param text - The text to process.
  * @param variables - Key-value pairs of variable names to values.
@@ -61,14 +48,21 @@ function replaceVariables(
   } = {}
 ): string {
   const { prefix = '{{', suffix = '}}', escape } = options;
-  let result = text;
-
+  const lookup = new Map<string, string>();
   for (const [key, value] of Object.entries(variables)) {
-    const placeholder = `${prefix}${key}${suffix}`;
-    result = replaceAll(result, placeholder, escape ? escape(String(value)) : value);
+    // String(): context values are not always strings at runtime (e.g. an
+    // unset option), and the result must match the previous coercion.
+    const rendered = String(value);
+    lookup.set(`${prefix}${key}${suffix}`, escape ? escape(rendered) : rendered);
+  }
+  if (lookup.size === 0) {
+    return text;
   }
 
-  return result;
+  // Single pass over the template: a substituted value is never rescanned,
+  // so a value that itself contains `{{key}}` is kept literally.
+  const pattern = new RegExp([...lookup.keys()].map((placeholder) => escapeRegex(placeholder)).join('|'), 'g');
+  return text.replace(pattern, (match) => lookup.get(match) ?? match);
 }
 
 /**

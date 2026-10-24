@@ -91,5 +91,13 @@ describe('TemplateEngine', () => {
         .renderTemplate('hook-json', { projectName: 'my-hook', collectionId: 'my-hook', name: 'my-hook', type: 'pre-commit', description: QUOTED });
       expect((JSON.parse(text) as { description: string }).description).toBe(QUOTED);
     });
+
+    it('does not expand placeholders that appear inside substituted values', async () => {
+      const text = await new TemplateEngine(TEMPLATE_PATHS.plugin)
+        .renderTemplate('plugin-md', { ...pluginContext('{{schemaUri}}'), author: '{{name}}' });
+      const parsed = JSON.parse(text) as { description: string; author: { name: string } };
+      expect(parsed.description).toBe('{{schemaUri}}');
+      expect(parsed.author.name).toBe('{{name}}');
+    });
   });
 });
