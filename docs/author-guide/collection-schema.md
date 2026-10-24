@@ -93,13 +93,40 @@ items:
 
 The directory that contains `plugin.json` is the plugin root, and the whole
 directory is bundled. `plugin.json` must be an Agent Plugins 1.0.0 manifest, and
-its `name` must equal the directory name:
+its `name` must equal the directory name.
+
+Scaffold a plugin and add it to a collection with:
+
+```bash
+ai-primitives-hub plugin create my-plugin --collection <collection-id>
+```
+
+This writes `plugins/my-plugin/plugin.json` and adds the item above. `--path <dir>`
+changes the parent directory (default `plugins/`). The manifest passes
+`collection validate` as written:
 
 ```json
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "my-plugin"
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "A my-plugin plugin",
+  "author": {
+    "name": "Jane Doe"
+  }
 }
+```
+
+The name must be 1–64 characters of lowercase letters, digits, `.` and `-`, start
+and end with a letter or digit, and contain no `--` or `..`. An invalid name such as
+`My_Plugin` is rejected with a suggested valid name, and nothing is written. A
+`--collection` id that has no `collections/<id>.collection.yml` is also rejected
+before anything is written. An existing `plugin.json` is never overwritten.
+
+Add components inside the plugin directory, for example a skill:
+
+```bash
+ai-primitives-hub skill create my-skill --path plugins/my-plugin/skills
 ```
 
 See [Validating Collections](./validation.md#plugin-manifests) for the full list of checks.

@@ -48,6 +48,7 @@ function replaceAll(text: string, search: string, replacement: string): string {
  * @param options - Optional configuration.
  * @param options.prefix - Variable prefix (default: `{{`).
  * @param options.suffix - Variable suffix (default: `}}`).
+ * @param options.escape - Applied to each value before substitution (default: none).
  * @returns Text with variables replaced.
  */
 function replaceVariables(
@@ -56,17 +57,36 @@ function replaceVariables(
   options: {
     prefix?: string;
     suffix?: string;
+    escape?: (value: string) => string;
   } = {}
 ): string {
-  const { prefix = '{{', suffix = '}}' } = options;
+  const { prefix = '{{', suffix = '}}', escape } = options;
   let result = text;
 
   for (const [key, value] of Object.entries(variables)) {
     const placeholder = `${prefix}${key}${suffix}`;
-    result = replaceAll(result, placeholder, value);
+    result = replaceAll(result, placeholder, escape ? escape(String(value)) : value);
   }
 
   return result;
+}
+
+/**
+ * Escape a value for use inside a JSON string literal (without the quotes).
+ * @param value - Raw value.
+ * @returns The value with `"`, `\` and control characters escaped.
+ */
+function escapeJsonString(value: string): string {
+  return JSON.stringify(value).slice(1, -1);
+}
+
+/**
+ * Whether a template file renders to JSON, so its values must be JSON-escaped.
+ * @param templatePath - Template path from the manifest.
+ * @returns True for `*.json.template` and `*.json` templates.
+ */
+function isJsonTemplate(templatePath: string): boolean {
+  return templatePath.endsWith('.json.template') || templatePath.endsWith('.json');
 }
 
 /**
@@ -221,6 +241,10 @@ export class TemplateEngine {
 
   /**
    * Render a template with variable substitution.
+   *
+   * Values substituted into JSON templates (`*.json.template`, `*.json`) are
+   * JSON-string-escaped, so a value containing `"` or `\` still yields valid
+   * JSON. Other templates (markdown, YAML) receive the values verbatim.
    * @param name - Template name.
    * @param context - Template context.
    * @returns Rendered template string.
@@ -246,7 +270,9 @@ export class TemplateEngine {
     const enhancedContext = this.enhanceContext(context);
 
     // Substitute variables
-    content = replaceVariables(content, enhancedContext);
+    content = replaceVariables(content, enhancedContext, {
+      escape: isJsonTemplate(template.path) ? escapeJsonString : undefined
+    });
 
     return content;
   }
