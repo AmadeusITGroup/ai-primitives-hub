@@ -41,7 +41,7 @@ Repository-scope VS Code and Copilot CLI targets keep their own `.github/` write
 
 `ai-primitives-hub plugin create <name> [--path <dir>] [--collection <id>] [--description <text>] [--version <version>] [--author <name>]`
 
-Writes `<dir>/<name>/plugin.json` (default `plugins/<name>/plugin.json`), an Agent Plugins 1.0.0 manifest with `$schema`, `name`, `version` (default `1.0.0`), `description` (default `A <name> plugin`) and an object `author` (default: the `USER` environment variable). The manifest passes `collection validate` as written.
+Writes `<dir>/<name>/plugin.json` (default `plugins/<name>/plugin.json`), an Agent Plugins 1.0.0 manifest with `$schema`, `name`, `version` (default `1.0.0`), `description` (default `A <name> plugin`) and an object `author` (default: the `USER` environment variable, else `Your Name`). The manifest passes `collection validate` as written.
 
 - `<name>` must be 1–64 characters of lowercase letters, digits, `.` and `-`, start and end with a letter or digit, and contain no `--` or `..`. An invalid name fails with `PRIMITIVE.INVALID_NAME` and a suggested valid name, and nothing is written.
 - An existing `plugin.json` is never overwritten; the command fails with `PRIMITIVE.ALREADY_EXISTS`.
