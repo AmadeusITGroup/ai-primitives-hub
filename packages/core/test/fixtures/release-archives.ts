@@ -5,6 +5,10 @@ import {
   dump as dumpYaml,
 } from 'js-yaml';
 import type {
+  DiagnosticBundle,
+  FixtureFile,
+} from '../../src/domain/diagnostics/primitives';
+import type {
   ExtractedFiles,
 } from '../../src/ports/bundle-extractor';
 
@@ -87,5 +91,75 @@ export const createGovernedReleaseArchive = (
   return new Map([
     ['deployment-manifest.yml', bytes(dumpYaml(manifest, { lineWidth: -1 }))],
     ...Object.entries(archiveFiles).map(([filePath, content]) => [filePath, bytes(content)] as const)
+  ]);
+};
+
+export interface PrimitiveReleaseArchiveOptions {
+  revision?: string;
+  /** Item source files left out of both the archive and the inventory (a build drop, e.g. G13). */
+  omitFiles?: readonly string[];
+  /** Manifest id per item path; defaults to the item's expectedId. */
+  itemIds?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Governed archive of a primitive diagnostics bundle, built in memory from
+ * the core fixture like `bundle build` would: the item files (role
+ * installable), LICENSE, README.md and the collection snapshot under
+ * metadata/source/ (role metadata), and a formatVersion 1 manifest with a
+ * complete, digest-checked file inventory.
+ * @param bundle - Catalogue bundle.
+ * @param fixture - Fixture repository (`buildPrimitiveFixture()`).
+ * @param options - Variants for evaluator tests.
+ */
+export const createPrimitiveReleaseArchive = (
+  bundle: DiagnosticBundle,
+  fixture: ReadonlyMap<string, FixtureFile>,
+  options: PrimitiveReleaseArchiveOptions = {}
+): ExtractedFiles => {
+  const omitted = new Set(options.omitFiles);
+  const sourceSnapshotPath = `metadata/source/${bundle.collectionFile}`;
+  const fixtureBytes = (filePath: string): Uint8Array => {
+    const file = fixture.get(filePath);
+    if (file === undefined) {
+      throw new Error(`fixture has no ${filePath}`);
+    }
+    return file.bytes;
+  };
+  const entries: [string, Uint8Array, 'installable' | 'metadata'][] = [
+    ...bundle.items
+      .flatMap((item) => item.files)
+      .filter((filePath) => !omitted.has(filePath))
+      .map((filePath): [string, Uint8Array, 'installable'] => [filePath, fixtureBytes(filePath), 'installable']),
+    ['LICENSE', fixtureBytes('LICENSE'), 'metadata'],
+    ['README.md', fixtureBytes('README.md'), 'metadata'],
+    [sourceSnapshotPath, fixtureBytes(bundle.collectionFile), 'metadata']
+  ];
+  const manifest = {
+    formatVersion: 1,
+    id: bundle.id,
+    version: bundle.version,
+    name: bundle.id,
+    readme: 'README.md',
+    items: bundle.items.map((item) => ({ id: options.itemIds?.[item.path] ?? item.expectedId, path: item.path, kind: item.kind })),
+    provenance: {
+      source: 'https://github.com/example/aph-e2e-fixture',
+      revision: options.revision ?? '0123456789abcdef0123456789abcdef01234567',
+      collectionPath: bundle.collectionFile,
+      sourceSnapshotPath,
+      license: 'SEE LICENSE IN LICENSE',
+      licensePath: 'LICENSE'
+    },
+    files: entries.map(([filePath, content, role]) => ({
+      path: filePath,
+      role,
+      size: content.byteLength,
+      sha256: `sha256:${createHash('sha256').update(content).digest('hex')}`
+    }))
+  };
+
+  return new Map([
+    ['deployment-manifest.yml', bytes(dumpYaml(manifest, { lineWidth: -1 }))],
+    ...entries.map(([filePath, content]) => [filePath, content] as const)
   ]);
 };

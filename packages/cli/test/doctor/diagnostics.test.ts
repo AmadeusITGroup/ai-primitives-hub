@@ -7,12 +7,13 @@
  * and scripts survive the install/replay steps.
  */
 import {
+  execFileSync,
+} from 'node:child_process';
+import {
   createWriteStream,
 } from 'node:fs';
 import {
-  mkdir,
   mkdtemp,
-  readdir,
   readFile,
   rm,
   stat,
@@ -43,28 +44,15 @@ import {
   createTestContext,
   runCommand,
 } from '../../src/framework';
-
-const SANDBOX_VARS = [
-  'HOME',
-  'USERPROFILE',
-  'XDG_CONFIG_HOME',
-  'XDG_DATA_HOME',
-  'XDG_CACHE_HOME',
-  'XDG_STATE_HOME',
-  'XDG_RUNTIME_DIR',
-  'TMPDIR',
-  'TEMP',
-  'TMP'
-] as const;
+import {
+  listTree,
+  SANDBOX_VARS,
+  useProcessIsolation,
+} from '../helpers/process-isolation';
 
 const isInside = (root: string, candidate: string): boolean => {
   const relative = path.relative(root, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-};
-
-const listTree = async (root: string): Promise<string[]> => {
-  const entries = await readdir(root, { recursive: true });
-  return entries.map(String).toSorted();
 };
 
 describe('buildDiagnosticEnv', () => {
@@ -107,6 +95,82 @@ describe('buildDiagnosticEnv', () => {
     const cache = defaultCacheDir(env);
     expect(isInside(workspace, cache), `cache=${cache}`).toBe(true);
   });
+
+  it('drops every inherited GIT_* variable and keeps PATH, GITHUB_* and GH_*', () => {
+    const gitVars = {
+      GIT_DIR: path.join(path.sep, 'user', 'repo', '.git'),
+      GIT_WORK_TREE: path.join(path.sep, 'user', 'repo'),
+      GIT_INDEX_FILE: path.join(path.sep, 'user', 'repo', '.git', 'index'),
+      GIT_OBJECT_DIRECTORY: path.join(path.sep, 'user', 'repo', '.git', 'objects'),
+      GIT_COMMON_DIR: path.join(path.sep, 'user', 'repo', '.git'),
+      GIT_CONFIG: path.join(path.sep, 'user', 'repo', '.git', 'config'),
+      GIT_CONFIG_PARAMETERS: '\'commit.gpgsign\'=\'true\'',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'user.email',
+      GIT_CONFIG_VALUE_0: 'user@example.com'
+    };
+    const env = buildDiagnosticEnv(
+      createTestContext({
+        env: {
+          ...gitVars,
+          PATH: '/usr/bin',
+          GITHUB_REPOSITORY: 'example/repo',
+          GH_TOKEN: 'token-placeholder'
+        }
+      }),
+      workspace
+    );
+
+    expect(Object.keys(env).filter((name) => name.startsWith('GIT_'))).toEqual([]);
+    expect(env.PATH).toBe('/usr/bin');
+    expect(env.GITHUB_REPOSITORY).toBe('example/repo');
+    expect(env.GH_TOKEN).toBe('token-placeholder');
+  });
+});
+
+describe('doctor diagnostics with inherited GIT_* variables', () => {
+  let scratch: string;
+
+  const git = (args: string[]): string =>
+    execFileSync('git', args, { cwd: scratch, encoding: 'utf8', env: { PATH: process.env.PATH } });
+
+  beforeEach(async () => {
+    scratch = await mkdtemp(path.join(os.tmpdir(), 'cli-doctor-git-env-'));
+    git(['init', '-q']);
+  });
+
+  afterEach(async () => {
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it('never touches the repository named by GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE', async () => {
+    const configBefore = await readFile(path.join(scratch, '.git', 'config'));
+    const statusBefore = git(['status', '--porcelain']);
+
+    const result = await runCommand(['doctor', 'diagnostics', '-o', 'json'], {
+      commandClasses: [DoctorDiagnosticsCommand],
+      context: {
+        fs: new NodeFileSystem(),
+        env: {
+          ...process.env,
+          AI_PRIMITIVES_HUB_SKIP_NETWORK: '1',
+          GIT_DIR: path.join(scratch, '.git'),
+          GIT_INDEX_FILE: path.join(scratch, '.git', 'index'),
+          GIT_WORK_TREE: scratch,
+          GIT_CONFIG_PARAMETERS: '\'commit.gpgsign\'=\'true\''
+        }
+      }
+    });
+    const envelope = JSON.parse(result.stdout) as {
+      data: { steps: { name: string; exitCode: number }[] };
+    };
+
+    expect(envelope.data.steps.filter((step) => step.exitCode !== 0)).toEqual([]);
+    expect(envelope.data.steps).toHaveLength(54);
+    expect(await readFile(path.join(scratch, '.git', 'config'))).toEqual(configBefore);
+    expect(git(['status', '--porcelain'])).toBe(statusBefore);
+    expect(result.exitCode).toBe(0);
+  }, 60_000);
 });
 
 describe('materializeBundleArchive', () => {
@@ -166,43 +230,10 @@ describe('materializeBundleArchive', () => {
 });
 
 describe('doctor diagnostics process-level isolation', () => {
-  let sandbox: string;
-  let processHome: string;
-  let processTmp: string;
-  const saved: Partial<Record<string, string>> = {};
-
-  beforeEach(async () => {
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'cli-doctor-isolation-'));
-    processHome = path.join(sandbox, 'home');
-    processTmp = path.join(sandbox, 'tmp');
-    await mkdir(processHome, { recursive: true });
-    await mkdir(processTmp, { recursive: true });
-    for (const name of SANDBOX_VARS) {
-      saved[name] = process.env[name];
-      delete process.env[name];
-    }
-    // A fresh, throwaway process HOME/temp dir with no XDG vars: every XDG
-    // fallback (`os.homedir()`, `os.tmpdir()`) now points into `sandbox`.
-    // `os.tmpdir()` reads TMPDIR on POSIX and TEMP/TMP on Windows.
-    process.env.HOME = processHome;
-    process.env.USERPROFILE = processHome;
-    process.env.TMPDIR = processTmp;
-    process.env.TEMP = processTmp;
-    process.env.TMP = processTmp;
-  });
-
-  afterEach(async () => {
-    for (const name of SANDBOX_VARS) {
-      if (saved[name] === undefined) {
-        delete process.env[name];
-      } else {
-        process.env[name] = saved[name];
-      }
-    }
-    await rm(sandbox, { recursive: true, force: true });
-  });
+  const isolation = useProcessIsolation();
 
   it('writes nothing outside its workspace when the process has no XDG vars set', async () => {
+    const { processHome, processTmp } = isolation;
     const result = await runCommand(['doctor', 'diagnostics', '-o', 'json'], {
       commandClasses: [DoctorDiagnosticsCommand],
       context: {
