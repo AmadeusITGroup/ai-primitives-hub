@@ -369,9 +369,12 @@ const isOverrideAboveSandbox = (name: string): boolean =>
  * Build an environment bag that roots HOME, every XDG base directory and
  * the temp dir inside the workspace, and drops AI_PRIMITIVES_HUB_CACHE and
  * every inherited GIT_* variable (which would beat them, or point git at
- * another repository), so the diagnostic run never reads or mutates the
- * user's real ai-primitives-hub state or git repositories. Exported for
- * reuse by other in-process diagnostic drivers.
+ * another repository), so the commands run with this env never read or
+ * mutate the user's real ai-primitives-hub state, and the fixture git
+ * commands only touch the fixture repository. The release reader's
+ * read-only git calls during `bundle build` still inherit the process
+ * environment, so a GIT_DIR set there reaches them. Exported for reuse by
+ * other in-process diagnostic drivers.
  * @param parent Parent context.
  * @param workspace Diagnostic workspace.
  * @returns Environment bag.
