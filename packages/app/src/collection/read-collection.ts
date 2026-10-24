@@ -25,6 +25,7 @@ import type {
   FileValidationResult,
 } from '@ai-primitives-hub/core';
 import {
+  normalizePrimitiveKind,
   normalizeRepoRelativePath,
   SCHEMA_DIR,
   validateAgentPluginItem,
@@ -126,7 +127,7 @@ export function validateCollectionFile(
         errors.push(referencedFileNotFoundMessage(rel, idx, relPath));
         return;
       }
-      if (typeof item.kind === 'string' && item.kind.trim().toLowerCase() === 'plugin') {
+      if (normalizePrimitiveKind(item.kind) === 'plugin') {
         const plugin = validateAgentPluginItem({ itemPath: relPath, manifestText: readPluginManifestText(itemAbs) });
         const findings = splitPluginItemIssues(rel, idx, relPath, plugin.issues);
         errors.push(...findings.errors);
