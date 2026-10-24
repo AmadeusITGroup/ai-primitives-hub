@@ -12,8 +12,8 @@ The collection schema accepts 17 primitive kinds
 `knowledge`, `playbook`. How each kind is packaged and installed is encoded
 per kind, in several places that disagree:
 
-- Packaging treats only `skill` and `plugin` as directory units
-  (`kind === 'skill' || kind === 'plugin'` in
+- Packaging treats only `skill` and `plugin` as directory units (a
+  `skill`/`plugin` kind check in
   `packages/core/src/domain/collection/release-manifest-plan.ts`, three times:
   file collection, id derivation and the directory check). A Kiro `power` is
   therefore archived as one file of two and gets the id `POWER`, so two powers
@@ -45,8 +45,8 @@ per kind, in several places that disagree:
   "the layout has a route for K's bundle path" (`FileTreeTargetWriter.preflight`)
   or "`getSubdirectory` returns non-null".
 
-The plugin-support study (issue #277) ran the whole kind × target × scope matrix
-(20 bundles × 11 targets × 2 scopes). Plugins install on 10 of 11 targets, but
+Running every kind on every target and scope at `be1d161` (20 bundles × 11
+targets × 2 scopes) gives this picture. Plugins install on 10 of 11 targets, but
 only as inert copies under `<base>/plugins/<id>/`. In all 60 plugin installs no
 skill was projected, no MCP server reached a target config, no harness
 registry was written, and `${PLUGIN_ROOT}` stayed unresolved. `mcp-server`
@@ -67,7 +67,7 @@ Constraints carried in from earlier decisions and from #277:
   directory name (enforced by `validateAgentPluginItem`,
   `packages/core/src/domain/plugin/agent-plugin-spec.ts`).
 - Install stays all-or-nothing by default. Partial install is opt-in only
-  (`install --skip-unsupported`, study PR-10).
+  (`install --skip-unsupported`, #550).
 - `lib/` is deprecated and out of scope. Only `packages/` and the two
   deliveries matter.
 - The VS Code extension is in scope of #277 but is migrated late, after the
@@ -112,6 +112,9 @@ Constraints carried in from earlier decisions and from #277:
 
 ## Decision
 
+Follow-up work is named by the step labels of the
+[migration plan](#migration-plan) (for example CAT-1 or PR-13).
+
 1. **Three install categories, each with one shared behaviour.**
 
    | category | unit | identity | install | uninstall | verify |
@@ -123,9 +126,9 @@ Constraints carried in from earlier decisions and from #277:
    All three share preflight (route or config present for the target and
    scope, no conflicting destination), rollback on failure, and the existing
    all-or-nothing default. Directory destinations are compared as whole path
-   segments, so `plugins/foo` never captures `plugins/foo-extra` (gap G09 is
-   closed by construction). File modes from the archive are applied in the
-   shared file write (study PR-12), so `file` and `directory` kinds both get
+   segments, so `plugins/foo` never captures `plugins/foo-extra` (the repository-scope writer's
+   prefix mismatch is closed by construction). File modes from the archive are applied in the
+   shared file write (PR-12), so `file` and `directory` kinds both get
    them.
 
    `config` ownership is recorded in the install record, the
@@ -139,7 +142,7 @@ Constraints carried in from earlier decisions and from #277:
    MCP stay byte-identical, and the lockfile name and shape stay as ADR-0004
    requires. `bundleEntry` is `additionalProperties: false`; the extension's
    `LockfileManager.validate()` checks against that schema but has no
-   production caller at `8afc8cb`, so released extensions are not affected.
+   production caller at `4d3b0ed`, so released extensions are not affected.
    Until VS Code parity, an extension rewrite of the same entry may drop the
    field. Uninstall then falls back to matching the bundle segment of the
    owned names in the target dialect's form (decision 5), which is stable
@@ -165,7 +168,7 @@ Constraints carried in from earlier decisions and from #277:
    | `rule` | `file` | |
    | `output-style` | `file` | |
    | `tool` | `file` | |
-   | `power` | `directory` | answers O6 (decision 7) |
+   | `power` | `directory` | answers O6 (decision 9) |
    | `knowledge` | `file` | |
    | `playbook` | `file` | |
 
@@ -194,13 +197,13 @@ Constraints carried in from earlier decisions and from #277:
    - A manifest item whose declared kind differs from the kind of the route
      its path matches is routed as today and reported as a warning by
      `collection validate` (CAT-1) and by `doctor diagnostics --primitives`
-     once study PR-05 adds it. Rejecting it would make bundles that install
+     once #548 adds it. Rejecting it would make bundles that install
      today fail, so that is not decided here.
 
    The per-kind category override in a layout (decision 2) is keyed by kind
-   and applies to every route of that kind. This replaces the
-   `PRIMITIVE_SUPPORT_MATRIX` assumed by the study plan, which does not exist
-   and would drift from the layouts. `preflight` and
+   and applies to every route of that kind. This is chosen
+   over a hand-maintained support matrix, which would drift from the
+   layouts. `preflight` and
    `doctor diagnostics --primitives` both use the same derivation.
 
 4. **Directory identity has one rule.** The item id of a `directory` kind is
@@ -232,9 +235,8 @@ Constraints carried in from earlier decisions and from #277:
        `generatePrefixedServerName`
        (`apps/vscode-extension/src/services/mcp-config-service.ts`), moved
        to `core` unchanged: `prompt-registry:<bundleId>:<serverName>` for
-       collection `mcpServers` and `mcp-server` items, and
-       `prompt-registry:<bundleId>:<pluginName>:<serverName>` for plugin
-       servers. The `prompt-registry:` prefix is an existing machine
+       collection `mcpServers` and `mcp-server` items. Plugin servers add
+       one segment: `prompt-registry:<bundleId>:<pluginName>:<serverName>`. The `prompt-registry:` prefix is an existing machine
        identifier and stays (ADR-0004). This form is evidenced only on VS
        Code, the only target the extension writes to.
      - Whether the other targets accept `:`, and names this long, as MCP
@@ -461,7 +463,7 @@ Constraints carried in from earlier decisions and from #277:
 
 11. **The VS Code extension consumes the model through `app` (ADR-0001).**
     The extension already calls `FileTreeTargetWriter.writeManifestItems` for
-    repository scope and `app` MCP helpers. In the late parity sub-issue, its
+    repository scope and `app` MCP helpers. In the late VS Code parity step (#551), its
     user and repository scope services and `McpServerManager` delegate to the
     `app` category strategies and plugin extension, the same entry points the
     CLI uses. Services gain no business rules. The extension resolves
@@ -474,7 +476,7 @@ Constraints carried in from earlier decisions and from #277:
 
 Paths are from `default-layouts.json` (user / repository). ✅ supported,
 ❌ unsupported (rejected by default, skippable with `--skip-unsupported`).
-"Today" means the behaviour at `be1d161`, measured by the #277 study.
+"Today" means the behaviour measured at `be1d161` (see Context).
 #526 later moved the five `CopilotFileType`s to manifest placement, which
 uses the same `kindRoutes`; the only cell it changes is `chat-mode` on
 copilot-cli, now placed through the `agents/` route.
@@ -484,7 +486,7 @@ with a root `mcp.json` is ❌ at repository scope on every target.
 | target | `file` | `directory` | `config` (MCP) | plugin | `hook` |
 |---|---|---|---|---|---|
 | vscode, vscode-insiders | ✅ `~/.copilot/` / `.github/` | ✅ skills | ✅ `${vscodeUserDir}/mcp.json` / `.vscode/mcp.json`, key `servers` (today: never written → PR-13) | today inert copy → `project` | `file`, `hooks/` |
-| copilot-cli | ✅ (`chat-mode` placed through `agents/` since #526, G17 fixed) | ✅ skills | ✅ `~/.copilot/mcp-config.json` / `.mcp.json` (→ PR-13) | today inert copy → `project` | `file`, `hooks/` ([Copilot CLI config dir][cop-config]) |
+| copilot-cli | ✅ (`chat-mode` placed through `agents/` since #526) | ✅ skills | ✅ `~/.copilot/mcp-config.json` / `.mcp.json` (→ PR-13) | today inert copy → `project` | `file`, `hooks/` ([Copilot CLI config dir][cop-config]) |
 | kiro | ✅ incl. `steering`, `spec` | ✅ skills; → `power` as a directory, user only | ✅ `~/.kiro/settings/mcp.json` / `.kiro/settings/mcp.json` (→ PR-13) | today ❌ no route → `project`, `plugins/` route added | today ❌ no route → `file`, `hooks/` both scopes |
 | kiro-cli | ✅ incl. `steering`, `spec` | ✅ skills; → `power` as a directory, user only | ✅ as kiro (→ PR-13) | today inert copy → `project` | `file`, `hooks/` |
 | windsurf | ✅ | ✅ skills | user ✅ `~/.codeium/windsurf/mcp_config.json` (→ PR-13); repository ❌ no MCP config | today inert copy → `project` | `file` today; `config` (`hooks.json`) UNVERIFIED |
@@ -497,8 +499,8 @@ with a root `mcp.json` is ❌ at repository scope on every target.
 route on that target is ❌ (decision 3); for example `steering`, `rule` and
 `command` have no route on vscode.
 
-Paths without a link are APH's `default-layouts.json` values at `be1d161`,
-unchanged on `8afc8cb`.
+Paths without a link are APH's `default-layouts.json` values at `be1d161`; the
+paths are unchanged on `4d3b0ed`.
 That the harness reads them is UNVERIFIED: this covers the MCP paths and
 keys for vscode, copilot-cli, kiro, kiro-cli, windsurf, claude-code and
 cursor; the skills routes on vscode, copilot-cli, claude-code, cursor and
@@ -579,8 +581,8 @@ confirmation when this ADR is accepted.
   reuses packaging, install, uninstall and verify unchanged.
 - **Positive:** the repeated `skill`/`plugin` checks in the planner and the
   writers, and the two copies of the directory installer, collapse into one
-  strategy. G09 and the power
-  packaging bug (G13) are fixed by the same rule.
+  strategy. The repository-scope prefix mismatch and the power packaging
+  bug are fixed by the same rule.
 - **Positive:** plugins stop being inert copies: their skills go to the
   layout's skills route, their MCP servers to the layout's MCP config, and
   placeholders are resolved. Where those routes are only layout data, the
@@ -619,27 +621,31 @@ confirmation when this ADR is accepted.
 
 Each PR is small, keeps the default behaviour unless it says otherwise, and
 removes its known-gap entries from `doctor diagnostics --primitives` once that
-suite exists (study PR-05). Study PR numbers and the G\* (gap), P\*
-(plugin property) and O\* (open question) ids refer to the lists in
-[#277][i277].
+suite exists (#548). The labels in the PR column (PR-12, CAT-1 and so on)
+are the step names used throughout this ADR. Steps that already have an
+issue under [#277][i277] give its number; the others get one when they
+start. O\* ids refer to the open questions above.
 
 | order | PR | content | depends on | value |
 |---|---|---|---|---|
-| 0 | **PR-15** `docs(adr)` | this ADR and its index row | — | an agreed contract |
-| 1 | **CAT-1** (new) `refactor(core,app,infra)`: install categories, no install behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; `KIND_TO_ROUTE_KEY` and `placeManifestItem`'s skill/file split (#526) expressed through the category, so manifest placement and path routing share one rule; the kind/route mismatch warning (decision 3) in `collection validate`, and in `doctor diagnostics --primitives` once PR-05 lands; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | PR-15 | later PRs change one place; adding a kind becomes a table row |
-| 2 | **PR-17** `feat(core,infra)`: kiro routes and power as a directory unit | `power` → `directory` in the table; kiro `hooks/` and `plugins/` routes; kiro and kiro-cli repository `powers/` route removed; Devin `powers/` re-checked | CAT-1 | hooks install on kiro; powers archive completely with unique ids (G08 hook half, G13) |
-| 3 | **PR-12** `fix`: file modes on install | modes applied in the shared file write, so every category gets them | PR-11; CAT-1 preferred | installed scripts are executable (G06 install half) |
-| 4 | **PR-13** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, devin repository path fixed, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form and the sanitised form with per-segment encoding; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | CAT-1 | collection MCP servers reach the target (G05 collection part) |
-| 5 | **PR-14** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | PR-13 | `mcp-server` installs wherever an MCP config exists (G05 item part) |
-| 6 | **PR-18** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks (G11) |
-| 7 | **PR-16** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` and `realpath` on the `FileSystem` port; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; O10 interim rule | PR-13, PR-12, CAT-1, PR-17 (kiro only) | plugins are usable, not inert copies (G10, P8, P10, P12, G08 plugin half) |
-| 8 | **CAT-2** (new, optional) `feat`: config-based hooks | `hook` → `config` overrides for claude-code and cursor (windsurf once verified) | PR-13 | hooks fire on those targets |
-| 9 | **CAT-3** (new, optional, per target) `feat`: `native` or `register` mode | only with documentation or a recorded manual check for that target (for example O3a for Kiro) | PR-16 | the harness's own plugin UX where proven |
-| late | **VS Code parity** sub-issue of #277 | extension scope services and `McpServerManager` delegate to the `app` strategies (ADR-0001) | PR-13, PR-16 stable | the same files and lockfile entries from both deliveries |
+| 0 | **this ADR** (#549) `docs(adr)` | this ADR and its index row | — | an agreed contract |
+| 1 | **CAT-1** (#552) `refactor(core,app,infra)`: install categories, no install behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; `KIND_TO_ROUTE_KEY` and `placeManifestItem`'s skill/file split (#526) expressed through the category, so manifest placement and path routing share one rule; the kind/route mismatch warning (decision 3) in `collection validate`, and in `doctor diagnostics --primitives` once #548 lands; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | this ADR | later PRs change one place; adding a kind becomes a table row |
+| 2 | **PR-17** `feat(core,infra)`: kiro routes and power as a directory unit | `power` → `directory` in the table; kiro `hooks/` and `plugins/` routes; kiro and kiro-cli repository `powers/` route removed; Devin `powers/` re-checked | CAT-1 | hooks install on kiro; powers archive completely with unique ids |
+| 3 | **PR-12** `fix`: file modes on install | modes applied in the shared file write, so every category gets them | #547; CAT-1 preferred | installed scripts are executable |
+| 4 | **PR-13** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, devin repository path fixed, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form and the sanitised form with per-segment encoding; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | CAT-1 | collection MCP servers reach the target |
+| 5 | **PR-14** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | PR-13 | `mcp-server` installs wherever an MCP config exists |
+| 6 | **PR-18** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks |
+| 7 | **PR-16** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` and `realpath` on the `FileSystem` port; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; O10 interim rule | PR-13, PR-12, CAT-1, PR-17 (kiro only) | plugins are usable, not inert copies |
+| 8 | **CAT-2** (optional) `feat`: config-based hooks | `hook` → `config` overrides for claude-code and cursor (windsurf once verified) | PR-13 | hooks fire on those targets |
+| 9 | **CAT-3** (optional, per target) `feat`: `native` or `register` mode | only with documentation or a recorded manual check for that target (for example O3a for Kiro) | PR-16 | the harness's own plugin UX where proven |
+| late | **VS Code parity** (#551) | extension scope services and `McpServerManager` delegate to the `app` strategies (ADR-0001) | PR-13, PR-16 stable | the same files and lockfile entries from both deliveries |
 
-Unaffected by this ADR: PR-02, PR-03, PR-05 to PR-07, PR-08, PR-10, PR-11.
-The repository-scope prefix fix (study PR-09, gap G09) is subsumed by CAT-1's
-directory strategy unless it lands first as a quick fix.
+Unaffected by this ADR: plugin validation in `bundle build` (#545), the
+`plugin create` scaffold (#546), executable bits in archives (#547),
+`doctor diagnostics --primitives` and its later cases (#548), and
+`install --skip-unsupported` (#550). A separate fix for the repository-scope
+prefix mismatch is subsumed by CAT-1's directory strategy unless it lands
+first as a quick fix.
 
 ## Related decisions
 
