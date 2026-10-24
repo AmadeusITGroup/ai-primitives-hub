@@ -13,6 +13,7 @@ import {
   execFileSync,
 } from 'node:child_process';
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -28,6 +29,7 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   NodeFileSystem,
+  readZipEntryModes,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import * as yaml from 'js-yaml';
@@ -777,6 +779,104 @@ items:
       expect(envelope.errors[0]).toMatchObject({
         code: 'INTERNAL.UNEXPECTED',
         message: 'Collection item kind is not a canonical primitive kind: unknown-kind'
+      });
+    });
+
+    describe('file modes', () => {
+      const SCRIPT = 'plugins/exec-demo/scripts/launch.sh';
+      const SCRIPT_BYTES = '#!/bin/sh\necho launch\n';
+      const COLLECTION = 'collections/exec-demo.collection.yml';
+
+      /**
+       * Write a spec-valid plugin with a script, then commit with the script
+       * recorded as 100755 (`update-index --chmod` works on every platform).
+       */
+      const writeExecutablePlugin = async (): Promise<void> => {
+        await mkdir(path.join(workspace, 'plugins', 'exec-demo', 'scripts'), { recursive: true });
+        await mkdir(path.join(workspace, 'plugins', 'exec-demo', 'hooks'), { recursive: true });
+        await writeFile(
+          path.join(workspace, 'plugins', 'exec-demo', 'plugin.json'),
+          JSON.stringify({
+            $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+            name: 'exec-demo',
+            version: '1.0.0',
+            description: 'Exec bit demo'
+          })
+        );
+        await writeFile(path.join(workspace, SCRIPT), SCRIPT_BYTES);
+        await writeFile(path.join(workspace, 'plugins', 'exec-demo', 'hooks', 'hooks.json'), '{}\n');
+        await writeFile(
+          path.join(workspace, COLLECTION),
+          `id: exec-demo
+name: Exec Demo
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+  - path: plugins/exec-demo/plugin.json
+    kind: plugin
+`
+        );
+        execFileSync('git', ['add', '.'], { cwd: workspace });
+        execFileSync('git', ['update-index', '--chmod=+x', SCRIPT], { cwd: workspace });
+        execFileSync('git', ['commit', '-m', 'executable plugin'], { cwd: workspace, stdio: 'ignore' });
+      };
+
+      const build = async (): Promise<JsonEnvelope<{ zipAsset: string }>> => {
+        const result = await run([
+          'bundle', 'build', '--version', '1.0.0', '--collection-file', COLLECTION, '-o', 'json'
+        ]);
+        expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+        return parseJson<{ zipAsset: string }>(result.stdout);
+      };
+
+      it('records committed executable files as 0755 and all other entries as 0644', async () => {
+        await writeExecutablePlugin();
+
+        const zip = await readFile((await build()).data.zipAsset);
+        expect(Object.fromEntries(readZipEntryModes(zip))).toEqual({
+          'deployment-manifest.yml': 0o644,
+          LICENSE: 0o644,
+          'metadata/source/collections/exec-demo.collection.yml': 0o644,
+          'plugins/exec-demo/hooks/hooks.json': 0o644,
+          'plugins/exec-demo/plugin.json': 0o644,
+          [SCRIPT]: 0o755,
+          'prompts/hello.prompt.md': 0o644
+        });
+        const files = await new ZipBundleExtractor().extract(zip);
+        expect(new TextDecoder().decode(files.get(SCRIPT))).toBe(SCRIPT_BYTES);
+        const manifest = validateManifest(files, { expectedId: 'exec-demo', expectedVersion: '1.0.0' }) as {
+          files: Record<string, unknown>[];
+        };
+        for (const file of manifest.files) {
+          expect(Object.keys(file)).toEqual(['path', 'role', 'size', 'sha256']);
+        }
+      });
+
+      it('produces byte-identical archives across rebuilds with executable entries', async () => {
+        await writeExecutablePlugin();
+
+        const zipAsset = (await build()).data.zipAsset;
+        const first = await readFile(zipAsset);
+        await rm(path.join(workspace, 'dist'), { recursive: true, force: true });
+        const second = await readFile((await build()).data.zipAsset);
+        expect(Buffer.compare(first, second)).toBe(0);
+      });
+
+      it.skipIf(process.platform === 'win32')('records working-tree executable bits in a legacy build', async () => {
+        await writeExecutablePlugin();
+        await rm(path.join(workspace, 'LICENSE'));
+        commitFixtureChanges();
+        await chmod(path.join(workspace, SCRIPT), 0o755);
+
+        const envelope = await build();
+        expect(envelope.status).toBe('warning');
+        expect(Object.fromEntries(readZipEntryModes(await readFile(envelope.data.zipAsset)))).toEqual({
+          'deployment-manifest.yml': 0o644,
+          'plugins/exec-demo/hooks/hooks.json': 0o644,
+          'plugins/exec-demo/plugin.json': 0o644,
+          [SCRIPT]: 0o755,
+          'prompts/hello.prompt.md': 0o644
+        });
       });
     });
 
