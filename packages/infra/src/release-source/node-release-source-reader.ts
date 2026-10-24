@@ -152,11 +152,19 @@ export class NodeReleaseSourceReader implements ReleaseSourceReader {
         }
         return listWorkingTreeFiles(directory, repoRoot);
       }),
-      // Git's rule for recording 100755: the owner execute bit. Windows has no
-      // execute bit, so nothing there is executable.
-      isExecutable: (repositoryPath) => settle(() => process.platform !== 'win32'
+      // Git's rule for recording 100755: the owner execute bit of a regular
+      // file. `lstat` keeps symlinks non-executable; absent paths are false.
+      // Windows has no execute bit, so nothing there is executable.
+      isExecutable: (repositoryPath) => settle(() => {
+        if (process.platform === 'win32') {
+          return false;
+        }
+        const stats = fs.lstatSync(path.join(repoRoot, normalizeRepoRelativePath(repositoryPath)), {
+          throwIfNoEntry: false
+        });
         // eslint-disable-next-line no-bitwise -- POSIX permission bits
-        && (fs.statSync(path.join(repoRoot, normalizeRepoRelativePath(repositoryPath))).mode & 0o100) !== 0)
+        return stats?.isFile() === true && (stats.mode & 0o100) !== 0;
+      })
     };
   }
 

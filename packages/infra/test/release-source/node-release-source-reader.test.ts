@@ -204,5 +204,18 @@ describe('NodeReleaseSourceReader', () => {
       fs.chmodSync(file, 0o644);
       expect(await tree.isExecutable?.('skills/example/SKILL.md')).toBe(false);
     });
+
+    it.skipIf(process.platform === 'win32')('never reports a working-tree symlink as executable', async () => {
+      writeFile(repo, 'skills/example/scripts/run.sh', '#!/bin/sh\necho run\n');
+      fs.chmodSync(path.join(repo, 'skills/example/scripts/run.sh'), 0o755);
+      fs.symlinkSync('scripts/run.sh', path.join(repo, 'skills/example/link.sh'));
+      const tree = reader.openWorkingTree(repo);
+      expect(await tree.isExecutable?.('skills/example/scripts/run.sh')).toBe(true);
+      expect(await tree.isExecutable?.('skills/example/link.sh')).toBe(false);
+    });
+
+    it('reports an absent working-tree path as not executable', async () => {
+      expect(await reader.openWorkingTree(repo).isExecutable?.('skills/example/missing.sh')).toBe(false);
+    });
   });
 });
