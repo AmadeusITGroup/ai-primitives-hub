@@ -294,7 +294,7 @@ describe('runPrimitiveDiagnostics', () => {
       expect(caseById(report, `${PROMPT}__vscode__user`).outcome).toBe('pass');
     });
 
-    it('fails I13 when the install writes to a moved route (AC4)', async () => {
+    it('fails I13 when the install writes to a moved route', async () => {
       const h = harness();
       h.driver.onInstall = (call) => ({ exitCode: 0, files: call.defaultFiles.map((file) => file.replace(`${path.sep}prompts${path.sep}`, `${path.sep}moved${path.sep}`)) });
 
@@ -321,8 +321,8 @@ describe('runPrimitiveDiagnostics', () => {
       });
     });
 
-    it('absorbs the G08 cells with the seed, and fails exactly them without it (AC5)', async () => {
-      const g08 = (h: Harness): void => {
+    it('absorbs the kiro-hook-rejected cells with the gap, and fails exactly them without it', async () => {
+      const rejectKiroHook = (h: Harness): void => {
         h.driver.onInstall = (call) => (call.bundle.id === HOOK && call.target === 'kiro'
           ? { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [] }
           : h.driver.defaultInstall(call));
@@ -330,21 +330,21 @@ describe('runPrimitiveDiagnostics', () => {
       const filters: PrimitiveDiagnosticsFilters = { kinds: ['hook'], targets: ['vscode', 'kiro'] };
       const kiroCases = [`${HOOK}__kiro__user`, `${HOOK}__kiro__repository`];
 
-      const seeded = harness();
-      g08(seeded);
-      const withSeed = await run(seeded, filters);
-      const unseeded = harness();
-      g08(unseeded);
-      const withoutSeed = await run(unseeded, filters, { knownGaps: PRIMITIVE_KNOWN_GAPS.filter((gap) => gap.key !== 'G08/I4/hook@kiro') });
+      const withGapHarness = harness();
+      rejectKiroHook(withGapHarness);
+      const withGap = await run(withGapHarness, filters);
+      const withoutGapHarness = harness();
+      rejectKiroHook(withoutGapHarness);
+      const withoutGap = await run(withoutGapHarness, filters, { knownGaps: PRIMITIVE_KNOWN_GAPS.filter((gap) => gap.key !== 'kiro-hook-rejected/I4/hook@kiro') });
 
       for (const id of kiroCases) {
-        expect(caseById(withSeed, id)).toMatchObject({ status: 'rejected', outcome: 'known-gap', gapIds: ['G08'] });
+        expect(caseById(withGap, id)).toMatchObject({ status: 'rejected', outcome: 'known-gap', gapIds: ['kiro-hook-rejected'] });
       }
-      expect(withSeed.cases.filter((c) => c.target === 'vscode').every((c) => c.outcome === 'pass')).toBe(true);
-      expect(withSeed.knownGaps).toEqual(expect.arrayContaining([{ key: 'G08/I4/hook@kiro', id: 'G08', invariant: 'I4', absorbed: 2 }]));
-      expect(withSeed.ok).toBe(true);
-      expect(withoutSeed.cases.filter((c) => c.outcome === 'fail').map((c) => c.id)).toEqual(kiroCases);
-      expect(withoutSeed.ok).toBe(false);
+      expect(withGap.cases.filter((c) => c.target === 'vscode').every((c) => c.outcome === 'pass')).toBe(true);
+      expect(withGap.knownGaps).toEqual(expect.arrayContaining([{ key: 'kiro-hook-rejected/I4/hook@kiro', id: 'kiro-hook-rejected', invariant: 'I4', absorbed: 2 }]));
+      expect(withGap.ok).toBe(true);
+      expect(withoutGap.cases.filter((c) => c.outcome === 'fail').map((c) => c.id)).toEqual(kiroCases);
+      expect(withoutGap.ok).toBe(false);
     });
   });
 

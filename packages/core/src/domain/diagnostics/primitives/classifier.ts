@@ -121,7 +121,7 @@ export function classifyCheck(raw: DiagnosticCheck, subject: GapSubject, gaps: r
 }
 
 /**
- * Roll checks up (R7.1): `fail` > `known-gap` > `pass`, ignoring `not-applicable`.
+ * Roll checks up: `fail` > `known-gap` > `pass`, ignoring `not-applicable`.
  * @param checks - Classified checks.
  * @returns The outcome; `pass` for no checks.
  */
@@ -170,7 +170,7 @@ export function classifyBundle(bundle: DiagnosticBundle, checks: readonly Diagno
 }
 
 /**
- * Known gaps a run no longer needs (R10.6): entries that absorbed nothing
+ * Known gaps a run no longer needs: entries that absorbed nothing
  * although at least one executed check of their invariant matched their
  * selectors. Entries outside the run's filters are never unused.
  * @param records - Classified check records of the whole run.

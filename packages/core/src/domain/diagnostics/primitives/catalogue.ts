@@ -3,8 +3,8 @@
  *
  * One isolated single-item bundle per non-plugin kind, derived from the
  * fixture declarations. Catalogue order is `PRIMITIVE_KINDS` order without
- * `plugin`, which is also the report order. PR-06 adds plugin, mixed and
- * negative bundles as more data.
+ * `plugin`, which is also the report order. Plugin, mixed and negative
+ * bundles can be added later as more data.
  * @module domain/diagnostics/primitives/catalogue
  */
 import * as path from 'node:path';
@@ -39,7 +39,7 @@ export interface DiagnosticBundle {
   /** `collections/<id>.collection.yml`. */
   collectionFile: string;
   version: '1.0.0';
-  /** Exactly one item in this slice. */
+  /** Exactly one item today (isolated bundles). */
   items: readonly FixtureItem[];
 }
 

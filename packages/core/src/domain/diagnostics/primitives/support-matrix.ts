@@ -1,12 +1,11 @@
 /**
  * Domain layer — primitive diagnostics support matrix.
  *
- * Which isolated kind each target supports, seeded from the behaviour
- * observed on `be1d161` (requirements Appendix A). A cell the product
- * should support but rejects today is `native` and covered by a known gap
- * (hook on kiro G08, mcp-server everywhere G05). chat-mode on copilot-cli
- * (G17) installs since #526. `projected` is reserved for PR-16 and unused
- * here.
+ * Which isolated kind each target supports, as observed after #532. A
+ * cell the product should support but rejects today is `native` and
+ * covered by a known gap (`kiro-hook-rejected`, `mcp-server-rejected`).
+ * chat-mode on copilot-cli installs since #526. `projected` (installed
+ * through a projection onto another kind) is reserved and unused here.
  * @module domain/diagnostics/primitives/support-matrix
  */
 import {
@@ -52,7 +51,8 @@ export const PRIMITIVE_SUPPORT_MATRIX: Readonly<Partial<Record<PrimitiveKind, Re
 };
 
 /**
- * Expected install status of a bundle on a target: all-or-nothing (O4).
+ * Expected install status of a bundle on a target: all-or-nothing (one
+ * unsupported kind rejects the whole bundle).
  * @param kinds - Kinds of the bundle.
  * @param target - Target type.
  * @returns 'installed' when every kind is native/projected on the target, else 'rejected'.

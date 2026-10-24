@@ -1,5 +1,5 @@
 /**
- * Tests for the seed known gaps (design §3.5, requirements Appendix B).
+ * Tests for the primitive diagnostics known gaps.
  */
 import {
   describe,
@@ -20,20 +20,20 @@ const catalogued = new Set<string>(PRIMITIVE_DIAGNOSTIC_BUNDLES.flatMap((b) => b
 const bundleLevel = new Set<string>(INVARIANTS.filter((i) => i.level === 'bundle').map((i) => i.id));
 
 describe('PRIMITIVE_KNOWN_GAPS', () => {
-  it('is exactly the 12 seed entries, in seed order', () => {
+  it('is exactly the 12 known entries, in declaration order', () => {
     expect(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).toEqual([
-      'G05/I4/mcp-server',
-      'G08/I4/hook@kiro',
-      'G18/I8/copilot-cli@repository',
-      'G15/I2/prompt',
-      'G15/I2/instruction',
-      'G15/I2/chat-mode',
-      'G15/I2/agent',
-      'G15/I2/hook',
-      'G15/I2/mcp-server',
-      'G15/I2/spec',
-      'G13/I1/power',
-      'G13/I2/power'
+      'mcp-server-rejected/I4/mcp-server',
+      'kiro-hook-rejected/I4/hook@kiro',
+      'copilot-cli-repository-scope/I8/copilot-cli@repository',
+      'manifest-id-file-stem/I2/prompt',
+      'manifest-id-file-stem/I2/instruction',
+      'manifest-id-file-stem/I2/chat-mode',
+      'manifest-id-file-stem/I2/agent',
+      'manifest-id-file-stem/I2/hook',
+      'manifest-id-file-stem/I2/mcp-server',
+      'manifest-id-file-stem/I2/spec',
+      'power-directory-unit/I1/power',
+      'power-directory-unit/I2/power'
     ]);
     expect(new Set(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).size).toBe(12);
   });
@@ -41,7 +41,7 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
   it('keys each entry by id and invariant', () => {
     for (const gap of PRIMITIVE_KNOWN_GAPS) {
       expect(gap.key.startsWith(`${gap.id}/${gap.invariant}/`)).toBe(true);
-      expect(gap.id).toMatch(/^G\d{2}$/);
+      expect(gap.id).toMatch(/^[a-z][a-z0-9]*(-[a-z0-9]+)+$/);
       expect(gap.summary.length).toBeGreaterThan(0);
     }
   });
@@ -69,16 +69,16 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
     }
   });
 
-  it('carries the exact observed values seen on be1d161', () => {
+  it('carries the exact observed values the product produces today', () => {
     const byKey = new Map(PRIMITIVE_KNOWN_GAPS.map((g) => [g.key, g]));
     const rejected = { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' };
-    expect(byKey.get('G05/I4/mcp-server')).toMatchObject({ match: { kinds: ['mcp-server'] }, observed: rejected });
-    expect(byKey.get('G08/I4/hook@kiro')).toMatchObject({ match: { kinds: ['hook'], targets: ['kiro'] }, observed: rejected });
-    expect(byKey.get('G18/I8/copilot-cli@repository')).toEqual(expect.objectContaining({
+    expect(byKey.get('mcp-server-rejected/I4/mcp-server')).toMatchObject({ match: { kinds: ['mcp-server'] }, observed: rejected });
+    expect(byKey.get('kiro-hook-rejected/I4/hook@kiro')).toMatchObject({ match: { kinds: ['hook'], targets: ['kiro'] }, observed: rejected });
+    expect(byKey.get('copilot-cli-repository-scope/I8/copilot-cli@repository')).toEqual(expect.objectContaining({
       match: { targets: ['copilot-cli'], scopes: ['repository'] },
       observed: { effectiveScope: 'user' }
     }));
-    const g15: Record<string, string> = {
+    const fileStemIds: Record<string, string> = {
       prompt: 'hello-world.prompt',
       instruction: 'code-style.instructions',
       'chat-mode': 'review.chatmode',
@@ -87,11 +87,11 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
       'mcp-server': 'github.mcp',
       spec: 'requirements'
     };
-    for (const [kind, id] of Object.entries(g15)) {
-      expect(byKey.get(`G15/I2/${kind}`)).toMatchObject({ match: { kinds: [kind] }, observed: { id, kind, occurrences: 1 } });
+    for (const [kind, id] of Object.entries(fileStemIds)) {
+      expect(byKey.get(`manifest-id-file-stem/I2/${kind}`)).toMatchObject({ match: { kinds: [kind] }, observed: { id, kind, occurrences: 1 } });
     }
-    expect(byKey.get('G13/I1/power'))
+    expect(byKey.get('power-directory-unit/I1/power'))
       .toMatchObject({ match: { kinds: ['power'] }, observed: { missingArchivePaths: ['powers/stripe/steering/payments.md'] } });
-    expect(byKey.get('G13/I2/power')).toMatchObject({ match: { kinds: ['power'] }, observed: { id: 'POWER', kind: 'power', occurrences: 1 } });
+    expect(byKey.get('power-directory-unit/I2/power')).toMatchObject({ match: { kinds: ['power'] }, observed: { id: 'POWER', kind: 'power', occurrences: 1 } });
   });
 });

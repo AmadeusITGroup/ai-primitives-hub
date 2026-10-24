@@ -1,5 +1,5 @@
 /**
- * Tests for the primitive diagnostics sandbox rules (design §3.7).
+ * Tests for the primitive diagnostics sandbox rules.
  */
 import {
   createHash,

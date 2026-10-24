@@ -1,9 +1,9 @@
 /**
- * In-process PrimitiveDiagnosticsDriver adapter (PR-05, design §7.2).
+ * In-process PrimitiveDiagnosticsDriver adapter.
  *
- * Pins how the driver reads the two failure shapes of `collection validate`
- * (fix 1), how it reports an unparseable command output, and that a
- * prepared sandbox is fully contained in its case root.
+ * Pins how the driver reads the two failure shapes of `collection validate`,
+ * how it reports an unparseable command output, and that a prepared
+ * sandbox is fully contained in its case root.
  */
 import {
   mkdir,

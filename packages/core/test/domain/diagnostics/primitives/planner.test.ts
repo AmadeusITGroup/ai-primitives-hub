@@ -1,5 +1,5 @@
 /**
- * Tests for the primitive diagnostics planner (design §3.8).
+ * Tests for the primitive diagnostics planner.
  */
 import {
   describe,

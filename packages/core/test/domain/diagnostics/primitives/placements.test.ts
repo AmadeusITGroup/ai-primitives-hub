@@ -1,5 +1,5 @@
 /**
- * Tests for the primitive diagnostics placement oracle (requirements Appendix A).
+ * Tests for the primitive diagnostics placement oracle.
  */
 import {
   describe,
@@ -71,7 +71,7 @@ describe('PLACEMENT_ROUTES', () => {
 });
 
 describe('expectedDestination', () => {
-  // Expected labels copied from results-be1d161.json installs[].placements.
+  // Expected labels: the placements the product produces today.
   it('places a prompt on kiro at user scope under steering/', () => {
     expect(labels('kiro', 'user', 'prompt')).toEqual(['$HOME/.kiro/steering/hello-world.prompt.md']);
   });

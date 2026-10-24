@@ -1,5 +1,5 @@
 /**
- * Tests for the primitive diagnostics classifier (design §3.9).
+ * Tests for the primitive diagnostics classifier.
  */
 import {
   describe,
@@ -47,21 +47,21 @@ describe('classifyCheck', () => {
   });
 
   it('compares observed by exact deep equality with arrays sorted', () => {
-    const gap: KnownGap = { key: 'G99/I1/x', id: 'G99', invariant: 'I1', match: {}, observed: { missingArchivePaths: ['b', 'a'] }, summary: 's' };
+    const gap: KnownGap = { key: 'test-gap/I1/x', id: 'test-gap', invariant: 'I1', match: {}, observed: { missingArchivePaths: ['b', 'a'] }, summary: 's' };
     const result = classifyCheck(failed('I1', { missingArchivePaths: ['a', 'b'] }), { kinds: ['power'] }, [gap]);
-    expect(result.check).toMatchObject({ outcome: 'known-gap', gapIds: ['G99'] });
-    expect(result.absorbedBy).toEqual(['G99/I1/x']);
+    expect(result.check).toMatchObject({ outcome: 'known-gap', gapIds: ['test-gap'] });
+    expect(result.absorbedBy).toEqual(['test-gap/I1/x']);
     expect(classifyCheck(failed('I1', { missingArchivePaths: ['a'] }), { kinds: ['power'] }, [gap]).check.outcome).toBe('fail');
   });
 
   it('never absorbs a HARNESS check', () => {
-    const gap: KnownGap = { key: 'G99/HARNESS/x', id: 'G99', invariant: 'HARNESS', match: {}, observed: null, summary: 's' };
+    const gap: KnownGap = { key: 'test-gap/HARNESS/x', id: 'test-gap', invariant: 'HARNESS', match: {}, observed: null, summary: 's' };
     expect(classifyCheck(failed('HARNESS', null), { kinds: ['prompt'] }, [gap]).check.outcome).toBe('fail');
   });
 
   it('never matches a selector on a dimension the subject lacks', () => {
     const gap: KnownGap = {
-      key: 'G15/I2/prompt@vscode', id: 'G15', invariant: 'I2', match: { kinds: ['prompt'], targets: ['vscode'] },
+      key: 'manifest-id-file-stem/I2/prompt@vscode', id: 'manifest-id-file-stem', invariant: 'I2', match: { kinds: ['prompt'], targets: ['vscode'] },
       observed: { id: 'hello-world.prompt', kind: 'prompt', occurrences: 1 }, summary: 's'
     };
     const check = failed('I2', { id: 'hello-world.prompt', kind: 'prompt', occurrences: 1 }, 'prompts/hello-world.prompt.md');
@@ -74,21 +74,21 @@ describe('classifyCase', () => {
     expect(classifyCase(caseOf('prompt', 'vscode', 'user'), passingCase())).toMatchObject({ outcome: 'pass', gapIds: [] });
   });
 
-  it('absorbs chat-mode on copilot-cli at repository scope with G18 only', () => {
+  it('absorbs chat-mode on copilot-cli at repository scope with copilot-cli-repository-scope only', () => {
     const checks = [pass('I4'), pass('I6'), { invariant: 'I7', outcome: 'not-applicable' } as DiagnosticCheck,
       failed('I8', { effectiveScope: 'user' }), pass('I13')];
     const result = classifyCase(caseOf('chat-mode', 'copilot-cli', 'repository'), checks);
     expect(result.outcome).toBe('known-gap');
-    expect(result.gapIds).toEqual(['G18']);
+    expect(result.gapIds).toEqual(['copilot-cli-repository-scope']);
     expect(result.checks.map((c) => [c.invariant, c.outcome, c.gapIds])).toEqual([
       ['I4', 'pass', undefined],
       ['I6', 'pass', undefined],
       ['I7', 'not-applicable', undefined],
-      ['I8', 'known-gap', ['G18']],
+      ['I8', 'known-gap', ['copilot-cli-repository-scope']],
       ['I13', 'pass', undefined]
     ]);
   });
-  it('fails a chat-mode rejection on copilot-cli now that G17 is fixed (#526)', () => {
+  it('fails a chat-mode rejection on copilot-cli now that chat-mode-rejected is fixed (#526)', () => {
     const checks = [failed('I4', rejected), { invariant: 'I6', outcome: 'not-applicable' } as DiagnosticCheck,
       pass('I7'), pass('I8'), { invariant: 'I13', outcome: 'not-applicable' } as DiagnosticCheck];
     const result = classifyCase(caseOf('chat-mode', 'copilot-cli', 'user'), checks);
@@ -96,7 +96,7 @@ describe('classifyCase', () => {
     expect(result.checks[0]).toMatchObject({ outcome: 'fail' });
     expect(result.checks[0].gapIds).toBeUndefined();
   });
-  it('keeps a different failure mode as fail (G05 with status error)', () => {
+  it('keeps a different failure mode as fail (mcp-server-rejected with status error)', () => {
     const checks = [failed('I4', { status: 'error', errorCode: 'INTERNAL.UNEXPECTED' }), ...passingCase().slice(1)];
     const result = classifyCase(caseOf('mcp-server', 'vscode', 'user'), checks);
     expect(result.outcome).toBe('fail');
@@ -106,21 +106,21 @@ describe('classifyCase', () => {
 });
 
 describe('classifyBundle', () => {
-  it('keeps a different wrong id as fail (G15 prompt)', () => {
+  it('keeps a different wrong id as fail (manifest-id-file-stem prompt)', () => {
     const prompt = bundleOf('prompt');
     const checks = [pass('I0'), { ...pass('I1'), item: prompt.items[0].path },
       failed('I2', { id: 'hello', kind: 'prompt', occurrences: 1 }, prompt.items[0].path), pass('I3')];
     expect(classifyBundle(prompt, checks).outcome).toBe('fail');
   });
 
-  it('absorbs the G13 power checks per item', () => {
+  it('absorbs the power-directory-unit power checks per item', () => {
     const power = bundleOf('power');
     const checks = [pass('I0'),
       failed('I1', { missingArchivePaths: ['powers/stripe/steering/payments.md'] }, power.items[0].path),
       failed('I2', { id: 'POWER', kind: 'power', occurrences: 1 }, power.items[0].path), pass('I3')];
     const result = classifyBundle(power, checks);
-    expect(result).toMatchObject({ outcome: 'known-gap', gapIds: ['G13'] });
-    expect(result.records.flatMap((r) => r.absorbedBy)).toEqual(['G13/I1/power', 'G13/I2/power']);
+    expect(result).toMatchObject({ outcome: 'known-gap', gapIds: ['power-directory-unit'] });
+    expect(result.records.flatMap((r) => r.absorbedBy)).toEqual(['power-directory-unit/I1/power', 'power-directory-unit/I2/power']);
   });
 
   it('never absorbs a NOT_EVALUATED cascade', () => {
@@ -140,12 +140,12 @@ describe('findUnusedKnownGaps', () => {
   it('reports an entry whose targeted check passed', () => {
     const prompt = bundleOf('prompt');
     const fixed = classifyBundle(prompt, [pass('I0'), { ...pass('I1'), item: prompt.items[0].path }, { ...pass('I2'), item: prompt.items[0].path }, pass('I3')]);
-    expect(findUnusedKnownGaps(records(fixed)).map((g) => g.key)).toEqual(['G15/I2/prompt']);
+    expect(findUnusedKnownGaps(records(fixed)).map((g) => g.key)).toEqual(['manifest-id-file-stem/I2/prompt']);
   });
 
   it('reports an entry whose targeted check fails differently', () => {
     const different = classifyCase(caseOf('hook', 'kiro', 'user'), [failed('I4', { status: 'error', errorCode: 'X' }), ...passingCase().slice(1)]);
-    expect(findUnusedKnownGaps(records(different)).map((g) => g.key)).toEqual(['G08/I4/hook@kiro']);
+    expect(findUnusedKnownGaps(records(different)).map((g) => g.key)).toEqual(['kiro-hook-rejected/I4/hook@kiro']);
   });
 
   it('does not report entries outside the run filters', () => {
@@ -159,7 +159,7 @@ describe('findUnusedKnownGaps', () => {
     expect(findUnusedKnownGaps(records(gap, fixedElsewhere))).toEqual([]);
   });
 
-  it('defaults to the seed gaps and returns them in seed order', () => {
+  it('defaults to PRIMITIVE_KNOWN_GAPS and returns unused entries in declaration order', () => {
     const allPass = plan.cases.filter((c) => c.target === 'kiro' || c.target === 'copilot-cli')
       .map((c) => classifyCase(c, [{ ...pass('I4') }, pass('I6'), pass('I7'), pass('I8'), pass('I13')]));
     const unused = findUnusedKnownGaps(records(...allPass)).map((g) => g.key);

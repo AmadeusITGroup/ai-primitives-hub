@@ -3,7 +3,7 @@
  *
  * Turns the `--kinds/--targets/--scopes` filters into the bundles to build
  * and the cases to run. Filters select cases only; they never change an
- * expected outcome (R2.8).
+ * expected outcome.
  * @module domain/diagnostics/primitives/planner
  */
 import {
@@ -48,7 +48,7 @@ export interface PlannedCase {
 export interface PrimitiveDiagnosticsPlan {
   /** Effective filters: de-duplicated, in enum order. */
   filters: { kinds: PrimitiveKind[]; targets: TargetType[]; scopes: DiagnosticScope[] };
-  /** Filter kinds no catalogued bundle contains (`plugin` in this slice). */
+  /** Filter kinds no catalogued bundle contains (`plugin` today). */
   notCovered: { kinds: PrimitiveKind[] };
   /** Catalogue order. */
   bundles: DiagnosticBundle[];
@@ -71,7 +71,7 @@ const kindsOf = (bundle: DiagnosticBundle): PrimitiveKind[] => [...new Set(bundl
  * Plan a primitive diagnostics run.
  * @param filters - Requested filters.
  * @param catalogue - Bundles to choose from.
- * @returns The plan; `bundles` is empty when nothing matches (R2.6).
+ * @returns The plan; `bundles` is empty when nothing matches.
  */
 export function planPrimitiveDiagnostics(
   filters: PrimitiveDiagnosticsFilters,

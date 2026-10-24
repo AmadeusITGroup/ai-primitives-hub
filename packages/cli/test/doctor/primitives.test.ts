@@ -1,9 +1,8 @@
 /**
- * `doctor diagnostics --primitives` through the real command classes
- * (PR-05, design §7.3, §7.4, §9.3).
+ * `doctor diagnostics --primitives` through the real command classes.
  *
- * Usage errors, the gap-coverage slice (every seed known gap exercised by
- * the real commands), process-level isolation (R8.7), `-v` progress lines
+ * Usage errors, the gap-coverage slice (every known gap exercised by the
+ * real commands), process-level isolation, `-v` progress lines
  * and the text renderer.
  */
 import * as path from 'node:path';
@@ -122,7 +121,7 @@ describe('doctor diagnostics --primitives usage errors', () => {
 });
 
 describe('doctor diagnostics --primitives gap-coverage slice', () => {
-  it('absorbs every seed known gap through the real commands', async () => {
+  it('absorbs every known gap through the real commands', async () => {
     const result = await runDoctor([
       '--primitives',
       '--kinds', 'prompt,chat-mode,hook,mcp-server,power',
@@ -138,8 +137,14 @@ describe('doctor diagnostics --primitives gap-coverage slice', () => {
       fail: 0,
       bundles: { bundles: 5, pass: 0, knownGap: 5, fail: 0 }
     });
-    expect(absorbedById(report)).toEqual({ G05: 6, G08: 2, G13: 2, G15: 4, G18: 5 });
-    expect(report.cases.filter((c) => c.target === 'vscode' && c.gapIds.includes('G08'))).toEqual([]);
+    expect(absorbedById(report)).toEqual({
+      'copilot-cli-repository-scope': 5,
+      'kiro-hook-rejected': 2,
+      'manifest-id-file-stem': 4,
+      'mcp-server-rejected': 6,
+      'power-directory-unit': 2
+    });
+    expect(report.cases.filter((c) => c.target === 'vscode' && c.gapIds.includes('kiro-hook-rejected'))).toEqual([]);
     expect(report.unusedKnownGaps).toEqual([]);
     expect(report.ok).toBe(true);
     expect(result.exitCode).toBe(0);
@@ -149,7 +154,7 @@ describe('doctor diagnostics --primitives gap-coverage slice', () => {
 describe('doctor diagnostics --primitives process-level isolation', () => {
   const isolation = useProcessIsolation();
 
-  it('writes nothing outside its workspace across every target layout (R8.7)', async () => {
+  it('writes nothing outside its workspace across every target layout', async () => {
     const { processHome, processTmp } = isolation;
     const result = await runDoctor(['--primitives', '--kinds', 'prompt,skill', '--scopes', 'user', '-o', 'json'], { cwd: processHome });
     const report = parse(result).data!;
@@ -172,7 +177,7 @@ describe('doctor diagnostics --primitives output', () => {
 
     expect(result.stdout.trim().split('\n')).toHaveLength(1);
     // Bundles run first; case lines follow in completion order (bounded pool).
-    expect(progress[0]).toBe('  [primitives] aph-e2e-only-prompt GAP G15');
+    expect(progress[0]).toBe('  [primitives] aph-e2e-only-prompt GAP manifest-id-file-stem');
     expect(progress.slice(1).toSorted()).toEqual(report.cases.map((c) => `  [primitives] ${c.id} OK`).toSorted());
     expect(result.exitCode).toBe(0);
   }, 120_000);
@@ -184,7 +189,7 @@ describe('doctor diagnostics --primitives output', () => {
     expect(lines[0]).toBe('ai-primitives-hub doctor diagnostics --primitives');
     expect(lines[1]).toMatch(/^ {2}workspace: .*ai-primitives-hub-doctor-\d+-\d+ \(removed\)$/);
     expect(lines[2]).toBe('  filters: kinds=prompt targets=vscode scopes=user,repository');
-    expect(lines).toContainEqual(expect.stringMatching(/^ {2}\[GAP \] aph-e2e-only-prompt +G15 \(I2\)$/));
+    expect(lines).toContainEqual(expect.stringMatching(/^ {2}\[GAP \] aph-e2e-only-prompt +manifest-id-file-stem \(I2\)$/));
     expect(lines).toContainEqual(expect.stringMatching(/^ {2}prompt +vscode +user: OK +repository: OK$/));
     expect(lines).toContain('summary: 2 cases: 2 pass, 0 known-gap, 0 fail; 1 bundles: 0 pass, 1 known-gap, 0 fail');
     expect(result.exitCode).toBe(0);

@@ -46,7 +46,7 @@ const pad = (value: string, width: number): string => value.padEnd(Math.max(widt
 export const outcomeWord = (outcome: RollupOutcome): string => WORDS[outcome];
 
 /**
- * Gap ids with the invariants each absorbed, e.g. `G13 (I1, I2)`.
+ * Gap ids with the invariants each absorbed, e.g. `power-directory-unit (I1, I2)`.
  * @param checks Classified checks.
  * @returns Annotation, empty when no check is a known gap.
  */

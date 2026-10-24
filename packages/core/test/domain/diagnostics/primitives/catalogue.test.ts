@@ -26,8 +26,8 @@ import {
   PRIMITIVE_KINDS,
 } from '../../../../src/domain/primitive/types';
 
-/** Requirements R3.1: kind → item path and expected manifest id. */
-const R3_1 = [
+/** Kind → item path and expected manifest id. */
+const EXPECTED_ITEMS = [
   ['prompt', 'prompts/hello-world.prompt.md', 'hello-world'],
   ['instruction', 'instructions/code-style.instructions.md', 'code-style'],
   ['chat-mode', 'chat-modes/review.chatmode.md', 'review'],
@@ -47,11 +47,10 @@ const R3_1 = [
 ] as const;
 
 /**
- * SHA-256 of the archive entries the study's `bundle build` produced on
- * `be1d161` (results-be1d161.json `bundles[].inspection.entries`), so the
- * fixture is proven to be a verbatim port of the study's fixture.
+ * SHA-256 of the archive entries `bundle build` produces from the fixture,
+ * so any change to the fixture bytes is deliberate.
  */
-const STUDY_DIGESTS: Record<string, string> = {
+const ARCHIVE_DIGESTS: Record<string, string> = {
   LICENSE: 'add9cacde2904e5041c61dcc64855c605b7103d5657fc0d15b8124f9209d6149',
   'prompts/hello-world.prompt.md': '1c00793a9d0449d3b1b2b15c30d7a945c7923911f76a5b986699e9cbc757bac4',
   'instructions/code-style.instructions.md': '1492a667587a504978a86fb1b77ab6577949af3f324e9c14ecfb32e4f1a62fdb',
@@ -107,9 +106,9 @@ describe('PRIMITIVE_DIAGNOSTIC_BUNDLES', () => {
     expect(new Set(PRIMITIVE_DIAGNOSTIC_BUNDLES.map((b) => b.id)).size).toBe(16);
   });
 
-  it('declares the R3.1 item paths and expected ids', () => {
+  it('declares the item paths and expected ids', () => {
     expect(PRIMITIVE_DIAGNOSTIC_BUNDLES.map((b) => [b.items[0].kind, b.items[0].path, b.items[0].expectedId]))
-      .toEqual(R3_1.map((row) => [...row]));
+      .toEqual(EXPECTED_ITEMS.map((row) => [...row]));
   });
 
   it('lists every item source file, sorted, present in the fixture and under the source prefix', () => {
@@ -162,8 +161,8 @@ describe('buildPrimitiveFixture', () => {
     expect(others.every(([, f]) => f.mode === 0o644)).toBe(true);
   });
 
-  it('is a byte-identical port of the study fixture', () => {
-    for (const [file, digest] of Object.entries(STUDY_DIGESTS)) {
+  it('keeps the pinned archive bytes', () => {
+    for (const [file, digest] of Object.entries(ARCHIVE_DIGESTS)) {
       const entry = fixture.get(file);
       expect(entry, file).toBeDefined();
       expect(createHash('sha256').update(entry!.bytes).digest('hex'), file).toBe(digest);

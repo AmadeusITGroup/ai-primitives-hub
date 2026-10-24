@@ -227,7 +227,7 @@ const evaluateI3 = (bundle: DiagnosticBundle, archive: ReadonlyMap<string, Uint8
 
 /**
  * Evaluate the bundle-level invariants. When I0 fails, I1–I3 are reported
- * once each as not evaluated (R5.5) and the bundle is not ready. When I0
+ * once each as not evaluated and the bundle is not ready. When I0
  * passes, I1–I3 are evaluated independently; an I3 failure does not block
  * the cases.
  * @param input - What validate and build produced, and the extracted archive.

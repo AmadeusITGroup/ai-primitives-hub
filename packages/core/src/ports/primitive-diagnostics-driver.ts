@@ -65,7 +65,7 @@ export interface PrimitiveDiagnosticsDriver {
   buildBundle(sandbox: DiagnosticSandbox, input: { collectionFile: string; version: string; outDir: string }): Promise<DriverCommandResult<{ zipAsset: string; bundleId: string }>>;
   materializeBundle(input: { zipPath: string; destination: string }): Promise<string[]>;
   addTarget(sandbox: DiagnosticSandbox, input: { name: string; type: TargetType; scope: DiagnosticScope }): Promise<DriverCommandResult<{ target: { scope?: string } }>>;
-  /** bundleId is the catalogue (collection) id, as the study passes it. */
+  /** bundleId is the catalogue (collection) id. */
   install(sandbox: DiagnosticSandbox, input: { bundleId: string; from: string; target: string }): Promise<DriverCommandResult>;
   uninstall(sandbox: DiagnosticSandbox, input: { target: string }): Promise<DriverCommandResult>;
 }

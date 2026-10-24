@@ -3,7 +3,7 @@
  *
  * `assemblePrimitiveReport` classifies the raw bundle and case results and
  * builds the stable report in plan order, whatever the completion order.
- * Fields may be added to the report, never renamed (R10).
+ * Fields may be added to the report, never renamed.
  * @module domain/diagnostics/primitives/report
  */
 import type {
@@ -67,7 +67,7 @@ export interface PrimitiveDiagnosticsReport {
   workspace: string;
   workspaceRetained: boolean;
   durationMs: number;
-  /** Present only when the run could not start (R7.4) or the orchestration itself failed. */
+  /** Present only when the run could not start or the orchestration itself failed. */
   error?: PrimitiveDiagnosticsError;
 }
 

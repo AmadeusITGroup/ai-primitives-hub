@@ -3,9 +3,8 @@
  *
  * Where an installed archive file is expected to land, as a sandbox label
  * (`$HOME/…` at user scope, `<workspace>/…` at repository scope). Declared
- * here from the placements observed on `be1d161` (requirements Appendix A),
- * deliberately independent of infra's writer layouts, so a route regression
- * there fails I13.
+ * here from the placements observed after #532, deliberately independent
+ * of infra's writer layouts, so a route regression there fails I13.
  *
  * Gapped cells keep their route (chat-mode on copilot-cli, hook on kiro,
  * copilot-cli at repository scope), so a fix PR only deletes the gap entry.

@@ -1,5 +1,5 @@
 /**
- * Tests for primitive diagnostics report assembly (design §3.9).
+ * Tests for primitive diagnostics report assembly.
  */
 import {
   describe,
@@ -19,17 +19,17 @@ import {
   type PrimitiveReportMeta,
 } from '../../../../src/domain/diagnostics/primitives';
 
-/** G17 as seeded on be1d161; #526 fixed it, so it is no longer in PRIMITIVE_KNOWN_GAPS. */
-const G17: KnownGap = {
-  key: 'G17/I4/chat-mode@copilot-cli',
-  id: 'G17',
+/** A gap #526 fixed (copilot-cli rejected chat modes), so it is no longer in PRIMITIVE_KNOWN_GAPS. */
+const CHAT_MODE_REJECTED: KnownGap = {
+  key: 'chat-mode-rejected/I4/chat-mode@copilot-cli',
+  id: 'chat-mode-rejected',
   invariant: 'I4',
   match: { kinds: ['chat-mode'], targets: ['copilot-cli'] },
   observed: { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' },
   summary: 'copilot-cli rejects chat-mode items'
 };
-/** The be1d161 seed the fixtures below were recorded against. */
-const GAPS: readonly KnownGap[] = [...PRIMITIVE_KNOWN_GAPS.slice(0, 2), G17, ...PRIMITIVE_KNOWN_GAPS.slice(2)];
+/** The known gaps the fixtures below were recorded against, before #526. */
+const GAPS: readonly KnownGap[] = [...PRIMITIVE_KNOWN_GAPS.slice(0, 2), CHAT_MODE_REJECTED, ...PRIMITIVE_KNOWN_GAPS.slice(2)];
 const plan = planPrimitiveDiagnostics({ kinds: ['prompt', 'chat-mode'], targets: ['vscode', 'copilot-cli'] });
 const meta: PrimitiveReportMeta = { workspace: '/tmp/ai-primitives-hub-doctor-1-2', workspaceRetained: false, durationMs: 42 };
 
@@ -39,7 +39,7 @@ const fail = (invariant: DiagnosticCheck['invariant'], observed: DiagnosticCheck
   ({ invariant, outcome: 'fail', observed, ...(item === undefined ? {} : { item }) });
 const na = (invariant: DiagnosticCheck['invariant']): DiagnosticCheck => ({ invariant, outcome: 'not-applicable' });
 
-/** What be1d161 produces for these two bundles. */
+/** What the product produced for these two bundles before #526. */
 const BUNDLES: BundleResult[] = [
   {
     id: 'aph-e2e-only-prompt',
@@ -102,24 +102,24 @@ describe('assemblePrimitiveReport', () => {
       status: 'rejected',
       expectedStatus: 'installed',
       outcome: 'known-gap',
-      gapIds: ['G17', 'G18'],
+      gapIds: ['chat-mode-rejected', 'copilot-cli-repository-scope'],
       destinations: [],
       durationMs: 5
     });
-    // Known gaps: prompt + chat-mode on copilot-cli/repository (G18), chat-mode on copilot-cli/user (G17).
+    // Known gaps: prompt + chat-mode on copilot-cli/repository (copilot-cli-repository-scope), chat-mode on copilot-cli/user (chat-mode-rejected).
     expect(report.summary).toEqual({ cases: 8, pass: 5, knownGap: 3, fail: 0, bundles: { bundles: 2, pass: 0, knownGap: 2, fail: 0 } });
     expect(report.knownGaps).toEqual([
-      { key: 'G17/I4/chat-mode@copilot-cli', id: 'G17', invariant: 'I4', absorbed: 2 },
-      { key: 'G18/I8/copilot-cli@repository', id: 'G18', invariant: 'I8', absorbed: 2 },
-      { key: 'G15/I2/prompt', id: 'G15', invariant: 'I2', absorbed: 1 },
-      { key: 'G15/I2/chat-mode', id: 'G15', invariant: 'I2', absorbed: 1 }
+      { key: 'chat-mode-rejected/I4/chat-mode@copilot-cli', id: 'chat-mode-rejected', invariant: 'I4', absorbed: 2 },
+      { key: 'copilot-cli-repository-scope/I8/copilot-cli@repository', id: 'copilot-cli-repository-scope', invariant: 'I8', absorbed: 2 },
+      { key: 'manifest-id-file-stem/I2/prompt', id: 'manifest-id-file-stem', invariant: 'I2', absorbed: 1 },
+      { key: 'manifest-id-file-stem/I2/chat-mode', id: 'manifest-id-file-stem', invariant: 'I2', absorbed: 1 }
     ]);
     expect(report.unusedKnownGaps).toEqual([]);
     expect(report.ok).toBe(true);
   });
 
-  it('fails the run and reports the unused entry when a gap no longer matches (AC5)', () => {
-    const gaps: KnownGap[] = GAPS.filter((g) => g.key !== 'G17/I4/chat-mode@copilot-cli');
+  it('fails the run and reports the unused entry when a gap no longer matches', () => {
+    const gaps: KnownGap[] = GAPS.filter((g) => g.key !== 'chat-mode-rejected/I4/chat-mode@copilot-cli');
     const report = assemblePrimitiveReport(plan, BUNDLES, plan.cases.map((c) => caseResult(c)), gaps, meta);
     expect(report.cases.filter((c) => c.outcome === 'fail').map((c) => c.id))
       .toEqual(['aph-e2e-only-chat-mode__copilot-cli__user', 'aph-e2e-only-chat-mode__copilot-cli__repository']);
@@ -130,7 +130,7 @@ describe('assemblePrimitiveReport', () => {
       : r));
     const withUnused = assemblePrimitiveReport(planPrimitiveDiagnostics({ kinds: ['prompt'], targets: ['copilot-cli'], scopes: ['repository'] }),
       BUNDLES.slice(0, 1), fixed.filter((r) => r.id === 'aph-e2e-only-prompt__copilot-cli__repository'), GAPS, meta);
-    expect(withUnused.unusedKnownGaps).toEqual([{ key: 'G18/I8/copilot-cli@repository', id: 'G18', invariant: 'I8' }]);
+    expect(withUnused.unusedKnownGaps).toEqual([{ key: 'copilot-cli-repository-scope/I8/copilot-cli@repository', id: 'copilot-cli-repository-scope', invariant: 'I8' }]);
     expect(withUnused.ok).toBe(true);
   });
 

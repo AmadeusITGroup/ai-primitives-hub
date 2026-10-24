@@ -14,19 +14,29 @@ export const DIAGNOSTIC_SCOPES = ['user', 'repository'] as const;
 export type DiagnosticScope = typeof DIAGNOSTIC_SCOPES[number];
 
 /**
- * Invariants evaluated in this slice. Ids keep the study numbering; I5 and
- * I9–I12 are added by later PRs. `HARNESS` marks a defect of the diagnostic
- * run itself (never absorbed by a known gap).
+ * Invariants evaluated by the diagnostics. Ids are stable report values;
+ * the unused numbers (I5, I9–I12) are left free for future invariants.
+ * `HARNESS` marks a defect of the diagnostic run itself (never absorbed by
+ * a known gap).
  */
 export const INVARIANTS = [
+  /** validate and build succeed and produce a governed manifest with the bundle's id and version. */
   { id: 'I0', level: 'bundle' },
+  /** Every source file of an item is in the archive. */
   { id: 'I1', level: 'bundle' },
+  /** The manifest lists each item exactly once, with its kind and expected id. */
   { id: 'I2', level: 'bundle' },
+  /** The manifest's file inventory matches the archive (validateManifest). */
   { id: 'I3', level: 'bundle' },
+  /** The install status matches the support matrix. */
   { id: 'I4', level: 'case' },
+  /** Uninstall removes every placed file. */
   { id: 'I6', level: 'case' },
+  /** A rejected or failed install writes nothing user-facing. */
   { id: 'I7', level: 'case' },
+  /** The target honours the requested scope. */
   { id: 'I8', level: 'case' },
+  /** Every archived installable file lands at its expected destination. */
   { id: 'I13', level: 'case' },
   { id: 'HARNESS', level: 'any' }
 ] as const;
@@ -40,10 +50,10 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [k: s
 /** Outcome of one check. */
 export type CheckOutcome = 'pass' | 'known-gap' | 'fail' | 'not-applicable';
 
-/** Outcome of a bundle or a case (R7.1): `fail` > `known-gap` > `pass`. */
+/** Outcome of a bundle or a case: `fail` > `known-gap` > `pass`. */
 export type RollupOutcome = 'pass' | 'known-gap' | 'fail';
 
-/** Marker for cascade checks that were not evaluated (R5.5). Never matched by a gap. */
+/** Marker for cascade checks that were not evaluated. Never matched by a gap. */
 export const NOT_EVALUATED = { notEvaluated: true } as const;
 
 /**
@@ -65,7 +75,7 @@ export interface DiagnosticCheck {
   expected?: JsonValue;
   /** Exactly the facts the invariant compares; deterministic (no raw messages, no absolute paths). */
   observed?: JsonValue;
-  /** Human-readable reason; may contain command messages and absolute paths (NFR-2 exempts it). */
+  /** Human-readable reason; may contain command messages and absolute paths (not deterministic, unlike `observed`). */
   detail?: string;
 }
 

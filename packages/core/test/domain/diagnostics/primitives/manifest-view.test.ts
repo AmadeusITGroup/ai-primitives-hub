@@ -1,5 +1,5 @@
 /**
- * Tests for the tolerant deployment-manifest view (design §3.6).
+ * Tests for the tolerant deployment-manifest view.
  */
 import {
   describe,

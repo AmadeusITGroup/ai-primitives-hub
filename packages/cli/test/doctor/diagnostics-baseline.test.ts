@@ -1,5 +1,5 @@
 /**
- * Golden baseline for plain `doctor diagnostics` (PR-05, design §8).
+ * Golden baseline for plain `doctor diagnostics`.
  *
  * Pins the 54 step names, their order, the summary line and the envelope
  * shape so changes to the shared diagnostics helpers can't silently alter

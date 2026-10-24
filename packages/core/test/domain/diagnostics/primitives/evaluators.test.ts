@@ -1,5 +1,5 @@
 /**
- * Tests for the primitive diagnostics evaluators (design §3.6, §9.1).
+ * Tests for the primitive diagnostics evaluators.
  *
  * Bundle inputs are governed archives built in memory from the core
  * fixture (`createPrimitiveReleaseArchive`, plan decision D1).
@@ -205,7 +205,7 @@ describe('evaluateBundle', () => {
   });
 
   describe('I1 / I2', () => {
-    it('reports the power directory unit drop and the stem id (G13)', () => {
+    it('reports the power directory unit drop and the stem id (power-directory-unit)', () => {
       const power = bundleOf('power');
       const archive = createPrimitiveReleaseArchive(power, fixture, {
         omitFiles: ['powers/stripe/steering/payments.md'],
@@ -221,7 +221,7 @@ describe('evaluateBundle', () => {
       expect(evaluation.archivedItemFiles.get('powers/stripe/POWER.md')).toEqual(['powers/stripe/POWER.md']);
     });
 
-    it('reports a double-extension prompt id (G15)', () => {
+    it('reports a double-extension prompt id (manifest-id-file-stem)', () => {
       const prompt = bundleOf('prompt');
       const archive = createPrimitiveReleaseArchive(prompt, fixture, { itemIds: { 'prompts/hello-world.prompt.md': 'hello-world.prompt' } });
       expect(byInvariant(evaluateBundle({ bundle: prompt, validate: ok, build: ok, archive }).checks, 'I2')).toEqual({

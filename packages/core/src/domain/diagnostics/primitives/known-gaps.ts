@@ -1,16 +1,16 @@
 /**
  * Domain layer — known gaps of the primitive diagnostics, as data.
  *
- * Each entry declares a failure the product has today (study register
- * G01–G21) so the default run on `main` reports `known-gap` instead of
- * `fail`. The classifier absorbs a failing check only when the invariant,
- * the selectors and the exact `observed` value all match, so a known gap
- * never masks a different failure mode.
+ * Each entry declares a failure the product has today, so the default run
+ * on `main` reports `known-gap` instead of `fail`. The classifier absorbs
+ * a failing check only when the invariant, the selectors and the exact
+ * `observed` value all match, so a known gap never masks a different
+ * failure mode.
  *
  * A PR that fixes a gap deletes its entry (and, where the fix changes the
  * contract, the matching matrix/placement/expected-id data). The doctor
- * then enforces the fix: an entry that matches executed checks but absorbs
- * none is reported as unused.
+ * flags a stale entry: one that matches executed checks but absorbs none
+ * is reported under `unusedKnownGaps` (a warning; it does not fail the run).
  * @module domain/diagnostics/primitives/known-gaps
  */
 import type {
@@ -27,10 +27,10 @@ import type {
 
 /** One known gap. */
 export interface KnownGap {
-  /** Unique, stable key, e.g. 'G15/I2/prompt'. */
+  /** Unique, stable key: `<id>/<invariant>/<selector>`, e.g. 'manifest-id-file-stem/I2/prompt'. */
   key: string;
-  /** Study register id, G01–G21. */
-  id: `G${string}`;
+  /** Descriptive gap id shared by the entries of one product defect, e.g. 'manifest-id-file-stem'. */
+  id: string;
   invariant: InvariantId;
   /** Absent selector = all. A selector on a dimension the subject lacks never matches (bundle subjects have no target/scope). */
   match: { kinds?: PrimitiveKind[]; targets?: TargetType[]; scopes?: DiagnosticScope[] };
@@ -41,63 +41,70 @@ export interface KnownGap {
 
 const REJECTED: JsonValue = { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' };
 
-const g15 = (kind: PrimitiveKind, id: string): KnownGap => ({
-  key: `G15/I2/${kind}`,
-  id: 'G15',
+/**
+ * One `manifest-id-file-stem` entry: `bundle build` derives the manifest
+ * id from the item's file stem (keeping a `.prompt`-style type suffix, or
+ * `requirements` for a spec) instead of the expected id.
+ * @param kind - Item kind.
+ * @param id - Manifest id the build produces today.
+ * @returns The known gap.
+ */
+const manifestIdFileStem = (kind: PrimitiveKind, id: string): KnownGap => ({
+  key: `manifest-id-file-stem/I2/${kind}`,
+  id: 'manifest-id-file-stem',
   invariant: 'I2',
   match: { kinds: [kind] },
   observed: { id, kind, occurrences: 1 },
-  summary: `${kind} manifest id is "${id}" instead of the expected id`
+  summary: `${kind} manifest id is the file stem "${id}" instead of the expected id`
 });
 
 /**
- * Seed known gaps on `be1d161` (requirements Appendix B), minus G17
- * (chat-mode on copilot-cli), which #526 fixed by placing chat modes
- * through the `agents/` route.
+ * Known gaps on current `main`. Chat modes on copilot-cli are not listed:
+ * #526 places them through the `agents/` route.
  */
 export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
   {
-    key: 'G05/I4/mcp-server',
-    id: 'G05',
+    key: 'mcp-server-rejected/I4/mcp-server',
+    id: 'mcp-server-rejected',
     invariant: 'I4',
     match: { kinds: ['mcp-server'] },
     observed: REJECTED,
     summary: 'mcp-server items are rejected by every target'
   },
   {
-    key: 'G08/I4/hook@kiro',
-    id: 'G08',
+    key: 'kiro-hook-rejected/I4/hook@kiro',
+    id: 'kiro-hook-rejected',
     invariant: 'I4',
     match: { kinds: ['hook'], targets: ['kiro'] },
     observed: REJECTED,
     summary: 'kiro rejects hook items (kiro-cli accepts them)'
   },
   {
-    key: 'G18/I8/copilot-cli@repository',
-    id: 'G18',
+    key: 'copilot-cli-repository-scope/I8/copilot-cli@repository',
+    id: 'copilot-cli-repository-scope',
     invariant: 'I8',
     match: { targets: ['copilot-cli'], scopes: ['repository'] },
     observed: { effectiveScope: 'user' },
     summary: 'target add rewrites copilot-cli repository scope to user'
   },
-  g15('prompt', 'hello-world.prompt'),
-  g15('instruction', 'code-style.instructions'),
-  g15('chat-mode', 'review.chatmode'),
-  g15('agent', 'security.agent'),
-  g15('hook', 'pre-commit.hook'),
-  g15('mcp-server', 'github.mcp'),
-  g15('spec', 'requirements'),
+  manifestIdFileStem('prompt', 'hello-world.prompt'),
+  manifestIdFileStem('instruction', 'code-style.instructions'),
+  manifestIdFileStem('chat-mode', 'review.chatmode'),
+  manifestIdFileStem('agent', 'security.agent'),
+  manifestIdFileStem('hook', 'pre-commit.hook'),
+  manifestIdFileStem('mcp-server', 'github.mcp'),
+  manifestIdFileStem('spec', 'requirements'),
   {
-    key: 'G13/I1/power',
-    id: 'G13',
+    key: 'power-directory-unit/I1/power',
+    id: 'power-directory-unit',
     invariant: 'I1',
     match: { kinds: ['power'] },
     observed: { missingArchivePaths: ['powers/stripe/steering/payments.md'] },
     summary: 'bundle build drops the power directory unit down to POWER.md'
   },
   {
-    key: 'G13/I2/power',
-    id: 'G13',
+    key: 'power-directory-unit/I2/power',
+    id: 'power-directory-unit',
     invariant: 'I2',
     match: { kinds: ['power'] },
     observed: { id: 'POWER', kind: 'power', occurrences: 1 },

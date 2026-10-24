@@ -96,7 +96,7 @@ export const createGovernedReleaseArchive = (
 
 export interface PrimitiveReleaseArchiveOptions {
   revision?: string;
-  /** Item source files left out of both the archive and the inventory (a build drop, e.g. G13). */
+  /** Item source files left out of both the archive and the inventory (a build drop, e.g. the power-directory-unit gap). */
   omitFiles?: readonly string[];
   /** Manifest id per item path; defaults to the item's expectedId. */
   itemIds?: Readonly<Record<string, string>>;
