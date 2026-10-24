@@ -307,6 +307,15 @@ describe('planBundleRelease() plugin items', () => {
     expect(sources.workingTreeOpened).toBe(1);
   });
 
+  it('does not let committed plugin errors block the legacy fallback', async () => {
+    const committed = pluginFiles('plugins/demo/plugin.json', { ...validManifest('demo'), author: 'someone' }, { license: false });
+    const working = pluginFiles('plugins/demo/plugin.json', validManifest('demo'), { license: false });
+    const sources = createSources(committed, working);
+    const result = await plan(sources);
+    expect(result.warnings).toEqual([LEGACY_RELEASE_WARNING]);
+    expect(sources.workingTreeOpened).toBe(1);
+  });
+
   it('appends working-tree plugin warnings after the legacy warning', async () => {
     const committed = pluginFiles('plugins/demo/plugin.json', { ...validManifest('demo'), extra: true }, { license: false });
     const working = pluginFiles('plugins/demo/plugin.json', { ...validManifest('demo'), hooks: 'hooks.json' }, { license: false });

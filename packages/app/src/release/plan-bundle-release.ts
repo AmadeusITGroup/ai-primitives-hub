@@ -6,10 +6,9 @@
  * working-tree release with a warning. The fallback rule and warning text
  * live in core (`isMissingSourceLicenseError`, `LEGACY_RELEASE_WARNING`).
  *
- * Before planning, every `kind: plugin` item is checked against Agent
- * Plugins 1.0.0 (core `validateAgentPluginItem`) on the tree that will be
- * packaged: the committed revision, or the working tree on the legacy
- * fallback. Messages are the ones `collection validate` reports. Fatal
+ * Every `kind: plugin` item is checked against Agent Plugins 1.0.0 (core
+ * `validateAgentPluginItem`) on the tree that is packaged: the committed
+ * revision, or only the working tree on the legacy fallback. Messages are the ones `collection validate` reports. Fatal
  * issues reject with `PLUGIN.INVALID_MANIFEST`; non-fatal issues are
  * returned as warnings.
  * @module release/plan-bundle-release
@@ -204,24 +203,27 @@ export async function planBundleRelease(options: PlanBundleReleaseOptions): Prom
   const revision = sources.openRevision(options.repoRoot);
   revision.catch(() => undefined);
   const revisionFindings = await validatePluginItems(revision, options.repoRoot, options.collectionFile);
-  assertNoFatalPluginIssues(revisionFindings);
-  const warnings: string[] = [];
   let plan: ReleaseManifestPlan;
   try {
     plan = await createReleaseManifestPlan(planOptions, sources);
-    warnings.push(...revisionFindings.warnings);
   } catch (err) {
     if (!isMissingSourceLicenseError(err)) {
+      // Plugin errors of the committed tree take precedence over other planner errors.
+      assertNoFatalPluginIssues(revisionFindings);
       throw err;
     }
+    // The legacy fallback packages the working tree, so committed-tree findings do not apply.
     const workingTreeFindings = await validatePluginItems(
       sources.openWorkingTree(options.repoRoot),
       options.repoRoot,
       options.collectionFile
     );
     assertNoFatalPluginIssues(workingTreeFindings);
-    plan = await createLegacyReleaseManifestPlan(planOptions, sources);
-    warnings.push(LEGACY_RELEASE_WARNING, ...workingTreeFindings.warnings);
+    return {
+      plan: await createLegacyReleaseManifestPlan(planOptions, sources),
+      warnings: [LEGACY_RELEASE_WARNING, ...workingTreeFindings.warnings]
+    };
   }
-  return { plan, warnings };
+  assertNoFatalPluginIssues(revisionFindings);
+  return { plan, warnings: revisionFindings.warnings };
 }
