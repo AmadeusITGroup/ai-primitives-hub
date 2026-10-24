@@ -12,6 +12,9 @@
  *     --description "My custom plugin" --collection my-collection
  * @module commands/plugin-create
  */
+import {
+  rmSync,
+} from 'node:fs';
 import * as path from 'node:path';
 import {
   createPlugin,
@@ -146,6 +149,15 @@ export class PluginCreateCommand extends Command {
           collection.items.push(newItem);
           writeCollection(ctx.cwd(), collectionFile, collection);
         } catch (error) {
+          // Remove only the files this run created, so a rerun is not blocked
+          // by its own plugin.json. Cleanup errors must not mask the write error.
+          for (const file of result.createdFiles) {
+            try {
+              rmSync(file, { force: true });
+            } catch {
+              // Keep reporting the original collection-write error.
+            }
+          }
           renderError(collectionUpdateError(error), ctx);
           return 1;
         }

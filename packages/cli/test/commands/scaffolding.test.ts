@@ -23,6 +23,7 @@ import {
   existsSync,
 } from 'node:fs';
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -231,6 +232,18 @@ describe('scaffolding generator commands', () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('FS.COLLECTION_UPDATE_FAILED');
       expect(existsSync(path.join(workspace, 'plugins'))).toBe(false);
+      expect((await run(['plugin', 'create', 'my-plugin', '--collection', 'foo'])).exitCode).toBe(0);
+    });
+
+    // A read-only file does not stop root from writing, so the write failure
+    // cannot be provoked when the suite runs as root.
+    it.skipIf(process.getuid?.() === 0)('removes the scaffolded files when the collection write fails, so a rerun succeeds', async () => {
+      await chmod(collectionFile(), 0o444);
+      const result = await run(['plugin', 'create', 'my-plugin', '--collection', 'foo']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('FS.COLLECTION_UPDATE_FAILED');
+      expect(existsSync(path.join(workspace, 'plugins', 'my-plugin', 'plugin.json'))).toBe(false);
+      await chmod(collectionFile(), 0o644);
       expect((await run(['plugin', 'create', 'my-plugin', '--collection', 'foo'])).exitCode).toBe(0);
     });
 
