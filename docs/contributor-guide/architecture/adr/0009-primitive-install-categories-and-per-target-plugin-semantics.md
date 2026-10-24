@@ -63,8 +63,11 @@ migration from today's per-kind code.
 Constraints carried in from earlier decisions and from #277:
 
 - The legacy `.github/plugin/plugin.json` layout is not supported. A plugin is
-  a directory whose root holds `plugin.json`, with `name` equal to the
-  directory name (enforced by `validateAgentPluginItem`,
+  a directory whose root holds `plugin.json`. APH also requires `name` to
+  equal the directory name, because the plugin is bundled and installed
+  under that name. This is an APH packaging rule, stricter than the Agent
+  Plugins spec, which does not tie `name` to the directory (enforced by
+  `validateAgentPluginItem`,
   `packages/core/src/domain/plugin/agent-plugin-spec.ts`).
 - Install stays all-or-nothing by default. Partial install is opt-in only
   (`install --skip-unsupported`, #550).
@@ -261,11 +264,14 @@ Follow-up work is named by the step labels of the
        collision; the same output in the CLI and the extension; and, in the
        sanitised form, a bundle segment that matches exactly one encoded
        `bundleId`. In the sanitised form each segment is lowercased, every
-       character outside `[a-z0-9-]` becomes `-`, and a segment this changed
-       gets `-` plus the first 8 hex characters of the sha256 of the
-       original segment. Encoded segments contain no `_`, so `__` separates
-       them without ambiguity. The default form keeps the extension's rule
-       unchanged. PR-13 fixes the exact algorithm against these invariants.
+       character outside `[a-z0-9-]` becomes `-`, and a segment this changed,
+       or one that already ends in `-` plus 8 hex characters, gets `-` plus
+       the first 8 hex characters of the sha256 of the original segment. So
+       an unchanged segment never looks like an encoded one, and two
+       different segments encode alike only on a hash collision. Encoded
+       segments contain no `_`, so `__` separates them without ambiguity.
+       The default form keeps the extension's rule unchanged, so its
+       distinctness guarantee holds only for a `bundleId` without `:`. PR-13 fixes the exact algorithm against these invariants.
      - If the target has a length limit, the part after
        `prompt-registry__<encoded bundleId>__` is cut to fit and the name
        ends with `__` plus the first 8 hex characters of the sha256 of the
@@ -279,7 +285,10 @@ Follow-up work is named by the step labels of the
        separator and removes it only when its bundle segment equals this
        bundle's (encoded) `bundleId`. In the default form the fallback is
        disabled for a `bundleId` that contains `:`; such a bundle relies on
-       `configEntries` alone.
+       `configEntries` alone. If an extension rewrite dropped that field
+       before VS Code parity (#551), the bundle's MCP entries stay in the
+       target config after uninstall. This residual case is accepted until
+       parity.
      - The CLI and the extension call the same helper with the same
        dialect, so they write the same names on the same target.
    - **Placeholders.** APH expands `${PLUGIN_ROOT}` to the installed plugin
@@ -544,8 +553,10 @@ baseline everywhere.
 ### Open questions
 
 - **O2 — which harnesses discover `<base>/plugins/<id>/`?** Answered: none of
-  the 11 targets documents the directory APH writes today (plugin semantics
-  table). Whether VS Code or Copilot pick up a directory placed by hand in
+  the 11 targets documents the directory APH writes today as an Agent Plugin
+  location (plugin semantics table). On opencode, `.opencode/plugins/` is
+  OpenCode's JavaScript plugin directory, so the route collides and moves
+  (decision 7). Whether VS Code or Copilot pick up a directory placed by hand in
   `~/.copilot/installed-plugins/_direct/` without CLI metadata is UNVERIFIED;
   the docs say not to edit that state by hand ([Copilot CLI config dir][cop-config]).
 - **O3 — kiro plugins and hooks.** Answered: hooks get a `hooks/` route at both
