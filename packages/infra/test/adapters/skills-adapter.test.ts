@@ -414,5 +414,29 @@ describe('SkillsAdapter', () => {
       const result = await makeAdapter({ githubApi: api }).validate();
       expect(result).toEqual({ valid: true, errors: [], warnings: [], bundlesFound: 1 });
     });
+
+    it('fetchCatalog() reuses the recursive git tree from validate() without downloading individual SKILL.md files', async () => {
+      const api = new FakeGitHubApi()
+        .seedJson('/repos/owner/repo', { name: 'repo' })
+        .seedJson('/repos/owner/repo/contents/skills', [])
+        .seedJson(TREE_PATH, {
+          tree: [
+            { path: 'skills/webapp-testing/SKILL.md', type: 'blob', sha: 's1' },
+            { path: 'skills/mcp-builder/SKILL.md', type: 'blob', sha: 's2' }
+          ]
+        });
+
+      const adapter = makeAdapter({ githubApi: api });
+      const validation = await adapter.validate();
+      expect(validation.valid).toBe(true);
+      expect(validation.bundlesFound).toBe(2);
+
+      const catalog = await adapter.fetchCatalog();
+      expect(catalog.map((c) => c.id)).toEqual([
+        'skills-owner-repo-webapp-testing',
+        'skills-owner-repo-mcp-builder'
+      ]);
+      expect(catalog.every((c) => c.version.startsWith('hash:'))).toBe(true);
+    });
   });
 });

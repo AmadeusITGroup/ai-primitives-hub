@@ -355,4 +355,36 @@ describe('GitHubAdapter', () => {
       expect(result.bundlesFound).toBe(0);
     });
   });
+
+  describe('fetchCatalog', () => {
+    it('derives catalog entries from <collectionId>-v<semver> tags without downloading manifests and reuses cached releases from validate()', async () => {
+      const api = new FakeGitHubApi()
+        .seedJson(REPO_PATH, { name: 'repo' })
+        .seedJson(RELEASES_PATH, [
+          makeRelease({
+            tag_name: 'workflow-nevio-v2.0.8',
+            assets: [
+              { name: 'deployment-manifest.yml', browser_download_url: '', url: MANIFEST_ASSET_URL, size: 128 },
+              { name: 'workflow-nevio.bundle.zip', browser_download_url: '', url: BUNDLE_ASSET_URL, size: 4096 }
+            ]
+          })
+        ]);
+      const recordingApi = new RecordingGitHubApi(api);
+      const adapter = new GitHubAdapter(makeSource(), recordingApi);
+
+      const validation = await adapter.validate();
+      expect(validation.valid).toBe(true);
+
+      const catalog = await adapter.fetchCatalog();
+      expect(catalog).toEqual([
+        {
+          id: 'owner-repo-workflow-nevio-2.0.8',
+          version: '2.0.8'
+        }
+      ]);
+      expect(recordingApi.countOf('getText')).toBe(0);
+      // Only 2 getJson calls total (/repos/owner/repo and /repos/owner/repo/releases during validate)
+      expect(recordingApi.countOf('getJson')).toBe(2);
+    });
+  });
 });
