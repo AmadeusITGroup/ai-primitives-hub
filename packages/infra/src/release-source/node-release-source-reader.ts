@@ -10,6 +10,11 @@
  * stderr-suffixed error messages, and `Dirent#isFile()` filtering (symlinks
  * are not listed from the working tree).
  *
+ * `isExecutable` reports Git mode `100755` for a revision (from one
+ * `git ls-tree` per opened tree) and the owner execute bit for the working
+ * tree. Committed symlinks (`120000`) are still listed and read as regular
+ * files holding the link target, and are never executable.
+ *
  * Deliberate divergence from lib: git output is not capped at Node's 1 MiB
  * default `maxBuffer` (lib failed on larger committed assets with a misleading
  * "not present at revision" error), and spawn errors are reported as such.
@@ -79,6 +84,29 @@ const listGitTreeFiles = (repoRoot: string, revision: string, repositoryDirector
     .filter((entry) => normalizedDirectory === '.' || entry === normalizedDirectory || entry.startsWith(`${normalizedDirectory}/`));
 };
 
+/** Git tree mode of an executable regular file. */
+const GIT_EXECUTABLE_MODE = '100755';
+
+/**
+ * Read the Git mode of every file at a revision from one `git ls-tree` call.
+ * Records are `<mode> SP <type> SP <oid> TAB <path>`, NUL-terminated
+ * (`--format` needs Git 2.36+, so the default layout is parsed).
+ * @param repoRoot - Repository root.
+ * @param revision - Immutable commit id.
+ * @returns Mode (`100644`, `100755`, `120000`, ...) keyed by normalized path.
+ */
+const readGitTreeModes = (repoRoot: string, revision: string): Map<string, string> => {
+  const modes = new Map<string, string>();
+  for (const record of runGit(repoRoot, ['ls-tree', '-r', '-z', revision]).split('\0')) {
+    const tab = record.indexOf('\t');
+    if (tab > 0) {
+      const mode = record.slice(0, tab).split(' ')[0];
+      modes.set(normalizeRepoRelativePath(record.slice(tab + 1)), mode);
+    }
+  }
+  return modes;
+};
+
 const listWorkingTreeFiles = (directory: string, repoRoot: string): string[] => {
   const files: string[] = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -98,11 +126,17 @@ export class NodeReleaseSourceReader implements ReleaseSourceReader {
     return settle(() => {
       const output = runGit(repoRoot, ['rev-parse', '--verify', `${revision}^{commit}`]);
       const commit = assertImmutableRevision(output.trim());
+      // One `ls-tree` per opened revision, read on first use.
+      let modes: Map<string, string> | undefined;
       return {
         revision: commit,
         readFile: (repositoryPath: string) => settle(() => readGitBlob(repoRoot, commit, repositoryPath)),
         listFiles: (repositoryDirectory: string) =>
-          settle(() => listGitTreeFiles(repoRoot, commit, repositoryDirectory))
+          settle(() => listGitTreeFiles(repoRoot, commit, repositoryDirectory)),
+        isExecutable: (repositoryPath: string) => settle(() => {
+          modes ??= readGitTreeModes(repoRoot, commit);
+          return modes.get(normalizeRepoRelativePath(repositoryPath)) === GIT_EXECUTABLE_MODE;
+        })
       };
     });
   }
@@ -117,6 +151,19 @@ export class NodeReleaseSourceReader implements ReleaseSourceReader {
           return [];
         }
         return listWorkingTreeFiles(directory, repoRoot);
+      }),
+      // Git's rule for recording 100755: the owner execute bit of a regular
+      // file. `lstat` keeps symlinks non-executable; absent paths are false.
+      // Windows has no execute bit, so nothing there is executable.
+      isExecutable: (repositoryPath) => settle(() => {
+        if (process.platform === 'win32') {
+          return false;
+        }
+        const stats = fs.lstatSync(path.join(repoRoot, normalizeRepoRelativePath(repositoryPath)), {
+          throwIfNoEntry: false
+        });
+        // eslint-disable-next-line no-bitwise -- POSIX permission bits
+        return stats?.isFile() === true && (stats.mode & 0o100) !== 0;
       })
     };
   }

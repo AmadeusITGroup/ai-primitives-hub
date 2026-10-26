@@ -116,6 +116,45 @@ describe('NodeReleaseSourceReader', () => {
       );
     });
 
+    it('reports committed 100755 files as executable', async () => {
+      writeFile(repo, 'skills/example/scripts/run.sh', '#!/bin/sh\necho run\n');
+      git(repo, ['add', '.']);
+      git(repo, ['update-index', '--chmod=+x', 'skills/example/scripts/run.sh']);
+      git(repo, ['commit', '-m', 'Executable script']);
+
+      const tree = await reader.openRevision(repo);
+      expect(await tree.isExecutable?.('skills/example/scripts/run.sh')).toBe(true);
+      expect(await tree.isExecutable?.('skills/example/SKILL.md')).toBe(false);
+      expect(await tree.isExecutable?.('LICENSE')).toBe(false);
+    });
+
+    it.skipIf(process.platform === 'win32')('reads the committed mode, not the working-tree mode', async () => {
+      fs.chmodSync(path.join(repo, 'skills/example/SKILL.md'), 0o755);
+      const tree = await reader.openRevision(repo);
+      expect(await tree.isExecutable?.('skills/example/SKILL.md')).toBe(false);
+    });
+
+    it('keeps committed symlinks as non-executable regular entries', async () => {
+      // Stage a 120000 entry directly so the test needs no filesystem symlink support.
+      const oid = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+        cwd: repo,
+        input: '../SKILL.md',
+        encoding: 'utf8'
+      }).trim();
+      git(repo, ['update-index', '--add', '--cacheinfo', `120000,${oid},skills/example/link.md`]);
+      git(repo, ['commit', '-m', 'Symlink']);
+
+      const tree = await reader.openRevision(repo);
+      expect(await tree.listFiles('skills/example')).toContain('skills/example/link.md');
+      expect(decode(await tree.readFile('skills/example/link.md'))).toBe('../SKILL.md');
+      expect(await tree.isExecutable?.('skills/example/link.md')).toBe(false);
+    });
+
+    it('reports a path absent at the revision as not executable', async () => {
+      const tree = await reader.openRevision(repo);
+      expect(await tree.isExecutable?.('skills/example/missing.sh')).toBe(false);
+    });
+
     it('rejects outside a Git repository', async () => {
       const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'release-source-plain-'));
       try {
@@ -155,6 +194,28 @@ describe('NodeReleaseSourceReader', () => {
         'skills/example/untracked.md'
       ]);
       expect(await tree.listFiles('skills/missing')).toEqual([]);
+    });
+
+    it.skipIf(process.platform === 'win32')('reports the owner execute bit of working-tree files', async () => {
+      const file = path.join(repo, 'skills/example/SKILL.md');
+      const tree = reader.openWorkingTree(repo);
+      fs.chmodSync(file, 0o755);
+      expect(await tree.isExecutable?.('skills/example/SKILL.md')).toBe(true);
+      fs.chmodSync(file, 0o644);
+      expect(await tree.isExecutable?.('skills/example/SKILL.md')).toBe(false);
+    });
+
+    it.skipIf(process.platform === 'win32')('never reports a working-tree symlink as executable', async () => {
+      writeFile(repo, 'skills/example/scripts/run.sh', '#!/bin/sh\necho run\n');
+      fs.chmodSync(path.join(repo, 'skills/example/scripts/run.sh'), 0o755);
+      fs.symlinkSync('scripts/run.sh', path.join(repo, 'skills/example/link.sh'));
+      const tree = reader.openWorkingTree(repo);
+      expect(await tree.isExecutable?.('skills/example/scripts/run.sh')).toBe(true);
+      expect(await tree.isExecutable?.('skills/example/link.sh')).toBe(false);
+    });
+
+    it('reports an absent working-tree path as not executable', async () => {
+      expect(await reader.openWorkingTree(repo).isExecutable?.('skills/example/missing.sh')).toBe(false);
     });
   });
 });
