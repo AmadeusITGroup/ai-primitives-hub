@@ -39,6 +39,16 @@ export type {
   RecordedBundleFile,
 } from './target-write';
 
+export {
+  writeBundleForInstall,
+} from './partial-target-write';
+
+export type {
+  BundleInstallWrite,
+  SkippedBundleContent,
+  WriteBundleForInstallOptions,
+} from './partial-target-write';
+
 export type {
   InstallOutcome,
   InstallPipelineOptions,
