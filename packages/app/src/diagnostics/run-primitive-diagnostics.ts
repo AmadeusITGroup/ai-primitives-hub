@@ -347,12 +347,19 @@ export async function runPrimitiveDiagnostics(
       }
     });
     await setupStep('fixture', async () => {
-      for (const [file, { bytes }] of buildPrimitiveFixture()) {
+      const executableFiles: string[] = [];
+      for (const [file, { bytes, mode }] of buildPrimitiveFixture()) {
         const absolute = path.join(fixture.cwd, file);
         await fs.mkdir(path.dirname(absolute), { recursive: true });
         await fs.writeFileBytes(absolute, bytes);
+        if (mode === 0o755) {
+          executableFiles.push(file);
+        }
       }
-      await driver.commitFixtureRepository(fixture, { remoteUrl: PRIMITIVE_FIXTURE_REPOSITORY_URL });
+      await driver.commitFixtureRepository(fixture, {
+        remoteUrl: PRIMITIVE_FIXTURE_REPOSITORY_URL,
+        executableFiles: executableFiles.toSorted()
+      });
     });
 
     // 4. Bundles, sequentially, in plan order.

@@ -246,7 +246,7 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
     return Promise.resolve({ ...sandbox, roots: sandboxRoots(sandbox), storage: new XdgAppStorage(env).getPaths(), userDirs });
   }
 
-  public commitFixtureRepository(sandbox: DiagnosticSandbox, input: { remoteUrl: string }): Promise<void> {
+  public commitFixtureRepository(sandbox: DiagnosticSandbox, input: { remoteUrl: string; executableFiles: readonly string[] }): Promise<void> {
     this.calls.push({ method: 'commitFixtureRepository', input, root: sandbox.root });
     return this.commitError === undefined ? Promise.resolve() : Promise.reject(this.commitError);
   }

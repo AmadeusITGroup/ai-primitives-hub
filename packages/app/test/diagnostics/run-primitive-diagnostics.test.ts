@@ -153,9 +153,13 @@ describe('runPrimitiveDiagnostics', () => {
         expect(mkdirCall, file).toBeGreaterThanOrEqual(0);
         expect(mkdir.mock.invocationCallOrder[mkdirCall]).toBeLessThan(write.mock.invocationCallOrder[writeCall]);
       }
-      expect(h.driver.callsOf('commitFixtureRepository')).toEqual([
-        { method: 'commitFixtureRepository', input: { remoteUrl: PRIMITIVE_FIXTURE_REPOSITORY_URL }, root: path.join(WORKSPACE, 'fixture') }
-      ]);
+      const executableFiles = [...buildPrimitiveFixture()].filter(([, file]) => file.mode === 0o755).map(([file]) => file).toSorted();
+      expect(executableFiles).toContain('skills/standalone-skill/scripts/run.sh');
+      expect(h.driver.callsOf('commitFixtureRepository')).toEqual([{
+        method: 'commitFixtureRepository',
+        input: { remoteUrl: PRIMITIVE_FIXTURE_REPOSITORY_URL, executableFiles },
+        root: path.join(WORKSPACE, 'fixture')
+      }]);
     });
 
     it('materialises each bundle once and installs by catalogue id from it', async () => {

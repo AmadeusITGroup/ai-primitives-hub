@@ -167,7 +167,7 @@ export const createInProcessPrimitiveDriver = (
     },
     // A git failure throws inside the executor, so it surfaces as a rejection.
     commitFixtureRepository: (sandbox, input): Promise<void> => new Promise((resolve) => {
-      initializeGitRepository(sandbox.cwd, envFor(sandbox), input.remoteUrl);
+      initializeGitRepository(sandbox.cwd, envFor(sandbox), input.remoteUrl, input.executableFiles);
       resolve();
     }),
     validateCollection: (sandbox, input) =>

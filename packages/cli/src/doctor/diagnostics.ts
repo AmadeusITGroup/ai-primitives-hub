@@ -554,11 +554,14 @@ const prepareWorkspace = async (
  * @param workspace Diagnostic workspace.
  * @param env Sandboxed diagnostic environment.
  * @param remoteUrl URL recorded as `origin` (never contacted).
+ * @param executableFiles Workspace-relative files recorded as executable
+ * (`100755`) whatever their mode on disk, as on every OS.
  */
 export const initializeGitRepository = (
   workspace: string,
   env: Record<string, string | undefined>,
-  remoteUrl = 'https://github.com/example/diagnostic-collection.git'
+  remoteUrl = 'https://github.com/example/diagnostic-collection.git',
+  executableFiles: readonly string[] = []
 ): void => {
   const runGit = (args: string[]): void => {
     const result = spawnSync('git', args, {
@@ -579,6 +582,9 @@ export const initializeGitRepository = (
   runGit(['config', 'commit.gpgsign', 'false']);
   runGit(['remote', 'add', 'origin', remoteUrl]);
   runGit(['add', '.']);
+  if (executableFiles.length > 0) {
+    runGit(['update-index', '--chmod=+x', '--', ...executableFiles]);
+  }
   runGit(['commit', '-m', 'diagnostic governed collection']);
 };
 
