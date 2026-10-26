@@ -451,6 +451,37 @@ suite('Marketplace webview behavior', () => {
     }
   });
 
+  for (const populated of [false, true]) {
+    test(`acknowledges an existing hub during incomplete setup with ${populated ? 'populated' : 'empty'} bundles`, () => {
+      const harness = createHarness();
+      try {
+        const { document } = harness.dom.window;
+        harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+          data: {
+            type: 'bundlesLoaded',
+            bundles: populated ? [makeBundle()] : [],
+            setupState: 'incomplete',
+            sourcesCount: 1,
+            hasConfiguredHub: true
+          }
+        }));
+
+        assert.strictEqual(document.querySelector('.empty-state p')?.textContent,
+          'A hub is configured, but setup is not complete. Configure your hub to continue.');
+        const configureHub = document.querySelector('[data-action="completeSetup"]') as unknown as {
+          textContent: string;
+          click: () => void;
+        };
+        assert.strictEqual(configureHub?.textContent, 'Configure Hub');
+        configureHub.click();
+        assert.ok(harness.messages.some((message) => message.type === 'completeSetup'));
+        assert.strictEqual(document.querySelectorAll('.bundle-card').length, populated ? 1 : 0);
+      } finally {
+        harness.dom.window.close();
+      }
+    });
+  }
+
   test('shows the setup banner when setup is incomplete even with populated bundles', () => {
     const harness = createHarness();
     try {

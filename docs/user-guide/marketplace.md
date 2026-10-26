@@ -18,6 +18,8 @@ For previously completed or interrupted setup, click **Configure Hub** to choose
 a hub. The banner appears after your existing skill and bundle cards.
 Adding a standalone source does not configure a hub. The banner is cleared once
 a hub is active and setup is complete.
+If a hub is already active but setup was interrupted, the banner acknowledges
+the configured hub; click **Configure Hub** to resume setup.
 
 The marketplace builds the primitive index on demand when you search. To start a
 rebuild explicitly, open the Command Palette and run **AI Primitives Hub:

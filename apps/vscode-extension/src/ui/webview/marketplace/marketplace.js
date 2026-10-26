@@ -1051,6 +1051,8 @@
       setupMessage = 'No sources are configured. Add a source to browse bundles.';
     } else if (hasNoSources) {
       setupMessage = 'No sources are configured. Complete setup to browse bundles.';
+    } else if (hasConfiguredHub === true) {
+      setupMessage = 'A hub is configured, but setup is not complete. Configure your hub to continue.';
     } else if (isInitialSetup) {
       setupMessage = 'No hub is configured. Complete setup to browse bundles.';
     } else {
@@ -1085,7 +1087,9 @@
 
         var emptySetupMessage = hasNoSources
           ? 'No sources are configured. Complete setup to browse bundles.'
-          : 'No hub is configured. Complete setup to browse bundles.';
+          : (hasConfiguredHub === true
+            ? setupMessage
+            : 'No hub is configured. Complete setup to browse bundles.');
 
         marketplace.innerHTML = shouldShowSetupPrompt
           ? '<div class="empty-state">'
