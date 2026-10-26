@@ -243,3 +243,67 @@ items:
     ]);
   });
 });
+describe('kind/route mismatch', () => {
+  const COLLECTION = 'collections/foo.collection.yml';
+  const NESTED_SKILL = 'plugins/p/skills/s/SKILL.md';
+  const mismatch = (itemPath: string, declaredKind: string, routeKind: string, routePrefix: string): string =>
+    `${COLLECTION}: items[0] ${itemPath}: kind "${declaredKind}" differs from the kind "${routeKind}" `
+    + `of the install route "${routePrefix}" that this path matches`;
+  const writeItem = (itemPath: string): void => {
+    fs.mkdirSync(path.dirname(path.join(tempDir, itemPath)), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, itemPath), '# Item\n');
+  };
+  const collectionWith = (itemPath: string, kind: string): string => {
+    writeItem(itemPath);
+    fs.writeFileSync(path.join(tempDir, 'README.md'), '# Foo\n');
+    return writeCollection(`id: foo
+name: Foo
+readme:
+  path: README.md
+items:
+  - path: ${itemPath}
+    kind: ${kind}
+`);
+  };
+
+  it.fails('warns when a skill sits below the plugin route', () => {
+    const result = validateCollectionFile(tempDir, collectionWith(NESTED_SKILL, 'skill'));
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([mismatch(NESTED_SKILL, 'skill', 'plugin', 'plugins/')]);
+  });
+
+  it.fails('warns for a kind that differs only in case, quoting the declared spelling', () => {
+    const result = validateCollectionFile(tempDir, collectionWith(NESTED_SKILL, 'Skill'));
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([mismatch(NESTED_SKILL, 'Skill', 'plugin', 'plugins/')]);
+  });
+
+  it.each([
+    ['prompts/x.prompt.md', 'prompt'],
+    ['chatmodes/x.chatmode.md', 'chat-mode'],
+    ['.kiro/steering/x.md', 'steering']
+  ])('does not warn when %s matches its kind %s', (itemPath, kind) => {
+    const result = validateCollectionFile(tempDir, collectionWith(itemPath, kind));
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it.each([
+    ['mcp-servers/x.mcp.json', 'mcp-server'],
+    ['.github/prompts/x.prompt.md', 'prompt']
+  ])('does not warn for the unrouted path %s', (itemPath, kind) => {
+    const result = validateCollectionFile(tempDir, collectionWith(itemPath, kind));
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it.each([
+    ['skills', 'Invalid item kind \'skills\''],
+    ['chatmode', 'Item kind \'chatmode\' is deprecated']
+  ])('reports only the existing error for the invalid kind %s', (kind, error) => {
+    const result = validateCollectionFile(tempDir, collectionWith(NESTED_SKILL, kind));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([expect.stringContaining(error)]);
+    expect(result.warnings).toEqual([]);
+  });
+});
