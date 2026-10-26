@@ -60,6 +60,7 @@ Without `--primitives`, the command runs an end-to-end smoke test in a throwaway
 
 - `--kinds`, `--targets` and `--scopes` (`user`, `repository`) take comma-separated values and narrow the cases. They are only valid with `--primitives`. An unknown value, an empty list or a filter that matches no case fails with `USAGE.INVALID_FLAG` before anything is written.
 - Each bundle and case is reported as `pass`, `known-gap` (a failure the product is known to have today, matched exactly) or `fail`. Known gaps that no longer occur are listed as unused (`[WARN]` in text output) and do not fail the run.
+- A bundle's `I0` check carries the kind/route mismatch warnings of `collection validate` (see [Kind and Path](../author-guide/validation.md#kind-and-path)) as `warnings`; text output prints each one as a `warning:` line under its bundle. They do not change the outcome.
 - The exit code is 0 when nothing fails, 1 otherwise. `-o json|yaml|ndjson` prints the full report; `--retain-workspace` keeps the workspace for inspection.
 
 ## Bundle Management

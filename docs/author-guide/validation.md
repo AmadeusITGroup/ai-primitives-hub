@@ -14,7 +14,8 @@ Validates all `.collection.yml` files in your `collections/` directory, includin
 
 From a terminal, run `ai-primitives-hub collection validate` in the repository
 root (or `--collection-file collections/<id>.collection.yml` for one file).
-The CLI also checks plugin manifests, described in [Plugin Manifests](#plugin-manifests).
+The CLI also checks plugin manifests, described in [Plugin Manifests](#plugin-manifests),
+and that each item's kind fits its path, described in [Kind and Path](#kind-and-path).
 
 ## What Gets Validated
 
@@ -28,6 +29,7 @@ The CLI also checks plugin manifests, described in [Plugin Manifests](#plugin-ma
 | Duplicate IDs | No two collections share the same ID |
 | Duplicate names | No two collections share the same name |
 | Plugin manifests | `kind: plugin` items point to the plugin's root `plugin.json`, which passes the Agent Plugins 1.0.0 checks (CLI `collection validate` and `bundle build`) |
+| Kind and path | An item's `kind` matches the kind of the install folder its path is under (CLI `collection validate`, warning only) |
 
 ## Plugin Manifests
 
@@ -73,6 +75,22 @@ no license file is committed):
 Fixes you have not committed are not seen. Commit `plugin.json` and rebuild, or run
 `collection validate` to check the working tree first.
 
+## Kind and Path
+
+Most targets install a file by the folder it sits in, not by its declared `kind`:
+a file under `prompts/` installs as a prompt, a file under `plugins/` as part of a
+plugin, a file under `.kiro/steering/` as steering. `ai-primitives-hub collection validate`
+warns when an item's `kind` differs from the kind of the folder its path matches:
+
+```text
+warning: collections/my.collection.yml: items[0] plugins/my-plugin/skills/review/SKILL.md: kind "skill" differs from the kind "plugin" of the install route "plugins/" that this path matches
+```
+
+The item is still valid, but on those targets it is not installed as the kind you
+declared. Move the file to the folder of its kind (for a skill, `skills/<name>/SKILL.md`)
+or declare the kind of the folder it is in. Paths outside every known install folder
+are not checked. The check is not run for an invalid `kind`, which is already an error.
+
 ## Common Errors
 
 **Missing required field**
@@ -111,6 +129,9 @@ Fixes you have not committed are not seen. Commit `plugin.json` and rebuild, or 
 
 **Plugin: unknown top-level field "…" is ignored** (warning)
 → Remove the field or move client-specific data under `extensions`
+
+**kind "…" differs from the kind "…" of the install route "…"** (warning)
+→ Move the file under the folder of its declared kind, or change `kind` to match its folder; see [Kind and Path](#kind-and-path)
 
 ## See Also
 

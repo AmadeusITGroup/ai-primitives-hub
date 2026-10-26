@@ -57,6 +57,8 @@ graph TD
   - `discovery/` - Discovery types
   - `hub/` - Hub configuration types and validation
   - `install/` - Installation types (`Target`, `Installable`, `CopilotFileType`, layout, transforms)
+    - `category.ts` - Install categories (`InstallCategory`: `file`, `directory`, `config`), the kind → category table and `categoryOf`
+    - `kind-route.ts` - Layout route kinds: `ROUTE_PREFIX_KINDS`, `routeKindOf`, `matchKindRoute`, and the kind/route mismatch helpers `findKindRouteMismatch` and `formatKindRouteMismatch`
   - `primitive/` - Primitive types
   - `registry/` - Registry configuration types, guards, and settings
   - `scaffold/` - Scaffolding types
@@ -69,6 +71,7 @@ graph TD
   - `bundle-downloader.ts`, `bundle-extractor.ts`, `source-adapter.ts`, `source-resolver.ts`
   - `release-source.ts` (Git revision tree, working tree, executable bit, and `origin` remote read by release planning)
   - `target-writer.ts`, `layout-config-loader.ts`, `resource-transformer.ts`
+  - `repository-exclusion.ts` (`RepositoryExclusion`: keeps `local-only` repository installs out of version control)
   - `app-storage.ts` (universal XDG-based storage abstraction)
   - `registry-operations.ts`, `update-notifier.ts`, `update-store.ts`, `telemetry.ts`
 - `public/` - Public APIs and schemas
@@ -115,6 +118,8 @@ graph TD
 - `telemetry/` - Telemetry and optional Elasticsearch transport
 - `transports/` - Telemetry transport abstractions
 - `writers/` - Per-target file writing (`FileTreeTargetWriter`) and `default-layouts.json`
+  - `repo-scope-writer.ts` - `RepositoryScopeWriter` for VS Code / Copilot repository scope
+  - `git-info-exclude.ts` - `GitInfoExclude`, the `RepositoryExclusion` adapter over `.git/info/exclude`
 
 **Exports**:
 - `TEMPLATE_ROOT` / `TEMPLATE_PATHS` - Template directory paths
