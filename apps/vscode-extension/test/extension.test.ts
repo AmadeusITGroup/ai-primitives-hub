@@ -130,9 +130,13 @@ suite('PromptRegistryExtension first-run hub selector', () => {
     });
 
     assert.strictEqual(configured, false);
-    assert.strictEqual(showErrorStub.callCount, 1);
-    assert.match(showErrorStub.firstCall.args[0], /github\/awesome-copilot/);
-    assert.match(showErrorStub.firstCall.args[0], /connection timed out/);
+    assert.strictEqual(showErrorStub.callCount, 2);
+    const notificationMessages = showErrorStub.getCalls().map((call) => String(call.args[0]));
+    assert.ok(notificationMessages.some((message) => /Amadeus-xDLC\/genai\.prompt-registry-config/.test(message)));
+    assert.ok(notificationMessages.some((message) => /AmadeusITGroup\/prompt-registry-config/.test(message)));
+    notificationMessages.forEach((message) => {
+      assert.match(message, /connection timed out/);
+    });
     assert.strictEqual(executeCommandStub.called, false);
 
     const items = showQuickPickStub.firstCall.args[0] as { label: string }[];
