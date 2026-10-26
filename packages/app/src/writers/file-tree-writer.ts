@@ -26,7 +26,6 @@ import type {
   CopilotFileType,
   ExtractedFile,
   ExtractedFiles,
-  KindRoutes,
   LayoutConfigLoader,
   PrimitiveKind,
   ResourceTransformer,
@@ -43,8 +42,10 @@ import {
   expandPath,
   getSkillName,
   getTargetFileName,
+  matchKindRoute,
   normalizePrimitiveKind,
   normalizePromptId,
+  routeKindOf,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -223,12 +224,12 @@ export class FileTreeTargetWriter implements TargetWriter {
       if (skip.has(bundlePath)) {
         continue;
       }
-      const route = pickRoute(bundlePath, layout.kindRoutes);
+      const route = matchKindRoute(bundlePath, layout.kindRoutes);
       if (route === null) {
         skipped.push(bundlePath);
         continue;
       }
-      const routeKind = routeToKind(route.prefix);
+      const routeKind = routeKindOf(route.prefix);
       if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
         skipped.push(bundlePath);
         continue;
@@ -269,14 +270,14 @@ export class FileTreeTargetWriter implements TargetWriter {
         if (skip.has(bundlePath)) {
           continue;
         }
-        const route = pickRoute(bundlePath, layout.kindRoutes);
+        const route = matchKindRoute(bundlePath, layout.kindRoutes);
         if (route === null) {
           // Unrouted file; not an error (bundles may carry extras).
           skipped.push(bundlePath);
           continue;
         }
         // Skip when allowedKinds explicitly excludes this kind.
-        const routeKind = routeToKind(route.prefix);
+        const routeKind = routeKindOf(route.prefix);
         if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
           skipped.push(bundlePath);
           continue;
@@ -514,7 +515,7 @@ export class FileTreeTargetWriter implements TargetWriter {
       if (file.installedPath !== undefined) {
         return path.posix.normalize(file.installedPath.replaceAll('\\', '/'));
       }
-      const route = pickRoute(file.path, layout.kindRoutes);
+      const route = matchKindRoute(file.path, layout.kindRoutes);
       return route === null
         ? null
         : path.posix.normalize(path.posix.join(route.outPrefix.replaceAll('\\', '/'), route.tail));
@@ -537,7 +538,7 @@ export class FileTreeTargetWriter implements TargetWriter {
       await this.opts.fs.remove(resolveInstalledPath(baseDir, installedPath));
       return;
     }
-    const route = pickRoute(filePath, layout.kindRoutes);
+    const route = matchKindRoute(filePath, layout.kindRoutes);
     if (route === null) {
       return; // Unrouted file, nothing to do
     }
@@ -714,77 +715,6 @@ const resolveInstalledPath = (baseDir: string, installedPath: string): string =>
     throw new Error(`installed path "${installedPath}" is outside the target directory`);
   }
   return outPath;
-};
-
-interface PickedRoute {
-  prefix: string;
-  outPrefix: string;
-  tail: string;
-}
-
-const pickRoute = (bundlePath: string, routes: KindRoutes): PickedRoute | null => {
-  const normalizedBundlePath = normalizeBundlePath(bundlePath);
-  const sorted = Object.entries(routes).toSorted((a, b) => b[0].length - a[0].length);
-  for (const [prefix, outPrefix] of sorted) {
-    if (normalizedBundlePath.startsWith(prefix)) {
-      return { prefix, outPrefix, tail: normalizedBundlePath.slice(prefix.length) };
-    }
-  }
-  return null;
-};
-
-/**
- * Normalize legacy bundle directory aliases before route matching.
- *
- * `chatmodes/` was the historical authoring path while the canonical
- * vocabulary uses `chat-modes/`. Keep accepting both on disk without
- * duplicating aliases in every target layout. The original path remains in
- * lockfile/checksum data; only the routing view is normalized.
- * @param bundlePath
- */
-const normalizeBundlePath = (bundlePath: string): string =>
-  bundlePath.startsWith('chatmodes/')
-    ? `chat-modes/${bundlePath.slice('chatmodes/'.length)}`
-    : bundlePath;
-
-/**
- * Map a layout prefix back to the primitive kind it represents.
- * Used to honor `target.allowedKinds`.
- * @param prefix - Layout prefix (e.g., "prompts/").
- * @returns Kind name without trailing slash.
- */
-const ROUTE_PREFIX_KINDS: Record<string, PrimitiveKind> = {
-  '.kiro/steering/': 'steering',
-  '.kiro/specs/': 'spec',
-  '.claude/commands/': 'command',
-  '.claude/output-styles/': 'output-style',
-  '.cursor/rules/': 'rule',
-  '.cursor/agents/': 'agent',
-  '.cursor/skills/': 'skill',
-  '.cursor/commands/': 'command',
-  '.opencode/tools/': 'tool',
-  '.opencode/commands/': 'command',
-  '.opencode/agents/': 'agent',
-  '.opencode/skills/': 'skill',
-  '.opencode/rules/': 'rule',
-  '.opencode/hooks/': 'hook',
-  '.opencode/plugins/': 'plugin',
-  '.devin/knowledge/': 'knowledge',
-  '.devin/playbooks/': 'playbook',
-  '.devin/powers/': 'power',
-  '.devin/prompts/': 'prompt',
-  '.devin/instructions/': 'instruction',
-  '.devin/agents/': 'agent',
-  '.devin/skills/': 'skill',
-  '.devin/hooks/': 'hook',
-  '.devin/plugins/': 'plugin'
-};
-
-const routeToKind = (prefix: string): PrimitiveKind | null => {
-  const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
-  return normalizePrimitiveKind(prefix.replace(/\/$/, ''))
-    ?? ROUTE_PREFIX_KINDS[normalizedPrefix]
-    ?? null;
 };
 
 const copilotTypeToPrimitiveKind = (type: CopilotFileType): PrimitiveKind =>
