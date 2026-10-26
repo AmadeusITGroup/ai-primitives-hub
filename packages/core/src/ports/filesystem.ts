@@ -65,8 +65,10 @@ export interface FileSystem {
    * Add or clear an existing file's execute permission (issue #577).
    * `true` grants execute wherever read is granted (`0644` → `0755`);
    * `false` clears every execute bit. Never widens write or special bits.
-   * Optional: adapters that cannot set modes omit it, and platforms
-   * without POSIX modes (Windows) resolve without changing anything.
+   * Best effort: optional, adapters that cannot set modes omit it, and
+   * platforms or filesystems that do not support the change (Windows,
+   * vfat/exFAT, files owned by another user) resolve without changing
+   * anything. Real I/O errors such as a missing file still reject.
    */
   setExecutable?(path: string, executable: boolean): Promise<void>;
 }

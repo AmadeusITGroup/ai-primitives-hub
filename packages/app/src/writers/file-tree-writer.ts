@@ -343,9 +343,7 @@ export class FileTreeTargetWriter implements TargetWriter {
     const text = decodeUtf8Strict(bytes);
     if (text === null) {
       // Binary payload: write verbatim, never transform.
-      await this.opts.fs.writeFileBytes(outPath, bytes);
-      await verifyWrittenBytes(this.opts.fs, outPath, bytes);
-      await applyFileMode(this.opts.fs, outPath, bytes);
+      await this.writeBytesVerified(outPath, bytes);
       return;
     }
 
@@ -366,6 +364,18 @@ export class FileTreeTargetWriter implements TargetWriter {
     await this.opts.fs.writeFile(outPath, content);
     await verifyWrittenBytes(this.opts.fs, outPath, new TextEncoder().encode(content));
     // The mode always comes from the source bytes, never the transformed text.
+    await applyFileMode(this.opts.fs, outPath, bytes);
+  }
+
+  /**
+   * Write bytes verbatim, verify them by re-reading the file, then give
+   * the file the executable bit the source recorded (issue #577).
+   * @param outPath - Absolute destination path; its directory must exist.
+   * @param bytes - Bytes to write, with their optional source mode.
+   */
+  private async writeBytesVerified(outPath: string, bytes: ExtractedFile): Promise<void> {
+    await this.opts.fs.writeFileBytes(outPath, bytes);
+    await verifyWrittenBytes(this.opts.fs, outPath, bytes);
     await applyFileMode(this.opts.fs, outPath, bytes);
   }
 
@@ -425,9 +435,7 @@ export class FileTreeTargetWriter implements TargetWriter {
             // Skill directories carry arbitrary assets (scripts, images,
             // office documents) — copy byte-for-byte, never transform.
             await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
-            await this.opts.fs.writeFileBytes(outPath, bytes);
-            await verifyWrittenBytes(this.opts.fs, outPath, bytes);
-            await applyFileMode(this.opts.fs, outPath, bytes);
+            await this.writeBytesVerified(outPath, bytes);
           } else {
             await this.writeContent(target, bundlePath, bytes, outPath);
           }

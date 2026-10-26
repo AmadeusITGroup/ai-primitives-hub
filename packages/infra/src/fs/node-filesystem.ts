@@ -27,6 +27,9 @@ import type {
   FileSystem,
 } from '@ai-primitives-hub/core';
 
+/** `chmod` errors meaning the mode cannot be changed here, not an I/O failure. */
+const MODE_UNSUPPORTED_CODES: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL']);
+
 export class NodeFileSystem implements FileSystem {
   public async readFile(path: string): Promise<string> {
     return readFile(path, 'utf8');
@@ -95,6 +98,11 @@ export class NodeFileSystem implements FileSystem {
    * `0600` → `0700`), as a Git checkout of a `100755` file does. `false`
    * clears every execute bit. Write and special bits are never added.
    * Windows has no POSIX execute bit: the call resolves without changes.
+   *
+   * Best effort: when the filesystem or the file's owner does not allow
+   * the mode change (`EPERM`, `ENOTSUP`, `EOPNOTSUPP`, `EINVAL`, e.g. vfat/exFAT mounts
+   * or a file owned by another user), the file keeps its current mode and
+   * the call resolves. Other errors, such as `ENOENT`, still reject.
    * @param path Absolute file path.
    * @param executable Whether the file should be executable.
    */
@@ -109,8 +117,15 @@ export class NodeFileSystem implements FileSystem {
       ? current | ((current & 0o444) >> 2)
       // eslint-disable-next-line no-bitwise -- clear every execute bit
       : current & ~0o111;
-    if (next !== current) {
+    if (next === current) {
+      return;
+    }
+    try {
       await chmod(path, next);
+    } catch (error) {
+      if (!MODE_UNSUPPORTED_CODES.has((error as NodeJS.ErrnoException).code ?? '')) {
+        throw error;
+      }
     }
   }
 

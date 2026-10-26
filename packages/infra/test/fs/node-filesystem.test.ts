@@ -3,6 +3,9 @@ import {
   statSync,
 } from 'node:fs';
 import {
+  chmod,
+} from 'node:fs/promises';
+import {
   join,
 } from 'node:path';
 import {
@@ -11,6 +14,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
   NodeFileSystem,
@@ -18,6 +22,12 @@ import {
 import {
   createTempDir,
 } from '../helpers/temp-dir';
+
+// Pass-through `chmod` so a test can make one call reject.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, chmod: vi.fn(actual.chmod) };
+});
 
 describe('NodeFileSystem', () => {
   let dir: string;
@@ -170,10 +180,39 @@ describe('NodeFileSystem', () => {
       expect(modeOf(filePath)).toBe(0o644);
     });
 
+    const errnoError = (code: string): NodeJS.ErrnoException =>
+      Object.assign(new Error(`${code}: chmod failed`), { code });
+
+    unixOnly.each(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL'])(
+      'setExecutable keeps the current mode when chmod is not permitted (%s)',
+      async (code) => {
+        const filePath = join(dir, 'run.sh');
+        await fs.writeFile(filePath, '#!/bin/sh\n');
+        chmodSync(filePath, 0o644);
+        const before = modeOf(filePath);
+        vi.mocked(chmod).mockRejectedValueOnce(errnoError(code));
+        await expect(fs.setExecutable(filePath, true)).resolves.toBeUndefined();
+        expect(modeOf(filePath)).toBe(before);
+      }
+    );
+
+    unixOnly('setExecutable rejects on other chmod errors', async () => {
+      const filePath = join(dir, 'run.sh');
+      await fs.writeFile(filePath, '#!/bin/sh\n');
+      chmodSync(filePath, 0o644);
+      vi.mocked(chmod).mockRejectedValueOnce(errnoError('EIO'));
+      await expect(fs.setExecutable(filePath, true)).rejects.toThrow('EIO');
+    });
+
+    unixOnly('setExecutable rejects on a missing file', async () => {
+      await expect(fs.setExecutable(join(dir, 'missing.sh'), true)).rejects.toThrow();
+    });
+
     unixOnly('is a no-op on Windows', async () => {
       const filePath = join(dir, 'run.sh');
       await fs.writeFile(filePath, '#!/bin/sh\n');
       chmodSync(filePath, 0o644);
+      const before = modeOf(filePath);
       const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
       Object.defineProperty(process, 'platform', { value: 'win32' });
       try {
@@ -182,7 +221,7 @@ describe('NodeFileSystem', () => {
         Object.defineProperty(process, 'platform', platform);
       }
 
-      expect(modeOf(filePath)).toBe(0o644);
+      expect(modeOf(filePath)).toBe(before);
     });
   });
 });
