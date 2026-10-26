@@ -104,3 +104,68 @@ export const routeKindOf = (prefix: string): PrimitiveKind | null => {
     ?? ROUTE_PREFIX_KINDS[normalizedPrefix]
     ?? null;
 };
+
+/** A layout route whose kind differs from an item's declared kind. */
+export interface KindRouteMismatch {
+  /** Kind the matched route installs. */
+  routeKind: PrimitiveKind;
+  /** Matched `kindRoutes` key (`chat-modes/` for a `chatmodes/…` path). */
+  routePrefix: string;
+}
+
+/**
+ * Compare an item's declared kind with the kind of the layout route its
+ * path matches. Path-routed targets install the file as the route's kind,
+ * so a difference means the item lands somewhere its author did not ask
+ * for.
+ * @param itemPath - Bundle-relative item path.
+ * @param declaredKind - Canonical declared kind (no alias normalisation).
+ * @param kindRoutes - Routes to match against.
+ * @returns The mismatch, or `null` when no route matches, the route's key
+ *   names no kind, or the kinds agree.
+ */
+export const findKindRouteMismatch = (
+  itemPath: string,
+  declaredKind: PrimitiveKind,
+  kindRoutes: KindRoutes
+): KindRouteMismatch | null => {
+  const match = matchKindRoute(itemPath, kindRoutes);
+  if (match === null) {
+    return null;
+  }
+  const routeKind = routeKindOf(match.prefix);
+  if (routeKind === null || routeKind === declaredKind) {
+    return null;
+  }
+  return { routeKind, routePrefix: match.prefix };
+};
+
+/** Fragment that identifies a {@link formatKindRouteMismatch} message. */
+const KIND_ROUTE_MISMATCH_MARKER = 'of the install route "';
+
+/**
+ * Warning text for a kind/route mismatch of one collection item.
+ * @param collectionRel - Repository-relative collection file.
+ * @param index - Item index in `items[]`.
+ * @param itemPath - Item path as declared.
+ * @param declaredKind - Item kind as the author wrote it.
+ * @param mismatch - The mismatch found by {@link findKindRouteMismatch}.
+ * @returns The warning message.
+ */
+export const formatKindRouteMismatch = (
+  collectionRel: string,
+  index: number,
+  itemPath: string,
+  declaredKind: string,
+  mismatch: KindRouteMismatch
+): string =>
+  `${collectionRel}: items[${String(index)}] ${itemPath}: kind "${declaredKind}" differs from the kind `
+  + `"${mismatch.routeKind}" ${KIND_ROUTE_MISMATCH_MARKER}${mismatch.routePrefix}" that this path matches`;
+
+/**
+ * Whether a validation warning was built by {@link formatKindRouteMismatch}.
+ * @param message - Warning message.
+ * @returns True for a kind/route mismatch warning.
+ */
+export const isKindRouteMismatchWarning = (message: string): boolean =>
+  message.includes(KIND_ROUTE_MISMATCH_MARKER);

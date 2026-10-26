@@ -266,13 +266,13 @@ items:
 `);
   };
 
-  it.fails('warns when a skill sits below the plugin route', () => {
+  it('warns when a skill sits below the plugin route', () => {
     const result = validateCollectionFile(tempDir, collectionWith(NESTED_SKILL, 'skill'));
     expect(result.ok).toBe(true);
     expect(result.warnings).toEqual([mismatch(NESTED_SKILL, 'skill', 'plugin', 'plugins/')]);
   });
 
-  it.fails('warns for a kind that differs only in case, quoting the declared spelling', () => {
+  it('warns for a kind that differs only in case, quoting the declared spelling', () => {
     const result = validateCollectionFile(tempDir, collectionWith(NESTED_SKILL, 'Skill'));
     expect(result.ok).toBe(true);
     expect(result.warnings).toEqual([mismatch(NESTED_SKILL, 'Skill', 'plugin', 'plugins/')]);

@@ -33,6 +33,9 @@ import {
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import {
+  kindRouteMismatchWarning,
+} from './kind-route-warning';
+import {
   referencedFileNotFoundMessage,
   splitPluginItemIssues,
 } from './plugin-item-issues';
@@ -126,6 +129,10 @@ export function validateCollectionFile(
       if (!fs.existsSync(itemAbs)) {
         errors.push(referencedFileNotFoundMessage(rel, idx, relPath));
         return;
+      }
+      const routeWarning = kindRouteMismatchWarning(rel, idx, relPath, item.kind);
+      if (routeWarning !== null) {
+        warnings.push(routeWarning);
       }
       if (normalizePrimitiveKind(item.kind) === 'plugin') {
         const plugin = validateAgentPluginItem({ itemPath: relPath, manifestText: readPluginManifestText(itemAbs) });

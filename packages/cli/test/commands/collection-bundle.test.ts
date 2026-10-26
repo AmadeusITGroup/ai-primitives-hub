@@ -261,7 +261,7 @@ items:
       });
     });
 
-    it.fails('passes with a warning when an item kind differs from its install route kind', async () => {
+    it('passes with a warning when an item kind differs from its install route kind', async () => {
       await mkdir(path.join(workspace, 'plugins', 'p', 'skills', 's'), { recursive: true });
       await writeFile(path.join(workspace, 'plugins', 'p', 'skills', 's', 'SKILL.md'), '# Skill\n');
       await writeFile(path.join(workspace, 'README.md'), '# Mismatch\n');

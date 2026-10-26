@@ -4,6 +4,9 @@ import {
   it,
 } from 'vitest';
 import {
+  findKindRouteMismatch,
+  formatKindRouteMismatch,
+  isKindRouteMismatchWarning,
   matchKindRoute,
   ROUTE_PREFIX_KINDS,
   routeKindOf,
@@ -67,5 +70,59 @@ describe('matchKindRoute', () => {
 
   it('returns null when no route matches', () => {
     expect(matchKindRoute('mcp-servers/x.json', routes)).toBeNull();
+  });
+});
+
+describe('findKindRouteMismatch', () => {
+  const routes = {
+    'prompts/': '.github/prompts/',
+    'chat-modes/': '.github/agents/',
+    'plugins/': '.github/plugins/',
+    'skills/': '.github/skills/',
+    'docs/': 'docs/'
+  };
+
+  it('returns null when the route kind matches the declared kind', () => {
+    expect(findKindRouteMismatch('prompts/x.prompt.md', 'prompt', routes)).toBeNull();
+  });
+
+  it('reports the route kind and key when they differ', () => {
+    expect(findKindRouteMismatch('plugins/p/skills/s/SKILL.md', 'skill', routes))
+      .toEqual({ routeKind: 'plugin', routePrefix: 'plugins/' });
+  });
+
+  it('reports the chat-modes/ key for a chatmodes/ path', () => {
+    expect(findKindRouteMismatch('chatmodes/x.md', 'agent', routes))
+      .toEqual({ routeKind: 'chat-mode', routePrefix: 'chat-modes/' });
+  });
+
+  it('returns null for an unrouted path', () => {
+    expect(findKindRouteMismatch('mcp-servers/x.json', 'mcp-server', routes)).toBeNull();
+  });
+
+  it('returns null for a route key that names no kind', () => {
+    expect(findKindRouteMismatch('docs/x.md', 'prompt', routes)).toBeNull();
+  });
+});
+
+describe('formatKindRouteMismatch / isKindRouteMismatchWarning', () => {
+  const message = formatKindRouteMismatch(
+    'collections/x.collection.yml',
+    2,
+    'plugins/p/skills/s/SKILL.md',
+    'Skill',
+    { routeKind: 'plugin', routePrefix: 'plugins/' }
+  );
+
+  it('formats the item, the declared spelling and the route', () => {
+    expect(message).toBe('collections/x.collection.yml: items[2] plugins/p/skills/s/SKILL.md: kind "Skill" differs '
+      + 'from the kind "plugin" of the install route "plugins/" that this path matches');
+  });
+
+  it('recognises its own messages only', () => {
+    expect(isKindRouteMismatchWarning(message)).toBe(true);
+    expect(isKindRouteMismatchWarning(
+      'collections/x.collection.yml: Collection has no readme. Consider adding a readme to help users understand this collection.'
+    )).toBe(false);
   });
 });
