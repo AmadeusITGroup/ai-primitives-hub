@@ -10,13 +10,20 @@
  * exercised once per command via a small data table instead of
  * duplicating the same four tests six times. Each command's unique
  * extra flag (skill's --author, plugin's --version, hook's --type) gets
- * its own dedicated test afterward.
+ * its own dedicated test afterward. `plugin create` also has a block for
+ * its Agent Plugins 1.0.0 contract: `plugins/<name>/plugin.json` passes
+ * `collection validate`, invalid names are rejected before anything is
+ * written, and an existing manifest is never overwritten.
  *
  * Uses a real `NodeFileSystem` against a real temp directory (not
  * `createTestContext`'s default in-memory `fs` stub, which rejects
  * every call) since these commands do real file IO.
  */
 import {
+  existsSync,
+} from 'node:fs';
+import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -26,8 +33,12 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  AGENT_PLUGIN_MANIFEST_SCHEMA_URI,
+} from '@ai-primitives-hub/core';
+import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
+import * as yaml from 'js-yaml';
 import {
   afterEach,
   beforeEach,
@@ -38,6 +49,9 @@ import {
 import {
   AgentCreateCommand,
 } from '../../src/commands/agent-create';
+import {
+  CollectionValidateCommand,
+} from '../../src/commands/collection-validate';
 import {
   HookCreateCommand,
 } from '../../src/commands/hook-create';
@@ -63,7 +77,8 @@ const COMMAND_CLASSES = [
   PromptCreateCommand,
   SkillCreateCommand,
   PluginCreateCommand,
-  HookCreateCommand
+  HookCreateCommand,
+  CollectionValidateCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -166,6 +181,80 @@ describe('scaffolding generator commands', () => {
       const envelope = parseJson<ScaffoldData>(result.stdout);
       const content = await readFile(envelope.data.path, 'utf8');
       expect(content).toContain('2.3.4');
+    });
+  });
+
+  describe('plugin create — Agent Plugins 1.0.0 layout', () => {
+    const collectionFile = (): string => path.join(workspace, 'collections', 'foo.collection.yml');
+
+    it('writes plugins/<name>/plugin.json with $schema, name and an object author', async () => {
+      const result = await run(['plugin', 'create', 'my-plugin', '--author', 'Jane Doe', '-o', 'json']);
+      expect(result.exitCode).toBe(0);
+      const manifestPath = path.join(workspace, 'plugins', 'my-plugin', 'plugin.json');
+      expect(parseJson<ScaffoldData>(result.stdout).data.path).toBe(manifestPath);
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+      expect(manifest).toMatchObject({
+        $schema: AGENT_PLUGIN_MANIFEST_SCHEMA_URI,
+        name: 'my-plugin',
+        author: { name: 'Jane Doe' }
+      });
+      expect(existsSync(path.join(workspace, 'plugins', 'plugin.json'))).toBe(false);
+    });
+
+    it('passes collection validate after --collection adds the item', async () => {
+      expect((await run(['plugin', 'create', 'my-plugin', '--collection', 'foo'])).exitCode).toBe(0);
+      const collection = yaml.load(await readFile(collectionFile(), 'utf8')) as { items: Record<string, unknown>[] };
+      expect(collection.items).toEqual([expect.objectContaining({ path: 'plugins/my-plugin/plugin.json', kind: 'plugin' })]);
+      const validate = await run(['collection', 'validate']);
+      // The fixture collection has no readme, so a readme warning is expected; no plugin issue is.
+      expect(validate.stderr).not.toMatch(/plugin/i);
+      expect(validate.exitCode).toBe(0);
+    });
+
+    it('passes collection validate when the description contains quotes', async () => {
+      const create = await run(['plugin', 'create', 'my-plugin', '--description', 'Say "hi"', '--collection', 'foo']);
+      expect(create.exitCode).toBe(0);
+      expect((await run(['collection', 'validate'])).exitCode).toBe(0);
+    });
+
+    it('rejects an invalid name with an actionable error and writes nothing', async () => {
+      const before = await readFile(collectionFile(), 'utf8');
+      const result = await run(['plugin', 'create', 'My_Plugin', '--collection', 'foo']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('PRIMITIVE.INVALID_NAME');
+      expect(result.stderr).toContain('"my-plugin"');
+      expect(existsSync(path.join(workspace, 'plugins'))).toBe(false);
+      expect(await readFile(collectionFile(), 'utf8')).toBe(before);
+    });
+
+    it('writes nothing when --collection names a missing collection, so a corrected rerun succeeds', async () => {
+      const result = await run(['plugin', 'create', 'my-plugin', '--collection', 'missing']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('FS.COLLECTION_UPDATE_FAILED');
+      expect(existsSync(path.join(workspace, 'plugins'))).toBe(false);
+      expect((await run(['plugin', 'create', 'my-plugin', '--collection', 'foo'])).exitCode).toBe(0);
+    });
+
+    // A read-only file does not stop root from writing, so the write failure
+    // cannot be provoked when the suite runs as root.
+    it.skipIf(process.getuid?.() === 0)('removes the scaffolded files when the collection write fails, so a rerun succeeds', async () => {
+      await chmod(collectionFile(), 0o444);
+      const result = await run(['plugin', 'create', 'my-plugin', '--collection', 'foo']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('FS.COLLECTION_UPDATE_FAILED');
+      expect(existsSync(path.join(workspace, 'plugins', 'my-plugin', 'plugin.json'))).toBe(false);
+      await chmod(collectionFile(), 0o644);
+      expect((await run(['plugin', 'create', 'my-plugin', '--collection', 'foo'])).exitCode).toBe(0);
+    });
+
+    it('refuses to overwrite an existing plugin.json', async () => {
+      expect((await run(['plugin', 'create', 'my-plugin'])).exitCode).toBe(0);
+      const manifestPath = path.join(workspace, 'plugins', 'my-plugin', 'plugin.json');
+      const before = await readFile(manifestPath, 'utf8');
+      const second = await run(['plugin', 'create', 'my-plugin', '--description', 'other']);
+      expect(second.exitCode).toBe(1);
+      expect(second.stderr).toContain('PRIMITIVE.ALREADY_EXISTS');
+      expect(await readFile(manifestPath, 'utf8')).toBe(before);
     });
   });
 

@@ -124,12 +124,12 @@ const CATALOG: Record<string, CatalogEntry> = {
     remediation: 'Check that the downloaded zip is intact (no truncation), or re-build locally with `ai-primitives-hub bundle build`.'
   },
   'PRIMITIVE.ALREADY_EXISTS': {
-    summary: 'A skill folder with the requested name already exists.',
-    remediation: 'Choose a different --skill-name or remove the existing folder.'
+    summary: 'A primitive with the requested name already exists (e.g., a skill folder or a plugin.json).',
+    remediation: 'Choose a different name, or remove the existing file or folder reported in the error.'
   },
   'PRIMITIVE.INVALID_NAME': {
-    summary: 'The skill name failed the spec validation (e.g., contains whitespace).',
-    remediation: 'Use only lowercase letters, digits, and hyphens.'
+    summary: 'The primitive name failed its spec name rule (e.g., uppercase letters or whitespace).',
+    remediation: 'Follow the name rule quoted in the error message; when the error shows a hint, the suggested name is valid.'
   },
   'PRIMITIVE.CREATE_FAILED': {
     summary: 'createSkill failed for an unspecified reason.',

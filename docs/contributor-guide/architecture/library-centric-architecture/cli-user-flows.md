@@ -237,7 +237,8 @@ flowchart LR
 
 **Commands:**
 - `collection create <id>`
-- `prompt create <id>` / `instruction create <id>` / `agent create <id>` / `skill create <id>` / `plugin create <id>` / `hook create <id>`
+- `prompt create <id>` / `instruction create <id>` / `agent create <id>` / `skill create <id>` / `hook create <id>`
+- `plugin create <name>` (writes `<path>/<name>/plugin.json`, an Agent Plugins 1.0.0 manifest)
 - `collection validate <collection.yml>`
 - `bundle build`
 - `bundle manifest`
@@ -569,7 +570,7 @@ flowchart LR
 | `skill create <id>` | Scaffold skill | `--path <dir>` |
 | `skill new <id>` | New skill (alternative) | `--path <dir>` |
 | `skill validate <file>` | Validate skill | `--strict` |
-| `plugin create <id>` | Scaffold plugin | `--path <dir>` |
+| `plugin create <name>` | Scaffold an Agent Plugins 1.0.0 plugin at `<path>/<name>/plugin.json` | `--path <dir>`, `--collection <id>`, `--version`, `--author`, `--description` |
 | `hook create <id>` | Scaffold hook | `--path <dir>` |
 
 ### Bundle Commands

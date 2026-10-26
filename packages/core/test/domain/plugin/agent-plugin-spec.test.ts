@@ -20,6 +20,7 @@ import {
   type AgentPluginValidationResult,
   validateAgentPluginItem,
   validateAgentPluginManifest,
+  validateAgentPluginName,
 } from '../../../src/domain/plugin/agent-plugin-spec';
 import vendoredSchema from '../../../src/public/schemas/agent-plugins/1.0.0/plugin.schema.json';
 
@@ -206,6 +207,30 @@ describe('validateAgentPluginManifest', () => {
 
   it('rejects a non-object manifest', () => {
     expect(validateAgentPluginManifest([]).map((i) => i.code)).toEqual(['manifest-not-object']);
+  });
+});
+
+describe('validateAgentPluginName', () => {
+  it.each(['a', 'acme.tools', 'my-plugin', 'a'.repeat(AGENT_PLUGIN_NAME_MAX_LENGTH)])('accepts %j', (name) => {
+    expect(validateAgentPluginName(name)).toBeNull();
+  });
+
+  it.each<unknown>(['My_Plugin', '', 'a--b', 'a..b', '-ab', 'a'.repeat(AGENT_PLUGIN_NAME_MAX_LENGTH + 1), 7])(
+    'rejects %j as a fatal name-invalid issue',
+    (name) => {
+      expect(validateAgentPluginName(name)).toMatchObject({ severity: 'fatal', code: 'name-invalid', field: 'name' });
+    }
+  );
+
+  it('quotes the rejected value in the message', () => {
+    expect(validateAgentPluginName('My_Plugin')?.message).toContain('got "My_Plugin"');
+  });
+
+  it('is the rule validateAgentPluginManifest applies to "name"', () => {
+    const issue = validateAgentPluginName('My_Plugin');
+    const fromManifest = validateAgentPluginManifest({ ...BASE_MANIFEST, name: 'My_Plugin' })
+      .find((i) => i.field === 'name');
+    expect(fromManifest).toEqual(issue);
   });
 });
 

@@ -35,7 +35,8 @@ The CLI also checks plugin manifests, described in [Plugin Manifests](#plugin-ma
 [Agent Plugins 1.0.0 specification](https://agent-plugins.org/specification). The item
 path must be the plugin's root manifest, for example `plugins/my-plugin/plugin.json`:
 the directory that contains `plugin.json` is the plugin, and the whole directory is
-bundled.
+bundled. A plugin scaffolded with `ai-primitives-hub plugin create` passes these checks; see
+[Plugin Items](./collection-schema.md#plugin-items).
 
 These problems are **errors** and fail validation:
 

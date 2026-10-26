@@ -29,25 +29,13 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * Replace all occurrences of a literal string in text.
- * @param text - The text to search in.
- * @param search - The literal string to search for.
- * @param replacement - The replacement string.
- * @returns Text with all occurrences replaced.
- */
-function replaceAll(text: string, search: string, replacement: string): string {
-  const escapedSearch = escapeRegex(search);
-  const regex = new RegExp(escapedSearch, 'g');
-  return text.replace(regex, () => replacement);
-}
-
-/**
  * Replace template variables in text with values.
  * @param text - The text to process.
  * @param variables - Key-value pairs of variable names to values.
  * @param options - Optional configuration.
  * @param options.prefix - Variable prefix (default: `{{`).
  * @param options.suffix - Variable suffix (default: `}}`).
+ * @param options.escape - Applied to each value before substitution (default: none).
  * @returns Text with variables replaced.
  */
 function replaceVariables(
@@ -56,17 +44,43 @@ function replaceVariables(
   options: {
     prefix?: string;
     suffix?: string;
+    escape?: (value: string) => string;
   } = {}
 ): string {
-  const { prefix = '{{', suffix = '}}' } = options;
-  let result = text;
-
+  const { prefix = '{{', suffix = '}}', escape } = options;
+  const lookup = new Map<string, string>();
   for (const [key, value] of Object.entries(variables)) {
-    const placeholder = `${prefix}${key}${suffix}`;
-    result = replaceAll(result, placeholder, value);
+    // String(): context values are not always strings at runtime (e.g. an
+    // unset option), and the result must match the previous coercion.
+    const rendered = String(value);
+    lookup.set(`${prefix}${key}${suffix}`, escape ? escape(rendered) : rendered);
+  }
+  if (lookup.size === 0) {
+    return text;
   }
 
-  return result;
+  // Single pass over the template: a substituted value is never rescanned,
+  // so a value that itself contains `{{key}}` is kept literally.
+  const pattern = new RegExp([...lookup.keys()].map((placeholder) => escapeRegex(placeholder)).join('|'), 'g');
+  return text.replace(pattern, (match) => lookup.get(match) ?? match);
+}
+
+/**
+ * Escape a value for use inside a JSON string literal (without the quotes).
+ * @param value - Raw value.
+ * @returns The value with `"`, `\` and control characters escaped.
+ */
+function escapeJsonString(value: string): string {
+  return JSON.stringify(value).slice(1, -1);
+}
+
+/**
+ * Whether a template file renders to JSON, so its values must be JSON-escaped.
+ * @param templatePath - Template path from the manifest.
+ * @returns True for `*.json.template` and `*.json` templates.
+ */
+function isJsonTemplate(templatePath: string): boolean {
+  return templatePath.endsWith('.json.template') || templatePath.endsWith('.json');
 }
 
 /**
@@ -203,11 +217,13 @@ export class TemplateEngine {
    * @param name - Template name.
    * @param targetPath - Target file path.
    * @param context - Template context.
+   * @param exclusive - Fail with `EEXIST` instead of replacing an existing entry.
    */
   private async copyTemplate(
     name: string,
     targetPath: string,
-    context: TemplateContext
+    context: TemplateContext,
+    exclusive: boolean
   ): Promise<void> {
     const content = await this.renderTemplate(name, context);
 
@@ -215,12 +231,16 @@ export class TemplateEngine {
     const targetDir = path.dirname(targetPath);
     await fs.mkdir(targetDir, { recursive: true });
 
-    // Write file
-    await fs.writeFile(targetPath, content, 'utf8');
+    // Write file; `wx` also refuses to follow a (dangling) symlink.
+    await fs.writeFile(targetPath, content, { encoding: 'utf8', flag: exclusive ? 'wx' : 'w' });
   }
 
   /**
    * Render a template with variable substitution.
+   *
+   * Values substituted into JSON templates (`*.json.template`, `*.json`) are
+   * JSON-string-escaped, so a value containing `"` or `\` still yields valid
+   * JSON. Other templates (markdown, YAML) receive the values verbatim.
    * @param name - Template name.
    * @param context - Template context.
    * @returns Rendered template string.
@@ -246,7 +266,9 @@ export class TemplateEngine {
     const enhancedContext = this.enhanceContext(context);
 
     // Substitute variables
-    content = replaceVariables(content, enhancedContext);
+    content = replaceVariables(content, enhancedContext, {
+      escape: isJsonTemplate(template.path) ? escapeJsonString : undefined
+    });
 
     return content;
   }
@@ -255,11 +277,15 @@ export class TemplateEngine {
    * Scaffold a complete project or set of files.
    * @param targetPath - Target directory path.
    * @param context - Template context.
+   * @param options - Optional configuration.
+   * @param options.exclusive - Create each file exclusively: an existing file or
+   *   symlink at a target path fails the scaffold instead of being replaced (default: false).
    * @returns Scaffold result.
    */
   public async scaffoldProject(
     targetPath: string,
-    context: TemplateContext
+    context: TemplateContext,
+    options: { exclusive?: boolean } = {}
   ): Promise<ScaffoldResult> {
     const createdFiles: string[] = [];
 
@@ -283,7 +309,7 @@ export class TemplateEngine {
         const relativePath = this.resolveRelativePath(name, template.path);
         const targetFile = path.join(effectiveTargetPath, relativePath);
 
-        await this.copyTemplate(name, targetFile, context);
+        await this.copyTemplate(name, targetFile, context, options.exclusive === true);
         createdFiles.push(targetFile);
       }
 

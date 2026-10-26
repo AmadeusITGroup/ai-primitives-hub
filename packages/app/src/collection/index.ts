@@ -1,8 +1,14 @@
 /**
- * Collection use-cases: reading/writing/validating collection YAML files
- * and generating/validating skill folders.
+ * Collection use-cases: reading/writing/validating collection YAML files,
+ * generating/validating skill folders, and scaffolding Agent Plugins.
  * @module app/collection
  */
+export {
+  createPlugin,
+  type CreatePluginErrorCode,
+  type CreatePluginOptions,
+  type CreatePluginResult,
+} from './create-plugin';
 
 export {
   createSkill,
