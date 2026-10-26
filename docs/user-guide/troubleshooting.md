@@ -24,6 +24,7 @@ View logs: `View → Output → AI Primitives Hub`
 - **Permission**: Ensure write access to user directory
 - **Invalid Bundle**: Verify bundle has valid manifest
 - Check logs for `[ERROR]` messages
+- **Primitive type on a target (CLI)**: Run `ai-primitives-hub doctor diagnostics --primitives --kinds <kind> --targets <target>` to check whether that primitive type installs on that target type. It runs in a throwaway workspace and reports each case as `pass`, `known-gap` or `fail`. See the [Command Reference](../reference/commands.md#doctor-diagnostics-cli).
 
 ### Authentication Fails (404/401)
 

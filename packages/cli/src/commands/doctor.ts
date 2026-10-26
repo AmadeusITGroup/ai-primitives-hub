@@ -27,13 +27,18 @@ import {
   runDiagnostics,
 } from '../doctor/diagnostics';
 import {
+  runPrimitivesMode,
+} from '../doctor/primitives';
+import {
   Command,
   type Context,
+  failWith,
   formatOutput,
   loadTargets,
   Option,
   type OutputFormat,
   type OutputStatus,
+  RegistryError,
 } from '../framework';
 
 /**
@@ -141,23 +146,61 @@ export class DoctorDiagnosticsCommand extends BaseDoctorCommand {
       --retain-workspace when you need to inspect the generated fixtures or
       artifacts after the run.
 
+      With --primitives, it instead builds one bundle per catalogued primitive
+      kind, installs it on every target type at user and repository scope, and
+      classifies each bundle and case as pass, known-gap or fail. It exits 0
+      when nothing fails, 1 otherwise.
+
       Options:
         -o, --output <format>  Output format (text, json, yaml, ndjson)
         -v, --verbose          Print per-step progress to stderr
         --retain-workspace     Keep the temporary diagnostic workspace
+        --primitives           Run the primitive install matrix
+        --kinds <csv>          Primitive kinds to run (needs --primitives)
+        --targets <csv>        Target types to run (needs --primitives)
+        --scopes <csv>         Scopes to run: user, repository (needs --primitives)
 
       Examples:
         ai-primitives-hub doctor diagnostics
         ai-primitives-hub doctor diagnostics -v
         ai-primitives-hub doctor diagnostics --retain-workspace
+        ai-primitives-hub doctor diagnostics --primitives
+        ai-primitives-hub doctor diagnostics --primitives --kinds prompt,skill --targets vscode,kiro -v
     `
   });
 
   public retainWorkspace = Option.Boolean('--retain-workspace', false);
 
+  public primitives = Option.Boolean('--primitives', false);
+
+  public kinds = Option.String('--kinds');
+
+  public targets = Option.String('--targets');
+
+  public scopes = Option.String('--scopes');
+
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
     const fmt = (this.output ?? 'text') as OutputFormat;
+    if (this.primitives) {
+      return runPrimitivesMode(ctx, {
+        output: fmt,
+        verbose: this.verbose,
+        retainWorkspace: this.retainWorkspace,
+        kinds: this.kinds,
+        targets: this.targets,
+        scopes: this.scopes
+      });
+    }
+    const stray = ([['--kinds', this.kinds], ['--targets', this.targets], ['--scopes', this.scopes]] as const)
+      .find(([, value]) => value !== undefined)?.[0];
+    if (stray !== undefined) {
+      return failWith(ctx, fmt, 'doctor diagnostics', new RegistryError({
+        code: 'USAGE.INVALID_FLAG',
+        message: `doctor diagnostics: ${stray} requires --primitives`,
+        hint: 'Run `ai-primitives-hub doctor diagnostics --primitives …`.'
+      }));
+    }
     const result = await runDiagnostics({
       ctx,
       commandClasses: getDiagnosticCommandClasses(),
