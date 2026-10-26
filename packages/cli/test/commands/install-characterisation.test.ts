@@ -476,7 +476,7 @@ describe('characterisation: install, lockfile and uninstall per kind, target and
       .toMatchFileSnapshot(`./__snapshots__/install-characterisation/${kind}.json`);
   }, 120_000);
 
-  it.fails('a directory item does not install or record files of an item whose id it prefixes (#552)', async () => {
+  it('a directory item does not install or record files of an item whose id it prefixes (#552)', async () => {
     const bundleId = 'c-prefixes';
     const caseRoot = path.join(tmp, 'prefixes');
     const bundles = await buildBundles(path.join(caseRoot, 'bundles'), repositoryFiles(bundleId, [

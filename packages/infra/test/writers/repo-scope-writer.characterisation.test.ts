@@ -356,7 +356,7 @@ items:
   };
   const target = { name: 't', type: 'vscode', scope: 'repository' } as unknown as Target;
 
-  it.fails('a directory item does not match files of an item whose id it prefixes (#552)', async () => {
+  it('a directory item does not match files of an item whose id it prefixes (#552)', async () => {
     const fs = new InMemoryFileSystem();
     const adapter = new RepositoryScopeWriterAdapter(
       new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' })
