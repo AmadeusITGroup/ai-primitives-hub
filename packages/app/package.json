@@ -36,7 +36,7 @@
   "dependencies": {
     "@ai-primitives-hub/core": "workspace:*",
     "@ai-primitives-hub/infra": "workspace:*",
-    "js-yaml": "^4.3.1"
+    "js-yaml": "^5.0.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
