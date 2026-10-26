@@ -77,6 +77,12 @@ export interface DiagnosticCheck {
   observed?: JsonValue;
   /** Human-readable reason; may contain command messages and absolute paths (not deterministic, unlike `observed`). */
   detail?: string;
+  /**
+   * Non-blocking findings of a passing check. I0 carries only the
+   * kind/route mismatch warnings of `collection validate`; the key is
+   * omitted when there are none.
+   */
+  warnings?: string[];
 }
 
 /** What a command produced, as seen by the evaluators (filled from `DriverCommandResult`). */

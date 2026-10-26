@@ -180,7 +180,7 @@ describe('evaluateBundle', () => {
       expect(evaluation.checks[0]).toEqual({ invariant: 'I0', outcome: 'pass' });
     });
 
-    it.fails('passes and carries only the kind/route mismatch warnings from validate', () => {
+    it('passes and carries only the kind/route mismatch warnings from validate', () => {
       const evaluation = evaluateBundle({
         bundle: skill,
         validate: { ...ok, status: 'warning', warnings: [ROUTE_MISMATCH, NO_README] },

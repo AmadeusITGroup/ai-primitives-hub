@@ -23,6 +23,9 @@ import {
 import {
   verifyArchiveIntegrity,
 } from '../../install/integrity';
+import {
+  isKindRouteMismatchWarning,
+} from '../../install/kind-route';
 import type {
   DiagnosticBundle,
   FixtureItem,
@@ -160,7 +163,9 @@ const evaluateI0 = (input: BundleEvaluationInput, view: ManifestView | undefined
   }
 
   if (reason === undefined) {
-    return { invariant: 'I0', outcome: 'pass' };
+    // Kind/route mismatches are warnings only (ADR-0009): the check passes.
+    const routeWarnings = validate.warnings.filter((warning) => isKindRouteMismatchWarning(warning));
+    return { invariant: 'I0', outcome: 'pass', ...(routeWarnings.length > 0 ? { warnings: routeWarnings } : {}) };
   }
   return fail('I0', {
     validateExit: validate.exitCode,

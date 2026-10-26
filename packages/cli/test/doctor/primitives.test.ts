@@ -6,6 +6,10 @@
  * and the text renderer.
  */
 import * as path from 'node:path';
+import type {
+  DiagnosticCheck,
+  PrimitiveDiagnosticsReport,
+} from '@ai-primitives-hub/core';
 import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -17,6 +21,9 @@ import {
 import {
   DoctorDiagnosticsCommand,
 } from '../../src/commands/doctor';
+import {
+  renderPrimitivesText,
+} from '../../src/doctor/primitives-text';
 import {
   runCommand,
   type RunCommandResult,
@@ -194,4 +201,42 @@ describe('doctor diagnostics --primitives output', () => {
     expect(lines).toContain('summary: 2 cases: 2 pass, 0 known-gap, 0 fail; 1 bundles: 0 pass, 1 known-gap, 0 fail');
     expect(result.exitCode).toBe(0);
   }, 120_000);
+
+  describe('kind/route mismatch warnings', () => {
+    const WARNING = 'collections/x.collection.yml: items[0] plugins/p/skills/s/SKILL.md: kind "skill" differs from the kind '
+      + '"plugin" of the install route "plugins/" that this path matches';
+    const reportWith = (i0: DiagnosticCheck): PrimitiveDiagnosticsReport => ({
+      ok: true,
+      summary: { cases: 0, pass: 0, knownGap: 0, fail: 0, bundles: { bundles: 2, pass: 2, knownGap: 0, fail: 0 } },
+      filters: { kinds: ['skill'], targets: ['vscode'], scopes: ['user'] },
+      notCovered: { kinds: [] },
+      bundles: [
+        { id: 'aph-e2e-first', kinds: ['skill'], outcome: 'pass', checks: [i0, { invariant: 'I3', outcome: 'pass' }] },
+        { id: 'aph-e2e-second', kinds: ['skill'], outcome: 'pass', checks: [{ invariant: 'I0', outcome: 'pass' }] }
+      ],
+      cases: [],
+      knownGaps: [],
+      unusedKnownGaps: [],
+      workspace: '/tmp/ws',
+      workspaceRetained: false,
+      durationMs: 0
+    });
+
+    it('prints each warning directly under its bundle, without -v', () => {
+      const lines = renderPrimitivesText(
+        reportWith({ invariant: 'I0', outcome: 'pass', warnings: [WARNING] }),
+        { verbose: false }
+      ).split('\n');
+      const first = lines.indexOf('  [ OK ] aph-e2e-first');
+      expect(first).toBeGreaterThan(-1);
+      expect(lines[first + 1]).toBe(`      warning: ${WARNING}`);
+      expect(lines[first + 2]).toBe('  [ OK ] aph-e2e-second');
+      expect(lines.filter((line) => line.includes('warning:'))).toHaveLength(1);
+    });
+
+    it('prints no warning line when no check carries warnings', () => {
+      const text = renderPrimitivesText(reportWith({ invariant: 'I0', outcome: 'pass' }), { verbose: true });
+      expect(text).not.toContain('warning:');
+    });
+  });
 });
