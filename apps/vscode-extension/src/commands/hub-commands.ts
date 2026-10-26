@@ -5,7 +5,9 @@
 
 import {
   normalizeGitHubHubLocation,
-} from '@ai-primitives-hub/infra';
+  sanitizeHubId,
+  validateHubReference,
+} from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
 import {
@@ -184,7 +186,17 @@ export class HubCommands {
             if (!value || !value.includes('/')) {
               return 'Please enter a valid GitHub repository URL or owner/repo';
             }
-            return null;
+            try {
+              const normalizedInput = normalizeGitHubHubLocation(value.trim());
+              validateHubReference({
+                type: 'github',
+                location: normalizedInput.location,
+                ref: normalizedInput.ref
+              });
+              return null;
+            } catch {
+              return 'Please enter a valid GitHub repository URL or owner/repo';
+            }
           },
           ignoreFocusOut: true
         });
@@ -200,7 +212,7 @@ export class HubCommands {
         });
 
         // Fall back to owner/repo when a full repo/blob URL was pasted instead.
-        const normalized = normalizeGitHubHubLocation(location, ref || undefined);
+        const normalized = normalizeGitHubHubLocation(location.trim(), ref?.trim() || undefined);
         return {
           type: 'github',
           location: normalized.location,
@@ -338,11 +350,15 @@ export class HubCommands {
       prompt: 'Enter hub ID (optional, will auto-generate if empty)',
       placeHolder: 'my-hub',
       validateInput: (value) => {
-        if (value && !/^[a-z0-9-]+$/.test(value)) {
-          return 'Hub ID must contain only lowercase letters, numbers, and hyphens';
-        }
         if (value && (value.startsWith('-') || value.endsWith('-'))) {
           return 'Hub ID cannot start or end with a hyphen';
+        }
+        if (value) {
+          try {
+            sanitizeHubId(value);
+          } catch {
+            return 'Hub ID must contain only letters, numbers, dots, underscores, and hyphens';
+          }
         }
         return null;
       },

@@ -177,6 +177,17 @@ This is useful when bundle files have been manually deleted but the lockfile sti
 | `promptregistry.switchHub` | Switch Hub | Switch to a different hub |
 | `promptregistry.exportHubConfig` | Export Hub Configuration | Export hub configuration to a file |
 | `promptregistry.openHubRepository` | Open Hub Repository | Open the hub's repository in a browser |
+| `promptregistry.contributeToHub` | Contribute to Hub (Fork, Clone & Open Visual Editor) | Fork and clone the active GitHub-connected hub, check out a branch, and open `hub-config.yml` in the Visual Editor (Artifactory hubs are read-only and excluded) |
+| `promptregistry.openHubVisualEditor` | Open Hub Configuration in Visual Editor | Open `hub-config.yml` in the Visual Master-Detail Custom Editor |
+| `promptregistry.validateHubConfig` | Validate Hub Configuration (Sources, Catalogs & Profiles) | Run static and deep source/bundle validation on `hub-config.yml` |
+| `promptregistry.touchHubUpdatedAt` | Hub Config: Update Timestamp (updatedAt) | Update `metadata.updatedAt` in `hub-config.yml` to the current ISO-8601 timestamp |
+| `promptregistry.addHubSource` | Hub Config: Add Source | Guided wizard to add a source to `hub-config.yml` |
+| `promptregistry.discoverHubSourceBundles` | Hub Config: Discover Source Bundles | Probe a hub source and cache its discovered bundle catalog |
+| `promptregistry.addHubProfile` | Hub Config: Add Profile | Guided wizard to add a profile to `hub-config.yml` |
+| `promptregistry.addHubProfileBundle` | Hub Config: Add Bundle to Profile | Pick or add a bundle to a hub profile with automatic source-type prefixing |
+| `promptregistry.submitHubPullRequest` | Hub Config: Commit & Create Pull Request | Commit `hub-config.yml`, push to fork, and open a Pull Request against the upstream hub repository |
+| `promptregistry.refreshHubPullRequestStatus` | Hub Config: Refresh Pull Request Status | Refresh the active Pull Request and CI check-run status |
+| `promptregistry.openHubPullRequest` | Hub Config: Open Pull Request in Browser | Open the active Pull Request or upstream hub repository in the browser |
 
 ## Hub Profile Management
 

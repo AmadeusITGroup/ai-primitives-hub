@@ -6,9 +6,24 @@ If you do not have a Hub yet, start with [Creating a Hub](./creating-a-hub.md).
 
 ## Prerequisites
 
-- Write access to the hub's configuration repository
+- Write access to the hub's configuration repository (or a GitHub account to fork and open a Pull Request)
 - Understanding of [Hub Schema](../reference/hub-schema.md)
 - Source repositories must be accessible to hub users (e.g., hosted in a public GitHub organization or one visible to your target audience)
+
+> **GitHub-Connected Hubs Only (Artifactory Hubs are Read-Only):**
+> The Visual Hub Configuration Editor and Contributor Workflow are available only for hubs connected with GitHub. Hubs imported from JFrog Artifactory (`type: artifactory`) are read-only replicas populated exclusively by the promotion/replication pipeline and do not expose the editor or contribution actions.
+
+## Visual Hub Configuration Editor & Contributor Workflow
+
+Instead of manually forking, cloning, and hand-editing YAML, you can launch the guided contributor flow directly from your active GitHub-connected hub:
+
+1. Run **AI Primitives Hub: Contribute to Hub (Fork, Clone & Open Visual Editor)** (`promptregistry.contributeToHub`) from the Command Palette, the Registry Explorer title bar, or a GitHub hub's context menu.
+2. The extension ensures your GitHub fork exists, clones (or attaches to your existing local checkout), configures `origin` and `upstream` remotes, checks out a feature branch, and opens `hub-config.yml` in the **Visual Hub Configuration Editor**.
+3. Use either:
+   - **Visual Master-Detail Editor**: Add, edit, or delete sources, profiles, and profile bundles with automatic bundle ID prefix formatting (`<owner>-<repo>-<bundleId>` for `github` sources, `skills-<owner>-<repo>-<skillId>` for `skills` sources) and a searchable catalog picker populated via **Verify & Discover Bundles** / **Deep Validate**.
+   - **Hub Configuration Editor Tree View**: Browse and perform CRUD on Metadata, Sources, and Profiles (grouped by `path` categories) in the sidebar.
+   - **Live YAML Mode**: Edit `hub-config.yml` with real-time `DiagnosticCollection` squiggles, inline ghost-text decorations, `CodeLens` action links, and `Ctrl+.` Quick Fixes, while preserving `$schema` headers and category comments (`# Roles`, `# Domains`).
+4. Click **Commit & Create PR** (`promptregistry.submitHubPullRequest`) to validate, update `metadata.updatedAt`, commit, push, open a Pull Request against the upstream hub repository, and track PR/CI status directly in VS Code.
 
 ## Adding a Source
 
