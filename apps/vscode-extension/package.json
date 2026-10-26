@@ -835,7 +835,7 @@
   "extensionDependencies": [],
   "overrides": {
     "mocha": {
-      "chokidar": "^5.0.0",
+      "chokidar": "^6.0.0",
       "diff": "^9.0.0",
       "serialize-javascript": "^7.0.5"
     },
