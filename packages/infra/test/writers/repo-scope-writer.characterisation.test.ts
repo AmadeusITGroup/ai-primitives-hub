@@ -16,6 +16,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
   RepositoryScopeWriter,
@@ -307,6 +308,32 @@ describe('characterisation: .git/info/exclude bytes in local-only mode', () => {
       out.push(await readExclude(fs));
     });
     expect(steps).toEqual(EXCLUDE_EXPECTED.emptyWrite);
+  });
+});
+
+describe('directory items without a repository subdirectory', () => {
+  interface SubdirectoryLookup {
+    getSubdirectory(type: string): string | null;
+  }
+
+  it('skips a directory-category item whose kind has no subdirectory, in write and preflight', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const lookup = writer as unknown as SubdirectoryLookup;
+    const original = lookup.getSubdirectory.bind(writer);
+    vi.spyOn(lookup, 'getSubdirectory').mockImplementation((type) => (type.toLowerCase() === 'plugin' ? null : original(type)));
+    const files = bundle(`formatVersion: 1
+id: guard
+version: 1.0.0
+name: Guard
+items:
+  - { path: plugins/bar/plugin.json, kind: plugin, id: bar }
+`, { 'plugins/bar/plugin.json': '{"name":"bar"}\n', 'plugins/bar/skills/s/SKILL.md': '# S\n' });
+
+    expect(await writer.preflight(files)).toEqual({ writable: [], skipped: ['plugins/bar/plugin.json'] });
+    const result = await writer.write(files);
+    expect(result).toEqual({ written: [], skipped: ['plugins/bar/plugin.json'], skillDirs: [], writtenBundlePaths: [] });
+    expect(await listFiles(fs, WORKSPACE_ROOT)).toEqual({});
   });
 });
 
