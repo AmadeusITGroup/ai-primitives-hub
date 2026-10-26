@@ -24,6 +24,7 @@
 import * as path from 'node:path';
 import type {
   CopilotFileType,
+  ExtractedFile,
   ExtractedFiles,
   KindRoutes,
   LayoutConfigLoader,
@@ -36,6 +37,7 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  applyFileMode,
   decodeUtf8Strict,
   determineFileType,
   expandPath,
@@ -74,6 +76,11 @@ export interface WriterFs {
   mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;
   remove(p: string): Promise<void>;
   exists(p: string): Promise<boolean>;
+  /**
+   * Optional: add or clear a file's execute bits (see core's `FileSystem`
+   * port). Without it, installed files keep their default mode.
+   */
+  setExecutable?(p: string, executable: boolean): Promise<void>;
 }
 
 /**
@@ -318,7 +325,8 @@ export class FileTreeTargetWriter implements TargetWriter {
    * — the previous unconditional `TextDecoder` round-trip replaced
    * invalid UTF-8 sequences with U+FFFD and corrupted binary assets
    * such as PPTX files. Every write is verified by re-reading the file
-   * and comparing it against the intended bytes.
+   * and comparing it against the intended bytes, then given the
+   * executable bit the source recorded (issue #577).
    * @param target - Install target (passed to the transformer).
    * @param bundlePath - Bundle-relative source path (transformer context).
    * @param bytes - Raw source bytes from the extracted bundle.
@@ -327,7 +335,7 @@ export class FileTreeTargetWriter implements TargetWriter {
   private async writeContent(
     target: Target,
     bundlePath: string,
-    bytes: Uint8Array,
+    bytes: ExtractedFile,
     outPath: string
   ): Promise<void> {
     await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
@@ -337,6 +345,7 @@ export class FileTreeTargetWriter implements TargetWriter {
       // Binary payload: write verbatim, never transform.
       await this.opts.fs.writeFileBytes(outPath, bytes);
       await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+      await applyFileMode(this.opts.fs, outPath, bytes);
       return;
     }
 
@@ -356,6 +365,8 @@ export class FileTreeTargetWriter implements TargetWriter {
     }
     await this.opts.fs.writeFile(outPath, content);
     await verifyWrittenBytes(this.opts.fs, outPath, new TextEncoder().encode(content));
+    // The mode always comes from the source bytes, never the transformed text.
+    await applyFileMode(this.opts.fs, outPath, bytes);
   }
 
   /**
@@ -406,7 +417,7 @@ export class FileTreeTargetWriter implements TargetWriter {
         }
         for (const { bundlePath, tail } of placement.sources) {
           const outPath = path.join(baseDir, placement.outDir, tail);
-          const bytes = files.get(bundlePath) as Uint8Array;
+          const bytes = files.get(bundlePath) as ExtractedFile;
           // Keep the path visible to the catch block before write starts:
           // a filesystem can persist the file and then throw.
           pendingWritePath = outPath;
@@ -416,6 +427,7 @@ export class FileTreeTargetWriter implements TargetWriter {
             await this.opts.fs.mkdir(path.dirname(outPath), { recursive: true });
             await this.opts.fs.writeFileBytes(outPath, bytes);
             await verifyWrittenBytes(this.opts.fs, outPath, bytes);
+            await applyFileMode(this.opts.fs, outPath, bytes);
           } else {
             await this.writeContent(target, bundlePath, bytes, outPath);
           }

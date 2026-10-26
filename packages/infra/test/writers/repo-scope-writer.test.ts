@@ -6,11 +6,19 @@
  * `test/AGENTS.md`'s "test behavior not implementation" rule — same
  * assertions, faster + no real disk IO).
  */
+import {
+  statSync,
+} from 'node:fs';
 import * as path from 'node:path';
 import type {
   Target,
 } from '@ai-primitives-hub/core';
 import {
+  withFileMode,
+} from '@ai-primitives-hub/core';
+import {
+  afterEach,
+  beforeEach,
   describe,
   expect,
   it,
@@ -20,12 +28,18 @@ import {
   createLegacyReleaseArchive,
 } from '../../../core/test/fixtures/release-archives';
 import {
+  NodeFileSystem,
+} from '../../src/fs/node-filesystem';
+import {
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
 } from '../../src/writers/repo-scope-writer';
 import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
+import {
+  createTempDir,
+} from '../helpers/temp-dir';
 
 const WORKSPACE_ROOT = '/workspace';
 
@@ -626,5 +640,54 @@ describe('RepositoryScopeWriterAdapter', () => {
     const adapter = new RepositoryScopeWriterAdapter(writer);
 
     await expect(adapter.remove(dummyTarget, 'copilot/prompts/nonexistent.md')).resolves.not.toThrow();
+  });
+});
+
+describe('RepositoryScopeWriter executable bits (#577)', () => {
+  const unixOnly = it.skipIf(process.platform === 'win32');
+  const MANIFEST = 'id: exec-demo\nversion: 1.0.0\nname: Exec Demo\n'
+    + 'prompts:\n  - id: hello\n    file: prompts/hello.md\n    type: prompt\n'
+    + 'skills:\n  - id: demo\n    file: skills/demo/SKILL.md\n    type: skill\n';
+  const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+  // eslint-disable-next-line no-bitwise -- test reads the POSIX execute bits
+  const isExecutable = (filePath: string): boolean => (statSync(filePath).mode & 0o111) !== 0;
+  let workspace: string;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    [workspace, cleanup] = createTempDir('repo-scope-writer-');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  const bundle = (scriptMode: number): Map<string, Uint8Array> => new Map([
+    ['deployment-manifest.yml', encode(MANIFEST)],
+    ['prompts/hello.md', encode('# Hello\n')],
+    ['skills/demo/SKILL.md', withFileMode(encode('# Demo\n'), 0o644)],
+    ['skills/demo/scripts/run.sh', withFileMode(encode('#!/bin/sh\necho ok\n'), scriptMode)]
+  ]);
+
+  unixOnly('makes only files stored executable executable, bytes unchanged', async () => {
+    const writer = new RepositoryScopeWriter({ fs: new NodeFileSystem(), workspaceRoot: workspace, commitMode: 'commit' });
+
+    await writer.write(bundle(0o755));
+
+    const github = path.join(workspace, '.github');
+    expect(isExecutable(path.join(github, 'skills', 'demo', 'scripts', 'run.sh'))).toBe(true);
+    expect(isExecutable(path.join(github, 'skills', 'demo', 'SKILL.md'))).toBe(false);
+    expect(isExecutable(path.join(github, 'prompts', 'hello.md'))).toBe(false);
+    expect(await new NodeFileSystem().readFile(path.join(github, 'skills', 'demo', 'scripts', 'run.sh')))
+      .toBe('#!/bin/sh\necho ok\n');
+  });
+
+  unixOnly('clears the exec bit when a rewrite stores the file as non-executable', async () => {
+    const writer = new RepositoryScopeWriter({ fs: new NodeFileSystem(), workspaceRoot: workspace, commitMode: 'commit' });
+    await writer.write(bundle(0o755));
+
+    await writer.write(bundle(0o644));
+
+    expect(isExecutable(path.join(workspace, '.github', 'skills', 'demo', 'scripts', 'run.sh'))).toBe(false);
   });
 });

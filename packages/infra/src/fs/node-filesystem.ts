@@ -7,11 +7,13 @@
  * migration plan's adapter-unification cutover (§7.5 Phase 4 item 3). Every
  * method is a thin pass-through to the matching `node:fs/promises` call -
  * this class exists only to keep `core`/`app` free of direct `node:fs`
- * imports, not to add behavior of its own.
+ * imports, not to add behavior of its own. The one exception is
+ * `setExecutable`, which derives the new mode from the current one.
  * @module fs/node-filesystem
  */
 import {
   access,
+  chmod,
   mkdir,
   readdir,
   readFile,
@@ -79,8 +81,37 @@ export class NodeFileSystem implements FileSystem {
       isDirectory: stats.isDirectory(),
       isFile: stats.isFile(),
       size: stats.size,
-      mtimeMs: stats.mtimeMs
+      mtimeMs: stats.mtimeMs,
+      // eslint-disable-next-line no-bitwise -- keep only the permission bits
+      mode: stats.mode & 0o777
     };
+  }
+
+  /**
+   * Add or clear the execute bits of an existing file (issue #577).
+   *
+   * `true` grants execute wherever read is already granted, so the result
+   * follows the umask the file was created with (`0644` → `0755`,
+   * `0600` → `0700`), as a Git checkout of a `100755` file does. `false`
+   * clears every execute bit. Write and special bits are never added.
+   * Windows has no POSIX execute bit: the call resolves without changes.
+   * @param path Absolute file path.
+   * @param executable Whether the file should be executable.
+   */
+  public async setExecutable(path: string, executable: boolean): Promise<void> {
+    if (process.platform === 'win32') {
+      return;
+    }
+    // eslint-disable-next-line no-bitwise -- keep only the permission bits
+    const current = (await stat(path)).mode & 0o777;
+    const next = executable
+      // eslint-disable-next-line no-bitwise -- copy each read bit to the execute bit of the same class
+      ? current | ((current & 0o444) >> 2)
+      // eslint-disable-next-line no-bitwise -- clear every execute bit
+      : current & ~0o111;
+    if (next !== current) {
+      await chmod(path, next);
+    }
   }
 
   public async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {

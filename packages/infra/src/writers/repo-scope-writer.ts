@@ -15,6 +15,7 @@
  */
 import * as path from 'node:path';
 import type {
+  ExtractedFile,
   ExtractedFiles,
   FileSystem,
   PrimitiveKind,
@@ -24,6 +25,7 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  applyFileMode,
   normalizePrimitiveKind,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
@@ -123,13 +125,15 @@ export class RepositoryScopeWriter {
    * U+FFFD and corrupted binary assets such as PPTX files. Writing
    * bytes and re-reading them turns any residual corruption into a
    * loud `FileIntegrityError` instead of a silent broken artifact.
+   * The executable bit the source recorded is then applied (issue #577).
    * @param targetPath Absolute destination path.
    * @param bytes Exact bytes to install.
    */
-  private async writeBytesVerified(targetPath: string, bytes: Uint8Array): Promise<void> {
+  private async writeBytesVerified(targetPath: string, bytes: ExtractedFile): Promise<void> {
     await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
     await this.fs.writeFileBytes(targetPath, bytes);
     await verifyWrittenBytes(this.fs, targetPath, bytes);
+    await applyFileMode(this.fs, targetPath, bytes);
   }
 
   private getTargetPath(item: { type: string; file: string }): string | null {

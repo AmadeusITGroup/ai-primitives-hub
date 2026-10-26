@@ -24,6 +24,8 @@ export interface FileStat {
   size: number;
   /** Last-modified time, epoch milliseconds. */
   mtimeMs: number;
+  /** Unix permission bits (`rwxrwxrwx`), when the adapter reports them. */
+  mode?: number;
 }
 
 /**
@@ -59,4 +61,12 @@ export interface FileSystem {
   readDirEntries(path: string): Promise<DirEntry[]>;
   stat(path: string): Promise<FileStat>;
   remove(path: string, opts?: { recursive?: boolean }): Promise<void>;
+  /**
+   * Add or clear an existing file's execute permission (issue #577).
+   * `true` grants execute wherever read is granted (`0644` → `0755`);
+   * `false` clears every execute bit. Never widens write or special bits.
+   * Optional: adapters that cannot set modes omit it, and platforms
+   * without POSIX modes (Windows) resolve without changing anything.
+   */
+  setExecutable?(path: string, executable: boolean): Promise<void>;
 }

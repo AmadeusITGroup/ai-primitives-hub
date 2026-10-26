@@ -10,11 +10,13 @@
  * `doctor diagnostics`' steps 1-9 and 20-21.
  */
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -193,6 +195,22 @@ profiles:
     expect(currentResult.exitCode).toBe(0);
     const currentEnvelope = parseJson<{ active: { hubId: string; profileId: string } }>(currentResult.stdout);
     expect(currentEnvelope.data.active).toEqual({ hubId: 'test-hub', profileId: 'backend' });
+  });
+
+  it.skipIf(process.platform === 'win32')('activates a profile with the bundle\'s executable bits (#577)', async () => {
+    const script = path.join(bundleDir, 'skills', 'demo', 'scripts', 'run.sh');
+    await mkdir(path.dirname(script), { recursive: true });
+    await writeFile(script, '#!/bin/sh\necho ok\n');
+    await chmod(script, 0o755);
+    expect((await run(['hub', 'sync', 'test-hub', '-o', 'json'])).exitCode).toBe(0);
+
+    const activateResult = await run(['profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json']);
+    expect(activateResult.exitCode, activateResult.stdout).toBe(0);
+
+    // eslint-disable-next-line no-bitwise -- test reads the POSIX execute bits
+    const executable = async (filePath: string): Promise<boolean> => ((await stat(filePath)).mode & 0o111) !== 0;
+    expect(await executable(path.join(targetDir, 'skills', 'demo', 'scripts', 'run.sh'))).toBe(true);
+    expect(await executable(path.join(targetDir, 'prompts', 'hello.prompt.md'))).toBe(false);
   });
 
   it('activates a governed profile without writing archive metadata or ignored files', async () => {

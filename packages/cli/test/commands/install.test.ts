@@ -9,10 +9,12 @@ import {
   createHash,
 } from 'node:crypto';
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -161,13 +163,14 @@ describe('install command (local --from mode)', () => {
     let manifestVersion = '1.0.0';
     const archives = new Map<string, Uint8Array>();
     const additionalCatalogIds: string[] = [];
+    const extraEntries: { path: string; bytes: Uint8Array; mode?: number }[] = [];
     let indexFailuresRemaining = 0;
     let archiveFailureBundleId: string | undefined;
     const archiveFor = (): Uint8Array => {
       const key = `${version}:${manifestVersion}`;
       if (!archives.has(key)) {
         const files = createLegacyReleaseArchive({ id: 'bundle', version: manifestVersion });
-        archives.set(key, buildZip([...files].map(([filePath, bytes]) => ({ path: filePath, bytes }))));
+        archives.set(key, buildZip([...[...files].map(([filePath, bytes]) => ({ path: filePath, bytes })), ...extraEntries]));
       }
       return archives.get(key)!;
     };
@@ -233,6 +236,9 @@ describe('install command (local --from mode)', () => {
       addCatalogBundle: (id: string) => {
         additionalCatalogIds.push(id);
       },
+      addArchiveEntry: (entry: { path: string; bytes: Uint8Array; mode?: number }) => {
+        extraEntries.push(entry);
+      },
       setVersion: (selected: string, embedded = selected) => {
         version = selected;
         manifestVersion = embedded;
@@ -271,6 +277,30 @@ describe('install command (local --from mode)', () => {
     expect(nextLock.bundles[fixture.catalogId].version).toBe('2.0.0');
     const replayUpdated = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
     expect(replayUpdated.exitCode).toBe(0);
+  });
+
+  it.skipIf(process.platform === 'win32')('restores executable bits on install, lockfile replay and update (#577)', async () => {
+    const fixture = artifactoryFixture();
+    fixture.addArchiveEntry({ path: 'skills/demo/scripts/run.sh', bytes: new TextEncoder().encode('#!/bin/sh\necho ok\n'), mode: 0o755 });
+    const script = path.join(targetDir, 'skills', 'demo', 'scripts', 'run.sh');
+    // eslint-disable-next-line no-bitwise -- test reads the POSIX execute bits
+    const executable = async (filePath = script): Promise<boolean> => ((await stat(filePath)).mode & 0o111) !== 0;
+
+    const installed = await fixture.install();
+    expect(await executable()).toBe(true);
+    expect(await executable(path.join(targetDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+
+    await rm(script);
+    const replay = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
+    expect(replay.exitCode).toBe(0);
+    expect(await executable()).toBe(true);
+
+    await chmod(script, 0o644);
+    fixture.setVersion('2.0.0');
+    const updated = await fixture.command(['update', '--lockfile', installed.lockPath, '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
+    expect(updated.exitCode).toBe(0);
+    expect(JSON.parse(updated.ctx.stdout.captured()).data.updated).toBe(1);
+    expect(await executable()).toBe(true);
   });
 
   it('reports Artifactory discovery failures instead of reporting no updates', async () => {
@@ -902,5 +932,131 @@ agents:
     await expect(
       readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('preflighted bundle');
+  });
+
+  describe('executable bits (#577)', () => {
+    const unixOnly = it.skipIf(process.platform === 'win32');
+    const SCRIPT = '#!/bin/sh\necho ok\n';
+    const SKILL = '---\nname: demo\ndescription: Demo skill with a helper script\n---\n# Demo\n';
+    const MANIFEST = 'id: exec-demo\nversion: 1.0.0\nname: Exec Demo\nskills:\n'
+      + '  - id: demo\n    file: skills/demo/SKILL.md\n    type: skill\n';
+    const userTarget = (): Target => ({ name: 'copilot', type: 'copilot-cli', scope: 'user', path: targetDir });
+    const repoTarget = (): Target => ({ name: 'repository-copilot', type: 'copilot-cli', scope: 'repository', rootPath: workspace });
+    let execBundleDir: string;
+
+    const isExecutable = async (filePath: string): Promise<boolean> =>
+      // eslint-disable-next-line no-bitwise -- test reads the POSIX execute bits
+      ((await stat(filePath)).mode & 0o111) !== 0;
+    const lockedFiles = async (lockfilePath: string): Promise<unknown> =>
+      (JSON.parse(await readFile(lockfilePath, 'utf8')) as Lockfile).bundles['exec-demo'].files;
+    const installFrom = async (extra: string[] = []): Promise<string> => {
+      const result = await run(['install', 'exec-demo', '--from', execBundleDir, '--target', 'copilot', ...extra, '-o', 'json']);
+      expect(result.exitCode, result.stdout).toBe(0);
+      return parseJson<{ lockfile: string }>(result.stdout).data.lockfile;
+    };
+    const execZip = (scriptMode?: number): Uint8Array => buildZip([
+      { path: 'deployment-manifest.yml', bytes: new TextEncoder().encode(MANIFEST) },
+      { path: 'skills/demo/SKILL.md', bytes: new TextEncoder().encode(SKILL) },
+      { path: 'skills/demo/scripts/run.sh', bytes: new TextEncoder().encode(SCRIPT), mode: scriptMode }
+    ]);
+    const installRemote = async (zipBytes: Uint8Array, target: Target): Promise<string> => {
+      const http: HttpClient = {
+        fetch: (request: HttpRequest): Promise<HttpResponse> => {
+          if (request.url === 'https://api.github.com/repos/owner/repo/releases') {
+            return Promise.resolve({
+              statusCode: 200,
+              body: new TextEncoder().encode(JSON.stringify([{
+                tag_name: 'exec-demo-v1.0.0',
+                assets: [{ name: 'bundle.zip', url: 'https://api.github.com/assets/exec-demo' }]
+              }])),
+              finalUrl: request.url,
+              headers: {}
+            });
+          }
+          if (request.url === 'https://api.github.com/assets/exec-demo') {
+            return Promise.resolve({ statusCode: 200, body: zipBytes, finalUrl: request.url, headers: {} });
+          }
+          return Promise.reject(new Error(`Unexpected request: ${request.url}`));
+        }
+      };
+      const source: RegistrySource = {
+        id: 'github-source', name: 'GitHub source', type: 'github', url: 'https://github.com/owner/repo', enabled: true, priority: 0
+      };
+      const ctx = createTestContext({
+        cwd: workspace,
+        fs: new NodeFileSystem(),
+        env: {
+          HOME: workspace,
+          USERPROFILE: workspace,
+          XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+          XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+        }
+      });
+      const exitCode = await installBundleWithSource('exec-demo', source, target, ctx, http, { getToken: () => Promise.resolve(undefined) }, 'json');
+      expect(exitCode, ctx.stdout.captured()).toBe(0);
+      return (JSON.parse(ctx.stdout.captured()) as JsonEnvelope<{ lockfile: string }>).data.lockfile;
+    };
+
+    beforeEach(async () => {
+      execBundleDir = path.join(workspace, 'exec-bundle');
+      await mkdir(path.join(execBundleDir, 'skills', 'demo', 'scripts'), { recursive: true });
+      await writeFile(path.join(execBundleDir, 'deployment-manifest.yml'), MANIFEST);
+      await writeFile(path.join(execBundleDir, 'skills', 'demo', 'SKILL.md'), SKILL);
+      await writeFile(path.join(execBundleDir, 'skills', 'demo', 'scripts', 'run.sh'), SCRIPT);
+      await chmod(path.join(execBundleDir, 'skills', 'demo', 'SKILL.md'), 0o644);
+      await chmod(path.join(execBundleDir, 'skills', 'demo', 'scripts', 'run.sh'), 0o644);
+    });
+
+    unixOnly('install --from restores the exec bit on a user-scope target without changing bytes or lockfile', async () => {
+      const baselineLock = await lockedFiles(await installFrom());
+      const installedScript = path.join(targetDir, 'skills', 'demo', 'scripts', 'run.sh');
+      expect(await isExecutable(installedScript)).toBe(false);
+
+      await chmod(path.join(execBundleDir, 'skills', 'demo', 'scripts', 'run.sh'), 0o755);
+      const lockfilePath = await installFrom();
+
+      expect(await isExecutable(installedScript)).toBe(true);
+      expect(await isExecutable(path.join(targetDir, 'skills', 'demo', 'SKILL.md'))).toBe(false);
+      expect(await readFile(installedScript, 'utf8')).toBe(SCRIPT);
+      expect(await lockedFiles(lockfilePath)).toEqual(baselineLock);
+      expect(JSON.stringify(baselineLock)).not.toContain('mode');
+    });
+
+    unixOnly('install --from restores the exec bit on a repository-scope target', async () => {
+      await chmod(path.join(execBundleDir, 'skills', 'demo', 'scripts', 'run.sh'), 0o755);
+      await installFrom(['--scope', 'repository']);
+
+      const skillDir = path.join(workspace, '.github', 'skills', 'demo');
+      expect(await isExecutable(path.join(skillDir, 'scripts', 'run.sh'))).toBe(true);
+      expect(await isExecutable(path.join(skillDir, 'SKILL.md'))).toBe(false);
+      expect(await readFile(path.join(skillDir, 'scripts', 'run.sh'), 'utf8')).toBe(SCRIPT);
+    });
+
+    unixOnly('install --lockfile restores the exec bit when replaying a local bundle', async () => {
+      await chmod(path.join(execBundleDir, 'skills', 'demo', 'scripts', 'run.sh'), 0o755);
+      const lockfilePath = await installFrom();
+      const installedScript = path.join(targetDir, 'skills', 'demo', 'scripts', 'run.sh');
+      await rm(installedScript);
+
+      const replay = await run(['install', '--lockfile', lockfilePath, '--target', 'copilot', '-o', 'json']);
+
+      expect(replay.exitCode, replay.stdout).toBe(0);
+      expect(await isExecutable(installedScript)).toBe(true);
+    });
+
+    unixOnly.each([
+      ['user', userTarget, (): string => path.join(targetDir, 'skills', 'demo')],
+      ['repository', repoTarget, (): string => path.join(workspace, '.github', 'skills', 'demo')]
+    ] as const)('installs a downloaded archive with the exec bit on %s scope', async (_scope, target, skillDir) => {
+      const baselineLock = await lockedFiles(await installRemote(execZip(), target()));
+      expect(await isExecutable(path.join(skillDir(), 'scripts', 'run.sh'))).toBe(false);
+
+      const lockfilePath = await installRemote(execZip(0o755), target());
+
+      expect(await isExecutable(path.join(skillDir(), 'scripts', 'run.sh'))).toBe(true);
+      expect(await isExecutable(path.join(skillDir(), 'SKILL.md'))).toBe(false);
+      expect(await readFile(path.join(skillDir(), 'scripts', 'run.sh'), 'utf8')).toBe(SCRIPT);
+      expect(await lockedFiles(lockfilePath)).toEqual(baselineLock);
+    });
   });
 });

@@ -9,15 +9,27 @@
  * `default-layouts.json` single-source-of-truth history). Written
  * fresh against this module's actual current behavior.
  */
+import {
+  mkdtempSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   ResourceTransformer,
   Target,
 } from '@ai-primitives-hub/core';
 import {
+  withFileMode,
+} from '@ai-primitives-hub/core';
+import {
   BuiltInOnlyLayoutConfigLoader,
+  NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
+  afterEach,
+  beforeEach,
   describe,
   expect,
   it,
@@ -675,5 +687,68 @@ describe('FileTreeTargetWriter manifest placement on a Kiro target', () => {
 
     expect(await fs.exists(localPath(kiroDir, 'steering', 'a.instructions.md'))).toBe(false);
     expect(await fs.exists(localPath(kiroDir, 'steering', 'b.instructions.md'))).toBe(false);
+  });
+});
+
+describe('FileTreeTargetWriter executable bits (#577)', () => {
+  const unixOnly = it.skipIf(process.platform === 'win32');
+  const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+  // eslint-disable-next-line no-bitwise -- test reads the POSIX execute bits
+  const isExecutable = (filePath: string): boolean => (statSync(filePath).mode & 0o111) !== 0;
+  let outDir: string;
+  let target: Target;
+
+  beforeEach(() => {
+    outDir = mkdtempSync(path.join(os.tmpdir(), 'file-tree-writer-'));
+    target = { name: 'test', type: 'vscode', scope: 'user', path: outDir };
+  });
+
+  afterEach(() => {
+    rmSync(outDir, { recursive: true, force: true });
+  });
+
+  const files = (): Map<string, Uint8Array> => new Map([
+    ['skills/demo/SKILL.md', withFileMode(encode('# Demo\n'), 0o644)],
+    ['skills/demo/scripts/run.sh', withFileMode(encode('#!/bin/sh\necho ok\n'), 0o755)],
+    ['skills/demo/assets/tool.bin', withFileMode(new Uint8Array([0xFF, 0xFE, 0x00, 0x9D]), 0o755)],
+    ['prompts/hello.prompt.md', encode('# Hello\n')]
+  ]);
+
+  unixOnly('write() applies the stored exec bit to text and binary files', async () => {
+    const writer = new FileTreeTargetWriter({ fs: new NodeFileSystem(), env: {} });
+
+    await writer.write(target, files());
+
+    expect(isExecutable(path.join(outDir, 'skills', 'demo', 'scripts', 'run.sh'))).toBe(true);
+    expect(isExecutable(path.join(outDir, 'skills', 'demo', 'assets', 'tool.bin'))).toBe(true);
+    expect(isExecutable(path.join(outDir, 'skills', 'demo', 'SKILL.md'))).toBe(false);
+    expect(isExecutable(path.join(outDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+  });
+
+  unixOnly('write() applies the source mode when a transformer rewrites the text', async () => {
+    const transformer: ResourceTransformer = { transform: ({ content }) => ({ content: `${content}# transformed\n`, modified: true }) };
+    const writer = new FileTreeTargetWriter({ fs: new NodeFileSystem(), env: {}, transformer });
+
+    await writer.write(target, files());
+
+    const script = path.join(outDir, 'skills', 'demo', 'scripts', 'run.sh');
+    expect(isExecutable(script)).toBe(true);
+    expect(await new NodeFileSystem().readFile(script)).toContain('# transformed');
+  });
+
+  unixOnly('writeManifestItems() applies the stored exec bit inside a skill directory', async () => {
+    const writer = new FileTreeTargetWriter({ fs: new NodeFileSystem(), env: {} });
+    const items: ManifestPlacementItem[] = [
+      { id: 'demo', file: 'skills/demo/SKILL.md', type: 'skill' },
+      { id: 'hello', file: 'prompts/hello.prompt.md', type: 'prompt' }
+    ];
+
+    await writer.writeManifestItems(target, files(), items);
+
+    expect(isExecutable(path.join(outDir, 'skills', 'demo', 'scripts', 'run.sh'))).toBe(true);
+    expect(isExecutable(path.join(outDir, 'skills', 'demo', 'SKILL.md'))).toBe(false);
+    expect(isExecutable(path.join(outDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+    expect(await new NodeFileSystem().readFile(path.join(outDir, 'skills', 'demo', 'scripts', 'run.sh')))
+      .toBe('#!/bin/sh\necho ok\n');
   });
 });

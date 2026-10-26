@@ -1,4 +1,8 @@
 import {
+  chmodSync,
+  statSync,
+} from 'node:fs';
+import {
   join,
 } from 'node:path';
 import {
@@ -127,5 +131,58 @@ describe('NodeFileSystem', () => {
     await fs.remove(subdir, { recursive: true });
 
     expect(await fs.exists(subdir)).toBe(false);
+  });
+
+  describe('file modes (#577)', () => {
+    const unixOnly = it.skipIf(process.platform === 'win32');
+    // eslint-disable-next-line no-bitwise -- read the permission bits
+    const modeOf = (filePath: string): number => statSync(filePath).mode & 0o777;
+
+    unixOnly('stat reports the permission bits', async () => {
+      const filePath = join(dir, 'run.sh');
+      await fs.writeFile(filePath, '#!/bin/sh\n');
+      chmodSync(filePath, 0o750);
+
+      expect((await fs.stat(filePath)).mode).toBe(0o750);
+    });
+
+    unixOnly.each([
+      ['0644', 0o644, 0o755],
+      ['0600', 0o600, 0o700],
+      ['0640', 0o640, 0o750]
+    ])('setExecutable(true) adds execute where read is granted (%s)', async (_label, before, after) => {
+      const filePath = join(dir, 'run.sh');
+      await fs.writeFile(filePath, '#!/bin/sh\n');
+      chmodSync(filePath, before);
+
+      await fs.setExecutable(filePath, true);
+
+      expect(modeOf(filePath)).toBe(after);
+    });
+
+    unixOnly('setExecutable(false) clears every execute bit', async () => {
+      const filePath = join(dir, 'run.sh');
+      await fs.writeFile(filePath, '#!/bin/sh\n');
+      chmodSync(filePath, 0o755);
+
+      await fs.setExecutable(filePath, false);
+
+      expect(modeOf(filePath)).toBe(0o644);
+    });
+
+    unixOnly('is a no-op on Windows', async () => {
+      const filePath = join(dir, 'run.sh');
+      await fs.writeFile(filePath, '#!/bin/sh\n');
+      chmodSync(filePath, 0o644);
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      try {
+        await expect(fs.setExecutable(filePath, true)).resolves.toBeUndefined();
+      } finally {
+        Object.defineProperty(process, 'platform', platform);
+      }
+
+      expect(modeOf(filePath)).toBe(0o644);
+    });
   });
 });
