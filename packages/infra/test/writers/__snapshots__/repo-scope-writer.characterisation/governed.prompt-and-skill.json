@@ -1,0 +1,72 @@
+{
+  "preflight": {
+    "writable": [
+      "prompts/x.prompt.md",
+      "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh",
+      "skills/baz/SKILL.md"
+    ],
+    "skipped": [
+      "instructions/x.instructions.md",
+      "chatmodes/x.chatmode.md",
+      "agents/x.agent.md",
+      "plugins/bar/plugin.json",
+      "hooks/x.json",
+      "mcp-servers/x.mcp.json",
+      ".kiro/steering/x.md",
+      ".kiro/specs/feature/requirements.md",
+      "commands/x.md",
+      "rules/x.md",
+      "output-styles/x.md",
+      "tools/x.md",
+      "powers/stripe/POWER.md",
+      "knowledge/x.md",
+      "playbooks/x.md"
+    ]
+  },
+  "write": {
+    "written": [
+      "/workspace/.github/prompts/x.prompt.md",
+      "/workspace/.github/skills/foo/SKILL.md",
+      "/workspace/.github/skills/foo/references/ref.md",
+      "/workspace/.github/skills/foo/scripts/run.sh",
+      "/workspace/.github/skills/baz-renamed/SKILL.md"
+    ],
+    "skipped": [
+      "instructions/x.instructions.md",
+      "chatmodes/x.chatmode.md",
+      "agents/x.agent.md",
+      "plugins/bar/plugin.json",
+      "hooks/x.json",
+      "mcp-servers/x.mcp.json",
+      ".kiro/steering/x.md",
+      ".kiro/specs/feature/requirements.md",
+      "commands/x.md",
+      "rules/x.md",
+      "output-styles/x.md",
+      "tools/x.md",
+      "powers/stripe/POWER.md",
+      "knowledge/x.md",
+      "playbooks/x.md"
+    ],
+    "skillDirs": [
+      "/workspace/.github/skills/foo",
+      "/workspace/.github/skills/baz-renamed"
+    ],
+    "writtenBundlePaths": [
+      "prompts/x.prompt.md",
+      "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh",
+      "skills/baz/SKILL.md"
+    ]
+  },
+  "disk": {
+    "/workspace/.github/prompts/x.prompt.md": "# Prompt\n",
+    "/workspace/.github/skills/baz-renamed/SKILL.md": "# Renamed skill\n",
+    "/workspace/.github/skills/foo/SKILL.md": "# Skill\n",
+    "/workspace/.github/skills/foo/references/ref.md": "# Reference\n",
+    "/workspace/.github/skills/foo/scripts/run.sh": "#!/bin/sh\n"
+  }
+}
