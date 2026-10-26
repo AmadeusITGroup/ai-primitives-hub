@@ -344,12 +344,13 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
   }
 
   /**
-   * The healthy product: reject by the support matrix, otherwise place every item file.
+   * The healthy product: reject by the support matrix (all-or-nothing, so a
+   * `partial` bundle is rejected as today), otherwise place every item file.
    * @param call - Install call.
    * @returns Outcome.
    */
   public defaultInstall(call: FakeInstallCall): FakeInstallOutcome {
-    return expectedStatus(call.bundle.items.map((item) => item.kind), call.target) === 'rejected'
+    return expectedStatus(call.bundle.items.map((item) => item.kind), call.target) !== 'installed'
       ? { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [] }
       : { exitCode: 0, files: call.defaultFiles };
   }

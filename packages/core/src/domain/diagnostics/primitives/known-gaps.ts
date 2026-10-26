@@ -32,11 +32,16 @@ export interface KnownGap {
   /** Descriptive gap id shared by the entries of one product defect, e.g. 'manifest-id-file-stem'. */
   id: string;
   invariant: InvariantId;
-  /** Absent selector = all. A selector on a dimension the subject lacks never matches (bundle subjects have no target/scope). */
-  match: { kinds?: PrimitiveKind[]; targets?: TargetType[]; scopes?: DiagnosticScope[] };
+  /**
+   * Absent selector = all. A selector on a dimension the subject lacks never matches (bundle subjects have no target/scope).
+   * `bundles` lists bundle ids; `kinds` matches a per-item check by its item's kind.
+   */
+  match: { kinds?: PrimitiveKind[]; bundles?: string[]; targets?: TargetType[]; scopes?: DiagnosticScope[] };
   /** Must deep-equal the check's `observed` (arrays compared sorted). */
   observed: JsonValue;
   summary: string;
+  /** GitHub issue (in this repository) that tracks the fix, when one exists. */
+  issue?: number;
 }
 
 const REJECTED: JsonValue = { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' };
@@ -77,7 +82,8 @@ export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
     invariant: 'I4',
     match: { kinds: ['hook'], targets: ['kiro'] },
     observed: REJECTED,
-    summary: 'kiro rejects hook items (kiro-cli accepts them)'
+    summary: 'kiro rejects hook items (kiro-cli accepts them)',
+    issue: 549
   },
   {
     key: 'copilot-cli-repository-scope/I8/copilot-cli@repository',

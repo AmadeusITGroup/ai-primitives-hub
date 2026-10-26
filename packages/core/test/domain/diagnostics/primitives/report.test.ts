@@ -134,6 +134,19 @@ describe('assemblePrimitiveReport', () => {
     expect(withUnused.ok).toBe(true);
   });
 
+  it('copies the GitHub issue of a known gap into knownGaps and unusedKnownGaps', () => {
+    const withIssue = GAPS.map((g) => (g.id === 'chat-mode-rejected' || g.id === 'manifest-id-file-stem' ? { ...g, issue: 526 } : g));
+    const report = assemblePrimitiveReport(plan, BUNDLES, plan.cases.map((c) => caseResult(c)), withIssue, meta);
+    expect(report.knownGaps.find((g) => g.id === 'chat-mode-rejected')).toEqual(
+      { key: 'chat-mode-rejected/I4/chat-mode@copilot-cli', id: 'chat-mode-rejected', invariant: 'I4', absorbed: 2, issue: 526 }
+    );
+    expect(report.knownGaps.find((g) => g.id === 'copilot-cli-repository-scope')).not.toHaveProperty('issue');
+
+    const fixedPrompt: BundleResult = { id: 'aph-e2e-only-prompt', checks: [pass('I0'), pass('I1', 'prompts/hello-world.prompt.md'), pass('I2', 'prompts/hello-world.prompt.md'), pass('I3')] };
+    const unused = assemblePrimitiveReport(plan, [fixedPrompt, BUNDLES[1]], plan.cases.map((c) => caseResult(c)), withIssue, meta);
+    expect(unused.unusedKnownGaps).toEqual([{ key: 'manifest-id-file-stem/I2/prompt', id: 'manifest-id-file-stem', invariant: 'I2', issue: 526 }]);
+  });
+
   it('fills unfinished items with a HARNESS check on an internal error', () => {
     const error = { step: 'internal' as const, message: 'onProgress threw' };
     const report = assemblePrimitiveReport(plan, BUNDLES.slice(0, 1), plan.cases.slice(0, 2).map((c) => caseResult(c)), GAPS, { ...meta, error });

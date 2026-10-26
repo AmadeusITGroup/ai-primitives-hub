@@ -33,6 +33,7 @@ describe('planPrimitiveDiagnostics', () => {
       id: 'aph-e2e-only-prompt__vscode__user',
       bundle: 'aph-e2e-only-prompt',
       kinds: ['prompt'],
+      items: [{ path: 'prompts/hello-world.prompt.md', kind: 'prompt' }],
       target: 'vscode',
       scope: 'user',
       expectedStatus: 'installed'
@@ -90,6 +91,14 @@ describe('planPrimitiveDiagnostics', () => {
     const catalogue = [{ ...PRIMITIVE_DIAGNOSTIC_BUNDLES[0], id: 'mix', items: [PRIMITIVE_DIAGNOSTIC_BUNDLES[0].items[0], PRIMITIVE_DIAGNOSTIC_BUNDLES[1].items[0]] }];
     expect(planPrimitiveDiagnostics({ kinds: ['prompt'] }, catalogue).bundles).toEqual([]);
     expect(planPrimitiveDiagnostics({ kinds: ['prompt', 'instruction'], targets: ['vscode'], scopes: ['user'] }, catalogue).cases)
-      .toEqual([{ id: 'mix__vscode__user', bundle: 'mix', kinds: ['prompt', 'instruction'], target: 'vscode', scope: 'user', expectedStatus: 'installed' }]);
+      .toEqual([{
+        id: 'mix__vscode__user',
+        bundle: 'mix',
+        kinds: ['prompt', 'instruction'],
+        items: [{ path: 'prompts/hello-world.prompt.md', kind: 'prompt' }, { path: 'instructions/code-style.instructions.md', kind: 'instruction' }],
+        target: 'vscode',
+        scope: 'user',
+        expectedStatus: 'installed'
+      }]);
   });
 });

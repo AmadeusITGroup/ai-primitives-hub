@@ -19,6 +19,7 @@ import {
   PRIMITIVE_DIAGNOSTIC_BUNDLES,
 } from './catalogue';
 import {
+  type ExpectedInstallStatus,
   expectedStatus,
 } from './support-matrix';
 import {
@@ -38,10 +39,13 @@ export interface PlannedCase {
   /** `${bundle}__${target}__${scope}`. */
   id: string;
   bundle: string;
+  /** Distinct item kinds, in bundle item order. */
   kinds: PrimitiveKind[];
+  /** The bundle's items, in bundle order: the subjects of per-item case checks. */
+  items: { path: string; kind: PrimitiveKind }[];
   target: TargetType;
   scope: DiagnosticScope;
-  expectedStatus: 'installed' | 'rejected';
+  expectedStatus: ExpectedInstallStatus;
 }
 
 /** What a run executes. */
@@ -91,6 +95,7 @@ export function planPrimitiveDiagnostics(
         id: `${bundle.id}__${target}__${scope}`,
         bundle: bundle.id,
         kinds: [...bundleKinds],
+        items: bundle.items.map((item) => ({ path: item.path, kind: item.kind })),
         target,
         scope,
         expectedStatus: status

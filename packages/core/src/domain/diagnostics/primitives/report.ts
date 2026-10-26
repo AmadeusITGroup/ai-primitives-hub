@@ -28,6 +28,9 @@ import type {
   PrimitiveDiagnosticsPlan,
 } from './planner';
 import type {
+  ExpectedInstallStatus,
+} from './support-matrix';
+import type {
   DiagnosticCheck,
   DiagnosticScope,
   InvariantId,
@@ -58,11 +61,12 @@ export interface PrimitiveDiagnosticsReport {
   cases: {
     id: string; bundle: string; kinds: PrimitiveKind[]; target: TargetType; scope: DiagnosticScope;
     effectiveScope: string | null; status: InstallStatus | null;
-    expectedStatus: 'installed' | 'rejected'; outcome: RollupOutcome; gapIds: string[];
+    expectedStatus: ExpectedInstallStatus; outcome: RollupOutcome; gapIds: string[];
     checks: DiagnosticCheck[]; destinations: string[]; durationMs: number;
   }[];
-  knownGaps: { key: string; id: string; invariant: InvariantId; absorbed: number }[];
-  unusedKnownGaps: { key: string; id: string; invariant: InvariantId }[];
+  /** `issue`: the GitHub issue that tracks the fix, when the entry names one. */
+  knownGaps: { key: string; id: string; invariant: InvariantId; absorbed: number; issue?: number }[];
+  unusedKnownGaps: { key: string; id: string; invariant: InvariantId; issue?: number }[];
   /** Absolute run workspace. */
   workspace: string;
   workspaceRetained: boolean;
@@ -96,6 +100,9 @@ export interface PrimitiveReportMeta {
 }
 
 const NOT_RUN: DiagnosticCheck = { invariant: 'HARNESS', outcome: 'fail', detail: 'not run: internal error' };
+
+const withIssue = <T extends object>(entry: T, gap: KnownGap): T & { issue?: number } =>
+  (gap.issue === undefined ? entry : { ...entry, issue: gap.issue });
 
 const tally = (outcomes: readonly RollupOutcome[]): { pass: number; knownGap: number; fail: number } => ({
   pass: outcomes.filter((o) => o === 'pass').length,
@@ -175,8 +182,8 @@ export function assemblePrimitiveReport(
     cases,
     knownGaps: gaps
       .filter((gap) => (absorbed.get(gap.key) ?? 0) > 0)
-      .map((gap) => ({ key: gap.key, id: gap.id, invariant: gap.invariant, absorbed: absorbed.get(gap.key)! })),
-    unusedKnownGaps: findUnusedKnownGaps(records, gaps).map((gap) => ({ key: gap.key, id: gap.id, invariant: gap.invariant })),
+      .map((gap) => withIssue({ key: gap.key, id: gap.id, invariant: gap.invariant, absorbed: absorbed.get(gap.key)! }, gap)),
+    unusedKnownGaps: findUnusedKnownGaps(records, gaps).map((gap) => withIssue({ key: gap.key, id: gap.id, invariant: gap.invariant }, gap)),
     workspace: meta.workspace,
     workspaceRetained: meta.workspaceRetained,
     durationMs: meta.durationMs

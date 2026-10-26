@@ -59,6 +59,13 @@ describe('classifyCheck', () => {
     expect(classifyCheck(failed('HARNESS', null), { kinds: ['prompt'] }, [gap]).check.outcome).toBe('fail');
   });
 
+  it('matches a bundles selector on the subject bundle only', () => {
+    const gap: KnownGap = { key: 'test-gap/I4/mix', id: 'test-gap', invariant: 'I4', match: { bundles: ['mix'] }, observed: rejected, summary: 's' };
+    expect(classifyCheck(failed('I4', rejected), { kinds: ['prompt'], bundle: 'mix', target: 'vscode' }, [gap]).check.outcome).toBe('known-gap');
+    expect(classifyCheck(failed('I4', rejected), { kinds: ['prompt'], bundle: 'other', target: 'vscode' }, [gap]).check.outcome).toBe('fail');
+    expect(classifyCheck(failed('I4', rejected), { kinds: ['prompt'], target: 'vscode' }, [gap]).check.outcome).toBe('fail');
+  });
+
   it('never matches a selector on a dimension the subject lacks', () => {
     const gap: KnownGap = {
       key: 'manifest-id-file-stem/I2/prompt@vscode', id: 'manifest-id-file-stem', invariant: 'I2', match: { kinds: ['prompt'], targets: ['vscode'] },
@@ -96,6 +103,28 @@ describe('classifyCase', () => {
     expect(result.checks[0]).toMatchObject({ outcome: 'fail' });
     expect(result.checks[0].gapIds).toBeUndefined();
   });
+  it('classifies a per-item case check by its item kind and the case bundle', () => {
+    const mix: PlannedCase = {
+      id: 'mix__vscode__user',
+      bundle: 'mix',
+      kinds: ['prompt', 'mcp-server'],
+      items: [{ path: 'prompts/hello-world.prompt.md', kind: 'prompt' }, { path: 'mcp-servers/github.mcp.json', kind: 'mcp-server' }],
+      target: 'vscode',
+      scope: 'user',
+      expectedStatus: 'installed'
+    };
+    const promptGap: KnownGap = { key: 'test-gap/I9/prompt', id: 'test-gap', invariant: 'I9', match: { kinds: ['prompt'] }, observed: { rejected: true }, summary: 's' };
+    const bundleGap: KnownGap = { key: 'mix-gap/I9/mix', id: 'mix-gap', invariant: 'I9', match: { bundles: ['mix'] }, observed: { rejected: true }, summary: 's' };
+    const result = classifyCase(mix, [
+      failed('I9', { rejected: true }, 'mcp-servers/github.mcp.json'),
+      failed('I9', { rejected: true }, 'prompts/hello-world.prompt.md')
+    ], [promptGap, bundleGap]);
+    expect(result.records.map((r) => [r.subject, r.absorbedBy])).toEqual([
+      [{ kinds: ['mcp-server'], bundle: 'mix', target: 'vscode', scope: 'user' }, ['mix-gap/I9/mix']],
+      [{ kinds: ['prompt'], bundle: 'mix', target: 'vscode', scope: 'user' }, ['test-gap/I9/prompt', 'mix-gap/I9/mix']]
+    ]);
+  });
+
   it('keeps a different failure mode as fail (mcp-server-rejected with status error)', () => {
     const checks = [failed('I4', { status: 'error', errorCode: 'INTERNAL.UNEXPECTED' }), ...passingCase().slice(1)];
     const result = classifyCase(caseOf('mcp-server', 'vscode', 'user'), checks);

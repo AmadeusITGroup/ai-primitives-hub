@@ -51,23 +51,37 @@ export const PRIMITIVE_SUPPORT_MATRIX: Readonly<Partial<Record<PrimitiveKind, Re
 };
 
 /**
- * Expected install status of a bundle on a target: all-or-nothing (one
- * unsupported kind rejects the whole bundle).
+ * Expected install status of a bundle on a target.
+ *
+ * `partial` is the contract for a bundle that mixes kinds the target
+ * supports with kinds it does not: the supported items install and the
+ * others are reported. The doctor runs the default all-or-nothing
+ * `install`, so a `partial` case is rejected and reported as a known gap;
+ * `install --skip-unsupported` (#550) is the opt-in partial install.
+ */
+export type ExpectedInstallStatus = 'installed' | 'partial' | 'rejected';
+
+/**
+ * Expected install status of a bundle on a target.
  * @param kinds - Kinds of the bundle.
  * @param target - Target type.
- * @returns 'installed' when every kind is native/projected on the target, else 'rejected'.
+ * @returns 'installed' when every kind is native/projected on the target, 'rejected' when
+ * none is, else 'partial'. A single-kind bundle is never 'partial'.
  * @throws {Error} When a kind has no support-matrix row.
  */
-export function expectedStatus(kinds: readonly PrimitiveKind[], target: TargetType): 'installed' | 'rejected' {
-  let status: 'installed' | 'rejected' = 'installed';
+export function expectedStatus(kinds: readonly PrimitiveKind[], target: TargetType): ExpectedInstallStatus {
+  let supported = 0;
   for (const kind of kinds) {
     const levels = PRIMITIVE_SUPPORT_MATRIX[kind];
     if (levels === undefined) {
       throw new Error(`no support-matrix row for ${kind}`);
     }
-    if (levels[target] === 'unsupported') {
-      status = 'rejected';
+    if (levels[target] !== 'unsupported') {
+      supported += 1;
     }
   }
-  return status;
+  if (supported === kinds.length) {
+    return 'installed';
+  }
+  return supported === 0 ? 'rejected' : 'partial';
 }

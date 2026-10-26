@@ -345,7 +345,7 @@ describe('runPrimitiveDiagnostics', () => {
         expect(caseById(withGap, id)).toMatchObject({ status: 'rejected', outcome: 'known-gap', gapIds: ['kiro-hook-rejected'] });
       }
       expect(withGap.cases.filter((c) => c.target === 'vscode').every((c) => c.outcome === 'pass')).toBe(true);
-      expect(withGap.knownGaps).toEqual(expect.arrayContaining([{ key: 'kiro-hook-rejected/I4/hook@kiro', id: 'kiro-hook-rejected', invariant: 'I4', absorbed: 2 }]));
+      expect(withGap.knownGaps).toEqual(expect.arrayContaining([{ key: 'kiro-hook-rejected/I4/hook@kiro', id: 'kiro-hook-rejected', invariant: 'I4', absorbed: 2, issue: 549 }]));
       expect(withGap.ok).toBe(true);
       expect(withoutGap.cases.filter((c) => c.outcome === 'fail').map((c) => c.id)).toEqual(kiroCases);
       expect(withoutGap.ok).toBe(false);

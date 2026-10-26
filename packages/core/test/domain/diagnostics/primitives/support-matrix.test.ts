@@ -57,12 +57,25 @@ describe('PRIMITIVE_SUPPORT_MATRIX', () => {
 });
 
 describe('expectedStatus', () => {
-  it('is installed when every kind is supported on the target, else rejected', () => {
+  it('is installed when every kind is supported on the target, rejected when none is', () => {
     expect(expectedStatus(['prompt'], 'vscode')).toBe('installed');
     expect(expectedStatus(['steering'], 'vscode')).toBe('rejected');
     expect(expectedStatus(['steering'], 'kiro')).toBe('installed');
-    expect(expectedStatus(['prompt', 'steering'], 'vscode')).toBe('rejected');
+    expect(expectedStatus(['steering', 'spec'], 'vscode')).toBe('rejected');
     expect(expectedStatus(['mcp-server'], 'cursor')).toBe('installed');
+  });
+
+  it('is partial when the target supports some kinds of the bundle but not all', () => {
+    expect(expectedStatus(['prompt', 'steering'], 'vscode')).toBe('partial');
+    expect(expectedStatus(['prompt', 'steering'], 'kiro')).toBe('installed');
+  });
+
+  it('never gives partial for a single-kind bundle', () => {
+    for (const kind of catalogued) {
+      for (const target of TARGET_TYPES) {
+        expect(expectedStatus([kind], target)).not.toBe('partial');
+      }
+    }
   });
 
   it('throws for a kind without a row', () => {

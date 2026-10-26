@@ -73,7 +73,7 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
     const byKey = new Map(PRIMITIVE_KNOWN_GAPS.map((g) => [g.key, g]));
     const rejected = { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' };
     expect(byKey.get('mcp-server-rejected/I4/mcp-server')).toMatchObject({ match: { kinds: ['mcp-server'] }, observed: rejected });
-    expect(byKey.get('kiro-hook-rejected/I4/hook@kiro')).toMatchObject({ match: { kinds: ['hook'], targets: ['kiro'] }, observed: rejected });
+    expect(byKey.get('kiro-hook-rejected/I4/hook@kiro')).toMatchObject({ match: { kinds: ['hook'], targets: ['kiro'] }, observed: rejected, issue: 549 });
     expect(byKey.get('copilot-cli-repository-scope/I8/copilot-cli@repository')).toEqual(expect.objectContaining({
       match: { targets: ['copilot-cli'], scopes: ['repository'] },
       observed: { effectiveScope: 'user' }
