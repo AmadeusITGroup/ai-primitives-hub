@@ -15,7 +15,7 @@
     },
     {
       "name": "Prompt Registry Community Hub",
-      "description": "Profiles cureated by the Prompt Registry Community",
+      "description": "Profiles curated by the Prompt Registry Community",
       "icon": "cloud",
       "reference": {
         "type": "github",

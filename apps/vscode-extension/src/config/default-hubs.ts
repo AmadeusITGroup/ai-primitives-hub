@@ -51,27 +51,28 @@ export interface DefaultHubConfig {
  */
 const HARDCODED_DEFAULT_HUBS: DefaultHubConfig[] = [
   {
-    name: 'Awesome Copilot Hub',
-    description: 'Official curated collection',
+    name: 'Amadeus',
+    description: 'Profiles curated by Amadeus',
     icon: 'cloud',
     reference: {
       type: 'github',
-      location: 'github/awesome-copilot',
+      location: 'Amadeus-xDLC/genai.prompt-registry-config',
       ref: 'main'
     },
     recommended: true,
     enabled: true
   },
   {
-    name: 'Community Hub',
-    description: 'Community-contributed prompts',
-    icon: 'organization',
+    name: 'Prompt Registry Community Hub',
+    description: 'Profiles curated by the Prompt Registry Community',
+    icon: 'cloud',
     reference: {
       type: 'github',
-      location: 'promptregistry/community-hub',
+      location: 'AmadeusITGroup/prompt-registry-config',
       ref: 'main'
     },
-    enabled: false // Disabled by default
+    recommended: true,
+    enabled: true
   }
 ];
 
@@ -87,15 +88,24 @@ function loadDefaultHubs(): DefaultHubConfig[] | null {
   }
 
   try {
-    // Try to load from JSON file
-    const configPath = path.join(__dirname, '..', 'config', 'defaultHubs.json');
-    logger.debug(`Loading default hubs from: ${configPath}`);
-    if (fs.existsSync(configPath)) {
-      const content = fs.readFileSync(configPath, 'utf8');
-      const config = JSON.parse(content);
-      if (config.defaultHubs && Array.isArray(config.defaultHubs)) {
-        cachedHubs = config.defaultHubs;
-        return cachedHubs;
+    // Try multiple runtime locations:
+    // - src/config/default-hubs.ts execution path
+    // - out/config/default-hubs.js execution path
+    // - test-dist/src/config/default-hubs.js execution path
+    const candidatePaths = [
+      path.join(__dirname, '..', 'config', 'defaultHubs.json'),
+      path.join(__dirname, '..', '..', 'config', 'defaultHubs.json')
+    ];
+
+    for (const configPath of candidatePaths) {
+      logger.debug(`Loading default hubs from: ${configPath}`);
+      if (fs.existsSync(configPath)) {
+        const content = fs.readFileSync(configPath, 'utf8');
+        const config = JSON.parse(content);
+        if (config.defaultHubs && Array.isArray(config.defaultHubs)) {
+          cachedHubs = config.defaultHubs;
+          return cachedHubs;
+        }
       }
     }
   } catch (error) {
