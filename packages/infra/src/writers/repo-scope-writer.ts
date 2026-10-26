@@ -19,6 +19,7 @@ import type {
   ExtractedFiles,
   FileSystem,
   PrimitiveKind,
+  RepositoryExclusion,
   Target,
   TargetWritePlan,
   TargetWriter,
@@ -32,14 +33,9 @@ import {
 import {
   load as parseYaml,
 } from 'js-yaml';
-
-/**
- * Section header for AI Primitives Hub entries in .git/info/exclude
- */
-const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
-
-const toGitIgnorePath = (workspaceRoot: string, filePath: string): string =>
-  path.relative(workspaceRoot, filePath).replaceAll('\\', '/');
+import {
+  GitInfoExclude,
+} from './git-info-exclude';
 
 /**
  * Commit mode for repository-scoped installations.
@@ -56,6 +52,11 @@ export interface RepositoryScopeWriterOptions {
   workspaceRoot: string;
   /** Commit mode for this installation. */
   commitMode: RepositoryCommitMode;
+  /**
+   * Where `local-only` paths are excluded from version control. Defaults
+   * to `.git/info/exclude` below `workspaceRoot` ({@link GitInfoExclude}).
+   */
+  exclusion?: RepositoryExclusion;
 }
 
 /**
@@ -99,6 +100,7 @@ export class RepositoryScopeWriter {
   private readonly fs: FileSystem;
   private readonly workspaceRoot: string;
   private readonly commitMode: RepositoryCommitMode;
+  private readonly exclusion: RepositoryExclusion;
 
   /**
    * Construct a RepositoryScopeWriter.
@@ -108,6 +110,7 @@ export class RepositoryScopeWriter {
     this.fs = opts.fs;
     this.workspaceRoot = opts.workspaceRoot;
     this.commitMode = opts.commitMode;
+    this.exclusion = opts.exclusion ?? new GitInfoExclude({ fs: opts.fs, workspaceRoot: opts.workspaceRoot });
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await -- Intentionally async for interface compatibility
@@ -325,73 +328,6 @@ export class RepositoryScopeWriter {
     return id.toLowerCase().replaceAll(/[^a-z0-9-]/g, '-');
   }
 
-  private async addToGitExclude(paths: string[]): Promise<void> {
-    const excludePath = path.join(this.workspaceRoot, '.git', 'info', 'exclude');
-    try {
-      const existing = await this.fs.readFile(excludePath);
-      const lines = existing.split('\n');
-
-      // Find or create section
-      let sectionIndex = lines.indexOf(GIT_EXCLUDE_SECTION_HEADER);
-      if (sectionIndex === -1) {
-        sectionIndex = lines.length;
-        lines.push(GIT_EXCLUDE_SECTION_HEADER);
-      }
-
-      // Add paths to section
-      for (const p of paths) {
-        const relativePath = toGitIgnorePath(this.workspaceRoot, p);
-        if (!lines.includes(relativePath)) {
-          lines.splice(sectionIndex + 1, 0, relativePath);
-        }
-      }
-
-      await this.fs.writeFile(excludePath, lines.join('\n'));
-    } catch {
-      // Create .git/info directory if it doesn't exist
-      const infoDir = path.join(this.workspaceRoot, '.git', 'info');
-      await this.fs.mkdir(infoDir, { recursive: true });
-
-      const lines = [GIT_EXCLUDE_SECTION_HEADER];
-      for (const p of paths) {
-        const relativePath = toGitIgnorePath(this.workspaceRoot, p);
-        lines.push(relativePath);
-      }
-
-      await this.fs.writeFile(excludePath, lines.join('\n'));
-    }
-  }
-
-  private async removeFromGitExclude(paths: string[]): Promise<void> {
-    const excludePath = path.join(this.workspaceRoot, '.git', 'info', 'exclude');
-    try {
-      const existing = await this.fs.readFile(excludePath);
-      const lines = existing.split('\n');
-
-      const sectionIndex = lines.indexOf(GIT_EXCLUDE_SECTION_HEADER);
-      if (sectionIndex === -1) {
-        return; // No section, nothing to remove
-      }
-
-      // Remove paths from section
-      const toRemove = new Set(paths.map((p) => toGitIgnorePath(this.workspaceRoot, p)));
-      const filtered = lines.filter((l, i) => {
-        if (i <= sectionIndex) {
-          return true;
-        } // Keep header and before
-        return !toRemove.has(l);
-      });
-
-      await this.fs.writeFile(excludePath, filtered.join('\n'));
-    } catch {
-      // File doesn't exist, nothing to remove
-    }
-  }
-
-  private async updateGitExclude(paths: string[]): Promise<void> {
-    await this.addToGitExclude(paths);
-  }
-
   private async cleanupEmptyDirectories(dirs: string[]): Promise<void> {
     const parentDirs = new Set<string>();
     for (const dir of dirs) {
@@ -520,7 +456,7 @@ export class RepositoryScopeWriter {
 
     // Update git exclude for local-only mode
     if (this.commitMode === 'local-only') {
-      await this.updateGitExclude(written);
+      await this.exclusion.add(written);
     }
 
     return { written, skipped, skillDirs, writtenBundlePaths };
@@ -533,7 +469,7 @@ export class RepositoryScopeWriter {
   public async rollback(written: readonly string[]): Promise<void> {
     await this.removePaths([...written]);
     if (this.commitMode === 'local-only') {
-      await this.removeFromGitExclude([...written]);
+      await this.exclusion.remove([...written]);
     }
   }
 
@@ -570,7 +506,7 @@ export class RepositoryScopeWriter {
       : path.join(this.workspaceRoot, '.github', route[1], normalized.slice(route[0].length));
     await this.removePaths([targetPath]);
     if (this.commitMode === 'local-only') {
-      await this.removeFromGitExclude([targetPath]);
+      await this.exclusion.remove([targetPath]);
     }
   }
 
@@ -628,7 +564,7 @@ export class RepositoryScopeWriter {
 
     // Remove from git exclude for local-only mode
     if (this.commitMode === 'local-only') {
-      await this.removeFromGitExclude([...pathsToRemove, ...skillDirsToRemove]);
+      await this.exclusion.remove([...pathsToRemove, ...skillDirsToRemove]);
     }
 
     // Clean up empty directories
@@ -641,7 +577,7 @@ export class RepositoryScopeWriter {
    * @param newMode - New commit mode.
    */
   public async switchCommitMode(paths: string[], newMode: RepositoryCommitMode): Promise<void> {
-    await (newMode === 'local-only' ? this.addToGitExclude(paths) : this.removeFromGitExclude(paths));
+    await (newMode === 'local-only' ? this.exclusion.add(paths) : this.exclusion.remove(paths));
   }
 }
 
