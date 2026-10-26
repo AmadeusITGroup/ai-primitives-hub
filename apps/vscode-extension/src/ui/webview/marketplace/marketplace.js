@@ -1044,7 +1044,7 @@
     var hasNoSources = setupState === 'complete' && sourcesCount === 0;
     var hasNoSourcesWithConfiguredHub = hasNoSources && hasConfiguredHub === true;
     var shouldShowSetupPrompt = hasConfiguredHub === false || setupState === 'incomplete' || setupState === 'not_started' || setupState === 'in_progress';
-    var isInitialSetup = setupState === 'not_started';
+    var isInitialSetup = setupState === 'not_started' && hasConfiguredHub !== true;
     var setupActionLabel = isInitialSetup ? 'Complete Setup' : 'Configure Hub';
     var setupMessage;
     if (hasNoSourcesWithConfiguredHub) {

@@ -451,8 +451,9 @@ suite('Marketplace webview behavior', () => {
     }
   });
 
-  for (const populated of [false, true]) {
-    test(`acknowledges an existing hub during incomplete setup with ${populated ? 'populated' : 'empty'} bundles`, () => {
+  for (const { setupState, populated } of ['incomplete', 'not_started', 'in_progress'].flatMap((state) =>
+    [false, true].map((hasBundles) => ({ setupState: state, populated: hasBundles })))) {
+    test(`acknowledges an existing hub during ${setupState} setup with ${populated ? 'populated' : 'empty'} bundles`, () => {
       const harness = createHarness();
       try {
         const { document } = harness.dom.window;
@@ -460,7 +461,7 @@ suite('Marketplace webview behavior', () => {
           data: {
             type: 'bundlesLoaded',
             bundles: populated ? [makeBundle()] : [],
-            setupState: 'incomplete',
+            setupState,
             sourcesCount: 1,
             hasConfiguredHub: true
           }
