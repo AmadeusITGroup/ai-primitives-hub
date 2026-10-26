@@ -142,7 +142,7 @@ graph TD
   - `install-bundle.ts`, `uninstall-bundle.ts`, `pipeline.ts`
   - `layout-resolver.ts` - Layout configuration resolution
 - `registry/` - Registry management (hub, profile, activation, user config paths)
-- `release/` - `planBundleRelease` (governed release plan with legacy fallback for `bundle build`)
+- `release/` - `planBundleRelease` (governed release plan with legacy fallback for `bundle build`; rejects invalid `kind: plugin` items of the packaged tree)
 - `search/` - Search orchestration
 - `transform/` - Multi-target content transforms (`kiro-transformer`, windsurf/devin, claude-code)
 - `writers/` - Application-level writers

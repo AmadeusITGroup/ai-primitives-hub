@@ -25,12 +25,17 @@ import type {
   FileValidationResult,
 } from '@ai-primitives-hub/core';
 import {
+  normalizePrimitiveKind,
   normalizeRepoRelativePath,
   SCHEMA_DIR,
   validateAgentPluginItem,
   validateCollectionObject,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
+import {
+  referencedFileNotFoundMessage,
+  splitPluginItemIssues,
+} from './plugin-item-issues';
 
 /**
  * Load valid item kinds from the JSON schema (single source of truth).
@@ -119,15 +124,14 @@ export function validateCollectionFile(
 
       const itemAbs = path.join(repoRoot, relPath);
       if (!fs.existsSync(itemAbs)) {
-        errors.push(`${rel}: items[${idx}] referenced file not found: ${relPath}`);
+        errors.push(referencedFileNotFoundMessage(rel, idx, relPath));
         return;
       }
-      if (typeof item.kind === 'string' && item.kind.trim().toLowerCase() === 'plugin') {
+      if (normalizePrimitiveKind(item.kind) === 'plugin') {
         const plugin = validateAgentPluginItem({ itemPath: relPath, manifestText: readPluginManifestText(itemAbs) });
-        for (const issue of plugin.issues) {
-          const message = `${rel}: items[${idx}] plugin ${relPath}: ${issue.message}`;
-          (issue.severity === 'fatal' ? errors : warnings).push(message);
-        }
+        const findings = splitPluginItemIssues(rel, idx, relPath, plugin.issues);
+        errors.push(...findings.errors);
+        warnings.push(...findings.warnings);
       }
     });
   }

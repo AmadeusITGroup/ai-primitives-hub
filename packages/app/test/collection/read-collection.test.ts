@@ -220,6 +220,16 @@ items:
     expect(result.errors).toEqual([expect.stringContaining('"author" must be an object')]);
   });
 
+  it('validates plugin items declared with the plugins kind alias, as bundle build does', () => {
+    const itemPath = writePlugin('plugins/aph-e2e-plugin', { ...validManifest('aph-e2e-plugin'), author: 'someone' });
+    const result = validateCollectionFile(tempDir, pluginCollection(itemPath, 'plugins'));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      expect.stringContaining('Invalid item kind \'plugins\''),
+      expect.stringContaining('plugin plugins/aph-e2e-plugin/plugin.json: "author" must be an object')
+    ]);
+  });
+
   it('aggregates plugin warnings across collections', () => {
     const good = writePlugin('plugins/good', validManifest('good'));
     const extra = writePlugin('plugins/extra', { ...validManifest('extra'), hooks: 'hooks.json' });
