@@ -20,10 +20,15 @@ const catalogued = new Set<string>(PRIMITIVE_DIAGNOSTIC_BUNDLES.flatMap((b) => b
 const bundleLevel = new Set<string>(INVARIANTS.filter((i) => i.level === 'bundle').map((i) => i.id));
 
 describe('PRIMITIVE_KNOWN_GAPS', () => {
-  it('is exactly the 12 known entries, in declaration order', () => {
+  it('is exactly the 20 known entries, in declaration order', () => {
     expect(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).toEqual([
       'mcp-server-rejected/I4/mcp-server',
       'kiro-hook-rejected/I4/hook@kiro',
+      'mcp-server-rejected/I9/mcp-server',
+      'kiro-hook-rejected/I9/hook@kiro',
+      'kiro-plugin-rejected/I4/plugin@kiro',
+      'kiro-plugin-rejected/I9/plugin@kiro',
+      'all-or-nothing-install/I4/aph-e2e-mix-all-kinds',
       'copilot-cli-repository-scope/I8/copilot-cli@repository',
       'manifest-id-file-stem/I2/prompt',
       'manifest-id-file-stem/I2/instruction',
@@ -33,9 +38,12 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
       'manifest-id-file-stem/I2/mcp-server',
       'manifest-id-file-stem/I2/spec',
       'power-directory-unit/I1/power',
-      'power-directory-unit/I2/power'
+      'power-directory-unit/I2/power',
+      'plugin-skill-projection/I11/plugin',
+      'plugin-mcp-projection/I12/plugin',
+      'plugin-root-unresolved/I14/plugin'
     ]);
-    expect(new Set(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).size).toBe(12);
+    expect(new Set(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).size).toBe(20);
   });
 
   it('keys each entry by id and invariant', () => {
@@ -43,6 +51,26 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
       expect(gap.key.startsWith(`${gap.id}/${gap.invariant}/`)).toBe(true);
       expect(gap.id).toMatch(/^[a-z][a-z0-9]*(-[a-z0-9]+)+$/);
       expect(gap.summary.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('names the tracking GitHub issue where one exists', () => {
+    const issues = Object.fromEntries(PRIMITIVE_KNOWN_GAPS.filter((g) => g.issue !== undefined).map((g) => [g.key, g.issue]));
+    expect(issues).toEqual({
+      'kiro-hook-rejected/I4/hook@kiro': 549,
+      'kiro-hook-rejected/I9/hook@kiro': 549,
+      'kiro-plugin-rejected/I4/plugin@kiro': 549,
+      'kiro-plugin-rejected/I9/plugin@kiro': 549,
+      'plugin-skill-projection/I11/plugin': 549,
+      'plugin-mcp-projection/I12/plugin': 549,
+      'plugin-root-unresolved/I14/plugin': 549
+    });
+  });
+
+  it('selects only catalogued bundles', () => {
+    const ids = new Set(PRIMITIVE_DIAGNOSTIC_BUNDLES.map((b) => b.id));
+    for (const bundle of PRIMITIVE_KNOWN_GAPS.flatMap((g) => g.match.bundles ?? [])) {
+      expect(ids.has(bundle), bundle).toBe(true);
     }
   });
 
@@ -93,5 +121,14 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
     expect(byKey.get('power-directory-unit/I1/power'))
       .toMatchObject({ match: { kinds: ['power'] }, observed: { missingArchivePaths: ['powers/stripe/steering/payments.md'] } });
     expect(byKey.get('power-directory-unit/I2/power')).toMatchObject({ match: { kinds: ['power'] }, observed: { id: 'POWER', kind: 'power', occurrences: 1 } });
+    expect(byKey.get('mcp-server-rejected/I9/mcp-server')).toMatchObject({ match: { kinds: ['mcp-server'] }, observed: { rejected: true } });
+    expect(byKey.get('kiro-hook-rejected/I9/hook@kiro')).toMatchObject({ match: { kinds: ['hook'], targets: ['kiro'] }, observed: { rejected: true } });
+    expect(byKey.get('kiro-plugin-rejected/I4/plugin@kiro')).toMatchObject({ match: { kinds: ['plugin'], targets: ['kiro'] }, observed: rejected });
+    expect(byKey.get('kiro-plugin-rejected/I9/plugin@kiro')).toMatchObject({ match: { kinds: ['plugin'], targets: ['kiro'] }, observed: { rejected: true } });
+    expect(byKey.get('all-or-nothing-install/I4/aph-e2e-mix-all-kinds'))
+      .toMatchObject({ match: { bundles: ['aph-e2e-mix-all-kinds'] }, observed: rejected });
+    expect(byKey.get('plugin-skill-projection/I11/plugin')).toMatchObject({ match: { kinds: ['plugin'] }, observed: { unprojected: ['plugin-skill'] } });
+    expect(byKey.get('plugin-mcp-projection/I12/plugin')).toMatchObject({ match: { kinds: ['plugin'] }, observed: { unprojected: ['aph-e2e'] } });
+    expect(byKey.get('plugin-root-unresolved/I14/plugin')).toMatchObject({ match: { kinds: ['plugin'] }, observed: { unresolved: ['aph-e2e'] } });
   });
 });

@@ -1,9 +1,9 @@
 /**
  * Domain layer — primitive diagnostics support matrix.
  *
- * Which isolated kind each target supports, as observed after #532. A
- * cell the product should support but rejects today is `native` and
- * covered by a known gap (`kiro-hook-rejected`, `mcp-server-rejected`).
+ * Which kind each target supports, as observed after #532. A cell the
+ * product should support but rejects today is `native` and covered by a
+ * known gap (`kiro-hook-rejected`, `kiro-plugin-rejected`, `mcp-server-rejected`).
  * chat-mode on copilot-cli installs since #526. `projected` (installed
  * through a projection onto another kind) is reserved and unused here.
  * @module domain/diagnostics/primitives/support-matrix
@@ -37,6 +37,7 @@ export const PRIMITIVE_SUPPORT_MATRIX: Readonly<Partial<Record<PrimitiveKind, Re
   'chat-mode': row('all'),
   agent: row('all'),
   skill: row('all'),
+  plugin: row('all'),
   hook: row('all'),
   'mcp-server': row('all'),
   steering: row(['kiro', 'kiro-cli']),

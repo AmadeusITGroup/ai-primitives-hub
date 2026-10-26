@@ -14,8 +14,7 @@ export const DIAGNOSTIC_SCOPES = ['user', 'repository'] as const;
 export type DiagnosticScope = typeof DIAGNOSTIC_SCOPES[number];
 
 /**
- * Invariants evaluated by the diagnostics. Ids are stable report values;
- * the unused numbers (I5, I9–I12) are left free for future invariants.
+ * Invariants evaluated by the diagnostics. Ids are stable report values.
  * `HARNESS` marks a defect of the diagnostic run itself (never absorbed by
  * a known gap).
  */
@@ -30,14 +29,26 @@ export const INVARIANTS = [
   { id: 'I3', level: 'bundle' },
   /** The install status matches the support matrix. */
   { id: 'I4', level: 'case' },
+  /** An invalid bundle is rejected by validate and build with the documented message, and writes no archive. */
+  { id: 'I5', level: 'bundle' },
   /** Uninstall removes every placed file. */
   { id: 'I6', level: 'case' },
   /** A rejected or failed install writes nothing user-facing. */
   { id: 'I7', level: 'case' },
   /** The target honours the requested scope. */
   { id: 'I8', level: 'case' },
+  /** A rejected install reports exactly the items of the kinds the target does not support. */
+  { id: 'I9', level: 'case' },
+  /** Executable fixture files stay executable: in the archive (bundle) and where install places them (case). */
+  { id: 'I10', level: 'any' },
+  /** Each skill of an installed plugin is projected into the target's skills route. */
+  { id: 'I11', level: 'case' },
+  /** Each MCP server of an installed plugin is projected into a target config file. */
+  { id: 'I12', level: 'case' },
   /** Every archived installable file lands at its expected destination. */
   { id: 'I13', level: 'case' },
+  /** `${PLUGIN_ROOT}` in each projected plugin MCP server is resolved to the installed plugin root. */
+  { id: 'I14', level: 'case' },
   { id: 'HARNESS', level: 'any' }
 ] as const;
 
@@ -93,4 +104,6 @@ export interface CommandObservation {
   errorCode?: string;
   /** All failure reasons the command reported. Empty on success. */
   errorMessages: readonly string[];
+  /** Archive-relative paths an install rejected as unsupported content, when it listed them. */
+  rejectedPaths?: readonly string[];
 }

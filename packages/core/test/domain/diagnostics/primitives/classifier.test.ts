@@ -188,6 +188,23 @@ describe('findUnusedKnownGaps', () => {
     expect(findUnusedKnownGaps(records(gap, fixedElsewhere))).toEqual([]);
   });
 
+  it('reports an entry whose check ran and passed, but not one whose check is not applicable (no POSIX file modes)', () => {
+    const gap: KnownGap = {
+      key: 'test-gap/I10/skill',
+      id: 'test-gap',
+      invariant: 'I10',
+      match: { kinds: ['skill'] },
+      observed: { notExecutable: ['skills/standalone-skill/scripts/run.sh'] },
+      summary: 's'
+    };
+    const skill = caseOf('skill', 'vscode', 'user');
+    const ran = classifyCase(skill, [...passingCase(), pass('I10')], [gap]);
+    const noFileModes = classifyCase(skill, [...passingCase(), { invariant: 'I10', outcome: 'not-applicable' }], [gap]);
+
+    expect(findUnusedKnownGaps(records(ran), [gap]).map((g) => g.key)).toEqual(['test-gap/I10/skill']);
+    expect(findUnusedKnownGaps(records(noFileModes), [gap])).toEqual([]);
+  });
+
   it('defaults to PRIMITIVE_KNOWN_GAPS and returns unused entries in declaration order', () => {
     const allPass = plan.cases.filter((c) => c.target === 'kiro' || c.target === 'copilot-cli')
       .map((c) => classifyCase(c, [{ ...pass('I4') }, pass('I6'), pass('I7'), pass('I8'), pass('I13')]));

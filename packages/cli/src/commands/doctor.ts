@@ -146,10 +146,12 @@ export class DoctorDiagnosticsCommand extends BaseDoctorCommand {
       --retain-workspace when you need to inspect the generated fixtures or
       artifacts after the run.
 
-      With --primitives, it instead builds one bundle per catalogued primitive
-      kind, installs it on every target type at user and repository scope, and
-      classifies each bundle and case as pass, known-gap or fail. It exits 0
-      when nothing fails, 1 otherwise.
+      With --primitives, it instead builds one bundle per primitive kind plus
+      mixed-kind bundles, installs each on every target type at user and
+      repository scope, checks that invalid plugin bundles are rejected by
+      collection validate and bundle build, and classifies each bundle and
+      case as pass, known-gap or fail. It exits 0 when nothing fails, 1
+      otherwise.
 
       Options:
         -o, --output <format>  Output format (text, json, yaml, ndjson)

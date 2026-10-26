@@ -54,6 +54,18 @@ export function labelSandboxPath(roots: readonly SnapshotRoot[], absolute: strin
   return relative === '' ? best.label : `${best.label}/${relative}`;
 }
 
+/**
+ * Absolute path of a sandbox label: the inverse of {@link labelSandboxPath}.
+ * @param roots - Labelled roots.
+ * @param label - `${rootLabel}/${relative}` or a bare root label.
+ * @returns The absolute path, or undefined when no root has the label's first segment.
+ */
+export function resolveSandboxLabel(roots: readonly SnapshotRoot[], label: string): string | undefined {
+  const [rootLabel, ...rest] = label.split('/');
+  const root = roots.find((candidate) => candidate.label === rootLabel);
+  return root === undefined ? undefined : path.join(root.path, ...rest);
+}
+
 /** APH's own sub-directory under each XDG base dir (infra `APP_SUBDIR`). */
 const APP_SUBDIR = 'ai-primitives-hub';
 const XDG_APP_LABELS = ['$XDG_CONFIG_HOME', '$XDG_DATA_HOME', '$XDG_CACHE_HOME', '$XDG_STATE_HOME'] as const;

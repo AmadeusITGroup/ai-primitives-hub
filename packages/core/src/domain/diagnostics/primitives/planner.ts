@@ -52,7 +52,7 @@ export interface PlannedCase {
 export interface PrimitiveDiagnosticsPlan {
   /** Effective filters: de-duplicated, in enum order. */
   filters: { kinds: PrimitiveKind[]; targets: TargetType[]; scopes: DiagnosticScope[] };
-  /** Filter kinds no catalogued bundle contains (`plugin` today). */
+  /** Filter kinds no catalogued bundle contains (none with the default catalogue). */
   notCovered: { kinds: PrimitiveKind[] };
   /** Catalogue order. */
   bundles: DiagnosticBundle[];
@@ -87,7 +87,8 @@ export function planPrimitiveDiagnostics(
   const scopes = inEnumOrder(DIAGNOSTIC_SCOPES, filters.scopes ?? DIAGNOSTIC_SCOPES);
 
   const bundles = catalogue.filter((bundle) => kindsOf(bundle).every((kind) => kinds.includes(kind)));
-  const cases = bundles.flatMap((bundle) => {
+  // An invalid bundle is only validated and built: it has no install cases.
+  const cases = bundles.filter((bundle) => bundle.rejection === undefined).flatMap((bundle) => {
     const bundleKinds = kindsOf(bundle);
     return targets.flatMap((target) => {
       const status = expectedStatus(bundleKinds, target);

@@ -4,12 +4,16 @@
  * `BundleExtractor` (plus a throwing variant), governed in-memory archives
  * and a counting clock.
  *
- * The fake driver behaves like a healthy product by default: builds a
- * governed archive per bundle, `target add` writes `ws/ai-primitives-hub.yml`
- * and reports the requested scope, `install` rejects by the support matrix
- * or writes every item file at its oracle destination (plus bookkeeping
- * lockfiles), and `uninstall` removes what install placed. Tests override
- * single operations to reproduce a defect.
+ * The fake driver behaves like a healthy product by default: validate and
+ * build reject an invalid bundle with its documented error, build a governed
+ * archive for every other bundle, materialise it with the fixture's
+ * executable bits (on a mode-tracking filesystem), `target add` writes
+ * `ws/ai-primitives-hub.yml` and reports the requested scope, `install`
+ * rejects by the support matrix (listing the unsupported files) or writes
+ * every item file at its oracle destination with the fixture's executable
+ * bits (plus bookkeeping lockfiles),
+ * and `uninstall` removes what install placed. Tests override single
+ * operations to reproduce a defect.
  * @module test/diagnostics/fake-primitive-driver
  */
 import {
@@ -30,6 +34,7 @@ import {
   type FixtureFile,
   type PreparedSandbox,
   PRIMITIVE_DIAGNOSTIC_BUNDLES,
+  PRIMITIVE_SUPPORT_MATRIX,
   type PrimitiveDiagnosticsDriver,
   type SnapshotRoot,
   type TargetType,
@@ -204,6 +209,12 @@ export interface FakeInstallOutcome {
   errorCode?: string;
   /** Absolute paths to write. */
   files: string[];
+  /** Absolute paths (among `files`) written as executable, on a mode-tracking filesystem. */
+  executable?: string[];
+  /** Text written instead of the placeholder content, by absolute path. */
+  contents?: Record<string, string>;
+  /** Archive paths a rejection lists as unsupported content. */
+  rejectedPaths?: string[];
 }
 
 const ok = <T>(data?: T): DriverCommandResult<T> => ({ exitCode: 0, status: 'ok', data, warnings: [], errorMessages: [] });
@@ -222,7 +233,9 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
   public readonly calls: FakeDriverCall[] = [];
   public readonly archives = new Map<string, ExtractedFiles>(PRIMITIVE_DIAGNOSTIC_BUNDLES.map((bundle) => [bundle.id, createPrimitiveArchive(bundle)]));
   public commitError?: Error;
-  public onBuild?: (bundle: DiagnosticBundle) => DriverCommandResult<{ zipAsset: string; bundleId: string }> | undefined;
+  public onBuild?: (bundle: DiagnosticBundle, outDir: string) => DriverCommandResult<{ zipAsset: string; bundleId: string }> | undefined;
+  /** Whether materialising keeps the fixture's executable bits (mode-tracking filesystem only). */
+  public materializeKeepsModes = true;
 
   private readonly targets = new Map<string, { type: TargetType; scope: DiagnosticScope }>();
   private readonly placed = new Map<string, string[]>();
@@ -231,7 +244,11 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
 
   /** Escaping sandbox: its HOME points outside its root. */
   public escapes: (sandbox: DiagnosticSandbox) => boolean = () => false;
-  public onValidate: (collectionFile: string) => DriverCommandResult = () => ok();
+  public onValidate: (collectionFile: string) => DriverCommandResult = (collectionFile) => {
+    const rejection = PRIMITIVE_DIAGNOSTIC_BUNDLES.find((bundle) => bundle.collectionFile === collectionFile)?.rejection;
+    return rejection === undefined ? ok() : { exitCode: 1, status: 'error', warnings: [], errorMessages: [rejection.message] };
+  };
+
   public onInstall: (call: FakeInstallCall) => FakeInstallOutcome = (call) => this.defaultInstall(call);
   /** Milliseconds to wait in `install` (randomises completion order). */
   public installDelay: (caseId: string) => number = () => 0;
@@ -262,9 +279,12 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
   ): Promise<DriverCommandResult<{ zipAsset: string; bundleId: string }>> {
     this.calls.push({ method: 'buildBundle', input, root: sandbox.root });
     const bundle = PRIMITIVE_DIAGNOSTIC_BUNDLES.find((candidate) => candidate.collectionFile === input.collectionFile)!;
-    const scripted = this.onBuild?.(bundle);
+    const scripted = this.onBuild?.(bundle, input.outDir);
     if (scripted !== undefined) {
       return scripted;
+    }
+    if (bundle.rejection !== undefined) {
+      return { exitCode: 1, status: 'error', warnings: [], errorCode: bundle.rejection.errorCode, errorMessages: [bundle.rejection.message] };
     }
     const zipPath = path.join(input.outDir, `${bundle.id}-${input.version}.zip`);
     await this.fs.writeFileBytes(zipPath, encoder.encode(bundle.id));
@@ -274,10 +294,14 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
   public async materializeBundle(input: { zipPath: string; destination: string }): Promise<string[]> {
     this.calls.push({ method: 'materializeBundle', input });
     const archive = this.archives.get(decoder.decode(await this.fs.readFileBytes(input.zipPath)))!;
+    const fixture = buildPrimitiveFixture();
     const written: string[] = [];
     for (const [entry, bytes] of archive) {
       const target = path.join(input.destination, entry);
       await this.fs.writeFileBytes(target, bytes);
+      if (this.fs.tracksModes && this.materializeKeepsModes && fixture.get(entry)?.mode === 0o755) {
+        this.fs.setMode(target, 0o755);
+      }
       written.push(target);
     }
     return written;
@@ -314,11 +338,15 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
         status: 'error',
         warnings: [],
         errorCode: outcome.errorCode,
-        errorMessages: [`install failed: ${outcome.errorCode ?? 'unknown'}`]
+        errorMessages: [`install failed: ${outcome.errorCode ?? 'unknown'}`],
+        ...(outcome.rejectedPaths === undefined ? {} : { rejectedPaths: outcome.rejectedPaths })
       };
     }
     for (const file of outcome.files) {
-      await this.fs.writeFileBytes(file, encoder.encode(`placed ${file}`));
+      await this.fs.writeFileBytes(file, encoder.encode(outcome.contents?.[file] ?? `placed ${file}`));
+      if (this.fs.tracksModes && outcome.executable?.includes(file) === true) {
+        this.fs.setMode(file, 0o755);
+      }
     }
     await this.fs.writeFile(path.join(sandbox.cwd, 'prompt-registry.lock.json'), '{}');
     await this.fs.writeFile(path.join(resolveUserConfigPaths(sandboxEnv(sandbox.home)).root, 'ai-primitives-hub.lock.json'), '{}');
@@ -345,13 +373,23 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
 
   /**
    * The healthy product: reject by the support matrix (all-or-nothing, so a
-   * `partial` bundle is rejected as today), otherwise place every item file.
+   * `partial` bundle is rejected as today), otherwise place every item file,
+   * keeping the fixture's executable bits.
    * @param call - Install call.
    * @returns Outcome.
    */
   public defaultInstall(call: FakeInstallCall): FakeInstallOutcome {
-    return expectedStatus(call.bundle.items.map((item) => item.kind), call.target) !== 'installed'
-      ? { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [] }
-      : { exitCode: 0, files: call.defaultFiles };
+    if (expectedStatus(call.bundle.items.map((item) => item.kind), call.target) === 'installed') {
+      const fixture = buildPrimitiveFixture();
+      const executable = call.bundle.items
+        .flatMap((item) => item.files.filter((file) => fixture.get(file)?.mode === 0o755)
+          .map((file) => expectedDestination(call.target, call.scope, item, file)))
+        .flatMap((destination) => (destination.kind === 'file' ? [resolveLabel(call.roots, destination.label)] : []));
+      return { exitCode: 0, files: call.defaultFiles, executable };
+    }
+    const rejectedPaths = call.bundle.items
+      .filter((item) => PRIMITIVE_SUPPORT_MATRIX[item.kind]?.[call.target] === 'unsupported')
+      .flatMap((item) => item.files);
+    return { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [], rejectedPaths };
   }
 }

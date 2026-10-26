@@ -13,6 +13,7 @@ import {
   it,
 } from 'vitest';
 import {
+  listExecutableLabels,
   snapshotTree,
 } from '../../src';
 import {
@@ -67,5 +68,27 @@ describe('snapshotTree', () => {
     fs.seed(abs('/elsewhere/file.md'), encoder.encode('x'));
 
     await expect(snapshotTree(fs, abs('/elsewhere'), ROOTS)).rejects.toThrow(abs('/elsewhere/file.md'));
+  });
+});
+
+describe('listExecutableLabels', () => {
+  it('labels the files with an execute bit, at any depth', async () => {
+    const fs = new InMemoryFileSystem({ modes: true });
+    fs.seed(abs('/run/cases/c1/home/.copilot/skills/s/scripts/run.sh'), 'x');
+    fs.seed(abs('/run/cases/c1/home/.copilot/skills/s/SKILL.md'), 'x');
+    fs.seed(abs('/run/cases/c1/ws/tool.sh'), 'x');
+    fs.setMode(abs('/run/cases/c1/home/.copilot/skills/s/scripts/run.sh'), 0o755);
+    fs.setMode(abs('/run/cases/c1/ws/tool.sh'), 0o700);
+
+    const labels = await listExecutableLabels(fs, abs('/run/cases/c1'), ROOTS);
+
+    expect(labels).toEqual(new Set(['$HOME/.copilot/skills/s/scripts/run.sh', '<workspace>/tool.sh']));
+  });
+
+  it('returns an empty set for a missing root, and undefined when the filesystem reports no modes', async () => {
+    await expect(listExecutableLabels(new InMemoryFileSystem({ modes: true }), abs('/run/cases/missing'), ROOTS)).resolves.toEqual(new Set());
+    const plain = new InMemoryFileSystem();
+    plain.seed(abs('/run/cases/c1/home/a.sh'), 'x');
+    await expect(listExecutableLabels(plain, abs('/run/cases/c1'), ROOTS)).resolves.toBeUndefined();
   });
 });

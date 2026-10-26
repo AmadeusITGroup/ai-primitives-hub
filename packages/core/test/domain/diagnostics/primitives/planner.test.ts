@@ -14,19 +14,23 @@ import {
 import {
   TARGET_TYPES,
 } from '../../../../src/domain/install/target';
+import {
+  PRIMITIVE_KINDS,
+} from '../../../../src/domain/primitive/types';
 
 describe('planPrimitiveDiagnostics', () => {
-  it('plans 352 cases over 16 bundles by default, in bundle → target → scope order', () => {
+  it('plans 418 cases over 23 bundles by default, in bundle → target → scope order', () => {
     const plan = planPrimitiveDiagnostics({});
     expect(plan.bundles).toEqual(PRIMITIVE_DIAGNOSTIC_BUNDLES);
-    expect(plan.cases).toHaveLength(352);
+    expect(plan.bundles).toHaveLength(23);
+    expect(plan.cases).toHaveLength(418);
     expect(plan.filters).toEqual({
-      kinds: PRIMITIVE_DIAGNOSTIC_BUNDLES.map((b) => b.items[0].kind),
+      kinds: [...PRIMITIVE_KINDS],
       targets: [...TARGET_TYPES],
       scopes: [...DIAGNOSTIC_SCOPES]
     });
     expect(plan.notCovered).toEqual({ kinds: [] });
-    const expectedIds = PRIMITIVE_DIAGNOSTIC_BUNDLES.flatMap((b) =>
+    const expectedIds = PRIMITIVE_DIAGNOSTIC_BUNDLES.filter((b) => b.rejection === undefined).flatMap((b) =>
       TARGET_TYPES.flatMap((t) => DIAGNOSTIC_SCOPES.map((s) => `${b.id}__${t}__${s}`)));
     expect(plan.cases.map((c) => c.id)).toEqual(expectedIds);
     expect(plan.cases[0]).toEqual({
@@ -46,7 +50,30 @@ describe('planPrimitiveDiagnostics', () => {
     expect(status('aph-e2e-only-steering__vscode__user')).toBe('rejected');
     expect(status('aph-e2e-only-steering__kiro__repository')).toBe('installed');
     expect(status('aph-e2e-only-mcp-server__vscode__user')).toBe('installed');
-    expect(plan.cases.filter((c) => c.expectedStatus === 'installed')).toHaveLength(2 * (7 * 11 + 2 + 2 + 1 + 1 + 1 + 1 + 4 + 2 + 2));
+    expect(status('aph-e2e-only-plugin__kiro__user')).toBe('installed');
+    expect(status('aph-e2e-mix-portable__kiro__user')).toBe('installed');
+    expect(status('aph-e2e-mix-all-kinds__vscode__user')).toBe('partial');
+    // Isolated: 8 kinds everywhere plus the target-specific ones; then the portable mix everywhere.
+    expect(plan.cases.filter((c) => c.expectedStatus === 'installed')).toHaveLength(2 * (8 * 11 + 2 + 2 + 1 + 1 + 1 + 1 + 4 + 2 + 2) + 2 * 11);
+    expect(plan.cases.filter((c) => c.expectedStatus === 'partial')).toHaveLength(2 * 11);
+  });
+
+  it('plans no install case for an invalid bundle, and a mixed bundle only when all its kinds are selected', () => {
+    const plugin = planPrimitiveDiagnostics({ kinds: ['plugin'], targets: ['vscode'], scopes: ['user'] });
+    expect(plugin.bundles.map((b) => b.id)).toEqual([
+      'aph-e2e-only-plugin',
+      'aph-e2e-bad-plugin-no-schema',
+      'aph-e2e-bad-plugin-name',
+      'aph-e2e-bad-plugin-author',
+      'aph-e2e-bad-plugin-nested-manifest'
+    ]);
+    expect(plugin.cases.map((c) => c.id)).toEqual(['aph-e2e-only-plugin__vscode__user']);
+
+    const portable = planPrimitiveDiagnostics({ kinds: ['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook'], targets: ['vscode'], scopes: ['user'] });
+    expect(portable.bundles.map((b) => b.id)).toContain('aph-e2e-mix-portable');
+    expect(portable.bundles.map((b) => b.id)).not.toContain('aph-e2e-mix-all-kinds');
+    expect(portable.cases.find((c) => c.bundle === 'aph-e2e-mix-portable')?.items.map((i) => i.kind))
+      .toEqual(['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook']);
   });
 
   it('filters kinds × targets into 12 cases, in plan order', () => {
@@ -75,16 +102,19 @@ describe('planPrimitiveDiagnostics', () => {
     expect(a.filters).toEqual({ kinds: ['prompt', 'hook'], targets: ['vscode', 'kiro'], scopes: ['user', 'repository'] });
   });
 
-  it('reports plugin as not covered', () => {
-    const empty = planPrimitiveDiagnostics({ kinds: ['plugin'] });
+  it('reports a filter kind no catalogued bundle contains as not covered', () => {
+    const catalogue = PRIMITIVE_DIAGNOSTIC_BUNDLES.filter((b) => b.items.every((i) => i.kind !== 'plugin'));
+    const empty = planPrimitiveDiagnostics({ kinds: ['plugin'] }, catalogue);
     expect(empty.bundles).toEqual([]);
     expect(empty.cases).toEqual([]);
     expect(empty.notCovered).toEqual({ kinds: ['plugin'] });
 
-    const partial = planPrimitiveDiagnostics({ kinds: ['plugin', 'prompt'], targets: ['vscode'], scopes: ['user'] });
+    const partial = planPrimitiveDiagnostics({ kinds: ['plugin', 'prompt'], targets: ['vscode'], scopes: ['user'] }, catalogue);
     expect(partial.filters.kinds).toEqual(['prompt', 'plugin']);
     expect(partial.notCovered).toEqual({ kinds: ['plugin'] });
     expect(partial.cases.map((c) => c.id)).toEqual(['aph-e2e-only-prompt__vscode__user']);
+
+    expect(planPrimitiveDiagnostics({ kinds: ['plugin'] }).notCovered).toEqual({ kinds: [] });
   });
 
   it('selects a bundle only when all its kinds are in the filter', () => {

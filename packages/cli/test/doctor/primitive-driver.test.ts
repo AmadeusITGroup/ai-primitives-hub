@@ -36,6 +36,7 @@ import {
 } from '../../src/doctor/diagnostics';
 import {
   createInProcessPrimitiveDriver,
+  parseRejectedPaths,
 } from '../../src/doctor/primitive-driver';
 import {
   Command,
@@ -162,4 +163,16 @@ describe('createInProcessPrimitiveDriver', () => {
       expect((await stat(envRoot.path)).isDirectory(), envRoot.label).toBe(true);
     }
   }, 60_000);
+});
+
+describe('parseRejectedPaths', () => {
+  it('reads the paths listed by an unsupported-content rejection', () => {
+    expect(parseRejectedPaths('install: target cannot install bundle content: hooks/pre-commit.hook.json, plugins/p/plugin.json'))
+      .toEqual(['hooks/pre-commit.hook.json', 'plugins/p/plugin.json']);
+  });
+
+  it('is undefined for a message that lists no paths', () => {
+    expect(parseRejectedPaths('install: something else failed')).toBeUndefined();
+    expect(parseRejectedPaths('install: target cannot install bundle content: ')).toBeUndefined();
+  });
 });

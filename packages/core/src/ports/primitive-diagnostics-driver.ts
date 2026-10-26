@@ -55,6 +55,8 @@ export interface DriverCommandResult<T = unknown> {
   errorCode?: string;
   /** Every failure reason the command reported. Empty on success. */
   errorMessages: string[];
+  /** Archive-relative paths an install rejected as unsupported content, when the command listed them. */
+  rejectedPaths?: string[];
 }
 
 /** Operations the primitive diagnostics use case drives. */

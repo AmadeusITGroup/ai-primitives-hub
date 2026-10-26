@@ -4,6 +4,7 @@
 import {
   createHash,
 } from 'node:crypto';
+import * as path from 'node:path';
 import {
   describe,
   expect,
@@ -15,6 +16,7 @@ import {
   isBookkeepingLabel,
   isInside,
   labelSandboxPath,
+  resolveSandboxLabel,
   sha256Hex,
 } from '../../../../src/domain/diagnostics/primitives';
 import type {
@@ -91,6 +93,21 @@ describe('labelSandboxPath', () => {
   it('returns undefined outside every root (sibling prefixes included)', () => {
     expect(labelSandboxPath(ROOTS, '/w/cases/c1-other/x')).toBeUndefined();
     expect(labelSandboxPath(ROOTS, '/elsewhere')).toBeUndefined();
+  });
+});
+
+describe('resolveSandboxLabel', () => {
+  it('is the inverse of labelSandboxPath', () => {
+    const roots = ROOTS.map((r) => ({ ...r, path: path.resolve(r.path) }));
+    for (const absolute of [`${HOME}/.config/ai-primitives-hub/x.json`, `${HOME}/.kiro/plugins/p`, `${WS}/.github/mcp.json`, `${CASE}/stray`]) {
+      const label = labelSandboxPath(roots, path.resolve(absolute))!;
+      expect(resolveSandboxLabel(roots, label)).toBe(path.resolve(absolute));
+    }
+    expect(resolveSandboxLabel(ROOTS, '$HOME')).toBe(path.join(HOME));
+  });
+
+  it('returns undefined for an unknown root label', () => {
+    expect(resolveSandboxLabel(ROOTS, '<dist>/x.zip')).toBeUndefined();
   });
 });
 

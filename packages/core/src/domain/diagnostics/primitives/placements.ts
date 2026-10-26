@@ -6,8 +6,8 @@
  * here from the placements observed after #532, deliberately independent
  * of infra's writer layouts, so a route regression there fails I13.
  *
- * Gapped cells keep their route (chat-mode on copilot-cli, hook on kiro,
- * copilot-cli at repository scope), so a fix PR only deletes the gap entry.
+ * Gapped cells keep their route (hook and plugin on kiro, copilot-cli at
+ * repository scope), so a fix PR only deletes the gap entry.
  * @module domain/diagnostics/primitives/placements
  */
 import type {
@@ -40,8 +40,13 @@ export const PLACEMENT_ROOTS: Readonly<Record<TargetType, Readonly<Record<Diagno
 
 type Routes = Readonly<Partial<Record<PrimitiveKind, string>>>;
 
-/** Routes every target has; `config` = merged into a host config file (MCP). */
-const COMMON: Routes = { 'chat-mode': 'agents/', agent: 'agents/', skill: 'skills/', hook: 'hooks/', 'mcp-server': 'config' };
+/**
+ * Routes every target has; `config` = merged into a host config file (MCP).
+ * A plugin lands as its whole directory under `plugins/`.
+ */
+const COMMON: Routes = {
+  'chat-mode': 'agents/', agent: 'agents/', skill: 'skills/', plugin: 'plugins/', hook: 'hooks/', 'mcp-server': 'config'
+};
 const COPILOT: Routes = { ...COMMON, prompt: 'prompts/', instruction: 'instructions/' };
 const KIRO: Routes = { ...COMMON, prompt: 'steering/', instruction: 'steering/', steering: 'steering/', spec: 'specs/', power: 'powers/' };
 const DEVIN: Routes = { ...COMMON, prompt: 'rules/', instruction: 'rules/', power: 'powers/', knowledge: 'knowledge/', playbook: 'playbooks/' };
