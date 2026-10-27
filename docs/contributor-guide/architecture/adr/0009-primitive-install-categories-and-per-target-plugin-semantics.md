@@ -186,7 +186,11 @@ Follow-up work is named by the step labels of the
    other file. The kind of a route is `routeKindOf(prefix)`: today's
    `routeToKind` and `ROUTE_PREFIX_KINDS`
    (`packages/app/src/writers/file-tree-writer.ts`), moved to `core` as data
-   beside the kind → category table. Both placement paths end on a
+   beside the kind → category table. Its `.devin/*` entries match no
+   built-in `kindRoutes` key, so no built-in layout uses them; only an
+   injected custom layout with `.devin/*` source prefixes could. M1 moves
+   them unchanged, and removing them (after checking custom layouts) is a
+   follow-up outside M1. Both placement paths end on a
    `kindRoutes` key, so the derivation below covers both. Then:
 
    - Kind K is supported on (target, scope) when the resolved layout has at
@@ -460,8 +464,9 @@ Follow-up work is named by the step labels of the
      So the kiro and kiro-cli repository layouts drop their `powers/` route,
      and `power` is unsupported at repository scope on Kiro. Whether a power
      placed in `~/.kiro/powers/<name>/` loads without `kiro-cli powers install`
-     is UNVERIFIED (O3a). Devin's `powers/` routes are unchanged; Devin has
-     no documented power concept (UNVERIFIED) and M2 re-checks them.
+     is UNVERIFIED (O3a). Devin's `powers/` routes (`.devin/powers/` at both
+     scopes, kept by #598) are unchanged; Devin has no documented power
+     concept (UNVERIFIED) and M2 re-checks them.
 
 10. **Each piece lives in one layer.**
 
@@ -516,6 +521,8 @@ Paths are from `default-layouts.json` (user / repository). ✅ supported,
 #526 later moved the five `CopilotFileType`s to manifest placement, which
 uses the same `kindRoutes`; the only cell it changes is `chat-mode` on
 copilot-cli, now placed through the `agents/` route.
+#598 later moved the devin and devin-cli routes and MCP paths to where Devin
+reads them; their row shows the layouts after #598.
 A cell without "→" is today's status and does not change. A cell with a
 change this ADR decides reads "today → after the step", for example
 `❌ today → ✅ M4`. No `config` cell is written before M4, so every MCP cell
@@ -533,18 +540,19 @@ at repository scope on every target after M7.
 | claude-code | ✅ incl. `command`, `output-style` | ✅ skills | ❌ today → ✅ M4: `~/.claude.json` / `.mcp.json` | ✅ today as an inert copy → ✅ M7 `project`, user plugin route moved | ✅ `file` today, not read as hooks → M8 `config` (`settings.json`) |
 | cursor | ✅ incl. `rule` | ✅ skills | ❌ today → ✅ M4: `~/.cursor/mcp.json` / `.cursor/mcp.json` | ✅ today as an inert copy → ✅ M7 `project`, user plugin route moved | ✅ `file` today, not read as hooks → M8 `config` (`hooks.json`) |
 | opencode | ✅ incl. `tool` | ✅ skills | ❌ today: the layout's `.opencode/mcp.json` / `mcpServers` does not match OpenCode's `opencode.json`, key `mcp`, server shape `type`, array `command`, `environment` ([OpenCode MCP][oc-mcp]) → ✅ M4 with that dialect | ✅ today as an inert copy into the JS plugin directory → ✅ M7 `project`, plugin route moved | ✅ `file`; whether OpenCode reads `hooks/` is UNVERIFIED |
-| devin, devin-cli | ✅ incl. `knowledge`, `playbook` | ✅ skills, `power` | repository: ❌ today, the layout path is `.devin/mcp.json` but Devin CLI documents `.devin/mcp_config.json` ([Devin MCP][devin-mcp]) → ✅ M4 at the documented path. user: ❌ today, layout path `~/.devin/mcp.json`; `~/.config/devin/mcp_config.json` is from a search snippet only (UNVERIFIED) → stays ❌ after M4 unless verified | ✅ today as an inert copy → ✅ M7 `project` | ✅ `file`, `hooks/`; whether Devin reads it is UNVERIFIED |
+| devin, devin-cli | ✅ incl. `knowledge`, `playbook`; `prompt` and `instruction` in `~/.devin/rules/` / `.devin/rules/` with `applyTo` rewritten to `trigger: glob` ([Devin rules][devin-rules]); `agent` and `chat-mode` in `~/.config/devin/agents/` / `.devin/agents/` ([Devin CLI extensibility][devin-ext]) | ✅ skills in `~/.config/devin/skills/` / `.devin/skills/` ([Devin CLI skills][devin-cli-skills]), `power` | ❌ today → ✅ M4: `~/.config/devin/mcp_config.json` / `.devin/mcp_config.json`, key `mcpServers` ([Devin MCP][devin-mcp]); the layout paths match since #598, but install writes no MCP config before M4 | ✅ today as an inert copy → ✅ M7 `project` | ✅ `file`, `hooks/`; whether Devin reads it is UNVERIFIED |
 
 ✅ in `file` and `directory` means the listed routes exist. A kind with no
 route on that target is ❌ (decision 3); for example `steering`, `rule` and
 `command` have no route on vscode.
 
 Paths without a link are APH's `default-layouts.json` values at `be1d161`; the
-paths are unchanged on `4d3b0ed`.
+paths are unchanged on `4d3b0ed`. The devin and devin-cli paths are the
+values after #598, each linked to the Devin page that documents it.
 That the harness reads them is UNVERIFIED: this covers the MCP paths and
 keys for vscode, copilot-cli, kiro, kiro-cli, windsurf, claude-code and
-cursor; the skills routes on vscode, copilot-cli, claude-code, cursor and
-devin; and VS Code reading `~/.copilot/hooks/` and `.github/hooks/`. Kiro
+cursor; the skills routes on vscode, copilot-cli, claude-code and cursor;
+and VS Code reading `~/.copilot/hooks/` and `.github/hooks/`. Kiro
 skills ([Kiro skills][kiro-skills]) and windsurf skills, a legacy path that
 still works ([Devin Desktop skills][devin-skills]), are documented. The step
 that changes a cell re-checks it: M4 for `config`, M7 for skills
@@ -552,8 +560,9 @@ projection.
 
 M4 has one outcome for every `config` cell: it writes only to a path
 and dialect that are documented, or confirmed by a recorded manual check.
-So it adds the opencode dialect and fixes the devin repository path. A cell
-that is still UNVERIFIED when M4 lands, such as the devin user path, is
+So it adds the opencode dialect. The devin paths need no fix, because #598
+already moved both to the documented `mcp_config.json` files
+([Devin MCP][devin-mcp]). A cell that is still UNVERIFIED when M4 lands is
 set to unsupported in layout data, never written to a guessed path. The
 same rule applies to the opencode dialect if the generic dialect model
 cannot express it. Nothing regresses, because no `config` kind installs
@@ -574,7 +583,7 @@ discovery are client-managed ([Agent Plugins spec §4–§7][spec]).
 | cursor | yes ([Cursor plugins][cur-plugins]) | marketplace; local plugins in `~/.cursor/plugins/local/<name>/` after reload ([Cursor plugins reference][cur-ref]) | no, Cursor uses `${CURSOR_PLUGIN_ROOT}` ([Cursor plugins reference][cur-ref]) | no, only `plugins/local/` is documented | `project`; `native` is blocked by placeholder expansion |
 | windsurf | no documented Cascade support ([Devin Desktop skills][devin-skills], by absence; not in [compatible clients][clients]) | n/a | n/a | no | `project` |
 | opencode | no, OpenCode plugins are JavaScript modules ([OpenCode plugins][oc-plugins]) | n/a | n/a | the directory is OpenCode's JS plugin directory; whether OpenCode tolerates a non-JS directory there is UNVERIFIED | `project`, plugin route moved |
-| devin-cli, devin | yes ([Devin CLI plugins][devin-plugins]) | `devin plugins install`, user level, `--local` links a folder; `.devin/plugins/` not documented ([Devin CLI plugins][devin-plugins]) | yes, with `PLUGIN_ROOT`/`PLUGIN_DATA` in `env` ([Devin CLI plugins][devin-plugins]) | no | `project`; `register` later. What APH's `devin` target maps to, as opposed to `devin-cli`, is UNVERIFIED |
+| devin-cli, devin | yes ([Devin CLI plugins][devin-plugins]) | `devin plugins install`, user level, `--local` links a folder; `.devin/plugins/` not documented ([Devin CLI plugins][devin-plugins]) | yes, with `PLUGIN_ROOT`/`PLUGIN_DATA` in `env` ([Devin CLI plugins][devin-plugins]) | no | `project`; `register` later. Since #598, APH gives `devin` (Devin Desktop, whose Devin Local agent shares the CLI harness) the same layout as `devin-cli`; whether Devin Desktop loads Agent Plugins as the CLI does is UNVERIFIED |
 
 A native drop-in is safe only when the harness both scans a directory without a
 registry step and expands the Agent Plugins placeholders. Cursor has the first
@@ -642,9 +651,9 @@ data. They need maintainer confirmation when this ADR is accepted.
   remain follow-ups.
 - **Negative:** the `config` category needs a per-target MCP dialect (path,
   root key, server shape, server-name form), not just `path`,
-  `serversKey`, `supportsInputs` and `envPlaceholderStyle`. The opencode and devin MCP data is wrong today; M4 adds
-  the opencode dialect and fixes the devin repository path, and sets any
-  still-unverified cell to unsupported. Owned server names may differ
+  `serversKey`, `supportsInputs` and `envPlaceholderStyle`. The opencode MCP data is wrong today
+  (#598 already corrected the devin paths); M4 adds the opencode dialect and
+  sets any still-unverified cell to unsupported. Owned server names may differ
   between targets (default or sanitised form), so tooling that looks for
   APH entries must use the recorded `configEntries`, not a single name
   pattern.
@@ -679,7 +688,7 @@ start. O\* ids refer to the open questions above.
 | 1 | **M1** (#552) `refactor(core,app,infra)`: install categories, no install behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; `KIND_TO_ROUTE_KEY` and `placeManifestItem`'s skill/file split (#526) expressed through the category, so manifest placement and path routing share one rule; the kind/route mismatch warning (decision 3) in `collection validate`, and in `doctor diagnostics --primitives` once #548 lands; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | this ADR | later PRs change one place; adding a kind becomes a table row |
 | 2 | **M2** `feat(core,infra)`: kiro routes and power as a directory unit | `power` → `directory` in the table; kiro `hooks/` and `plugins/` routes; kiro and kiro-cli repository `powers/` route removed; Devin `powers/` re-checked | M1 | hooks install on kiro; powers archive completely with unique ids |
 | 3 | **M3** `fix`: file modes on install | modes applied in the shared file write, so every category gets them | #547; M1 preferred | installed scripts are executable |
-| 4 | **M4** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, devin repository path fixed, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form, the sanitised form with per-segment encoding, and the sanitised fallback for a segment with `:`; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | M1 | collection MCP servers reach the target |
+| 4 | **M4** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form, the sanitised form with per-segment encoding, and the sanitised fallback for a segment with `:`; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | M1 | collection MCP servers reach the target |
 | 5 | **M5** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | M4 | `mcp-server` installs wherever an MCP config exists |
 | 6 | **M6** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks |
 | 7 | **M7** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` and `realpath` on the `FileSystem` port; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; O10 interim rule | M4, M3, M1, M2 (kiro only) | plugins are usable, not inert copies |
@@ -704,7 +713,8 @@ first as a quick fix.
 
 ## Sources
 
-Harness documentation was read on 2026-10-19. Entries marked as third-party
+Harness documentation was read on 2026-10-19, and the Devin CLI rules,
+skills and extensibility pages on 2026-10-27. Entries marked as third-party
 are reports, not vendor contracts.
 
 - [Agent Plugins specification 1.0.0][spec]
@@ -718,7 +728,7 @@ are reports, not vendor contracts.
 - Kiro: [powers][kiro-powers], [power installation][kiro-powers-install], [creating powers][kiro-powers-create], [hooks][kiro-hooks], [IDE 1.0 hooks][kiro-hooks-v1], [CLI V3 hooks migration][kiro-hooks-cli], [configuration][kiro-config], [skills][kiro-skills], [specs][kiro-specs]
 - Legacy power example: [Unleash/unleash-kiro-power][unleash]
 - OpenCode: [plugins][oc-plugins]; [MCP servers][oc-mcp]
-- Devin: [CLI plugins][devin-plugins]; [CLI MCP configuration][devin-mcp]; [Desktop (Windsurf) skills][devin-skills]
+- Devin: [CLI extensibility overview][devin-ext]; [CLI rules][devin-rules]; [CLI skills][devin-cli-skills]; [CLI plugins][devin-plugins]; [CLI MCP configuration][devin-mcp]; [Desktop (Windsurf) skills][devin-skills]
 - [PR #497 maintainer comment][pr497]
 
 [spec]: https://agent-plugins.org/specification
@@ -749,6 +759,9 @@ are reports, not vendor contracts.
 [unleash]: https://github.com/Unleash/unleash-kiro-power
 [oc-plugins]: https://opencode.ai/docs/plugins/
 [oc-mcp]: https://opencode.ai/docs/mcp-servers/
+[devin-ext]: https://docs.devin.ai/cli/extensibility
+[devin-rules]: https://docs.devin.ai/cli/extensibility/rules
+[devin-cli-skills]: https://docs.devin.ai/cli/extensibility/skills/overview
 [devin-plugins]: https://docs.devin.ai/cli/extensibility/plugins/overview
 [devin-mcp]: https://docs.devin.ai/cli/extensibility/mcp/configuration
 [devin-skills]: https://docs.devin.ai/desktop/cascade/skills
