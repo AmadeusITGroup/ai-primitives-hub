@@ -23,6 +23,11 @@
  *   existing `title`/`description` field or the filename, same
  *   derivation as `KiroTransformer`'s `name`.
  *
+ * Devin CLI and Devin Desktop read the same rule format from
+ * `.devin/rules/*.md`, so the `devin` targets reuse this transformer,
+ * restricted to the bundle prefixes their layout routes into rules.
+ * @see https://docs.devin.ai/cli/extensibility/rules
+ *
  * Idempotent: if `trigger` is already present, the content is
  * unchanged — an explicit existing trigger is never second-guessed.
  * Fail-safe: on parsing errors, returns the original content.
@@ -43,6 +48,12 @@ import {
  * Transformer for Windsurf-specific requirements.
  */
 export class WindsurfTransformer implements ResourceTransformer {
+  /**
+   * Create a WindsurfTransformer.
+   * @param ruleRoutedPrefixes - Bundle path prefixes the target layout routes into its rules directory.
+   */
+  public constructor(private readonly ruleRoutedPrefixes: readonly string[] = ['prompts/', 'instructions/']) {}
+
   /**
    * Derive a human-readable name from a bundle-relative file path.
    * @param filePath - Bundle-relative file path.
@@ -118,12 +129,12 @@ export class WindsurfTransformer implements ResourceTransformer {
 
   /**
    * Transform file content for the Windsurf runtime.
-   * Only transforms rule-routed files (prompts/*.md, instructions/*.md).
+   * Only transforms rule-routed files (`ruleRoutedPrefixes`, by default prompts/*.md and instructions/*.md).
    * @param context - Transformation context.
    * @returns TransformResult.
    */
   public transform(context: TransformContext): TransformResult {
-    if (!context.filePath.startsWith('prompts/') && !context.filePath.startsWith('instructions/')) {
+    if (!this.ruleRoutedPrefixes.some((prefix) => context.filePath.startsWith(prefix))) {
       return noChange(context.content);
     }
 

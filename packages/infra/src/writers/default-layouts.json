@@ -364,22 +364,22 @@
     },
     "devin": {
       "user": {
-        "baseDir": "${HOME}/.devin",
+        "baseDir": "${HOME}",
         "kindRoutes": {
-          "knowledge/": "knowledge/",
-          "playbooks/": "playbooks/",
-          "powers/": "powers/",
-          "prompts/": "prompts/",
-          "instructions/": "instructions/",
-          "chat-modes/": "agents/",
-          "agents/": "agents/",
-          "skills/": "skills/",
-          "hooks/": "hooks/",
-          "plugins/": "plugins/"
+          "knowledge/": ".devin/knowledge/",
+          "playbooks/": ".devin/playbooks/",
+          "powers/": ".devin/powers/",
+          "prompts/": ".codeium/windsurf/global_workflows/",
+          "instructions/": ".devin/rules/",
+          "chat-modes/": ".config/devin/agents/",
+          "agents/": ".config/devin/agents/",
+          "skills/": ".config/devin/skills/",
+          "hooks/": ".devin/hooks/",
+          "plugins/": ".devin/plugins/"
         },
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
-          "path": "${HOME}/.devin/mcp.json",
+          "path": "${HOME}/.config/devin/mcp_config.json",
           "serversKey": "mcpServers"
         }
       },
@@ -389,8 +389,8 @@
           "knowledge/": ".devin/knowledge/",
           "playbooks/": ".devin/playbooks/",
           "powers/": ".devin/powers/",
-          "prompts/": ".devin/prompts/",
-          "instructions/": ".devin/instructions/",
+          "prompts/": ".devin/workflows/",
+          "instructions/": ".devin/rules/",
           "chat-modes/": ".devin/agents/",
           "agents/": ".devin/agents/",
           "skills/": ".devin/skills/",
@@ -399,29 +399,29 @@
         },
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
-          "path": "${workspaceRoot}/.devin/mcp.json",
+          "path": "${workspaceRoot}/.devin/mcp_config.json",
           "serversKey": "mcpServers"
         }
       }
     },
     "devin-cli": {
       "user": {
-        "baseDir": "${HOME}/.devin",
+        "baseDir": "${HOME}",
         "kindRoutes": {
-          "knowledge/": "knowledge/",
-          "playbooks/": "playbooks/",
-          "powers/": "powers/",
-          "prompts/": "prompts/",
-          "instructions/": "instructions/",
-          "chat-modes/": "agents/",
-          "agents/": "agents/",
-          "skills/": "skills/",
-          "hooks/": "hooks/",
-          "plugins/": "plugins/"
+          "knowledge/": ".devin/knowledge/",
+          "playbooks/": ".devin/playbooks/",
+          "powers/": ".devin/powers/",
+          "prompts/": ".devin/rules/",
+          "instructions/": ".devin/rules/",
+          "chat-modes/": ".config/devin/agents/",
+          "agents/": ".config/devin/agents/",
+          "skills/": ".config/devin/skills/",
+          "hooks/": ".devin/hooks/",
+          "plugins/": ".devin/plugins/"
         },
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
-          "path": "${HOME}/.devin/mcp.json",
+          "path": "${HOME}/.config/devin/mcp_config.json",
           "serversKey": "mcpServers"
         }
       },
@@ -431,8 +431,8 @@
           "knowledge/": ".devin/knowledge/",
           "playbooks/": ".devin/playbooks/",
           "powers/": ".devin/powers/",
-          "prompts/": ".devin/prompts/",
-          "instructions/": ".devin/instructions/",
+          "prompts/": ".devin/rules/",
+          "instructions/": ".devin/rules/",
           "chat-modes/": ".devin/agents/",
           "agents/": ".devin/agents/",
           "skills/": ".devin/skills/",
@@ -441,7 +441,7 @@
         },
         "skipPaths": ["deployment-manifest.yml", "README.md"],
         "mcpConfig": {
-          "path": "${workspaceRoot}/.devin/mcp.json",
+          "path": "${workspaceRoot}/.devin/mcp_config.json",
           "serversKey": "mcpServers"
         }
       }

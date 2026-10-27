@@ -74,4 +74,36 @@ describe('built-in default layouts', () => {
       }
     }
   });
+
+  describe.each(['devin', 'devin-cli'])('%s layout matches where Devin reads customizations', (type) => {
+    const layout = defaultLayouts.layouts[type];
+
+    it('writes MCP servers to mcp_config.json under mcpServers', () => {
+      expect(layout.user.mcpConfig).toEqual({ path: '${HOME}/.config/devin/mcp_config.json', serversKey: 'mcpServers' });
+      expect(layout.repository?.mcpConfig).toEqual({ path: '${workspaceRoot}/.devin/mcp_config.json', serversKey: 'mcpServers' });
+    });
+
+    it('routes instructions to rules, and skills and agents to Devin config dirs', () => {
+      expect(layout.repository?.kindRoutes).toMatchObject({
+        'instructions/': '.devin/rules/',
+        'skills/': '.devin/skills/',
+        'agents/': '.devin/agents/',
+        'chat-modes/': '.devin/agents/'
+      });
+      expect(layout.user.baseDir).toBe('${HOME}');
+      expect(layout.user.kindRoutes).toMatchObject({
+        'instructions/': '.devin/rules/',
+        'skills/': '.config/devin/skills/',
+        'agents/': '.config/devin/agents/',
+        'chat-modes/': '.config/devin/agents/'
+      });
+    });
+  });
+
+  it('routes prompts to workflows on Devin Desktop and to rules on Devin CLI', () => {
+    expect(defaultLayouts.layouts.devin.repository?.kindRoutes['prompts/']).toBe('.devin/workflows/');
+    expect(defaultLayouts.layouts.devin.user.kindRoutes['prompts/']).toBe('.codeium/windsurf/global_workflows/');
+    expect(defaultLayouts.layouts['devin-cli'].repository?.kindRoutes['prompts/']).toBe('.devin/rules/');
+    expect(defaultLayouts.layouts['devin-cli'].user.kindRoutes['prompts/']).toBe('.devin/rules/');
+  });
 });

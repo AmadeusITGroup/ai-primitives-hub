@@ -78,6 +78,9 @@ export class TransformerRegistry {
     registry.register('kiro', new KiroTransformer());
     registry.register('windsurf', new WindsurfTransformer());
     registry.register('claude-code', new ClaudeCodeTransformer());
+    // Devin Desktop routes prompts to `.devin/workflows/`, so only instructions become rules there.
+    registry.register('devin', new WindsurfTransformer(['instructions/']));
+    registry.register('devin-cli', new WindsurfTransformer());
     return registry;
   }
 }

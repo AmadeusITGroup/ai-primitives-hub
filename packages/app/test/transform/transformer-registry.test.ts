@@ -68,6 +68,34 @@ describe('TransformerRegistry', () => {
     expect(transformer).toBeInstanceOf(ClaudeCodeTransformer);
   });
 
+  it('should register a WindsurfTransformer for both devin targets', () => {
+    const registry = TransformerRegistry.withBuiltIns();
+    expect(registry.getTransformer('devin')).toBeInstanceOf(WindsurfTransformer);
+    expect(registry.getTransformer('devin-cli')).toBeInstanceOf(WindsurfTransformer);
+  });
+
+  it('should turn Copilot applyTo into a Devin glob rule', () => {
+    const registry = TransformerRegistry.withBuiltIns();
+    for (const target of ['devin', 'devin-cli'] as const) {
+      const result = registry.getTransformer(target).transform({
+        filePath: 'instructions/typescript.instructions.md',
+        content: '---\napplyTo: "**/*.ts"\n---\nUse strict mode.\n',
+        target: { name: 'devin', type: target, scope: 'repository', rootPath: '/ws' }
+      });
+      expect(result.content).toMatch(/^trigger: "?glob"?$/m);
+      expect(result.content).toContain('**/*.ts');
+    }
+  });
+
+  it('should leave devin prompts untouched (Desktop workflows) but make them rules on devin-cli', () => {
+    const registry = TransformerRegistry.withBuiltIns();
+    const context = { filePath: 'prompts/review.prompt.md', content: '---\ndescription: Review code\n---\nReview.\n' };
+    const target = (type: 'devin' | 'devin-cli') => ({ name: type, type, scope: 'repository' as const, rootPath: '/ws' });
+    expect(registry.getTransformer('devin').transform({ ...context, target: target('devin') }).content).toBe(context.content);
+    expect(registry.getTransformer('devin-cli').transform({ ...context, target: target('devin-cli') }).content)
+      .toMatch(/^trigger: "?model_decision"?$/m);
+  });
+
   it('should return NoOpTransformer for unregistered built-in target', () => {
     const registry = TransformerRegistry.withBuiltIns();
     const transformer = registry.getTransformer('vscode');
