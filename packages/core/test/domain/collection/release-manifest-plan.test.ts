@@ -7,6 +7,9 @@
  * serialization).
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   describe,
   expect,
   it,
@@ -22,6 +25,9 @@ import {
   RELEASE_FILE_MODE,
   serializeReleaseManifest,
 } from '../../../src/domain/collection/release-manifest-plan';
+import {
+  PRIMITIVE_KINDS,
+} from '../../../src/domain/primitive/types';
 import type {
   ReleaseSourceReader,
   ReleaseSourceTree,
@@ -522,5 +528,484 @@ describe('archive entry modes', () => {
       'skills/example/references/reference.md': 0o644,
       [SCRIPT_PATH]: 0o755
     });
+  });
+});
+
+describe('characterisation: per-kind directory and id rules', () => {
+  // Pins today's planner output for every primitive kind (issue #552,
+  // ADR-0009 step M1): the item id and kind, the installable archive
+  // entries with their modes, and a digest of the serialized manifest.
+  // The values were captured from the code before the install-category
+  // refactor and must not change.
+  const FILE = RELEASE_FILE_MODE;
+  const EXEC = RELEASE_EXECUTABLE_FILE_MODE;
+
+  /**
+   * Source reader over one in-memory file map, used for both the revision
+   * and the working tree, reporting `executable` paths as executable.
+   * @param files - Repository files.
+   * @param executable - Paths reported as executable.
+   */
+  const sourcesFrom = (
+    files: Map<string, string>,
+    executable: ReadonlySet<string> = new Set()
+  ): ReleaseSourceReader => {
+    const tree = (): ReleaseSourceTree => ({
+      ...createTree(files),
+      isExecutable: (repositoryPath: string) => Promise.resolve(executable.has(repositoryPath))
+    });
+    return {
+      openRevision: () => Promise.resolve({ revision: REVISION, ...tree() }),
+      openWorkingTree: () => tree(),
+      readRemoteUrl: () => Promise.resolve('https://github.com/example/example.git')
+    };
+  };
+
+  interface Fixture {
+    path: string;
+    extra?: Record<string, string>;
+    executable?: string[];
+  }
+
+  const FIXTURES: Record<string, Fixture> = {
+    prompt: { path: 'prompts/x.prompt.md' },
+    instruction: { path: 'instructions/x.instructions.md' },
+    'chat-mode': { path: 'chatmodes/x.chatmode.md' },
+    agent: { path: 'agents/x.agent.md' },
+    skill: {
+      path: 'skills/foo/SKILL.md',
+      extra: { 'skills/foo/references/x.md': '# Ref\n', 'skills/foo/scripts/run.sh': '#!/bin/sh\n' },
+      executable: ['skills/foo/scripts/run.sh']
+    },
+    plugin: {
+      path: 'plugins/foo/plugin.json',
+      extra: { 'plugins/foo/skills/s/SKILL.md': '# S\n', 'plugins/foo/mcp.json': '{}\n' }
+    },
+    hook: { path: 'hooks/x.json' },
+    'mcp-server': { path: 'mcp-servers/x.mcp.json' },
+    steering: { path: '.kiro/steering/x.md' },
+    spec: { path: '.kiro/specs/feature/requirements.md' },
+    command: { path: 'commands/x.md' },
+    rule: { path: 'rules/x.md' },
+    'output-style': { path: 'output-styles/x.md' },
+    tool: { path: 'tools/x.md' },
+    power: { path: 'powers/stripe/POWER.md', extra: { 'powers/stripe/steering/payments.md': '# Pay\n' } },
+    knowledge: { path: 'knowledge/x.md' },
+    playbook: { path: 'playbooks/x.md' }
+  };
+
+  /** Declared kind → fixture kind, for the alias rows. */
+  const ALIASES: Record<string, string> = { skills: 'skill', Skill: 'skill' };
+
+  interface Expected {
+    governed: { id: string; kind: string; entries: [string, number][]; manifestSha256: string };
+    legacy: { id: string; type: string; entries: [string, number][]; manifestSha256: string };
+  }
+
+  const EXPECTED: Record<string, Expected> = {
+    prompt: {
+      governed: {
+        id: 'x.prompt',
+        kind: 'prompt',
+        entries: [
+          ['prompts/x.prompt.md', FILE]
+        ],
+        manifestSha256: '8c4895101b3b4d404d9a4fc9feb8402b19b3b91d54630b8f60f2274092d79c09'
+      },
+      legacy: {
+        id: 'x.prompt',
+        type: 'prompt',
+        entries: [
+          ['prompts/x.prompt.md', FILE]
+        ],
+        manifestSha256: 'e7a494698ac8626f3f617fb7ff5f1f74e5cc1d94d202f706ef48bc18c9530ac8'
+      }
+    },
+    instruction: {
+      governed: {
+        id: 'x.instructions',
+        kind: 'instruction',
+        entries: [
+          ['instructions/x.instructions.md', FILE]
+        ],
+        manifestSha256: 'c6a42d0a308e6de01d5fe7833512d043aa0be3cb7afab8a083938d337b8b522c'
+      },
+      legacy: {
+        id: 'x.instructions',
+        type: 'instructions',
+        entries: [
+          ['instructions/x.instructions.md', FILE]
+        ],
+        manifestSha256: '27100296eb0ca73df9707138741d9ecbe86291916f90eb6a56ce9a824bc2738f'
+      }
+    },
+    'chat-mode': {
+      governed: {
+        id: 'x.chatmode',
+        kind: 'chat-mode',
+        entries: [
+          ['chatmodes/x.chatmode.md', FILE]
+        ],
+        manifestSha256: 'cc7e517973b46a71366bb319aba2138ee8cf6a871f5dbd01f8aa33d815922e94'
+      },
+      legacy: {
+        id: 'x.chatmode',
+        type: 'chatmode',
+        entries: [
+          ['chatmodes/x.chatmode.md', FILE]
+        ],
+        manifestSha256: '26af409316260bea3eaa3b31d89ea262d430c73adc86e5852a00e7dcbea1ca84'
+      }
+    },
+    agent: {
+      governed: {
+        id: 'x.agent',
+        kind: 'agent',
+        entries: [
+          ['agents/x.agent.md', FILE]
+        ],
+        manifestSha256: 'a45cfe04759fb6087e88ae8833224c2c5b085a06e71b0c1c3cc5d40094128041'
+      },
+      legacy: {
+        id: 'x.agent',
+        type: 'agent',
+        entries: [
+          ['agents/x.agent.md', FILE]
+        ],
+        manifestSha256: '1664f7b1a19a6faf9e88053b69bac41f898d2243654929aeb5359a852969fbfa'
+      }
+    },
+    skill: {
+      governed: {
+        id: 'foo',
+        kind: 'skill',
+        entries: [
+          ['skills/foo/SKILL.md', FILE],
+          ['skills/foo/references/x.md', FILE],
+          ['skills/foo/scripts/run.sh', EXEC]
+        ],
+        manifestSha256: '7c70312de4d60f614c5a4849716ecc0a7f8b4342b203a03a95cd93d2cc9a5a07'
+      },
+      legacy: {
+        id: 'foo',
+        type: 'skill',
+        entries: [
+          ['skills/foo/SKILL.md', FILE],
+          ['skills/foo/references/x.md', FILE],
+          ['skills/foo/scripts/run.sh', EXEC]
+        ],
+        manifestSha256: '324f3acc380fe37bfb0718175cb6e7c0d55242d6257635163bbc22872c9f8527'
+      }
+    },
+    skills: {
+      governed: {
+        id: 'foo',
+        kind: 'skill',
+        entries: [
+          ['skills/foo/SKILL.md', FILE],
+          ['skills/foo/references/x.md', FILE],
+          ['skills/foo/scripts/run.sh', EXEC]
+        ],
+        manifestSha256: '2cd03b8f714879e3235a48d05b8061830622384c031e14b0ca0bef1f5956dc72'
+      },
+      legacy: {
+        id: 'SKILL',
+        type: 'skills',
+        entries: [
+          ['skills/foo/SKILL.md', FILE],
+          ['skills/foo/references/x.md', FILE],
+          ['skills/foo/scripts/run.sh', EXEC]
+        ],
+        manifestSha256: '23d495463bf7a074d1d1cb892a9e67ec4ae55e4c1d7149fbc3ab043814ef465b'
+      }
+    },
+    Skill: {
+      governed: {
+        id: 'foo',
+        kind: 'skill',
+        entries: [
+          ['skills/foo/SKILL.md', FILE],
+          ['skills/foo/references/x.md', FILE],
+          ['skills/foo/scripts/run.sh', EXEC]
+        ],
+        manifestSha256: 'e9aa8243d80470ac7b3f3c29e355916cb4a2f5f9c8fb6b3f6716a71ecdc0ad3b'
+      },
+      legacy: {
+        id: 'foo',
+        type: 'skill',
+        entries: [
+          ['skills/foo/SKILL.md', FILE],
+          ['skills/foo/references/x.md', FILE],
+          ['skills/foo/scripts/run.sh', EXEC]
+        ],
+        manifestSha256: '324f3acc380fe37bfb0718175cb6e7c0d55242d6257635163bbc22872c9f8527'
+      }
+    },
+    plugin: {
+      governed: {
+        id: 'foo',
+        kind: 'plugin',
+        entries: [
+          ['plugins/foo/mcp.json', FILE],
+          ['plugins/foo/plugin.json', FILE],
+          ['plugins/foo/skills/s/SKILL.md', FILE]
+        ],
+        manifestSha256: '70ceb68a78122f5d2df4e23d0d987f70cf7c7d84b490d46e04276322850426f6'
+      },
+      legacy: {
+        id: 'foo',
+        type: 'plugin',
+        entries: [
+          ['plugins/foo/mcp.json', FILE],
+          ['plugins/foo/plugin.json', FILE],
+          ['plugins/foo/skills/s/SKILL.md', FILE]
+        ],
+        manifestSha256: 'ba13ee8124e6d4e59bdd42d27a047ccfcfb322d9931ee12134edd5d5311282ec'
+      }
+    },
+    hook: {
+      governed: {
+        id: 'x',
+        kind: 'hook',
+        entries: [
+          ['hooks/x.json', FILE]
+        ],
+        manifestSha256: 'ae9fd9d14da52cee67f7e613d05f83ab0d3b3aee170bf42ede4b5756153047e9'
+      },
+      legacy: {
+        id: 'x',
+        type: 'hook',
+        entries: [
+          ['hooks/x.json', FILE]
+        ],
+        manifestSha256: '3d17bb5db1ab3f3edee6cb043c8bbe95533cb4b4b3fe5aef40497990ea145b77'
+      }
+    },
+    'mcp-server': {
+      governed: {
+        id: 'x.mcp',
+        kind: 'mcp-server',
+        entries: [
+          ['mcp-servers/x.mcp.json', FILE]
+        ],
+        manifestSha256: 'e1214d6dc9f601ecac7df293b8e15d7d4b49f05fd758162d94edbfce13bb0d73'
+      },
+      legacy: {
+        id: 'x.mcp',
+        type: 'mcp-server',
+        entries: [
+          ['mcp-servers/x.mcp.json', FILE]
+        ],
+        manifestSha256: 'bb7611591fa7b9f6155926beee13b4e3210561752f6ffaaea11f9356fb219f42'
+      }
+    },
+    steering: {
+      governed: {
+        id: 'x',
+        kind: 'steering',
+        entries: [
+          ['.kiro/steering/x.md', FILE]
+        ],
+        manifestSha256: 'c8734f0d07440bea77c99ba2fdc2ade4ce3c8ed57301c0b4122b2533790397ca'
+      },
+      legacy: {
+        id: 'x',
+        type: 'steering',
+        entries: [
+          ['.kiro/steering/x.md', FILE]
+        ],
+        manifestSha256: 'f7ec1ca1ef63412b87ebcbf32ca82f8b9a7baf916312e04a052e1677c8086b8e'
+      }
+    },
+    spec: {
+      governed: {
+        id: 'requirements',
+        kind: 'spec',
+        entries: [
+          ['.kiro/specs/feature/requirements.md', FILE]
+        ],
+        manifestSha256: 'd6d534df10527d345b16c5c0d3caf65d8e81e2ae4d4d338fe83b88c1ef4195e7'
+      },
+      legacy: {
+        id: 'requirements',
+        type: 'spec',
+        entries: [
+          ['.kiro/specs/feature/requirements.md', FILE]
+        ],
+        manifestSha256: '18642f379a5c7f4b6eb150da4018cc25834de9d608d43d20d94e21d4c25f7e2b'
+      }
+    },
+    command: {
+      governed: {
+        id: 'x',
+        kind: 'command',
+        entries: [
+          ['commands/x.md', FILE]
+        ],
+        manifestSha256: '54f783860f5a9fb3b0cc89d9ae3d0bd231cd106c7f20a158a588b7f8bc13852b'
+      },
+      legacy: {
+        id: 'x',
+        type: 'command',
+        entries: [
+          ['commands/x.md', FILE]
+        ],
+        manifestSha256: '747e8f2bd2c234b82ad9589e5a7420893e5b0a0d593eb73755b152ed1b7249c9'
+      }
+    },
+    rule: {
+      governed: {
+        id: 'x',
+        kind: 'rule',
+        entries: [
+          ['rules/x.md', FILE]
+        ],
+        manifestSha256: '9c0f48ec3a1febc6bb140973469506919d26d81689505d4ef9401d7482b8b588'
+      },
+      legacy: {
+        id: 'x',
+        type: 'rule',
+        entries: [
+          ['rules/x.md', FILE]
+        ],
+        manifestSha256: 'e3797885748b5cfb24d3f1e963d4f1f487273ffeba75662f5b27b717d36e4bdb'
+      }
+    },
+    'output-style': {
+      governed: {
+        id: 'x',
+        kind: 'output-style',
+        entries: [
+          ['output-styles/x.md', FILE]
+        ],
+        manifestSha256: 'abc67c23c9d313e40cf94b3481e4e961612c9ec430c5194f8dbd4c3638d50bdc'
+      },
+      legacy: {
+        id: 'x',
+        type: 'output-style',
+        entries: [
+          ['output-styles/x.md', FILE]
+        ],
+        manifestSha256: '4708e28ac120539ffa8878e8ff1532293769f72f90879eb60fe5580ffa733993'
+      }
+    },
+    tool: {
+      governed: {
+        id: 'x',
+        kind: 'tool',
+        entries: [
+          ['tools/x.md', FILE]
+        ],
+        manifestSha256: '0f450d2421750454cdd56985260ea039f937030571dbd5482788f31d7a673300'
+      },
+      legacy: {
+        id: 'x',
+        type: 'tool',
+        entries: [
+          ['tools/x.md', FILE]
+        ],
+        manifestSha256: 'cee5ca9e350d3a896667f8a17b31e8cd9ef382b988aa41ef00664ffa910ad2f3'
+      }
+    },
+    power: {
+      governed: {
+        id: 'POWER',
+        kind: 'power',
+        entries: [
+          ['powers/stripe/POWER.md', FILE]
+        ],
+        manifestSha256: '96a0fa84b53aa23b18e99bc1b8dc981ae393382ed5b2372cb30d8de8dd4e83bf'
+      },
+      legacy: {
+        id: 'POWER',
+        type: 'power',
+        entries: [
+          ['powers/stripe/POWER.md', FILE]
+        ],
+        manifestSha256: '889a64cfd806c5c6c37e3074a43a662848916f74fabf112e1d3f0449d7eca644'
+      }
+    },
+    knowledge: {
+      governed: {
+        id: 'x',
+        kind: 'knowledge',
+        entries: [
+          ['knowledge/x.md', FILE]
+        ],
+        manifestSha256: '6fc9a79699a78994baa2c3cba2bbcad2e8e0acbca2038e6f1513e3a1cdf366c8'
+      },
+      legacy: {
+        id: 'x',
+        type: 'knowledge',
+        entries: [
+          ['knowledge/x.md', FILE]
+        ],
+        manifestSha256: 'b936a201e6bc9c50f4c51f2a62d97e7534aa3da88b99ef0e62751a5ce1560fe2'
+      }
+    },
+    playbook: {
+      governed: {
+        id: 'x',
+        kind: 'playbook',
+        entries: [
+          ['playbooks/x.md', FILE]
+        ],
+        manifestSha256: 'effcac561296a5c82f7c764144f06c19b7049deabc5437fe18e74746a137e297'
+      },
+      legacy: {
+        id: 'x',
+        type: 'playbook',
+        entries: [
+          ['playbooks/x.md', FILE]
+        ],
+        manifestSha256: '10beed8aecf148d0fb224f20ecb026ad628cb964abab393b09e648e9e25910e3'
+      }
+    }
+  };
+
+  const sourcesForKind = (declaredKind: string): ReleaseSourceReader => {
+    const fixture = FIXTURES[ALIASES[declaredKind] ?? declaredKind];
+    const files = new Map<string, string>([
+      ['LICENSE', 'License\n'],
+      [fixture.path, fixture.path.endsWith('.json') ? '{"name":"N","description":"D"}\n' : '# Title\n'],
+      ...Object.entries(fixture.extra ?? {}),
+      [COLLECTION_FILE, `id: c\nname: C\nitems:\n  - path: ${fixture.path}\n    kind: ${declaredKind}\n`]
+    ]);
+    return sourcesFrom(files, new Set(fixture.executable));
+  };
+
+  const digest = (manifest: Record<string, unknown>): string =>
+    createHash('sha256').update(serializeReleaseManifest(manifest)).digest('hex');
+
+  it('covers every primitive kind', () => {
+    expect(Object.keys(FIXTURES).toSorted()).toEqual([...PRIMITIVE_KINDS].toSorted());
+  });
+
+  it.each(Object.keys(EXPECTED))('governed plan for kind "%s"', async (declaredKind) => {
+    const plan = await createReleaseManifestPlan({
+      repoRoot: '/repo',
+      collectionFile: COLLECTION_FILE,
+      version: '1.0.0',
+      revision: REVISION,
+      packageMetadata: { license: 'MIT' }
+    }, sourcesForKind(declaredKind));
+    const item = (plan.manifest.items as Record<string, unknown>[])[0];
+    const entries = plan.entries
+      .filter((entry) => entry.role === 'installable')
+      .map((entry): [string, number] => [entry.path, entry.mode]);
+    expect({ id: item.id, kind: item.kind, entries, manifestSha256: digest(plan.manifest) })
+      .toEqual(EXPECTED[declaredKind].governed);
+  });
+
+  it.each(Object.keys(EXPECTED))('legacy plan for kind "%s"', async (declaredKind) => {
+    const plan = await createLegacyReleaseManifestPlan({
+      repoRoot: '/repo',
+      collectionFile: COLLECTION_FILE,
+      version: '1.0.0'
+    }, sourcesForKind(declaredKind));
+    const item = (plan.manifest.prompts as Record<string, unknown>[])[0];
+    const entries = plan.entries.map((entry): [string, number] => [entry.path, entry.mode]);
+    expect({ id: item.id, type: item.type, entries, manifestSha256: digest(plan.manifest) })
+      .toEqual(EXPECTED[declaredKind].legacy);
   });
 });

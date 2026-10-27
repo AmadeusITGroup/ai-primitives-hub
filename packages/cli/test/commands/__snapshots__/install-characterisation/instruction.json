@@ -1,0 +1,1932 @@
+{
+  "governed": {
+    "claude-code/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.claude",
+        "<workspace>/.claude/agents",
+        "<workspace>/.claude/commands",
+        "<workspace>/.claude/hooks",
+        "<workspace>/.claude/instructions",
+        "<workspace>/.claude/output-styles",
+        "<workspace>/.claude/plugins",
+        "<workspace>/.claude/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.claude/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "4d7d3a2badd98fdd7871d7eb71e3be9d33780c13d5d9d8f9cd168745d157695d"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "claude-code/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.claude",
+        "$HOME/.claude/agents",
+        "$HOME/.claude/commands",
+        "$HOME/.claude/hooks",
+        "$HOME/.claude/instructions",
+        "$HOME/.claude/output-styles",
+        "$HOME/.claude/plugins",
+        "$HOME/.claude/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.claude/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "bea9c6ce96e3c6cac89d3b4b988b3c0c10885459220f6e4bca75de85f4e449e3"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "copilot-cli/repository": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.copilot",
+        "$HOME/.copilot/agents",
+        "$HOME/.copilot/hooks",
+        "$HOME/.copilot/instructions",
+        "$HOME/.copilot/plugins",
+        "$HOME/.copilot/prompts",
+        "$HOME/.copilot/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.copilot/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "44bdc3fe4fc07c85bc45c31bf42ccaedaea9d662f015f27b6c691f4c76afa361"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "copilot-cli/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.copilot",
+        "$HOME/.copilot/agents",
+        "$HOME/.copilot/hooks",
+        "$HOME/.copilot/instructions",
+        "$HOME/.copilot/plugins",
+        "$HOME/.copilot/prompts",
+        "$HOME/.copilot/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.copilot/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "44bdc3fe4fc07c85bc45c31bf42ccaedaea9d662f015f27b6c691f4c76afa361"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "cursor/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.cursor",
+        "<workspace>/.cursor/agents",
+        "<workspace>/.cursor/commands",
+        "<workspace>/.cursor/hooks",
+        "<workspace>/.cursor/plugins",
+        "<workspace>/.cursor/rules",
+        "<workspace>/.cursor/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.cursor/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "19a43efadac6def7a81d6ee53be20558b5f576586e412a3fb4fd3f6f97cecf0b"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".cursor/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "cursor/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.cursor",
+        "$HOME/.cursor/agents",
+        "$HOME/.cursor/commands",
+        "$HOME/.cursor/hooks",
+        "$HOME/.cursor/plugins",
+        "$HOME/.cursor/rules",
+        "$HOME/.cursor/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.cursor/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "033c41bb077cb3ff8a3b4b01a757aaccd5409efdbcb3ac63490106be4957fdf6"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "devin-cli/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.devin",
+        "<workspace>/.devin/agents",
+        "<workspace>/.devin/hooks",
+        "<workspace>/.devin/knowledge",
+        "<workspace>/.devin/playbooks",
+        "<workspace>/.devin/plugins",
+        "<workspace>/.devin/powers",
+        "<workspace>/.devin/rules",
+        "<workspace>/.devin/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.devin/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "ba4c31d393e34c0ec020376e50259ddee5f3fa607af9d3368a7b376bfcfaaf8d"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "devin-cli/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.config",
+        "$HOME/.config/devin",
+        "$HOME/.config/devin/agents",
+        "$HOME/.config/devin/skills",
+        "$HOME/.devin",
+        "$HOME/.devin/hooks",
+        "$HOME/.devin/knowledge",
+        "$HOME/.devin/playbooks",
+        "$HOME/.devin/plugins",
+        "$HOME/.devin/powers",
+        "$HOME/.devin/rules",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.devin/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "55aa2fa9f11e35fa269c5e3fd24ffbb2700ffd0dc8d5101fa12bda79abf701ca"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "devin/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.devin",
+        "<workspace>/.devin/agents",
+        "<workspace>/.devin/hooks",
+        "<workspace>/.devin/knowledge",
+        "<workspace>/.devin/playbooks",
+        "<workspace>/.devin/plugins",
+        "<workspace>/.devin/powers",
+        "<workspace>/.devin/rules",
+        "<workspace>/.devin/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.devin/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "7cd6de9be4441fa3d7726902091351daa361d90006aa6025ce782e549683e0c9"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "devin/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.config",
+        "$HOME/.config/devin",
+        "$HOME/.config/devin/agents",
+        "$HOME/.config/devin/skills",
+        "$HOME/.devin",
+        "$HOME/.devin/hooks",
+        "$HOME/.devin/knowledge",
+        "$HOME/.devin/playbooks",
+        "$HOME/.devin/plugins",
+        "$HOME/.devin/powers",
+        "$HOME/.devin/rules",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.devin/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "3131d189b5071774bf4311c8634d50da7a39520c5c153e7b7ba543d92ceac55e"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "kiro-cli/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.kiro",
+        "<workspace>/.kiro/agents",
+        "<workspace>/.kiro/hooks",
+        "<workspace>/.kiro/plugins",
+        "<workspace>/.kiro/powers",
+        "<workspace>/.kiro/skills",
+        "<workspace>/.kiro/specs",
+        "<workspace>/.kiro/steering"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.kiro/steering/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "c4d43a4f050a4ee95af0359c96767e3e99193cd6602771c085b7d70b0d0def1a"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "steering/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "kiro-cli/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.kiro",
+        "$HOME/.kiro/agents",
+        "$HOME/.kiro/hooks",
+        "$HOME/.kiro/plugins",
+        "$HOME/.kiro/powers",
+        "$HOME/.kiro/skills",
+        "$HOME/.kiro/specs",
+        "$HOME/.kiro/steering",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.kiro/steering/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "a6e51b4e46e9c329dfc45db2e458b10ae3ef7df261d8abe22bcdfb1bddbad0f2"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "steering/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "kiro/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.kiro",
+        "<workspace>/.kiro/agents",
+        "<workspace>/.kiro/powers",
+        "<workspace>/.kiro/skills",
+        "<workspace>/.kiro/specs",
+        "<workspace>/.kiro/steering"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.kiro/steering/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "steering/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "kiro/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.kiro",
+        "$HOME/.kiro/agents",
+        "$HOME/.kiro/powers",
+        "$HOME/.kiro/skills",
+        "$HOME/.kiro/specs",
+        "$HOME/.kiro/steering",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.kiro/steering/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "45cef5d8403ca2ef8e5861481aa12254d6e8d8795439d8038d1b835e7eb97fe0"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "steering/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "opencode/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.opencode",
+        "<workspace>/.opencode/agents",
+        "<workspace>/.opencode/commands",
+        "<workspace>/.opencode/hooks",
+        "<workspace>/.opencode/plugins",
+        "<workspace>/.opencode/rules",
+        "<workspace>/.opencode/skills",
+        "<workspace>/.opencode/tools"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.opencode/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "6c87e0e91ddc75bba591f5046e6dbc8986b59eeb7c3d0475debd184eae8226ab"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".opencode/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "opencode/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.opencode",
+        "$HOME/.opencode/agents",
+        "$HOME/.opencode/commands",
+        "$HOME/.opencode/hooks",
+        "$HOME/.opencode/plugins",
+        "$HOME/.opencode/rules",
+        "$HOME/.opencode/skills",
+        "$HOME/.opencode/tools",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.opencode/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "d8a888910226a3afbe2d442b76a4eb9b75995545bf9a5fa1eaabf38bff1fca45"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "vscode-insiders/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.github",
+        "<workspace>/.github/instructions"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.github/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "92745287913bc3762247dd5ffd136b2f1021571892c71c879b44f7c74e7e2e6b"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "vscode-insiders/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.copilot",
+        "$HOME/.copilot/agents",
+        "$HOME/.copilot/hooks",
+        "$HOME/.copilot/instructions",
+        "$HOME/.copilot/plugins",
+        "$HOME/.copilot/prompts",
+        "$HOME/.copilot/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.copilot/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "e108acdb0c2b7ee324c81c1010121e295b6bbe93ae4da632d995f7fb0d7ce288"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "vscode/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.github",
+        "<workspace>/.github/instructions"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.github/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "0e3ec8e148f1168c6780f39f69390f389647820c45543e6bb73c6e11a9c78d62"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "vscode/repository/local-only": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.github",
+        "<workspace>/.github/instructions"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.github/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "0e3ec8e148f1168c6780f39f69390f389647820c45543e6bb73c6e11a9c78d62"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": "# Prompt Registry (local)\n.github/instructions/x.instructions.md",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "vscode/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.copilot",
+        "$HOME/.copilot/agents",
+        "$HOME/.copilot/hooks",
+        "$HOME/.copilot/instructions",
+        "$HOME/.copilot/plugins",
+        "$HOME/.copilot/prompts",
+        "$HOME/.copilot/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.copilot/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "eafa2273b259dd384e5d0e6391c40ee10692b248394be96a289fb9a9c2928a7f"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "windsurf/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.windsurf",
+        "<workspace>/.windsurf/agents",
+        "<workspace>/.windsurf/hooks",
+        "<workspace>/.windsurf/plugins",
+        "<workspace>/.windsurf/rules",
+        "<workspace>/.windsurf/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.windsurf/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "a30aeb9daf9d5f75f3d6c19bc781e378ca4ec3486baaa20f3877251b2f93a470"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "windsurf/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.codeium",
+        "$HOME/.codeium/windsurf",
+        "$HOME/.codeium/windsurf/agents",
+        "$HOME/.codeium/windsurf/hooks",
+        "$HOME/.codeium/windsurf/plugins",
+        "$HOME/.codeium/windsurf/rules",
+        "$HOME/.codeium/windsurf/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.codeium/windsurf/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "6db8d19cfbd75cbd4b33a8bc6ae65a9a94451fc9570451b495946ff5442e010c"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    }
+  },
+  "legacy": {
+    "claude-code/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.claude",
+        "<workspace>/.claude/agents",
+        "<workspace>/.claude/commands",
+        "<workspace>/.claude/hooks",
+        "<workspace>/.claude/instructions",
+        "<workspace>/.claude/output-styles",
+        "<workspace>/.claude/plugins",
+        "<workspace>/.claude/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.claude/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "4d7d3a2badd98fdd7871d7eb71e3be9d33780c13d5d9d8f9cd168745d157695d"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "claude-code/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.claude",
+        "$HOME/.claude/agents",
+        "$HOME/.claude/commands",
+        "$HOME/.claude/hooks",
+        "$HOME/.claude/instructions",
+        "$HOME/.claude/output-styles",
+        "$HOME/.claude/plugins",
+        "$HOME/.claude/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.claude/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "bea9c6ce96e3c6cac89d3b4b988b3c0c10885459220f6e4bca75de85f4e449e3"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "copilot-cli/repository": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.copilot",
+        "$HOME/.copilot/agents",
+        "$HOME/.copilot/hooks",
+        "$HOME/.copilot/instructions",
+        "$HOME/.copilot/plugins",
+        "$HOME/.copilot/prompts",
+        "$HOME/.copilot/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.copilot/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "44bdc3fe4fc07c85bc45c31bf42ccaedaea9d662f015f27b6c691f4c76afa361"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "copilot-cli/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.copilot",
+        "$HOME/.copilot/agents",
+        "$HOME/.copilot/hooks",
+        "$HOME/.copilot/instructions",
+        "$HOME/.copilot/plugins",
+        "$HOME/.copilot/prompts",
+        "$HOME/.copilot/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.copilot/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "44bdc3fe4fc07c85bc45c31bf42ccaedaea9d662f015f27b6c691f4c76afa361"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "cursor/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.cursor",
+        "<workspace>/.cursor/agents",
+        "<workspace>/.cursor/commands",
+        "<workspace>/.cursor/hooks",
+        "<workspace>/.cursor/plugins",
+        "<workspace>/.cursor/rules",
+        "<workspace>/.cursor/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.cursor/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "19a43efadac6def7a81d6ee53be20558b5f576586e412a3fb4fd3f6f97cecf0b"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".cursor/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "cursor/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.cursor",
+        "$HOME/.cursor/agents",
+        "$HOME/.cursor/commands",
+        "$HOME/.cursor/hooks",
+        "$HOME/.cursor/plugins",
+        "$HOME/.cursor/rules",
+        "$HOME/.cursor/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.cursor/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "033c41bb077cb3ff8a3b4b01a757aaccd5409efdbcb3ac63490106be4957fdf6"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "devin-cli/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.devin",
+        "<workspace>/.devin/agents",
+        "<workspace>/.devin/hooks",
+        "<workspace>/.devin/knowledge",
+        "<workspace>/.devin/playbooks",
+        "<workspace>/.devin/plugins",
+        "<workspace>/.devin/powers",
+        "<workspace>/.devin/rules",
+        "<workspace>/.devin/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.devin/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "ba4c31d393e34c0ec020376e50259ddee5f3fa607af9d3368a7b376bfcfaaf8d"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "devin-cli/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.config",
+        "$HOME/.config/devin",
+        "$HOME/.config/devin/agents",
+        "$HOME/.config/devin/skills",
+        "$HOME/.devin",
+        "$HOME/.devin/hooks",
+        "$HOME/.devin/knowledge",
+        "$HOME/.devin/playbooks",
+        "$HOME/.devin/plugins",
+        "$HOME/.devin/powers",
+        "$HOME/.devin/rules",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.devin/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "55aa2fa9f11e35fa269c5e3fd24ffbb2700ffd0dc8d5101fa12bda79abf701ca"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "devin/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.devin",
+        "<workspace>/.devin/agents",
+        "<workspace>/.devin/hooks",
+        "<workspace>/.devin/knowledge",
+        "<workspace>/.devin/playbooks",
+        "<workspace>/.devin/plugins",
+        "<workspace>/.devin/powers",
+        "<workspace>/.devin/rules",
+        "<workspace>/.devin/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.devin/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "7cd6de9be4441fa3d7726902091351daa361d90006aa6025ce782e549683e0c9"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "devin/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.config",
+        "$HOME/.config/devin",
+        "$HOME/.config/devin/agents",
+        "$HOME/.config/devin/skills",
+        "$HOME/.devin",
+        "$HOME/.devin/hooks",
+        "$HOME/.devin/knowledge",
+        "$HOME/.devin/playbooks",
+        "$HOME/.devin/plugins",
+        "$HOME/.devin/powers",
+        "$HOME/.devin/rules",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.devin/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "3131d189b5071774bf4311c8634d50da7a39520c5c153e7b7ba543d92ceac55e"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "kiro-cli/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.kiro",
+        "<workspace>/.kiro/agents",
+        "<workspace>/.kiro/hooks",
+        "<workspace>/.kiro/plugins",
+        "<workspace>/.kiro/powers",
+        "<workspace>/.kiro/skills",
+        "<workspace>/.kiro/specs",
+        "<workspace>/.kiro/steering"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.kiro/steering/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "c4d43a4f050a4ee95af0359c96767e3e99193cd6602771c085b7d70b0d0def1a"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "steering/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "kiro-cli/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.kiro",
+        "$HOME/.kiro/agents",
+        "$HOME/.kiro/hooks",
+        "$HOME/.kiro/plugins",
+        "$HOME/.kiro/powers",
+        "$HOME/.kiro/skills",
+        "$HOME/.kiro/specs",
+        "$HOME/.kiro/steering",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.kiro/steering/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "a6e51b4e46e9c329dfc45db2e458b10ae3ef7df261d8abe22bcdfb1bddbad0f2"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "steering/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "kiro/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.kiro",
+        "<workspace>/.kiro/agents",
+        "<workspace>/.kiro/powers",
+        "<workspace>/.kiro/skills",
+        "<workspace>/.kiro/specs",
+        "<workspace>/.kiro/steering"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.kiro/steering/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "steering/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "kiro/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.kiro",
+        "$HOME/.kiro/agents",
+        "$HOME/.kiro/powers",
+        "$HOME/.kiro/skills",
+        "$HOME/.kiro/specs",
+        "$HOME/.kiro/steering",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.kiro/steering/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "45cef5d8403ca2ef8e5861481aa12254d6e8d8795439d8038d1b835e7eb97fe0"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "steering/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "opencode/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.opencode",
+        "<workspace>/.opencode/agents",
+        "<workspace>/.opencode/commands",
+        "<workspace>/.opencode/hooks",
+        "<workspace>/.opencode/plugins",
+        "<workspace>/.opencode/rules",
+        "<workspace>/.opencode/skills",
+        "<workspace>/.opencode/tools"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.opencode/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "6c87e0e91ddc75bba591f5046e6dbc8986b59eeb7c3d0475debd184eae8226ab"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".opencode/rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "opencode/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.opencode",
+        "$HOME/.opencode/agents",
+        "$HOME/.opencode/commands",
+        "$HOME/.opencode/hooks",
+        "$HOME/.opencode/plugins",
+        "$HOME/.opencode/rules",
+        "$HOME/.opencode/skills",
+        "$HOME/.opencode/tools",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.opencode/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "d8a888910226a3afbe2d442b76a4eb9b75995545bf9a5fa1eaabf38bff1fca45"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "vscode-insiders/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.github",
+        "<workspace>/.github/instructions"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.github/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "92745287913bc3762247dd5ffd136b2f1021571892c71c879b44f7c74e7e2e6b"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "vscode-insiders/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.copilot",
+        "$HOME/.copilot/agents",
+        "$HOME/.copilot/hooks",
+        "$HOME/.copilot/instructions",
+        "$HOME/.copilot/plugins",
+        "$HOME/.copilot/prompts",
+        "$HOME/.copilot/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.copilot/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "e108acdb0c2b7ee324c81c1010121e295b6bbe93ae4da632d995f7fb0d7ce288"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "vscode/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.github",
+        "<workspace>/.github/instructions"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.github/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "0e3ec8e148f1168c6780f39f69390f389647820c45543e6bb73c6e11a9c78d62"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "vscode/repository/local-only": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.github",
+        "<workspace>/.github/instructions"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.github/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "0e3ec8e148f1168c6780f39f69390f389647820c45543e6bb73c6e11a9c78d62"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": "# Prompt Registry (local)\n.github/instructions/x.instructions.md",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "vscode/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.copilot",
+        "$HOME/.copilot/agents",
+        "$HOME/.copilot/hooks",
+        "$HOME/.copilot/instructions",
+        "$HOME/.copilot/plugins",
+        "$HOME/.copilot/prompts",
+        "$HOME/.copilot/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.copilot/instructions/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "eafa2273b259dd384e5d0e6391c40ee10692b248394be96a289fb9a9c2928a7f"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "instructions/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    },
+    "windsurf/repository": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.windsurf",
+        "<workspace>/.windsurf/agents",
+        "<workspace>/.windsurf/hooks",
+        "<workspace>/.windsurf/plugins",
+        "<workspace>/.windsurf/rules",
+        "<workspace>/.windsurf/skills"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.windsurf/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/ai-primitives-hub.yml": "a30aeb9daf9d5f75f3d6c19bc781e378ca4ec3486baaa20f3877251b2f93a470"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "windsurf/user": {
+      "dirsLeftAfterUninstall": [
+        "$HOME/.codeium",
+        "$HOME/.codeium/windsurf",
+        "$HOME/.codeium/windsurf/agents",
+        "$HOME/.codeium/windsurf/hooks",
+        "$HOME/.codeium/windsurf/plugins",
+        "$HOME/.codeium/windsurf/rules",
+        "$HOME/.codeium/windsurf/skills",
+        "<workspace>/.ai-primitives-hub"
+      ],
+      "files": {
+        "$HOME/.codeium/windsurf/rules/x.instructions.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/ai-primitives-hub.yml": "6db8d19cfbd75cbd4b33a8bc6ae65a9a94451fc9570451b495946ff5442e010c"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "rules/x.instructions.md",
+            "path": "instructions/x.instructions.md"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "user"
+      }
+    }
+  }
+}

@@ -34,13 +34,13 @@ The AI Primitives Hub packages follow Clean Architecture principles. The package
 ### Domain Layer (`@ai-primitives-hub/core`)
 
 - Contains pure domain types: `Bundle`, `Collection`, `Primitive`, `Target`, `Source`
-- Defines port interfaces in `ports/`: `FileSystem`, `HttpClient`, `GitHubApi`, `TargetWriter`, `BundleDownloader`, `BundleExtractor`, `SourceAdapter`, `LayoutConfigLoader`, `ResourceTransformer`, `AppStorage`
+- Defines port interfaces in `ports/`: `FileSystem`, `HttpClient`, `GitHubApi`, `TargetWriter`, `BundleDownloader`, `BundleExtractor`, `SourceAdapter`, `LayoutConfigLoader`, `ResourceTransformer`, `AppStorage`, `RepositoryExclusion`
 - No dependencies on other packages or external infrastructure
 - Business rules live here (validation, parsing, domain logic)
 
 ### Infrastructure Layer (`@ai-primitives-hub/infra`)
 
-- Implements ports as adapters: `NodeHttpClient`, `GitHubApiClient`, `FileTreeTargetWriter`, `AdmZipBundleExtractor`, `LocalAdapter`, `GitHubAdapter`, `AwesomeCopilotAdapter`, `ApmAdapter`, `SkillsAdapter`
+- Implements ports as adapters: `NodeHttpClient`, `GitHubApiClient`, `FileTreeTargetWriter`, `AdmZipBundleExtractor`, `LocalAdapter`, `GitHubAdapter`, `AwesomeCopilotAdapter`, `ApmAdapter`, `SkillsAdapter`, `GitInfoExclude`
 - Provides concrete implementations for external systems: GitHub API, file system, HTTP, ZIP extraction, per-target content writers
 - Depends only on `@ai-primitives-hub/core` (the port interfaces)
 - Can be swapped without affecting domain logic

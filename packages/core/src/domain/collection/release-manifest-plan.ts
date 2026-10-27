@@ -30,6 +30,10 @@ import type {
   ReleaseSourceTree,
 } from '../../ports/release-source';
 import {
+  categoryOf,
+} from '../install/category';
+import {
+  isPrimitiveKind,
   normalizePrimitiveKind,
 } from '../primitive/types';
 import type {
@@ -380,8 +384,8 @@ const collectItemEntries = async (
   for (const item of items) {
     const itemPath = normalizeRepoRelativePath(item.path);
     const kind = normalizeKind(item.kind);
-    const paths = kind === 'skill' || kind === 'plugin'
-      ? await listInstallableSkillFiles(sourceTree, path.posix.dirname(itemPath))
+    const paths = isDirectoryUnit(kind)
+      ? await listInstallableDirectoryFiles(sourceTree, path.posix.dirname(itemPath))
       : [itemPath];
     for (const entryPath of paths) {
       if (!entries.has(entryPath)) {
@@ -406,7 +410,14 @@ const collectItemEntries = async (
 const installableMode = async (tree: ReleaseSourceTree, entryPath: string): Promise<number> =>
   (await tree.isExecutable?.(entryPath)) === true ? RELEASE_EXECUTABLE_FILE_MODE : RELEASE_FILE_MODE;
 
-const listInstallableSkillFiles = async (sourceTree: ReleaseSourceTree, directory: string): Promise<string[]> =>
+/**
+ * Whether items of a kind ship and install as their whole directory
+ * (install category `directory`). Unknown kinds are not.
+ * @param kind - Item kind (canonical, or a raw lowercased spelling).
+ */
+const isDirectoryUnit = (kind: string): boolean => isPrimitiveKind(kind) && categoryOf(kind) === 'directory';
+
+const listInstallableDirectoryFiles = async (sourceTree: ReleaseSourceTree, directory: string): Promise<string[]> =>
   (await sourceTree.listFiles(directory)).filter((entry) => !isIgnoredPath(entry)).toSorted(comparePaths);
 
 const isIgnoredPath = (entry: string): boolean => {
@@ -495,7 +506,7 @@ const legacyType = (kind: string): string => ({
 
 const generateItemId = (itemPath: string, kind: string): string => {
   const extension = path.extname(itemPath);
-  if (kind === 'skill' || kind === 'plugin') {
+  if (isDirectoryUnit(kind)) {
     const parts = itemPath.split('/');
     return parts.length >= 2 ? (parts.at(-2) ?? path.basename(itemPath, extension)) : path.basename(itemPath, extension);
   }
@@ -519,8 +530,8 @@ const readPackageMetadata = async (tree: ReleaseSourceTree): Promise<Record<stri
 };
 
 /**
- * Installable working-tree paths of one legacy item. Skills and plugins ship
- * their whole directory. The item file itself was already read from that
+ * Installable working-tree paths of one legacy item. Directory-category kinds
+ * ship their whole directory. The item file itself was already read from that
  * directory, so the directory exists; the listing is used as-is (an empty
  * listing means it holds no regular files).
  * @param workingTree - Working tree of the repository.
@@ -532,7 +543,7 @@ const resolveLegacyItemPaths = async (
   itemPath: string,
   kind: string
 ): Promise<string[]> => {
-  if (kind !== 'skill' && kind !== 'plugin') {
+  if (!isDirectoryUnit(kind)) {
     return [itemPath];
   }
   return (await workingTree.listFiles(path.posix.dirname(itemPath)))

@@ -260,6 +260,26 @@ items:
         ]);
       });
     });
+
+    it('passes with a warning when an item kind differs from its install route kind', async () => {
+      await mkdir(path.join(workspace, 'plugins', 'p', 'skills', 's'), { recursive: true });
+      await writeFile(path.join(workspace, 'plugins', 'p', 'skills', 's', 'SKILL.md'), '# Skill\n');
+      await writeFile(path.join(workspace, 'README.md'), '# Mismatch\n');
+      const collectionFile = 'collections/mismatch.collection.yml';
+      await writeFile(
+        path.join(workspace, collectionFile),
+        'id: mismatch\nname: mismatch\nreadme:\n  path: README.md\nitems:\n  - path: plugins/p/skills/s/SKILL.md\n    kind: skill\n'
+      );
+      const result = await run(['collection', 'validate', '--collection-file', collectionFile, '-o', 'json']);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ ok: boolean }>(result.stdout);
+      expect(envelope.data.ok).toBe(true);
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toEqual([
+        'collections/mismatch.collection.yml: items[0] plugins/p/skills/s/SKILL.md: kind "skill" differs from the kind '
+        + '"plugin" of the install route "plugins/" that this path matches'
+      ]);
+    });
   });
 
   describe('collection affected', () => {

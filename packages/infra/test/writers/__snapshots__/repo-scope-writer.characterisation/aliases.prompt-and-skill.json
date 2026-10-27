@@ -1,0 +1,45 @@
+{
+  "preflight": {
+    "writable": [
+      "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh",
+      "skills/baz/SKILL.md"
+    ],
+    "skipped": [
+      "chatmodes/x.chatmode.md",
+      "agents/x.agent.md",
+      "instructions/x.instructions.md",
+      "powers/stripe/POWER.md",
+      "mcp-servers/x.mcp.json"
+    ]
+  },
+  "write": {
+    "written": [
+      "/workspace/.github/skills/foo/SKILL.md",
+      "/workspace/.github/skills/foo/references/ref.md",
+      "/workspace/.github/skills/foo/scripts/run.sh"
+    ],
+    "skipped": [
+      "skills/baz/SKILL.md",
+      "chatmodes/x.chatmode.md",
+      "agents/x.agent.md",
+      "instructions/x.instructions.md",
+      "powers/stripe/POWER.md",
+      "mcp-servers/x.mcp.json"
+    ],
+    "skillDirs": [
+      "/workspace/.github/skills/foo"
+    ],
+    "writtenBundlePaths": [
+      "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh"
+    ]
+  },
+  "disk": {
+    "/workspace/.github/skills/foo/SKILL.md": "# Skill\n",
+    "/workspace/.github/skills/foo/references/ref.md": "# Reference\n",
+    "/workspace/.github/skills/foo/scripts/run.sh": "#!/bin/sh\n"
+  }
+}

@@ -126,6 +126,23 @@ flowchart LR
     G -->|No| I[Rollback to Old Scope]
 ```
 
+## Install Categories
+
+Every primitive kind belongs to one install category, defined in core (`packages/core/src/domain/install/category.ts`, see ADR-0009 in [#559](https://github.com/AmadeusITGroup/ai-primitives-hub/pull/559)):
+
+| Category | Kinds today | Unit |
+|----------|-------------|------|
+| `file` | every kind not listed below, including `power` and `spec` | The item file |
+| `directory` | `skill`, `plugin` | The whole directory of the item file |
+| `config` | `mcp-server` | An entry in a target config file; `mcp-server` items are not installed yet |
+
+A `directory` item is installed as one unit:
+
+- `bundle build` archives every file below `dirname(item.path)`, and the item id is that directory name.
+- VS Code and Copilot repository-scope installs copy that whole tree to `.github/<skills|plugins>/<id>/`. Bundle files are matched by whole path segment, so a skill `foo` never picks up the files of a skill `foo-bar`.
+
+The category drives both `bundle build` packaging and repository-scope placement. A new kind whose category is already handled needs its row in the category table and a route in the target layouts that support it.
+
 ## Repository Scope Installation
 
 ### File Placement
@@ -138,11 +155,12 @@ Files are placed in `.github/` subdirectories based on type:
 | Instructions (`.instructions.md`) | `.github/instructions/` |
 | Agents (`.agent.md`) | `.github/agents/` |
 | Skills | `.github/skills/<skill-name>/` |
+| Plugins | `.github/plugins/<plugin-name>/` |
 | MCP Servers | `.vscode/mcp.json` |
 
 ### Git Exclude Management
 
-For local-only mode, paths are added to `.git/info/exclude`:
+For local-only mode, paths are added to `.git/info/exclude`. The repository-scope writer manages this section through the `RepositoryExclusion` port; `GitInfoExclude` in `@ai-primitives-hub/infra` is the Git implementation.
 
 ```
 # Prompt Registry (local)

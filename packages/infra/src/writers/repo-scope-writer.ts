@@ -19,6 +19,7 @@ import type {
   ExtractedFiles,
   FileSystem,
   PrimitiveKind,
+  RepositoryExclusion,
   Target,
   TargetWritePlan,
   TargetWriter,
@@ -26,20 +27,17 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   applyFileMode,
+  categoryOf,
+  isPrimitiveKind,
   normalizePrimitiveKind,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
   load as parseYaml,
 } from 'js-yaml';
-
-/**
- * Section header for AI Primitives Hub entries in .git/info/exclude
- */
-const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
-
-const toGitIgnorePath = (workspaceRoot: string, filePath: string): string =>
-  path.relative(workspaceRoot, filePath).replaceAll('\\', '/');
+import {
+  GitInfoExclude,
+} from './git-info-exclude';
 
 /**
  * Commit mode for repository-scoped installations.
@@ -56,6 +54,11 @@ export interface RepositoryScopeWriterOptions {
   workspaceRoot: string;
   /** Commit mode for this installation. */
   commitMode: RepositoryCommitMode;
+  /**
+   * Where `local-only` paths are excluded from version control. Defaults
+   * to `.git/info/exclude` below `workspaceRoot` ({@link GitInfoExclude}).
+   */
+  exclusion?: RepositoryExclusion;
 }
 
 /**
@@ -93,12 +96,17 @@ interface WriteResult {
  * - prompts → .github/prompts/
  * - instructions → .github/instructions/
  * - agents → .github/agents/
- * - skills → .github/skills/<skill-name>/
+ * - hooks → .github/hooks/
+ *
+ * Items of a `directory` install category (skills, plugins) are installed
+ * whole: every bundle file below the item's directory is copied to
+ * .github/<subdirectory>/<id>/.
  */
 export class RepositoryScopeWriter {
   private readonly fs: FileSystem;
   private readonly workspaceRoot: string;
   private readonly commitMode: RepositoryCommitMode;
+  private readonly exclusion: RepositoryExclusion;
 
   /**
    * Construct a RepositoryScopeWriter.
@@ -108,6 +116,7 @@ export class RepositoryScopeWriter {
     this.fs = opts.fs;
     this.workspaceRoot = opts.workspaceRoot;
     this.commitMode = opts.commitMode;
+    this.exclusion = opts.exclusion ?? new GitInfoExclude({ fs: opts.fs, workspaceRoot: opts.workspaceRoot });
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await -- Intentionally async for interface compatibility
@@ -189,7 +198,7 @@ export class RepositoryScopeWriter {
   ): void {
     for (const p of items) {
       if (p.type.toLowerCase() === 'skill') {
-        const sourceSkillId = this.extractSkillId(p.file);
+        const sourceSkillId = this.extractDirectoryId(p.file, 'skills');
         const targetSkillId = p.id ?? sourceSkillId;
         const skillDir = path.join(this.workspaceRoot, '.github', `skills/${targetSkillId}`);
         skillDirsToRemove.push(skillDir);
@@ -203,69 +212,40 @@ export class RepositoryScopeWriter {
   }
 
   /**
-   * Install a single skill item by copying its entire directory from the bundle.
-   * @param p Skill item with file and optional id.
-   * @param p.file Skill manifest file path.
-   * @param p.id Optional target skill ID override.
+   * Install a directory-category item by copying its entire directory from
+   * the bundle into `.github/<subdirectory>/<id>/`.
+   * @param p Item with file and optional id.
+   * @param p.file Item manifest file path.
+   * @param p.id Optional target directory id override.
+   * @param subdirectory Bundle and `.github/` subdirectory of the item's kind.
    * @param files Extracted bundle files.
    * @param written Accumulates written file paths.
-   * @param skillDirs Accumulates skill directory paths.
-   * @param writtenBundlePaths
+   * @param directories Accumulates installed directory paths.
+   * @param writtenBundlePaths Accumulates bundle-relative paths written.
    */
-  private async installSkillItem(
+  private async installDirectoryItem(
     p: { file: string; id?: string },
+    subdirectory: string,
     files: ExtractedFiles,
     written: string[],
-    skillDirs: string[],
+    directories: string[],
     writtenBundlePaths: string[]
   ): Promise<void> {
-    const sourceSkillId = this.extractSkillId(p.file);
-    const sourcePrefix = `skills/${sourceSkillId}`;
-    const targetSkillId = p.id ?? sourceSkillId;
-    const skillDir = path.join(this.workspaceRoot, '.github', `skills/${targetSkillId}`);
+    const sourceId = this.extractDirectoryId(p.file, subdirectory);
+    // Match whole path segments: item `foo` must not pick up `foo-bar/` files.
+    const sourcePrefix = `${subdirectory}/${sourceId}/`;
+    const targetId = p.id ?? sourceId;
+    const directory = path.join(this.workspaceRoot, '.github', `${subdirectory}/${targetId}`);
     for (const [bundlePath, bytes] of files) {
       if (bundlePath.startsWith(sourcePrefix)) {
         const relativePath = bundlePath.slice(sourcePrefix.length);
-        const targetPath = path.join(skillDir, relativePath);
+        const targetPath = path.join(directory, relativePath);
         await this.writeBytesVerified(targetPath, bytes);
         written.push(targetPath);
         writtenBundlePaths.push(bundlePath);
       }
     }
-    skillDirs.push(skillDir);
-  }
-
-  /**
-   * Install a single plugin item by copying its entire directory from the bundle.
-   * @param p Plugin item with file and optional id.
-   * @param p.file Plugin manifest file path.
-   * @param p.id Optional target plugin ID override.
-   * @param files Extracted bundle files.
-   * @param written Accumulates written file paths.
-   * @param skillDirs Accumulates plugin directory paths (reusing skillDirs for cleanup).
-   * @param writtenBundlePaths
-   */
-  private async installPluginItem(
-    p: { file: string; id?: string },
-    files: ExtractedFiles,
-    written: string[],
-    skillDirs: string[],
-    writtenBundlePaths: string[]
-  ): Promise<void> {
-    const sourcePluginId = this.extractPluginId(p.file);
-    const sourcePrefix = `plugins/${sourcePluginId}`;
-    const targetPluginId = p.id ?? sourcePluginId;
-    const pluginDir = path.join(this.workspaceRoot, '.github', `plugins/${targetPluginId}`);
-    for (const [bundlePath, bytes] of files) {
-      if (bundlePath.startsWith(sourcePrefix)) {
-        const relativePath = bundlePath.slice(sourcePrefix.length);
-        const targetPath = path.join(pluginDir, relativePath);
-        await this.writeBytesVerified(targetPath, bytes);
-        written.push(targetPath);
-        writtenBundlePaths.push(bundlePath);
-      }
-    }
-    skillDirs.push(pluginDir);
+    directories.push(directory);
   }
 
   private async processManifestItems(
@@ -273,7 +253,7 @@ export class RepositoryScopeWriter {
     files: ExtractedFiles,
     written: string[],
     skipped: string[],
-    skillDirs: string[],
+    directories: string[],
     writtenBundlePaths: string[],
     allowedKinds: ReadonlySet<PrimitiveKind> | null
   ): Promise<void> {
@@ -283,10 +263,14 @@ export class RepositoryScopeWriter {
         skipped.push(p.file);
         continue;
       }
-      if (p.type.toLowerCase() === 'skill') {
-        await this.installSkillItem(p, files, written, skillDirs, writtenBundlePaths);
-      } else if (p.type.toLowerCase() === 'plugin') {
-        await this.installPluginItem(p, files, written, skillDirs, writtenBundlePaths);
+      const declared = p.type.toLowerCase();
+      if (isPrimitiveKind(declared) && categoryOf(declared) === 'directory') {
+        const subdirectory = this.getSubdirectory(declared);
+        if (subdirectory === null) {
+          skipped.push(p.file);
+          continue;
+        }
+        await this.installDirectoryItem(p, subdirectory, files, written, directories, writtenBundlePaths);
       } else {
         const bytes = files.get(p.file);
         if (bytes) {
@@ -303,93 +287,23 @@ export class RepositoryScopeWriter {
     }
   }
 
-  private extractSkillId(filePath: string): string {
+  /**
+   * Id of a directory item: the sanitized path segment after the first
+   * `subdirectory` segment of its file, or `unknown`.
+   * @param filePath Item manifest file path.
+   * @param subdirectory Bundle subdirectory of the item's kind.
+   */
+  private extractDirectoryId(filePath: string, subdirectory: string): string {
     const parts = filePath.split('/');
-    const skillIndex = parts.indexOf('skills');
-    if (skillIndex !== -1 && skillIndex + 1 < parts.length) {
-      return this.sanitizeId(parts[skillIndex + 1]);
-    }
-    return 'unknown';
-  }
-
-  private extractPluginId(filePath: string): string {
-    const parts = filePath.split('/');
-    const pluginIndex = parts.indexOf('plugins');
-    if (pluginIndex !== -1 && pluginIndex + 1 < parts.length) {
-      return this.sanitizeId(parts[pluginIndex + 1]);
+    const index = parts.indexOf(subdirectory);
+    if (index !== -1 && index + 1 < parts.length) {
+      return this.sanitizeId(parts[index + 1]);
     }
     return 'unknown';
   }
 
   private sanitizeId(id: string): string {
     return id.toLowerCase().replaceAll(/[^a-z0-9-]/g, '-');
-  }
-
-  private async addToGitExclude(paths: string[]): Promise<void> {
-    const excludePath = path.join(this.workspaceRoot, '.git', 'info', 'exclude');
-    try {
-      const existing = await this.fs.readFile(excludePath);
-      const lines = existing.split('\n');
-
-      // Find or create section
-      let sectionIndex = lines.indexOf(GIT_EXCLUDE_SECTION_HEADER);
-      if (sectionIndex === -1) {
-        sectionIndex = lines.length;
-        lines.push(GIT_EXCLUDE_SECTION_HEADER);
-      }
-
-      // Add paths to section
-      for (const p of paths) {
-        const relativePath = toGitIgnorePath(this.workspaceRoot, p);
-        if (!lines.includes(relativePath)) {
-          lines.splice(sectionIndex + 1, 0, relativePath);
-        }
-      }
-
-      await this.fs.writeFile(excludePath, lines.join('\n'));
-    } catch {
-      // Create .git/info directory if it doesn't exist
-      const infoDir = path.join(this.workspaceRoot, '.git', 'info');
-      await this.fs.mkdir(infoDir, { recursive: true });
-
-      const lines = [GIT_EXCLUDE_SECTION_HEADER];
-      for (const p of paths) {
-        const relativePath = toGitIgnorePath(this.workspaceRoot, p);
-        lines.push(relativePath);
-      }
-
-      await this.fs.writeFile(excludePath, lines.join('\n'));
-    }
-  }
-
-  private async removeFromGitExclude(paths: string[]): Promise<void> {
-    const excludePath = path.join(this.workspaceRoot, '.git', 'info', 'exclude');
-    try {
-      const existing = await this.fs.readFile(excludePath);
-      const lines = existing.split('\n');
-
-      const sectionIndex = lines.indexOf(GIT_EXCLUDE_SECTION_HEADER);
-      if (sectionIndex === -1) {
-        return; // No section, nothing to remove
-      }
-
-      // Remove paths from section
-      const toRemove = new Set(paths.map((p) => toGitIgnorePath(this.workspaceRoot, p)));
-      const filtered = lines.filter((l, i) => {
-        if (i <= sectionIndex) {
-          return true;
-        } // Keep header and before
-        return !toRemove.has(l);
-      });
-
-      await this.fs.writeFile(excludePath, filtered.join('\n'));
-    } catch {
-      // File doesn't exist, nothing to remove
-    }
-  }
-
-  private async updateGitExclude(paths: string[]): Promise<void> {
-    await this.addToGitExclude(paths);
   }
 
   private async cleanupEmptyDirectories(dirs: string[]): Promise<void> {
@@ -468,7 +382,11 @@ export class RepositoryScopeWriter {
         skipped.push(item.file);
         continue;
       }
-      if (kind === 'skill' || kind === 'plugin') {
+      if (categoryOf(kind) === 'directory') {
+        if (this.getSubdirectory(kind) === null) {
+          skipped.push(item.file);
+          continue;
+        }
         const prefix = `${path.posix.dirname(item.file)}/`;
         const matches = [...files.keys()].filter((file) => file.startsWith(prefix));
         if (matches.length === 0) {
@@ -497,13 +415,13 @@ export class RepositoryScopeWriter {
   public async write(files: ExtractedFiles, allowedKinds?: readonly PrimitiveKind[]): Promise<WriteResult> {
     const written: string[] = [];
     const skipped: string[] = [];
-    const skillDirs: string[] = [];
+    const directories: string[] = [];
     const writtenBundlePaths: string[] = [];
     const allowed = allowedKinds === undefined ? null : new Set(allowedKinds);
 
     const manifestBytes = files.get('deployment-manifest.yml');
     if (!manifestBytes) {
-      return { written, skipped, skillDirs, writtenBundlePaths };
+      return { written, skipped, skillDirs: directories, writtenBundlePaths };
     }
 
     const manifest = await this.parseManifest(manifestBytes);
@@ -513,17 +431,17 @@ export class RepositoryScopeWriter {
       files,
       written,
       skipped,
-      skillDirs,
+      directories,
       writtenBundlePaths,
       allowed
     );
 
     // Update git exclude for local-only mode
     if (this.commitMode === 'local-only') {
-      await this.updateGitExclude(written);
+      await this.exclusion.add(written);
     }
 
-    return { written, skipped, skillDirs, writtenBundlePaths };
+    return { written, skipped, skillDirs: directories, writtenBundlePaths };
   }
 
   /**
@@ -533,7 +451,7 @@ export class RepositoryScopeWriter {
   public async rollback(written: readonly string[]): Promise<void> {
     await this.removePaths([...written]);
     if (this.commitMode === 'local-only') {
-      await this.removeFromGitExclude([...written]);
+      await this.exclusion.remove([...written]);
     }
   }
 
@@ -570,7 +488,7 @@ export class RepositoryScopeWriter {
       : path.join(this.workspaceRoot, '.github', route[1], normalized.slice(route[0].length));
     await this.removePaths([targetPath]);
     if (this.commitMode === 'local-only') {
-      await this.removeFromGitExclude([targetPath]);
+      await this.exclusion.remove([targetPath]);
     }
   }
 
@@ -600,7 +518,7 @@ export class RepositoryScopeWriter {
       // Process legacy skills using their historic source-directory route.
       if (manifest.skills) {
         for (const skillFile of manifest.skills) {
-          const skillId = this.extractSkillId(skillFile.file);
+          const skillId = this.extractDirectoryId(skillFile.file, 'skills');
           const skillPrefix = `skills/${skillId}`;
           const skillDir = path.join(this.workspaceRoot, '.github', skillPrefix);
           skillDirsToRemove.push(skillDir);
@@ -628,7 +546,7 @@ export class RepositoryScopeWriter {
 
     // Remove from git exclude for local-only mode
     if (this.commitMode === 'local-only') {
-      await this.removeFromGitExclude([...pathsToRemove, ...skillDirsToRemove]);
+      await this.exclusion.remove([...pathsToRemove, ...skillDirsToRemove]);
     }
 
     // Clean up empty directories
@@ -641,7 +559,7 @@ export class RepositoryScopeWriter {
    * @param newMode - New commit mode.
    */
   public async switchCommitMode(paths: string[], newMode: RepositoryCommitMode): Promise<void> {
-    await (newMode === 'local-only' ? this.addToGitExclude(paths) : this.removeFromGitExclude(paths));
+    await (newMode === 'local-only' ? this.exclusion.add(paths) : this.exclusion.remove(paths));
   }
 }
 

@@ -165,6 +165,30 @@ describe('evaluateBundle', () => {
       });
       expect(evaluation.checks[0].detail!.length).toBeLessThanOrEqual(500);
     });
+
+    const NO_README = 'collections/x.collection.yml: Collection has no readme. Consider adding a readme to help users understand this collection.';
+    const ROUTE_MISMATCH = 'collections/x.collection.yml: items[0] plugins/p/skills/s/SKILL.md: kind "skill" differs from the kind '
+      + '"plugin" of the install route "plugins/" that this path matches';
+
+    it('passes without a warnings key when validate reports only other warnings', () => {
+      const evaluation = evaluateBundle({
+        bundle: skill,
+        validate: { ...ok, status: 'warning', warnings: [NO_README] },
+        build: ok,
+        archive: createPrimitiveReleaseArchive(skill, fixture)
+      });
+      expect(evaluation.checks[0]).toEqual({ invariant: 'I0', outcome: 'pass' });
+    });
+
+    it('passes and carries only the kind/route mismatch warnings from validate', () => {
+      const evaluation = evaluateBundle({
+        bundle: skill,
+        validate: { ...ok, status: 'warning', warnings: [ROUTE_MISMATCH, NO_README] },
+        build: ok,
+        archive: createPrimitiveReleaseArchive(skill, fixture)
+      });
+      expect(evaluation.checks[0]).toEqual({ invariant: 'I0', outcome: 'pass', warnings: [ROUTE_MISMATCH] });
+    });
   });
 
   describe('I3 (independent of I0)', () => {

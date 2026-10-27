@@ -4,6 +4,7 @@
  */
 export * from './zip-writer';
 export * from './repo-scope-writer';
+export * from './git-info-exclude';
 
 /**
  * Built-in target layout defaults (single source of truth — `app`'s

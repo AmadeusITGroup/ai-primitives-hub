@@ -27,6 +27,9 @@ import type {
 import type {
   HttpClient,
 } from '../../src/ports/http';
+import type {
+  RepositoryExclusion,
+} from '../../src/ports/repository-exclusion';
 
 class FixedClock implements Clock {
   public constructor(private readonly epochMs: number) {}
@@ -141,6 +144,23 @@ class StaticHttpClient implements HttpClient {
   }
 }
 
+class SetExclusion implements RepositoryExclusion {
+  public readonly excluded = new Set<string>();
+  public add(paths: readonly string[]): Promise<void> {
+    for (const p of paths) {
+      this.excluded.add(p);
+    }
+    return Promise.resolve();
+  }
+
+  public remove(paths: readonly string[]): Promise<void> {
+    for (const p of paths) {
+      this.excluded.delete(p);
+    }
+    return Promise.resolve();
+  }
+}
+
 describe('port conformance', () => {
   it('Clock: a fixed-time double implements now()/nowIso() consistently', () => {
     const clock = new FixedClock(0);
@@ -168,5 +188,12 @@ describe('port conformance', () => {
     const response = await client.fetch();
     expect(response.statusCode).toBe(200);
     expect(response.finalUrl).toBe('https://example.com/resolved');
+  });
+
+  it('RepositoryExclusion: a set-backed double adds idempotently and removes', async () => {
+    const exclusion = new SetExclusion();
+    await exclusion.add(['/repo/.github/a.md', '/repo/.github/a.md', '/repo/.github/b.md']);
+    await exclusion.remove(['/repo/.github/a.md', '/repo/.github/missing.md']);
+    expect([...exclusion.excluded]).toEqual(['/repo/.github/b.md']);
   });
 });

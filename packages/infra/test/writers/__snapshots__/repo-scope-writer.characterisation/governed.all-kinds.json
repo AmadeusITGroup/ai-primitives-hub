@@ -1,0 +1,87 @@
+{
+  "preflight": {
+    "writable": [
+      "prompts/x.prompt.md",
+      "instructions/x.instructions.md",
+      "chatmodes/x.chatmode.md",
+      "agents/x.agent.md",
+      "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh",
+      "skills/baz/SKILL.md",
+      "plugins/bar/plugin.json",
+      "plugins/bar/skills/s/SKILL.md",
+      "hooks/x.json"
+    ],
+    "skipped": [
+      "mcp-servers/x.mcp.json",
+      ".kiro/steering/x.md",
+      ".kiro/specs/feature/requirements.md",
+      "commands/x.md",
+      "rules/x.md",
+      "output-styles/x.md",
+      "tools/x.md",
+      "powers/stripe/POWER.md",
+      "knowledge/x.md",
+      "playbooks/x.md"
+    ]
+  },
+  "write": {
+    "written": [
+      "/workspace/.github/prompts/x.prompt.md",
+      "/workspace/.github/instructions/x.instructions.md",
+      "/workspace/.github/agents/x.chatmode.md",
+      "/workspace/.github/agents/x.agent.md",
+      "/workspace/.github/skills/foo/SKILL.md",
+      "/workspace/.github/skills/foo/references/ref.md",
+      "/workspace/.github/skills/foo/scripts/run.sh",
+      "/workspace/.github/skills/baz-renamed/SKILL.md",
+      "/workspace/.github/plugins/bar/plugin.json",
+      "/workspace/.github/plugins/bar/skills/s/SKILL.md",
+      "/workspace/.github/hooks/x.json"
+    ],
+    "skipped": [
+      "mcp-servers/x.mcp.json",
+      ".kiro/steering/x.md",
+      ".kiro/specs/feature/requirements.md",
+      "commands/x.md",
+      "rules/x.md",
+      "output-styles/x.md",
+      "tools/x.md",
+      "powers/stripe/POWER.md",
+      "knowledge/x.md",
+      "playbooks/x.md"
+    ],
+    "skillDirs": [
+      "/workspace/.github/skills/foo",
+      "/workspace/.github/skills/baz-renamed",
+      "/workspace/.github/plugins/bar"
+    ],
+    "writtenBundlePaths": [
+      "prompts/x.prompt.md",
+      "instructions/x.instructions.md",
+      "chatmodes/x.chatmode.md",
+      "agents/x.agent.md",
+      "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh",
+      "skills/baz/SKILL.md",
+      "plugins/bar/plugin.json",
+      "plugins/bar/skills/s/SKILL.md",
+      "hooks/x.json"
+    ]
+  },
+  "disk": {
+    "/workspace/.github/agents/x.agent.md": "# Agent\n",
+    "/workspace/.github/agents/x.chatmode.md": "# Chat mode\n",
+    "/workspace/.github/hooks/x.json": "{}\n",
+    "/workspace/.github/instructions/x.instructions.md": "# Instruction\n",
+    "/workspace/.github/plugins/bar/plugin.json": "{\"name\":\"bar\"}\n",
+    "/workspace/.github/plugins/bar/skills/s/SKILL.md": "# Plugin skill\n",
+    "/workspace/.github/prompts/x.prompt.md": "# Prompt\n",
+    "/workspace/.github/skills/baz-renamed/SKILL.md": "# Renamed skill\n",
+    "/workspace/.github/skills/foo/SKILL.md": "# Skill\n",
+    "/workspace/.github/skills/foo/references/ref.md": "# Reference\n",
+    "/workspace/.github/skills/foo/scripts/run.sh": "#!/bin/sh\n"
+  }
+}

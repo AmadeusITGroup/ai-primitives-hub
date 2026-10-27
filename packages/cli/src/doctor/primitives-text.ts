@@ -148,6 +148,7 @@ export const renderPrimitivesText = (report: PrimitiveDiagnosticsReport, options
     const annotation = gapAnnotation(bundle.checks);
     lines.push(
       `  ${GLYPHS[bundle.outcome]} ${annotation === '' ? bundle.id : `${pad(bundle.id, BUNDLE_WIDTH)}${annotation}`}`,
+      ...bundle.checks.flatMap((c) => (c.warnings ?? []).map((warning) => `${CHECK_INDENT}warning: ${warning}`)),
       ...expandChecks(bundle.checks, options.verbose, '')
     );
   }
