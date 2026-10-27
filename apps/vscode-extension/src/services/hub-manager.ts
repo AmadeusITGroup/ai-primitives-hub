@@ -606,13 +606,14 @@ export class HubManager {
   }
 
   /**
-   * Delete imported hubs sequentially so replacement selections stay consistent.
-   * Individual failures are logged without preventing remaining deletions.
+   * Delete imported hubs sequentially after clearing the active selection.
+   * Clearing first prevents promoting a replacement whose background source
+   * sync would race its own deletion. Individual failures are logged without
+   * preventing remaining deletions.
    */
   public async deleteAllHubs(): Promise<void> {
     const hubIds = await this.storage.listHubs();
-    // Serialize deletion so a promoted hub is observed as active by its own
-    // deletion, rather than leaving a stale selection from parallel snapshots.
+    await this.setActiveHub(null);
     for (const hubId of hubIds) {
       try {
         await this.deleteHub(hubId);

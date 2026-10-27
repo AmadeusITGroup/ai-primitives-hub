@@ -244,7 +244,7 @@ suite('Hub Cleanup', () => {
       assert.deepStrictEqual(deleted, ['hub-one']);
     });
 
-    test('deleteAllHubs should not leave a promoted hub active after it is deleted', async () => {
+    test('deleteAllHubs should clear the active hub without promoting a hub that is about to be deleted', async () => {
       const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
       const ref: HubReference = { type: 'local', location: fixturePath };
       await hubManager.importHubConfig(ref, 'hub-one');
@@ -252,31 +252,17 @@ suite('Hub Cleanup', () => {
       await hubManager.setActiveHub('hub-one', { loadSources: false });
       const deleted: string[] = [];
       const activeChanges: { oldHubId: string | null; newHubId: string | null }[] = [];
-      const promoted = new Promise<void>((resolve) => {
-        hubManager.onActiveHubChanged((change) => {
-          activeChanges.push(change);
-          if (change.newHubId === 'hub-two') {
-            resolve();
-          }
-        });
-      });
+      hubManager.onActiveHubChanged((change) => activeChanges.push(change));
       hubManager.onHubDeleted((id) => deleted.push(id));
-      // Model a slow second deletion that completes only after hub-one's
-      // replacement has been selected. Parallel deletes used stale snapshots.
-      const deleteHub = storage.deleteHub.bind(storage);
-      sinon.stub(storage, 'deleteHub').callsFake(async (id) => {
-        if (id === 'hub-two') {
-          await promoted;
-        }
-        await deleteHub(id);
-      });
 
       await hubManager.deleteAllHubs();
 
       assert.deepStrictEqual(await storage.listHubs(), []);
       assert.strictEqual(await hubManager.getActiveHubId(), null);
       assert.deepStrictEqual(new Set(deleted), new Set(['hub-one', 'hub-two']));
-      assert.deepStrictEqual(activeChanges.at(-1), { oldHubId: 'hub-two', newHubId: null });
+      // Promoting a replacement would start background source sync that races
+      // the next deletion; the selection must go straight to null.
+      assert.deepStrictEqual(activeChanges, [{ oldHubId: 'hub-one', newHubId: null }]);
     });
 
     test('should remove sources linked to deleted hub', async () => {
