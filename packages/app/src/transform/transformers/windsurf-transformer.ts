@@ -23,6 +23,11 @@
  *   existing `title`/`description` field or the filename, same
  *   derivation as `KiroTransformer`'s `name`.
  *
+ * Devin CLI and Devin Desktop read the same rule format from
+ * `.devin/rules/*.md`, so the `devin` and `devin-cli` targets reuse
+ * this transformer unchanged.
+ * @see https://docs.devin.ai/cli/extensibility/rules
+ *
  * Idempotent: if `trigger` is already present, the content is
  * unchanged — an explicit existing trigger is never second-guessed.
  * Fail-safe: on parsing errors, returns the original content.

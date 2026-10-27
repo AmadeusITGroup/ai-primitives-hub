@@ -89,6 +89,28 @@ describe('expectedDestination', () => {
     expect(labels('kiro', 'repository', 'spec')).toEqual(['<workspace>/.kiro/specs/feature/requirements.md']);
   });
 
+  it('places devin user skills and agents under ~/.config/devin, where Devin reads them', () => {
+    for (const target of ['devin', 'devin-cli'] as const) {
+      expect(labels(target, 'user', 'skill').every((label) => label.startsWith('$HOME/.config/devin/skills/standalone-skill/'))).toBe(true);
+      expect(labels(target, 'user', 'agent').every((label) => label.startsWith('$HOME/.config/devin/agents/'))).toBe(true);
+      expect(labels(target, 'repository', 'skill').every((label) => label.startsWith('<workspace>/.devin/skills/standalone-skill/'))).toBe(true);
+    }
+  });
+
+  it('places devin instructions as rules at both scopes', () => {
+    for (const target of ['devin', 'devin-cli'] as const) {
+      expect(labels(target, 'user', 'instruction').every((label) => label.startsWith('$HOME/.devin/rules/'))).toBe(true);
+      expect(labels(target, 'repository', 'instruction').every((label) => label.startsWith('<workspace>/.devin/rules/'))).toBe(true);
+    }
+  });
+
+  it('places devin prompts as rules at both scopes', () => {
+    for (const target of ['devin', 'devin-cli'] as const) {
+      expect(labels(target, 'user', 'prompt').every((label) => label.startsWith('$HOME/.devin/rules/'))).toBe(true);
+      expect(labels(target, 'repository', 'prompt').every((label) => label.startsWith('<workspace>/.devin/rules/'))).toBe(true);
+    }
+  });
+
   it('places a power on devin', () => {
     const item = itemOf('power');
     expect(expectedDestination('devin', 'user', item, 'powers/stripe/POWER.md'))

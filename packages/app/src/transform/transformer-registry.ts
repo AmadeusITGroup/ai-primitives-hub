@@ -78,6 +78,9 @@ export class TransformerRegistry {
     registry.register('kiro', new KiroTransformer());
     registry.register('windsurf', new WindsurfTransformer());
     registry.register('claude-code', new ClaudeCodeTransformer());
+    // Devin CLI and Devin Desktop (Devin Local) read `.devin/rules/*.md` in the Windsurf rule format.
+    registry.register('devin', new WindsurfTransformer());
+    registry.register('devin-cli', new WindsurfTransformer());
     return registry;
   }
 }
