@@ -823,8 +823,7 @@ export class HubCommands {
       });
 
       if (activeNonDefaultHub) {
-        items.push({ label: 'Active custom hub', kind: vscode.QuickPickItemKind.Separator, hubId: '' });
-        items.push({
+        items.push({ label: 'Active custom hub', kind: vscode.QuickPickItemKind.Separator, hubId: '' }, {
           label: activeNonDefaultHub.name,
           description: 'Active',
           detail: `ID: ${activeNonDefaultHub.id}`,
@@ -833,8 +832,7 @@ export class HubCommands {
         });
       }
 
-      items.push({ label: 'Import options', kind: vscode.QuickPickItemKind.Separator, hubId: '' });
-      items.push({
+      items.push({ label: 'Import options', kind: vscode.QuickPickItemKind.Separator, hubId: '' }, {
         label: '$(cloud-download) Import New Hub...',
         description: 'Import a hub from GitHub, URL, or local path',
         hubId: '',
