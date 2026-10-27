@@ -1070,6 +1070,123 @@ describe('loadHubSourcesProgressively', () => {
     ports = makePorts();
   });
 
+  it('reports fixed, monotonic work progress until queued syncs settle', async () => {
+    const progress: { completed: number; total: number; percentage: number }[] = [];
+    const releases: (() => void)[] = [];
+    const sources = ['one', 'two'].map((name) => makeHubSource({ id: name, url: `https://github.com/org/${name}` }));
+    const result = loadHubSourcesProgressively('hub-a', sources, ports, undefined, {
+      concurrency: 2,
+      syncConcurrency: 1,
+      onProgress: (value) => progress.push(value),
+      syncSource: () => new Promise<void>((resolve) => releases.push(resolve))
+    });
+
+    expect(progress).toEqual([{ completed: 0, total: 4, percentage: 0 }]);
+    await result.onRegistered();
+    expect(progress.at(-1)).toEqual({ completed: 2, total: 4, percentage: 50 });
+    releases[0]();
+    await result.onFirstSettled();
+    expect(progress.at(-1)).toEqual({ completed: 3, total: 4, percentage: 75 });
+    releases[1]();
+    await result.onComplete();
+    expect(progress.at(-1)).toEqual({ completed: 4, total: 4, percentage: 100 });
+    expect(progress.every((value, index) => value.total === 4
+      && value.percentage >= (progress[index - 1]?.percentage ?? 0)
+      && value.percentage <= 100)).toBe(true);
+  });
+
+  it('settles disabled, duplicate, updated and failed declarations and failed syncs', async () => {
+    const updated = makeHubSource({ url: 'https://github.com/org/updated' });
+    const failed = makeHubSource({ url: 'https://github.com/org/failed' });
+    ports = makePorts([
+      makeRegistrySource(),
+      makeRegistrySource({ ...updated, id: generateSourceId(updated.type, updated.url, updated.config) })
+    ]);
+    ports.addSource.mockImplementation((source: RegistrySource) => {
+      if (source.url === failed.url) {
+        return Promise.reject(new Error('registration failed'));
+      }
+      ports.sources.push(source);
+      return Promise.resolve();
+    });
+    const percentages: number[] = [];
+    const result = loadHubSourcesProgressively('hub-a', [
+      makeHubSource({ enabled: false }), makeHubSource(), updated, failed,
+      makeHubSource({ url: 'https://github.com/org/new' })
+    ], ports, undefined, {
+      onProgress: ({ percentage }) => percentages.push(percentage),
+      syncSource: () => Promise.reject(new Error('sync failed'))
+    });
+    await result.onComplete();
+    expect(percentages[0]).toBe(0);
+    expect(percentages.at(-1)).toBe(100);
+    expect(percentages.some((value) => value > 0 && value < 100)).toBe(true);
+    expect(percentages.every((value, index) => value >= (percentages[index - 1] ?? 0) && value <= 100)).toBe(true);
+  });
+
+  it('isolates throwing progress and settlement observers, including empty hubs', async () => {
+    const onProgress = vi.fn(() => {
+      throw new Error('observer failed');
+    });
+    const onSourceSettled = vi.fn(() => {
+      throw new Error('observer failed');
+    });
+    await expect(loadHubSources('hub-a', [makeHubSource()], ports, undefined, {
+      onProgress, onSourceSettled
+    })).resolves.toMatchObject({ added: 1 });
+    expect(onSourceSettled).toHaveBeenCalled();
+    const emptyProgress: number[] = [];
+    await loadHubSourcesProgressively('empty', [], makePorts(), undefined, {
+      onProgress: ({ percentage }) => emptyProgress.push(percentage),
+      syncSource: async () => {}
+    }).onComplete();
+    expect(emptyProgress).toEqual([0, 100]);
+    await expect(loadHubSourcesProgressively('hub-a', [makeHubSource()], makePorts(), undefined, {
+      onProgress, onSourceSettled, syncSource: async () => {}
+    }).onComplete()).resolves.toBeUndefined();
+  });
+
+  it('reports registration-only progress and initial zero even if listing fails', async () => {
+    const percentages: number[] = [];
+    await loadHubSources('hub-a', [makeHubSource(), makeHubSource({ enabled: false })], ports, undefined, {
+      onProgress: ({ percentage }) => percentages.push(percentage)
+    });
+    expect(percentages).toEqual([0, 50, 100]);
+    ports.listSources.mockRejectedValue(new Error('listing failed'));
+    const failedProgress: number[] = [];
+    await expect(loadHubSources('hub-a', [makeHubSource()], ports, undefined, {
+      onProgress: ({ percentage }) => failedProgress.push(percentage)
+    })).rejects.toThrow('listing failed');
+    expect(failedProgress).toEqual([0]);
+  });
+
+  it('keeps waiting for queued syncs when registration cleanup fails', async () => {
+    let release!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    ports = makePorts([makeRegistrySource({ hubId: 'hub-a', url: 'https://github.com/org/orphan' })]);
+    ports.listInstalledBundles.mockRejectedValue(new Error('cleanup failed'));
+    const percentages: number[] = [];
+    const result = loadHubSourcesProgressively('hub-a', [makeHubSource()], ports, undefined, {
+      onProgress: ({ percentage }) => percentages.push(percentage),
+      syncSource: () => blocker
+    });
+    await expect(result.onRegistered()).rejects.toThrow('cleanup failed');
+    let finished = false;
+    const completion = result.onComplete().catch((error: unknown) => {
+      finished = true;
+      expect(error).toBeInstanceOf(Error);
+    });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    expect(percentages.at(-1)).toBe(50);
+    release();
+    await completion;
+    expect(finished).toBe(true);
+    expect(percentages.at(-1)).toBe(100);
+  });
+
   it('enqueues each newly added source for syncSource', async () => {
     const synced: string[] = [];
     const { onComplete } = loadHubSourcesProgressively(

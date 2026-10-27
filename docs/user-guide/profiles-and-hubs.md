@@ -54,6 +54,15 @@ The active hub is automatically synchronized to keep it up-to-date:
 
 After every hub sync (startup, periodic, or manual), all sources are automatically re-synced and the tree view refreshes with the latest bundles.
 
+While a hub's sources are loading, its Registry Explorer row shows a percentage
+after the hub name, leaving the hub icon unchanged. The `[Active]` marker appears
+as soon as the hub is activated and stays visible beside the percentage during
+loading (for example, `[Active] 25%`). Progress reflects completed source work, not elapsed
+time or downloaded bytes; it may pause while a source is still syncing.
+Skipped or failed sources count as settled work, so 100% means loading has
+finished, not that every source succeeded. The normal row presentation returns
+when loading finishes or fails; check the output log for source errors.
+
 Hub sync refreshes the Hub configuration and source catalog. It can reveal
 added, removed, or version-changed references in an active profile, but it does
 not automatically install, remove, or update collections that are already on

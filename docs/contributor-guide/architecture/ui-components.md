@@ -128,6 +128,11 @@ graph TD
 - **🔄**: Auto-update enabled
 - Version display shows current version or "current → latest" when updates available
 
+#### Hub Source Loading Progress
+- `LoadHubSourcesOptions.onProgress` reports bounded, monotonic source-work percentages. Registration-only loads use one unit per declaration; progressive loads reserve two fixed units per declaration (registration and sync). Skips, updates and registration failures settle the unused sync unit; sync failures also settle their work. Empty hubs report 0% then 100%. Observer exceptions are isolated from loading.
+- `HubManager.getHubLoadingProgress()` and `onHubLoadingProgressChanged` expose transient per-hub state for import, activation and source reloads. Run tokens reject stale updates/cleanup from overlapping runs; completion/failure clears state even when callers do not await the final milestone.
+- `RegistryTreeProvider` coalesces progress refreshes with its existing leading/trailing throttle. Hub rows show whole-number percentage text in the description after the label, leaving the hub icon unchanged. `[Active]` remains visible throughout loading for the selected hub (for example, `[Active] 25%`); the active context value remains unchanged for menu actions. Recreated rows remove the percentage once progress is absent.
+
 #### Profile Organization
 - **Hub Profiles**: Organized by hub with folder structure support
 - **Local Profiles**: User-created profiles stored locally

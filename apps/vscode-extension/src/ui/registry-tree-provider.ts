@@ -326,6 +326,11 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
       hubManager.onHubSynced(() => this.refresh()),
       hubManager.onFavoritesChanged(() => this.refresh())
     );
+    // Older embedders/test doubles may not expose progress yet.
+    const progressSubscription = hubManager.onHubLoadingProgressChanged?.(() => this.sourceSyncThrottle.trigger());
+    if (progressSubscription) {
+      this.disposables.push(progressSubscription);
+    }
   }
 
   /**
@@ -484,8 +489,18 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
         item.description = '[Active]';
         item.contextValue = 'hub_active';
       }
+      this.applyHubLoadingProgress(item, hub.id);
       return item;
     });
+  }
+
+  private applyHubLoadingProgress(item: RegistryTreeItem, hubId: string): void {
+    const progress = this.hubManager.getHubLoadingProgress?.(hubId);
+    if (!progress) {
+      return;
+    }
+    const percentage = Math.max(0, Math.min(100, Math.floor(progress.percentage)));
+    item.description = [item.description, `${percentage}%`].filter(Boolean).join(' ');
   }
 
   /**
@@ -526,6 +541,7 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
           vscode.TreeItemCollapsibleState.Expanded // Expand by default to show favorites
         );
 
+        this.applyHubLoadingProgress(hubItem, hubId);
         items.push(hubItem);
 
         // Mark these profiles as added so we don't duplicate them if logic changes

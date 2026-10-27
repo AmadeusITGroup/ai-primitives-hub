@@ -37,7 +37,48 @@ suite('RegistryTreeProvider - Hub Profiles', () => {
   });
 
   teardown(() => {
+    provider.dispose();
     sandbox.restore();
+  });
+
+  test('hub rows retain Active while loading and show only percentage progress', async () => {
+    hubManagerStub.listHubs.resolves([
+      { id: 'active', name: 'Active Hub', description: '', reference: { type: 'local', location: '/hub' } },
+      { id: 'other', name: 'Other Hub', description: '', reference: { type: 'local', location: '/other' } }
+    ]);
+    hubManagerStub.getActiveHubId.resolves('active');
+    const root = (await provider.getChildren()).find((item) => item.type === TreeItemType.HUBS_ROOT)!;
+    for (const percentage of [0, 24, 25, 50, 75, 99, 100]) {
+      hubManagerStub.getHubLoadingProgress.withArgs('active').returns({ completed: percentage, total: 100, percentage });
+      hubManagerStub.getHubLoadingProgress.withArgs('other').returns({ completed: percentage, total: 100, percentage });
+      const rows = await provider.getChildren(root);
+      assert.strictEqual(rows[0].description, `[Active] ${percentage}%`);
+      assert.strictEqual(rows[1].description, `${percentage}%`);
+      assert.strictEqual(rows[0].contextValue, 'hub_active');
+      assert.strictEqual(rows[0].label, 'Active Hub');
+      assert.strictEqual(rows[0].iconPath, undefined, 'progress must not replace the left-hand hub icon');
+    }
+    hubManagerStub.getHubLoadingProgress.resetBehavior();
+    const completedRows = await provider.getChildren(root);
+    assert.strictEqual(completedRows[0].description, '[Active]');
+    assert.strictEqual(completedRows[1].description, undefined);
+    assert.strictEqual(completedRows[0].iconPath, undefined);
+  });
+
+  test('subscribes to optional progress events and disposes the subscription', () => {
+    provider.dispose();
+    let progressChanged!: (hubId: string) => void;
+    const dispose = sandbox.spy();
+    Object.assign(hubManagerStub, { onHubLoadingProgressChanged: (listener: (hubId: string) => void) => {
+      progressChanged = listener;
+      return { dispose };
+    } });
+    provider = new RegistryTreeProvider(registryManagerStub, hubManagerStub);
+    const fire = sandbox.spy(vscode.EventEmitter.prototype, 'fire');
+    progressChanged('active');
+    assert.ok(fire.calledOnce, 'a progress event refreshes the tree');
+    provider.dispose();
+    assert.ok(dispose.calledOnce);
   });
 
   test('getFavoritesItems should return items with correct contextValue for menu actions', async () => {
