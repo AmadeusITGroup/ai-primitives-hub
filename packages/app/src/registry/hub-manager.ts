@@ -30,7 +30,9 @@ import type {
 import {
   DEFAULT_LOCAL_HUB_ID,
   isLoopbackHostname,
+  normalizeGitHubHubLocation,
   sanitizeHubId,
+  validateHubReference,
 } from '@ai-primitives-hub/core';
 import type {
   ActiveHubStore,
@@ -120,8 +122,12 @@ export class HubManager {
 
     switch (reference.type) {
       case 'github': {
-        if (!reference.location.includes('/')) {
-          errors.push('Invalid GitHub location format. Expected: owner/repo');
+        if (reference.location) {
+          try {
+            validateHubReference(reference);
+          } catch {
+            errors.push('Invalid GitHub location format. Expected: owner/repo');
+          }
         }
         break;
       }
@@ -179,12 +185,19 @@ export class HubManager {
    * @returns The persisted hub id.
    */
   public async importHub(reference: HubReference, hubId?: string): Promise<string> {
-    const refValidation = await this.validateReference(reference);
+    const normalizedReference: HubReference = reference.type === 'github' && reference.location
+      ? {
+        ...reference,
+        ...normalizeGitHubHubLocation(reference.location, reference.ref)
+      }
+      : reference;
+
+    const refValidation = await this.validateReference(normalizedReference);
     if (!refValidation.valid) {
       throw new Error(`Invalid reference: ${refValidation.errors.join(', ')}`);
     }
 
-    const resolved = await this.deps.resolver.resolve(reference);
+    const resolved = await this.deps.resolver.resolve(normalizedReference);
 
     const validation = await this.deps.validateConfig(resolved.config);
     if (!validation.valid) {

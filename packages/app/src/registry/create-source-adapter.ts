@@ -20,19 +20,20 @@
  * four hand-rolled auth chains today (explicit token checked first).
  * @module registry/create-source-adapter
  */
-import type {
-  AzureDevOpsApi,
-  Clock,
-  FileSystem,
-  GitHubApi,
-  GitHubRepositoryTarget,
-  GitHubSourceAuthCategory,
-  HttpClient,
-  HttpCredentialProvider,
-  ProcessRunner,
-  RegistrySource,
-  SourceAdapter,
-  TokenProvider,
+import {
+  type AzureDevOpsApi,
+  type Clock,
+  type FileSystem,
+  type GitHubApi,
+  type GitHubRepositoryTarget,
+  type GitHubSourceAuthCategory,
+  type HttpClient,
+  type HttpCredentialProvider,
+  parseGitHubOwnerRepo,
+  type ProcessRunner,
+  type RegistrySource,
+  type SourceAdapter,
+  type TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
   AnonymousCredentialProvider,
@@ -101,15 +102,48 @@ function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFac
   return new CompositeTokenProvider(providers);
 }
 
+function resolveSourceRepositoryTarget(source: RegistrySource): GitHubRepositoryTarget {
+  try {
+    return parseGitHubRepositoryTarget(source.url);
+  } catch (error) {
+    if (source.type === 'skills' || source.type === 'apm') {
+      let url: URL | undefined;
+      try {
+        url = new URL(source.url);
+      } catch {
+        url = undefined;
+      }
+      const safeUrl = url !== undefined
+        && url.protocol === 'https:'
+        && url.port === ''
+        && url.username === ''
+        && url.password === ''
+        && url.search === ''
+        && url.hash === ''
+        && !source.url.includes('?')
+        && !source.url.includes('#');
+      const parsed = safeUrl ? parseGitHubOwnerRepo(source.url) : null;
+      if (parsed) {
+        return {
+          host: parsed.host,
+          owner: parsed.owner,
+          repository: parsed.repo
+        };
+      }
+    }
+    throw error;
+  }
+}
+
 function buildGitHubApi(
   source: RegistrySource,
   tokenProvider: TokenProvider,
   deps: SourceAdapterFactoryDeps,
   authentication?: SourceAuthenticationContext
 ): GitHubApi {
-  const repositoryTarget = authentication?.target ?? parseGitHubRepositoryTarget(source.url);
+  const repositoryTarget = authentication?.target ?? resolveSourceRepositoryTarget(source);
   if (authentication !== undefined) {
-    const configuredTarget = parseGitHubRepositoryTarget(source.url);
+    const configuredTarget = resolveSourceRepositoryTarget(source);
     if (configuredTarget.host !== repositoryTarget.host
       || configuredTarget.owner !== repositoryTarget.owner
       || configuredTarget.repository !== repositoryTarget.repository) {

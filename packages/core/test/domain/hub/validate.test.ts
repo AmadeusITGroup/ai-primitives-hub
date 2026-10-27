@@ -4,11 +4,20 @@ import {
   it,
 } from 'vitest';
 import {
+  deriveExpectedBundlePrefix,
+  formatHubBundleId,
   githubBundlePrefix,
   hasPathTraversal,
+  isContributableHub,
+  isValidGitHubOwner,
+  isValidGitHubRepo,
   isValidProtocol,
+  normalizeGitHubHubLocation,
+  parseGitHubOwnerRepo,
   sanitizeHubId,
+  skillsBundlePrefix,
   validateHubReference,
+  validateHubSourcePolicies,
 } from '../../../src/domain/hub/validate';
 
 describe('hasPathTraversal', () => {
@@ -60,8 +69,9 @@ describe('isValidProtocol', () => {
 });
 
 describe('sanitizeHubId', () => {
-  it('accepts a valid hub id', () => {
+  it('accepts a valid hub id (including dots from repo names)', () => {
     expect(() => sanitizeHubId('my-hub_123')).not.toThrow();
+    expect(() => sanitizeHubId('genai.prompt-registry-config')).not.toThrow();
   });
 
   it('rejects an empty id', () => {
@@ -83,10 +93,46 @@ describe('sanitizeHubId', () => {
   });
 });
 
+describe('parseGitHubOwnerRepo & normalizeGitHubHubLocation (single source of truth)', () => {
+  it('parses owner/repo slugs and URLs with dots in repository names', () => {
+    expect(isValidGitHubOwner('Amadeus-xDLC')).toBe(true);
+    expect(isValidGitHubRepo('genai.prompt-registry-config')).toBe(true);
+    expect(isValidGitHubRepo('.')).toBe(false);
+    expect(isValidGitHubRepo('..')).toBe(false);
+
+    expect(parseGitHubOwnerRepo('Amadeus-xDLC/genai.prompt-registry-config')).toEqual({
+      host: 'github.com',
+      owner: 'Amadeus-xDLC',
+      repo: 'genai.prompt-registry-config',
+      subPathSegments: []
+    });
+
+    expect(parseGitHubOwnerRepo('https://github.com/Amadeus-xDLC/genai.prompt-registry-config.git')).toEqual({
+      host: 'github.com',
+      owner: 'Amadeus-xDLC',
+      repo: 'genai.prompt-registry-config',
+      subPathSegments: []
+    });
+
+    expect(parseGitHubOwnerRepo('git@github.com:Amadeus-xDLC/genai.prompt-registry-config.git')).toEqual({
+      host: 'github.com',
+      owner: 'Amadeus-xDLC',
+      repo: 'genai.prompt-registry-config',
+      subPathSegments: []
+    });
+
+    expect(normalizeGitHubHubLocation('https://github.com/Amadeus-xDLC/genai.prompt-registry-config/blob/main/hub-config.yml')).toEqual({
+      location: 'Amadeus-xDLC/genai.prompt-registry-config',
+      ref: 'main'
+    });
+  });
+});
+
 describe('validateHubReference', () => {
-  it('accepts a valid github reference (including dots in repository name)', () => {
+  it('accepts a valid github reference (including dots in repository name and full GitHub URLs)', () => {
     expect(() => validateHubReference({ type: 'github', location: 'owner/repo' })).not.toThrow();
     expect(() => validateHubReference({ type: 'github', location: 'Amadeus-xDLC/genai.prompt-registry-config' })).not.toThrow();
+    expect(() => validateHubReference({ type: 'github', location: 'https://github.com/Amadeus-xDLC/genai.prompt-registry-config' })).not.toThrow();
   });
 
   it('rejects a malformed github reference', () => {
@@ -134,5 +180,141 @@ describe('validateHubReference', () => {
 
   it('rejects an empty location', () => {
     expect(() => validateHubReference({ type: 'local', location: '' })).toThrow('cannot be empty');
+  });
+});
+
+describe('isContributableHub', () => {
+  it('qualifies a github hub reference for contribution', () => {
+    expect(isContributableHub({
+      type: 'github',
+      location: 'AmadeusITGroup/prompt-registry-config',
+      ref: 'main'
+    })).toEqual({
+      contributable: true,
+      repositorySlug: 'AmadeusITGroup/prompt-registry-config'
+    });
+  });
+
+  it('rejects Artifactory hubs as read-only replicas populated by promotion', () => {
+    const result = isContributableHub({
+      type: 'artifactory',
+      location: 'https://artifactory.example.com/artifactory/hub'
+    });
+    expect(result.contributable).toBe(false);
+    expect(result.reason).toContain('Artifactory');
+    expect(result.reason).toContain('read-only');
+  });
+
+  it('qualifies a GitHub URL hub reference and extracts owner/repo', () => {
+    expect(isContributableHub({
+      type: 'url',
+      location: 'https://raw.githubusercontent.com/AmadeusITGroup/prompt-registry-config/main/hub-config.yml'
+    })).toEqual({
+      contributable: true,
+      repositorySlug: 'AmadeusITGroup/prompt-registry-config'
+    });
+
+    expect(isContributableHub({
+      type: 'url',
+      location: 'https://github.com/AmadeusITGroup/prompt-registry-config/blob/main/hub-config.yml'
+    })).toEqual({
+      contributable: true,
+      repositorySlug: 'AmadeusITGroup/prompt-registry-config'
+    });
+  });
+
+  it('rejects non-GitHub URL and unlinked local hub references', () => {
+    expect(isContributableHub({
+      type: 'url',
+      location: 'https://example.com/hub-config.yml'
+    }).contributable).toBe(false);
+
+    expect(isContributableHub({
+      type: 'local',
+      location: '/tmp/hub-config.yml'
+    }).contributable).toBe(false);
+  });
+
+  it('qualifies a local hub reference when a GitHub remote slug is resolved', () => {
+    expect(isContributableHub(
+      { type: 'local', location: '/workspace/prompt-registry-config/hub-config.yml' },
+      'AmadeusITGroup/prompt-registry-config'
+    )).toEqual({
+      contributable: true,
+      repositorySlug: 'AmadeusITGroup/prompt-registry-config'
+    });
+  });
+});
+
+describe('skillsBundlePrefix & formatHubBundleId', () => {
+  it('derives skills-<org>-<repo>- from a skills repository URL', () => {
+    expect(skillsBundlePrefix('https://github.com/github/awesome-copilot/skills'))
+      .toBe('skills-github-awesome-copilot-');
+    expect(skillsBundlePrefix('https://github.com/anthropics/skills/skills'))
+      .toBe('skills-anthropics-skills-');
+    expect(skillsBundlePrefix('https://example.com/not-github/skills'))
+      .toBeNull();
+  });
+
+  it('derives expected prefix and formats bundle IDs idempotently across source types', () => {
+    const githubSource = {
+      type: 'github',
+      url: 'https://github.com/AmadeusITGroup/community-collections'
+    };
+    const skillsSource = {
+      type: 'skills',
+      url: 'https://github.com/github/awesome-copilot/skills'
+    };
+    const awesomeSource = {
+      type: 'awesome-copilot',
+      url: 'https://github.com/github/awesome-copilot'
+    };
+
+    expect(deriveExpectedBundlePrefix(githubSource)).toBe('AmadeusITGroup-community-collections-');
+    expect(formatHubBundleId(githubSource, 'amadeus-ospo'))
+      .toBe('AmadeusITGroup-community-collections-amadeus-ospo');
+    expect(formatHubBundleId(githubSource, 'AmadeusITGroup-community-collections-amadeus-ospo'))
+      .toBe('AmadeusITGroup-community-collections-amadeus-ospo');
+
+    expect(deriveExpectedBundlePrefix(skillsSource)).toBe('skills-github-awesome-copilot-');
+    expect(formatHubBundleId(skillsSource, 'webapp-testing'))
+      .toBe('skills-github-awesome-copilot-webapp-testing');
+    expect(formatHubBundleId(skillsSource, 'skills-github-awesome-copilot-webapp-testing'))
+      .toBe('skills-github-awesome-copilot-webapp-testing');
+
+    expect(deriveExpectedBundlePrefix(awesomeSource)).toBeNull();
+    expect(formatHubBundleId(awesomeSource, 'commit-message')).toBe('commit-message');
+  });
+
+  it('enforces skills source bundle prefix in validateHubSourcePolicies', () => {
+    const violations = validateHubSourcePolicies({
+      sources: [
+        {
+          id: 'awesome-skills',
+          type: 'skills',
+          url: 'https://github.com/github/awesome-copilot/skills',
+          enabled: true,
+          priority: 10
+        }
+      ],
+      profiles: [
+        {
+          id: 'frontend-developer',
+          name: 'Frontend Developer',
+          bundles: [
+            {
+              id: 'webapp-testing',
+              version: 'latest',
+              source: 'awesome-skills',
+              required: true
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(violations).toContain(
+      "Profile 'frontend-developer' bundle #1 must reference skills source 'awesome-skills' with an ID starting 'skills-github-awesome-copilot-'."
+    );
   });
 });

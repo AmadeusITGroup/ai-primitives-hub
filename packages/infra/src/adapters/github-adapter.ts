@@ -28,6 +28,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   generateGitHubReleaseBundleId,
+  parseGitHubOwnerRepo,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import {
@@ -137,6 +138,7 @@ function extractListField(body: string, fieldPattern: RegExp): string[] {
 
 const ENVIRONMENTS_PATTERN = /(?:environments?|platforms?):\s*([^\n]+)/i;
 const TAGS_PATTERN = /(?:tags?):\s*([^\n]+)/i;
+const VALIDATION_CACHE_TTL_MS = 60_000;
 
 /**
  * Unlike tags, environments fall back to `['vscode']` when the release body declares none.
@@ -155,6 +157,7 @@ export class GitHubAdapter extends BaseSourceAdapter {
   public readonly type = 'github';
 
   private readonly manifestCache = new Map<string, DeploymentManifest>();
+  private cachedReleases: { releases: GitHubRelease[]; fetchedAt: number } | undefined;
 
   public constructor(
     source: RegistrySource,
@@ -177,12 +180,11 @@ export class GitHubAdapter extends BaseSourceAdapter {
   }
 
   private parseGitHubUrl(): { owner: string; repo: string } {
-    const url = this.source.url.replace(/\.git$/, '');
-    const match = /github\.com[/:]([^/]+)\/([^/]+)/.exec(url);
-    if (!match) {
+    const parsed = parseGitHubOwnerRepo(this.source.url);
+    if (!parsed) {
       throw new Error(`Invalid GitHub URL format: ${this.source.url}`);
     }
-    return { owner: match[1], repo: match[2] };
+    return { owner: parsed.owner, repo: parsed.repo };
   }
 
   private async fetchManifestWithCache(asset: GitHubReleaseAsset): Promise<DeploymentManifest | undefined> {
@@ -253,12 +255,22 @@ export class GitHubAdapter extends BaseSourceAdapter {
     return bundle;
   }
 
+  private consumeCachedReleases(): GitHubRelease[] | undefined {
+    if (!this.cachedReleases) {
+      return undefined;
+    }
+    const { releases, fetchedAt } = this.cachedReleases;
+    this.cachedReleases = undefined;
+    return Date.now() - fetchedAt <= VALIDATION_CACHE_TTL_MS ? releases : undefined;
+  }
+
   public async fetchBundles(): Promise<Bundle[]> {
     const { owner, repo } = this.parseGitHubUrl();
 
     let releases: GitHubRelease[];
     try {
-      releases = await this.githubApi.getJson<GitHubRelease[]>(`/repos/${owner}/${repo}/releases`);
+      const cached = this.consumeCachedReleases();
+      releases = cached ?? await this.githubApi.getJson<GitHubRelease[]>(`/repos/${owner}/${repo}/releases`);
     } catch (error) {
       throw new Error(`Failed to fetch bundles from GitHub: ${error instanceof Error ? error.message : error}`);
     }
@@ -279,6 +291,57 @@ export class GitHubAdapter extends BaseSourceAdapter {
       }
     }
     return bundles;
+  }
+
+  /**
+   * Fast catalog discovery for hub validation: derives `{ id, version }` directly
+   * from `<collectionId>-v<semver>` release tags without downloading individual
+   * `deployment-manifest.yml` assets, falling back to `processRelease` only for
+   * generic release tags (e.g. `v1.0.0`).
+   */
+  public async fetchCatalog(): Promise<{ id: string; version: string }[]> {
+    const { owner, repo } = this.parseGitHubUrl();
+
+    let releases: GitHubRelease[];
+    try {
+      const cached = this.consumeCachedReleases();
+      releases = cached ?? await this.githubApi.getJson<GitHubRelease[]>(`/repos/${owner}/${repo}/releases`);
+    } catch (error) {
+      throw new Error(`Failed to fetch bundles from GitHub: ${error instanceof Error ? error.message : error}`);
+    }
+
+    const validReleases = releases.filter(
+      (release) => release.assets.some((asset) => isManifestAssetName(asset.name))
+        && release.assets.some((asset) => isBundleAssetName(asset.name))
+    );
+
+    const catalog: { id: string; version: string }[] = [];
+    const needsManifest: GitHubRelease[] = [];
+
+    for (const release of validReleases) {
+      const tagMatch = /^([a-zA-Z0-9._-]+)-v(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._-]+)?)$/.exec(release.tag_name);
+      if (tagMatch) {
+        const [, collectionId, version] = tagMatch;
+        catalog.push({
+          id: generateGitHubReleaseBundleId(owner, repo, release.tag_name, collectionId, version),
+          version
+        });
+      } else {
+        needsManifest.push(release);
+      }
+    }
+
+    for (let i = 0; i < needsManifest.length; i += MANIFEST_DOWNLOAD_CONCURRENCY) {
+      const batch = needsManifest.slice(i, i + MANIFEST_DOWNLOAD_CONCURRENCY);
+      const results = await Promise.allSettled(batch.map((release) => this.processRelease(release, owner, repo)));
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value) {
+          catalog.push({ id: result.value.id, version: result.value.version });
+        }
+      }
+    }
+
+    return catalog;
   }
 
   public async downloadBundle(bundle: Bundle): Promise<Buffer> {
@@ -323,6 +386,7 @@ export class GitHubAdapter extends BaseSourceAdapter {
       const { owner, repo } = this.parseGitHubUrl();
       await this.githubApi.getJson(`/repos/${owner}/${repo}`);
       const releases = await this.githubApi.getJson<GitHubRelease[]>(`/repos/${owner}/${repo}/releases`);
+      this.cachedReleases = { releases, fetchedAt: Date.now() };
       return {
         valid: true,
         errors: [],
@@ -330,6 +394,7 @@ export class GitHubAdapter extends BaseSourceAdapter {
         bundlesFound: releases.length
       };
     } catch (error) {
+      this.cachedReleases = undefined;
       return {
         valid: false,
         errors: [`GitHub validation failed: ${error instanceof Error ? error.message : error}`],
@@ -358,5 +423,6 @@ export class GitHubAdapter extends BaseSourceAdapter {
    */
   public clearManifestCache(): void {
     this.manifestCache.clear();
+    this.cachedReleases = undefined;
   }
 }

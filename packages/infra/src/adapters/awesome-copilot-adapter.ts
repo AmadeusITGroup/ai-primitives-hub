@@ -33,13 +33,14 @@
  * `Bundle` field - a pure behavior-parity fix, not a type-system change.
  * @module adapters/awesome-copilot-adapter
  */
-import type {
-  Bundle,
-  Clock,
-  GitHubApi,
-  RegistrySource,
-  SourceMetadata,
-  ValidationResult,
+import {
+  type Bundle,
+  type Clock,
+  type GitHubApi,
+  parseGitHubOwnerRepo,
+  type RegistrySource,
+  type SourceMetadata,
+  type ValidationResult,
 } from '@ai-primitives-hub/core';
 import archiver from 'archiver';
 import * as yaml from 'js-yaml';
@@ -183,12 +184,11 @@ export class AwesomeCopilotAdapter extends BaseSourceAdapter {
   }
 
   private parseGitHubUrl(): { owner: string; repo: string } {
-    const url = this.source.url.replace(/\.git$/, '');
-    const match = /github\.com[/:]([^/]+)\/([^/]+)/.exec(url);
-    if (!match) {
+    const parsed = parseGitHubOwnerRepo(this.source.url);
+    if (!parsed) {
       throw new Error(`Invalid GitHub URL: ${this.source.url}`);
     }
-    return { owner: match[1], repo: match[2] };
+    return { owner: parsed.owner, repo: parsed.repo };
   }
 
   private buildApiPath(path: string): string {
