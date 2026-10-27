@@ -385,6 +385,13 @@ export class HubManager {
     }
   }
 
+  /**
+   * Start transient progress for a hub and notify tree observers immediately.
+   * The returned callbacks only affect this run: a newer load for the same hub
+   * owns its state, so stale progress or completion cannot overwrite it.
+   * @param hubId Hub whose source work is starting.
+   * @returns Progress and completion callbacks scoped to this loading run.
+   */
   private beginHubLoading(hubId: string) {
     const token = Symbol(hubId);
     this.hubLoadingProgress.set(hubId, { token, progress: { completed: 0, total: 0, percentage: 0 } });
@@ -564,8 +571,6 @@ export class HubManager {
    * @param hubId Hub identifier to delete
    */
   public async deleteHub(hubId: string): Promise<void> {
-    const previouslyActiveHubId = await this.getActiveHubId();
-
     // Cleanup resources linked to this hub before deleting
     await this.cleanupHubResources(hubId);
 
@@ -574,27 +579,47 @@ export class HubManager {
     // also evicts the now-deleted hub from its read-through cache.
     await this.storage.deleteHub(hubId);
 
-    if (previouslyActiveHubId === hubId) {
-      const remainingHubIds = await this.storage.listHubs();
-      const nextActiveHubId = remainingHubIds[0] ?? null;
-      await this.setActiveHub(nextActiveHubId);
-      this.logger.info(nextActiveHubId
-        ? `Deleted active hub ${hubId}; switched active hub to ${nextActiveHubId}`
-        : `Deleted active hub ${hubId}; no hubs remain active`);
+    try {
+      if (await this.getActiveHubId() === hubId) {
+        const remainingHubIds = await this.storage.listHubs();
+        // Listing yields to other deletions and user selections. Do not
+        // replace a newer active hub chosen while that work was pending.
+        if (await this.getActiveHubId() !== hubId) {
+          return;
+        }
+        const nextActiveHubId = remainingHubIds[0] ?? null;
+        await this.setActiveHub(nextActiveHubId);
+        this.logger.info(nextActiveHubId
+          ? `Deleted active hub ${hubId}; switched active hub to ${nextActiveHubId}`
+          : `Deleted active hub ${hubId}; no hubs remain active`);
+      }
+    } catch (error) {
+      this.logger.warn(`Deleted hub ${hubId}, but failed to select a replacement; clearing its stale active selection`, error);
+      // Do not clear another hub selected while replacement work was pending.
+      if (await this.getActiveHubId() === hubId) {
+        await this.setActiveHub(null);
+      }
+    } finally {
+      // Storage deletion succeeded even if replacement or recovery failed.
+      this._onHubDeleted.fire(hubId);
     }
-
-    this._onHubDeleted.fire(hubId);
   }
 
+  /**
+   * Delete imported hubs sequentially so replacement selections stay consistent.
+   * Individual failures are logged without preventing remaining deletions.
+   */
   public async deleteAllHubs(): Promise<void> {
     const hubIds = await this.storage.listHubs();
-    await Promise.allSettled(hubIds.map(async (hubId) => {
+    // Serialize deletion so a promoted hub is observed as active by its own
+    // deletion, rather than leaving a stale selection from parallel snapshots.
+    for (const hubId of hubIds) {
       try {
         await this.deleteHub(hubId);
       } catch (error) {
         this.logger.warn(`Failed to delete hub ${hubId} during cleanup`, error);
       }
-    }));
+    }
   }
 
   /**

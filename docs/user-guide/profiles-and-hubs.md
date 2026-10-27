@@ -41,6 +41,14 @@ When you select a hub:
 - First available profile is auto-activated
 - Tree view refreshes to show hub content
 
+### Switching Hubs
+
+Use **AI Primitives Hub: Switch Hub** to choose a pre-configured hub or any previously imported
+custom hub, including inactive hubs. The active hub is marked `[Active]`;
+selecting it again leaves it unchanged. Pre-configured hubs reuse an existing
+import instead of importing another copy. If multiple imports match, the active
+one is preferred. Choose **Import New Hub...** to add a different hub.
+
 ### Automatic Source Addition
 
 On first run, the extension automatically adds the **Awesome Copilot** source (`github/awesome-copilot`) as a default source. This ensures you have immediate access to community collections.

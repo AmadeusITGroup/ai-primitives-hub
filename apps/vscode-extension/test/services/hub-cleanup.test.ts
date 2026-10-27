@@ -10,6 +10,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
+import vscode from 'vscode';
 import {
   HubManager,
 } from '../../src/services/hub-manager';
@@ -88,6 +89,26 @@ suite('Hub Cleanup', () => {
   let tempDir: string;
 
   setup(() => {
+    // The shared VS Code mock drops events; dispatch them here so tests observe
+    // the public subscriptions rather than inspecting HubManager internals.
+    sinon.stub(vscode, 'EventEmitter').value(class <T> {
+      private readonly listeners = new Set<(event: T) => void>();
+      public readonly event = (listener: (event: T) => void) => {
+        this.listeners.add(listener);
+        return { dispose: () => {
+          this.listeners.delete(listener);
+        } };
+      };
+
+      public fire(event: T): void {
+        this.listeners.forEach((listener) => listener(event));
+      }
+
+      public dispose(): void {
+        this.listeners.clear();
+      }
+    });
+
     // Create temp directory
     tempDir = path.join(__dirname, '..', '..', 'test-temp-hub-cleanup');
     if (fs.existsSync(tempDir)) {
@@ -116,6 +137,148 @@ suite('Hub Cleanup', () => {
   });
 
   suite('deleteHub cleanup', () => {
+    test('should report storage deletion failure without emitting a successful deletion', async () => {
+      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+      await hubManager.importHubConfig({ type: 'local', location: fixturePath }, 'hub-one');
+      await hubManager.setActiveHub('hub-one', { loadSources: false });
+      const deleted: string[] = [];
+      hubManager.onHubDeleted((id) => deleted.push(id));
+      sinon.stub(storage, 'deleteHub').rejects(new Error('Storage unavailable'));
+
+      await assert.rejects(hubManager.deleteHub('hub-one'), /Storage unavailable/);
+
+      assert.strictEqual(await hubManager.getActiveHubId(), 'hub-one');
+      assert.strictEqual(await storage.getHubStore().has('hub-one'), true);
+      assert.deepStrictEqual(deleted, []);
+    });
+
+    test('should clear the active pointer when the listed replacement has disappeared', async () => {
+      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+      await hubManager.importHubConfig({ type: 'local', location: fixturePath }, 'hub-one');
+      await hubManager.setActiveHub('hub-one', { loadSources: false });
+      const deleted: string[] = [];
+      const activeChanges: { oldHubId: string | null; newHubId: string | null }[] = [];
+      hubManager.onHubDeleted((id) => deleted.push(id));
+      hubManager.onActiveHubChanged((change) => activeChanges.push(change));
+      sinon.stub(storage, 'listHubs').resolves(['missing-hub']);
+
+      await hubManager.deleteHub('hub-one');
+
+      assert.strictEqual(await hubManager.getActiveHubId(), null);
+      assert.deepStrictEqual(activeChanges, [{ oldHubId: 'hub-one', newHubId: null }]);
+      assert.deepStrictEqual(deleted, ['hub-one']);
+    });
+
+    ['listing', 'replacement lookup', 'replacement loading'].forEach((failure) => {
+      test(`should clear the deleted active hub and emit completion after ${failure} fails`, async () => {
+        const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+        const ref: HubReference = { type: 'local', location: fixturePath };
+        await hubManager.importHubConfig(ref, 'hub-one');
+        await hubManager.importHubConfig(ref, 'hub-two');
+        await hubManager.setActiveHub('hub-one', { loadSources: false });
+
+        const deleted: string[] = [];
+        const activeChanges: { oldHubId: string | null; newHubId: string | null }[] = [];
+        hubManager.onHubDeleted((id) => deleted.push(id));
+        hubManager.onActiveHubChanged((change) => activeChanges.push(change));
+        const error = new Error(`Failed ${failure}`);
+        if (failure === 'listing') {
+          sinon.stub(storage, 'listHubs').rejects(error);
+        } else if (failure === 'replacement lookup') {
+          sinon.stub(storage.getHubStore(), 'load').withArgs('hub-two').rejects(error);
+        } else {
+          sinon.stub(storage, 'loadHub').withArgs('hub-two').rejects(error);
+        }
+
+        await hubManager.deleteHub('hub-one');
+
+        assert.strictEqual(await storage.getHubStore().has('hub-one'), false);
+        assert.strictEqual(await hubManager.getActiveHubId(), null);
+        assert.deepStrictEqual(activeChanges, [{ oldHubId: 'hub-one', newHubId: null }]);
+        assert.deepStrictEqual(deleted, ['hub-one']);
+      });
+    });
+
+    test('should preserve a concurrently selected hub when replacement listing fails', async () => {
+      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+      const ref: HubReference = { type: 'local', location: fixturePath };
+      await hubManager.importHubConfig(ref, 'hub-one');
+      await hubManager.importHubConfig(ref, 'hub-two');
+      await hubManager.setActiveHub('hub-one', { loadSources: false });
+      const deleted: string[] = [];
+      const activeChanges: { oldHubId: string | null; newHubId: string | null }[] = [];
+      hubManager.onHubDeleted((id) => deleted.push(id));
+      hubManager.onActiveHubChanged((change) => activeChanges.push(change));
+      sinon.stub(storage, 'listHubs').callsFake(async () => {
+        await hubManager.setActiveHub('hub-two', { loadSources: false });
+        throw new Error('Replacement listing failed after another selection');
+      });
+
+      await hubManager.deleteHub('hub-one');
+
+      assert.strictEqual(await hubManager.getActiveHubId(), 'hub-two');
+      assert.deepStrictEqual(activeChanges, [{ oldHubId: 'hub-one', newHubId: 'hub-two' }]);
+      assert.deepStrictEqual(deleted, ['hub-one']);
+    });
+
+    test('should preserve a concurrently selected hub when replacement listing succeeds', async () => {
+      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+      const ref: HubReference = { type: 'local', location: fixturePath };
+      await hubManager.importHubConfig(ref, 'hub-one');
+      await hubManager.importHubConfig(ref, 'hub-two');
+      await hubManager.importHubConfig(ref, 'hub-three');
+      await hubManager.setActiveHub('hub-one', { loadSources: false });
+      const deleted: string[] = [];
+      const activeChanges: { oldHubId: string | null; newHubId: string | null }[] = [];
+      hubManager.onHubDeleted((id) => deleted.push(id));
+      hubManager.onActiveHubChanged((change) => activeChanges.push(change));
+      sinon.stub(storage, 'listHubs').callsFake(async () => {
+        await hubManager.setActiveHub('hub-two', { loadSources: false });
+        return ['hub-three', 'hub-two'];
+      });
+
+      await hubManager.deleteHub('hub-one');
+
+      assert.strictEqual(await hubManager.getActiveHubId(), 'hub-two');
+      assert.deepStrictEqual(activeChanges, [{ oldHubId: 'hub-one', newHubId: 'hub-two' }]);
+      assert.deepStrictEqual(deleted, ['hub-one']);
+    });
+
+    test('deleteAllHubs should not leave a promoted hub active after it is deleted', async () => {
+      const fixturePath = path.join(__dirname, '..', 'fixtures', 'hubs', 'valid-hub-config.yml');
+      const ref: HubReference = { type: 'local', location: fixturePath };
+      await hubManager.importHubConfig(ref, 'hub-one');
+      await hubManager.importHubConfig(ref, 'hub-two');
+      await hubManager.setActiveHub('hub-one', { loadSources: false });
+      const deleted: string[] = [];
+      const activeChanges: { oldHubId: string | null; newHubId: string | null }[] = [];
+      const promoted = new Promise<void>((resolve) => {
+        hubManager.onActiveHubChanged((change) => {
+          activeChanges.push(change);
+          if (change.newHubId === 'hub-two') {
+            resolve();
+          }
+        });
+      });
+      hubManager.onHubDeleted((id) => deleted.push(id));
+      // Model a slow second deletion that completes only after hub-one's
+      // replacement has been selected. Parallel deletes used stale snapshots.
+      const deleteHub = storage.deleteHub.bind(storage);
+      sinon.stub(storage, 'deleteHub').callsFake(async (id) => {
+        if (id === 'hub-two') {
+          await promoted;
+        }
+        await deleteHub(id);
+      });
+
+      await hubManager.deleteAllHubs();
+
+      assert.deepStrictEqual(await storage.listHubs(), []);
+      assert.strictEqual(await hubManager.getActiveHubId(), null);
+      assert.deepStrictEqual(new Set(deleted), new Set(['hub-one', 'hub-two']));
+      assert.deepStrictEqual(activeChanges.at(-1), { oldHubId: 'hub-two', newHubId: null });
+    });
+
     test('should remove sources linked to deleted hub', async () => {
       // Setup: Add sources, some from hub, some local
       mockRegistryManager.sources = [

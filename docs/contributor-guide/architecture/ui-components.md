@@ -132,6 +132,8 @@ graph TD
 - `LoadHubSourcesOptions.onProgress` reports bounded, monotonic source-work percentages. Registration-only loads use one unit per declaration; progressive loads reserve two fixed units per declaration (registration and sync). Skips, updates and registration failures settle the unused sync unit; sync failures also settle their work. Empty hubs report 0% then 100%. Observer exceptions are isolated from loading.
 - `HubManager.getHubLoadingProgress()` and `onHubLoadingProgressChanged` expose transient per-hub state for import, activation and source reloads. Run tokens reject stale updates/cleanup from overlapping runs; completion/failure clears state even when callers do not await the final milestone.
 - `RegistryTreeProvider` coalesces progress refreshes with its existing leading/trailing throttle. Hub rows show whole-number percentage text in the description after the label, leaving the hub icon unchanged. `[Active]` remains visible throughout loading for the selected hub (for example, `[Active] 25%`); the active context value remains unchanged for menu actions. Recreated rows remove the percentage once progress is absent.
+- Both All Hubs and Favorites apply `[Active]` and the `hub_active` menu context before appending progress. Active-hub changes refresh immediately, including when source loading is disabled or no sources are available; the provider disposes this subscription with its other listeners.
+- After deleting an active hub, `HubManager` selects a remaining hub. If replacement listing or activation fails, it clears the deleted hub's stale selection through `setActiveHub()` so active-change observers are notified, without clearing a different concurrent selection. Successful storage deletion always emits `onHubDeleted`, even if replacement recovery fails. Bulk hub deletion is serialized so a promoted hub cannot remain selected after its subsequent deletion.
 
 #### Profile Organization
 - **Hub Profiles**: Organized by hub with folder structure support
@@ -163,7 +165,7 @@ Listens to multiple registry and hub manager events:
 - Bundle events: installed, uninstalled, updated
 - Profile events: activated, deactivated, created, updated, deleted
 - Source events: added, removed, updated, synced
-- Hub events: imported, deleted, synced, favorites changed
+- Hub events: imported, deleted, synced, favorites changed, active hub changed, loading progress changed (throttled)
 
 #### Update Detection
 - Tracks available updates via `onUpdatesDetected()`

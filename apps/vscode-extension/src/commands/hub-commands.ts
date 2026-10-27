@@ -504,7 +504,7 @@ export class HubCommands {
             );
 
             // Refresh the tree view to show the new hub
-            vscode.commands.executeCommand('promptregistry.refresh');
+            vscode.commands.executeCommand('promptRegistry.refresh');
 
             return importedHubId;
           } catch (error) {
@@ -609,7 +609,7 @@ export class HubCommands {
       }
 
       await this.hubManager.setActiveHub(targetHubId);
-      vscode.commands.executeCommand('promptregistry.refresh');
+      vscode.commands.executeCommand('promptRegistry.refresh');
       vscode.window.showInformationMessage(`Switched active hub to: ${targetHubId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -755,7 +755,7 @@ export class HubCommands {
       await this.hubManager.deleteHub(targetHubId);
 
       // Refresh the tree view
-      vscode.commands.executeCommand('promptregistry.refresh');
+      vscode.commands.executeCommand('promptRegistry.refresh');
 
       vscode.window.showInformationMessage(`Deleted hub: ${targetHubId}`);
     } catch (error) {
@@ -784,13 +784,19 @@ export class HubCommands {
       const currentActiveId = await this.hubManager.getActiveHubId();
       const defaultHubs = getEnabledDefaultHubs();
 
+      /**
+       * Reuse an imported default hub, preferring the active import when references repeat.
+       * @param reference Default hub reference; an omitted ref is treated as main.
+       * @returns The active matching hub, or the first imported match.
+       */
       const findMatchingHub = (reference: DefaultHubConfig['reference']) => {
-        return hubs.find((hub) => {
+        const matches = hubs.filter((hub) => {
           const existingRef = hub.reference;
           return existingRef.type === reference.type
             && existingRef.location === reference.location
             && (existingRef.ref ?? 'main') === (reference.ref ?? 'main');
         });
+        return matches.find((hub) => hub.id === currentActiveId) ?? matches[0];
       };
 
       const items: HubListItem[] = [];
@@ -810,10 +816,7 @@ export class HubCommands {
         });
       }
 
-      const activeNonDefaultHub = hubs.find((hub) => {
-        if (hub.id !== currentActiveId) {
-          return false;
-        }
+      const nonDefaultHubs = hubs.filter((hub) => {
         return !defaultHubs.some((defaultHub) => {
           const ref = defaultHub.reference;
           return hub.reference.type === ref.type
@@ -822,14 +825,16 @@ export class HubCommands {
         });
       });
 
-      if (activeNonDefaultHub) {
-        items.push({ label: 'Active custom hub', kind: vscode.QuickPickItemKind.Separator, hubId: '' }, {
-          label: activeNonDefaultHub.name,
-          description: 'Active',
-          detail: `ID: ${activeNonDefaultHub.id}`,
-          hubId: activeNonDefaultHub.id,
-          action: 'activeHub'
-        });
+      if (nonDefaultHubs.length > 0) {
+        items.push({ label: 'Custom hubs', kind: vscode.QuickPickItemKind.Separator, hubId: '' });
+        for (const hub of nonDefaultHubs) {
+          items.push({
+            label: hub.name,
+            description: `${hub.description ?? ''}${hub.id === currentActiveId ? ' [Active]' : ''}`.trim(),
+            detail: `ID: ${hub.id}`,
+            hubId: hub.id
+          });
+        }
       }
 
       items.push({ label: 'Import options', kind: vscode.QuickPickItemKind.Separator, hubId: '' }, {
@@ -850,7 +855,7 @@ export class HubCommands {
         return;
       }
 
-      if (selected.action === 'activeHub' || selected.hubId === currentActiveId) {
+      if (selected.hubId === currentActiveId) {
         vscode.window.showWarningMessage('This hub is already active. Please select a different hub.');
         return;
       }
@@ -863,7 +868,7 @@ export class HubCommands {
         if (matchingHub) {
           await this.hubManager.setActiveHub(matchingHub.id);
           vscode.window.showInformationMessage(`✅ Switched to hub: ${matchingHub.name}`);
-          vscode.commands.executeCommand('promptregistry.refresh');
+          vscode.commands.executeCommand('promptRegistry.refresh');
           return;
         }
 
@@ -887,7 +892,7 @@ export class HubCommands {
         );
 
         vscode.window.showInformationMessage(`✅ Activated ${defaultHubConfig.name}`);
-        vscode.commands.executeCommand('promptregistry.refresh');
+        vscode.commands.executeCommand('promptRegistry.refresh');
         this.logger.info(`Imported and activated default hub from switch selector: ${importResult}`);
         return;
       }

@@ -81,6 +81,56 @@ suite('RegistryTreeProvider - Hub Profiles', () => {
     assert.ok(dispose.calledOnce);
   });
 
+  test('active-hub changes refresh without progress or source events and dispose their subscription', () => {
+    provider.dispose();
+    const fire = sandbox.spy(vscode.EventEmitter.prototype, 'fire');
+    let activeChanged: ((change: { oldHubId: string | null; newHubId: string | null }) => void) | undefined;
+    const dispose = sandbox.spy();
+    Object.assign(hubManagerStub, {
+      onActiveHubChanged: (listener: typeof activeChanged) => {
+        activeChanged = listener;
+        return { dispose };
+      }
+    });
+    provider = new RegistryTreeProvider(registryManagerStub, hubManagerStub);
+    assert.ok(activeChanged, 'subscribe to the active-hub event');
+    activeChanged({ oldHubId: null, newHubId: 'active' });
+    activeChanged({ oldHubId: 'active', newHubId: null });
+    assert.strictEqual(fire.callCount, 2, 'each selection change refreshes the tree');
+
+    provider.dispose();
+    assert.ok(dispose.calledOnce, 'release the active-hub subscription');
+  });
+
+  test('Favorites hubs retain active context before, during and after loading', async () => {
+    provider.toggleViewMode();
+    hubManagerStub.getFavoriteProfiles.resolves({ active: ['profile'], other: ['profile'] });
+    hubManagerStub.getActiveHubId.resolves('active');
+    registryManagerStub.listLocalProfiles.resolves([]);
+    for (const id of ['active', 'other']) {
+      hubManagerStub.getHubInfo.withArgs(id).resolves({
+        id,
+        config: { metadata: { name: id } } as any,
+        reference: {} as any,
+        metadata: {} as any
+      });
+    }
+    const root = (await provider.getChildren()).find((item) => item.type === TreeItemType.FAVORITES_ROOT)!;
+    for (const percentage of [undefined, 0, 50, 100, undefined]) {
+      hubManagerStub.getHubLoadingProgress.resetBehavior();
+      if (percentage !== undefined) {
+        hubManagerStub.getHubLoadingProgress.returns({ completed: percentage, total: 100, percentage });
+      }
+      const rows = await provider.getChildren(root);
+      const active = rows.find((item) => item.type === TreeItemType.HUB && item.data.id === 'active')!;
+      const other = rows.find((item) => item.type === TreeItemType.HUB && item.data.id === 'other')!;
+      assert.strictEqual(active.description, percentage === undefined ? '[Active]' : `[Active] ${percentage}%`);
+      assert.strictEqual(active.contextValue, 'hub_active');
+      assert.strictEqual(other.description, percentage === undefined ? undefined : `${percentage}%`);
+      assert.strictEqual(other.contextValue, TreeItemType.HUB);
+    }
+  });
+
   test('getFavoritesItems should return items with correct contextValue for menu actions', async () => {
     (provider as any).viewMode = 'favorites';
     const mockProfile: HubProfile = {
