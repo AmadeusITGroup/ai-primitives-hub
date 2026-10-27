@@ -85,8 +85,8 @@ prompts:
  */
 const findDevin = async (): Promise<string | undefined> => {
   try {
-    const { stdout } = await exec('which', ['devin']);
-    return stdout.trim() || undefined;
+    const { stdout } = await exec(process.platform === 'win32' ? 'where.exe' : 'which', ['devin']);
+    return stdout.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim();
   } catch {
     return undefined;
   }
@@ -145,14 +145,15 @@ describe('Devin compatibility of a devin-cli repository install', () => {
   };
 
   /**
-   * Run the real Devin CLI in the installed workspace, isolated from the host's config.
+   * Run the real Devin CLI in the installed workspace, isolated from the host's config
+   * (HOME, XDG_CONFIG_HOME, APPDATA).
    * @param args - Arguments to `devin`.
    * @returns Combined stdout and stderr.
    */
   const devin = async (args: string[]): Promise<string> => {
     const { stdout, stderr } = await exec(devinBin!, args, {
       cwd: workspace,
-      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') },
+      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), APPDATA: path.join(home, '.config') },
       timeout: 60_000
     });
     return `${stdout}${stderr}`;

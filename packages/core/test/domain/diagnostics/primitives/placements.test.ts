@@ -104,11 +104,11 @@ describe('expectedDestination', () => {
     }
   });
 
-  it('places prompts as Desktop workflows on devin and as rules on devin-cli', () => {
-    expect(labels('devin', 'repository', 'prompt').every((label) => label.startsWith('<workspace>/.devin/workflows/'))).toBe(true);
-    expect(labels('devin', 'user', 'prompt').every((label) => label.startsWith('$HOME/.codeium/windsurf/global_workflows/'))).toBe(true);
-    expect(labels('devin-cli', 'repository', 'prompt').every((label) => label.startsWith('<workspace>/.devin/rules/'))).toBe(true);
-    expect(labels('devin-cli', 'user', 'prompt').every((label) => label.startsWith('$HOME/.devin/rules/'))).toBe(true);
+  it('places devin prompts as rules at both scopes', () => {
+    for (const target of ['devin', 'devin-cli'] as const) {
+      expect(labels(target, 'user', 'prompt').every((label) => label.startsWith('$HOME/.devin/rules/'))).toBe(true);
+      expect(labels(target, 'repository', 'prompt').every((label) => label.startsWith('<workspace>/.devin/rules/'))).toBe(true);
+    }
   });
 
   it('places a power on devin', () => {

@@ -83,6 +83,11 @@ describe('built-in default layouts', () => {
       expect(layout.repository?.mcpConfig).toEqual({ path: '${workspaceRoot}/.devin/mcp_config.json', serversKey: 'mcpServers' });
     });
 
+    it('routes prompts to Devin rules', () => {
+      expect(layout.repository?.kindRoutes['prompts/']).toBe('.devin/rules/');
+      expect(layout.user.kindRoutes['prompts/']).toBe('.devin/rules/');
+    });
+
     it('routes instructions to rules, and skills and agents to Devin config dirs', () => {
       expect(layout.repository?.kindRoutes).toMatchObject({
         'instructions/': '.devin/rules/',
@@ -100,10 +105,7 @@ describe('built-in default layouts', () => {
     });
   });
 
-  it('routes prompts to workflows on Devin Desktop and to rules on Devin CLI', () => {
-    expect(defaultLayouts.layouts.devin.repository?.kindRoutes['prompts/']).toBe('.devin/workflows/');
-    expect(defaultLayouts.layouts.devin.user.kindRoutes['prompts/']).toBe('.codeium/windsurf/global_workflows/');
-    expect(defaultLayouts.layouts['devin-cli'].repository?.kindRoutes['prompts/']).toBe('.devin/rules/');
-    expect(defaultLayouts.layouts['devin-cli'].user.kindRoutes['prompts/']).toBe('.devin/rules/');
+  it('keeps the devin and devin-cli layouts identical', () => {
+    expect(defaultLayouts.layouts.devin).toEqual(defaultLayouts.layouts['devin-cli']);
   });
 });

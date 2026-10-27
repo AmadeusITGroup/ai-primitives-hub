@@ -57,7 +57,7 @@ export const PLACEMENT_ROUTES: Readonly<Record<TargetType, Routes>> = {
   'claude-code': { ...COMMON, prompt: 'commands/', instruction: 'instructions/', command: 'commands/', 'output-style': 'output-styles/' },
   cursor: { ...COMMON, prompt: 'rules/', instruction: 'rules/', rule: 'rules/' },
   opencode: { ...COMMON, prompt: 'commands/', instruction: 'rules/', tool: 'tools/' },
-  devin: { ...DEVIN, prompt: 'workflows/' },
+  devin: DEVIN,
   'devin-cli': DEVIN
 };
 
@@ -78,7 +78,7 @@ const DEVIN_USER_CONFIG: Placements = {
 
 /** Cells whose destination lies outside `PLACEMENT_ROOTS`; they take precedence over `PLACEMENT_ROUTES`. */
 export const PLACEMENT_OVERRIDES: Readonly<Partial<Record<TargetType, Partial<Record<DiagnosticScope, Placements>>>>> = {
-  devin: { user: { ...DEVIN_USER_CONFIG, prompt: { root: '$HOME/.codeium/windsurf', route: 'global_workflows/' } } },
+  devin: { user: DEVIN_USER_CONFIG },
   'devin-cli': { user: DEVIN_USER_CONFIG }
 };
 
