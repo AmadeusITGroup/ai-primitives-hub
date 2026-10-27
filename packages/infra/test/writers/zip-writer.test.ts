@@ -4,6 +4,9 @@ import {
   it,
 } from 'vitest';
 import {
+  readZipEntryModes,
+} from '../../src/extractors/zip-bundle-extractor';
+import {
   buildZip,
   fileSetSha256,
 } from '../../src/writers/zip-writer';
@@ -143,6 +146,26 @@ describe('zip-writer', () => {
       const hash = fileSetSha256(entries);
 
       expect(hash).toMatch(/^[a-f0-9]{64}$/);
+    });
+  });
+
+  describe('entry modes', () => {
+    it('records a given entry mode and defaults the others to 0644', () => {
+      const zipBytes = buildZip([
+        { path: 'scripts/run.sh', bytes: new TextEncoder().encode('#!/bin/sh\n'), mode: 0o755 },
+        { path: 'README.md', bytes: new TextEncoder().encode('# Readme\n') }
+      ]);
+
+      const modes = readZipEntryModes(zipBytes);
+
+      expect(modes.get('scripts/run.sh')).toBe(0o755);
+      expect(modes.get('README.md')).toBe(0o644);
+    });
+
+    it('produces the same bytes as before when no mode is given', () => {
+      const entry = { path: 'a.txt', bytes: new TextEncoder().encode('a') };
+
+      expect(buildZip([entry])).toEqual(buildZip([{ ...entry, mode: 0o644 }]));
     });
   });
 });

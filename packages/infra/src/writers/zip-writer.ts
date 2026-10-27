@@ -22,6 +22,8 @@ interface ZipEntry {
   path: string;
   /** Entry contents. */
   bytes: Uint8Array;
+  /** Unix permission bits recorded for the entry (default `0o644`). */
+  mode?: number;
 }
 
 /**
@@ -77,11 +79,13 @@ export const buildZip = (entries: readonly ZipEntry[]): Uint8Array => {
     central.writeUInt16LE(0, 32); // comment length
     central.writeUInt16LE(0, 34); // disk number
     central.writeUInt16LE(0, 36); // internal attrs
-    // External attrs: regular file (0o100644) shifted left 16, but
+    // External attrs: regular file (0o100000 | mode) shifted left 16, but
     // JS bitwise ops produce signed int32 — multiply for the
     // unsigned UInt32LE slot.
     // eslint-disable-next-line no-bitwise -- Required for ZIP file format
-    central.writeUInt32LE((0o10_0644 * 0x1_00_00) >>> 0, 38);
+    const fileMode = 0o10_0000 | ((entry.mode ?? 0o644) & 0o777);
+    // eslint-disable-next-line no-bitwise -- Required for ZIP file format
+    central.writeUInt32LE((fileMode * 0x1_00_00) >>> 0, 38);
     central.writeUInt32LE(offset, 42); // relative offset of local header
     nameBytes.copy(central, 46);
     records.push({ local, central });

@@ -59,21 +59,36 @@ describe('ZipBundleExtractor', () => {
 
     await expect(new ZipBundleExtractor().extract(zipBytes)).rejects.toThrow(/Unsafe ZIP path/);
   });
+
+  it('attaches each entry\'s permission bits to its bytes (#577)', async () => {
+    const files = await new ZipBundleExtractor().extract(zipWithModes([
+      { name: 'skills/demo/scripts/run.sh', attr: 0o10_0755 * 0x1_00_00 },
+      { name: 'skills/demo/SKILL.md', attr: 0o10_0644 * 0x1_00_00 },
+      { name: 'bin/tool', attr: 0o10_4755 * 0x1_00_00 },
+      { name: 'windows.txt', attr: 0 }
+    ]));
+
+    expect(files.get('skills/demo/scripts/run.sh')?.mode).toBe(0o755);
+    expect(files.get('skills/demo/SKILL.md')?.mode).toBe(0o644);
+    expect(files.get('bin/tool')?.mode).toBe(0o755);
+    expect(files.get('windows.txt')?.mode).toBeUndefined();
+    expect(new TextDecoder().decode(files.get('skills/demo/scripts/run.sh'))).toBe('content');
+  });
 });
 
-describe('readZipEntryModes', () => {
-  const zipWithModes = (entries: { name: string; attr: number }[]): Uint8Array => {
-    const zip = new AdmZip();
-    for (const entry of entries) {
-      zip.addFile(entry.name, Buffer.from('content'));
-      const added = zip.getEntry(entry.name);
-      if (added !== null) {
-        added.attr = entry.attr;
-      }
+const zipWithModes = (entries: { name: string; attr: number }[]): Uint8Array => {
+  const zip = new AdmZip();
+  for (const entry of entries) {
+    zip.addFile(entry.name, Buffer.from('content'));
+    const added = zip.getEntry(entry.name);
+    if (added !== null) {
+      added.attr = entry.attr;
     }
-    return zip.toBuffer();
-  };
+  }
+  return zip.toBuffer();
+};
 
+describe('readZipEntryModes', () => {
   it('returns the permission bits recorded for each file entry', () => {
     const modes = readZipEntryModes(zipWithModes([
       { name: 'scripts/run.sh', attr: 0o10_0755 * 0x1_00_00 },
