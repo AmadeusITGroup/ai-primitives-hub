@@ -29,10 +29,12 @@ import {
   removeSupersededFiles,
   resolveInstallSource,
   resolveUserConfigPaths,
+  type SkippedBundleContent,
   type TargetWriter,
   TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
+  writeBundleForInstall,
   writeBundleSafely,
   writeLockfile,
 } from '@ai-primitives-hub/app';
@@ -329,7 +331,31 @@ export interface InstallOptions {
    * Verbose mode: show detailed progress and error messages.
    */
   verbose?: boolean;
+  /**
+   * Install the items the target supports and list the rest instead of
+   * failing. Off by default: an install is all-or-nothing.
+   */
+  skipUnsupported?: boolean;
 }
+
+/**
+ * Text listing the content a partial install skipped, appended to the
+ * install summary. Empty when nothing was skipped.
+ * @param skipped Skipped content.
+ * @returns The `Skipped:` block, or an empty string.
+ */
+const renderSkipped = (skipped: readonly SkippedBundleContent[]): string =>
+  skipped.length === 0
+    ? ''
+    : 'Skipped:\n' + skipped.map((s) => `  - ${s.path}: ${s.reason}\n`).join('');
+
+/**
+ * Output warnings for the content a partial install skipped.
+ * @param skipped Skipped content.
+ * @returns One warning per skipped item, or `undefined` when none.
+ */
+const skippedWarnings = (skipped: readonly SkippedBundleContent[]): string[] | undefined =>
+  skipped.length === 0 ? undefined : skipped.map((s) => `skipped ${s.path}: ${s.reason}`);
 
 /**
  * Command context for install/uninstall commands.
@@ -369,6 +395,7 @@ export class InstallCommand extends BaseInstallCommand {
         --dry-run               Validate and plan without writing
         --scope <scope>         Installation scope (user or repository)
         --commit-mode <mode>    Commit mode for repository scope
+        --skip-unsupported      Install the supported items and list the rest instead of failing
         --verbose               Show detailed progress and error messages
         -o, --output <format>  Output format (text, json, yaml, ndjson)
 
@@ -389,6 +416,7 @@ export class InstallCommand extends BaseInstallCommand {
   public scope = Option.String('--scope');
   public commitMode = Option.String('--commit-mode');
   public verbose = Option.Boolean('--verbose', false);
+  public skipUnsupported = Option.Boolean('--skip-unsupported', false);
   public allowTarget = Option.String('--allow-target');
   public bundle = Option.String({ required: false }); // Optional positional argument
 
@@ -412,7 +440,8 @@ export class InstallCommand extends BaseInstallCommand {
       tokens,
       scope: this.scope as 'user' | 'repository' | undefined,
       commitMode: this.commitMode as RepositoryCommitMode | undefined,
-      verbose: this.verbose
+      verbose: this.verbose,
+      skipUnsupported: this.skipUnsupported
     };
 
     await detectInstallContext(opts, ctx);
@@ -964,7 +993,9 @@ async function performLocalInstall(
     }
     const writerFactory = createWriterFactory(ctx, opts);
     const writer = writerFactory(effectiveTarget);
-    const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, effectiveTarget, files, manifest);
+    const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
+      writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
+    );
 
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
@@ -996,17 +1027,19 @@ async function performLocalInstall(
       ctx,
       command: 'install',
       output: fmt,
-      status: 'ok',
+      status: skipped.length === 0 ? 'ok' : 'warning',
       data: {
         target: effectiveTarget.name,
         bundle: { id: manifest.id, version: manifest.version },
         written: result.written,
-        skipped: result.skipped,
+        skipped,
         lockfile: lockPath
       },
+      warnings: skippedWarnings(skipped),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} into target "${d.target}" `
         + `(${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
+        + renderSkipped(d.skipped)
     });
     return 0;
   } catch (cause) {
@@ -1038,6 +1071,15 @@ async function performLockfileInstall(
   ctx: Context,
   fmt: OutputFormat
 ): Promise<number> {
+  if (opts.skipUnsupported === true) {
+    // Replay never rewrites lockfile entries, so a partial replay would
+    // leave skipped files recorded as installed.
+    throw new RegistryError({
+      code: 'USAGE.INVALID_FLAG',
+      message: 'install: --skip-unsupported cannot be used with --lockfile; lockfile replay installs every recorded bundle in full',
+      hint: 'Install the bundle on its own: install <bundle-id> --skip-unsupported (or --from <dir>).'
+    });
+  }
   const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
   const lockfile = opts.lockfile as string;
   const lockPath = path.isAbsolute(lockfile)
@@ -1222,7 +1264,9 @@ async function performRemoteInstall(
     }
     const writerFactory = createWriterFactory(ctx, opts);
     const writer = writerFactory(effectiveTarget);
-    const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, effectiveTarget, files, manifest);
+    const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
+      writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
+    );
     const scope = effectiveTarget.scope;
     const commitMode = effectiveTarget.commitMode ?? 'commit';
     const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
@@ -1261,19 +1305,21 @@ async function performRemoteInstall(
       ctx,
       command: 'install',
       output: fmt,
-      status: 'ok',
+      status: skipped.length === 0 ? 'ok' : 'warning',
       data: {
         target: effectiveTarget.name,
         bundle: { id: lockKey, version: manifest.version },
         source: { type: opts.sourceConfig?.type ?? 'github', repo: repoSlug, sourceId: installable.ref.sourceId },
         sha256: dl.sha256,
         written: result.written,
-        skipped: result.skipped,
+        skipped,
         lockfile: lockPath
       },
+      warnings: skippedWarnings(skipped),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} from ${d.source.repo} `
         + `into target "${d.target}" (${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
+        + renderSkipped(d.skipped)
     });
     return 0;
   } catch (cause) {

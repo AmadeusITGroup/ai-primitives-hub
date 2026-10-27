@@ -25,6 +25,7 @@ View logs: `View → Output → AI Primitives Hub`
 - **Invalid Bundle**: Verify bundle has valid manifest
 - Check logs for `[ERROR]` messages
 - **Primitive type on a target (CLI)**: Run `ai-primitives-hub doctor diagnostics --primitives --kinds <kind> --targets <target>` to check whether that primitive type installs on that target type. It runs in a throwaway workspace and reports each case as `pass`, `known-gap` or `fail`. See the [Command Reference](../reference/commands.md#doctor-diagnostics-cli).
+- **Install fails with `BUNDLE.UNSUPPORTED_CONTENT` (CLI)**: The target cannot hold part of the bundle, so nothing was installed. Rerun the install with `--skip-unsupported` to install the items the target supports; the skipped ones are listed in the output. See the [Command Reference](../reference/commands.md#bundle-install-cli).
 
 ### Authentication Fails (404/401)
 
