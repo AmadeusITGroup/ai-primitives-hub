@@ -68,6 +68,39 @@ export interface LoadHubSourcesResult {
 export interface LoadHubSourcesOptions {
   concurrency?: number;
   onSourceAdded?: (source: RegistrySource) => void;
+  /** Called after each declaration finishes registration, including skips/failures. */
+  onSourceSettled?: (source: HubSource, added: boolean) => void;
+  onProgress?: (progress: HubSourceLoadingProgress) => void;
+}
+
+export interface HubSourceLoadingProgress {
+  completed: number;
+  total: number;
+  percentage: number;
+}
+
+/**
+ * Observer failures must never change source loading outcomes.
+ * @param callback
+ * @param onLog
+ */
+function notifyObserver(callback: () => void, onLog?: OnLogEvent): void {
+  try {
+    callback();
+  } catch (error) {
+    onLog?.({ level: 'warn', message: `Hub source loading observer failed: ${String(error)}` });
+  }
+}
+
+function createProgressReporter(total: number, options: LoadHubSourcesOptions | undefined, onLog?: OnLogEvent) {
+  return (completed: number, complete = false): void => {
+    const bounded = Math.max(0, Math.min(total, completed));
+    notifyObserver(() => options?.onProgress?.({
+      completed: bounded,
+      total,
+      percentage: total === 0 ? (complete ? 100 : 0) : Math.floor(bounded / total * 100)
+    }), onLog);
+  };
 }
 
 /**
@@ -163,6 +196,9 @@ export async function loadHubSources(
 
   log('info', `Found ${hubSources.length} sources in hub ${hubId}`);
 
+  const reportProgress = createProgressReporter(hubSources.length, options, onLog);
+  let completed = 0;
+  reportProgress(0);
   const existingSources = await ports.listSources();
 
   let added = 0;
@@ -190,7 +226,7 @@ export async function loadHubSources(
   // to keep a stale duplicate than to lose the source outright.
   let registrationFailed = false;
 
-  const processSource = async (hubSource: HubSource): Promise<void> => {
+  const processSource = async (hubSource: HubSource): Promise<boolean | void> => {
     // Generate the stable id up front and protect it from pruning
     // regardless of the enabled flag. Disabling a source in hub config is a
     // reversible action (e.g. a collection under maintenance); it must
@@ -285,6 +321,7 @@ export async function loadHubSources(
         const err = hookError instanceof Error ? hookError : new Error(String(hookError));
         log('warn', `Source-added notification failed for ${sourceId} (${hubSource.name}): ${err.message}`, err);
       }
+      return true;
     } catch (sourceError) {
       const err = sourceError instanceof Error ? sourceError : new Error(String(sourceError));
       log('warn', `Failed to add hub source ${sourceId} (${hubSource.name}): ${err.message}`, err);
@@ -300,13 +337,17 @@ export async function loadHubSources(
     while (nextIndex < hubSources.length) {
       const index = nextIndex++;
       const hubSource = hubSources[index];
+      let sourceAdded = false;
       try {
-        await processSource(hubSource);
+        sourceAdded = await processSource(hubSource) === true;
       } catch (sourceError) {
         const err = sourceError instanceof Error ? sourceError : new Error(String(sourceError));
         registrationFailed = true;
         skipped++;
         log('warn', `Failed to register hub source ${hubSource.id ?? hubSource.url}: ${err.message}`, err);
+      } finally {
+        reportProgress(++completed);
+        notifyObserver(() => options?.onSourceSettled?.(hubSource, sourceAdded), onLog);
       }
     }
   };
@@ -451,6 +492,9 @@ export async function loadHubSources(
     `Hub source loading complete for ${hubId}: ${added} added, ${updated} updated, ${skipped} skipped, ${removed} removed`
   );
 
+  if (hubSources.length === 0) {
+    reportProgress(0, true);
+  }
   return { added, updated, skipped, removed };
 }
 
@@ -494,8 +538,19 @@ export function loadHubSourcesProgressively(
   onLog: OnLogEvent | undefined,
   options: ProgressiveLoadOptions
 ): ProgressiveLoadResult {
+  // The denominator never changes as registrations discover new sync work.
+  // Every declaration has one registration and one sync (or unused) unit.
+  const reportProgress = createProgressReporter(hubSources.length * 2, options, onLog);
+  let completed = 0;
+  reportProgress(0);
   const queue = createSourceSyncQueue(
-    options.syncSource,
+    async (sourceId) => {
+      try {
+        await options.syncSource(sourceId);
+      } finally {
+        reportProgress(++completed);
+      }
+    },
     options.syncConcurrency ?? options.concurrency ?? 1,
     (sourceId, error) => {
       onLog?.({
@@ -508,11 +563,31 @@ export function loadHubSourcesProgressively(
 
   const registrationPromise = loadHubSources(hubId, hubSources, ports, onLog, {
     ...options,
+    onProgress: undefined,
+    onSourceSettled: (source, added) => {
+      completed += added ? 1 : 2;
+      reportProgress(completed);
+      options.onSourceSettled?.(source, added);
+    },
     onSourceAdded: (source) => {
       queue.enqueue(source.id);
       options.onSourceAdded?.(source);
     }
   });
+
+  const completionPromise = (async (): Promise<void> => {
+    try {
+      await registrationPromise;
+    } finally {
+      // Even if pruning fails, already-queued sync work still belongs to this run.
+      await queue.onIdle();
+    }
+    if (hubSources.length === 0) {
+      reportProgress(0, true);
+    }
+  })();
+  // Callers may only await the registration/first-settled milestone.
+  void completionPromise.catch(() => {});
 
   return {
     onRegistered: () => registrationPromise.then(() => undefined),
@@ -525,6 +600,6 @@ export function loadHubSourcesProgressively(
         queue.hasEnqueued() ? queue.onFirstSettled() : undefined
       )).catch(() => undefined)
     ]),
-    onComplete: () => registrationPromise.then(() => queue.onIdle())
+    onComplete: () => completionPromise
   };
 }

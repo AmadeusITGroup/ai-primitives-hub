@@ -326,6 +326,15 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
       hubManager.onHubSynced(() => this.refresh()),
       hubManager.onFavoritesChanged(() => this.refresh())
     );
+    const activeHubSubscription = hubManager.onActiveHubChanged?.(() => this.refresh());
+    if (activeHubSubscription) {
+      this.disposables.push(activeHubSubscription);
+    }
+    // Older embedders/test doubles may not expose progress yet.
+    const progressSubscription = hubManager.onHubLoadingProgressChanged?.(() => this.sourceSyncThrottle.trigger());
+    if (progressSubscription) {
+      this.disposables.push(progressSubscription);
+    }
   }
 
   /**
@@ -472,6 +481,7 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
    */
   private async getHubsItems(): Promise<RegistryTreeItem[]> {
     const hubs = await this.hubManager.listHubs();
+    const activeHubId = await this.hubManager.getActiveHubId();
     return hubs.map((hub) => {
       const item = new RegistryTreeItem(
         hub.name,
@@ -482,8 +492,29 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
       if (hub.reference?.type === 'artifactory') {
         item.contextValue = 'hub_readonly';
       }
+      if (hub.id === activeHubId) {
+        item.description = '[Active]';
+        item.contextValue = 'hub_active';
+      }
+      this.applyHubLoadingProgress(item, hub.id);
       return item;
     });
+  }
+
+  /**
+   * Append a bounded whole-number source-work percentage to a freshly built
+   * hub row without replacing its active marker, menu context, or icon.
+   * Rows rebuilt after loading finishes retain only their normal description.
+   * @param item Hub row with its active presentation already applied.
+   * @param hubId Hub whose transient loading state should be displayed.
+   */
+  private applyHubLoadingProgress(item: RegistryTreeItem, hubId: string): void {
+    const progress = this.hubManager.getHubLoadingProgress?.(hubId);
+    if (!progress) {
+      return;
+    }
+    const percentage = Math.max(0, Math.min(100, Math.floor(progress.percentage)));
+    item.description = [item.description, `${percentage}%`].filter(Boolean).join(' ');
   }
 
   /**
@@ -494,6 +525,7 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
     await this.hubManager.cleanupOrphanedFavorites();
 
     const favorites = await this.hubManager.getFavoriteProfiles();
+    const activeHubId = await this.hubManager.getActiveHubId();
     const items: RegistryTreeItem[] = [];
     const addedProfileIds = new Set<string>();
 
@@ -527,6 +559,11 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
           hubItem.contextValue = 'hub_readonly';
         }
 
+        if (hubId === activeHubId) {
+          hubItem.description = '[Active]';
+          hubItem.contextValue = 'hub_active';
+        }
+        this.applyHubLoadingProgress(hubItem, hubId);
         items.push(hubItem);
 
         // Mark these profiles as added so we don't duplicate them if logic changes

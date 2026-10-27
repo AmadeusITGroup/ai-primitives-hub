@@ -20,6 +20,9 @@ import {
 import {
   MarketplaceViewProvider,
 } from '../../src/ui/marketplace-view-provider';
+import {
+  setupRegistryManagerEventMocks,
+} from '../helpers/ui-test-helpers';
 
 // Project root for resolving webview assets in dist/
 const PROJECT_ROOT = process.cwd();
@@ -61,23 +64,15 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
       html: ''
     };
 
-    // Create mock RegistryManager with event emitters
+    // Create mock RegistryManager. Event emitters are provided by the shared
+    // helper so new registry events are picked up centrally (see QA2).
     mockRegistryManager = {
-      onBundleInstalled: sandbox.stub().returns({ dispose: () => {} }),
-      onBundleUninstalled: sandbox.stub().returns({ dispose: () => {} }),
-      onBundleUpdated: sandbox.stub().returns({ dispose: () => {} }),
-      onBundlesInstalled: sandbox.stub().returns({ dispose: () => {} }),
-      onBundlesUninstalled: sandbox.stub().returns({ dispose: () => {} }),
-      onSourceSynced: sandbox.stub().returns({ dispose: () => {} }),
-      onAutoUpdatePreferenceChanged: sandbox.stub().returns({ dispose: () => {} }),
-      onRepositoryBundlesChanged: sandbox.stub().returns({ dispose: () => {} }),
-      onReadmeDownloaded: sandbox.stub().returns({ dispose: () => {} }),
-      onReadmeDownloadComplete: sandbox.stub().returns({ dispose: () => {} }),
       searchBundles: sandbox.stub().resolves([]),
       listInstalledBundles: sandbox.stub().resolves([]),
       listSources: sandbox.stub().resolves([]),
       autoUpdateService: null
     } as any;
+    setupRegistryManagerEventMocks(mockRegistryManager, sandbox);
 
     // Create mock SetupStateManager
     mockSetupStateManager = {

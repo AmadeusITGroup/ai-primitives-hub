@@ -24,6 +24,7 @@ import {
 import type {
   HubAvailabilityResult,
   HubConfigStore,
+  HubSourceLoadingProgress,
   LoadHubSourcesOptions,
   LogEvent,
   ProfileLifecycleDeps,
@@ -216,6 +217,8 @@ export class HubManager {
   private readonly _onHubImported = new vscode.EventEmitter<string>();
   private readonly _onHubDeleted = new vscode.EventEmitter<string>();
   private readonly _onHubSynced = new vscode.EventEmitter<string>();
+  private readonly _onHubLoadingProgressChanged = new vscode.EventEmitter<string>();
+  private readonly hubLoadingProgress = new Map<string, { token: symbol; progress: HubSourceLoadingProgress }>();
   private readonly _onFavoritesChanged = new vscode.EventEmitter<void>();
   private readonly _onActiveHubChanged = new vscode.EventEmitter<{ oldHubId: string | null; newHubId: string | null }>();
 
@@ -228,6 +231,7 @@ export class HubManager {
   public readonly onHubImported = this._onHubImported.event;
   public readonly onHubDeleted = this._onHubDeleted.event;
   public readonly onHubSynced = this._onHubSynced.event;
+  public readonly onHubLoadingProgressChanged = this._onHubLoadingProgressChanged.event;
   public readonly onFavoritesChanged = this._onFavoritesChanged.event;
   public readonly onActiveHubChanged = this._onActiveHubChanged.event;
 
@@ -381,6 +385,66 @@ export class HubManager {
     }
   }
 
+  /**
+   * Start transient progress for a hub and notify tree observers immediately.
+   * The returned callbacks only affect this run: a newer load for the same hub
+   * owns its state, so stale progress or completion cannot overwrite it.
+   * @param hubId Hub whose source work is starting.
+   * @returns Progress and completion callbacks scoped to this loading run.
+   */
+  private beginHubLoading(hubId: string) {
+    const token = Symbol(hubId);
+    this.hubLoadingProgress.set(hubId, { token, progress: { completed: 0, total: 0, percentage: 0 } });
+    this._onHubLoadingProgressChanged.fire(hubId);
+    return {
+      onProgress: (progress: HubSourceLoadingProgress): void => {
+        if (this.hubLoadingProgress.get(hubId)?.token === token) {
+          this.hubLoadingProgress.set(hubId, { token, progress });
+          this._onHubLoadingProgressChanged.fire(hubId);
+        }
+      },
+      finish: (): void => {
+        if (this.hubLoadingProgress.get(hubId)?.token === token) {
+          this.hubLoadingProgress.delete(hubId);
+          this._onHubLoadingProgressChanged.fire(hubId);
+        }
+      }
+    };
+  }
+
+  /**
+   * Share the import/activation background-loading lifecycle.
+   * @param hubId
+   * @param registryManager
+   */
+  private async loadHubSourcesProgressively(hubId: string, registryManager: HubRegistryBridge): Promise<ProgressiveLoadResult> {
+    const loading = this.beginHubLoading(hubId);
+    try {
+      const hubData = await this.storage.loadHub(hubId);
+      const sources = await hydrateArtifactorySources(hubData.config.sources ?? [], hubData.reference, this.secrets);
+      const result = loadHubSourcesProgressively(hubId, sources, {
+        listSources: () => registryManager.listSources(),
+        addSource: (source) => registryManager.addSource(source),
+        updateSource: (id, updates) => registryManager.updateSource(id, updates),
+        removeSource: (id) => registryManager.removeSource(id),
+        listInstalledBundles: () => registryManager.listInstalledBundles(),
+        remapBundleSource: (oldId, newId) => registryManager.remapBundleSource(oldId, newId)
+      }, this.translateLogEvent, {
+        concurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
+        syncConcurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
+        syncSource: (id) => registryManager.syncSource(id),
+        onProgress: loading.onProgress
+      });
+      // Observe eagerly: cleanup must not depend on a caller awaiting onComplete.
+      const completion = result.onComplete().finally(loading.finish);
+      void completion.catch(() => {});
+      return { ...result, onComplete: () => completion };
+    } catch (error) {
+      loading.finish();
+      throw error;
+    }
+  }
+
   public async hasGitHubAuthentication(): Promise<boolean> {
     return (await this.githubTokenProvider.getToken('github.com')) !== undefined;
   }
@@ -435,30 +499,17 @@ export class HubManager {
       };
     }
 
-    const hubData = await this.storage.loadHub(resolvedHubId);
-    const sources = await hydrateArtifactorySources(hubData.config.sources ?? [], hubData.reference, this.secrets);
-    const result = loadHubSourcesProgressively(
-      resolvedHubId,
-      sources,
-      {
-        listSources: () => registryManager.listSources(),
-        addSource: (s) => registryManager.addSource(s),
-        updateSource: (id, u) => registryManager.updateSource(id, u),
-        removeSource: (id) => registryManager.removeSource(id),
-        listInstalledBundles: () => registryManager.listInstalledBundles(),
-        remapBundleSource: (oldSourceId, newSourceId) => registryManager.remapBundleSource(oldSourceId, newSourceId)
-      },
-      this.translateLogEvent,
-      {
-        concurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
-        syncConcurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
-        syncSource: (id) => registryManager.syncSource(id).catch((e: unknown) => {
-          this.logger.warn(`Failed to sync hub source ${id}`, e);
-        })
-      }
-    );
-
+    const result = await this.loadHubSourcesProgressively(resolvedHubId, registryManager);
     return { hubId: resolvedHubId, ...result };
+  }
+
+  /**
+   * Current source-work progress, absent when this hub is not loading.
+   * @param hubId
+   */
+  public getHubLoadingProgress(hubId: string): HubSourceLoadingProgress | undefined {
+    const progress = this.hubLoadingProgress.get(hubId)?.progress;
+    return progress ? { ...progress } : undefined;
   }
 
   /**
@@ -527,18 +578,40 @@ export class HubManager {
     // same underlying HubStore.remove(), but only HubStorage's own version
     // also evicts the now-deleted hub from its read-through cache.
     await this.storage.deleteHub(hubId);
-    this._onHubDeleted.fire(hubId);
+
+    try {
+      // Promotion/clear policy and its concurrency guards live in the
+      // app layer (ADR-0001); route the active-hub mutation through this
+      // service's richer setActiveHub so source loading and events still fire.
+      await this.appHubManager.reconcileActiveHubAfterDeletion(hubId, {
+        // Use HubStorage's cache-aware listing (not the raw HubStore) to match
+        // the rest of this service's reads.
+        listRemainingHubs: () => this.storage.listHubs(),
+        setActiveHub: (nextHubId) => this.setActiveHub(nextHubId),
+        onLog: ({ level, message, error }) => this.logger[level](message, error)
+      });
+    } finally {
+      // Storage deletion succeeded even if replacement or recovery failed.
+      this._onHubDeleted.fire(hubId);
+    }
   }
 
+  /**
+   * Delete imported hubs sequentially after clearing the active selection.
+   * Clearing first prevents promoting a replacement whose background source
+   * sync would race its own deletion. Individual failures are logged without
+   * preventing remaining deletions.
+   */
   public async deleteAllHubs(): Promise<void> {
     const hubIds = await this.storage.listHubs();
-    await Promise.allSettled(hubIds.map(async (hubId) => {
+    await this.setActiveHub(null);
+    for (const hubId of hubIds) {
       try {
         await this.deleteHub(hubId);
       } catch (error) {
         this.logger.warn(`Failed to delete hub ${hubId} during cleanup`, error);
       }
-    }));
+    }
   }
 
   /**
@@ -706,28 +779,7 @@ export class HubManager {
       // the background so the marketplace/tree fill in progressively.
       const registryManager = this.registryManager;
       if (registryManager && options?.loadSources !== false) {
-        const hubData = await this.storage.loadHub(hubId);
-        const sources = await hydrateArtifactorySources(hubData.config.sources ?? [], hubData.reference, this.secrets);
-        const { onComplete } = loadHubSourcesProgressively(
-          hubId,
-          sources,
-          {
-            listSources: () => registryManager.listSources(),
-            addSource: (s) => registryManager.addSource(s),
-            updateSource: (id, u) => registryManager.updateSource(id, u),
-            removeSource: (id) => registryManager.removeSource(id),
-            listInstalledBundles: () => registryManager.listInstalledBundles(),
-            remapBundleSource: (oldSourceId, newSourceId) => registryManager.remapBundleSource(oldSourceId, newSourceId)
-          },
-          this.translateLogEvent,
-          {
-            concurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
-            syncConcurrency: CONCURRENCY_CONSTANTS.SOURCE_SYNC_CONCURRENCY,
-            syncSource: (id) => registryManager.syncSource(id).catch((e: unknown) => {
-              this.logger.warn(`Failed to sync hub source ${id}`, e);
-            })
-          }
-        );
+        const { onComplete } = await this.loadHubSourcesProgressively(hubId, registryManager);
         void onComplete().catch((error) => {
           this.logger.warn('Failed to complete hub source sync', error);
         });
@@ -769,6 +821,7 @@ export class HubManager {
 
     this.logger.info(`Loading sources from hub: ${hubId}`);
 
+    const loading = this.beginHubLoading(hubId);
     try {
       const hubData = await this.storage.loadHub(hubId);
       const hubSources = await hydrateArtifactorySources(hubData.config.sources || [], hubData.reference, this.secrets);
@@ -785,11 +838,19 @@ export class HubManager {
           remapBundleSource: (oldSourceId, newSourceId) => registryManager.remapBundleSource(oldSourceId, newSourceId)
         },
         this.translateLogEvent,
-        options
+        {
+          ...options,
+          onProgress: (progress) => {
+            loading.onProgress(progress);
+            options?.onProgress?.(progress);
+          }
+        }
       );
     } catch (error) {
       this.logger.error(`Failed to load sources from hub ${hubId}`, error as Error);
       throw error;
+    } finally {
+      loading.finish();
     }
   }
 

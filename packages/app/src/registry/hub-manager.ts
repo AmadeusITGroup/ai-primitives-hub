@@ -277,6 +277,80 @@ export class HubManager {
   }
 
   /**
+   * Reconcile the active-hub pointer after a hub has been deleted from
+   * storage. When the deleted hub was active, promote the first
+   * remaining hub (or clear the pointer when none remain). If listing
+   * or activating a replacement fails, clear the deleted hub's stale
+   * pointer instead of leaving it dangling.
+   *
+   * Framework-agnostic and reusable by any delivery layer (extension,
+   * CLI): it owns only the promotion/clear policy and its concurrency
+   * guards, not events or UI. Callers remain responsible for their own
+   * event/logging side effects (mirrors `deleteHub`'s split).
+   *
+   * Concurrency: both the pre-promotion and the recovery paths re-read
+   * the active pointer across awaits, so a hub selected by a concurrent
+   * operation while listing was pending is never clobbered.
+   *
+   * The active-hub mutation is delegated through `setActiveHub` so
+   * delivery layers can route it through their own richer activation
+   * (source loading, events) rather than this class's bare pointer
+   * write. The remaining-hubs lookup is likewise injectable so a
+   * delivery layer can list through its own cache-aware store; both
+   * default to this instance's own methods.
+   * @param deletedHubId The hub id that was just removed from storage.
+   * @param deps Optional overrides: `listRemainingHubs`, `setActiveHub`, and a diagnostic `onLog` sink.
+   * @param deps.listRemainingHubs
+   * @param deps.setActiveHub
+   * @param deps.onLog
+   * @returns The reconciliation outcome for callers that log specifics.
+   */
+  public async reconcileActiveHubAfterDeletion(
+    deletedHubId: string,
+    deps: {
+      listRemainingHubs?: () => Promise<string[]>;
+      setActiveHub?: (hubId: string | null) => Promise<void>;
+      onLog?: (event: { level: 'info' | 'warn'; message: string; error?: Error }) => void;
+    } = {}
+  ): Promise<{ outcome: 'unchanged' | 'promoted' | 'cleared' | 'superseded'; nextActiveHubId: string | null }> {
+    const listRemainingHubs = deps.listRemainingHubs ?? (() => this.deps.store.list());
+    const setActiveHub = deps.setActiveHub ?? ((hubId) => this.setActiveHub(hubId));
+    const onLog = deps.onLog;
+    try {
+      if (await this.getActiveHubId() !== deletedHubId) {
+        return { outcome: 'unchanged', nextActiveHubId: await this.getActiveHubId() };
+      }
+      const remainingHubIds = await listRemainingHubs();
+      // Listing yields to other deletions and user selections. Do not
+      // replace a newer active hub chosen while that work was pending.
+      if (await this.getActiveHubId() !== deletedHubId) {
+        return { outcome: 'superseded', nextActiveHubId: await this.getActiveHubId() };
+      }
+      const nextActiveHubId = remainingHubIds[0] ?? null;
+      await setActiveHub(nextActiveHubId);
+      onLog?.({
+        level: 'info',
+        message: nextActiveHubId
+          ? `Deleted active hub ${deletedHubId}; switched active hub to ${nextActiveHubId}`
+          : `Deleted active hub ${deletedHubId}; no hubs remain active`
+      });
+      return { outcome: nextActiveHubId ? 'promoted' : 'cleared', nextActiveHubId };
+    } catch (error) {
+      onLog?.({
+        level: 'warn',
+        message: `Deleted hub ${deletedHubId}, but failed to select a replacement; clearing its stale active selection`,
+        error: error instanceof Error ? error : new Error(String(error))
+      });
+      // Do not clear another hub selected while replacement work was pending.
+      if (await this.getActiveHubId() === deletedHubId) {
+        await setActiveHub(null);
+        return { outcome: 'cleared', nextActiveHubId: null };
+      }
+      return { outcome: 'superseded', nextActiveHubId: await this.getActiveHubId() };
+    }
+  }
+
+  /**
    * Re-fetch a hub's config from its recorded reference and persist
    * the updated version.
    * @param hubId Hub identifier to sync.

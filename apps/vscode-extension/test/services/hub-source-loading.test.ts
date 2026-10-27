@@ -6,6 +6,8 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as sinon from 'sinon';
+import * as vscode from 'vscode';
 import {
   HubManager,
 } from '../../src/services/hub-manager';
@@ -112,9 +114,135 @@ suite('Hub Source Loading', () => {
   });
 
   teardown(() => {
+    sinon.restore();
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true });
     }
+  });
+
+  suite('Loading Progress', () => {
+    const reference = (): HubReference => ({
+      type: 'local',
+      location: path.join(__dirname, '..', 'fixtures', 'hubs', 'hub-two-sources.yml')
+    });
+
+    test('progressive import retains progress until every background sync settles', async () => {
+      let release!: () => void;
+      const blocker = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      Object.assign(mockRegistry, { syncSource: async () => blocker });
+      const result = await hubManager.importHubProgressively(reference(), 'progress-hub');
+      await result.onRegistered();
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub')?.percentage, 50);
+      release();
+      await result.onComplete();
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub'), undefined);
+    });
+
+    test('registration reports intermediate percentages, isolates observers and clears on success', async () => {
+      await hubManager.importHubConfig(reference(), 'progress-hub');
+      const percentages: number[] = [];
+      const observedPercentages: (number | undefined)[] = [];
+      const eventPercentages: (number | undefined)[] = [];
+      sinon.stub(vscode.EventEmitter.prototype, 'fire').callsFake((hubId: unknown) => {
+        if (hubId === 'progress-hub') {
+          eventPercentages.push(hubManager.getHubLoadingProgress('progress-hub')?.percentage);
+        }
+      });
+      await hubManager.loadHubSources('progress-hub', {
+        onProgress: ({ percentage }) => {
+          percentages.push(percentage);
+          observedPercentages.push(hubManager.getHubLoadingProgress('progress-hub')?.percentage);
+          throw new Error('UI observer failed');
+        }
+      });
+      assert.deepStrictEqual(percentages, [0, 50, 100]);
+      assert.deepStrictEqual(observedPercentages, percentages);
+      assert.deepStrictEqual(eventPercentages, [0, 0, 50, 100, undefined]);
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub'), undefined);
+    });
+
+    test('clears loading state after storage/listing failures and failed syncs', async () => {
+      await assert.rejects(hubManager.loadHubSources('missing-hub'));
+      assert.strictEqual(hubManager.getHubLoadingProgress('missing-hub'), undefined);
+      await hubManager.importHubConfig(reference(), 'progress-hub');
+      const listing = sinon.stub(mockRegistry, 'listSources').rejects(new Error('listing failed'));
+      await assert.rejects(hubManager.loadHubSources('progress-hub'), /listing failed/);
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub'), undefined);
+      const failedImport = await hubManager.importHubProgressively(reference(), 'progress-hub');
+      await assert.rejects(failedImport.onComplete(), /listing failed/);
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub'), undefined);
+      listing.restore();
+      Object.assign(mockRegistry, { syncSource: () => Promise.reject(new Error('sync failed')) });
+      const result = await hubManager.importHubProgressively(reference(), 'progress-hub');
+      await result.onComplete();
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub'), undefined);
+    });
+
+    test('an older overlapping run cannot clear or overwrite the newer run', async () => {
+      await hubManager.importHubConfig(reference(), 'progress-hub');
+      let releaseOld!: (sources: RegistrySource[]) => void;
+      let releaseNew!: (sources: RegistrySource[]) => void;
+      let oldStarted!: () => void;
+      let newStarted!: () => void;
+      const oldReady = new Promise<void>((resolve) => {
+        oldStarted = resolve;
+      });
+      const newReady = new Promise<void>((resolve) => {
+        newStarted = resolve;
+      });
+      const listing = sinon.stub(mockRegistry, 'listSources');
+      listing.onFirstCall().callsFake(() => {
+        oldStarted();
+        return new Promise((resolve) => {
+          releaseOld = resolve;
+        });
+      });
+      listing.onSecondCall().callsFake(() => {
+        newStarted();
+        return new Promise((resolve) => {
+          releaseNew = resolve;
+        });
+      });
+      const older = hubManager.loadHubSources('progress-hub');
+      await oldReady;
+      const newer = hubManager.loadHubSources('progress-hub');
+      await newReady;
+      releaseOld([]);
+      await older;
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub')?.percentage, 0);
+      releaseNew([]);
+      await newer;
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub'), undefined);
+    });
+
+    test('activation uses the same progress lifecycle for background loading', async () => {
+      await hubManager.importHubConfig(reference(), 'progress-hub');
+      let release!: () => void;
+      let started!: () => void;
+      const blocker = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const ready = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const syncs: Promise<void>[] = [];
+      Object.assign(mockRegistry, { syncSource: () => {
+        const sync = blocker.then(() => undefined);
+        syncs.push(sync);
+        started();
+        return sync;
+      } });
+      await hubManager.setActiveHub('progress-hub');
+      await ready;
+      assert.ok(hubManager.getHubLoadingProgress('progress-hub'));
+      release();
+      await Promise.all(syncs);
+      // Flush completion handlers without a time-based delay.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.strictEqual(hubManager.getHubLoadingProgress('progress-hub'), undefined);
+    });
   });
 
   suite('Source Loading Basics', () => {

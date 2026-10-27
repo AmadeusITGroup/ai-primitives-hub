@@ -249,6 +249,12 @@
         "icon": "$(server)"
       },
       {
+        "command": "promptregistry.activateHub",
+        "title": "Activate Hub",
+        "category": "AI Primitives Hub",
+        "icon": "$(check)"
+      },
+      {
         "command": "promptregistry.syncHub",
         "title": "Sync Hub",
         "category": "AI Primitives Hub",
@@ -724,24 +730,29 @@
           "group": "sourceActions@4"
         },
         {
-          "command": "promptregistry.syncHub",
+          "command": "promptregistry.activateHub",
           "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_readonly)?$/",
           "group": "hubActions@1"
         },
         {
-          "command": "promptregistry.deleteHub",
-          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_readonly)?$/",
+          "command": "promptregistry.syncHub",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_active|_readonly)?$/",
           "group": "hubActions@2"
         },
         {
-          "command": "promptregistry.openItemRepository",
-          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_readonly)?$/",
+          "command": "promptregistry.deleteHub",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_active|_readonly)?$/",
           "group": "hubActions@3"
         },
         {
           "command": "promptregistry.contributeToHub",
-          "when": "view == promptRegistryExplorer && viewItem == hub",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_active)?$/",
           "group": "hubActions@4"
+        },
+        {
+          "command": "promptregistry.openItemRepository",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_active|_readonly)?$/",
+          "group": "hubActions@5"
         },
         {
           "command": "promptregistry.openItemRepository",

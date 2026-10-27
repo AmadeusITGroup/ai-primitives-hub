@@ -395,12 +395,14 @@ suite('MarketplaceViewProvider - Throttle on source sync burst', () => {
   let sandbox: sinon.SinonSandbox;
   let clock: sinon.SinonFakeTimers;
   let onSourceSyncedCallback: ((event: { sourceId: string; bundleCount: number }) => void) | undefined;
+  let sourceCompositionCallbacks: Record<string, () => void>;
   let postedMessages: any[];
   let mockSearchBundles: sinon.SinonStub;
 
   setup(() => {
     sandbox = sinon.createSandbox();
     clock = sandbox.useFakeTimers();
+    sourceCompositionCallbacks = {};
     postedMessages = [];
     mockSearchBundles = sandbox.stub().resolves([]);
 
@@ -435,6 +437,15 @@ suite('MarketplaceViewProvider - Throttle on source sync burst', () => {
     setupRegistryManagerEventMocks(mockRegistryManager, sandbox, {
       onSourceSynced: (cb) => {
         onSourceSyncedCallback = cb;
+      },
+      onSourceAdded: (cb) => {
+        sourceCompositionCallbacks.added = () => cb({ id: 'test-source' });
+      },
+      onSourceRemoved: (cb) => {
+        sourceCompositionCallbacks.removed = () => cb('test-source');
+      },
+      onSourceUpdated: (cb) => {
+        sourceCompositionCallbacks.updated = () => cb('test-source');
       }
     });
 
@@ -510,6 +521,28 @@ suite('MarketplaceViewProvider - Throttle on source sync burst', () => {
     mockSearchBundles.callsFake(async () => []);
   };
   const renderCount = () => postedMessages.filter((m) => m.type === 'bundlesLoaded').length;
+
+  ['added', 'removed', 'updated'].forEach((event) => {
+    test(`source ${event} events render bundles through the shared leading/trailing throttle`, async () => {
+      const callback = sourceCompositionCallbacks[event];
+      assert.ok(callback, `source ${event} listener must be registered`);
+
+      callback();
+      await clock.tickAsync(0);
+      assert.strictEqual(renderCount(), 1, 'first event delivers bundles immediately');
+      assert.deepStrictEqual(postedMessages.find((message) => message.type === 'bundlesLoaded').bundles, []);
+
+      callback();
+      callback();
+      await clock.tickAsync(499);
+      assert.strictEqual(renderCount(), 1, 'burst does not render inside the throttle window');
+
+      await clock.tickAsync(1);
+      assert.strictEqual(renderCount(), 2, 'burst delivers one trailing bundlesLoaded message');
+      await clock.tickAsync(500);
+      assert.strictEqual(renderCount(), 2, 'no extra renders after the burst settles');
+    });
+  });
 
   test('does not drop the trailing-edge load when the leading-edge load is still in flight', async () => {
     if (!onSourceSyncedCallback) {

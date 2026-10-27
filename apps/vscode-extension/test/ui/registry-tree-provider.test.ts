@@ -37,7 +37,98 @@ suite('RegistryTreeProvider - Hub Profiles', () => {
   });
 
   teardown(() => {
+    provider.dispose();
     sandbox.restore();
+  });
+
+  test('hub rows retain Active while loading and show only percentage progress', async () => {
+    hubManagerStub.listHubs.resolves([
+      { id: 'active', name: 'Active Hub', description: '', reference: { type: 'local', location: '/hub' } },
+      { id: 'other', name: 'Other Hub', description: '', reference: { type: 'local', location: '/other' } }
+    ]);
+    hubManagerStub.getActiveHubId.resolves('active');
+    const root = (await provider.getChildren()).find((item) => item.type === TreeItemType.HUBS_ROOT)!;
+    for (const percentage of [0, 24, 25, 50, 75, 99, 100]) {
+      hubManagerStub.getHubLoadingProgress.withArgs('active').returns({ completed: percentage, total: 100, percentage });
+      hubManagerStub.getHubLoadingProgress.withArgs('other').returns({ completed: percentage, total: 100, percentage });
+      const rows = await provider.getChildren(root);
+      assert.strictEqual(rows[0].description, `[Active] ${percentage}%`);
+      assert.strictEqual(rows[1].description, `${percentage}%`);
+      assert.strictEqual(rows[0].contextValue, 'hub_active');
+      assert.strictEqual(rows[0].label, 'Active Hub');
+      assert.strictEqual(rows[0].iconPath, undefined, 'progress must not replace the left-hand hub icon');
+    }
+    hubManagerStub.getHubLoadingProgress.resetBehavior();
+    const completedRows = await provider.getChildren(root);
+    assert.strictEqual(completedRows[0].description, '[Active]');
+    assert.strictEqual(completedRows[1].description, undefined);
+    assert.strictEqual(completedRows[0].iconPath, undefined);
+  });
+
+  test('subscribes to optional progress events and disposes the subscription', () => {
+    provider.dispose();
+    let progressChanged!: (hubId: string) => void;
+    const dispose = sandbox.spy();
+    Object.assign(hubManagerStub, { onHubLoadingProgressChanged: (listener: (hubId: string) => void) => {
+      progressChanged = listener;
+      return { dispose };
+    } });
+    provider = new RegistryTreeProvider(registryManagerStub, hubManagerStub);
+    const fire = sandbox.spy(vscode.EventEmitter.prototype, 'fire');
+    progressChanged('active');
+    assert.ok(fire.calledOnce, 'a progress event refreshes the tree');
+    provider.dispose();
+    assert.ok(dispose.calledOnce);
+  });
+
+  test('active-hub changes refresh without progress or source events and dispose their subscription', () => {
+    provider.dispose();
+    const fire = sandbox.spy(vscode.EventEmitter.prototype, 'fire');
+    let activeChanged: ((change: { oldHubId: string | null; newHubId: string | null }) => void) | undefined;
+    const dispose = sandbox.spy();
+    Object.assign(hubManagerStub, {
+      onActiveHubChanged: (listener: typeof activeChanged) => {
+        activeChanged = listener;
+        return { dispose };
+      }
+    });
+    provider = new RegistryTreeProvider(registryManagerStub, hubManagerStub);
+    assert.ok(activeChanged, 'subscribe to the active-hub event');
+    activeChanged({ oldHubId: null, newHubId: 'active' });
+    activeChanged({ oldHubId: 'active', newHubId: null });
+    assert.strictEqual(fire.callCount, 2, 'each selection change refreshes the tree');
+
+    provider.dispose();
+    assert.ok(dispose.calledOnce, 'release the active-hub subscription');
+  });
+
+  test('Favorites hubs retain active context before, during and after loading', async () => {
+    provider.toggleViewMode();
+    hubManagerStub.getFavoriteProfiles.resolves({ active: ['profile'], other: ['profile'] });
+    hubManagerStub.getActiveHubId.resolves('active');
+    registryManagerStub.listLocalProfiles.resolves([]);
+    for (const id of ['active', 'other']) {
+      hubManagerStub.getHubInfo.withArgs(id).resolves({
+        id,
+        config: { metadata: { name: id } } as any,
+        reference: {} as any,
+        metadata: {} as any
+      });
+    }
+    const root = (await provider.getChildren()).find((item) => item.type === TreeItemType.FAVORITES_ROOT)!;
+    for (const percentage of [undefined, 0, 50, 100, undefined]) {
+      hubManagerStub.getHubLoadingProgress.resetBehavior();
+      if (percentage !== undefined) {
+        hubManagerStub.getHubLoadingProgress.returns({ completed: percentage, total: 100, percentage });
+      }
+      const rows = await provider.getChildren(root);
+      const active = rows.find((item) => item.type === TreeItemType.HUB && item.data.id === 'active')!;
+      const other = rows.find((item) => item.type === TreeItemType.HUB && item.data.id === 'other')!;
+      assert.strictEqual(active.description, percentage === undefined ? '[Active]' : `[Active] ${percentage}%`);
+      assert.strictEqual(active.contextValue, 'hub_active');
+      assert.strictEqual(other.description, percentage === undefined ? undefined : `${percentage}%`);
+      assert.strictEqual(other.contextValue, TreeItemType.HUB);
+    }
   });
 
   test('getFavoritesItems should return items with correct contextValue for menu actions', async () => {
@@ -381,6 +472,28 @@ suite('RegistryTreeProvider - Hub Profiles', () => {
     assert.ok(inactiveItem);
     // Inactive profiles have empty string description to match PROFILE behavior
     assert.strictEqual(inactiveItem.description, '');
+  });
+
+  test('hub list should show Active status for the active hub', async () => {
+    (provider as any).viewMode = 'all';
+
+    hubManagerStub.listHubs.resolves([
+      { id: 'hub-1', name: 'Hub One', description: 'First hub' } as any,
+      { id: 'hub-2', name: 'Hub Two', description: 'Second hub' } as any
+    ]);
+    hubManagerStub.getActiveHubId.resolves('hub-2');
+
+    const hubItems = await (provider as any).getHubsItems();
+
+    const firstHub = hubItems.find((item: RegistryTreeItem) => item.label === 'Hub One');
+    const activeHub = hubItems.find((item: RegistryTreeItem) => item.label === 'Hub Two');
+
+    assert.ok(firstHub);
+    assert.ok(activeHub);
+    assert.strictEqual(firstHub?.description, undefined);
+    assert.strictEqual(activeHub?.description, '[Active]');
+    assert.strictEqual(firstHub?.contextValue, TreeItemType.HUB);
+    assert.strictEqual(activeHub?.contextValue, 'hub_active');
   });
 
   test('should organize profiles by path', async () => {
