@@ -472,12 +472,18 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
    */
   private async getHubsItems(): Promise<RegistryTreeItem[]> {
     const hubs = await this.hubManager.listHubs();
-    return hubs.map((hub) => new RegistryTreeItem(
-      hub.name,
-      TreeItemType.HUB,
-      hub,
-      vscode.TreeItemCollapsibleState.Collapsed
-    ));
+    return hubs.map((hub) => {
+      const item = new RegistryTreeItem(
+        hub.name,
+        TreeItemType.HUB,
+        hub,
+        vscode.TreeItemCollapsibleState.Collapsed
+      );
+      if (hub.reference?.type === 'artifactory') {
+        item.contextValue = 'hub_readonly';
+      }
+      return item;
+    });
   }
 
   /**
@@ -514,9 +520,12 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
         const hubItem = new RegistryTreeItem(
           hubInfo.config.metadata.name,
           TreeItemType.HUB,
-          { id: hubId, name: hubInfo.config.metadata.name }, // Pass minimal hub data needed
+          { id: hubId, name: hubInfo.config.metadata.name, reference: hubInfo.reference }, // Pass minimal hub data needed
           vscode.TreeItemCollapsibleState.Expanded // Expand by default to show favorites
         );
+        if (hubInfo.reference?.type === 'artifactory') {
+          hubItem.contextValue = 'hub_readonly';
+        }
 
         items.push(hubItem);
 
