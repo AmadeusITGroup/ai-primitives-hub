@@ -134,7 +134,8 @@ describe('Devin compatibility of a devin-cli repository install', () => {
   const writeMcpConfig = async (scope: 'user' | 'repository'): Promise<string> => {
     const config = resolveMcpLayoutConfig('devin-cli', scope, [defaultLayouts]);
     expect(config, `devin-cli ${scope} mcpConfig`).toBeDefined();
-    const configPath = resolveMcpConfigPath(config!, { HOME: home, workspaceRoot: workspace });
+    // The template keeps `/` separators; normalize so comparisons with `path.join` hold on Windows.
+    const configPath = path.normalize(resolveMcpConfigPath(config!, { HOME: home, workspaceRoot: workspace }));
     await mkdir(path.dirname(configPath), { recursive: true });
     await writeFile(configPath, JSON.stringify({
       [config!.serversKey]: {
