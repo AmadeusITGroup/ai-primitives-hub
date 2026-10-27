@@ -426,6 +426,84 @@
         "title": "Clean Up Stale Repository Bundles",
         "category": "AI Primitives Hub",
         "icon": "$(trash)"
+      },
+      {
+        "command": "promptregistry.contributeToHub",
+        "title": "Contribute to Hub (Fork, Clone & Open Visual Editor)",
+        "category": "AI Primitives Hub",
+        "icon": "$(git-pull-request-create)"
+      },
+      {
+        "command": "promptregistry.openHubVisualEditor",
+        "title": "Open Hub Configuration in Visual Editor",
+        "category": "AI Primitives Hub",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "promptregistry.validateHubConfig",
+        "title": "Validate Hub Configuration (Sources, Catalogs & Profiles)",
+        "category": "AI Primitives Hub",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "promptregistry.touchHubUpdatedAt",
+        "title": "Hub Config: Update Timestamp (updatedAt)",
+        "category": "AI Primitives Hub",
+        "icon": "$(clock)"
+      },
+      {
+        "command": "promptregistry.addHubSource",
+        "title": "Hub Config: Add Source",
+        "category": "AI Primitives Hub",
+        "icon": "$(add)"
+      },
+      {
+        "command": "promptregistry.discoverHubSourceBundles",
+        "title": "Hub Config: Discover Source Bundles",
+        "category": "AI Primitives Hub",
+        "icon": "$(search)"
+      },
+      {
+        "command": "promptregistry.addHubProfile",
+        "title": "Hub Config: Add Profile",
+        "category": "AI Primitives Hub",
+        "icon": "$(add)"
+      },
+      {
+        "command": "promptregistry.addHubProfileBundle",
+        "title": "Hub Config: Add Bundle to Profile",
+        "category": "AI Primitives Hub",
+        "icon": "$(add)"
+      },
+      {
+        "command": "promptregistry.submitHubPullRequest",
+        "title": "Hub Config: Commit & Create Pull Request",
+        "category": "AI Primitives Hub",
+        "icon": "$(git-pull-request)"
+      },
+      {
+        "command": "promptregistry.refreshHubPullRequestStatus",
+        "title": "Hub Config: Refresh Pull Request Status",
+        "category": "AI Primitives Hub",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "promptregistry.openHubPullRequest",
+        "title": "Hub Config: Open Pull Request in Browser",
+        "category": "AI Primitives Hub",
+        "icon": "$(link-external)"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "promptregistry.hubConfigEditor",
+        "displayName": "AI Primitives Hub Visual Configuration Editor",
+        "selector": [
+          {
+            "filenamePattern": "**/hub-config.{yml,yaml}"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "viewsContainers": {
@@ -451,6 +529,13 @@
           "name": "Registry Explorer",
           "icon": "$(list-tree)",
           "contextualTitle": "AI Primitives Hub"
+        },
+        {
+          "id": "promptRegistryHubConfigTree",
+          "name": "Hub Configuration Editor",
+          "icon": "$(edit)",
+          "contextualTitle": "Hub Configuration Editor",
+          "when": "promptRegistry.hubWorkspaceActive || promptRegistry.activeHubContributable"
         }
       ]
     },
@@ -458,6 +543,27 @@
       "commandPalette": [
         {
           "command": "promptregistry.forceGitHubAuth"
+        },
+        {
+          "command": "promptregistry.contributeToHub",
+          "when": "promptRegistry.activeHubContributable"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "promptregistry.openHubVisualEditor",
+          "when": "resourceFilename =~ /^hub-config\\.ya?ml$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "promptregistry.validateHubConfig",
+          "when": "resourceFilename =~ /^hub-config\\.ya?ml$/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "promptregistry.submitHubPullRequest",
+          "when": "resourceFilename =~ /^hub-config\\.ya?ml$/",
+          "group": "navigation@3"
         }
       ],
       "view/title": [
@@ -500,9 +606,39 @@
           "command": "promptregistry.openHubRepository",
           "when": "view == promptRegistryExplorer",
           "group": "navigation@6"
+        },
+        {
+          "command": "promptregistry.contributeToHub",
+          "when": "view == promptRegistryExplorer && promptRegistry.activeHubContributable",
+          "group": "navigation@7"
+        },
+        {
+          "command": "promptregistry.openHubVisualEditor",
+          "when": "view == promptRegistryHubConfigTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "promptregistry.validateHubConfig",
+          "when": "view == promptRegistryHubConfigTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "promptregistry.submitHubPullRequest",
+          "when": "view == promptRegistryHubConfigTree",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
+        {
+          "command": "promptregistry.openHubPullRequest",
+          "when": "view == promptRegistryHubConfigTree && viewItem == hub_config_pr_action",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptregistry.refreshHubPullRequestStatus",
+          "when": "view == promptRegistryHubConfigTree && viewItem == hub_config_pr_action",
+          "group": "inline@2"
+        },
         {
           "command": "promptRegistry.activateProfile",
           "when": "view == promptRegistryExplorer && (viewItem == profile || viewItem == hub_profile)",
@@ -595,23 +731,28 @@
         },
         {
           "command": "promptregistry.activateHub",
-          "when": "view == promptRegistryExplorer && viewItem == hub",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_readonly)?$/",
           "group": "hubActions@1"
         },
         {
           "command": "promptregistry.syncHub",
-          "when": "view == promptRegistryExplorer && (viewItem == hub || viewItem == hub_active)",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_active|_readonly)?$/",
           "group": "hubActions@2"
         },
         {
           "command": "promptregistry.deleteHub",
-          "when": "view == promptRegistryExplorer && (viewItem == hub || viewItem == hub_active)",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_active|_readonly)?$/",
           "group": "hubActions@3"
         },
         {
-          "command": "promptregistry.openItemRepository",
-          "when": "view == promptRegistryExplorer && (viewItem == hub || viewItem == hub_active)",
+          "command": "promptregistry.contributeToHub",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_active)?$/",
           "group": "hubActions@4"
+        },
+        {
+          "command": "promptregistry.openItemRepository",
+          "when": "view == promptRegistryExplorer && viewItem =~ /^hub(_active|_readonly)?$/",
+          "group": "hubActions@5"
         },
         {
           "command": "promptregistry.openItemRepository",
@@ -728,7 +869,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "vscode:prepublish": "pnpm run compile",
-    "copy-webview": "cpy \"src/ui/webview/marketplace/*\" dist/webview/marketplace && cpy \"src/ui/webview/bundle-details/*\" dist/webview/bundle-details",
+    "copy-webview": "cpy \"src/ui/webview/marketplace/*\" dist/webview/marketplace && cpy \"src/ui/webview/bundle-details/*\" dist/webview/bundle-details && cpy \"src/ui/webview/hub-config-editor/*\" dist/webview/hub-config-editor",
     "copy-fonts": "cpy \"node_modules/@design-factory/styles/assets/fonts/amadeus-neue/**/*.woff2\" dist/webview/fonts/amadeus-neue && cpy \"node_modules/@design-factory/styles/assets/fonts/font-awesome/*.woff2\" dist/webview/fonts/font-awesome && cpy \"src/ui/webview/fonts/icons.css\" dist/webview/fonts --flat",
     "copy-skill-references": "cd ../.. && cpy docs/README.md apps/vscode-extension/resources/skills/prompt-registry-helper/references/docs-index.md && cpy \"docs/**\" \"!docs/README.md\" \"!docs/contributor-guide\" \"!docs/contributor-guide/**\" \"!docs/reference/adapter-api.md\" \"!docs/AGENTS.md\" apps/vscode-extension/resources/skills/prompt-registry-helper/references",
     "copy-schemas": "node scripts/package-helpers.js expand-schemas",

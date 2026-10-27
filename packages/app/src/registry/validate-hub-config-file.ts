@@ -7,7 +7,6 @@
  * @module registry/validate-hub-config-file
  */
 import type {
-  Bundle,
   FileSystem,
   HubProfileBundle,
   RegistrySource,
@@ -154,6 +153,21 @@ export async function validateHubConfigFile(
     );
   }
 
+  return validateHubConfigContent(content, filePath, options);
+}
+
+/**
+ * Validate an in-memory `hub-config.yml` string (used by editor buffers and
+ * `validateHubConfigFile`).
+ * @param content Raw YAML content.
+ * @param filePath Logical file path for reporting.
+ * @param options Validation options.
+ */
+export async function validateHubConfigContent(
+  content: string,
+  filePath: string,
+  options: HubConfigFileValidationOptions = {}
+): Promise<HubConfigFileValidationResult | DeepHubConfigValidationResult> {
   let config: unknown;
   try {
     config = parseHubConfigYaml(content);
@@ -201,7 +215,7 @@ export async function validateHubConfigFile(
 interface SourceCatalog {
   source: RegistrySource;
   result: HubSourceDeepValidationResult;
-  bundles: Bundle[];
+  bundles: HubCatalogBundle[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => (
@@ -252,7 +266,7 @@ function toRegistrySource(value: Record<string, unknown>): RegistrySource | unde
   };
 }
 
-function bundleMatchesReference(bundle: Bundle, reference: HubProfileBundle, sourceType: SourceType): boolean {
+function bundleMatchesReference(bundle: HubCatalogBundle, reference: HubProfileBundle, sourceType: SourceType): boolean {
   if (bundle.id === reference.id) {
     return true;
   }
@@ -260,7 +274,8 @@ function bundleMatchesReference(bundle: Bundle, reference: HubProfileBundle, sou
     return false;
   }
 
-  return extractBundleIdentity(bundle.id, sourceType) === extractBundleIdentity(reference.id, sourceType);
+  return extractBundleIdentity(bundle.id, sourceType).toLowerCase()
+    === extractBundleIdentity(reference.id, sourceType).toLowerCase();
 }
 
 function compareCatalogVersions(left: HubCatalogBundle, right: HubCatalogBundle): number {
@@ -278,7 +293,7 @@ function compareCatalogVersions(left: HubCatalogBundle, right: HubCatalogBundle)
   return left.id.localeCompare(right.id);
 }
 
-function sortBundles(bundles: Bundle[]): Bundle[] {
+function sortBundles(bundles: HubCatalogBundle[]): HubCatalogBundle[] {
   return bundles.toSorted((left, right) => {
     const idOrder = left.id.localeCompare(right.id);
     if (idOrder !== 0) {
@@ -291,7 +306,7 @@ function sortBundles(bundles: Bundle[]): Bundle[] {
   });
 }
 
-function selectLatestBundle(bundles: Bundle[]): Bundle | undefined {
+function selectLatestBundle(bundles: HubCatalogBundle[]): HubCatalogBundle | undefined {
   return bundles
     .toSorted((left, right) => compareCatalogVersions(
       { id: left.id, version: left.version },
@@ -299,7 +314,7 @@ function selectLatestBundle(bundles: Bundle[]): Bundle | undefined {
     ))[0];
 }
 
-function availableVersions(bundles: Bundle[]): string {
+function availableVersions(bundles: HubCatalogBundle[]): string {
   return [...new Set(bundles.map((bundle) => bundle.version))]
     .toSorted((left, right) => {
       try {
@@ -439,9 +454,12 @@ async function validateSource(
     sourceType: source.type
   });
 
-  let bundles: Bundle[];
+  let bundles: HubCatalogBundle[];
   try {
-    bundles = sortBundles(await adapter.fetchBundles());
+    const discovered = adapter.fetchCatalog
+      ? await adapter.fetchCatalog()
+      : (await adapter.fetchBundles()).map(({ id, version }) => ({ id, version }));
+    bundles = sortBundles(discovered);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     onProgress?.({
@@ -608,61 +626,80 @@ async function validateHubConfigDeep(
     profilesTotal: profileEntries.length
   });
 
-  for (const [sourceIndex, entry] of sourceEntries.entries()) {
-    const source = toRegistrySource(entry.value);
-    if (!source) {
-      const sourceType = asString(entry.value.type, 'unknown');
-      onProgress?.({
-        phase: 'source',
-        status: 'started',
-        current: sourceIndex + 1,
-        total: sourceEntries.length,
-        sourceId: entry.id,
-        sourceType,
-        enabled: entry.value.enabled === true
-      });
-      catalogs.set(entry.id, {
-        source: {
-          id: entry.id,
-          name: entry.id,
-          type: sourceType as SourceType,
-          url: '',
-          enabled: entry.value.enabled === true,
-          priority: typeof entry.value.priority === 'number' ? entry.value.priority : 0
-        },
-        bundles: [],
-        result: {
+  const SOURCE_VALIDATION_CONCURRENCY = 5;
+  for (let batchStart = 0; batchStart < sourceEntries.length; batchStart += SOURCE_VALIDATION_CONCURRENCY) {
+    const batchEntries = sourceEntries.slice(batchStart, batchStart + SOURCE_VALIDATION_CONCURRENCY);
+    const sourceValidationTasks = batchEntries.map(async (entry, batchIndex) => {
+      const sourceIndex = batchStart + batchIndex;
+      const bufferedEvents: HubValidationProgress[] = [];
+      const bufferProgress = (ev: HubValidationProgress): void => {
+        bufferedEvents.push(ev);
+      };
+
+      const source = toRegistrySource(entry.value);
+      if (!source) {
+        const sourceType = asString(entry.value.type, 'unknown');
+        bufferProgress({
+          phase: 'source',
+          status: 'started',
+          current: sourceIndex + 1,
+          total: sourceEntries.length,
+          sourceId: entry.id,
+          sourceType,
+          enabled: entry.value.enabled === true
+        });
+        const invalidCatalog: SourceCatalog = {
+          source: {
+            id: entry.id,
+            name: entry.id,
+            type: sourceType as SourceType,
+            url: '',
+            enabled: entry.value.enabled === true,
+            priority: typeof entry.value.priority === 'number' ? entry.value.priority : 0
+          },
+          bundles: [],
+          result: {
+            sourceId: entry.id,
+            sourceType,
+            enabled: entry.value.enabled === true,
+            valid: false,
+            errors: [`Source '${entry.id}' must define a supported type and URL for deep validation.`],
+            warnings: [],
+            bundles: [],
+            bundlesFound: 0
+          }
+        };
+        bufferProgress({
+          phase: 'source',
+          status: 'completed',
+          current: sourceIndex + 1,
+          total: sourceEntries.length,
           sourceId: entry.id,
           sourceType,
           enabled: entry.value.enabled === true,
           valid: false,
-          errors: [`Source '${entry.id}' must define a supported type and URL for deep validation.`],
-          warnings: [],
-          bundles: [],
           bundlesFound: 0
-        }
-      });
-      onProgress?.({
-        phase: 'source',
-        status: 'completed',
-        current: sourceIndex + 1,
-        total: sourceEntries.length,
-        sourceId: entry.id,
-        sourceType,
-        enabled: entry.value.enabled === true,
-        valid: false,
-        bundlesFound: 0
-      });
-      continue;
-    }
+        });
+        return { id: entry.id, catalog: invalidCatalog, events: bufferedEvents };
+      }
 
-    catalogs.set(entry.id, await validateSource(
-      source,
-      deps,
-      onProgress,
-      sourceIndex + 1,
-      sourceEntries.length
-    ));
+      const catalog = await validateSource(
+        source,
+        deps,
+        bufferProgress,
+        sourceIndex + 1,
+        sourceEntries.length
+      );
+      return { id: entry.id, catalog, events: bufferedEvents };
+    });
+
+    for (const task of sourceValidationTasks) {
+      const { id, catalog, events } = await task;
+      catalogs.set(id, catalog);
+      for (const ev of events) {
+        onProgress?.(ev);
+      }
+    }
   }
 
   const sourceResults = sourceEntries.map((entry) => catalogs.get(entry.id)!.result);

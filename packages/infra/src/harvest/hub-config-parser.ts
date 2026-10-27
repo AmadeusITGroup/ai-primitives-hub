@@ -16,8 +16,9 @@
  * @module harvest/hub-config-parser
  */
 
-import type {
-  HubSourceSpec,
+import {
+  type HubSourceSpec,
+  parseGitHubOwnerRepo,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import {
@@ -118,7 +119,7 @@ function parseHubConfigEntry(entry: Record<string, unknown>, strict: boolean): H
     }
     return undefined;
   }
-  const ownerRepo = normalizeRepoFromUrl(url);
+  const ownerRepo = normalizeRepoFromUrl(url, type === 'skills' || type === 'apm');
   if (!ownerRepo) {
     if (strict) {
       throw new Error(`Enabled ${type} source has an invalid or non-GitHub repository URL: ${url}`);
@@ -165,12 +166,39 @@ export function parseHubConfig(
  * Extract {owner, repo} from a GitHub clone/html URL. Handles trailing
  * slashes and a trailing `.git`. Returns undefined for non-github hosts.
  * @param url - URL to parse.
+ * @param allowSubPath
  */
-export function normalizeRepoFromUrl(url: string): { owner: string; repo: string } | undefined {
+export function normalizeRepoFromUrl(
+  url: string,
+  allowSubPath = false
+): { owner: string; repo: string } | undefined {
   try {
     const target = parseGitHubRepositoryTarget(url);
     return { owner: target.owner, repo: target.repository };
   } catch {
+    if (allowSubPath && url.includes('://')) {
+      try {
+        const parsedUrl = new URL(url);
+        if (
+          parsedUrl.protocol !== 'https:'
+          || parsedUrl.port
+          || parsedUrl.username
+          || parsedUrl.password
+          || parsedUrl.search
+          || parsedUrl.hash
+          || url.includes('?')
+          || url.includes('#')
+        ) {
+          return undefined;
+        }
+        const parsed = parseGitHubOwnerRepo(url);
+        if (parsed) {
+          return { owner: parsed.owner, repo: parsed.repo };
+        }
+      } catch {
+        // Fall through to undefined.
+      }
+    }
     return undefined;
   }
 }

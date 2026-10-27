@@ -12,7 +12,11 @@
  */
 import type {
   BundleExtractor,
+  ExtractedFile,
   ExtractedFiles,
+} from '@ai-primitives-hub/core';
+import {
+  withFileMode,
 } from '@ai-primitives-hub/core';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- matches the extension's own import style for this CJS-only package
 import AdmZip = require('adm-zip');
@@ -22,7 +26,8 @@ import AdmZip = require('adm-zip');
  */
 export class ZipBundleExtractor implements BundleExtractor {
   /**
-   * Extract the bundle zip into a path -> bytes map.
+   * Extract the bundle zip into a path -> bytes map. Each file's recorded
+   * permission bits ride along as `ExtractedFile.mode` (issue #577).
    * @param bytes Raw bundle bytes (zip).
    * @returns Map of relative paths to file contents.
    */
@@ -34,7 +39,7 @@ export class ZipBundleExtractor implements BundleExtractor {
       throw new Error(`Failed to extract bundle: ${(error as Error).message}`);
     }
 
-    const files = new Map<string, Uint8Array>();
+    const files = new Map<string, ExtractedFile>();
     for (const entry of zip.getEntries()) {
       if (entry.isDirectory) {
         continue;
@@ -43,7 +48,9 @@ export class ZipBundleExtractor implements BundleExtractor {
       if (path === undefined) {
         throw new Error(`Unsafe ZIP path: ${entry.entryName}`);
       }
-      files.set(path, entry.getData());
+      const data = entry.getData();
+      const mode = entryMode(entry);
+      files.set(path, mode === undefined ? data : withFileMode(data, mode));
     }
     return files;
   }
@@ -73,16 +80,26 @@ export function readZipEntryModes(bytes: Uint8Array): ReadonlyMap<string, number
     if (path === undefined) {
       throw new Error(`Unsafe ZIP path: ${entry.entryName}`);
     }
-    // External attributes carry the Unix mode in the high 16 bits. Keep
-    // only rwxrwxrwx: setuid/setgid/sticky are attacker-controlled archive
-    // metadata (GHSA-679w-jf3m-wh39).
-    // eslint-disable-next-line no-bitwise -- Required for ZIP external attributes
-    const mode = (entry.attr >>> 16) & 0o777;
-    if (mode !== 0) {
+    const mode = entryMode(entry);
+    if (mode !== undefined) {
       modes.set(path, mode);
     }
   }
   return modes;
+}
+
+/**
+ * The Unix permission bits recorded for a zip entry.
+ * @param entry Zip entry.
+ * @returns `rwxrwxrwx` bits, or undefined when the entry records no Unix mode.
+ */
+function entryMode(entry: AdmZip.IZipEntry): number | undefined {
+  // External attributes carry the Unix mode in the high 16 bits. Keep
+  // only rwxrwxrwx: setuid/setgid/sticky are attacker-controlled archive
+  // metadata (GHSA-679w-jf3m-wh39).
+  // eslint-disable-next-line no-bitwise -- Required for ZIP external attributes
+  const mode = (entry.attr >>> 16) & 0o777;
+  return mode === 0 ? undefined : mode;
 }
 
 function normalizeZipPath(entryName: string): string | undefined {

@@ -9,6 +9,23 @@ module.exports = {
     delete: async () => undefined
   },
   workspace: {
+    workspaceFolders: undefined,
+    textDocuments: [],
+    onDidChangeTextDocument: () => ({ dispose: () => {} }),
+    onDidOpenTextDocument: () => ({ dispose: () => {} }),
+    onDidSaveTextDocument: () => ({ dispose: () => {} }),
+    onDidChangeConfiguration: () => ({ dispose: () => {} }),
+    openTextDocument: async (uriOrOptions) => ({
+      uri: uriOrOptions?.fsPath ? uriOrOptions : { fsPath: '/mock/hub-config.yml', scheme: 'file' },
+      fileName: uriOrOptions?.fsPath || '/mock/hub-config.yml',
+      languageId: uriOrOptions?.language || 'yaml',
+      lineCount: 1,
+      getText: () => uriOrOptions?.content || '',
+      lineAt: (line) => ({ text: '', range: { start: { line, character: 0 }, end: { line, character: 0 } } }),
+      positionAt: () => ({ line: 0, character: 0 }),
+      save: async () => true
+    }),
+    applyEdit: async () => true,
     getConfiguration: (section) => ({
       get: (key, defaultValue) => {
         // Return mock configuration values for testing
@@ -68,10 +85,20 @@ module.exports = {
     }
   },
   window: {
+    activeTextEditor: undefined,
+    visibleTextEditors: [],
+    onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
+    onDidChangeVisibleTextEditors: () => ({ dispose: () => {} }),
     showInformationMessage: () => Promise.resolve(),
     showWarningMessage: () => Promise.resolve(),
     showErrorMessage: () => Promise.resolve(),
     showQuickPick: () => Promise.resolve(),
+    showInputBox: () => Promise.resolve(),
+    showOpenDialog: () => Promise.resolve(),
+    showTextDocument: () => Promise.resolve(),
+    createTextEditorDecorationType: () => ({ key: 'mock-decoration', dispose: () => {} }),
+    registerCustomEditorProvider: () => ({ dispose: () => {} }),
+    createTreeView: () => ({ dispose: () => {} }),
     createQuickPick: () => {
       const quickPick = {
         items: [],
@@ -128,14 +155,111 @@ module.exports = {
     dispose() {}
   },
   ThemeIcon: class {
+    constructor(id, color) {
+      this.id = id;
+      this.color = color;
+    }
+  },
+  ThemeColor: class {
     constructor(id) {
       this.id = id;
     }
   },
+  Position: class {
+    constructor(line, character) {
+      this.line = line;
+      this.character = character;
+    }
+  },
+  Range: class {
+    constructor(startLineOrPos, startCharOrEndPos, endLine, endChar) {
+      if (typeof startLineOrPos === 'number') {
+        this.start = { line: startLineOrPos, character: startCharOrEndPos };
+        this.end = { line: endLine, character: endChar };
+      } else {
+        this.start = startLineOrPos;
+        this.end = startCharOrEndPos;
+      }
+    }
+    intersection(other) {
+      if (!other) return undefined;
+      if (other.end.line < this.start.line || other.start.line > this.end.line) {
+        return undefined;
+      }
+      return this;
+    }
+  },
+  Selection: class {
+    constructor(anchorLine, anchorChar, activeLine, activeChar) {
+      this.start = { line: anchorLine, character: anchorChar };
+      this.end = { line: activeLine, character: activeChar };
+    }
+  },
+  DiagnosticSeverity: {
+    Error: 0,
+    Warning: 1,
+    Information: 2,
+    Hint: 3
+  },
+  Diagnostic: class {
+    constructor(range, message, severity = 0) {
+      this.range = range;
+      this.message = message;
+      this.severity = severity;
+    }
+  },
+  CodeLens: class {
+    constructor(range, command) {
+      this.range = range;
+      this.command = command;
+    }
+  },
+  CodeActionKind: {
+    QuickFix: { value: 'quickfix' }
+  },
+  CodeAction: class {
+    constructor(title, kind) {
+      this.title = title;
+      this.kind = kind;
+    }
+  },
+  WorkspaceEdit: class {
+    constructor() {
+      this.edits = [];
+    }
+    replace(uri, range, newText) {
+      this.edits.push({ uri, range, newText });
+    }
+  },
+  ViewColumn: {
+    Active: -1,
+    Beside: -2,
+    One: 1,
+    Two: 2
+  },
+  languages: {
+    createDiagnosticCollection: (name) => {
+      const store = new Map();
+      return {
+        name,
+        set: (uri, diags) => store.set(uri.fsPath || String(uri), diags),
+        get: (uri) => store.get(uri.fsPath || String(uri)),
+        delete: (uri) => store.delete(uri.fsPath || String(uri)),
+        clear: () => store.clear(),
+        dispose: () => store.clear()
+      };
+    },
+    registerCodeLensProvider: () => ({ dispose: () => {} }),
+    registerCodeActionsProvider: () => ({ dispose: () => {} })
+  },
   Uri: {
-    file: (path) => ({ fsPath: path, scheme: 'file' }),
-    parse: (path) => ({ fsPath: path, scheme: 'file' }),
-    joinPath: (base, ...segments) => ({ fsPath: base.fsPath + '/' + segments.join('/'), scheme: 'file' })
+    file: (path) => ({ fsPath: path, scheme: 'file', toString: () => `file://${path}` }),
+    parse: (path) => ({ fsPath: path, scheme: 'file', toString: () => path }),
+    joinPath: (base, ...segments) => ({
+      fsPath: base.fsPath + '/' + segments.join('/'),
+      scheme: 'file',
+      toString: () => `file://${base.fsPath}/${segments.join('/')}`
+    })
   },
   env: {
     appName: 'Visual Studio Code',
@@ -156,6 +280,7 @@ module.exports = {
     WorkspaceFolder: 3
   },
   commands: {
+    registerCommand: () => ({ dispose: () => {} }),
     executeCommand: () => Promise.resolve()
   },
   ProgressLocation: {

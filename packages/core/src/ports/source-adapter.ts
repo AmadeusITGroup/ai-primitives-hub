@@ -27,6 +27,13 @@ export interface SourceAdapter {
   fetchBundles(): Promise<Bundle[]>;
 
   /**
+   * Optional lightweight catalog discovery returning only `{ id, version }`
+   * entries without downloading per-bundle READMEs, frontmatter, or release
+   * manifests when the source's index/tree already encodes identity and version.
+   */
+  fetchCatalog?(): Promise<{ id: string; version: string }[]>;
+
+  /**
    * Download a bundle's archive.
    * Always resolves to a `Buffer` — whether the source provides
    * pre-packaged archives (GitHub) or builds them dynamically

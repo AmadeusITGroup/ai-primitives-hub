@@ -1,4 +1,7 @@
 import {
+  HubConfigEditorService,
+} from '@ai-primitives-hub/app';
+import {
   buildInstalledBundleLookupKeys,
 } from '@ai-primitives-hub/core';
 import {
@@ -24,6 +27,9 @@ import {
 import {
   HubCommands,
 } from './commands/hub-commands';
+import {
+  HubEditorCommands,
+} from './commands/hub-editor-commands';
 import {
   HubIntegrationCommands,
 } from './commands/hub-integration-commands';
@@ -82,6 +88,9 @@ import {
   HubSyncScheduler,
 } from './services/hub-sync-scheduler';
 import {
+  HubYamlIntelligence,
+} from './services/hub-yaml-intelligence';
+import {
   LockfileManager,
 } from './services/lockfile-manager';
 import {
@@ -127,6 +136,12 @@ import {
 import type {
   HubReference,
 } from './types/hub';
+import {
+  HubConfigCustomEditorProvider,
+} from './ui/hub-config-custom-editor';
+import {
+  HubConfigTreeProvider,
+} from './ui/hub-config-tree-provider';
 import {
   MarketplaceViewProvider,
 } from './ui/marketplace-view-provider';
@@ -373,6 +388,10 @@ export class PromptRegistryExtension {
   private bundleScopeCommands: BundleScopeCommands | undefined;
   private settingsCommands: SettingsCommands | undefined;
   private hubCommands: HubCommands | undefined;
+  private hubEditorCommands: HubEditorCommands | undefined;
+  private hubConfigTreeProvider: HubConfigTreeProvider | undefined;
+  private hubYamlIntelligence: HubYamlIntelligence | undefined;
+  private hubCustomEditorProvider: HubConfigCustomEditorProvider | undefined;
   private hubIntegrationCommands: HubIntegrationCommands | undefined;
   private hubProfileCommands: HubProfileCommands | undefined;
   private hubManager: HubManager | undefined;
@@ -532,6 +551,29 @@ export class PromptRegistryExtension {
     );
     this.hubIntegrationCommands = new HubIntegrationCommands(this.hubManager, this.context);
     this.hubProfileCommands = new HubProfileCommands(this.context);
+
+    // Initialize Hub Config Editor, Tree View, YAML Intelligence & Contributor Workflow
+    const hubConfigEditorService = new HubConfigEditorService();
+    this.hubYamlIntelligence = new HubYamlIntelligence(hubConfigEditorService);
+    this.hubYamlIntelligence.register(this.context);
+    this.hubConfigTreeProvider = new HubConfigTreeProvider(hubConfigEditorService);
+    this.hubCustomEditorProvider = new HubConfigCustomEditorProvider(
+      this.context,
+      hubConfigEditorService,
+      this.hubYamlIntelligence,
+      this.hubConfigTreeProvider
+    );
+    this.disposables.push(this.hubCustomEditorProvider.register());
+    this.hubEditorCommands = new HubEditorCommands(
+      this.context,
+      this.hubManager,
+      hubConfigEditorService,
+      this.hubConfigTreeProvider,
+      this.hubYamlIntelligence,
+      this.hubCustomEditorProvider
+    );
+    this.disposables.push(...this.hubEditorCommands.registerCommands());
+    void this.hubEditorCommands.refreshContributableContext();
 
     // Wire event-driven source sync after every hub sync (activation, manual, periodic).
     // This replaces the ad-hoc syncAllSources call that was previously in syncActiveHub().
@@ -775,6 +817,14 @@ export class PromptRegistryExtension {
     });
 
     this.disposables.push(treeView);
+
+    if (this.hubConfigTreeProvider) {
+      const hubConfigTreeView = vscode.window.createTreeView('promptRegistryHubConfigTree', {
+        treeDataProvider: this.hubConfigTreeProvider,
+        showCollapseAll: true
+      });
+      this.disposables.push(hubConfigTreeView);
+    }
 
     // Register tree view commands
     const treeCommands = [

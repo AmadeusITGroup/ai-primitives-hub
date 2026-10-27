@@ -38,13 +38,14 @@
  * @module adapters/skills-adapter
  */
 import * as crypto from 'node:crypto';
-import type {
-  Bundle,
-  Clock,
-  GitHubApi,
-  RegistrySource,
-  SourceMetadata,
-  ValidationResult,
+import {
+  type Bundle,
+  type Clock,
+  type GitHubApi,
+  parseGitHubOwnerRepo,
+  type RegistrySource,
+  type SourceMetadata,
+  type ValidationResult,
 } from '@ai-primitives-hub/core';
 import archiver from 'archiver';
 import * as yaml from 'js-yaml';
@@ -143,10 +144,16 @@ function calculateContentHash(files: { path: string; sha?: string }[]): string {
   return hash.digest('hex');
 }
 
+const VALIDATION_CACHE_TTL_MS = 60_000;
+
 export class SkillsAdapter extends BaseSourceAdapter {
   public readonly type = 'skills';
 
   private readonly branch: string;
+  private cachedTreeSkills: {
+    skills: { skillId: string; entries: GitTreeEntry[]; contentHash: string }[];
+    fetchedAt: number;
+  } | undefined;
 
   public constructor(
     source: RegistrySource,
@@ -171,12 +178,11 @@ export class SkillsAdapter extends BaseSourceAdapter {
   }
 
   private parseGitHubUrl(): { owner: string; repo: string } {
-    const url = this.source.url.replace(/\.git$/, '');
-    const match = /github\.com[/:]([^/]+)\/([^/]+)/.exec(url);
-    if (!match) {
+    const parsed = parseGitHubOwnerRepo(this.source.url);
+    if (!parsed) {
       throw new Error(`Invalid GitHub URL format: ${this.source.url}`);
     }
-    return { owner: match[1], repo: match[2] };
+    return { owner: parsed.owner, repo: parsed.repo };
   }
 
   private buildBundleId(owner: string, repo: string, skillId: string): string {
@@ -206,8 +212,15 @@ export class SkillsAdapter extends BaseSourceAdapter {
     }
   }
 
-  /** Single Git Trees API call, grouping blobs by top-level `skills/<id>/` folder (the `c1fbb24` perf fix). */
-  private async scanSkillsDirectory(): Promise<SkillItem[]> {
+  private async scanSkillsTreeEntries(): Promise<{ skillId: string; entries: GitTreeEntry[]; contentHash: string }[]> {
+    if (this.cachedTreeSkills) {
+      const { skills, fetchedAt } = this.cachedTreeSkills;
+      this.cachedTreeSkills = undefined;
+      if (this.clock.now() - fetchedAt <= VALIDATION_CACHE_TTL_MS) {
+        return skills;
+      }
+    }
+
     const { owner, repo } = this.parseGitHubUrl();
     const tree = await this.githubApi.getJson<{ tree?: GitTreeEntry[] }>(
       `/repos/${owner}/${repo}/git/trees/${this.branch}?recursive=1`
@@ -232,11 +245,27 @@ export class SkillsAdapter extends BaseSourceAdapter {
       }
     }
 
-    const ids = [...skillIds];
+    return [...skillIds].map((skillId) => {
+      const entries = filesBySkill.get(skillId) ?? [];
+      return {
+        skillId,
+        entries,
+        contentHash: calculateContentHash(entries)
+      };
+    });
+  }
+
+  /** Single Git Trees API call, grouping blobs by top-level `skills/<id>/` folder (the `c1fbb24` perf fix). */
+  private async scanSkillsDirectory(): Promise<SkillItem[]> {
+    const { owner, repo } = this.parseGitHubUrl();
+    const treeSkills = await this.scanSkillsTreeEntries();
+
     const skills: SkillItem[] = [];
-    for (let i = 0; i < ids.length; i += SKILL_FETCH_CONCURRENCY) {
-      const batch = ids.slice(i, i + SKILL_FETCH_CONCURRENCY);
-      const results = await Promise.all(batch.map((id) => this.buildSkillFromTree(owner, repo, id, filesBySkill.get(id) ?? [])));
+    for (let i = 0; i < treeSkills.length; i += SKILL_FETCH_CONCURRENCY) {
+      const batch = treeSkills.slice(i, i + SKILL_FETCH_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(({ skillId, entries }) => this.buildSkillFromTree(owner, repo, skillId, entries))
+      );
       skills.push(...results.filter((skill): skill is SkillItem => skill !== undefined));
     }
     return skills;
@@ -423,6 +452,25 @@ export class SkillsAdapter extends BaseSourceAdapter {
     return skills.map((skill) => this.createBundleFromSkill(skill, owner, repo));
   }
 
+  /**
+   * Fast catalog discovery for hub validation: uses the single Git Trees API
+   * response to compute `{ id, version }` for every skill without downloading
+   * individual `SKILL.md` files.
+   */
+  public async fetchCatalog(): Promise<{ id: string; version: string }[]> {
+    const { owner, repo } = this.parseGitHubUrl();
+    let treeSkills: { skillId: string; entries: GitTreeEntry[]; contentHash: string }[];
+    try {
+      treeSkills = await this.scanSkillsTreeEntries();
+    } catch (error) {
+      throw new Error(`Failed to fetch skills catalog: ${error instanceof Error ? error.message : error}`);
+    }
+    return treeSkills.map(({ skillId, contentHash }) => ({
+      id: this.buildBundleId(owner, repo, skillId),
+      version: formatSkillVersion(contentHash)
+    }));
+  }
+
   public async downloadBundle(bundle: Bundle): Promise<Buffer> {
     const { owner, repo } = this.parseGitHubUrl();
     const skillId = this.skillIdFromBundleId(bundle.id, owner, repo);
@@ -494,11 +542,14 @@ export class SkillsAdapter extends BaseSourceAdapter {
     const warnings: string[] = [];
     let bundlesFound = 0;
     try {
-      bundlesFound = (await this.scanSkillsDirectory()).length;
+      const treeSkills = await this.scanSkillsTreeEntries();
+      this.cachedTreeSkills = { skills: treeSkills, fetchedAt: this.clock.now() };
+      bundlesFound = treeSkills.length;
       if (bundlesFound === 0) {
         warnings.push('No valid skills found in skills/ directory (skills must have SKILL.md file)');
       }
     } catch (error) {
+      this.cachedTreeSkills = undefined;
       warnings.push(`Failed to scan skills: ${error instanceof Error ? error.message : error}`);
     }
 

@@ -150,7 +150,7 @@ const stripTypeSuffix = (id: string, type: CopilotFileType): string => {
  * @param installableFiles Installable bundle files.
  * @returns Whether the item can be placed.
  */
-const isInstallableItem = (item: ManifestPlacementItem, installableFiles: ExtractedFiles): boolean => {
+export const isInstallableItem = (item: ManifestPlacementItem, installableFiles: ExtractedFiles): boolean => {
   if (installableFiles.has(item.file)) {
     return true;
   }

@@ -489,6 +489,9 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
         hub,
         vscode.TreeItemCollapsibleState.Collapsed
       );
+      if (hub.reference?.type === 'artifactory') {
+        item.contextValue = 'hub_readonly';
+      }
       if (hub.id === activeHubId) {
         item.description = '[Active]';
         item.contextValue = 'hub_active';
@@ -549,9 +552,12 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
         const hubItem = new RegistryTreeItem(
           hubInfo.config.metadata.name,
           TreeItemType.HUB,
-          { id: hubId, name: hubInfo.config.metadata.name }, // Pass minimal hub data needed
+          { id: hubId, name: hubInfo.config.metadata.name, reference: hubInfo.reference }, // Pass minimal hub data needed
           vscode.TreeItemCollapsibleState.Expanded // Expand by default to show favorites
         );
+        if (hubInfo.reference?.type === 'artifactory') {
+          hubItem.contextValue = 'hub_readonly';
+        }
 
         if (hubId === activeHubId) {
           hubItem.description = '[Active]';

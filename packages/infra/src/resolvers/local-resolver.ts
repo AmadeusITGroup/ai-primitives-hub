@@ -12,7 +12,11 @@
  */
 import * as path from 'node:path';
 import type {
+  ExtractedFile,
   ExtractedFiles,
+} from '@ai-primitives-hub/core';
+import {
+  withFileMode,
 } from '@ai-primitives-hub/core';
 
 export interface LocalDirFs {
@@ -24,6 +28,12 @@ export interface LocalDirFs {
    */
   readFileBytes(p: string): Promise<Uint8Array>;
   exists(p: string): Promise<boolean>;
+  /**
+   * Optional: when present and it reports a `mode`, each file is tagged
+   * with its permission bits so installs keep executables executable
+   * (issue #577).
+   */
+  stat?(p: string): Promise<{ mode?: number }>;
 }
 
 /**
@@ -41,7 +51,7 @@ export const readLocalBundle = async (
   if (!(await fs.exists(dir))) {
     throw new Error(`local bundle directory not found: ${dir}`);
   }
-  const out = new Map<string, Uint8Array>();
+  const out = new Map<string, ExtractedFile>();
   await walk(dir, dir, fs, out);
   return out;
 };
@@ -50,7 +60,7 @@ const walk = async (
   root: string,
   cur: string,
   fs: LocalDirFs,
-  out: Map<string, Uint8Array>
+  out: Map<string, ExtractedFile>
 ): Promise<void> => {
   const entries = await fs.readDir(cur);
   for (const entry of entries) {
@@ -59,14 +69,17 @@ const walk = async (
     // readFileBytes first. If it succeeds the entry is a file; if it
     // throws we recurse as a directory. Byte-level reads keep binary
     // assets intact (issue #357).
+    let bytes: Uint8Array;
     try {
-      const bytes = await fs.readFileBytes(full);
-      const rel = path.relative(root, full);
-      // Normalize to forward slashes so the map keys match the
-      // bundle's logical layout independent of host OS.
-      out.set(rel.split(path.sep).join('/'), bytes);
+      bytes = await fs.readFileBytes(full);
     } catch {
       await walk(root, full, fs, out);
+      continue;
     }
+    const rel = path.relative(root, full);
+    const mode = fs.stat === undefined ? undefined : (await fs.stat(full)).mode;
+    // Normalize to forward slashes so the map keys match the
+    // bundle's logical layout independent of host OS.
+    out.set(rel.split(path.sep).join('/'), mode === undefined ? bytes : withFileMode(bytes, mode));
   }
 };

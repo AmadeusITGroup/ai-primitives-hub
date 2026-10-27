@@ -4,6 +4,15 @@
  * Tests readLocalBundle and walk functions.
  */
 import {
+  chmodSync,
+  mkdirSync,
+  writeFileSync,
+} from 'node:fs';
+import {
+  join,
+} from 'node:path';
+import {
+  afterEach,
   beforeEach,
   describe,
   expect,
@@ -11,9 +20,15 @@ import {
   vi,
 } from 'vitest';
 import {
+  NodeFileSystem,
+} from '../../src/fs/node-filesystem';
+import {
   type LocalDirFs,
   readLocalBundle,
 } from '../../src/resolvers/local-resolver';
+import {
+  createTempDir,
+} from '../helpers/temp-dir';
 
 describe('readLocalBundle', () => {
   const normalizePath = (value: string): string => value.replaceAll('\\', '/');
@@ -139,5 +154,45 @@ describe('readLocalBundle', () => {
     expect(result.has('file1.txt')).toBe(true);
     expect(result.has('file2.txt')).toBe(true);
     expect(result.has('dir1/file3.txt')).toBe(true);
+  });
+});
+
+describe('readLocalBundle file modes (#577)', () => {
+  let dir: string;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    [dir, cleanup] = createTempDir('local-resolver-');
+    mkdirSync(join(dir, 'skills', 'demo', 'scripts'), { recursive: true });
+    writeFileSync(join(dir, 'skills', 'demo', 'scripts', 'run.sh'), '#!/bin/sh\n');
+    writeFileSync(join(dir, 'skills', 'demo', 'SKILL.md'), '# Demo\n');
+    chmodSync(join(dir, 'skills', 'demo', 'scripts', 'run.sh'), 0o755);
+    chmodSync(join(dir, 'skills', 'demo', 'SKILL.md'), 0o644);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it.skipIf(process.platform === 'win32')('tags each file with its mode on disk', async () => {
+    const files = await readLocalBundle(dir, new NodeFileSystem());
+
+    expect(files.get('skills/demo/scripts/run.sh')?.mode).toBe(0o755);
+    expect(files.get('skills/demo/SKILL.md')?.mode).toBe(0o644);
+    expect(new TextDecoder().decode(files.get('skills/demo/scripts/run.sh'))).toBe('#!/bin/sh\n');
+  });
+
+  it('reads plain bytes when the filesystem cannot stat', async () => {
+    const nodeFs = new NodeFileSystem();
+    const statless: LocalDirFs = {
+      readDir: (p) => nodeFs.readDir(p),
+      readFileBytes: (p) => nodeFs.readFileBytes(p),
+      exists: (p) => nodeFs.exists(p)
+    };
+
+    const files = await readLocalBundle(dir, statless);
+
+    expect(files.get('skills/demo/scripts/run.sh')?.mode).toBeUndefined();
+    expect(files.size).toBe(2);
   });
 });
