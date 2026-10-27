@@ -580,25 +580,16 @@ export class HubManager {
     await this.storage.deleteHub(hubId);
 
     try {
-      if (await this.getActiveHubId() === hubId) {
-        const remainingHubIds = await this.storage.listHubs();
-        // Listing yields to other deletions and user selections. Do not
-        // replace a newer active hub chosen while that work was pending.
-        if (await this.getActiveHubId() !== hubId) {
-          return;
-        }
-        const nextActiveHubId = remainingHubIds[0] ?? null;
-        await this.setActiveHub(nextActiveHubId);
-        this.logger.info(nextActiveHubId
-          ? `Deleted active hub ${hubId}; switched active hub to ${nextActiveHubId}`
-          : `Deleted active hub ${hubId}; no hubs remain active`);
-      }
-    } catch (error) {
-      this.logger.warn(`Deleted hub ${hubId}, but failed to select a replacement; clearing its stale active selection`, error);
-      // Do not clear another hub selected while replacement work was pending.
-      if (await this.getActiveHubId() === hubId) {
-        await this.setActiveHub(null);
-      }
+      // Promotion/clear policy and its concurrency guards live in the
+      // app layer (ADR-0001); route the active-hub mutation through this
+      // service's richer setActiveHub so source loading and events still fire.
+      await this.appHubManager.reconcileActiveHubAfterDeletion(hubId, {
+        // Use HubStorage's cache-aware listing (not the raw HubStore) to match
+        // the rest of this service's reads.
+        listRemainingHubs: () => this.storage.listHubs(),
+        setActiveHub: (nextHubId) => this.setActiveHub(nextHubId),
+        onLog: ({ level, message, error }) => this.logger[level](message, error)
+      });
     } finally {
       // Storage deletion succeeded even if replacement or recovery failed.
       this._onHubDeleted.fire(hubId);

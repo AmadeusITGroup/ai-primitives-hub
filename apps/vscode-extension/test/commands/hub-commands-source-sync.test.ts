@@ -48,6 +48,7 @@ class MockHubManager {
   public completeStarted = false;
   public readonly setActiveHubCalls: { hubId: string; options?: { loadSources?: boolean } }[] = [];
   public readonly progressiveImportReferences: any[] = [];
+  public readonly deleteHubCalls: string[] = [];
   public hubs: any[] = [];
   public activeHub: any = null;
 
@@ -126,6 +127,7 @@ class MockHubManager {
   }
 
   public async deleteHub(hubId: string) {
+    this.deleteHubCalls.push(hubId);
     this.hubs = this.hubs.filter((hub: any) => hub.id !== hubId);
   }
 
@@ -555,11 +557,12 @@ suite('HubCommands Source Sync', () => {
 
     showWarningMessageStub.resolves('Delete');
 
-    const switchHubStub = sinon.stub(commands, 'switchHub').resolves();
-
     await commands.deleteHub({ data: { id: 'hub-1' } });
 
-    sinon.assert.notCalled(switchHubStub);
+    // Deleting the active hub delegates replacement to HubManager.deleteHub;
+    // the command must not open an interactive switch/selection flow.
+    assert.deepStrictEqual(mockHubManager.deleteHubCalls, ['hub-1']);
+    sinon.assert.notCalled(showQuickPickStub);
     sinon.assert.calledWith(executeCommandStub, 'promptRegistry.refresh');
   });
 });
