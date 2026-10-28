@@ -50,7 +50,10 @@ interface Report {
   filters: { kinds: string[] };
   notCovered: { kinds: string[] };
   bundles: { id: string; outcome: string; checks: { invariant: string; outcome: string }[] }[];
-  cases: { id: string; bundle: string; target: string; outcome: string; gapIds: string[]; checks: { invariant: string; outcome: string }[] }[];
+  cases: {
+    id: string; bundle: string; target: string; mode: string; status: string | null; outcome: string; gapIds: string[];
+    checks: { invariant: string; outcome: string }[];
+  }[];
   knownGaps: { key: string; id: string; absorbed: number }[];
   unusedKnownGaps: unknown[];
   workspace: string;
@@ -154,8 +157,8 @@ describe('doctor diagnostics --primitives usage errors', () => {
 });
 
 /**
- * Assert the default run: every kind, the mixed and the invalid bundles,
- * nothing failing and every known gap used. The executable-bit checks
+ * Assert the default run: every kind, the mixed bundles in both install
+ * modes, the invalid bundles, nothing failing and every known gap used. The executable-bit checks
  * (I10) pass with POSIX file modes and are not applicable without them;
  * neither changes an outcome.
  * @param result - Command result.
@@ -167,9 +170,9 @@ const expectDefaultRun = (result: { exitCode: number; stdout: string }, posixFil
   const report = (JSON.parse(result.stdout) as Envelope).data!;
 
   expect(report.summary).toEqual({
-    cases: 418,
+    cases: 462,
     pass: 313,
-    knownGap: 105,
+    knownGap: 149,
     fail: 0,
     bundles: { bundles: 23, pass: 13, knownGap: 10, fail: 0 }
   });
@@ -181,17 +184,31 @@ const expectDefaultRun = (result: { exitCode: number; stdout: string }, posixFil
   expect(report.unusedKnownGaps).toEqual([]);
   expect(report.knownGaps.map((g) => g.key).toSorted()).toEqual(PRIMITIVE_KNOWN_GAPS.map((g) => g.key).toSorted());
   expect(absorbedById(report)).toEqual({
-    'all-or-nothing-install': 22,
-    'copilot-cli-repository-scope': 19,
-    'kiro-hook-rejected': 12,
-    'kiro-plugin-rejected': 12,
+    'copilot-cli-repository-scope': 21,
+    'kiro-hook-rejected': 16,
+    'kiro-plugin-rejected': 16,
     'manifest-id-file-stem': 18,
     'mcp-server-rejected': 88,
-    'plugin-mcp-projection': 40,
-    'plugin-root-unresolved': 40,
-    'plugin-skill-projection': 40,
+    'plugin-mcp-projection': 80,
+    'plugin-root-unresolved': 80,
+    'plugin-skill-projection': 80,
     'power-directory-unit': 4
   });
+  // Mixed bundles run in both install modes; every other bundle in the default mode only.
+  const mixed = report.cases.filter((c) => c.bundle.startsWith('aph-e2e-mix-'));
+  expect(mixed).toHaveLength(88);
+  expect(mixed.filter((c) => c.mode === 'skip-unsupported')).toHaveLength(44);
+  expect(mixed.filter((c) => c.outcome === 'fail')).toEqual([]);
+  expect(report.cases.filter((c) => c.gapIds.includes('all-or-nothing-install'))).toEqual([]);
+  expect(report.cases.filter((c) => !c.bundle.startsWith('aph-e2e-mix-')).every((c) => c.mode === 'default')).toBe(true);
+  // The all-kinds mix: rejected as expected by default, partially installed with --skip-unsupported.
+  const allKinds = mixed.filter((c) => c.bundle === 'aph-e2e-mix-all-kinds');
+  for (const c of allKinds) {
+    const i4 = c.checks.find((check) => check.invariant === 'I4');
+    expect([c.id, c.status, i4?.outcome]).toEqual([c.id, c.mode === 'default' ? 'rejected' : 'partial', 'pass']);
+  }
+  expect(allKinds.filter((c) => c.mode === 'skip-unsupported').flatMap((c) => c.checks.filter((check) => check.invariant === 'I15').map((check) => check.outcome)))
+    .toEqual(Array.from({ length: 22 }, () => 'pass'));
   for (const id of INVALID_PLUGIN_BUNDLES) {
     expect(report.bundles.find((b) => b.id === id)).toMatchObject({ outcome: 'pass', checks: [{ invariant: 'I5', outcome: 'pass' }] });
   }
@@ -297,11 +314,12 @@ describe('doctor diagnostics --primitives output', () => {
     });
   });
 
-  it('labels a mixed-kind bundle row by its bundle id', async () => {
+  it('labels a mixed-kind bundle row by its bundle id and install mode', async () => {
     const result = await runDoctor(['--primitives', '--kinds', 'prompt,instruction,agent,skill,plugin,hook', '--targets', 'vscode', '--scopes', 'user']);
     const lines = result.stdout.split('\n');
 
-    expect(lines).toContainEqual(expect.stringMatching(/^ {2}aph-e2e-mix-portable +vscode +user: GAP /));
+    expect(lines).toContainEqual(expect.stringMatching(/^ {2}aph-e2e-mix-portable \[default\] +vscode +user: GAP /));
+    expect(lines).toContainEqual(expect.stringMatching(/^ {2}aph-e2e-mix-portable \[skip-unsupported\] +vscode +user: GAP /));
     expect(lines).toContainEqual(expect.stringMatching(/^ {2}plugin +vscode +user: GAP /));
     expect(result.exitCode).toBe(0);
   }, 120_000);

@@ -27,6 +27,7 @@ import type {
 } from './planner';
 import {
   type DiagnosticCheck,
+  type DiagnosticInstallMode,
   type DiagnosticScope,
   isNotEvaluated,
   type RollupOutcome,
@@ -40,6 +41,8 @@ export interface GapSubject {
   bundle?: string;
   target?: TargetType;
   scope?: DiagnosticScope;
+  /** Install mode of a case. */
+  mode?: DiagnosticInstallMode;
 }
 
 /** A classified check, its subject and the keys of the gaps that absorbed it. */
@@ -89,7 +92,8 @@ const selectorsMatch = (match: KnownGap['match'], subject: GapSubject): boolean 
   (match.kinds === undefined || subject.kinds.some((kind) => match.kinds!.includes(kind)))
   && (match.bundles === undefined || (subject.bundle !== undefined && match.bundles.includes(subject.bundle)))
   && (match.targets === undefined || (subject.target !== undefined && match.targets.includes(subject.target)))
-  && (match.scopes === undefined || (subject.scope !== undefined && match.scopes.includes(subject.scope)));
+  && (match.scopes === undefined || (subject.scope !== undefined && match.scopes.includes(subject.scope)))
+  && (match.modes === undefined || (subject.mode !== undefined && match.modes.includes(subject.mode)));
 
 /**
  * Whether a check was really executed: it ran to a verdict on the product.
@@ -163,7 +167,7 @@ const subjectKinds = (
 
 /**
  * Classify the checks of one case. A per-item check's subject kind is its item's kind.
- * @param planned - Planned case (the subject: its bundle, kinds, target and requested scope).
+ * @param planned - Planned case (the subject: its bundle, kinds, target, requested scope and install mode).
  * @param checks - Raw case checks.
  * @param gaps - Known gaps.
  * @returns Classified checks, outcome and gap ids.
@@ -173,7 +177,8 @@ export function classifyCase(planned: PlannedCase, checks: readonly DiagnosticCh
     kinds: subjectKinds(check, planned.items, planned.kinds),
     bundle: planned.bundle,
     target: planned.target,
-    scope: planned.scope
+    scope: planned.scope,
+    mode: planned.mode
   }, gaps)));
 }
 

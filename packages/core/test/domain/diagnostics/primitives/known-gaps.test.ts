@@ -7,6 +7,7 @@ import {
   it,
 } from 'vitest';
 import {
+  DIAGNOSTIC_INSTALL_MODES,
   DIAGNOSTIC_SCOPES,
   INVARIANTS,
   PRIMITIVE_DIAGNOSTIC_BUNDLES,
@@ -20,7 +21,7 @@ const catalogued = new Set<string>(PRIMITIVE_DIAGNOSTIC_BUNDLES.flatMap((b) => b
 const bundleLevel = new Set<string>(INVARIANTS.filter((i) => i.level === 'bundle').map((i) => i.id));
 
 describe('PRIMITIVE_KNOWN_GAPS', () => {
-  it('is exactly the 20 known entries, in declaration order', () => {
+  it('is exactly the 21 known entries, in declaration order', () => {
     expect(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).toEqual([
       'mcp-server-rejected/I4/mcp-server',
       'kiro-hook-rejected/I4/hook@kiro',
@@ -28,7 +29,8 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
       'kiro-hook-rejected/I9/hook@kiro',
       'kiro-plugin-rejected/I4/plugin@kiro',
       'kiro-plugin-rejected/I9/plugin@kiro',
-      'all-or-nothing-install/I4/aph-e2e-mix-all-kinds',
+      'kiro-hook-rejected/I4/hook@kiro/skip-unsupported',
+      'kiro-plugin-rejected/I4/plugin@kiro/skip-unsupported',
       'copilot-cli-repository-scope/I8/copilot-cli@repository',
       'manifest-id-file-stem/I2/prompt',
       'manifest-id-file-stem/I2/instruction',
@@ -43,7 +45,9 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
       'plugin-mcp-projection/I12/plugin',
       'plugin-root-unresolved/I14/plugin'
     ]);
-    expect(new Set(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).size).toBe(20);
+    expect(new Set(PRIMITIVE_KNOWN_GAPS.map((g) => g.key)).size).toBe(21);
+    // The default all-or-nothing rejection of a mixed bundle is expected, not a gap.
+    expect(PRIMITIVE_KNOWN_GAPS.map((g) => g.id)).not.toContain('all-or-nothing-install');
   });
 
   it('keys each entry by id and invariant', () => {
@@ -61,6 +65,8 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
       'kiro-hook-rejected/I9/hook@kiro': 549,
       'kiro-plugin-rejected/I4/plugin@kiro': 549,
       'kiro-plugin-rejected/I9/plugin@kiro': 549,
+      'kiro-hook-rejected/I4/hook@kiro/skip-unsupported': 549,
+      'kiro-plugin-rejected/I4/plugin@kiro/skip-unsupported': 549,
       'plugin-skill-projection/I11/plugin': 549,
       'plugin-mcp-projection/I12/plugin': 549,
       'plugin-root-unresolved/I14/plugin': 549
@@ -87,13 +93,17 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
       for (const scope of gap.match.scopes ?? []) {
         expect(DIAGNOSTIC_SCOPES).toContain(scope);
       }
+      for (const mode of gap.match.modes ?? []) {
+        expect(DIAGNOSTIC_INSTALL_MODES).toContain(mode);
+      }
     }
   });
 
-  it('declares no targets or scopes on bundle-level entries', () => {
+  it('declares no targets, scopes or modes on bundle-level entries', () => {
     for (const gap of PRIMITIVE_KNOWN_GAPS.filter((g) => bundleLevel.has(g.invariant))) {
       expect(gap.match.targets).toBeUndefined();
       expect(gap.match.scopes).toBeUndefined();
+      expect(gap.match.modes).toBeUndefined();
     }
   });
 
@@ -125,8 +135,11 @@ describe('PRIMITIVE_KNOWN_GAPS', () => {
     expect(byKey.get('kiro-hook-rejected/I9/hook@kiro')).toMatchObject({ match: { kinds: ['hook'], targets: ['kiro'] }, observed: { rejected: true } });
     expect(byKey.get('kiro-plugin-rejected/I4/plugin@kiro')).toMatchObject({ match: { kinds: ['plugin'], targets: ['kiro'] }, observed: rejected });
     expect(byKey.get('kiro-plugin-rejected/I9/plugin@kiro')).toMatchObject({ match: { kinds: ['plugin'], targets: ['kiro'] }, observed: { rejected: true } });
-    expect(byKey.get('all-or-nothing-install/I4/aph-e2e-mix-all-kinds'))
-      .toMatchObject({ match: { bundles: ['aph-e2e-mix-all-kinds'] }, observed: rejected });
+    const partial = { status: 'partial', errorCode: null };
+    expect(byKey.get('kiro-hook-rejected/I4/hook@kiro/skip-unsupported'))
+      .toEqual(expect.objectContaining({ match: { kinds: ['hook'], targets: ['kiro'], modes: ['skip-unsupported'] }, observed: partial, issue: 549 }));
+    expect(byKey.get('kiro-plugin-rejected/I4/plugin@kiro/skip-unsupported'))
+      .toEqual(expect.objectContaining({ match: { kinds: ['plugin'], targets: ['kiro'], modes: ['skip-unsupported'] }, observed: partial, issue: 549 }));
     expect(byKey.get('plugin-skill-projection/I11/plugin')).toMatchObject({ match: { kinds: ['plugin'] }, observed: { unprojected: ['plugin-skill'] } });
     expect(byKey.get('plugin-mcp-projection/I12/plugin')).toMatchObject({ match: { kinds: ['plugin'] }, observed: { unprojected: ['aph-e2e'] } });
     expect(byKey.get('plugin-root-unresolved/I14/plugin')).toMatchObject({ match: { kinds: ['plugin'] }, observed: { unresolved: ['aph-e2e'] } });
