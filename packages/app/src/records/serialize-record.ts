@@ -3,7 +3,7 @@
  *
  * The CLI and the extension both write records through this one function, so
  * the same content always gives the same bytes: keys sorted at every depth,
- * each tool entry's `files` sorted by `installedPath`, two-space indentation,
+ * each tool entry's `files` sorted by `path`, two-space indentation,
  * a trailing newline, and `$schema` set to the canonical URL. The copy it
  * builds uses prototype-free objects only and refuses forbidden keys, so a
  * hostile key can neither pollute a prototype nor reach the file (NFR4.4).
@@ -50,8 +50,8 @@ const canonicalize = (value: unknown): unknown => {
   return copy;
 };
 
-const installedPathOf = (file: unknown): string =>
-  isObject(file) && typeof file.installedPath === 'string' ? file.installedPath : '';
+const filePathOf = (file: unknown): string =>
+  isObject(file) && typeof file.path === 'string' ? file.path : '';
 
 const sortEntryFiles = (record: JsonObject): void => {
   const bundles = isObject(record.bundles) ? record.bundles : undefined;
@@ -59,7 +59,7 @@ const sortEntryFiles = (record: JsonObject): void => {
     const tools = isObject(bundle) && isObject(bundle.tools) ? bundle.tools : undefined;
     for (const entry of Object.values(tools ?? {})) {
       if (isObject(entry) && Array.isArray(entry.files)) {
-        entry.files = (entry.files as unknown[]).toSorted((left, right) => compareText(installedPathOf(left), installedPathOf(right)));
+        entry.files = (entry.files as unknown[]).toSorted((left, right) => compareText(filePathOf(left), filePathOf(right)));
       }
     }
   }

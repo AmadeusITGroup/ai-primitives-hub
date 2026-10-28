@@ -24,8 +24,8 @@ const CHECKSUM = `sha256:${'a'.repeat(64)}`;
 
 const buildRecord = (order: 'forward' | 'reverse'): InstallRecord => {
   const files = [
-    { installedPath: '.github/prompts/b.md', checksum: CHECKSUM },
-    { installedPath: '.github/prompts/a.md', checksum: CHECKSUM }
+    { path: '.github/prompts/b.md', checksum: CHECKSUM },
+    { path: '.github/prompts/a.md', checksum: CHECKSUM }
   ];
   const entry = { version: '1.0.0', sourceId: 's', sourceType: 'github', installedAt: '2026-10-24T10:00:00.000Z', files };
   const reversedEntry = { files: [...files].reverse(), installedAt: entry.installedAt, sourceType: 'github', sourceId: 's', version: '1.0.0' };
@@ -55,7 +55,7 @@ describe('serializeRecord', () => {
     expect(serializeRecord(buildRecord('forward'))).toBe(serializeRecord(buildRecord('reverse')));
   });
 
-  it('sorts keys at every depth and files by installedPath, with two-space indentation and a trailing newline', () => {
+  it('sorts keys at every depth and files by path, with two-space indentation and a trailing newline', () => {
     const text = serializeRecord(buildRecord('forward'));
     expect(text.endsWith('}\n')).toBe(true);
     expect(text.startsWith('{\n  "$schema": ')).toBe(true);
@@ -63,7 +63,7 @@ describe('serializeRecord', () => {
     expect(text.indexOf('"bundles"')).toBeLessThan(text.indexOf('"generatedAt"'));
     expect(text.indexOf('"kiro"', text.indexOf('"zeta"'))).toBeLessThan(text.indexOf('"vscode"'));
     expect(text.indexOf('prompts/a.md')).toBeLessThan(text.indexOf('prompts/b.md'));
-    expect(text.indexOf('"checksum"')).toBeLessThan(text.indexOf('"installedPath"'));
+    expect(text.indexOf('"checksum"')).toBeLessThan(text.indexOf('"path"'));
   });
 
   it('sets $schema to the canonical URL', () => {

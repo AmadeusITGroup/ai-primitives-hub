@@ -13,8 +13,8 @@
           "sourceType": "github",
           "installedAt": "2026-10-24T10:00:00.000Z",
           "files": [
-            { "installedPath": ".github/prompts/ok.prompt.md", "checksum": "sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae" },
-            { "installedPath": ".github\\..\\..\\outside.md", "checksum": "sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae" }
+            { "path": ".github/prompts/ok.prompt.md", "checksum": "sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae" },
+            { "path": ".github\\..\\..\\outside.md", "checksum": "sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae" }
           ]
         }
       }

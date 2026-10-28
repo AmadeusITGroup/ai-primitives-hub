@@ -101,7 +101,7 @@ describe('InstallRecordService', () => {
     JSON.parse(fs.readFileSync(location.path, 'utf8')) as InstallRecord;
 
   const pathsOf = (record: InstallRecord, bundleId: string, tool: string): string[] =>
-    record.bundles[bundleId].tools[tool].files.map((file) => file.installedPath);
+    record.bundles[bundleId].tools[tool].files.map((file) => file.path);
 
   beforeEach(async () => {
     [base, cleanup] = createTempDir('install-record-service-');

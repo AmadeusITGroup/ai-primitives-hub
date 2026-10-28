@@ -198,7 +198,7 @@ const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
     for (const bundle of Object.values(record.bundles)) {
       for (const entry of Object.values(bundle.tools)) {
         for (const file of entry.files) {
-          listed.add(file.installedPath);
+          listed.add(file.path);
         }
       }
     }
@@ -316,11 +316,11 @@ export class InstallRecordService {
         continue;
       }
       const file = Object.create(null) as RecordedFile;
-      file.installedPath = relative;
+      file.path = relative;
       file.checksum = await this.fs.hashFile(path.join(root, ...relative.split('/')));
       files.set(relative, file);
     }
-    return [...files.values()].toSorted((a, b) => compareText(a.installedPath, b.installedPath));
+    return [...files.values()].toSorted((a, b) => compareText(a.path, b.path));
   }
 
   /**
@@ -416,12 +416,12 @@ export class InstallRecordService {
     target.record.bundles[bundleId].tools[tool] = entry;
     target.record.sources[input.source.sourceId] = source;
 
-    const newPaths = new Set(files.map((file) => file.installedPath));
+    const newPaths = new Set(files.map((file) => file.path));
     const stillListed = listedPaths(other === undefined ? [target.record] : [target.record, other.record]);
     const deletedFiles: string[] = [];
     const keptSharedFiles: string[] = [];
     for (const old of previous.flatMap((prior) => prior?.files ?? [])) {
-      const oldPath = old.installedPath;
+      const oldPath = old.path;
       if (newPaths.has(oldPath) || deletedFiles.includes(oldPath) || keptSharedFiles.includes(oldPath)) {
         continue;
       }
@@ -486,7 +486,7 @@ export class InstallRecordService {
     const keptSharedFiles = new Set<string>();
     for (const { file, entry } of changed) {
       for (const recorded of entry.files) {
-        (stillListed.has(recorded.installedPath) ? keptSharedFiles : deletedFiles).add(recorded.installedPath);
+        (stillListed.has(recorded.path) ? keptSharedFiles : deletedFiles).add(recorded.path);
       }
       this.dropUnusedSource(file.record, entry.sourceId);
     }

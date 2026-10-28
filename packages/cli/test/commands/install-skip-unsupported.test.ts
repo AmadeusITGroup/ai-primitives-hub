@@ -304,9 +304,9 @@ describe('install --skip-unsupported', () => {
     // installed paths under `bundles.<id>.tools.<type>`.
     expect(envelope.data.lockfile).toBe(path.join(workspace, 'ai-primitives-hub.local.lock.json'));
     const record = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, { tools: Record<string, { files: { installedPath: string }[] }> }>;
+      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
     };
-    expect(record.bundles['sample-repo'].tools.vscode.files.map((f) => f.installedPath))
+    expect(record.bundles['sample-repo'].tools.vscode.files.map((f) => f.path))
       .toEqual(['.github/prompts/hello.prompt.md']);
 
     const removed = await run(['uninstall', '--bundle', 'sample-repo', '--target', 'repo-prompts', '-o', 'json']);

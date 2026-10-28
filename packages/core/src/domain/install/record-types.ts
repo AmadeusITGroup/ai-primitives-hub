@@ -65,7 +65,7 @@ export type RecordToolName = TargetType | typeof UNKNOWN_TOOL_NAME;
 /** One file a tool entry wrote. */
 export interface RecordedFile {
   /** Path relative to the level root, forward slashes, never escaping the root (BR1.5). */
-  installedPath: string;
+  path: string;
   /** `sha256:` followed by 64 lowercase hex digits of the bytes on disk after writing (BR1.6). */
   checksum: string;
   /** Unknown fields, kept unchanged (BR1.10). */
@@ -84,7 +84,7 @@ export interface ToolEntry {
   installedAt: string;
   /** Present, and `true`, only under the `'unknown'` tool key. */
   needsReinstall?: true;
-  /** Files this entry owns, sorted by `installedPath`. */
+  /** Files this entry owns, sorted by `path`. */
   files: RecordedFile[];
   /** Unknown fields, kept unchanged (BR1.10). */
   [key: string]: unknown;

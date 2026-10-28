@@ -7,7 +7,7 @@
           "files": [
             {
               "checksum": "sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
-              "installedPath": ".kiro/steering/style.md"
+              "path": ".kiro/steering/style.md"
             }
           ],
           "installedAt": "2026-10-24T10:00:00.000Z",
@@ -19,7 +19,7 @@
           "files": [
             {
               "checksum": "sha256:fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
-              "installedPath": ".github/prompts/my-prompt.prompt.md"
+              "path": ".github/prompts/my-prompt.prompt.md"
             }
           ],
           "futureEntryField": {

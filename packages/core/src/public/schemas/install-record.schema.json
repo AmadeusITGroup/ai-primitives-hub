@@ -131,7 +131,7 @@
         },
         "files": {
           "type": "array",
-          "description": "Files this entry owns, sorted by installedPath",
+          "description": "Files this entry owns, sorted by path",
           "items": {
             "$ref": "#/definitions/file"
           }
@@ -142,12 +142,12 @@
       "type": "object",
       "description": "One file an entry wrote",
       "required": [
-        "installedPath",
+        "path",
         "checksum"
       ],
       "additionalProperties": true,
       "properties": {
-        "installedPath": {
+        "path": {
           "type": "string",
           "description": "Path relative to the level root; forward slashes; no leading '/', drive letter or '..' segment",
           "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$",

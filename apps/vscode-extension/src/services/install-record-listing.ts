@@ -169,7 +169,7 @@ export class InstallRecordListing {
       sourceId: entry.sourceId,
       sourceType: entry.sourceType,
       installedAt: entry.installedAt,
-      files: entry.files.map((file) => ({ path: file.installedPath, checksum: file.checksum }))
+      files: entry.files.map((file) => ({ path: file.path, checksum: file.checksum }))
     };
     const item = createInstalledBundleFromLockfile(bundleId, asLockfileEntry, {
       installPath: path.join(location.root, '.github'),
@@ -188,12 +188,12 @@ export class InstallRecordListing {
   private async filesMissing(root: string, entry: ToolEntry): Promise<boolean> {
     for (const file of entry.files) {
       try {
-        if (await this.fs.lstat(path.join(root, ...file.installedPath.split('/'))) === undefined) {
+        if (await this.fs.lstat(path.join(root, ...file.path.split('/'))) === undefined) {
           return true;
         }
       } catch (error) {
         // Same policy as LockfileManager: on an I/O error other than "missing", assume the file exists.
-        this.logger.warn(`Failed to check file existence for ${file.installedPath}:`, error instanceof Error ? error : undefined);
+        this.logger.warn(`Failed to check file existence for ${file.path}:`, error instanceof Error ? error : undefined);
       }
     }
     return false;

@@ -1,7 +1,7 @@
 /**
  * Layer A path checks for recorded paths (NFR4.1, BR1.5).
  *
- * Pure text checks on an `installedPath`, with no filesystem access. They run
+ * Pure text checks on a recorded file `path`, with no filesystem access. They run
  * on every path read from a record and again on the realpath'd path relative
  * to the root (Layer B, `confinePath` in `app`). Both `/` and `\` count as
  * separators, so a path is judged the same way on every OS.
