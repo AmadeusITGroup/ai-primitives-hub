@@ -12,7 +12,7 @@
  * the code before the install-category refactor and must not change.
  * Repository-scope installs now write the 3.0.0 install record
  * (`ai-primitives-hub.lock.json` / `.local.lock.json`), so their `lockEntry`
- * is read from `bundles.<id>.tools.<type>` (root-relative `installedPath`,
+ * is read from `bundles.<id>.tools.<type>` (root-relative `path`,
  * `sha256:` checksums, plus the record file); every other output, including
  * what uninstall leaves behind, is unchanged.
  *
@@ -362,8 +362,8 @@ const readRecordEntry = async (sandbox: Sandbox, bundleId: string, targetType: s
         version: entry.version,
         sourceType: entry.sourceType,
         files: entry.files
-          .map((file) => ({ installedPath: file.installedPath, checksum: file.checksum }))
-          .toSorted((left, right) => comparePaths(left.installedPath ?? '', right.installedPath ?? ''))
+          .map((file) => ({ path: file.path, checksum: file.checksum }))
+          .toSorted((left, right) => comparePaths(left.path ?? '', right.path ?? ''))
       };
     }
   }
@@ -539,7 +539,7 @@ describe('characterisation: install, lockfile and uninstall per kind, target and
     expect(install.exitCode).toBe(0);
 
     // Repository scope records root-relative installed paths (install record 3.0.0).
-    const lockPaths = ((await readLockEntry(sandbox, bundleId, 'vscode'))?.files ?? []).map((file) => file.installedPath);
+    const lockPaths = ((await readLockEntry(sandbox, bundleId, 'vscode'))?.files ?? []).map((file) => file.path);
     expect(lockPaths).toEqual([
       '.github/plugins/bar-baz/plugin.json',
       '.github/plugins/bar/plugin.json',

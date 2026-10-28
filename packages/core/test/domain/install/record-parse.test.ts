@@ -29,7 +29,7 @@ const validRecord = (): Record<string, unknown> => ({
           sourceId: 'acme-github',
           sourceType: 'github',
           installedAt: '2026-10-25T15:00:00Z',
-          files: [{ installedPath: '.kiro/steering/style.md', checksum: `sha256:${'a'.repeat(64)}` }]
+          files: [{ path: '.kiro/steering/style.md', checksum: `sha256:${'a'.repeat(64)}` }]
         }
       }
     }

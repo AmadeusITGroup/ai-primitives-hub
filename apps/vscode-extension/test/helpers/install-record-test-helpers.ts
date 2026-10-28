@@ -95,14 +95,14 @@ export const writeInstallRecord = (root: string, fileName: string, spec: RecordS
     for (const [tool, entry] of Object.entries(tools)) {
       const sourceId = entry.sourceId ?? 'acme-github';
       sources[sourceId] = { type: entry.sourceType ?? 'github', url: `https://github.com/acme/${sourceId}` };
-      const files = [...entry.files, ...(entry.missing ?? [])].toSorted().map((installedPath) => {
-        const content = `# ${bundleId} ${tool} ${installedPath}\n`;
-        if (!(entry.missing ?? []).includes(installedPath)) {
-          const absolute = path.join(root, ...installedPath.split('/'));
+      const files = [...entry.files, ...(entry.missing ?? [])].toSorted().map((filePath) => {
+        const content = `# ${bundleId} ${tool} ${filePath}\n`;
+        if (!(entry.missing ?? []).includes(filePath)) {
+          const absolute = path.join(root, ...filePath.split('/'));
           fs.mkdirSync(path.dirname(absolute), { recursive: true });
           fs.writeFileSync(absolute, content);
         }
-        return { installedPath, checksum: sha256(content) };
+        return { path: filePath, checksum: sha256(content) };
       });
       toolEntries[tool] = {
         version: entry.version,

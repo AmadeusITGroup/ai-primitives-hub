@@ -233,7 +233,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/specs/feature/requirements.md"
+            "path": ".kiro/specs/feature/requirements.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -318,7 +318,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/specs/feature/requirements.md"
+            "path": ".kiro/specs/feature/requirements.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -785,7 +785,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/specs/feature/requirements.md"
+            "path": ".kiro/specs/feature/requirements.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -870,7 +870,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/specs/feature/requirements.md"
+            "path": ".kiro/specs/feature/requirements.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",

@@ -8,7 +8,7 @@
  *    root; read capped at 10 MB + 1 byte;
  * 2. `parseRecord` — prototype-free JSON and the version gate;
  * 3. the schema validator (`RecordSchemaValidator` from infra);
- * 4. every `installedPath` through Layer A and Layer B (`confinePath`), then
+ * 4. every recorded file `path` through Layer A and Layer B (`confinePath`), then
  *    every tool entry's `sourceId` must be a key of `sources`.
  *
  * `save` refuses to write a location unless its last `load` succeeded, so a
@@ -212,7 +212,7 @@ export class RecordStore {
     for (const bundle of Object.values(record.bundles)) {
       for (const entry of Object.values(bundle.tools)) {
         for (const recorded of entry.files) {
-          await confinePath(this.fs, location.root, recorded.installedPath, file);
+          await confinePath(this.fs, location.root, recorded.path, file);
         }
       }
     }

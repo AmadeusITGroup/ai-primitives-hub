@@ -32,7 +32,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".claude/instructions/x.instructions.md"
+            "path": ".claude/instructions/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -201,7 +201,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".cursor/rules/x.instructions.md"
+            "path": ".cursor/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -287,7 +287,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/rules/x.instructions.md"
+            "path": ".devin/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -377,7 +377,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/rules/x.instructions.md"
+            "path": ".devin/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -466,7 +466,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/steering/x.instructions.md"
+            "path": ".kiro/steering/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -550,7 +550,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/steering/x.instructions.md"
+            "path": ".kiro/steering/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -634,7 +634,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".opencode/rules/x.instructions.md"
+            "path": ".opencode/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -714,7 +714,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/instructions/x.instructions.md"
+            "path": ".github/instructions/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -793,7 +793,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/instructions/x.instructions.md"
+            "path": ".github/instructions/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -830,7 +830,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/instructions/x.instructions.md"
+            "path": ".github/instructions/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.local.lock.json",
@@ -913,7 +913,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".windsurf/rules/x.instructions.md"
+            "path": ".windsurf/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1000,7 +1000,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".claude/instructions/x.instructions.md"
+            "path": ".claude/instructions/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1169,7 +1169,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".cursor/rules/x.instructions.md"
+            "path": ".cursor/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1255,7 +1255,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/rules/x.instructions.md"
+            "path": ".devin/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1345,7 +1345,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/rules/x.instructions.md"
+            "path": ".devin/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1434,7 +1434,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/steering/x.instructions.md"
+            "path": ".kiro/steering/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1518,7 +1518,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/steering/x.instructions.md"
+            "path": ".kiro/steering/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1602,7 +1602,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".opencode/rules/x.instructions.md"
+            "path": ".opencode/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1682,7 +1682,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/instructions/x.instructions.md"
+            "path": ".github/instructions/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1761,7 +1761,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/instructions/x.instructions.md"
+            "path": ".github/instructions/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1798,7 +1798,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/instructions/x.instructions.md"
+            "path": ".github/instructions/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.local.lock.json",
@@ -1881,7 +1881,7 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".windsurf/rules/x.instructions.md"
+            "path": ".windsurf/rules/x.instructions.md"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",

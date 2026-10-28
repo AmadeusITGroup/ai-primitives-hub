@@ -94,7 +94,7 @@ interface InstallRecordJson {
       sourceId: string;
       sourceType: string;
       installedAt: string;
-      files: { installedPath: string; checksum: string }[];
+      files: { path: string; checksum: string }[];
     }>;
   }>;
   sources: Record<string, Record<string, unknown>>;
@@ -809,7 +809,7 @@ agents:
     const entry = record.bundles['remote-foo'].tools['copilot-cli'];
     expect(entry).toMatchObject({ version: '1.0.0', sourceType: 'github' });
     expect(record.sources[entry.sourceId]).toEqual({ type: 'github', url: 'https://github.com/owner/repo' });
-    expect(entry.files.map((file) => file.installedPath)).toEqual(['.github/prompts/hello.prompt.md']);
+    expect(entry.files.map((file) => file.path)).toEqual(['.github/prompts/hello.prompt.md']);
     await expect(
       readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
     ).rejects.toThrow();
@@ -1136,11 +1136,11 @@ agents:
       expect(Object.keys(tools).toSorted()).toEqual(['kiro', 'vscode']);
       expect(tools.vscode).toMatchObject({ version: '1.0.0', sourceId: 'local-bundle', sourceType: 'local' });
       expect(tools.vscode.files).toEqual([{
-        installedPath: '.github/prompts/hello.prompt.md',
+        path: '.github/prompts/hello.prompt.md',
         checksum: `sha256:${createHash('sha256').update(await readFile(vscodePrompt())).digest('hex')}`
       }]);
       expect(tools.kiro.files.length).toBeGreaterThan(0);
-      expect(tools.kiro.files.every((file) => file.installedPath.startsWith('.kiro/'))).toBe(true);
+      expect(tools.kiro.files.every((file) => file.path.startsWith('.kiro/'))).toBe(true);
       expect(record.sources['local-bundle']).toEqual({ type: 'local', url: bundleDir });
       await expect(readFile(path.join(workspace, 'prompt-registry.lock.json'), 'utf8')).rejects.toThrow();
     });
@@ -1235,7 +1235,7 @@ agents:
       expect(result.exitCode, result.stdout).toBe(0);
       await expect(readFile(agentFile, 'utf8')).rejects.toThrow();
       await expect(readFile(vscodePrompt(), 'utf8')).resolves.toContain('Hello Prompt');
-      expect((await readRecord()).bundles['local-foo'].tools.vscode.files.map((file) => file.installedPath))
+      expect((await readRecord()).bundles['local-foo'].tools.vscode.files.map((file) => file.path))
         .toEqual(['.github/prompts/hello.prompt.md']);
     });
 

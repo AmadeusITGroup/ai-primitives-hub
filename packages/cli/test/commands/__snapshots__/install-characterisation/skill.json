@@ -37,15 +37,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".claude/skills/foo/SKILL.md"
+            "path": ".claude/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".claude/skills/foo/references/ref.md"
+            "path": ".claude/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".claude/skills/foo/scripts/run.sh"
+            "path": ".claude/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -264,15 +264,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".cursor/skills/foo/SKILL.md"
+            "path": ".cursor/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".cursor/skills/foo/references/ref.md"
+            "path": ".cursor/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".cursor/skills/foo/scripts/run.sh"
+            "path": ".cursor/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -378,15 +378,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/skills/foo/SKILL.md"
+            "path": ".devin/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".devin/skills/foo/references/ref.md"
+            "path": ".devin/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".devin/skills/foo/scripts/run.sh"
+            "path": ".devin/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -496,15 +496,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/skills/foo/SKILL.md"
+            "path": ".devin/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".devin/skills/foo/references/ref.md"
+            "path": ".devin/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".devin/skills/foo/scripts/run.sh"
+            "path": ".devin/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -613,15 +613,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/skills/foo/SKILL.md"
+            "path": ".kiro/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".kiro/skills/foo/references/ref.md"
+            "path": ".kiro/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".kiro/skills/foo/scripts/run.sh"
+            "path": ".kiro/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -725,15 +725,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/skills/foo/SKILL.md"
+            "path": ".kiro/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".kiro/skills/foo/references/ref.md"
+            "path": ".kiro/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".kiro/skills/foo/scripts/run.sh"
+            "path": ".kiro/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -837,15 +837,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".opencode/skills/foo/SKILL.md"
+            "path": ".opencode/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".opencode/skills/foo/references/ref.md"
+            "path": ".opencode/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".opencode/skills/foo/scripts/run.sh"
+            "path": ".opencode/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -945,15 +945,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/skills/foo/SKILL.md"
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".github/skills/foo/references/ref.md"
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".github/skills/foo/scripts/run.sh"
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1052,15 +1052,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/skills/foo/SKILL.md"
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".github/skills/foo/references/ref.md"
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".github/skills/foo/scripts/run.sh"
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1102,15 +1102,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/skills/foo/SKILL.md"
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".github/skills/foo/references/ref.md"
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".github/skills/foo/scripts/run.sh"
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.local.lock.json",
@@ -1213,15 +1213,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".windsurf/skills/foo/SKILL.md"
+            "path": ".windsurf/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".windsurf/skills/foo/references/ref.md"
+            "path": ".windsurf/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".windsurf/skills/foo/scripts/run.sh"
+            "path": ".windsurf/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1328,15 +1328,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".claude/skills/foo/SKILL.md"
+            "path": ".claude/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".claude/skills/foo/references/ref.md"
+            "path": ".claude/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".claude/skills/foo/scripts/run.sh"
+            "path": ".claude/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1555,15 +1555,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".cursor/skills/foo/SKILL.md"
+            "path": ".cursor/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".cursor/skills/foo/references/ref.md"
+            "path": ".cursor/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".cursor/skills/foo/scripts/run.sh"
+            "path": ".cursor/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1669,15 +1669,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/skills/foo/SKILL.md"
+            "path": ".devin/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".devin/skills/foo/references/ref.md"
+            "path": ".devin/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".devin/skills/foo/scripts/run.sh"
+            "path": ".devin/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1787,15 +1787,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/skills/foo/SKILL.md"
+            "path": ".devin/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".devin/skills/foo/references/ref.md"
+            "path": ".devin/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".devin/skills/foo/scripts/run.sh"
+            "path": ".devin/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -1904,15 +1904,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/skills/foo/SKILL.md"
+            "path": ".kiro/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".kiro/skills/foo/references/ref.md"
+            "path": ".kiro/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".kiro/skills/foo/scripts/run.sh"
+            "path": ".kiro/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -2016,15 +2016,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".kiro/skills/foo/SKILL.md"
+            "path": ".kiro/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".kiro/skills/foo/references/ref.md"
+            "path": ".kiro/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".kiro/skills/foo/scripts/run.sh"
+            "path": ".kiro/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -2128,15 +2128,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".opencode/skills/foo/SKILL.md"
+            "path": ".opencode/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".opencode/skills/foo/references/ref.md"
+            "path": ".opencode/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".opencode/skills/foo/scripts/run.sh"
+            "path": ".opencode/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -2236,15 +2236,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/skills/foo/SKILL.md"
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".github/skills/foo/references/ref.md"
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".github/skills/foo/scripts/run.sh"
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -2343,15 +2343,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/skills/foo/SKILL.md"
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".github/skills/foo/references/ref.md"
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".github/skills/foo/scripts/run.sh"
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",
@@ -2393,15 +2393,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".github/skills/foo/SKILL.md"
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".github/skills/foo/references/ref.md"
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".github/skills/foo/scripts/run.sh"
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.local.lock.json",
@@ -2504,15 +2504,15 @@
         "files": [
           {
             "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".windsurf/skills/foo/SKILL.md"
+            "path": ".windsurf/skills/foo/SKILL.md"
           },
           {
             "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".windsurf/skills/foo/references/ref.md"
+            "path": ".windsurf/skills/foo/references/ref.md"
           },
           {
             "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".windsurf/skills/foo/scripts/run.sh"
+            "path": ".windsurf/skills/foo/scripts/run.sh"
           }
         ],
         "record": "<workspace>/ai-primitives-hub.lock.json",

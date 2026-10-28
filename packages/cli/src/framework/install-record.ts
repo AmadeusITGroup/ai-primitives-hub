@@ -234,7 +234,7 @@ export const prepareRepositoryUninstall = async (
         if (!Object.hasOwn(bundle.tools, target.type)) {
           continue;
         }
-        const paths = bundle.tools[target.type].files.map((file) => file.installedPath);
+        const paths = bundle.tools[target.type].files.map((file) => file.path);
         entries.set(bundleId, [...new Set([...(entries.get(bundleId) ?? []), ...paths])]);
       }
     }

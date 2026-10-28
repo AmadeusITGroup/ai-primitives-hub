@@ -187,10 +187,10 @@ describe('uninstall command', () => {
   describe('repository install record (ai-primitives-hub.lock.json)', () => {
     const recordPath = (): string => path.join(workspace, 'ai-primitives-hub.lock.json');
     const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
-    const readRecord = async (): Promise<{ bundles: Record<string, { tools: Record<string, { files: { installedPath: string }[] }> }> }> =>
-      JSON.parse(await readFile(recordPath(), 'utf8')) as { bundles: Record<string, { tools: Record<string, { files: { installedPath: string }[] }> }> };
+    const readRecord = async (): Promise<{ bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }> }> =>
+      JSON.parse(await readFile(recordPath(), 'utf8')) as { bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }> };
     const kiroFiles = async (): Promise<string[]> =>
-      (await readRecord()).bundles['local-foo'].tools.kiro.files.map((file) => path.join(workspace, file.installedPath));
+      (await readRecord()).bundles['local-foo'].tools.kiro.files.map((file) => path.join(workspace, file.path));
     const exists = async (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
 
     beforeEach(async () => {
