@@ -31,10 +31,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".claude/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -196,10 +197,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".cursor/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -280,10 +282,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".devin/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -368,10 +371,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".devin/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -455,10 +459,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".kiro/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -579,10 +584,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".opencode/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -657,10 +663,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".github/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -734,10 +741,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".github/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -770,10 +778,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".github/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.local.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -851,10 +860,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".windsurf/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -936,10 +946,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".claude/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1101,10 +1112,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".cursor/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1185,10 +1197,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".devin/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1273,10 +1286,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".devin/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1360,10 +1374,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".kiro/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1484,10 +1499,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".opencode/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1562,10 +1578,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".github/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1639,10 +1656,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".github/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1675,10 +1693,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".github/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.local.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1756,10 +1775,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": ".windsurf/hooks/x.json"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },

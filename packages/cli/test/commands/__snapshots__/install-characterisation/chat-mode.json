@@ -31,11 +31,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".claude/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -200,11 +200,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".cursor/agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".cursor/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -286,11 +286,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -376,11 +376,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -465,11 +465,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".kiro/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -549,11 +549,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".kiro/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -633,11 +633,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".opencode/agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".opencode/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -713,10 +713,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".github/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -791,10 +792,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".github/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -827,10 +829,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".github/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.local.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -909,11 +912,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".windsurf/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -996,11 +999,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".claude/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1165,11 +1168,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".cursor/agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".cursor/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1251,11 +1254,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1341,11 +1344,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".devin/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1430,11 +1433,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".kiro/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1514,11 +1517,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".kiro/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1598,11 +1601,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".opencode/agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".opencode/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1678,10 +1681,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".github/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1756,10 +1760,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".github/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1792,10 +1797,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".github/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.local.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1874,11 +1880,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "agents/x.chatmode.md",
-            "path": "chatmodes/x.chatmode.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": ".windsurf/agents/x.chatmode.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },

@@ -17,6 +17,11 @@ import {
   getBundleDisplayName,
 } from '../utils/bundle-name-utils';
 import {
+  isCliManagedError,
+  showCliManagedBatchWarning,
+  showCliManagedWarning,
+} from '../utils/cli-managed';
+import {
   CONCURRENCY_CONSTANTS,
 } from '../utils/constants';
 import {
@@ -117,9 +122,12 @@ export class BundleUpdateCommands {
   private async performBatchUpdate(updates: BundleUpdate[]): Promise<{
     successful: string[];
     failed: { bundleId: string; error: string }[];
+    skipped: string[];
   }> {
     const successful: string[] = [];
     const failed: { bundleId: string; error: string }[] = [];
+    /** Bundles refused because the CLI installed them (BR5.6). */
+    const skipped: string[] = [];
 
     await vscode.window.withProgress(
       {
@@ -142,7 +150,7 @@ export class BundleUpdateCommands {
           });
 
           // Process batch in parallel
-          const results = await this.processBatch(batch);
+          const results = await this.processBatch(batch, skipped);
 
           // Collect results and update progress
           this.collectBatchResults(results, batch, successful, failed, progress, completed, totalUpdates);
@@ -151,17 +159,19 @@ export class BundleUpdateCommands {
       }
     );
 
-    return { successful, failed };
+    return { successful, failed, skipped };
   }
 
   /**
    * Process a batch of updates in parallel
    * @param batch
+   * @param skipped - Receives the ids refused because the CLI installed them.
    */
-  private async processBatch(batch: BundleUpdate[]): Promise<PromiseSettledResult<{
+  private async processBatch(batch: BundleUpdate[], skipped: string[]): Promise<PromiseSettledResult<{
     bundleId: string;
     bundleName: string;
     success: boolean;
+    skipped?: boolean;
     error?: string;
   }>[]> {
     return await Promise.allSettled(
@@ -177,6 +187,12 @@ export class BundleUpdateCommands {
 
           return { bundleId: update.bundleId, bundleName, success: true };
         } catch (error) {
+          if (isCliManagedError(error)) {
+            // Installed with the CLI: skipped, neither updated nor failed (BR5.6)
+            this.logger.warn(`Skipped updating ${update.bundleId}: ${error.message}`);
+            skipped.push(update.bundleId);
+            return { bundleId: update.bundleId, bundleName: update.bundleId, success: false, skipped: true };
+          }
           const errorObj = toError(error);
           this.logger.error(`Failed to update ${update.bundleId}`, errorObj);
           return {
@@ -205,6 +221,7 @@ export class BundleUpdateCommands {
       bundleId: string;
       bundleName: string;
       success: boolean;
+      skipped?: boolean;
       error?: string;
     }>[],
     batch: BundleUpdate[],
@@ -218,7 +235,12 @@ export class BundleUpdateCommands {
       const update = batch[index];
       const currentCompleted = completed + index + 1;
 
-      if (result.status === 'fulfilled' && result.value.success) {
+      if (result.status === 'fulfilled' && result.value.skipped) {
+        progress.report({
+          message: `⊘ ${update.bundleId} skipped (${currentCompleted}/${totalUpdates})`,
+          increment: (100 / totalUpdates)
+        });
+      } else if (result.status === 'fulfilled' && result.value.success) {
         successful.push(result.value.bundleName);
         progress.report({
           message: `✓ ${result.value.bundleName} (${currentCompleted}/${totalUpdates})`,
@@ -357,19 +379,24 @@ export class BundleUpdateCommands {
             return;
           }
 
-          // Update selected bundles
+          // Update selected bundles; refused or failed ones are not counted as updated
+          let updatedCount = 0;
           for (const item of selected) {
             try {
-              await this.updateBundle(item.update.bundleId);
+              if (await this.updateBundle(item.update.bundleId)) {
+                updatedCount++;
+              }
             } catch (error) {
               const errorObj = toError(error);
               this.logger.warn(`Failed to update ${item.name}`, errorObj);
             }
           }
 
-          vscode.window.showInformationMessage(
-            `✓ Updated ${selected.length} bundle(s)`
-          );
+          if (updatedCount > 0) {
+            vscode.window.showInformationMessage(
+              `✓ Updated ${updatedCount} bundle(s)`
+            );
+          }
         }
       );
     }, 'check updates');
@@ -378,9 +405,10 @@ export class BundleUpdateCommands {
   /**
    * Update a specific bundle
    * @param bundleId
+   * @returns `true` when the bundle was updated; `false` when it was refused or failed.
    */
-  public async updateBundle(bundleId: string): Promise<void> {
-    await this.withErrorHandling(async () => {
+  public async updateBundle(bundleId: string): Promise<boolean> {
+    return await this.withErrorHandling(async () => {
       // Get bundle name for display (try to get details, but don't fail if not found)
       let bundleName = bundleId;
       try {
@@ -391,23 +419,32 @@ export class BundleUpdateCommands {
       }
 
       // Update with progress
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: `Updating ${bundleName}...`,
-          cancellable: false
-        },
-        async (progress) => {
-          progress.report({ message: 'Downloading...' });
-          await this.registryManager.updateBundle(bundleId);
-          progress.report({ message: 'Complete', increment: 100 });
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Updating ${bundleName}...`,
+            cancellable: false
+          },
+          async (progress) => {
+            progress.report({ message: 'Downloading...' });
+            await this.registryManager.updateBundle(bundleId);
+            progress.report({ message: 'Complete', increment: 100 });
+          }
+        );
+      } catch (error) {
+        // A CLI-installed bundle: one warning, no success message (BR5.6)
+        if (showCliManagedWarning(error)) {
+          return false;
         }
-      );
+        throw error;
+      }
 
       vscode.window.showInformationMessage(
         `✓ ${bundleName} updated successfully!`
       );
-    }, 'update bundle');
+      return true;
+    }, 'update bundle', false);
   }
 
   /**
@@ -430,10 +467,11 @@ export class BundleUpdateCommands {
       }
 
       // Perform batch update with progress reporting
-      const { successful, failed } = await this.performBatchUpdate(updates);
+      const { successful, failed, skipped } = await this.performBatchUpdate(updates);
 
       // Display summary notification
       await this.showBatchUpdateSummary(successful, failed);
+      showCliManagedBatchWarning(skipped, 'update');
 
       this.logger.info(
         `Batch update completed: ${successful.length} successful, ${failed.length} failed`

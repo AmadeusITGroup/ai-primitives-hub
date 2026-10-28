@@ -20,6 +20,7 @@ export * from './host-app';
 export * from './http';
 export * from './hub';
 export * from './process';
+export * from './records';
 export * from './release-source';
 export * from './resolvers';
 export * from './replicate';

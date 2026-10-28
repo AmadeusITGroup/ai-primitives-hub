@@ -1,0 +1,24 @@
+{
+  "$schema": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json",
+  "version": "3.0.0",
+  "level": "repository",
+  "generatedAt": "2026-10-24T10:00:00.000Z",
+  "generatedBy": "ai-primitives-hub-cli@0.3.0",
+  "bundles": {
+    "acme-prompts": {
+      "tools": {
+        "vscode": {
+          "version": "1.0.0",
+          "sourceId": "acme-github",
+          "sourceType": "github",
+          "installedAt": "2026-10-24T10:00:00.000Z",
+          "files": [],
+          "futureField": { "deeper": { "constructor": { "prototype": { "polluted": true } } } }
+        }
+      }
+    }
+  },
+  "sources": {
+    "acme-github": { "type": "github", "url": "https://github.com/acme/prompts" }
+  }
+}

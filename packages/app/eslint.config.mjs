@@ -35,6 +35,21 @@ export default defineConfig([
     rules: temporaryWarnRules
   },
   {
+    // NFR4.7: install-record code never spawns processes (the git-root walk is filesystem-only).
+    // Repeats the inherited `rxjs/internal/*` pattern because overriding the rule replaces its options.
+    name: 'app/install-record-no-child-process',
+    files: ['src/domain/install/record*', 'src/records/**'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          { name: 'child_process', message: 'Install-record code must not spawn processes (NFR4.7).' },
+          { name: 'node:child_process', message: 'Install-record code must not spawn processes (NFR4.7).' }
+        ],
+        patterns: ['rxjs/internal/*']
+      }]
+    }
+  },
+  {
     name: 'app/test-ts-rules',
     files: ['test/**/*.ts'],
     rules: {

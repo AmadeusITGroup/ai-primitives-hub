@@ -90,6 +90,21 @@ export {
   runCommand,
 } from './golden';
 export type {
+  PreparedRepositoryRecord,
+  PreparedRepositoryUninstall,
+  RecordedRepositoryInstall,
+  RecordedRepositoryUninstall,
+  RepositoryInstallToRecord,
+} from './install-record';
+export {
+  CLI_RECORD_GENERATED_BY,
+  prepareRepositoryRecord,
+  prepareRepositoryUninstall,
+  recordRepositoryInstall,
+  recordRepositoryUninstall,
+  toInstallRecordError,
+} from './install-record';
+export type {
   CreateHubManagerOptions,
 } from './hub-manager';
 export {

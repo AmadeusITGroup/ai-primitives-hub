@@ -31,6 +31,15 @@
  * IDE type nominally triggered the install (see
  * `writers/repo-scope-writer.ts`'s `RepositoryScopeWriterAdapter`,
  * which ignores its `Target` parameter entirely).
+ *
+ * Install record migration (in progress): repository-scope CLI
+ * `install` and `uninstall` now write and read the install record
+ * (`ai-primitives-hub.lock.json` / `ai-primitives-hub.local.lock.json`,
+ * format 3.0.0) through `records/RecordStore` and
+ * `records/InstallRecordService`, and no longer write this store.
+ * Uninstall falls back to this store for bundles installed before
+ * the change. `update`, `status` and replay still read and write
+ * this store until they move to the install record.
  * @module stores/json-lockfile-store
  */
 import {
