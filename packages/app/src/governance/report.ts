@@ -36,6 +36,12 @@ const levelOf = (ruleId: string): Level => {
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
 
+/**
+ * The option that enables source checks: hub runs use `--check-sources`, collection runs `--check-releases`.
+ * @param subject
+ */
+const sourceCheckOption = (subject: GovernanceReport['subject']): string => subject === 'hub' ? '--check-sources' : '--check-releases';
+
 /** Minimal view of the hub PR scope attached by scoped hub runs. */
 interface HubScopeView {
   sources: { added: string[]; modified: string[]; removed: string[] };
@@ -68,7 +74,7 @@ function ruleRow(rule: GovernanceRule, report: GovernanceReport, levelRan: boole
     return { rule, status: 'skipped', result: '⏭️ Disabled by configuration', findings };
   }
   if (!levelRan || report.notChecked.some((entry) => entry.ruleId === rule.id)) {
-    return { rule, status: 'skipped', result: '⏭️ Not run (offline; use --check-sources)', findings };
+    return { rule, status: 'skipped', result: `⏭️ Not run (offline; use ${sourceCheckOption(report.subject)})`, findings };
   }
   const errors = findings.filter((finding) => finding.severity === 'error');
   if (errors.length > 0) {
@@ -186,7 +192,7 @@ export function renderGovernanceMarkdown(report: RenderableGovernanceReport): st
     `| Advisory score | ${report.score}/100 |`,
     `| Minimum score | ${report.minScore ?? 'Not enforced'} |`,
     report.mode === 'sources'
-      ? '| Source access | Source repositories were contacted (--check-sources) |'
+      ? `| Source access | Source repositories were contacted (${sourceCheckOption(report.subject)}) |`
       : '| Source access | Offline; source repositories were not contacted |'
   );
   const configuration = report.findings.filter((finding) => levelOf(finding.ruleId) === 'configuration');

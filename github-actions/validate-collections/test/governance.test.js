@@ -72,7 +72,7 @@ test('release checks opt into governance and fail unverified when repository con
   const result = run(root, { 'INPUT_CHECK-RELEASES': 'true' });
   assert.equal(result.status, 1, result.stderr);
   assert.match(fs.readFileSync(path.join(root, 'summary'), 'utf8'), /COL002/);
-  assert.match(fs.readFileSync(path.join(root, 'summary'), 'utf8'), /unverified/);
+  assert.match(fs.readFileSync(path.join(root, 'summary'), 'utf8'), /could not verify/);
   assert.match(fs.readFileSync(path.join(root, 'outputs'), 'utf8'), /verdict=fail\nscore=97\n/);
 });
 
@@ -80,8 +80,8 @@ test('repository input alone does not enable source access', (t) => {
   const root = setup(t);
   const result = run(root, { INPUT_GOVERNANCE: 'true', INPUT_REPOSITORY: 'owner/repo' });
   assert.equal(result.status, 0, result.stderr);
-  // COL002 is listed under "Not checked", never as a finding row.
-  assert.doesNotMatch(result.stdout, /\| COL002 \|/);
-  assert.match(result.stdout, /Not checked/);
+  // Offline COL002 is listed as not run, with the option that enables it, and never as a failure.
+  assert.match(result.stdout, /\| COL002 \| .* \| ⏭️ Not run \(offline; use --check-releases\) \|/);
+  assert.doesNotMatch(result.stdout, /\| COL002 \| .* \| ❌/);
   assert.match(result.stdout, /Offline/);
 });

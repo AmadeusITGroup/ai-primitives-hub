@@ -33,4 +33,13 @@ describe('provider-owned governance Markdown report', () => {
     const report = evaluateGovernance('collection', [], { rules: { COL003: { enabled: false, reason: 'Migration' } } });
     expect(renderGovernanceMarkdown(report)).toContain('**COL003**: disabled — Migration');
   });
+
+  it('names the source-check option of the command that produced the report', () => {
+    const hub = renderGovernanceMarkdown(evaluateGovernance('hub', []));
+    expect(hub).toContain('| COL002 | Collection has a published release | ⏭️ Not run (offline; use --check-sources) |');
+
+    const collection = renderGovernanceMarkdown(evaluateGovernance('collection', []));
+    expect(collection).toContain('| COL002 | Collection has a published release | ⏭️ Not run (offline; use --check-releases) |');
+    expect(collection).not.toContain('--check-sources');
+  });
 });

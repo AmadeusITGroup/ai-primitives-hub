@@ -106,7 +106,7 @@ The existing `ai-primitives-hub collection validate` command also supports opt-i
 | `--repository <owner/repo>` | GitHub repository (or URL) for release verification; does not enable network checks on its own. |
 | `-o, --output <format>` | Text, JSON, YAML, or NDJSON. JSON/YAML reports are in `data`; NDJSON emits the report directly. |
 
-Governance reuses the existing schema, file-reference, and duplicate checks, requires a non-empty author, and rejects an empty collection set. Errors always fail. The score starts at 100, loses 10 per verified error and 3 per verified warning, and is advisory unless a minimum is configured. Unverified findings do not reduce the score. Floor rules cannot be disabled or downgraded; overrides and their reasons remain visible in reports. A report-write failure also fails the command. Offline runs list the network rules they did not run (`COL002`, and `COL004` for hubs) under **Not checked**, with no score weight.
+Governance reuses the existing schema, file-reference, and duplicate checks, requires a non-empty author, and rejects an empty collection set. Errors always fail. The score starts at 100, loses 10 per verified error and 3 per verified warning, and is advisory unless a minimum is configured. Unverified findings do not reduce the score. Floor rules cannot be disabled or downgraded; overrides and their reasons remain visible in reports. A report-write failure also fails the command. Offline runs show the network rules they did not run (`COL002`, and `COL004` for hubs) as **Not run** in the rule table, naming the option that enables them, with no score weight.
 
 Every rule, its default severity and whether it can be configured is listed in the generated [rule catalogue](./rule-catalogue.md).
 

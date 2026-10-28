@@ -173,7 +173,7 @@ The CLI discovers `hub-governance.yml` at the repository root; `policy-path`/`--
 
 Configuration problems fail the run and the configuration is ignored for that run: `CFG001` (YAML or schema), `CFG002` (unknown or non-configurable rule id), `CFG003` (floor rule disabled or downgraded), `CFG004` (score outside 0–100). Every configured disable/severity override is included in JSON and Markdown, even if no finding used it.
 
-The score starts at 100, loses 10 per verified error and 3 per verified warning, and never goes below zero. Unverified findings carry zero weight. The score is advisory unless `minScore`/`--min-score` is set. Errors always fail, regardless of score threshold. Offline runs list the network rules they skipped under **Not checked**.
+The score starts at 100, loses 10 per verified error and 3 per verified warning, and never goes below zero. Unverified findings carry zero weight. The score is advisory unless `minScore`/`--min-score` is set. Errors always fail, regardless of score threshold. Offline runs show the network rules they skipped as **Not run** in the rule table.
 
 ### Rule catalogue
 
