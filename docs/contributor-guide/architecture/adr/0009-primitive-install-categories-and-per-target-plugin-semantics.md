@@ -111,7 +111,9 @@ Constraints carried in from earlier decisions and from #277:
   extensions.** Each kind has a default category (data, in `core`). A target's
   layout may override the category for a kind (data, in `infra`). A kind may
   add a kind-specific step on top of its category's shared behaviour (code, in
-  `app`), for example plugin projection. **Chosen.**
+  `app`), for example plugin projection. A target's layout may also name a
+  target adaptation for a kind (an `infra` adapter) for formats no category
+  expresses (decision 8). **Chosen.**
 
 ## Decision
 
@@ -193,12 +195,16 @@ Follow-up work is named by the step labels of the
    follow-up outside M1. Both placement paths end on a
    `kindRoutes` key, so the derivation below covers both. Then:
 
-   - Kind K is supported on (target, scope) when the resolved layout has at
-     least one `kindRoutes` key with `routeKindOf(key) = K` (for `file` and
-     `directory`), or when the resolved `config` requirement is met (an MCP
-     config), plus any kind-extension requirement (decision 6) and, when
-     the layout declares a target adaptation for K, an implementation of
-     that adaptation id (decision 8).
+   - Kind K is supported on (target, scope) when the resolved
+     layout has at least one `kindRoutes` key with `routeKindOf(key) = K`
+     (for `file` and `directory`), or when the resolved `config` requirement
+     is met (an MCP config), plus any kind-extension requirement (decision 6)
+     and, when the layout declares a target adaptation for K, an
+     implementation of that adaptation id (decision 8). At repository scope
+     two more inputs apply (decision 5, O10): the install's commit mode, and
+     whether the target MCP config file is already tracked by git. Both are
+     known before preflight, so `preflight` and the doctor evaluate the same
+     inputs and give the same answer for the same repository.
    - A bundle file's kind is the kind of the route it matches, which is what
      `preflight` and `allowedKinds` filtering already use. A file that
      matches no route is unsupported.
@@ -368,15 +374,25 @@ Follow-up work is named by the step labels of the
      scope. A stdio server always carries absolute, machine-specific paths:
      `PLUGIN_DATA` lives in `AppStorage`, outside the workspace, and is set
      in its `env`. So stdio plugin servers are written only in `local-only`
-     commit mode, where the MCP config file is git-excluded as for every
-     `local-only` install. If that file is already tracked by git, exclusion
-     cannot keep the entries out of commits, and the item is unsupported. In
-     `commit` mode, a plugin with a stdio server is unsupported on that
-     target (decision 6). Remote (`streamable-http`, `sse`) plugin servers
-     carry no plugin paths and are written in both commit modes. Collection
+     commit mode, where the MCP config file is git-excluded. If that file is
+     already tracked by git, exclusion cannot keep the entries out of
+     commits, and the item is unsupported. In `commit` mode, a plugin with a
+     stdio server is unsupported on that target (decision 6). Remote
+     (`streamable-http`, `sse`) plugin servers carry no plugin paths and are
+     written in both commit modes. Collection
      `mcpServers` and `mcp-server` items have no plugin paths, are not
      affected, and stay supported at repository scope (for example on
-     copilot-cli and vscode).
+     copilot-cli and vscode). The MCP config file is shared by every
+     install's `config` entries, so:
+     - its exclusion is held while any `local-only` install owns entries in
+       it (its `configEntries` in `prompt-registry.local.lock.json`) and is
+       released when the last one is removed;
+     - these are preflight conflicts, like an existing destination the
+       install does not own: a `local-only` stdio plugin install into a file
+       that holds entries owned by a `commit`-mode install; a `commit`-mode
+       `config` install into a file held excluded; and switching a bundle
+       with a stdio plugin server to `commit` mode. A conflict rejects the
+       install, and `--skip-unsupported` does not skip it.
    - **Uninstall** removes the projected skill directories, the projected MCP
      entries, the plugin root and that target's `PLUGIN_DATA`, each through
      its category.
@@ -388,22 +404,22 @@ Follow-up work is named by the step labels of the
        lasts until VS Code parity (#551) switches the extension to
        `configEntries`.
      - Distinct triples give distinct sanitised names only up to a hash
-       collision: a segment the encoding changes or that already looks
-       encoded, and a cut name, is told apart only by 8 hex characters
+       collision: segments the encoding changes or that already look
+       encoded, and cut names, are told apart only by 8 hex characters
        (32 bits) of sha256. `config` preflight rejects an install in which
        two owned names are equal.
      - On a target with a name length limit, an item is unsupported only when
        `prompt-registry__<encoded bundleId>__` plus the 10-character
-       `__<hash8>` suffix exceeds the limit. Longer names below that bound are
-       cut as described above.
+       `__<hash8>` suffix exceeds the limit. Names longer than the limit
+       whose prefix and suffix fit are cut as described above.
      - Per-target `PLUGIN_DATA` directories need no migration: nothing writes
        `PLUGIN_DATA` before M7. A renamed target leaves its old data directory
        behind, and the CLI and the extension keep separate directories
        (Consequences).
 
 6. **The plugin extension's support rule is all-or-nothing per item.** A
-   plugin is supported on a target and scope only when every portable
-   component it declares (skills, MCP) can be hosted there, including the
+   plugin is supported on a target, scope and commit mode only when every
+   portable component it declares (skills, MCP) can be hosted there, including the
    repository-scope rule for stdio servers (decision 5). Otherwise the
    plugin item is unsupported, and the existing default applies: the bundle
    is rejected, or the item is skipped under the opt-in `--skip-unsupported`.
@@ -493,10 +509,27 @@ Follow-up work is named by the step labels of the
      entry: recorded in `configEntries` (decision 1) as `{ path, key, name }`,
      with `key` and `name` defined by the adapter (M8 fixes them per
      adapter), removed on uninstall with foreign entries kept, and verified.
+   - **Uninstall fallback.** In the harness file, an adaptation entry (for
+     example a per-event hook array element) carries no APH-owned name, so
+     the `config` name fallback does not apply. When `configEntries` is
+     missing (decision 1), the adapter derives the entries again from the
+     files the category strategy installed for the bundle (the lockfile
+     entry's `files`) and removes, for each derived entry, one entry exactly
+     equal to it. Entries it
+     cannot match, for example ones edited by hand, are left in place and
+     reported, and verify reports them as unowned. This lasts until VS Code
+     parity (#551). M8 may add a per-adapter owner marker where the harness
+     format allows one.
 
-   M8 adds the hook adaptations for claude-code, cursor, devin and
-   devin-cli, and windsurf once verified. Whether Devin Desktop (`devin`)
-   reads the Devin CLI hook files is UNVERIFIED and is re-checked by M8.
+   M8 adds the hook adaptations for claude-code, cursor and devin-cli. devin
+   and windsurf are in M8's scope too, but each is gated on a recorded check
+   of the harness: whether Devin Desktop (`devin`) reads the Devin CLI hook
+   files, and whether Windsurf reads `hooks.json`, are both UNVERIFIED.
+   Without that record the target keeps `file`.
+   Devin CLI also reads Claude Code `settings.json` hooks by default
+   ([Devin CLI hooks][devin-hooks]), so a hook bundle installed for both
+   claude-code and devin-cli may fire twice in Devin; M8 re-checks this and
+   documents the behaviour.
 
 9. **Kiro routes and power (O3, O6).**
 
@@ -588,8 +621,9 @@ change this ADR decides reads "today → after the step", for example
 `❌ today → ✅ M4`. No `config` cell is written before M4, so every MCP cell
 is ❌ today, and `✅ M4` there is subject to M4's re-check described below
 the table. At repository scope after M7, a plugin with a stdio MCP server
-is ✅ only in `local-only` commit mode, and ❌ in `commit` mode (O10,
-decision 5).
+is ✅ only in `local-only` commit mode on targets with a repository-scope
+MCP config (not windsurf) that git does not already track, and ❌ in
+`commit` mode (O10, decision 5).
 
 | target | `file` | `directory` | `config` (MCP) | plugin | `hook` |
 |---|---|---|---|---|---|
@@ -601,7 +635,7 @@ decision 5).
 | claude-code | ✅ incl. `command`, `output-style` | ✅ skills | ❌ today → ✅ M4: `~/.claude.json` / `.mcp.json` | ✅ today as an inert copy → ✅ M7 `project`, user plugin route moved | ✅ `file` today, not read as hooks → M8 adaptation (`settings.json`) |
 | cursor | ✅ incl. `rule` | ✅ skills | ❌ today → ✅ M4: `~/.cursor/mcp.json` / `.cursor/mcp.json` | ✅ today as an inert copy → ✅ M7 `project`, user plugin route moved | ✅ `file` today, not read as hooks → M8 adaptation (`hooks.json`) |
 | opencode | ✅ incl. `tool` | ✅ skills | ❌ today: the layout's `.opencode/mcp.json` / `mcpServers` does not match OpenCode's `opencode.json`, key `mcp`, server shape `type`, array `command`, `environment` ([OpenCode MCP][oc-mcp]) → ✅ M4 with that dialect | ✅ today as an inert copy into the JS plugin directory → ✅ M7 `project`, plugin route moved | ✅ `file`; whether OpenCode reads `hooks/` is UNVERIFIED |
-| devin, devin-cli | ✅ incl. `knowledge`, `playbook`; `prompt` and `instruction` in `~/.devin/rules/` / `.devin/rules/` with `applyTo` rewritten to `trigger: glob` ([Devin rules][devin-rules]); `agent` and `chat-mode` in `~/.config/devin/agents/` / `.devin/agents/` ([Devin CLI extensibility][devin-ext]) | ✅ skills in `~/.config/devin/skills/` / `.devin/skills/` ([Devin CLI skills][devin-cli-skills]), `power` | ❌ today → ✅ M4: `~/.config/devin/mcp_config.json` / `.devin/mcp_config.json`, key `mcpServers` ([Devin MCP][devin-mcp]); the layout paths match since #598, but install writes no MCP config before M4 | ✅ today as an inert copy → ✅ M7 `project` | ✅ `file` today in `~/.devin/hooks/` / `.devin/hooks/`, not read as hooks ([Devin CLI hooks][devin-hooks]) → M8 adaptation (`.devin/hooks.v1.json` / `~/.config/devin/config.json`) |
+| devin, devin-cli | ✅ incl. `knowledge`, `playbook`; `prompt` and `instruction` in `~/.devin/rules/` / `.devin/rules/` with `applyTo` rewritten to `trigger: glob` ([Devin rules][devin-rules]); `agent` and `chat-mode` in `~/.config/devin/agents/` / `.devin/agents/` ([Devin CLI extensibility][devin-ext]) | ✅ skills in `~/.config/devin/skills/` / `.devin/skills/` ([Devin CLI skills][devin-cli-skills]), `power` | ❌ today → ✅ M4: `~/.config/devin/mcp_config.json` / `.devin/mcp_config.json`, key `mcpServers` ([Devin MCP][devin-mcp]); the layout paths match since #598, but install writes no MCP config before M4 | ✅ today as an inert copy → ✅ M7 `project` | ✅ `file` today in `~/.devin/hooks/` / `.devin/hooks/`, not read as hooks ([Devin CLI hooks][devin-hooks]) → M8 adaptation on devin-cli; on devin after a recorded check (`~/.config/devin/config.json` / `.devin/hooks.v1.json`) |
 
 ✅ in `file` and `directory` means the listed routes exist. A kind with no
 route on that target is ❌ (decision 3); for example `steering`, `rule` and
@@ -672,11 +706,15 @@ baseline everywhere.
   (for Copilot CLI, `.mcp.json` since
   [copilot-cli#1291][cop-1291]; [VS Code MCP configuration][vsc-mcp]). A
   workspace variable such as VS Code's or Cursor's `${workspaceFolder}`
-  ([Cursor MCP][cur-mcp]) could express `PLUGIN_ROOT`, but no dialect can
+  ([Cursor MCP][cur-mcp]) could express `PLUGIN_ROOT` in `args` and `env`
+  (on Cursor, in `cwd` UNVERIFIED), but no dialect can
   express `PLUGIN_DATA`, which lives in `AppStorage` and must be an absolute
   path in each stdio server's `env` ([spec §9.1][spec]). So no stdio plugin
-  server entry is safe to commit on any target, and no per-dialect attribute
-  is needed.
+  server entry is safe to commit on any target. Per-dialect
+  workspace-relative forms (a dialect attribute beside
+  `envPlaceholderStyle`) were considered and rejected for that reason: they
+  would make no stdio entry committable unless `PLUGIN_DATA` moved out of
+  `AppStorage`, which decision 5 does not do.
 - **O12 — projected skill name collisions.** Answered: a projected skill
   whose destination exists and is not owned by the same install is a
   preflight conflict. APH rejects the install and does not namespace the
@@ -707,8 +745,10 @@ questions; the step that depends on each re-checks it.
   layout's skills route, their MCP servers to the layout's MCP config, and
   placeholders are resolved. Where those routes are only layout data, the
   harness reading them is UNVERIFIED until M4 and M7 re-check them.
-- **Positive:** support is derived from the layouts, so the doctor, preflight
-  and documentation cannot disagree with what install actually does.
+- **Positive:** support is derived from the layouts, plus the commit mode
+  and the tracked state of the MCP config file at repository scope, so the
+  doctor, preflight and documentation cannot disagree with what install
+  actually does.
 - **Positive:** the CLI and the extension share one implementation once the
   extension delegates to `app`.
 - **Negative:** projection duplicates work a native harness could do, and its
@@ -761,7 +801,7 @@ start. O\* ids refer to the open questions above.
 | 5 | **M5** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | M4 | `mcp-server` installs wherever an MCP config exists |
 | 6 | **M6** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks |
 | 7 | **M7** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` and `realpath` on the `FileSystem` port; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; the O10 repository-scope rule (decision 5) | M4, M3, M1, M2 (kiro only) | plugins are usable, not inert copies |
-| 8 | **M8** (optional) `feat`: config-based hooks | `TargetAdaptation` port and its `infra` adapters; `hook` adaptations for claude-code, cursor, devin and devin-cli (windsurf once verified), each re-checked against the harness docs | M4 | hooks fire on those targets |
+| 8 | **M8** (optional) `feat`: config-based hooks | `TargetAdaptation` port and its `infra` adapters; `hook` adaptations for claude-code, cursor and devin-cli, and for devin and windsurf each gated on a recorded check, all re-checked against the harness docs; re-check whether Devin also reads the claude-code adaptation's `settings.json` entries, and document the double-install behaviour | M4 | hooks fire on those targets |
 | 9 | **M9** (optional, per target) `feat`: `native` or `register` mode | only with documentation or a recorded manual check for that target (for example O3a for Kiro) | M7 | the harness's own plugin UX where proven |
 | late | **VS Code parity** (#551) | extension scope services and `McpServerManager` delegate to the `app` strategies (ADR-0001) | M4, M7 stable | the same files and lockfile entries from both deliveries |
 
