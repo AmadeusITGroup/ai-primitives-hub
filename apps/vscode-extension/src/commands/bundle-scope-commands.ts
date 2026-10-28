@@ -31,6 +31,9 @@ import {
   getInstalledBundleForScope,
 } from '../utils/bundle-scope-utils';
 import {
+  showCliManagedWarning,
+} from '../utils/cli-managed';
+import {
   ErrorHandler,
 } from '../utils/error-handler';
 import {
@@ -162,6 +165,9 @@ export class BundleScopeCommands {
     try {
       this.logger.debug(`[BundleScopeCommands] Moving bundle ${bundleId} to user scope`);
 
+      // CLI-installed items are refused before any lookup or dialog (BR5.6)
+      await this.registryManager.assertNotCliManaged(bundleId, 'repository', 'move-to-user');
+
       // Get bundle from repository scope (uses lockfile)
       const repoBundle = await this.getBundleForScope(bundleId, 'repository');
 
@@ -215,6 +221,9 @@ export class BundleScopeCommands {
         );
       }
     } catch (error) {
+      if (showCliManagedWarning(error)) {
+        return;
+      }
       await ErrorHandler.handle(error, {
         operation: 'move bundle to user',
         showUserMessage: true,
@@ -233,6 +242,9 @@ export class BundleScopeCommands {
   public async switchCommitMode(bundleId: string, newMode: RepositoryCommitMode): Promise<void> {
     try {
       this.logger.debug(`[BundleScopeCommands] Switching commit mode for ${bundleId} to ${newMode}`);
+
+      // CLI-installed items are refused before any lookup, dialog or exclude change (BR5.6)
+      await this.registryManager.assertNotCliManaged(bundleId, 'repository', 'switch-commit-mode');
 
       // Get bundle from repository scope (uses lockfile)
       const repoBundle = await this.getBundleForScope(bundleId, 'repository');
@@ -288,6 +300,9 @@ export class BundleScopeCommands {
         `✓ "${bundleName}" switched to ${newMode} mode.`
       );
     } catch (error) {
+      if (showCliManagedWarning(error)) {
+        return;
+      }
       await ErrorHandler.handle(error, {
         operation: 'switch commit mode',
         showUserMessage: true,

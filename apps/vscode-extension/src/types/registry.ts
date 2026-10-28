@@ -116,6 +116,12 @@ export interface InstalledBundle {
   sourceType?: string; // Source type for identity matching (github, local, etc.)
   commitMode?: RepositoryCommitMode; // Commit mode for repository-scoped installations
   filesMissing?: boolean; // Set when lockfile entry exists but files are missing (repository scope only)
+  /**
+   * `'install-record'` when the item comes from a 3.0.0 install record
+   * (`ai-primitives-hub.lock.json` / `.local.lock.json`); absent for items from
+   * the prompt-registry lockfiles or RegistryStorage (BR5.2).
+   */
+  recordOrigin?: 'install-record';
 }
 
 /**

@@ -89,6 +89,12 @@ import {
   BundleIdentityMatcher,
 } from '../utils/bundle-identity-matcher';
 import {
+  type CliManagedAction,
+  cliManagedError,
+  isCliManagedError,
+  showCliManagedBatchWarning,
+} from '../utils/cli-managed';
+import {
   CONCURRENCY_CONSTANTS,
   WARNING_RESULTS,
 } from '../utils/constants';
@@ -116,6 +122,9 @@ import {
 import {
   HubManager,
 } from './hub-manager';
+import {
+  InstallRecordListing,
+} from './install-record-listing';
 import {
   LocalModificationWarningService,
 } from './local-modification-warning-service';
@@ -232,6 +241,8 @@ export class RegistryManager {
   private readonly logger: Logger;
   private readonly adapters = new Map<string, IRepositoryAdapter>();
   private readonly versionConsolidator: VersionConsolidator;
+  /** Reads the 3.0.0 repository install records for the listing (BR5.1); created on first use. */
+  private installRecordListing: InstallRecordListing | undefined;
   private sourcesCache: RegistrySource[] = [];
   private readonly primitiveIndexKeyCache = new Map<string, {
     key: PrimitiveIndexKey;
@@ -1539,6 +1550,8 @@ export class RegistryManager {
    * @param silent
    */
   public async uninstallBundle(bundleId: string, scope: InstallationScope = 'user', silent = false): Promise<void> {
+    // CLI-installed repository items are refused before anything touches disk (BR5.6).
+    await this.assertNotCliManaged(bundleId, scope, 'uninstall');
     const installed = await uninstallInstalledBundle(
       bundleId,
       scope,
@@ -1578,6 +1591,8 @@ export class RegistryManager {
    */
   public async uninstallBundles(bundleIds: string[], scope: InstallationScope = 'user'): Promise<void> {
     const uninstalled: string[] = [];
+    /** Ids refused because the CLI installed them; skipped, not failed or succeeded (BR5.6). */
+    const refused: string[] = [];
     const CONCURRENCY_LIMIT = CONCURRENCY_CONSTANTS.REGISTRY_BATCH_LIMIT;
 
     this.logger.info(`Batch uninstalling ${bundleIds.length} bundles...`);
@@ -1590,6 +1605,11 @@ export class RegistryManager {
           await this.uninstallBundle(id, scope, true);
           return id;
         } catch (error) {
+          if (isCliManagedError(error)) {
+            this.logger.warn(`Skipped uninstalling bundle ${id}: ${error.message}`);
+            refused.push(id);
+            return null;
+          }
           this.logger.error(`Failed to uninstall bundle ${id}`, error as Error);
           return null;
         }
@@ -1601,6 +1621,8 @@ export class RegistryManager {
         }
       }
     }
+
+    showCliManagedBatchWarning(refused, 'uninstall');
 
     if (uninstalled.length > 0) {
       this._onBundlesUninstalled.fire(uninstalled);
@@ -1614,6 +1636,13 @@ export class RegistryManager {
    * @param version
    */
   public async updateBundle(bundleId: string, version?: string): Promise<void> {
+    // Guard the exact item updateRegistryBundle will pick: the first match in
+    // the combined listing (storage items come before repository items), so a
+    // user-scope install with the same id is never refused (BR5.6).
+    const target = (await this.listInstalledBundles()).find((bundle) => bundle.bundleId === bundleId);
+    if (target) {
+      await this.assertNotCliManaged(bundleId, target.scope, 'update');
+    }
     // See installBundle's identical, documented `as InstalledBundle` cast:
     // core's DeploymentManifest.mcpServers is intentionally looser than this
     // extension's McpServersManifest; the data itself is always this
@@ -1644,7 +1673,7 @@ export class RegistryManager {
    *
    * Thin delegator to `@ai-primitives-hub/app`'s `listInstalledBundles`
    * — queries the appropriate source based on scope:
-   * - 'repository': Query LockfileManager only
+   * - 'repository': Query the 3.0.0 install records and LockfileManager (new record wins)
    * - 'user' or 'workspace': Query RegistryStorage only
    * - undefined (no scope): Combine results from both sources
    *
@@ -1654,6 +1683,7 @@ export class RegistryManager {
    * @param scope
    */
   public async listInstalledBundles(scope?: InstallationScope): Promise<InstalledBundle[]> {
+    // Repository scope also reads the 3.0.0 install records (BR5.1).
     const bundles = await listInstalledBundlesCore(scope, {
       getInstalledBundles: (s) => this.storage.getInstalledBundles(s),
       getRepositoryInstalledBundles: async () => {
@@ -1661,11 +1691,16 @@ export class RegistryManager {
         if (!workspaceRoot) {
           return [];
         }
+        // New 3.0.0 install records merged with the prompt-registry lockfiles;
+        // the new record wins for the same bundle id (BR5.1). Read failures of
+        // either store are reported or logged, never thrown.
         try {
-          const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-          return await lockfileManager.getInstalledBundles();
+          return await this.getInstallRecordListing().listRepositoryBundles(
+            workspaceRoot,
+            () => LockfileManager.getInstance(workspaceRoot).getInstalledBundles()
+          );
         } catch (error) {
-          this.logger.warn('Failed to query repository bundles from lockfile:', error instanceof Error ? error : undefined);
+          this.logger.warn('Failed to query repository bundles:', error instanceof Error ? error : undefined);
           return [];
         }
       }
@@ -1677,6 +1712,36 @@ export class RegistryManager {
     // always this extension's own shape, since it only ever flows through
     // `RegistryStorage`/`LockfileManager` above and back out.
     return bundles as InstalledBundle[];
+  }
+
+  /**
+   * Shared reader of the repository install records; keeps the show-once
+   * state for listing problems across refreshes (BR5.5).
+   */
+  public getInstallRecordListing(): InstallRecordListing {
+    this.installRecordListing ??= new InstallRecordListing();
+    return this.installRecordListing;
+  }
+
+  /**
+   * Refuse an action on a repository item the ai-primitives-hub CLI installed
+   * (BR5.6, NFR4.3). Acts at repository scope only: user- and workspace-scope
+   * items are never refused, even when the same id is in a CLI record. The
+   * item is resolved from the merged repository listing, the view the user
+   * acted on, where the new record wins (BR5.1).
+   * @param bundleId - Bundle the action targets.
+   * @param scope - Scope of the exact item the action works on.
+   * @param action - The action, for the message.
+   * @throws {RegistryError} `RECORD.CLI_MANAGED` when the item comes from an install record.
+   */
+  public async assertNotCliManaged(bundleId: string, scope: InstallationScope, action: CliManagedAction): Promise<void> {
+    if (scope !== 'repository') {
+      return;
+    }
+    const item = (await this.listInstalledBundles('repository')).find((bundle) => bundle.bundleId === bundleId);
+    if (item?.recordOrigin === 'install-record') {
+      throw cliManagedError(bundleId, action);
+    }
   }
 
   /**

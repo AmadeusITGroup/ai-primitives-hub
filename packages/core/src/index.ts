@@ -37,6 +37,13 @@ export { default as DEPLOYMENT_MANIFEST_SCHEMA } from './public/schemas/deployme
  */
 export { default as HUB_CONFIG_SCHEMA } from './public/schemas/hub-config.schema.json';
 
+/**
+ * Install record format 3.0.0 schema (`ai-primitives-hub.lock.json`), shared by
+ * the CLI and the extension. The 2.0.0 `lockfile.schema.json` stays beside it
+ * for the old `prompt-registry.*` readers until they are migrated.
+ */
+export { default as INSTALL_RECORD_SCHEMA } from './public/schemas/install-record.schema.json';
+
 /** Artifactory source index JSON schema. */
 export { default as ARTIFACTORY_SOURCE_INDEX_SCHEMA } from './public/schemas/artifactory-source-index.schema.json';
 

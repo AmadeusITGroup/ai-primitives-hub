@@ -101,6 +101,9 @@ import {
   HubYamlIntelligence,
 } from './services/hub-yaml-intelligence';
 import {
+  watchInstallRecords,
+} from './services/install-record-listing';
+import {
   LockfileManager,
 } from './services/lockfile-manager';
 import {
@@ -1162,6 +1165,24 @@ export class PromptRegistryExtension {
   }
 
   /**
+   * Watch `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json`
+   * at the repository root and refresh the repository listing on any change (BR5.7).
+   * A failure to set up the watcher is logged and never blocks activation.
+   * @param workspaceRoot - Workspace folder the git-root walk starts from.
+   */
+  private async subscribeInstallRecordChanges(workspaceRoot: string): Promise<void> {
+    try {
+      const root = await this.registryManager.getInstallRecordListing().resolveRoot(workspaceRoot);
+      this.disposables.push(watchInstallRecords(root, () => {
+        this.logger.debug('Install record changed, refreshing repository bundles');
+        this.registryManager.handleWorkspaceFoldersChanged();
+      }));
+    } catch (error) {
+      this.logger.warn('Failed to set up install record watcher:', error instanceof Error ? error : undefined);
+    }
+  }
+
+  /**
    * Initialize repository-level installation services
    * Sets up LockfileManager and RepositoryActivationService per workspace folder
    */
@@ -1184,6 +1205,9 @@ export class PromptRegistryExtension {
 
       // Subscribe to lockfile changes to refresh UI when lockfile is modified externally
       this.disposables.push(this.subscribeLockfileChanges(this.lockfileManager));
+
+      // Also watch the 3.0.0 install records the CLI writes at the git root (BR5.7)
+      await this.subscribeInstallRecordChanges(repositoryPath);
 
       // Initialize RepositoryActivationService for this workspace
       const registryStorage = this.registryManager.getStorage();

@@ -81,6 +81,21 @@ Repository-scope VS Code and Copilot CLI targets keep their own `.github/` write
 
 Files stored executable in the bundle (a committed `100755` file is archived as `0755`) are installed executable by `install`, `install --lockfile`, `profile activate` and `update`, on every target and at both scopes, including the `.github/` writer. Execute permission is added wherever read permission is granted, so the result follows your umask (`0644` becomes `0755`). Every other file keeps the default mode, and an update that ships a file as non-executable clears its execute bits. `install --from <dir>` takes the bit from the files on disk. The lockfile records no mode. On Windows, and on filesystems that do not allow the mode change (for example vfat/exFAT mounts), the mode is ignored without an error. Bundles that the hub assembles itself from `skills` and `awesome-copilot` sources record every file as non-executable, so their scripts are installed without the execute bit.
 
+### Repository install record
+
+> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it. Until then, released versions keep using `prompt-registry.lock.json` at repository scope.
+
+At repository scope, `install` records the bundle in a new install record at the git root instead of `prompt-registry.lock.json`:
+
+- `ai-primitives-hub.lock.json` for commit mode, and `ai-primitives-hub.local.lock.json` for local-only mode. The local-only file is added to `.git/info/exclude` under the existing `# Prompt Registry (local)` section.
+- The record uses format `3.0.0`. Each bundle keeps one entry per tool (for example `vscode` and `kiro`), so installing the same bundle for a second tool keeps the first tool's entry and files. The `-o json` result's `data.lockfile` names the record file.
+- Both record files are read before anything is written. A record that cannot be read stops the install with a `RECORD.*` error (exit 1) that names the file, and writes nothing. Run `ai-primitives-hub explain <code>` for the fix.
+- An existing `prompt-registry.lock.json` is left untouched. User-scope installs are unchanged.
+
+At repository scope, `uninstall` removes the target's tool entry from the install record and deletes its files, keeping any file another entry still lists. The record file is deleted when no bundles remain. Bundles installed before this change, which only `prompt-registry.lock.json` lists, are still uninstalled from that file. `update`, `status` and `install --lockfile` still use `prompt-registry.lock.json` for now.
+
+The VS Code extension lists bundles from the install record as repository-scope installs, and refuses to uninstall, update, move or switch the commit mode of those entries, since the CLI manages them (`RECORD.CLI_MANAGED`).
+
 ## Plugin Create (CLI)
 
 `ai-primitives-hub plugin create <name> [--path <dir>] [--collection <id>] [--description <text>] [--version <version>] [--author <name>]`

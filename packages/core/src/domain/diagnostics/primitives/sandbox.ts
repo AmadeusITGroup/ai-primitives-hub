@@ -74,7 +74,10 @@ const WORKSPACE_BOOKKEEPING_FILES: ReadonlySet<string> = new Set([
   'ai-primitives-hub.yml',
   'ai-primitives-hub.yaml',
   'prompt-registry.lock.json',
-  'prompt-registry.local.lock.json'
+  'prompt-registry.local.lock.json',
+  // Install record files (format 3.0.0), `RECORD_FILE_NAMES`; the app drift guard checks them.
+  'ai-primitives-hub.lock.json',
+  'ai-primitives-hub.local.lock.json'
 ]);
 const STATE_DIR = '.ai-primitives-hub';
 

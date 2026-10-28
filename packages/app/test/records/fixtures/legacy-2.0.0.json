@@ -1,0 +1,19 @@
+{
+  "$schema": "https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json",
+  "version": "2.0.0",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "generatedBy": "prompt-registry@1.0.0",
+  "bundles": {
+    "acme-prompts": {
+      "version": "1.0.0",
+      "sourceId": "acme-github",
+      "sourceType": "github",
+      "installedAt": "2026-01-01T00:00:00.000Z",
+      "commitMode": "commit",
+      "files": []
+    }
+  },
+  "sources": {
+    "acme-github": { "type": "github", "url": "https://github.com/acme/prompts" }
+  }
+}

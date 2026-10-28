@@ -6,7 +6,16 @@
  *   ai-primitives-hub uninstall --lockfile <path>  (from lockfile)
  *   ai-primitives-hub uninstall --all              (all bundles for target)
  *
- * Repository-scope targets delegate to `UninstallPipeline`
+ * Repository-scope `<bundle-id>` and `--all` uninstalls first read the
+ * install record (`ai-primitives-hub.lock.json` and
+ * `ai-primitives-hub.local.lock.json`, format 3.0.0) that repository-scope
+ * installs write: a bundle recorded there for the target's type is removed
+ * through `InstallRecordService.recordUninstall` (only that tool's entry; a
+ * file another entry still lists is kept). Bundles that are not in the
+ * record fall back to the old store below, so installs made before the
+ * record still uninstall.
+ *
+ * Repository-scope targets otherwise delegate to `UninstallPipeline`
  * (`@ai-primitives-hub/app`), which already encapsulates the
  * commit/local-only two-file split (see its module doc). User/workspace
  * scope has no such split — there is a single, non-split
@@ -40,21 +49,22 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   Command,
-  failWith,
-  findProjectLockfile,
-  loadTargets,
-  lockfilePathForTarget,
-  Option,
-  resolveEffectiveTarget,
-} from '../framework';
-import {
   type CommandDefinition,
   type Context,
   defineCommand,
+  failWith,
+  findProjectLockfile,
   formatOutput,
+  loadTargets,
+  lockfilePathForTarget,
+  Option,
   type OutputFormat,
+  type PreparedRepositoryUninstall,
+  prepareRepositoryUninstall,
   readTargetsSafely,
+  recordRepositoryUninstall,
   RegistryError,
+  resolveEffectiveTarget,
   resolveTarget,
   resolveTargetName,
   validateInputs,
@@ -416,6 +426,16 @@ async function performBundleUninstall(
   fmt: OutputFormat
 ): Promise<number> {
   const bundleId = opts.bundle as string;
+  if (target.scope === 'repository') {
+    // Both new record files are loaded first: a RECORD.* error stops here
+    // with nothing removed. A bundle recorded there for this target's type is
+    // uninstalled from the record; any other falls back to the old store.
+    const prepared = await prepareRepositoryUninstall(ctx, target);
+    const recordedFiles = prepared.entries.get(bundleId);
+    if (recordedFiles !== undefined) {
+      return await performRecordBundleUninstall({ opts, target, ctx, fmt }, prepared, bundleId, recordedFiles);
+    }
+  }
   const entry = await findBundleEntry(bundleId, target, opts, ctx);
 
   if (entry === null) {
@@ -486,6 +506,66 @@ async function performBundleUninstall(
       removed: result.removed,
       lockfile: lockPath
     },
+    textRenderer: (d) => `Uninstalled ${d.bundle} from target "${d.target}" `
+      + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'} removed). `
+      + `Updated ${d.lockfile}.\n`
+  });
+  return 0;
+}
+
+/** Arguments every uninstall mode shares. */
+interface UninstallRun {
+  opts: UninstallOptions;
+  target: Target;
+  ctx: Context;
+  fmt: OutputFormat;
+}
+
+/**
+ * Uninstall one bundle recorded in the repository install record
+ * (`ai-primitives-hub.lock.json` / `.local.lock.json`) for the target's type.
+ * @param run Options, target, context and output format.
+ * @param prepared Both record files, loaded and checked.
+ * @param bundleId Bundle to uninstall.
+ * @param recordedFiles Its recorded root-relative paths, for the dry run.
+ * @returns Exit code.
+ */
+async function performRecordBundleUninstall(
+  run: UninstallRun,
+  prepared: PreparedRepositoryUninstall,
+  bundleId: string,
+  recordedFiles: string[]
+): Promise<number> {
+  const { opts, target, ctx, fmt } = run;
+  if (opts.dryRun === true) {
+    formatOutput({
+      ctx,
+      command: 'uninstall',
+      output: fmt,
+      status: 'ok',
+      data: { dryRun: true, target: target.name, bundle: bundleId, files: recordedFiles },
+      textRenderer: (d) => `[dry-run] Would uninstall bundle "${d.bundle}" from target "${d.target}":\n`
+        + `  Files: ${d.files.join(', ')}\n`
+        + 'Run without --dry-run to apply.\n'
+    });
+    return 0;
+  }
+
+  const recorded = await recordRepositoryUninstall(prepared, bundleId);
+  await updateTargetState(ctx, target.name, bundleId);
+
+  formatOutput({
+    ctx,
+    command: 'uninstall',
+    output: fmt,
+    status: 'ok',
+    data: {
+      target: target.name,
+      bundle: bundleId,
+      removed: recorded.removed,
+      lockfile: recorded.lockfile
+    },
+    warnings: recorded.warnings.length > 0 ? recorded.warnings : undefined,
     textRenderer: (d) => `Uninstalled ${d.bundle} from target "${d.target}" `
       + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'} removed). `
       + `Updated ${d.lockfile}.\n`
@@ -611,12 +691,21 @@ async function performAllUninstall(
   ctx: Context,
   fmt: OutputFormat
 ): Promise<number> {
+  // Repository scope: both new record files are loaded first (a RECORD.*
+  // error stops with nothing removed). Bundles recorded there for this
+  // target's type are uninstalled from the record; the old store is then
+  // handled as before, so bundles installed before the record still go.
+  const prepared = target.scope === 'repository' ? await prepareRepositoryUninstall(ctx, target) : undefined;
+  const recordedIds = prepared === undefined ? [] : [...prepared.entries.keys()];
   const entries = await findAllBundleEntries(target, opts, ctx);
-  const bundleIds = Object.keys(entries);
+  const bundleIds = [...new Set([...recordedIds, ...Object.keys(entries)])];
 
   // Dry-run: show what would be removed without deleting
   if (opts.dryRun === true) {
-    const allFiles = bundleIds.flatMap((id) => entries[id].files.map((f) => f.path));
+    const allFiles = [
+      ...recordedIds.flatMap((id) => prepared?.entries.get(id) ?? []),
+      ...Object.values(entries).flatMap((entry) => entry.files.map((f) => f.path))
+    ];
     formatOutput({
       ctx,
       command: 'uninstall',
@@ -638,14 +727,21 @@ async function performAllUninstall(
 
   const writerFactory = createWriterFactory(ctx, opts);
   let results: UninstallResult[];
+  const warnings: string[] = [];
   if (target.scope === 'repository') {
+    results = [];
+    for (const bundleId of recordedIds) {
+      const recorded = await recordRepositoryUninstall(prepared as PreparedRepositoryUninstall, bundleId);
+      results.push({ bundleId, removed: recorded.removed, skipped: [] });
+      warnings.push(...recorded.warnings);
+    }
     const pipeline = new UninstallPipeline({
       fs: ctx.fs,
       target,
       repositoryPath: target.rootPath ?? ctx.cwd(),
       writerFactory
     });
-    results = await pipeline.runAll();
+    results.push(...await pipeline.runAll());
   } else {
     const lockPath = lockfilePathForTarget(ctx, target);
     results = await runAllUserScopeUninstall(lockPath, target, ctx, writerFactory(target));
@@ -687,6 +783,7 @@ async function performAllUninstall(
       uninstalled: results.length,
       bundles: results.map((r) => ({ id: r.bundleId, removed: r.removed.length }))
     },
+    warnings: warnings.length > 0 ? warnings : undefined,
     textRenderer: (d) => `Uninstalled ${d.uninstalled} bundle${d.uninstalled === 1 ? '' : 's'} `
       + `from target "${d.target}".\n`
   });

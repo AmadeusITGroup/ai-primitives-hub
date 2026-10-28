@@ -10,6 +10,11 @@
  * lockfile entry, `.git/info/exclude` and what uninstall leaves behind are
  * stored as one snapshot file per kind. The snapshots were generated from
  * the code before the install-category refactor and must not change.
+ * Repository-scope installs now write the 3.0.0 install record
+ * (`ai-primitives-hub.lock.json` / `.local.lock.json`), so their `lockEntry`
+ * is read from `bundles.<id>.tools.<type>` (root-relative `installedPath`,
+ * `sha256:` checksums, plus the record file); every other output, including
+ * what uninstall leaves behind, is unchanged.
  *
  * The fixture data is owned by this file on purpose: it does not reuse the
  * `doctor diagnostics --primitives` fixture, which evolves independently.
@@ -264,7 +269,8 @@ const TARGET_STATE_LABEL = '<workspace>/.ai-primitives-hub/target-state.json';
  * @param relative
  */
 const isBookkeeping = (relative: string): boolean =>
-  relative === '.git' || relative.startsWith('.git/') || /^prompt-registry(\.local)?\.lock\.json$/.test(relative);
+  relative === '.git' || relative.startsWith('.git/')
+  || /^(prompt-registry|ai-primitives-hub)(\.local)?\.lock\.json$/.test(relative);
 
 /**
  * Every file (or directory) below the sandbox HOME and workspace, labelled
@@ -318,24 +324,65 @@ const normalizeExclude = (text: string | null): string | null => {
 };
 
 interface LockFileEntry {
-  path: string;
+  path?: string;
   installedPath?: string;
   checksum: string;
 }
 
 interface LockEntry {
+  /** Install record file the entry came from (repository scope, format 3.0.0 only). */
+  record?: string;
   version: string;
   sourceType: string;
   files: LockFileEntry[];
 }
 
+/** Repository install record files (format 3.0.0) and their snapshot labels. */
+const RECORD_FILES = ['ai-primitives-hub.lock.json', 'ai-primitives-hub.local.lock.json'];
+
 /**
- * The bundle's lockfile entry from whichever lockfile the install wrote,
- * without timestamps and with files sorted by path.
+ * The bundle's entry for `targetType` in a repository install record
+ * (`bundles.<id>.tools.<type>`), without its timestamp and with files
+ * sorted by installed path.
  * @param sandbox - Sandbox.
  * @param bundleId - Bundle id.
+ * @param targetType - Target type (the record's tool key).
  */
-const readLockEntry = async (sandbox: Sandbox, bundleId: string): Promise<LockEntry | null> => {
+const readRecordEntry = async (sandbox: Sandbox, bundleId: string, targetType: string): Promise<LockEntry | null> => {
+  for (const name of RECORD_FILES) {
+    const text = await readOptional(path.join(sandbox.workspace, name));
+    if (text === null) {
+      continue;
+    }
+    const record = JSON.parse(text) as { bundles?: Record<string, { tools?: Record<string, LockEntry> }> };
+    const entry = record.bundles?.[bundleId]?.tools?.[targetType];
+    if (entry !== undefined) {
+      return {
+        record: `<workspace>/${name}`,
+        version: entry.version,
+        sourceType: entry.sourceType,
+        files: entry.files
+          .map((file) => ({ installedPath: file.installedPath, checksum: file.checksum }))
+          .toSorted((left, right) => comparePaths(left.installedPath ?? '', right.installedPath ?? ''))
+      };
+    }
+  }
+  return null;
+};
+
+/**
+ * The bundle's lockfile entry from whichever lockfile the install wrote,
+ * without timestamps and with files sorted by path. Repository-scope
+ * installs write the install record, read from `bundles.<id>.tools.<type>`.
+ * @param sandbox - Sandbox.
+ * @param bundleId - Bundle id.
+ * @param targetType - Target type, the install record's tool key.
+ */
+const readLockEntry = async (sandbox: Sandbox, bundleId: string, targetType: string): Promise<LockEntry | null> => {
+  const recorded = await readRecordEntry(sandbox, bundleId, targetType);
+  if (recorded !== null) {
+    return recorded;
+  }
   const candidates = [
     resolveUserConfigPaths(sandbox.env).userLockfile,
     path.join(sandbox.workspace, 'prompt-registry.lock.json'),
@@ -346,7 +393,7 @@ const readLockEntry = async (sandbox: Sandbox, bundleId: string): Promise<LockEn
     if (text === null) {
       continue;
     }
-    const entry = (JSON.parse(text) as { bundles?: Record<string, LockEntry> }).bundles?.[bundleId];
+    const entry = (JSON.parse(text) as { bundles?: Record<string, LockEntry & { files: { path: string }[] }> }).bundles?.[bundleId];
     if (entry !== undefined) {
       return {
         version: entry.version,
@@ -408,7 +455,7 @@ const runCase = async (
   }
   const excludePath = path.join(sandbox.workspace, '.git', 'info', 'exclude');
   const gitExclude = normalizeExclude(await readOptional(excludePath));
-  const lockEntry = await readLockEntry(sandbox, bundleId);
+  const lockEntry = await readLockEntry(sandbox, bundleId, spec.targetType);
   await run(sandbox, ['uninstall', '--target', 't', '--all', ...commitMode, '-o', 'json']);
   return {
     targetAdd: { effectiveScope: (added.envelope.data?.target as { scope?: string } | undefined)?.scope ?? null },
@@ -491,12 +538,13 @@ describe('characterisation: install, lockfile and uninstall per kind, target and
     const install = await run(sandbox, ['install', '--from', bundles.governed, '--target', 't', '-o', 'json']);
     expect(install.exitCode).toBe(0);
 
-    const lockPaths = ((await readLockEntry(sandbox, bundleId))?.files ?? []).map((file) => file.path);
+    // Repository scope records root-relative installed paths (install record 3.0.0).
+    const lockPaths = ((await readLockEntry(sandbox, bundleId, 'vscode'))?.files ?? []).map((file) => file.installedPath);
     expect(lockPaths).toEqual([
-      'plugins/bar-baz/plugin.json',
-      'plugins/bar/plugin.json',
-      'skills/foo-bar/SKILL.md',
-      'skills/foo/SKILL.md'
+      '.github/plugins/bar-baz/plugin.json',
+      '.github/plugins/bar/plugin.json',
+      '.github/skills/foo-bar/SKILL.md',
+      '.github/skills/foo/SKILL.md'
     ]);
     const githubFiles = async (): Promise<string[]> =>
       (await listLabelled(sandbox, 'file')).filter((label) => label.startsWith('<workspace>/.github/'));

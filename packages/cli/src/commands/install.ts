@@ -50,6 +50,7 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  isRecordError,
   parseBundleSpec,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -90,6 +91,8 @@ import {
   loadTargets,
   lockfilePathForTarget,
   Option,
+  prepareRepositoryRecord,
+  recordRepositoryInstall,
   requireActiveHubOrFail,
 } from '../framework';
 import {
@@ -356,6 +359,21 @@ const renderSkipped = (skipped: readonly SkippedBundleContent[]): string =>
  */
 const skippedWarnings = (skipped: readonly SkippedBundleContent[]): string[] | undefined =>
   skipped.length === 0 ? undefined : skipped.map((s) => `skipped ${s.path}: ${s.reason}`);
+
+/**
+ * All install warnings: skipped content first, then install-record warnings
+ * (for example a superseded path that was not deleted).
+ * @param skipped Skipped content.
+ * @param recordWarnings Warnings from the repository install record.
+ * @returns The combined warnings, or `undefined` when there are none.
+ */
+const installWarnings = (
+  skipped: readonly SkippedBundleContent[],
+  recordWarnings: readonly string[]
+): string[] | undefined => {
+  const all = [...(skippedWarnings(skipped) ?? []), ...recordWarnings];
+  return all.length === 0 ? undefined : all;
+};
 
 /**
  * Command context for install/uninstall commands.
@@ -991,35 +1009,50 @@ async function performLocalInstall(
       });
       return 0;
     }
+    // Repository scope: both record files are loaded and checked before the
+    // writer runs, so a RECORD.* error stops here with nothing written (BR3.5).
+    const prepared = effectiveTarget.scope === 'repository'
+      ? await prepareRepositoryRecord(ctx, effectiveTarget)
+      : undefined;
     const writerFactory = createWriterFactory(ctx, opts);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
 
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
-    const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-    const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
     const localSourceId = `local-${path.basename(opts.from as string)}`;
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: localSourceId,
-      sourceType: 'local',
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
+    const localSourceUrl = path.resolve(ctx.cwd(), opts.from as string);
+    let lockPath: string;
+    let warnings: string[] = [];
+    if (prepared === undefined) {
+      lockPath = lockfilePathForTarget(ctx, effectiveTarget);
+      const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+      const entry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: localSourceId,
+        sourceType: 'local',
+        installedAt: new Date().toISOString(),
+        files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
+      };
+      const previousFiles = existing.bundles[manifest.id]?.files;
+      let nextLock = upsertBundleEntry(existing, manifest.id, entry);
+      nextLock = upsertSource(nextLock, localSourceId, {
+        type: 'local',
+        url: localSourceUrl
+      });
+      await writeLockfile(lockPath, nextLock, ctx.fs);
+      await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
+    } else {
+      const recorded = await recordRepositoryInstall(prepared, {
+        bundleId: manifest.id,
+        version: manifest.version,
+        tool: effectiveTarget.type,
+        source: { sourceId: localSourceId, type: 'local', url: localSourceUrl },
+        writtenPaths: result.written
+      });
+      lockPath = recorded.lockfile;
+      warnings = recorded.warnings;
     }
-    const previousFiles = existing.bundles[manifest.id]?.files;
-    let nextLock = upsertBundleEntry(existing, manifest.id, entry);
-    nextLock = upsertSource(nextLock, localSourceId, {
-      type: 'local',
-      url: path.resolve(ctx.cwd(), opts.from as string)
-    });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
-    await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
 
     await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
 
@@ -1035,7 +1068,7 @@ async function performLocalInstall(
         skipped,
         lockfile: lockPath
       },
-      warnings: skippedWarnings(skipped),
+      warnings: installWarnings(skipped, warnings),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} into target "${d.target}" `
         + `(${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
@@ -1043,6 +1076,9 @@ async function performLocalInstall(
     });
     return 0;
   } catch (cause) {
+    if (isRecordError(cause)) {
+      throw cause;
+    }
     const raw = (cause as { code?: string }).code;
     const code = raw !== undefined && /^(BUNDLE|FS|NETWORK|USAGE|CONFIG)\.[A-Z0-9_]+$/.test(raw)
       ? raw
@@ -1264,31 +1300,18 @@ async function performRemoteInstall(
       });
       return 0;
     }
+    // Repository scope: check both record files before anything is written (BR3.5).
+    const prepared = effectiveTarget.scope === 'repository'
+      ? await prepareRepositoryRecord(ctx, effectiveTarget)
+      : undefined;
     const writerFactory = createWriterFactory(ctx, opts);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
-    const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-    const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: installable.ref.sourceId,
-      sourceType: installable.ref.sourceType,
-      checksum: dl.sha256,
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
-    }
-    const previousFiles = existing.bundles[lockKey]?.files;
-    let nextLock = upsertBundleEntry(existing, lockKey, entry);
     const sourceConfig = opts.sourceConfig;
     const collectionsPath = sourceConfig?.config?.collectionsPath;
-    nextLock = upsertSource(nextLock, installable.ref.sourceId, {
+    const sourceDetails: LockfileSourceEntry = {
       type: sourceConfig?.type ?? 'github',
       url: sourceConfig?.url ?? `https://github.com/${repoSlug}`,
       ...(collectionsPath ? { collectionsPath } : {}),
@@ -1299,9 +1322,42 @@ async function performRemoteInstall(
           credentialRef: typeof sourceConfig.config?.credentialRef === 'string' ? sourceConfig.config.credentialRef : undefined
         }
         : {})
-    });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
-    await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
+    };
+    let lockPath: string;
+    let warnings: string[] = [];
+    if (prepared === undefined) {
+      lockPath = lockfilePathForTarget(ctx, effectiveTarget);
+      const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+      const entry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: installable.ref.sourceId,
+        sourceType: installable.ref.sourceType,
+        checksum: dl.sha256,
+        installedAt: new Date().toISOString(),
+        files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
+      };
+      const previousFiles = existing.bundles[lockKey]?.files;
+      let nextLock = upsertBundleEntry(existing, lockKey, entry);
+      nextLock = upsertSource(nextLock, installable.ref.sourceId, sourceDetails);
+      await writeLockfile(lockPath, nextLock, ctx.fs);
+      await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
+    } else {
+      const recorded = await recordRepositoryInstall(prepared, {
+        bundleId: lockKey,
+        version: manifest.version,
+        tool: effectiveTarget.type,
+        source: {
+          sourceId: installable.ref.sourceId,
+          ...sourceDetails,
+          ...(sourceConfig?.type !== 'artifactory' && typeof sourceConfig?.config?.branch === 'string'
+            ? { branch: sourceConfig.config.branch }
+            : {})
+        },
+        writtenPaths: result.written
+      });
+      lockPath = recorded.lockfile;
+      warnings = recorded.warnings;
+    }
 
     formatOutput({
       ctx,
@@ -1317,7 +1373,7 @@ async function performRemoteInstall(
         skipped,
         lockfile: lockPath
       },
-      warnings: skippedWarnings(skipped),
+      warnings: installWarnings(skipped, warnings),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} from ${d.source.repo} `
         + `into target "${d.target}" (${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`

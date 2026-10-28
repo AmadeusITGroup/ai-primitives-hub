@@ -1,0 +1,10 @@
+{
+  "$schema": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json",
+  "version": "4.0.0",
+  "level": "repository",
+  "generatedAt": "2027-01-01T00:00:00.000Z",
+  "generatedBy": "ai-primitives-hub-cli@9.0.0",
+  "bundles": {},
+  "sources": {},
+  "somethingNew": true
+}
