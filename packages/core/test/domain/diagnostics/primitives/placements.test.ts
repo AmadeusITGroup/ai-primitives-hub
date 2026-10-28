@@ -58,6 +58,7 @@ describe('PLACEMENT_ROUTES', () => {
   it('keeps routes for the gapped cells so a fix PR only deletes the gap entry', () => {
     expect(PLACEMENT_ROUTES['copilot-cli']['chat-mode']).toBe('agents/');
     expect(PLACEMENT_ROUTES.kiro.hook).toBe('hooks/');
+    expect(PLACEMENT_ROUTES.kiro.plugin).toBe('plugins/');
     expect(PLACEMENT_ROOTS['copilot-cli'].repository).toBe('<workspace>/.github');
   });
 
@@ -82,6 +83,16 @@ describe('expectedDestination', () => {
       '<workspace>/.github/skills/standalone-skill/references/guide.md',
       '<workspace>/.github/skills/standalone-skill/scripts/run.sh'
     ]);
+  });
+
+  it('places the whole plugin directory under plugins/, at both scopes', () => {
+    const files = ['mcp.json', 'plugin.json', 'scripts/launch.sh', 'skills/plugin-skill/SKILL.md'];
+    expect(labels('vscode', 'user', 'plugin')).toEqual(files.map((f) => `$HOME/.copilot/plugins/aph-e2e-plugin/${f}`));
+    expect(labels('claude-code', 'repository', 'plugin')).toEqual(files.map((f) => `<workspace>/.claude/plugins/aph-e2e-plugin/${f}`));
+    expect(labels('windsurf', 'user', 'plugin')).toEqual(files.map((f) => `$HOME/.codeium/windsurf/plugins/aph-e2e-plugin/${f}`));
+    for (const target of TARGET_TYPES) {
+      expect(PLACEMENT_ROUTES[target].plugin, target).toBe('plugins/');
+    }
   });
 
   it('places a spec on kiro', () => {

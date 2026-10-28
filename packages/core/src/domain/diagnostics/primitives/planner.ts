@@ -19,6 +19,7 @@ import {
   PRIMITIVE_DIAGNOSTIC_BUNDLES,
 } from './catalogue';
 import {
+  type ExpectedInstallStatus,
   expectedStatus,
 } from './support-matrix';
 import {
@@ -38,17 +39,20 @@ export interface PlannedCase {
   /** `${bundle}__${target}__${scope}`. */
   id: string;
   bundle: string;
+  /** Distinct item kinds, in bundle item order. */
   kinds: PrimitiveKind[];
+  /** The bundle's items, in bundle order: the subjects of per-item case checks. */
+  items: { path: string; kind: PrimitiveKind }[];
   target: TargetType;
   scope: DiagnosticScope;
-  expectedStatus: 'installed' | 'rejected';
+  expectedStatus: ExpectedInstallStatus;
 }
 
 /** What a run executes. */
 export interface PrimitiveDiagnosticsPlan {
   /** Effective filters: de-duplicated, in enum order. */
   filters: { kinds: PrimitiveKind[]; targets: TargetType[]; scopes: DiagnosticScope[] };
-  /** Filter kinds no catalogued bundle contains (`plugin` today). */
+  /** Filter kinds no catalogued bundle contains (none with the default catalogue). */
   notCovered: { kinds: PrimitiveKind[] };
   /** Catalogue order. */
   bundles: DiagnosticBundle[];
@@ -83,7 +87,8 @@ export function planPrimitiveDiagnostics(
   const scopes = inEnumOrder(DIAGNOSTIC_SCOPES, filters.scopes ?? DIAGNOSTIC_SCOPES);
 
   const bundles = catalogue.filter((bundle) => kindsOf(bundle).every((kind) => kinds.includes(kind)));
-  const cases = bundles.flatMap((bundle) => {
+  // An invalid bundle is only validated and built: it has no install cases.
+  const cases = bundles.filter((bundle) => bundle.rejection === undefined).flatMap((bundle) => {
     const bundleKinds = kindsOf(bundle);
     return targets.flatMap((target) => {
       const status = expectedStatus(bundleKinds, target);
@@ -91,6 +96,7 @@ export function planPrimitiveDiagnostics(
         id: `${bundle.id}__${target}__${scope}`,
         bundle: bundle.id,
         kinds: [...bundleKinds],
+        items: bundle.items.map((item) => ({ path: item.path, kind: item.kind })),
         target,
         scope,
         expectedStatus: status

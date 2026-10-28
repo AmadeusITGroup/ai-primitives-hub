@@ -32,11 +32,16 @@ export interface KnownGap {
   /** Descriptive gap id shared by the entries of one product defect, e.g. 'manifest-id-file-stem'. */
   id: string;
   invariant: InvariantId;
-  /** Absent selector = all. A selector on a dimension the subject lacks never matches (bundle subjects have no target/scope). */
-  match: { kinds?: PrimitiveKind[]; targets?: TargetType[]; scopes?: DiagnosticScope[] };
+  /**
+   * Absent selector = all. A selector on a dimension the subject lacks never matches (bundle subjects have no target/scope).
+   * `bundles` lists bundle ids; `kinds` matches a per-item check by its item's kind.
+   */
+  match: { kinds?: PrimitiveKind[]; bundles?: string[]; targets?: TargetType[]; scopes?: DiagnosticScope[] };
   /** Must deep-equal the check's `observed` (arrays compared sorted). */
   observed: JsonValue;
   summary: string;
+  /** GitHub issue (in this repository) that tracks the fix, when one exists. */
+  issue?: number;
 }
 
 const REJECTED: JsonValue = { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' };
@@ -60,7 +65,10 @@ const manifestIdFileStem = (kind: PrimitiveKind, id: string): KnownGap => ({
 
 /**
  * Known gaps on current `main`. Chat modes on copilot-cli are not listed:
- * #526 places them through the `agents/` route.
+ * #526 places them through the `agents/` route. A rejection absorbed by
+ * several entries lists every matching gap id (e.g. the all-kinds bundle on
+ * kiro: `mcp-server-rejected`, `kiro-hook-rejected`, `kiro-plugin-rejected`
+ * and `all-or-nothing-install`).
  */
 export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
   {
@@ -77,7 +85,51 @@ export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
     invariant: 'I4',
     match: { kinds: ['hook'], targets: ['kiro'] },
     observed: REJECTED,
-    summary: 'kiro rejects hook items (kiro-cli accepts them)'
+    summary: 'kiro rejects hook items (kiro-cli accepts them)',
+    issue: 549
+  },
+  {
+    key: 'mcp-server-rejected/I9/mcp-server',
+    id: 'mcp-server-rejected',
+    invariant: 'I9',
+    match: { kinds: ['mcp-server'] },
+    observed: { rejected: true },
+    summary: 'install lists mcp-server items as unsupported content on every target'
+  },
+  {
+    key: 'kiro-hook-rejected/I9/hook@kiro',
+    id: 'kiro-hook-rejected',
+    invariant: 'I9',
+    match: { kinds: ['hook'], targets: ['kiro'] },
+    observed: { rejected: true },
+    summary: 'kiro lists hook items as unsupported content',
+    issue: 549
+  },
+  {
+    key: 'kiro-plugin-rejected/I4/plugin@kiro',
+    id: 'kiro-plugin-rejected',
+    invariant: 'I4',
+    match: { kinds: ['plugin'], targets: ['kiro'] },
+    observed: REJECTED,
+    summary: 'kiro rejects plugin items: no kiro route for Agent Plugins',
+    issue: 549
+  },
+  {
+    key: 'kiro-plugin-rejected/I9/plugin@kiro',
+    id: 'kiro-plugin-rejected',
+    invariant: 'I9',
+    match: { kinds: ['plugin'], targets: ['kiro'] },
+    observed: { rejected: true },
+    summary: 'kiro lists plugin items as unsupported content',
+    issue: 549
+  },
+  {
+    key: 'all-or-nothing-install/I4/aph-e2e-mix-all-kinds',
+    id: 'all-or-nothing-install',
+    invariant: 'I4',
+    match: { bundles: ['aph-e2e-mix-all-kinds'] },
+    observed: REJECTED,
+    summary: 'the default all-or-nothing install rejects the whole bundle when one item kind is unsupported (install --skip-unsupported installs the supported items)'
   },
   {
     key: 'copilot-cli-repository-scope/I8/copilot-cli@repository',
@@ -109,5 +161,32 @@ export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
     match: { kinds: ['power'] },
     observed: { id: 'POWER', kind: 'power', occurrences: 1 },
     summary: 'power manifest id is the file stem "POWER" instead of the directory name'
+  },
+  {
+    key: 'plugin-skill-projection/I11/plugin',
+    id: 'plugin-skill-projection',
+    invariant: 'I11',
+    match: { kinds: ['plugin'] },
+    observed: { unprojected: ['plugin-skill'] },
+    summary: 'install copies the plugin directory but does not project its skills into the skills route',
+    issue: 549
+  },
+  {
+    key: 'plugin-mcp-projection/I12/plugin',
+    id: 'plugin-mcp-projection',
+    invariant: 'I12',
+    match: { kinds: ['plugin'] },
+    observed: { unprojected: ['aph-e2e'] },
+    summary: 'install does not merge the plugin MCP servers into a target config file',
+    issue: 549
+  },
+  {
+    key: 'plugin-root-unresolved/I14/plugin',
+    id: 'plugin-root-unresolved',
+    invariant: 'I14',
+    match: { kinds: ['plugin'] },
+    observed: { unresolved: ['aph-e2e'] },
+    summary: 'install leaves ${PLUGIN_ROOT} unresolved in the plugin MCP servers',
+    issue: 549
   }
 ];

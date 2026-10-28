@@ -14,8 +14,11 @@ import {
 import {
   TARGET_TYPES,
 } from '../../../../src/domain/install/target';
+import type {
+  PrimitiveKind,
+} from '../../../../src/domain/primitive/types';
 
-const catalogued = PRIMITIVE_DIAGNOSTIC_BUNDLES.flatMap((b) => b.items.map((i) => i.kind));
+const catalogued = [...new Set(PRIMITIVE_DIAGNOSTIC_BUNDLES.flatMap((b) => b.items.map((i) => i.kind)))];
 
 /** Kinds supported only on some targets: the targets they ARE supported on; every other kind is supported everywhere. */
 const SUPPORTED_ONLY_ON: Record<string, readonly string[]> = {
@@ -52,20 +55,42 @@ describe('PRIMITIVE_SUPPORT_MATRIX', () => {
   it('marks the gapped cells and chat-mode on copilot-cli (fixed by #526) as supported', () => {
     expect(Object.values(PRIMITIVE_SUPPORT_MATRIX['mcp-server']!).every((level) => level === 'native')).toBe(true);
     expect(PRIMITIVE_SUPPORT_MATRIX.hook!.kiro).toBe('native');
+    expect(PRIMITIVE_SUPPORT_MATRIX.plugin!.kiro).toBe('native');
     expect(PRIMITIVE_SUPPORT_MATRIX['chat-mode']!['copilot-cli']).toBe('native');
   });
 });
 
 describe('expectedStatus', () => {
-  it('is installed when every kind is supported on the target, else rejected', () => {
+  it('is installed when every kind is supported on the target, rejected when none is', () => {
     expect(expectedStatus(['prompt'], 'vscode')).toBe('installed');
     expect(expectedStatus(['steering'], 'vscode')).toBe('rejected');
     expect(expectedStatus(['steering'], 'kiro')).toBe('installed');
-    expect(expectedStatus(['prompt', 'steering'], 'vscode')).toBe('rejected');
+    expect(expectedStatus(['steering', 'spec'], 'vscode')).toBe('rejected');
     expect(expectedStatus(['mcp-server'], 'cursor')).toBe('installed');
   });
 
+  it('is partial when the target supports some kinds of the bundle but not all', () => {
+    expect(expectedStatus(['prompt', 'steering'], 'vscode')).toBe('partial');
+    expect(expectedStatus(['prompt', 'steering'], 'kiro')).toBe('installed');
+  });
+
+  it('never gives partial for a single-kind bundle', () => {
+    for (const kind of catalogued) {
+      for (const target of TARGET_TYPES) {
+        expect(expectedStatus([kind], target)).not.toBe('partial');
+      }
+    }
+  });
+
   it('throws for a kind without a row', () => {
-    expect(() => expectedStatus(['plugin'], 'vscode')).toThrow('no support-matrix row for plugin');
+    expect(() => expectedStatus(['bogus' as PrimitiveKind], 'vscode')).toThrow('no support-matrix row for bogus');
+  });
+
+  it('expects the portable mix installed everywhere and the all-kinds mix partial everywhere', () => {
+    const kindsOf = (id: string): PrimitiveKind[] => PRIMITIVE_DIAGNOSTIC_BUNDLES.find((b) => b.id === id)!.items.map((i) => i.kind);
+    for (const target of TARGET_TYPES) {
+      expect(expectedStatus(kindsOf('aph-e2e-mix-portable'), target), target).toBe('installed');
+      expect(expectedStatus(kindsOf('aph-e2e-mix-all-kinds'), target), target).toBe('partial');
+    }
   });
 });

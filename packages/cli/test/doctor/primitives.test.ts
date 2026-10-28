@@ -1,14 +1,18 @@
 /**
  * `doctor diagnostics --primitives` through the real command classes.
  *
- * Usage errors, the gap-coverage slice (every known gap exercised by the
- * real commands), process-level isolation, `-v` progress lines
- * and the text renderer.
+ * Usage errors, the full default run (the acceptance criteria: every
+ * known gap exercised by the real commands, nothing failing, nothing
+ * unused), process-level isolation, `-v` progress lines and the text
+ * renderer.
  */
 import * as path from 'node:path';
 import type {
   DiagnosticCheck,
   PrimitiveDiagnosticsReport,
+} from '@ai-primitives-hub/core';
+import {
+  PRIMITIVE_KNOWN_GAPS,
 } from '@ai-primitives-hub/core';
 import {
   NodeFileSystem,
@@ -22,9 +26,13 @@ import {
   DoctorDiagnosticsCommand,
 } from '../../src/commands/doctor';
 import {
+  runPrimitivesMode,
+} from '../../src/doctor/primitives';
+import {
   renderPrimitivesText,
 } from '../../src/doctor/primitives-text';
 import {
+  createTestContext,
   runCommand,
   type RunCommandResult,
 } from '../../src/framework';
@@ -39,8 +47,10 @@ interface Report {
     cases: number; pass: number; knownGap: number; fail: number;
     bundles: { bundles: number; pass: number; knownGap: number; fail: number };
   };
+  filters: { kinds: string[] };
   notCovered: { kinds: string[] };
-  cases: { id: string; target: string; outcome: string; gapIds: string[] }[];
+  bundles: { id: string; outcome: string; checks: { invariant: string; outcome: string }[] }[];
+  cases: { id: string; bundle: string; target: string; outcome: string; gapIds: string[]; checks: { invariant: string; outcome: string }[] }[];
   knownGaps: { key: string; id: string; absorbed: number }[];
   unusedKnownGaps: unknown[];
   workspace: string;
@@ -54,16 +64,24 @@ interface Envelope {
   errors: { code: string; message: string }[];
 }
 
+// Production passes process.env straight through as ctx.env.
+const doctorEnv = (): Record<string, string> => ({ ...process.env, AI_PRIMITIVES_HUB_SKIP_NETWORK: '1' });
+
 const runDoctor = (args: string[], options: { cwd?: string } = {}): Promise<RunCommandResult> =>
   runCommand(['doctor', 'diagnostics', ...args], {
     commandClasses: [DoctorDiagnosticsCommand],
     context: {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       fs: new NodeFileSystem(),
-      // Production passes process.env straight through as ctx.env.
-      env: { ...process.env, AI_PRIMITIVES_HUB_SKIP_NETWORK: '1' }
+      env: doctorEnv()
     }
   });
+
+/**
+ * Whether this host has POSIX file modes. Without them (Windows) the
+ * executable-bit checks (I10) are not applicable.
+ */
+const POSIX_FILE_MODES = process.platform !== 'win32';
 
 const parse = (result: RunCommandResult): Envelope => JSON.parse(result.stdout) as Envelope;
 
@@ -71,6 +89,13 @@ const isInside = (root: string, candidate: string): boolean => {
   const relative = path.relative(root, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 };
+
+const INVALID_PLUGIN_BUNDLES = [
+  'aph-e2e-bad-plugin-no-schema',
+  'aph-e2e-bad-plugin-name',
+  'aph-e2e-bad-plugin-author',
+  'aph-e2e-bad-plugin-nested-manifest'
+];
 
 const absorbedById = (report: Report): Record<string, number> => {
   const totals: Record<string, number> = {};
@@ -90,8 +115,7 @@ describe('doctor diagnostics --primitives usage errors', () => {
     ['--kinds ""', ['--primitives', '--kinds', '', '-o', 'json']],
     ['--kinds without --primitives', ['--kinds', 'prompt', '-o', 'json']],
     ['--targets without --primitives', ['--targets', 'vscode', '-o', 'json']],
-    ['--scopes without --primitives', ['--scopes', 'user', '-o', 'json']],
-    ['an empty plan (--kinds plugin)', ['--primitives', '--kinds', 'plugin', '-o', 'json']]
+    ['--scopes without --primitives', ['--scopes', 'user', '-o', 'json']]
   ])('rejects %s with USAGE.INVALID_FLAG before creating a workspace', async (_name, args) => {
     const result = await runDoctor(args);
     const envelope = parse(result);
@@ -110,52 +134,85 @@ describe('doctor diagnostics --primitives usage errors', () => {
     expect(envelope.errors[0]?.message).toContain('copilot-cli');
   }, 60_000);
 
-  it('explains an empty plan with the kinds not covered yet', async () => {
-    const envelope = parse(await runDoctor(['--primitives', '--kinds', 'plugin', '-o', 'json']));
-
-    expect(envelope.errors[0]?.message).toBe('no primitive diagnostic case matches the filters; not covered yet: plugin');
-  }, 60_000);
-
-  it('runs the covered kinds and reports the uncovered ones', async () => {
-    const result = await runDoctor(['--primitives', '--kinds', 'prompt,plugin', '--targets', 'vscode', '--scopes', 'user', '-o', 'json']);
-    const envelope = parse(result);
+  it('covers plugin: the plugin bundle on each target and the invalid plugin bundles', async () => {
+    const result = await runDoctor(['--primitives', '--kinds', 'plugin', '--targets', 'vscode,kiro', '-o', 'json']);
+    const report = parse(result).data!;
 
     expect(result.exitCode).toBe(0);
-    expect(envelope.command).toBe('doctor.diagnostics.primitives');
-    expect(envelope.data?.notCovered.kinds).toEqual(['plugin']);
-    expect(envelope.data?.summary.cases).toBe(1);
+    expect(report.notCovered.kinds).toEqual([]);
+    expect(report.bundles.map((b) => [b.id, b.outcome, b.checks.map((c) => `${c.invariant}:${c.outcome}`)])).toEqual([
+      ['aph-e2e-only-plugin', 'pass', ['I0:pass', 'I1:pass', 'I2:pass', 'I3:pass', POSIX_FILE_MODES ? 'I10:pass' : 'I10:not-applicable']],
+      ...INVALID_PLUGIN_BUNDLES.map((id) => [id, 'pass', ['I5:pass']])
+    ]);
+    expect(report.cases.map((c) => [c.id, c.gapIds])).toEqual([
+      ['aph-e2e-only-plugin__vscode__user', ['plugin-mcp-projection', 'plugin-root-unresolved', 'plugin-skill-projection']],
+      ['aph-e2e-only-plugin__vscode__repository', ['plugin-mcp-projection', 'plugin-root-unresolved', 'plugin-skill-projection']],
+      ['aph-e2e-only-plugin__kiro__user', ['kiro-plugin-rejected']],
+      ['aph-e2e-only-plugin__kiro__repository', ['kiro-plugin-rejected']]
+    ]);
   }, 120_000);
 });
 
-describe('doctor diagnostics --primitives gap-coverage slice', () => {
-  it('absorbs every known gap through the real commands', async () => {
-    const result = await runDoctor([
-      '--primitives',
-      '--kinds', 'prompt,chat-mode,hook,mcp-server,power',
-      '--targets', 'vscode,copilot-cli,kiro',
-      '-o', 'json'
-    ]);
-    const report = parse(result).data!;
+/**
+ * Assert the default run: every kind, the mixed and the invalid bundles,
+ * nothing failing and every known gap used. The executable-bit checks
+ * (I10) pass with POSIX file modes and are not applicable without them;
+ * neither changes an outcome.
+ * @param result - Command result.
+ * @param result.exitCode
+ * @param result.stdout
+ * @param posixFileModes - Host capability the run used.
+ */
+const expectDefaultRun = (result: { exitCode: number; stdout: string }, posixFileModes: boolean): void => {
+  const report = (JSON.parse(result.stdout) as Envelope).data!;
 
-    expect(report.summary).toEqual({
-      cases: 30,
-      pass: 18,
-      knownGap: 12,
-      fail: 0,
-      bundles: { bundles: 5, pass: 0, knownGap: 5, fail: 0 }
-    });
-    expect(absorbedById(report)).toEqual({
-      'copilot-cli-repository-scope': 5,
-      'kiro-hook-rejected': 2,
-      'manifest-id-file-stem': 4,
-      'mcp-server-rejected': 6,
-      'power-directory-unit': 2
-    });
-    expect(report.cases.filter((c) => c.target === 'vscode' && c.gapIds.includes('kiro-hook-rejected'))).toEqual([]);
-    expect(report.unusedKnownGaps).toEqual([]);
-    expect(report.ok).toBe(true);
-    expect(result.exitCode).toBe(0);
-  }, 120_000);
+  expect(report.summary).toEqual({
+    cases: 418,
+    pass: 313,
+    knownGap: 105,
+    fail: 0,
+    bundles: { bundles: 23, pass: 13, knownGap: 10, fail: 0 }
+  });
+  // With POSIX file modes, I10 is still not applicable where the install was rejected.
+  const i10 = [...report.bundles, ...report.cases].flatMap((s) => s.checks).filter((c) => c.invariant === 'I10');
+  expect(new Set(i10.map((c) => c.outcome))).toEqual(new Set(posixFileModes ? ['pass', 'not-applicable'] : ['not-applicable']));
+  expect(report.filters.kinds).toContain('plugin');
+  expect(report.notCovered.kinds).toEqual([]);
+  expect(report.unusedKnownGaps).toEqual([]);
+  expect(report.knownGaps.map((g) => g.key).toSorted()).toEqual(PRIMITIVE_KNOWN_GAPS.map((g) => g.key).toSorted());
+  expect(absorbedById(report)).toEqual({
+    'all-or-nothing-install': 22,
+    'copilot-cli-repository-scope': 19,
+    'kiro-hook-rejected': 12,
+    'kiro-plugin-rejected': 12,
+    'manifest-id-file-stem': 18,
+    'mcp-server-rejected': 88,
+    'plugin-mcp-projection': 40,
+    'plugin-root-unresolved': 40,
+    'plugin-skill-projection': 40,
+    'power-directory-unit': 4
+  });
+  for (const id of INVALID_PLUGIN_BUNDLES) {
+    expect(report.bundles.find((b) => b.id === id)).toMatchObject({ outcome: 'pass', checks: [{ invariant: 'I5', outcome: 'pass' }] });
+  }
+  expect(report.cases.filter((c) => c.target !== 'kiro' && c.gapIds.some((id) => id.startsWith('kiro-')))).toEqual([]);
+  expect(report.ok).toBe(true);
+  expect(result.exitCode).toBe(0);
+};
+
+describe('doctor diagnostics --primitives default run', () => {
+  it('covers every kind, the mixed and the invalid bundles, fails nothing and uses every known gap', async () => {
+    expectDefaultRun(await runDoctor(['--primitives', '-o', 'json']), POSIX_FILE_MODES);
+  }, 300_000);
+
+  // The Windows capability, simulated on a POSIX host; a Windows host covers it in the test above.
+  it.skipIf(!POSIX_FILE_MODES)('without POSIX file modes, treats I10 as not applicable and leaves no known gap unused', async () => {
+    const ctx = createTestContext({ fs: new NodeFileSystem(), env: doctorEnv() });
+
+    const exitCode = await runPrimitivesMode(ctx, { output: 'json', verbose: false, retainWorkspace: false }, { posixFileModes: false });
+
+    expectDefaultRun({ exitCode, stdout: ctx.stdout.captured() }, false);
+  }, 300_000);
 });
 
 describe('doctor diagnostics --primitives process-level isolation', () => {
@@ -163,10 +220,10 @@ describe('doctor diagnostics --primitives process-level isolation', () => {
 
   it('writes nothing outside its workspace across every target layout', async () => {
     const { processHome, processTmp } = isolation;
-    const result = await runDoctor(['--primitives', '--kinds', 'prompt,skill', '--scopes', 'user', '-o', 'json'], { cwd: processHome });
+    const result = await runDoctor(['--primitives', '--kinds', 'prompt,skill,plugin', '--scopes', 'user', '-o', 'json'], { cwd: processHome });
     const report = parse(result).data!;
 
-    expect(report.summary.cases).toBe(22);
+    expect(report.summary.cases).toBe(33);
     expect(report.summary.fail).toBe(0);
     expect(isInside(processTmp, report.workspace)).toBe(true);
     expect(report.workspaceRetained).toBe(false);
@@ -239,4 +296,13 @@ describe('doctor diagnostics --primitives output', () => {
       expect(text).not.toContain('warning:');
     });
   });
+
+  it('labels a mixed-kind bundle row by its bundle id', async () => {
+    const result = await runDoctor(['--primitives', '--kinds', 'prompt,instruction,agent,skill,plugin,hook', '--targets', 'vscode', '--scopes', 'user']);
+    const lines = result.stdout.split('\n');
+
+    expect(lines).toContainEqual(expect.stringMatching(/^ {2}aph-e2e-mix-portable +vscode +user: GAP /));
+    expect(lines).toContainEqual(expect.stringMatching(/^ {2}plugin +vscode +user: GAP /));
+    expect(result.exitCode).toBe(0);
+  }, 120_000);
 });

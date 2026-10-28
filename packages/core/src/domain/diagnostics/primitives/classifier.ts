@@ -36,6 +36,8 @@ import {
 export interface GapSubject {
   /** For per-item checks, the item's kind. */
   kinds: readonly PrimitiveKind[];
+  /** Bundle id of the bundle or case. */
+  bundle?: string;
   target?: TargetType;
   scope?: DiagnosticScope;
 }
@@ -85,6 +87,7 @@ const canonical = (value: unknown): string => {
  */
 const selectorsMatch = (match: KnownGap['match'], subject: GapSubject): boolean =>
   (match.kinds === undefined || subject.kinds.some((kind) => match.kinds!.includes(kind)))
+  && (match.bundles === undefined || (subject.bundle !== undefined && match.bundles.includes(subject.bundle)))
   && (match.targets === undefined || (subject.target !== undefined && match.targets.includes(subject.target)))
   && (match.scopes === undefined || (subject.scope !== undefined && match.scopes.includes(subject.scope)));
 
@@ -143,19 +146,39 @@ const collect = (records: ClassifiedCheck[]): ClassifiedChecks => {
 };
 
 /**
- * Classify the checks of one case.
- * @param planned - Planned case (the subject: its kinds, target and requested scope).
+ * Kinds a check is about: its item's kind for a per-item check, else every kind.
+ * @param check - A check.
+ * @param items - Items of the bundle or case.
+ * @param kinds - Every kind of the bundle or case.
+ * @returns Subject kinds.
+ */
+const subjectKinds = (
+  check: DiagnosticCheck,
+  items: readonly { path: string; kind: PrimitiveKind }[],
+  kinds: readonly PrimitiveKind[]
+): readonly PrimitiveKind[] => {
+  const itemKind = check.item === undefined ? undefined : items.find((item) => item.path === check.item)?.kind;
+  return itemKind === undefined ? kinds : [itemKind];
+};
+
+/**
+ * Classify the checks of one case. A per-item check's subject kind is its item's kind.
+ * @param planned - Planned case (the subject: its bundle, kinds, target and requested scope).
  * @param checks - Raw case checks.
  * @param gaps - Known gaps.
  * @returns Classified checks, outcome and gap ids.
  */
 export function classifyCase(planned: PlannedCase, checks: readonly DiagnosticCheck[], gaps: readonly KnownGap[] = PRIMITIVE_KNOWN_GAPS): ClassifiedChecks {
-  const subject: GapSubject = { kinds: planned.kinds, target: planned.target, scope: planned.scope };
-  return collect(checks.map((check) => classifyCheck(check, subject, gaps)));
+  return collect(checks.map((check) => classifyCheck(check, {
+    kinds: subjectKinds(check, planned.items, planned.kinds),
+    bundle: planned.bundle,
+    target: planned.target,
+    scope: planned.scope
+  }, gaps)));
 }
 
 /**
- * Classify the checks of one bundle. A per-item check's subject is its item's kind.
+ * Classify the checks of one bundle. A per-item check's subject kind is its item's kind.
  * @param bundle - Catalogue bundle.
  * @param checks - Raw bundle checks.
  * @param gaps - Known gaps.
@@ -163,10 +186,8 @@ export function classifyCase(planned: PlannedCase, checks: readonly DiagnosticCh
  */
 export function classifyBundle(bundle: DiagnosticBundle, checks: readonly DiagnosticCheck[], gaps: readonly KnownGap[] = PRIMITIVE_KNOWN_GAPS): ClassifiedChecks {
   const bundleKinds = bundle.items.map((item) => item.kind);
-  return collect(checks.map((check) => {
-    const itemKind = check.item === undefined ? undefined : bundle.items.find((item) => item.path === check.item)?.kind;
-    return classifyCheck(check, { kinds: itemKind === undefined ? bundleKinds : [itemKind] }, gaps);
-  }));
+  return collect(checks.map((check) =>
+    classifyCheck(check, { kinds: subjectKinds(check, bundle.items, bundleKinds), bundle: bundle.id }, gaps)));
 }
 
 /**

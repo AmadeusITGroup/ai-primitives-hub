@@ -18,7 +18,18 @@ import type {
 interface InMemoryEntry {
   contents: string | Uint8Array;
   mtimeMs: number;
+  /** Permission bits; only tracked when the filesystem keeps modes. */
+  mode?: number;
 }
+
+/** Options of the in-memory filesystem. */
+export interface InMemoryFileSystemOptions {
+  /** Track POSIX permission bits: new files are 0o644, `stat` reports `mode`. Default false. */
+  modes?: boolean;
+}
+
+/** Mode of a new file when modes are tracked. */
+const DEFAULT_FILE_MODE = 0o644;
 
 const asString = (contents: string | Uint8Array): string =>
   typeof contents === 'string' ? contents : new TextDecoder().decode(contents);
@@ -32,9 +43,33 @@ const asBytes = (contents: string | Uint8Array): Uint8Array =>
  */
 export class InMemoryFileSystem implements FileSystem {
   private readonly files = new Map<string, InMemoryEntry>();
+  private readonly modes: boolean;
+
+  public constructor(options: InMemoryFileSystemOptions = {}) {
+    this.modes = options.modes ?? false;
+  }
+
+  /** Whether permission bits are tracked. */
+  public get tracksModes(): boolean {
+    return this.modes;
+  }
 
   private normalizePath(path: string): string {
     return path.replaceAll('\\', '/');
+  }
+
+  /**
+   * A file entry; an overwrite keeps the file's mode, as on disk.
+   * @param path - File path.
+   * @param contents - Contents.
+   * @param mtimeMs - Modification time.
+   * @returns The entry.
+   */
+  private entry(path: string, contents: string | Uint8Array, mtimeMs: number): InMemoryEntry {
+    if (!this.modes) {
+      return { contents, mtimeMs };
+    }
+    return { contents, mtimeMs, mode: this.files.get(this.normalizePath(path))?.mode ?? DEFAULT_FILE_MODE };
   }
 
   /**
@@ -45,7 +80,20 @@ export class InMemoryFileSystem implements FileSystem {
    * milliseconds since the Unix epoch. Defaults to `0`.
    */
   public seed(path: string, contents: string | Uint8Array, mtimeMs = 0): void {
-    this.files.set(this.normalizePath(path), { contents, mtimeMs });
+    this.files.set(this.normalizePath(path), this.entry(path, contents, mtimeMs));
+  }
+
+  /**
+   * Set the permission bits of an existing file (modes must be tracked).
+   * @param path - File path.
+   * @param mode - Permission bits, e.g. `0o755`.
+   */
+  public setMode(path: string, mode: number): void {
+    const entry = this.files.get(this.normalizePath(path));
+    if (!this.modes || entry === undefined) {
+      throw new Error(`setMode: no tracked file: ${path}`);
+    }
+    entry.mode = mode;
   }
 
   public async readFile(path: string): Promise<string> {
@@ -58,7 +106,7 @@ export class InMemoryFileSystem implements FileSystem {
   }
 
   public async writeFile(path: string, contents: string): Promise<void> {
-    this.files.set(this.normalizePath(path), { contents, mtimeMs: Date.now() });
+    this.files.set(this.normalizePath(path), this.entry(path, contents, Date.now()));
   }
 
   public async readFileBytes(path: string): Promise<Uint8Array> {
@@ -71,7 +119,7 @@ export class InMemoryFileSystem implements FileSystem {
   }
 
   public async writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
-    this.files.set(this.normalizePath(path), { contents: bytes, mtimeMs: Date.now() });
+    this.files.set(this.normalizePath(path), this.entry(path, bytes, Date.now()));
   }
 
   public async readJson<T = unknown>(path: string): Promise<T> {
@@ -132,7 +180,8 @@ export class InMemoryFileSystem implements FileSystem {
         isDirectory: false,
         isFile: true,
         size: asBytes(entry.contents).byteLength,
-        mtimeMs: entry.mtimeMs
+        mtimeMs: entry.mtimeMs,
+        ...(entry.mode === undefined ? {} : { mode: entry.mode })
       };
     }
     if (await this.exists(normalizedPath)) {

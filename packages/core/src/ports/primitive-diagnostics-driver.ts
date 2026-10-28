@@ -55,12 +55,18 @@ export interface DriverCommandResult<T = unknown> {
   errorCode?: string;
   /** Every failure reason the command reported. Empty on success. */
   errorMessages: string[];
+  /** Archive-relative paths an install rejected as unsupported content, when the command listed them. */
+  rejectedPaths?: string[];
 }
 
 /** Operations the primitive diagnostics use case drives. */
 export interface PrimitiveDiagnosticsDriver {
   prepareSandbox(sandbox: DiagnosticSandbox): Promise<PreparedSandbox>;
-  commitFixtureRepository(sandbox: DiagnosticSandbox, input: { remoteUrl: string }): Promise<void>;
+  /**
+   * Commit the fixture files written under `sandbox.cwd`.
+   * `executableFiles`: repository-relative paths recorded as executable (`100755`); every other file is `100644`.
+   */
+  commitFixtureRepository(sandbox: DiagnosticSandbox, input: { remoteUrl: string; executableFiles: readonly string[] }): Promise<void>;
   validateCollection(sandbox: DiagnosticSandbox, input: { collectionFile: string }): Promise<DriverCommandResult>;
   buildBundle(sandbox: DiagnosticSandbox, input: { collectionFile: string; version: string; outDir: string }): Promise<DriverCommandResult<{ zipAsset: string; bundleId: string }>>;
   materializeBundle(input: { zipPath: string; destination: string }): Promise<string[]>;

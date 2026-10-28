@@ -87,13 +87,27 @@ const parseFilter = <T>(
   }
 };
 
+/** Host capabilities a primitives-mode run depends on. */
+export interface PrimitivesModePlatform {
+  /** Whether the host filesystem has POSIX file modes; false makes the executable-bit checks (I10) not applicable. */
+  posixFileModes: boolean;
+}
+
+/** Capabilities of the running OS: Windows has no POSIX file modes. */
+const HOST_PLATFORM: PrimitivesModePlatform = { posixFileModes: process.platform !== 'win32' };
+
 /**
  * Run `doctor diagnostics --primitives`.
  * @param ctx CLI context.
  * @param options Parsed command flags.
+ * @param platform Host capabilities; defaults to the running OS.
  * @returns Exit code: 0 when the report is ok, else 1.
  */
-export const runPrimitivesMode = async (ctx: Context, options: PrimitivesModeOptions): Promise<number> => {
+export const runPrimitivesMode = async (
+  ctx: Context,
+  options: PrimitivesModeOptions,
+  platform: PrimitivesModePlatform = HOST_PLATFORM
+): Promise<number> => {
   const kinds = parseFilter<PrimitiveKind>('--kinds', options.kinds, parseCsvKinds);
   const targets = parseFilter<TargetType>('--targets', options.targets, (v) => parseCsvEnum(v, TARGET_TYPES, 'target type'));
   const scopes = parseFilter<DiagnosticScope>('--scopes', options.scopes, (v) => parseCsvEnum(v, DIAGNOSTIC_SCOPES, 'scope'));
@@ -119,6 +133,7 @@ export const runPrimitivesMode = async (ctx: Context, options: PrimitivesModeOpt
       extractor: new ZipBundleExtractor(),
       clock: ctx.clock,
       driver: createInProcessPrimitiveDriver({ ctx, commandClasses: getPrimitiveDiagnosticCommandClasses() }),
+      posixFileModes: platform.posixFileModes,
       ...(options.verbose
         ? {
           onProgress: (event): void => {

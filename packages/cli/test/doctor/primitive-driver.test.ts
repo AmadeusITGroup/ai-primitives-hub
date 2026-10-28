@@ -6,6 +6,9 @@
  * sandbox is fully contained in its case root.
  */
 import {
+  spawnSync,
+} from 'node:child_process';
+import {
   mkdir,
   mkdtemp,
   rm,
@@ -33,6 +36,7 @@ import {
 } from '../../src/doctor/diagnostics';
 import {
   createInProcessPrimitiveDriver,
+  parseRejectedPaths,
 } from '../../src/doctor/primitive-driver';
 import {
   Command,
@@ -114,6 +118,23 @@ describe('createInProcessPrimitiveDriver', () => {
     expect(result).toEqual({ exitCode: 2, warnings: [], errorMessages: ['x'.repeat(500)] });
   }, 60_000);
 
+  it('commits the listed fixture files as executable (100755) and every other file as 100644', async () => {
+    await mkdir(path.join(sandbox.cwd, 'scripts'), { recursive: true });
+    await writeFile(path.join(sandbox.cwd, 'scripts', 'run.sh'), '#!/bin/sh\n');
+    await writeFile(path.join(sandbox.cwd, 'README.md'), '# fixture\n');
+    const driver = createInProcessPrimitiveDriver({ ctx: ctx(), commandClasses: getPrimitiveDiagnosticCommandClasses() });
+    await driver.prepareSandbox(sandbox);
+
+    await driver.commitFixtureRepository(sandbox, { remoteUrl: 'https://github.com/example/fixture.git', executableFiles: ['scripts/run.sh'] });
+
+    const listed = spawnSync('git', ['ls-tree', '-r', 'HEAD'], { cwd: sandbox.cwd, encoding: 'utf8' });
+    const modes = Object.fromEntries(listed.stdout.trim().split('\n').map((line) => {
+      const [meta, file] = line.split('\t');
+      return [file, meta.split(' ')[0]];
+    }));
+    expect(modes).toEqual({ 'README.md': '100644', 'scripts/run.sh': '100755' });
+  }, 60_000);
+
   it('prepares a contained sandbox with roots in port order', async () => {
     const driver = createInProcessPrimitiveDriver({ ctx: ctx(), commandClasses: getPrimitiveDiagnosticCommandClasses() });
 
@@ -142,4 +163,16 @@ describe('createInProcessPrimitiveDriver', () => {
       expect((await stat(envRoot.path)).isDirectory(), envRoot.label).toBe(true);
     }
   }, 60_000);
+});
+
+describe('parseRejectedPaths', () => {
+  it('reads the paths listed by an unsupported-content rejection', () => {
+    expect(parseRejectedPaths('install: target cannot install bundle content: hooks/pre-commit.hook.json, plugins/p/plugin.json'))
+      .toEqual(['hooks/pre-commit.hook.json', 'plugins/p/plugin.json']);
+  });
+
+  it('is undefined for a message that lists no paths', () => {
+    expect(parseRejectedPaths('install: something else failed')).toBeUndefined();
+    expect(parseRejectedPaths('install: target cannot install bundle content: ')).toBeUndefined();
+  });
 });

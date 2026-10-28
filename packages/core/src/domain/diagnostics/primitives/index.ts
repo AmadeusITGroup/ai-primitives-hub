@@ -11,6 +11,7 @@ export * from './sandbox';
 export * from './manifest-view';
 export * from './known-gaps';
 export * from './planner';
+export * from './plugin-projection';
 export * from './evaluators';
 export * from './classifier';
 export * from './report';

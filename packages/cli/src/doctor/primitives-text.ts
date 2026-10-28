@@ -97,7 +97,9 @@ const renderCases = (report: PrimitiveDiagnosticsReport, verbose: boolean): stri
   }
   return [...rows.values()].flatMap((row) => {
     const cells = row.map((c, index) => (index === row.length - 1 ? scopeCell(c) : pad(scopeCell(c), SCOPE_WIDTH)));
-    const line = `  ${pad(row[0].kinds.join('+'), KIND_WIDTH)}${pad(row[0].target, TARGET_WIDTH)}${cells.join('')}`;
+    // A single-kind bundle is labelled by its kind, a mixed-kind bundle by its id.
+    const label = row[0].kinds.length === 1 ? row[0].kinds[0] : row[0].bundle;
+    const line = `  ${pad(label, KIND_WIDTH)}${pad(row[0].target, TARGET_WIDTH)}${cells.join('')}`;
     return [line, ...row.flatMap((c) => expandChecks(c.checks, verbose, `${c.scope} `))];
   });
 };

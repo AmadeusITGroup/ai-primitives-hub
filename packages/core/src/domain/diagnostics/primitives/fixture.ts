@@ -2,20 +2,24 @@
  * Domain layer — the primitive diagnostics fixture repository.
  *
  * The whole fixture repository as data: repository-relative path → bytes
- * plus the intended file mode, including one single-item collection per
- * isolated kind (`collections/aph-e2e-only-<kind>.collection.yml`) and the
- * root `LICENSE`, `README.md` and `package.json` that make `bundle build`
- * take the governed release path.
+ * plus the intended file mode. It holds one collection per bundle
+ * (`collections/<bundle id>.collection.yml`): a single-item collection per
+ * kind (`aph-e2e-only-<kind>`), the mixed-kind collections and the invalid
+ * Agent Plugin collections, plus the root `LICENSE`, `README.md` and
+ * `package.json` that make `bundle build` take the governed release path.
  *
  * File contents are fixed: the core tests pin the SHA-256 of every
  * archived file, so bundle ids, archive bytes and reports stay comparable
- * across runs. Intended modes are data only: nothing here applies them on
- * disk.
+ * across runs. Intended modes are data only: the diagnostics commit the
+ * executable files as such (`commitFixtureRepository`).
  * @module domain/diagnostics/primitives/fixture
  */
 import {
   dump as dumpYaml,
 } from 'js-yaml';
+import {
+  AGENT_PLUGIN_MANIFEST_SCHEMA_URI,
+} from '../../plugin/agent-plugin-spec';
 import type {
   PrimitiveKind,
 } from '../../primitive/types';
@@ -29,7 +33,15 @@ export interface FixtureFile {
 /** Fixture remote; its `package.json` `repository.url` and git `origin`. */
 export const PRIMITIVE_FIXTURE_REPOSITORY_URL = 'https://github.com/example/aph-e2e-fixture.git';
 
-/** Declaration of one isolated kind's item in the fixture repository. */
+/** Components an Agent Plugin item declares, checked for projection on install. */
+export interface PluginComponents {
+  /** Skill names under `<plugin root>/skills/<name>/`. */
+  skills: readonly string[];
+  /** MCP server names in `<plugin root>/mcp.json`. */
+  mcpServers: readonly string[];
+}
+
+/** Declaration of one item in the fixture repository. */
 export interface PrimitiveFixtureItem {
   kind: PrimitiveKind;
   /** Collection item path (entry point). */
@@ -40,15 +52,32 @@ export interface PrimitiveFixtureItem {
   unit: 'file' | 'directory';
   /** Source-side prefix the placement oracle strips. */
   sourcePrefix: string;
+  /** Plugin items only: the components the plugin ships. */
+  plugin?: PluginComponents;
 }
 
-/** The isolated kinds, in `PRIMITIVE_KINDS` order without `plugin`. */
+/** Placeholder an Agent Plugin uses for its installed root directory. */
+export const PLUGIN_ROOT_PLACEHOLDER = '${PLUGIN_ROOT}';
+
+/** Name of the fixture Agent Plugin's MCP server. */
+const PLUGIN_MCP_SERVER = 'aph-e2e';
+
+/** One item per kind, in `PRIMITIVE_KINDS` order: the isolated bundles, reused by the mixed bundles. */
 export const PRIMITIVE_FIXTURE_ITEMS: readonly PrimitiveFixtureItem[] = [
   { kind: 'prompt', path: 'prompts/hello-world.prompt.md', expectedId: 'hello-world', unit: 'file', sourcePrefix: 'prompts/' },
   { kind: 'instruction', path: 'instructions/code-style.instructions.md', expectedId: 'code-style', unit: 'file', sourcePrefix: 'instructions/' },
   { kind: 'chat-mode', path: 'chat-modes/review.chatmode.md', expectedId: 'review', unit: 'file', sourcePrefix: 'chat-modes/' },
   { kind: 'agent', path: 'agents/security.agent.md', expectedId: 'security', unit: 'file', sourcePrefix: 'agents/' },
   { kind: 'skill', path: 'skills/standalone-skill/SKILL.md', expectedId: 'standalone-skill', unit: 'directory', sourcePrefix: 'skills/' },
+  // A spec-compliant Agent Plugins 1.0.0 plugin: root plugin.json, a nested skill, a root mcp.json and an executable script.
+  {
+    kind: 'plugin',
+    path: 'plugins/aph-e2e-plugin/plugin.json',
+    expectedId: 'aph-e2e-plugin',
+    unit: 'directory',
+    sourcePrefix: 'plugins/',
+    plugin: { skills: ['plugin-skill'], mcpServers: [PLUGIN_MCP_SERVER] }
+  },
   { kind: 'hook', path: 'hooks/pre-commit.hook.json', expectedId: 'pre-commit', unit: 'file', sourcePrefix: 'hooks/' },
   { kind: 'mcp-server', path: 'mcp-servers/github.mcp.json', expectedId: 'github', unit: 'file', sourcePrefix: 'mcp-servers/' },
   { kind: 'steering', path: '.kiro/steering/api-standards.md', expectedId: 'api-standards', unit: 'file', sourcePrefix: '.kiro/steering/' },
@@ -61,6 +90,66 @@ export const PRIMITIVE_FIXTURE_ITEMS: readonly PrimitiveFixtureItem[] = [
   { kind: 'power', path: 'powers/stripe/POWER.md', expectedId: 'stripe', unit: 'directory', sourcePrefix: 'powers/' },
   { kind: 'knowledge', path: 'knowledge/onboarding.md', expectedId: 'onboarding', unit: 'file', sourcePrefix: 'knowledge/' },
   { kind: 'playbook', path: 'playbooks/bug-fix.md', expectedId: 'bug-fix', unit: 'file', sourcePrefix: 'playbooks/' }
+];
+
+/** A bundle of several `PRIMITIVE_FIXTURE_ITEMS`, one per listed kind, in `PRIMITIVE_KINDS` order. */
+export interface PrimitiveMixedBundle {
+  id: string;
+  name: string;
+  kinds: readonly PrimitiveKind[];
+}
+
+/** The mixed-kind bundles. */
+export const PRIMITIVE_MIXED_BUNDLES: readonly PrimitiveMixedBundle[] = [
+  { id: 'aph-e2e-mix-portable', name: 'APH e2e mix portable', kinds: ['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook'] },
+  { id: 'aph-e2e-mix-all-kinds', name: 'APH e2e mix all kinds', kinds: PRIMITIVE_FIXTURE_ITEMS.map((item) => item.kind) }
+];
+
+/** An invalid Agent Plugin bundle: one plugin item that `collection validate` and `bundle build` must reject. */
+export interface PrimitiveInvalidPluginBundle {
+  id: string;
+  name: string;
+  item: PrimitiveFixtureItem;
+  /** The documented validation message for the item (without the collection and item prefix). */
+  issue: string;
+}
+
+/** The invalid Agent Plugin bundles, each with exactly one fatal manifest issue. */
+export const PRIMITIVE_INVALID_PLUGIN_BUNDLES: readonly PrimitiveInvalidPluginBundle[] = [
+  {
+    id: 'aph-e2e-bad-plugin-no-schema',
+    name: 'APH e2e invalid plugin no schema',
+    item: { kind: 'plugin', path: 'plugins/aph-e2e-no-schema/plugin.json', expectedId: 'aph-e2e-no-schema', unit: 'directory', sourcePrefix: 'plugins/' },
+    issue: 'missing required field "$schema"; set it to "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"'
+  },
+  {
+    id: 'aph-e2e-bad-plugin-name',
+    name: 'APH e2e invalid plugin name',
+    item: { kind: 'plugin', path: 'plugins/aph-e2e--bad-name/plugin.json', expectedId: 'aph-e2e--bad-name', unit: 'directory', sourcePrefix: 'plugins/' },
+    issue: '"name" must be 1-64 characters of lowercase letters, digits, "." or "-", start and end with a letter or digit, '
+      + 'and contain no "--" or ".." (got "aph-e2e--bad-name")'
+  },
+  {
+    id: 'aph-e2e-bad-plugin-author',
+    name: 'APH e2e invalid plugin author',
+    item: { kind: 'plugin', path: 'plugins/aph-e2e-string-author/plugin.json', expectedId: 'aph-e2e-string-author', unit: 'directory', sourcePrefix: 'plugins/' },
+    issue: '"author" must be an object with optional string fields "name", "email", "url" (got a string)'
+  },
+  {
+    // plugin.json is not at the plugin root: the item's directory is taken as the root and its name does not match.
+    id: 'aph-e2e-bad-plugin-nested-manifest',
+    name: 'APH e2e invalid plugin nested manifest',
+    item: {
+      kind: 'plugin',
+      path: 'plugins/aph-e2e-nested-manifest/meta/plugin.json',
+      expectedId: 'aph-e2e-nested-manifest',
+      unit: 'directory',
+      sourcePrefix: 'plugins/'
+    },
+    issue: 'plugin name "aph-e2e-nested-manifest" must match its directory "meta" (AI Primitives Hub packaging rule: '
+      + 'the plugin root is the directory that contains plugin.json, and it is bundled and installed under that directory name). '
+      + 'Rename the directory or the "name" field, and keep plugin.json at the plugin root'
+  }
 ];
 
 /**
@@ -114,6 +203,45 @@ const ITEM_SOURCES: readonly (readonly [string, string])[] = [
   )],
   ['skills/standalone-skill/scripts/run.sh', text('#!/usr/bin/env sh', '# standalone-skill', 'echo "standalone skill ran"')],
   ['skills/standalone-skill/references/guide.md', md('Standalone skill guide', 'Nothing to see here — fixture reference file.')],
+  ['plugins/aph-e2e-plugin/plugin.json', json({
+    $schema: AGENT_PLUGIN_MANIFEST_SCHEMA_URI,
+    name: 'aph-e2e-plugin',
+    version: '1.0.0',
+    description: 'Agent Plugin used by the APH e2e diagnostics: a nested skill, an MCP server and a launch script.',
+    author: { name: 'AI Primitives Hub e2e' },
+    license: 'MIT',
+    keywords: ['aph-e2e']
+  })],
+  ['plugins/aph-e2e-plugin/mcp.json', json({
+    $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
+    mcpServers: {
+      [PLUGIN_MCP_SERVER]: {
+        type: 'stdio',
+        command: './scripts/launch.sh',
+        args: ['--root', PLUGIN_ROOT_PLACEHOLDER],
+        env: { APH_E2E_PLUGIN_ROOT: PLUGIN_ROOT_PLACEHOLDER },
+        cwd: PLUGIN_ROOT_PLACEHOLDER
+      }
+    }
+  })],
+  ['plugins/aph-e2e-plugin/scripts/launch.sh', text(
+    '#!/usr/bin/env sh', '# Launch the APH e2e MCP server from the plugin root.', `exec echo "aph-e2e plugin root: ${PLUGIN_ROOT_PLACEHOLDER}"`
+  )],
+  ['plugins/aph-e2e-plugin/skills/plugin-skill/SKILL.md', text(
+    '---', 'name: plugin-skill',
+    'description: Skill shipped inside the APH e2e Agent Plugin. Use when asked to run the APH e2e plugin skill.',
+    '---', '# Plugin skill', '', 'Run the plugin\'s `scripts/launch.sh`.'
+  )],
+  ['plugins/aph-e2e-no-schema/plugin.json', json({ name: 'aph-e2e-no-schema', description: 'Invalid: no $schema.' })],
+  ['plugins/aph-e2e--bad-name/plugin.json', json({ $schema: AGENT_PLUGIN_MANIFEST_SCHEMA_URI, name: 'aph-e2e--bad-name' })],
+  ['plugins/aph-e2e-string-author/plugin.json', json({
+    $schema: AGENT_PLUGIN_MANIFEST_SCHEMA_URI, name: 'aph-e2e-string-author', author: 'AI Primitives Hub e2e'
+  })],
+  ['plugins/aph-e2e-nested-manifest/meta/plugin.json', json({ $schema: AGENT_PLUGIN_MANIFEST_SCHEMA_URI, name: 'aph-e2e-nested-manifest' })],
+  ['plugins/aph-e2e-nested-manifest/skills/nested-skill/SKILL.md', text(
+    '---', 'name: nested-skill', 'description: Skill of an invalid plugin whose plugin.json is not at its root. Use when testing.', '---',
+    '# Nested skill'
+  )],
   ['hooks/pre-commit.hook.json', json({
     name: 'pre-commit',
     description: 'Run the formatter before commit.',
@@ -152,7 +280,10 @@ const ITEM_SOURCES: readonly (readonly [string, string])[] = [
 ];
 
 /** Item source files whose intended mode is executable. */
-const EXECUTABLE_FILES: ReadonlySet<string> = new Set(['skills/standalone-skill/scripts/run.sh']);
+const EXECUTABLE_FILES: ReadonlySet<string> = new Set([
+  'plugins/aph-e2e-plugin/scripts/launch.sh',
+  'skills/standalone-skill/scripts/run.sh'
+]);
 
 /** Repository root files that make `bundle build` take the governed path. */
 const ROOT_FILES: readonly (readonly [string, string])[] = [
@@ -169,31 +300,59 @@ const ROOT_FILES: readonly (readonly [string, string])[] = [
   })]
 ];
 
+/** One fixture collection: its id, display name and items. */
+export interface PrimitiveFixtureCollection {
+  id: string;
+  name: string;
+  items: readonly PrimitiveFixtureItem[];
+}
+
 /**
- * Render the single-item collection YAML of an isolated kind, with the key
- * order `id, name, description, version, author, tags, items`.
- * @param item - Isolated kind declaration.
+ * Items of a mixed bundle.
+ * @param bundle - Mixed bundle declaration.
+ * @returns The fixture item of each listed kind, in `PRIMITIVE_FIXTURE_ITEMS` order.
+ */
+export const mixedBundleItems = (bundle: PrimitiveMixedBundle): PrimitiveFixtureItem[] =>
+  PRIMITIVE_FIXTURE_ITEMS.filter((item) => bundle.kinds.includes(item.kind));
+
+/**
+ * Every fixture collection, in catalogue order: the isolated bundles, the
+ * mixed bundles, then the invalid plugin bundles.
+ * @returns Collections.
+ */
+export const primitiveFixtureCollections = (): PrimitiveFixtureCollection[] => [
+  ...PRIMITIVE_FIXTURE_ITEMS.map((item) => ({ id: isolatedBundleId(item.kind), name: `APH e2e only ${item.kind}`, items: [item] })),
+  ...PRIMITIVE_MIXED_BUNDLES.map((bundle) => ({ id: bundle.id, name: bundle.name, items: mixedBundleItems(bundle) })),
+  ...PRIMITIVE_INVALID_PLUGIN_BUNDLES.map((bundle) => ({ id: bundle.id, name: bundle.name, items: [bundle.item] }))
+];
+
+/**
+ * Render a collection YAML, with the key order
+ * `id, name, description, version, author, tags, items`.
+ * @param collection - Collection declaration.
  * @returns Collection YAML text.
  */
-const renderCollection = (item: PrimitiveFixtureItem): string => {
-  const id = isolatedBundleId(item.kind);
-  const name = `APH e2e only ${item.kind}`;
-  return dumpYaml({
-    id,
-    name,
-    description: `${name} (APH plugin-support e2e fixture).`,
-    version: '1.0.0',
-    author: 'AI Primitives Hub e2e',
-    tags: ['aph-e2e'],
-    items: [{ path: item.path, kind: item.kind }]
-  }, { lineWidth: 200 });
-};
+const renderCollection = (collection: PrimitiveFixtureCollection): string => dumpYaml({
+  id: collection.id,
+  name: collection.name,
+  description: `${collection.name} (APH plugin-support e2e fixture).`,
+  version: '1.0.0',
+  author: 'AI Primitives Hub e2e',
+  tags: ['aph-e2e'],
+  items: collection.items.map((item) => ({ path: item.path, kind: item.kind }))
+}, { lineWidth: 200 });
 
 /**
  * Repository-relative paths of every item source file in the fixture, sorted.
  * @returns Item source paths.
  */
 export const fixtureItemSourcePaths = (): string[] => ITEM_SOURCES.map(([p]) => p).toSorted();
+
+/**
+ * Item source files whose intended mode is executable, sorted.
+ * @returns Executable item source paths.
+ */
+export const fixtureExecutablePaths = (): string[] => [...EXECUTABLE_FILES].toSorted();
 
 /**
  * Build the whole fixture repository, including `collections/*.yml`.
@@ -211,8 +370,8 @@ export function buildPrimitiveFixture(): ReadonlyMap<string, FixtureFile> {
   for (const [filePath, content] of ITEM_SOURCES) {
     add(filePath, content);
   }
-  for (const item of PRIMITIVE_FIXTURE_ITEMS) {
-    add(collectionFileFor(isolatedBundleId(item.kind)), renderCollection(item));
+  for (const collection of primitiveFixtureCollections()) {
+    add(collectionFileFor(collection.id), renderCollection(collection));
   }
   return files;
 }

@@ -4,6 +4,7 @@
  * Bundle inputs are governed archives built in memory from the core
  * fixture (`createPrimitiveReleaseArchive`, plan decision D1).
  */
+import * as path from 'node:path';
 import {
   dump as dumpYaml,
   load as parseYaml,
@@ -23,8 +24,10 @@ import {
   type CommandObservation,
   type DiagnosticBundle,
   type DiagnosticCheck,
+  evaluateArchiveModes,
   evaluateBundle,
   evaluateCase,
+  evaluateRejectedBundle,
   NOT_EVALUATED,
   type PlannedCase,
   planPrimitiveDiagnostics,
@@ -40,6 +43,9 @@ import type {
 import type {
   ExtractedFiles,
 } from '../../../../src/ports/bundle-extractor';
+import type {
+  SnapshotRoot,
+} from '../../../../src/ports/primitive-diagnostics-driver';
 import {
   createPrimitiveReleaseArchive,
 } from '../../../fixtures/release-archives';
@@ -268,6 +274,38 @@ describe('evaluateBundle', () => {
   });
 });
 
+describe('evaluateRejectedBundle (I5)', () => {
+  const message = 'collections/bad.collection.yml: items[0] plugin plugins/bad/plugin.json: missing required field "$schema"';
+  const invalid: DiagnosticBundle = {
+    ...bundleOf('prompt'),
+    id: 'bad',
+    collectionFile: 'collections/bad.collection.yml',
+    rejection: { errorCode: 'PLUGIN.INVALID_MANIFEST', message }
+  };
+  const validateRejected: CommandObservation = { exitCode: 1, status: 'error', warnings: [], errorMessages: [message] };
+  const buildRejected: CommandObservation = { exitCode: 1, status: 'error', warnings: [], errorCode: 'PLUGIN.INVALID_MANIFEST', errorMessages: [message] };
+  const expected = {
+    validateRejected: true, validateReported: true, buildRejected: true, buildErrorCode: 'PLUGIN.INVALID_MANIFEST', buildReported: true, written: []
+  };
+
+  it('passes when validate and build reject with the documented message and nothing is written', () => {
+    const evaluation = evaluateRejectedBundle({ bundle: invalid, validate: validateRejected, build: buildRejected, distWrites: [] });
+    expect(evaluation).toEqual({ checks: [{ invariant: 'I5', outcome: 'pass', expected }], ready: false, archivedItemFiles: new Map() });
+  });
+
+  it.each([
+    ['validate accepts it', { validate: ok }, { validateRejected: false, validateReported: false }],
+    ['validate reports another message', { validate: { ...validateRejected, errorMessages: ['other'] } }, { validateReported: false }],
+    ['build succeeds', { build: ok }, { buildRejected: false, buildErrorCode: null, buildReported: false }],
+    ['build fails with another code', { build: { ...buildRejected, errorCode: 'BUNDLE.BUILD_FAILED' } }, { buildErrorCode: 'BUNDLE.BUILD_FAILED' }],
+    ['build writes into the dist dir', { distWrites: ['<dist>/bad-1.0.0.zip'] }, { written: ['<dist>/bad-1.0.0.zip'] }]
+  ] as const)('fails when %s', (_name, override, observedDelta) => {
+    const [check] = evaluateRejectedBundle({ bundle: invalid, validate: validateRejected, build: buildRejected, distWrites: [], ...override }).checks;
+    expect(check).toMatchObject({ invariant: 'I5', outcome: 'fail', expected, observed: { ...expected, ...observedDelta } });
+    expect(check.detail).toBeDefined();
+  });
+});
+
 const plan = planPrimitiveDiagnostics({});
 const caseOf = (kind: PrimitiveKind, target: TargetType, scope: 'user' | 'repository'): PlannedCase =>
   plan.cases.find((c) => c.id === `aph-e2e-only-${kind}__${target}__${scope}`)!;
@@ -289,9 +327,9 @@ const installed = (kind: PrimitiveKind, placed: readonly string[], overrides: Pa
   ...overrides
 });
 
-const rejected = (errorCode: string, writes: readonly string[] = []): CaseObservation => ({
+const rejected = (errorCode: string, writes: readonly string[] = [], rejectedPaths?: readonly string[]): CaseObservation => ({
   targetAdd: { ...ok, effectiveScope: 'user' },
-  install: { exitCode: 1, status: 'error', warnings: [], errorCode, errorMessages: ['nope'] },
+  install: { exitCode: 1, status: 'error', warnings: [], errorCode, errorMessages: ['nope'], ...(rejectedPaths === undefined ? {} : { rejectedPaths }) },
   snapshots: { beforeInstall: snap(BOOKKEEPING.target), afterInstall: snap(BOOKKEEPING.target, ...writes) }
 });
 
@@ -301,18 +339,61 @@ describe('evaluateCase', () => {
   const prompt = bundleOf('prompt');
   const promptEvaluation = readyEvaluation(prompt);
 
-  it('passes an installed prompt in the order I4, I6, I7, I8, I13', () => {
+  it('passes an installed prompt in the order I4, I6, I7, I8, I9, I13', () => {
     const checks = evaluateCase(caseOf('prompt', 'vscode', 'user'), prompt, promptEvaluation,
       installed('prompt', ['$HOME/.copilot/prompts/hello-world.prompt.md']));
-    expect(summary(checks)).toEqual([['I4', 'pass'], ['I6', 'pass'], ['I7', 'not-applicable'], ['I8', 'pass'], ['I13', 'pass']]);
+    expect(summary(checks)).toEqual([['I4', 'pass'], ['I6', 'pass'], ['I7', 'not-applicable'], ['I8', 'pass'], ['I9', 'not-applicable'], ['I13', 'pass']]);
     expect(checks[0].expected).toEqual({ status: 'installed' });
   });
 
   it('passes a by-design rejection (steering on vscode)', () => {
     const steering = bundleOf('steering');
-    const checks = evaluateCase(caseOf('steering', 'vscode', 'user'), steering, readyEvaluation(steering), rejected('BUNDLE.UNSUPPORTED_CONTENT'));
-    expect(summary(checks)).toEqual([['I4', 'pass'], ['I6', 'not-applicable'], ['I7', 'pass'], ['I8', 'pass'], ['I13', 'not-applicable']]);
+    const checks = evaluateCase(caseOf('steering', 'vscode', 'user'), steering, readyEvaluation(steering),
+      rejected('BUNDLE.UNSUPPORTED_CONTENT', [], ['.kiro/steering/api-standards.md']));
+    expect(summary(checks)).toEqual([['I4', 'pass'], ['I6', 'not-applicable'], ['I7', 'pass'], ['I8', 'pass'], ['I9', 'pass'], ['I13', 'not-applicable']]);
     expect(checks[0].expected).toEqual({ status: 'rejected' });
+    expect(byInvariant(checks, 'I9')).toEqual({ invariant: 'I9', outcome: 'pass', item: '.kiro/steering/api-standards.md', expected: { rejected: true } });
+  });
+
+  describe('I9', () => {
+    const mcp = bundleOf('mcp-server');
+    const steering = bundleOf('steering');
+    const mix: DiagnosticBundle = { ...prompt, id: 'mix', items: [prompt.items[0], steering.items[0]] };
+    const mixCase = planPrimitiveDiagnostics({ targets: ['vscode'], scopes: ['user'] }, [mix]).cases[0];
+
+    it('fails with rejected true for an item of a supported kind the install rejected', () => {
+      const checks = evaluateCase(caseOf('mcp-server', 'vscode', 'user'), mcp, readyEvaluation(mcp),
+        rejected('BUNDLE.UNSUPPORTED_CONTENT', [], ['mcp-servers/github.mcp.json']));
+      expect(byInvariant(checks, 'I9')).toMatchObject({
+        outcome: 'fail', item: 'mcp-servers/github.mcp.json', expected: { rejected: false }, observed: { rejected: true }
+      });
+    });
+
+    it('observes rejected null when the install did not list the rejected paths', () => {
+      const checks = evaluateCase(caseOf('steering', 'vscode', 'user'), steering, readyEvaluation(steering), rejected('BUNDLE.UNSUPPORTED_CONTENT'));
+      expect(byInvariant(checks, 'I9')).toMatchObject({ outcome: 'fail', observed: { rejected: null } });
+    });
+
+    it('checks every item of a mixed bundle, and names paths that belong to no item', () => {
+      const checks = evaluateCase(mixCase, mix, readyEvaluation(mix),
+        rejected('BUNDLE.UNSUPPORTED_CONTENT', [], ['.kiro/steering/api-standards.md', 'stray/file.md']));
+      const i9 = checks.filter((c) => c.invariant === 'I9');
+      expect(i9.map((c) => [c.item, c.outcome])).toEqual([
+        ['prompts/hello-world.prompt.md', 'pass'],
+        ['.kiro/steering/api-standards.md', 'pass']
+      ]);
+      expect(i9[0].detail).toContain('stray/file.md');
+    });
+
+    it('fails an item of a supported kind rejected along with an unsupported one', () => {
+      const checks = evaluateCase(mixCase, mix, readyEvaluation(mix),
+        rejected('BUNDLE.UNSUPPORTED_CONTENT', [], ['.kiro/steering/api-standards.md', 'prompts/hello-world.prompt.md']));
+      expect(checks.filter((c) => c.invariant === 'I9').map((c) => [c.item, c.outcome, c.observed])).toEqual([
+        ['prompts/hello-world.prompt.md', 'fail', { rejected: true }],
+        ['.kiro/steering/api-standards.md', 'pass', undefined]
+      ]);
+      expect(byInvariant(checks, 'I4')).toMatchObject({ outcome: 'fail', expected: { status: 'partial' } });
+    });
   });
 
   it('classifies an unexpected error as status error', () => {
@@ -397,5 +478,147 @@ describe('evaluateCase', () => {
     observation.install = { ...observation.install!, errorMessages: ['failed writing /home/me/.copilot/x'] };
     const checks = evaluateCase(caseOf('prompt', 'vscode', 'user'), prompt, promptEvaluation, observation);
     expect(JSON.stringify(checks.map((c) => c.observed))).not.toContain('/home/me');
+  });
+});
+
+describe('evaluateArchiveModes (bundle-level I10)', () => {
+  const run = 'skills/standalone-skill/scripts/run.sh';
+
+  it('passes when every executable fixture file is executable in the archive, and keeps the modes', () => {
+    const evaluation = evaluateArchiveModes(skill, readyEvaluation(skill), new Set([run]));
+    expect(evaluation.checks.at(-1)).toEqual({ invariant: 'I10', outcome: 'pass', item: 'skills/standalone-skill/SKILL.md' });
+    expect(evaluation.executableArchivePaths).toEqual(new Set([run]));
+    expect(evaluation.ready).toBe(true);
+  });
+
+  it('fails with the archive paths that lost the executable bit', () => {
+    expect(evaluateArchiveModes(skill, readyEvaluation(skill), new Set()).checks.at(-1))
+      .toMatchObject({ invariant: 'I10', outcome: 'fail', item: 'skills/standalone-skill/SKILL.md', observed: { notExecutable: [run] } });
+  });
+
+  it('is not applicable without permission bits, and absent for a bundle without executable files', () => {
+    const unknown = evaluateArchiveModes(skill, readyEvaluation(skill), undefined);
+    expect(unknown.checks.at(-1)).toMatchObject({ invariant: 'I10', outcome: 'not-applicable' });
+    expect(unknown.executableArchivePaths).toBeUndefined();
+    const prompt = bundleOf('prompt');
+    const evaluation = readyEvaluation(prompt);
+    expect(evaluateArchiveModes(prompt, evaluation, new Set())).toBe(evaluation);
+  });
+});
+
+describe('evaluateCase executable bits (case-level I10)', () => {
+  const run = 'skills/standalone-skill/scripts/run.sh';
+  const files = ['SKILL.md', 'references/guide.md', 'scripts/run.sh'].map((f) => `$HOME/.copilot/skills/standalone-skill/${f}`);
+  const evaluation = evaluateArchiveModes(skill, readyEvaluation(skill), new Set([run]));
+
+  it('passes when the installed script keeps its executable bit', () => {
+    const observation = installed('skill', files, { executable: new Set([files[2]]) });
+    expect(byInvariant(evaluateCase(caseOf('skill', 'vscode', 'user'), skill, evaluation, observation), 'I10'))
+      .toEqual({ invariant: 'I10', outcome: 'pass', item: 'skills/standalone-skill/SKILL.md' });
+  });
+
+  it('fails with the archive path of a script installed without its executable bit', () => {
+    const observation = installed('skill', files, { executable: new Set() });
+    expect(byInvariant(evaluateCase(caseOf('skill', 'vscode', 'user'), skill, evaluation, observation), 'I10'))
+      .toMatchObject({ outcome: 'fail', item: 'skills/standalone-skill/SKILL.md', observed: { notExecutable: [run] } });
+  });
+
+  it('is not applicable without permission bits or when the install did not succeed', () => {
+    const unknown = evaluateCase(caseOf('skill', 'vscode', 'user'), skill, evaluation, installed('skill', files));
+    expect(byInvariant(unknown, 'I10')).toMatchObject({ outcome: 'not-applicable' });
+    const failed = evaluateCase(caseOf('skill', 'vscode', 'user'), skill, evaluation, rejected('INTERNAL.UNEXPECTED'));
+    expect(byInvariant(failed, 'I10')).toMatchObject({ outcome: 'not-applicable' });
+  });
+
+  it('does not count a file that was not executable in the archive', () => {
+    const lostInArchive = evaluateArchiveModes(skill, readyEvaluation(skill), new Set());
+    const observation = installed('skill', files, { executable: new Set() });
+    expect(byInvariant(evaluateCase(caseOf('skill', 'vscode', 'user'), skill, lostInArchive, observation), 'I10'))
+      .toMatchObject({ outcome: 'not-applicable' });
+  });
+});
+
+describe('evaluateCase plugin projection (I11, I12, I14)', () => {
+  const plugin = bundleOf('plugin');
+  const evaluation = readyEvaluation(plugin);
+  const home = path.resolve('/w/cases/c1/home');
+  const roots: SnapshotRoot[] = [{ label: '$HOME', path: home }, { label: '<workspace>', path: path.resolve('/w/cases/c1/ws') }];
+  const pluginRoot = path.join(home, '.copilot', 'plugins', 'aph-e2e-plugin');
+  const copied = ['mcp.json', 'plugin.json', 'scripts/launch.sh', 'skills/plugin-skill/SKILL.md'].map((f) => `$HOME/.copilot/plugins/aph-e2e-plugin/${f}`);
+  const projectedSkill = '$HOME/.copilot/skills/plugin-skill/SKILL.md';
+  const config = '$HOME/.copilot/mcp-config.json';
+  const server = (root: string): Record<string, unknown> =>
+    ({ type: 'stdio', command: './scripts/launch.sh', args: ['--root', root], env: { APH_E2E_PLUGIN_ROOT: root }, cwd: root });
+  const observe = (placed: readonly string[], written: Record<string, string> = {}): CaseObservation =>
+    installed('plugin', placed, {
+      roots,
+      installedText: new Map([
+        [copied[0], new TextDecoder().decode(fixture.get('plugins/aph-e2e-plugin/mcp.json')!.bytes)],
+        ...Object.entries(written)
+      ])
+    });
+  const run = (observation: CaseObservation): DiagnosticCheck[] => evaluateCase(caseOf('plugin', 'vscode', 'user'), plugin, evaluation, observation);
+
+  it('reports today\'s copy-only install: no skill or MCP projection, ${PLUGIN_ROOT} unresolved, placement as expected', () => {
+    const checks = run(observe(copied));
+    expect(summary(checks)).toEqual([
+      ['I4', 'pass'], ['I6', 'pass'], ['I7', 'not-applicable'], ['I8', 'pass'], ['I9', 'not-applicable'], ['I10', 'not-applicable'],
+      ['I11', 'fail'], ['I12', 'fail'], ['I13', 'pass'], ['I14', 'fail']
+    ]);
+    expect(byInvariant(checks, 'I11')).toMatchObject({ item: plugin.items[0].path, observed: { unprojected: ['plugin-skill'] } });
+    expect(byInvariant(checks, 'I12')).toMatchObject({ item: plugin.items[0].path, observed: { unprojected: ['aph-e2e'] } });
+    expect(byInvariant(checks, 'I14')).toMatchObject({ item: plugin.items[0].path, observed: { unresolved: ['aph-e2e'] } });
+  });
+
+  it('passes a projected and resolved plugin, and I13 accepts the projected files', () => {
+    const checks = run(observe([...copied, projectedSkill, config], {
+      [projectedSkill]: '---\nname: plugin-skill\n---\n',
+      [config]: JSON.stringify({ mcpServers: { 'aph-e2e-plugin:aph-e2e': server(pluginRoot) } })
+    }));
+    expect(['I11', 'I12', 'I13', 'I14'].map((invariant) => byInvariant(checks, invariant).outcome)).toEqual(['pass', 'pass', 'pass', 'pass']);
+  });
+
+  it('expects plugin skills where the target places skill items (Devin user scope: $HOME/.config/devin/skills/)', () => {
+    const devinCopied = copied.map((label) => label.replace('$HOME/.copilot/', '$HOME/.devin/'));
+    const devin = (skillLabel: string): DiagnosticCheck[] => evaluateCase(caseOf('plugin', 'devin', 'user'), plugin, evaluation,
+      installed('plugin', [...devinCopied, skillLabel], { roots, installedText: new Map([[skillLabel, '---\nname: plugin-skill\n---\n']]) }));
+    const configSkill = devin('$HOME/.config/devin/skills/plugin-skill/SKILL.md');
+    expect(byInvariant(configSkill, 'I11').outcome).toBe('pass');
+    expect(byInvariant(configSkill, 'I13').outcome).toBe('pass');
+    expect(byInvariant(devin('$HOME/.devin/skills/plugin-skill/SKILL.md'), 'I11'))
+      .toMatchObject({ outcome: 'fail', observed: { unprojected: ['plugin-skill'] } });
+  });
+
+  it('accepts the plain and __ server name forms, at any depth', () => {
+    for (const key of ['aph-e2e', 'aph-e2e-plugin__aph-e2e']) {
+      const checks = run(observe([...copied, config], { [config]: JSON.stringify({ servers: { nested: { [key]: server(pluginRoot) } } }) }));
+      expect(byInvariant(checks, 'I12').outcome, key).toBe('pass');
+    }
+  });
+
+  it('fails I14 when a projected server keeps ${PLUGIN_ROOT} or points elsewhere', () => {
+    for (const root of ['${PLUGIN_ROOT}', path.resolve('/elsewhere')]) {
+      const checks = run(observe([...copied, config], { [config]: JSON.stringify({ mcpServers: { 'aph-e2e': server(root) } }) }));
+      expect(byInvariant(checks, 'I12').outcome, root).toBe('pass');
+      expect(byInvariant(checks, 'I14'), root).toMatchObject({ outcome: 'fail', observed: { unresolved: ['aph-e2e'] } });
+    }
+  });
+
+  it('does not count the plugin\'s own mcp.json as a projection, and keeps an unrelated config write unexpected', () => {
+    const other = '$HOME/.copilot/other.json';
+    const checks = run(observe([...copied, other], { [other]: JSON.stringify({ unrelated: { x: 1 } }) }));
+    expect(byInvariant(checks, 'I12').outcome).toBe('fail');
+    expect(byInvariant(checks, 'I13')).toMatchObject({ outcome: 'fail', observed: { missing: [], unexpected: [other] } });
+  });
+
+  it('is not applicable when the install was rejected, and absent for a bundle without a plugin', () => {
+    const kiro = evaluateCase(caseOf('plugin', 'kiro', 'user'), plugin, evaluation,
+      rejected('BUNDLE.UNSUPPORTED_CONTENT', [], plugin.items[0].files));
+    expect(['I11', 'I12', 'I14'].map((invariant) => byInvariant(kiro, invariant).outcome)).toEqual(['not-applicable', 'not-applicable', 'not-applicable']);
+    expect(byInvariant(kiro, 'I9')).toMatchObject({ outcome: 'fail', observed: { rejected: true } });
+    const prompt = bundleOf('prompt');
+    const checks = evaluateCase(caseOf('prompt', 'vscode', 'user'), prompt, readyEvaluation(prompt),
+      installed('prompt', ['$HOME/.copilot/prompts/hello-world.prompt.md']));
+    expect(checks.map((c) => c.invariant)).not.toContain('I11');
   });
 });

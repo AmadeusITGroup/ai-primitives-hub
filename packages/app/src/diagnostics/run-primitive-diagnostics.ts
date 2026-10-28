@@ -32,9 +32,12 @@ import {
   type DiagnosticSandbox,
   diffSnapshots,
   type DriverCommandResult,
+  evaluateArchiveModes,
   evaluateBundle,
   evaluateCase,
+  evaluateRejectedBundle,
   type FileSystem,
+  isBookkeepingLabel,
   type KnownGap,
   NOT_EVALUATED,
   observedInstallStatus,
@@ -46,6 +49,7 @@ import {
   type PrimitiveDiagnosticsError,
   type PrimitiveDiagnosticsPlan,
   type PrimitiveDiagnosticsReport,
+  resolveSandboxLabel,
   type RollupOutcome,
   type Snapshot,
   type SnapshotRoot,
@@ -55,6 +59,7 @@ import {
   PRIMITIVE_DIAGNOSTICS_PREFLIGHT_FILES,
 } from './find-ancestor-file';
 import {
+  listExecutableLabels,
   snapshotTree,
 } from './sandbox-snapshot';
 
@@ -83,6 +88,11 @@ export interface RunPrimitiveDiagnosticsDeps {
   clock: Clock;
   /** Called after each bundle and case; a throw stops the run with `error.step: 'internal'`. */
   onProgress?: (event: PrimitiveDiagnosticsProgressEvent) => void;
+  /**
+   * Whether `fs` keeps POSIX permission bits. Default true; false (Windows)
+   * makes the executable-bit checks (I10) not applicable.
+   */
+  posixFileModes?: boolean;
 }
 
 /** Input of one run. */
@@ -114,6 +124,19 @@ class SetupError extends Error {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** Label prefix of a materialised bundle's files. */
+const BUNDLE_PREFIX = '<bundle>/';
+
+/**
+ * Archive paths of materialised bundle labels.
+ * @param labels - `<bundle>/…` labels, or undefined.
+ * @returns The archive-relative paths, or undefined.
+ */
+const archivePaths = (labels: ReadonlySet<string> | undefined): ReadonlySet<string> | undefined =>
+  (labels === undefined
+    ? undefined
+    : new Set([...labels].filter((label) => label.startsWith(BUNDLE_PREFIX)).map((label) => label.slice(BUNDLE_PREFIX.length))));
+
 const cap = (detail: string): string => (detail.length > DETAIL_LIMIT ? `${detail.slice(0, DETAIL_LIMIT - 1)}…` : detail);
 
 const harnessFail = (detail: string): DiagnosticCheck => ({ invariant: 'HARNESS', outcome: 'fail', detail: cap(detail) });
@@ -128,7 +151,8 @@ const observe = (result: DriverCommandResult): CommandObservation => ({
   warnings: result.warnings,
   errorMessages: result.errorMessages,
   ...(result.status === undefined ? {} : { status: result.status }),
-  ...(result.errorCode === undefined ? {} : { errorCode: result.errorCode })
+  ...(result.errorCode === undefined ? {} : { errorCode: result.errorCode }),
+  ...(result.rejectedPaths === undefined ? {} : { rejectedPaths: result.rejectedPaths })
 });
 
 /**
@@ -206,10 +230,45 @@ export async function runPrimitiveDiagnostics(
     deps.onProgress?.({ type, id, outcome, gapIds });
   };
 
+  const executableLabels = (root: string, roots: readonly SnapshotRoot[]): Promise<ReadonlySet<string> | undefined> =>
+    (deps.posixFileModes === false ? Promise.resolve(undefined) : listExecutableLabels(fs, root, roots));
+
+  // Text of the user-facing files an install added or modified, by label.
+  const readInstalledText = async (before: Snapshot, after: Snapshot, roots: readonly SnapshotRoot[]): Promise<ReadonlyMap<string, string>> => {
+    const diff = diffSnapshots(before, after);
+    const text = new Map<string, string>();
+    for (const label of [...diff.added, ...diff.modified].filter((candidate) => !isBookkeepingLabel(candidate))) {
+      const absolute = resolveSandboxLabel(roots, label);
+      if (absolute !== undefined) {
+        text.set(label, await fs.readFile(absolute));
+      }
+    }
+    return text;
+  };
+
+  // 4a. An invalid bundle: validate, build, and what the build wrote to the dist dir. Never materialised.
+  const runRejectedBundle = async (bundle: DiagnosticBundle): Promise<DiagnosticCheck[]> => {
+    const distRoots: readonly SnapshotRoot[] = [{ label: '<dist>', path: distDir }];
+    const validate = await driver.validateCollection(fixture, { collectionFile: bundle.collectionFile });
+    const before = await snapshotTree(fs, distDir, distRoots);
+    const build = await driver.buildBundle(fixture, { collectionFile: bundle.collectionFile, version: bundle.version, outDir: distDir });
+    const diff = diffSnapshots(before, await snapshotTree(fs, distDir, distRoots));
+    return evaluateRejectedBundle({
+      bundle,
+      validate: observe(validate),
+      build: observe(build),
+      distWrites: [...diff.added, ...diff.modified]
+    }).checks;
+  };
+
   // 4. One bundle: validate, always build, read + extract, evaluate, materialise.
   const runBundle = async (bundle: DiagnosticBundle): Promise<void> => {
     let evaluated: DiagnosticCheck[] = [];
     try {
+      if (bundle.rejection !== undefined) {
+        bundleChecks.set(bundle.id, await runRejectedBundle(bundle));
+        return;
+      }
       const validate = await driver.validateCollection(fixture, { collectionFile: bundle.collectionFile });
       const build = await driver.buildBundle(fixture, { collectionFile: bundle.collectionFile, version: bundle.version, outDir: distDir });
       let archive: ReadonlyMap<string, Uint8Array> | undefined;
@@ -224,7 +283,7 @@ export async function runPrimitiveDiagnostics(
           archiveError = messageOf(extractError);
         }
       }
-      const evaluation = evaluateBundle({
+      let evaluation = evaluateBundle({
         bundle,
         validate: observe(validate),
         build: observe(build),
@@ -234,8 +293,11 @@ export async function runPrimitiveDiagnostics(
       evaluated = evaluation.checks;
       if (evaluation.ready && zipPath !== undefined) {
         const from = path.join(workspace, 'bundles', bundle.id);
+        const bundleRoots: readonly SnapshotRoot[] = [{ label: '<bundle>', path: from }];
         await driver.materializeBundle({ zipPath, destination: from });
-        const baseline = await snapshotTree(fs, from, [{ label: '<bundle>', path: from }]);
+        evaluation = evaluateArchiveModes(bundle, evaluation, archivePaths(await executableLabels(from, bundleRoots)));
+        evaluated = evaluation.checks;
+        const baseline = await snapshotTree(fs, from, bundleRoots);
         ready.set(bundle.id, { evaluation, from, baseline });
       }
       bundleChecks.set(bundle.id, evaluated);
@@ -289,9 +351,15 @@ export async function runPrimitiveDiagnostics(
       const observation: CaseObservation = {
         targetAdd: { ...observe(targetAdd), effectiveScope },
         install: observe(install),
-        snapshots: { beforeInstall, afterInstall }
+        snapshots: { beforeInstall, afterInstall },
+        roots
       };
       if (install.exitCode === 0) {
+        const executable = await executableLabels(root, roots);
+        if (executable !== undefined) {
+          observation.executable = executable;
+        }
+        observation.installedText = await readInstalledText(beforeInstall, afterInstall, roots);
         try {
           observation.uninstall = observe(await driver.uninstall(sandbox, { target: TARGET_NAME }));
         } catch {
@@ -347,12 +415,19 @@ export async function runPrimitiveDiagnostics(
       }
     });
     await setupStep('fixture', async () => {
-      for (const [file, { bytes }] of buildPrimitiveFixture()) {
+      const executableFiles: string[] = [];
+      for (const [file, { bytes, mode }] of buildPrimitiveFixture()) {
         const absolute = path.join(fixture.cwd, file);
         await fs.mkdir(path.dirname(absolute), { recursive: true });
         await fs.writeFileBytes(absolute, bytes);
+        if (mode === 0o755) {
+          executableFiles.push(file);
+        }
       }
-      await driver.commitFixtureRepository(fixture, { remoteUrl: PRIMITIVE_FIXTURE_REPOSITORY_URL });
+      await driver.commitFixtureRepository(fixture, {
+        remoteUrl: PRIMITIVE_FIXTURE_REPOSITORY_URL,
+        executableFiles: executableFiles.toSorted()
+      });
     });
 
     // 4. Bundles, sequentially, in plan order.

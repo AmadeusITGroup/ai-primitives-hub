@@ -89,6 +89,28 @@ const parseEnvelope = (stdout: string): Envelope | undefined => {
   }
 };
 
+/** Install error code of a rejection for unsupported bundle content. */
+const UNSUPPORTED_CONTENT = 'BUNDLE.UNSUPPORTED_CONTENT';
+
+/** Text before the comma-separated paths of an unsupported-content rejection. */
+const UNSUPPORTED_CONTENT_PREFIX = 'target cannot install bundle content: ';
+
+/**
+ * Archive-relative paths an install rejected as unsupported content. The
+ * install envelope has no structured list, so they are read from the
+ * message (`… target cannot install bundle content: <a>, <b>`).
+ * @param message Error message of a `BUNDLE.UNSUPPORTED_CONTENT` rejection.
+ * @returns The paths, or undefined when the message does not list any.
+ */
+export const parseRejectedPaths = (message: string): string[] | undefined => {
+  const start = message.indexOf(UNSUPPORTED_CONTENT_PREFIX);
+  if (start === -1) {
+    return undefined;
+  }
+  const paths = message.slice(start + UNSUPPORTED_CONTENT_PREFIX.length).split(', ').map((p) => p.trim()).filter((p) => p.length > 0);
+  return paths.length === 0 ? undefined : paths;
+};
+
 /**
  * Read one command's JSON envelope into a driver result.
  * Failure reasons: (a) envelope `errors[]`, else (b) `status: 'error'` with
@@ -116,6 +138,10 @@ const toDriverResult = <T>(exitCode: number, stdout: string, stderr: string): Dr
       result.errorCode = errors[0].code;
     }
     result.errorMessages = errors.map((entry) => String(entry.message));
+    const rejectedPaths = result.errorCode === UNSUPPORTED_CONTENT ? parseRejectedPaths(result.errorMessages[0]) : undefined;
+    if (rejectedPaths !== undefined) {
+      result.rejectedPaths = rejectedPaths;
+    }
   } else if (envelope.status === 'error' && isRecord(envelope.data) && isStringArray(envelope.data.errors)) {
     result.errorMessages = [...envelope.data.errors];
   }
@@ -167,7 +193,7 @@ export const createInProcessPrimitiveDriver = (
     },
     // A git failure throws inside the executor, so it surfaces as a rejection.
     commitFixtureRepository: (sandbox, input): Promise<void> => new Promise((resolve) => {
-      initializeGitRepository(sandbox.cwd, envFor(sandbox), input.remoteUrl);
+      initializeGitRepository(sandbox.cwd, envFor(sandbox), input.remoteUrl, input.executableFiles);
       resolve();
     }),
     validateCollection: (sandbox, input) =>

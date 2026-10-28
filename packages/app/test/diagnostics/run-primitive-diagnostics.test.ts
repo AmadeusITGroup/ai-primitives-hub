@@ -39,6 +39,7 @@ import {
   createFakeExtractor,
   createThrowingExtractor,
   FakePrimitiveDriver,
+  resolveLabel,
 } from './fake-primitive-driver';
 
 // Native absolute path: gains the drive on win32, as the use case's own
@@ -153,9 +154,13 @@ describe('runPrimitiveDiagnostics', () => {
         expect(mkdirCall, file).toBeGreaterThanOrEqual(0);
         expect(mkdir.mock.invocationCallOrder[mkdirCall]).toBeLessThan(write.mock.invocationCallOrder[writeCall]);
       }
-      expect(h.driver.callsOf('commitFixtureRepository')).toEqual([
-        { method: 'commitFixtureRepository', input: { remoteUrl: PRIMITIVE_FIXTURE_REPOSITORY_URL }, root: path.join(WORKSPACE, 'fixture') }
-      ]);
+      const executableFiles = [...buildPrimitiveFixture()].filter(([, file]) => file.mode === 0o755).map(([file]) => file).toSorted();
+      expect(executableFiles).toContain('skills/standalone-skill/scripts/run.sh');
+      expect(h.driver.callsOf('commitFixtureRepository')).toEqual([{
+        method: 'commitFixtureRepository',
+        input: { remoteUrl: PRIMITIVE_FIXTURE_REPOSITORY_URL, executableFiles },
+        root: path.join(WORKSPACE, 'fixture')
+      }]);
     });
 
     it('materialises each bundle once and installs by catalogue id from it', async () => {
@@ -324,7 +329,7 @@ describe('runPrimitiveDiagnostics', () => {
     it('absorbs the kiro-hook-rejected cells with the gap, and fails exactly them without it', async () => {
       const rejectKiroHook = (h: Harness): void => {
         h.driver.onInstall = (call) => (call.bundle.id === HOOK && call.target === 'kiro'
-          ? { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [] }
+          ? { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [], rejectedPaths: ['hooks/pre-commit.hook.json'] }
           : h.driver.defaultInstall(call));
       };
       const filters: PrimitiveDiagnosticsFilters = { kinds: ['hook'], targets: ['vscode', 'kiro'] };
@@ -341,10 +346,171 @@ describe('runPrimitiveDiagnostics', () => {
         expect(caseById(withGap, id)).toMatchObject({ status: 'rejected', outcome: 'known-gap', gapIds: ['kiro-hook-rejected'] });
       }
       expect(withGap.cases.filter((c) => c.target === 'vscode').every((c) => c.outcome === 'pass')).toBe(true);
-      expect(withGap.knownGaps).toEqual(expect.arrayContaining([{ key: 'kiro-hook-rejected/I4/hook@kiro', id: 'kiro-hook-rejected', invariant: 'I4', absorbed: 2 }]));
+      expect(withGap.knownGaps).toEqual(expect.arrayContaining([{ key: 'kiro-hook-rejected/I4/hook@kiro', id: 'kiro-hook-rejected', invariant: 'I4', absorbed: 2, issue: 549 }]));
       expect(withGap.ok).toBe(true);
       expect(withoutGap.cases.filter((c) => c.outcome === 'fail').map((c) => c.id)).toEqual(kiroCases);
       expect(withoutGap.ok).toBe(false);
+    });
+  });
+
+  describe('invalid plugin bundles', () => {
+    const INVALID = ['aph-e2e-bad-plugin-no-schema', 'aph-e2e-bad-plugin-name', 'aph-e2e-bad-plugin-author', 'aph-e2e-bad-plugin-nested-manifest'];
+    const PLUGIN_ONLY: PrimitiveDiagnosticsFilters = { kinds: ['plugin'], targets: ['vscode'], scopes: ['user'] };
+
+    it('passes I5 when validate and build reject them, never materialises or installs them', async () => {
+      const h = harness();
+
+      const report = await run(h, PLUGIN_ONLY);
+
+      expect(report.bundles.map((b) => b.id)).toEqual(['aph-e2e-only-plugin', ...INVALID]);
+      for (const bundle of report.bundles.slice(1)) {
+        expect(bundle).toMatchObject({ outcome: 'pass', kinds: ['plugin'] });
+        expect(bundle.checks.map((c) => [c.invariant, c.outcome])).toEqual([['I5', 'pass']]);
+      }
+      expect(h.driver.callsOf('validateCollection')).toHaveLength(5);
+      expect(h.driver.callsOf('buildBundle')).toHaveLength(5);
+      expect(h.driver.callsOf('materializeBundle').map((call) => call.input.destination)).toEqual([path.join(WORKSPACE, 'bundles', 'aph-e2e-only-plugin')]);
+      expect(report.cases.map((c) => c.bundle)).toEqual(['aph-e2e-only-plugin']);
+    });
+
+    it('fails I5 when an invalid bundle builds an archive', async () => {
+      const h = harness();
+      h.driver.onBuild = (bundle, outDir) => {
+        if (bundle.id !== 'aph-e2e-bad-plugin-name') {
+          return undefined;
+        }
+        h.fs.seed(path.join(outDir, `${bundle.id}-1.0.0.zip`), 'zip');
+        return { exitCode: 0, status: 'ok', warnings: [], errorMessages: [], data: { zipAsset: 'x.zip', bundleId: bundle.id } };
+      };
+
+      const report = await run(h, PLUGIN_ONLY);
+
+      const bad = report.bundles.find((b) => b.id === 'aph-e2e-bad-plugin-name')!;
+      expect(bad.outcome).toBe('fail');
+      expect(bad.checks[0]).toMatchObject({
+        invariant: 'I5',
+        outcome: 'fail',
+        observed: { buildRejected: false, buildErrorCode: null, buildReported: false, written: ['<dist>/aph-e2e-bad-plugin-name-1.0.0.zip'] }
+      });
+      expect(report.ok).toBe(false);
+    });
+  });
+
+  describe('mixed bundles', () => {
+    it('absorbs the kiro rejection of the portable mix with every matching gap and checks each rejected item', async () => {
+      const h = harness();
+      const kinds = ['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook'] as const;
+      h.driver.onInstall = (call) => (call.target === 'kiro' && call.bundle.items.some((i) => i.kind === 'hook' || i.kind === 'plugin')
+        ? {
+          exitCode: 1,
+          errorCode: 'BUNDLE.UNSUPPORTED_CONTENT',
+          files: [],
+          rejectedPaths: call.bundle.items.filter((i) => i.kind === 'hook' || i.kind === 'plugin').flatMap((i) => i.files)
+        }
+        : h.driver.defaultInstall(call));
+
+      const report = await run(h, { kinds: [...kinds], targets: ['kiro'], scopes: ['user'] });
+
+      const mix = caseById(report, 'aph-e2e-mix-portable__kiro__user');
+      expect(mix).toMatchObject({ status: 'rejected', expectedStatus: 'installed', outcome: 'known-gap', gapIds: ['kiro-hook-rejected', 'kiro-plugin-rejected'] });
+      expect(mix.checks.filter((c) => c.invariant === 'I9').map((c) => [c.item, c.outcome])).toEqual([
+        ['prompts/hello-world.prompt.md', 'pass'],
+        ['instructions/code-style.instructions.md', 'pass'],
+        ['agents/security.agent.md', 'pass'],
+        ['skills/standalone-skill/SKILL.md', 'pass'],
+        ['plugins/aph-e2e-plugin/plugin.json', 'known-gap'],
+        ['hooks/pre-commit.hook.json', 'known-gap']
+      ]);
+      expect(report.ok).toBe(true);
+    });
+  });
+
+  describe('executable bits (I10)', () => {
+    const SKILL_CASE = 'aph-e2e-only-skill__vscode__user';
+    const SKILL_ONLY: PrimitiveDiagnosticsFilters = { kinds: ['skill'], targets: ['vscode'], scopes: ['user'] };
+    const modeHarness = (): Harness => {
+      const fs = new InMemoryFileSystem({ modes: true });
+      const driver = new FakePrimitiveDriver(fs);
+      return { fs, driver, deps: { fs, driver, extractor: createFakeExtractor(driver.archives), clock: createCountingClock() } };
+    };
+    const i10 = (checks: readonly { invariant: string }[]): unknown[] => checks.filter((c) => c.invariant === 'I10');
+
+    it('passes the archive check and fails the install check when install drops the bit', async () => {
+      const h = modeHarness();
+      h.driver.onInstall = (call) => ({ ...h.driver.defaultInstall(call), executable: [] });
+
+      const report = await run(h, SKILL_ONLY);
+
+      expect(i10(report.bundles[0].checks)).toEqual([{ invariant: 'I10', outcome: 'pass', item: 'skills/standalone-skill/SKILL.md' }]);
+      expect(i10(caseById(report, SKILL_CASE).checks)).toEqual([expect.objectContaining({
+        outcome: 'fail', item: 'skills/standalone-skill/SKILL.md', observed: { notExecutable: ['skills/standalone-skill/scripts/run.sh'] }
+      })]);
+    });
+
+    it('passes when install keeps the bit', async () => {
+      const report = await run(modeHarness(), SKILL_ONLY);
+
+      expect(i10(caseById(report, SKILL_CASE).checks)).toEqual([{ invariant: 'I10', outcome: 'pass', item: 'skills/standalone-skill/SKILL.md' }]);
+      expect(caseById(report, SKILL_CASE).outcome).toBe('pass');
+      expect(report.unusedKnownGaps).toEqual([]);
+    });
+
+    it('fails the archive check when materialising loses the bit, without blaming the install', async () => {
+      const h = modeHarness();
+      h.driver.materializeKeepsModes = false;
+
+      const report = await run(h, SKILL_ONLY, { knownGaps: [] });
+
+      expect(i10(report.bundles[0].checks)).toEqual([expect.objectContaining({ outcome: 'fail', observed: { notExecutable: ['skills/standalone-skill/scripts/run.sh'] } })]);
+      expect(i10(caseById(report, SKILL_CASE).checks)).toEqual([expect.objectContaining({ outcome: 'not-applicable' })]);
+    });
+
+    it('is not applicable when the platform has no POSIX modes or the filesystem reports none', async () => {
+      const windows = modeHarness();
+      windows.deps.posixFileModes = false;
+      for (const report of [await run(windows, SKILL_ONLY), await run(harness(), SKILL_ONLY)]) {
+        expect(i10(report.bundles[0].checks)).toEqual([expect.objectContaining({ outcome: 'not-applicable' })]);
+        expect(i10(caseById(report, SKILL_CASE).checks)).toEqual([expect.objectContaining({ outcome: 'not-applicable' })]);
+      }
+    });
+  });
+
+  describe('plugin projection (I11, I12, I14)', () => {
+    const PLUGIN_CASE = 'aph-e2e-only-plugin__vscode__user';
+    const filters: PrimitiveDiagnosticsFilters = { kinds: ['plugin'], targets: ['vscode'], scopes: ['user'] };
+    const projection = (report: PrimitiveDiagnosticsReport): [string, string][] =>
+      caseById(report, PLUGIN_CASE).checks.filter((c) => ['I11', 'I12', 'I13', 'I14'].includes(c.invariant)).map((c) => [c.invariant, c.outcome]);
+
+    it('absorbs today\'s copy-only install with the plugin projection gaps', async () => {
+      const report = await run(harness(), filters);
+
+      expect(caseById(report, PLUGIN_CASE)).toMatchObject({
+        outcome: 'known-gap', gapIds: ['plugin-mcp-projection', 'plugin-root-unresolved', 'plugin-skill-projection']
+      });
+      expect(projection(report)).toEqual([['I11', 'known-gap'], ['I12', 'known-gap'], ['I13', 'pass'], ['I14', 'known-gap']]);
+    });
+
+    it('passes a projecting install from what it wrote, and reports the projection gaps as unused', async () => {
+      const h = harness();
+      h.driver.onInstall = (call) => {
+        const healthy = h.driver.defaultInstall(call);
+        const skill = resolveLabel(call.roots, '$HOME/.copilot/skills/plugin-skill/SKILL.md');
+        const config = resolveLabel(call.roots, '$HOME/.copilot/mcp-config.json');
+        const root = resolveLabel(call.roots, '$HOME/.copilot/plugins/aph-e2e-plugin');
+        const server = { type: 'stdio', command: './scripts/launch.sh', args: ['--root', root], env: { APH_E2E_PLUGIN_ROOT: root }, cwd: root };
+        return {
+          ...healthy,
+          files: [...healthy.files, skill, config],
+          contents: { [config]: JSON.stringify({ mcpServers: { 'aph-e2e-plugin:aph-e2e': server } }) }
+        };
+      };
+
+      const report = await run(h, filters);
+
+      expect(projection(report)).toEqual([['I11', 'pass'], ['I12', 'pass'], ['I13', 'pass'], ['I14', 'pass']]);
+      expect(report.unusedKnownGaps.map((g) => g.key)).toEqual([
+        'plugin-skill-projection/I11/plugin', 'plugin-mcp-projection/I12/plugin', 'plugin-root-unresolved/I14/plugin'
+      ]);
     });
   });
 
