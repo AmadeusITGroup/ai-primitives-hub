@@ -500,8 +500,10 @@ Follow-up work is named by the step labels of the
    - **Data.** A layout may declare, next to `kindRoutes` and the per-kind
      category override, an adaptation id per kind (for example
      `hook: claude-settings-hooks`). No adaptation is declared by default.
-   - **Order.** The adaptation runs after the kind's category strategy, on
-     what that strategy installed, inside the same preflight and rollback.
+   - **Order.** On install, the adaptation runs after the kind's category
+     strategy, on what that strategy installed, inside the same preflight and
+     rollback. On uninstall, it runs first, before the category strategy
+     removes the files, so the uninstall fallback below can still read them.
    - **Code.** Each id names one adapter in `infra` behind a `core`
      `TargetAdaptation` port; `app` runs it. An id the build does not
      implement makes the kind unsupported there (decision 3).
@@ -517,7 +519,9 @@ Follow-up work is named by the step labels of the
      entry's `files`) and removes, for each derived entry, one entry exactly
      equal to it. Entries it
      cannot match, for example ones edited by hand, are left in place and
-     reported, and verify reports them as unowned. This lasts until VS Code
+     reported, and verify reports them as unowned. If a file listed in
+     `files` is already missing, the adapter reports it and does not guess
+     the entries it would have produced. This lasts until VS Code
      parity (#551). M8 may add a per-adapter owner marker where the harness
      format allows one.
 
@@ -535,9 +539,11 @@ Follow-up work is named by the step labels of the
    config file installs a server, but whether the server is enabled or
    started is decided by the harness, through state the file does not hold.
    How each harness stores that state, and whether APH should set it after
-   install, is open (O15). Where it is settled, it uses this same mechanism:
-   an adaptation id on the `mcp-server` kind and on plugin MCP, run after the
-   `config` strategy and owned and reversed like any adaptation entry.
+   install, is open (O15). Where it is settled, it uses this same mechanism
+   for every MCP entry APH writes (collection `mcpServers`, `mcp-server`
+   items and plugin MCP): it runs after the `config` strategy and is owned
+   and reversed like any adaptation entry. Whether its id is declared per
+   kind or on the MCP dialect is settled with O15.
 
 9. **Kiro routes and power (O3, O6).**
 
@@ -736,10 +742,11 @@ baseline everywhere.
   that no migration step owns yet. First, mixed commit modes in one
   repository MCP config file (decision 5, known gap): whether to detect
   them, and how.
-  Second, MCP enable and disable: per target, where the harness keeps that
-  state outside the MCP config file (UNVERIFIED for every target), and
-  whether a target adaptation (decision 8) should set it on install and
-  clear it on uninstall.
+  Second, MCP enable and disable, for every MCP entry APH writes, including
+  collection `mcpServers`: per target, where the harness keeps that state
+  outside the MCP config file (UNVERIFIED for every target), and whether a
+  target adaptation (decision 8) should set it on install and clear it on
+  uninstall.
 
 The maintainers confirmed all decisions on 2026-10-28, including those
 that change what installs where (decisions 6, 7 and 9, and the O10
@@ -788,7 +795,8 @@ research questions; the step that depends on each re-checks it.
   and so does a plugin installed for two targets.
   Its MCP entries have the same names but different `PLUGIN_DATA` values.
 - **Negative:** in `commit` mode, a repository-scope plugin with a stdio MCP
-  server is unsupported (O10); it installs only in `local-only` mode.
+  server is unsupported (O10); it installs only in `local-only` mode, and
+  only when git does not already track the target MCP config file.
   Repository-scope powers on Kiro become unsupported. Both installed before,
   as copies the harness did not read. Collection `mcpServers` and
   `mcp-server` items are not affected. Mixing commit modes in one MCP
