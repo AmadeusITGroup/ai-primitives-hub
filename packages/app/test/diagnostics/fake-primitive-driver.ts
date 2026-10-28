@@ -317,7 +317,10 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
     return ok({ target: { scope: input.scope } });
   }
 
-  public async install(sandbox: DiagnosticSandbox, input: { bundleId: string; from: string; target: string }): Promise<DriverCommandResult> {
+  public async install(
+    sandbox: DiagnosticSandbox,
+    input: { bundleId: string; from: string; target: string; skipUnsupported?: boolean }
+  ): Promise<DriverCommandResult<{ lockfile?: string }>> {
     this.calls.push({ method: 'install', input, root: sandbox.root });
     const caseId = path.basename(sandbox.root);
     const delay = this.installDelay(caseId);

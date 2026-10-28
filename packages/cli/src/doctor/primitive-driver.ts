@@ -16,6 +16,7 @@ import type {
   DriverCommandResult,
   PreparedSandbox,
   PrimitiveDiagnosticsDriver,
+  SkippedContent,
 } from '@ai-primitives-hub/core';
 import {
   XdgAppStorage,
@@ -112,6 +113,22 @@ export const parseRejectedPaths = (message: string): string[] | undefined => {
 };
 
 /**
+ * Content a `--skip-unsupported` install left out, read from the install
+ * envelope's `data.skipped`. Entries without a string `path`, `code` and
+ * `reason` are dropped.
+ * @param data Envelope `data` of an install.
+ * @returns The skipped content, or undefined when `data.skipped` is not a list.
+ */
+export const parseSkippedContent = (data: unknown): SkippedContent[] | undefined => {
+  if (!isRecord(data) || !Array.isArray(data.skipped)) {
+    return undefined;
+  }
+  return data.skipped.filter((entry): entry is SkippedContent =>
+    isRecord(entry) && typeof entry.path === 'string' && typeof entry.code === 'string' && typeof entry.reason === 'string')
+    .map(({ path, code, reason }) => ({ path, code, reason }));
+};
+
+/**
  * Read one command's JSON envelope into a driver result.
  * Failure reasons: (a) envelope `errors[]`, else (b) `status: 'error'` with
  * `data.errors: string[]` (collection validate's file/schema failures), else (c) none.
@@ -132,6 +149,10 @@ const toDriverResult = <T>(exitCode: number, stdout: string, stderr: string): Dr
     warnings: isStringArray(envelope.warnings) ? envelope.warnings : [],
     errorMessages: []
   };
+  const skipped = parseSkippedContent(envelope.data);
+  if (skipped !== undefined) {
+    result.skipped = skipped;
+  }
   const errors = Array.isArray(envelope.errors) ? envelope.errors.filter((entry) => isRecord(entry)) : [];
   if (errors.length > 0) {
     if (typeof errors[0].code === 'string') {
@@ -210,7 +231,13 @@ export const createInProcessPrimitiveDriver = (
     addTarget: (sandbox, input) =>
       run(sandbox, ['target', 'add', input.name, '--type', input.type, '--scope', input.scope, '-o', 'json']),
     install: (sandbox, input) =>
-      run(sandbox, ['install', input.bundleId, '--from', input.from, '--target', input.target, '-o', 'json']),
+      run(sandbox, [
+        'install', input.bundleId,
+        '--from', input.from,
+        '--target', input.target,
+        ...(input.skipUnsupported === true ? ['--skip-unsupported'] : []),
+        '-o', 'json'
+      ]),
     uninstall: (sandbox, input) =>
       run(sandbox, ['uninstall', '--target', input.target, '--all', '-o', 'json'])
   };
