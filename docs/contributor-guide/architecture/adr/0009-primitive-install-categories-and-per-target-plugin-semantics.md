@@ -622,13 +622,19 @@ baseline everywhere.
   convention for spec folders is agreed, because applying the directory rule
   to a flat `specs/foo.md` would capture all of `specs/`.
 
-Decisions 6, 7 (moved plugin routes), 9 (no repository-scope power on Kiro)
-and the O10 interim rule change what installs where. Two rules in decision 5
-change what is written: an owned MCP server name whose `bundleId` or
-`serverName` contains `:` uses the sanitised form even where the dialect's
-default form is the extension's existing format, and the `PLUGIN_DATA`
-directory gains a target segment, so each target keeps its own plugin
-data. They need maintainer confirmation when this ADR is accepted.
+Decisions 6 (all-or-nothing plugin support, with the opt-in
+`--skip-unsupported` and skill collisions as preflight conflicts), 7 (plugin
+mode and moved plugin routes) and 9 (Kiro routes, and power as a user-scope
+directory unit) change what installs where. The maintainers confirmed them
+on 2026-10-28.
+
+Still awaiting maintainer confirmation when this ADR is accepted: the O10
+interim rule, which also changes what installs where, and two rules in
+decision 5 that change what is written. Under those rules, an owned MCP
+server name whose `bundleId` or `serverName` contains `:` uses the
+sanitised form even where the dialect's default form is the extension's
+existing format, and the `PLUGIN_DATA` directory gains a target segment, so
+each target keeps its own plugin data.
 
 ## Consequences
 
