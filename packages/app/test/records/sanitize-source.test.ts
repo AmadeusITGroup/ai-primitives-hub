@@ -47,6 +47,18 @@ describe('sanitizeSourceUrl', () => {
     expect(cleaned).not.toContain('tok');
   });
 
+  it('keeps an absolute local path with an @ in a folder name unchanged', () => {
+    expect(sanitizeSourceUrl(String.raw`C:\Users\a@b\bundle`)).toBe(String.raw`C:\Users\a@b\bundle`);
+    expect(sanitizeSourceUrl('C:/Users/a@b/bundle')).toBe('C:/Users/a@b/bundle');
+    expect(sanitizeSourceUrl('/home/a@b/bundle')).toBe('/home/a@b/bundle');
+    expect(sanitizeSourceUrl(String.raw`\\server\a@b\bundle`)).toBe(String.raw`\\server\a@b\bundle`);
+  });
+
+  it('still cleans scheme URLs as before', () => {
+    expect(sanitizeSourceUrl('https://user:tok@host/x')).toBe('https://host/x');
+    expect(sanitizeSourceUrl('ssh://git@host/x')).toBe('ssh://host/x');
+  });
+
   it('leaves an @ after the authority alone', () => {
     expect(sanitizeSourceUrl('https://registry.example/@scope/pkg')).toBe('https://registry.example/@scope/pkg');
   });

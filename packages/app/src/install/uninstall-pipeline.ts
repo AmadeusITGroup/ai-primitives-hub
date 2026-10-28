@@ -233,14 +233,16 @@ export class UninstallPipeline {
 
   /**
    * Execute uninstall for every bundle across both lockfiles.
+   * @param options - Optional filter.
+   * @param options.exclude - Bundle ids to leave alone (e.g. ones already uninstalled from the install record).
    * @returns Array of uninstall results.
    */
-  public async runAll(): Promise<UninstallResult[]> {
+  public async runAll(options: { exclude?: ReadonlySet<string> } = {}): Promise<UninstallResult[]> {
     const plans = await this.planAll();
     const results: UninstallResult[] = [];
 
     for (const plan of plans) {
-      if (plan.lockfileEntry === null || plan.commitMode === undefined) {
+      if (plan.lockfileEntry === null || plan.commitMode === undefined || options.exclude?.has(plan.bundleId) === true) {
         continue;
       }
 

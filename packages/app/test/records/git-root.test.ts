@@ -20,6 +20,7 @@ import {
   ensureExcluded,
   EXCLUDE_SECTION_HEADER,
   findGitRoot,
+  removeExcluded,
   resolveExcludeDir,
   resolveRepositoryRoot,
 } from '../../src/records/git-root';
@@ -197,6 +198,65 @@ describe('git-root', () => {
       const result = await ensureExcluded(fake, path.resolve('/repo'), LOCAL_RECORD_FILE_NAME);
       expect(result.status).toBe('skipped');
       expect(result.warning).toContain('disk full');
+    });
+  });
+
+  describe('removeExcluded', () => {
+    it('removes only its own line and keeps the section header and every other line', async () => {
+      const repo = path.join(base, 'repo');
+      const gitDir = makeGitDir(repo);
+      fs.mkdirSync(path.join(gitDir, 'info'));
+      const excludePath = path.join(gitDir, 'info', 'exclude');
+      fs.writeFileSync(excludePath, `node_modules\n# Prompt Registry (local)\n${LOCAL_RECORD_FILE_NAME}\n.github/prompts/x.prompt.md\n\n# other tool\n*.tmp\n`);
+
+      expect(await removeExcluded(recordFs, repo, LOCAL_RECORD_FILE_NAME)).toEqual({ status: 'removed', excludePath });
+
+      expect(fs.readFileSync(excludePath, 'utf8')).toBe('node_modules\n# Prompt Registry (local)\n.github/prompts/x.prompt.md\n\n# other tool\n*.tmp\n');
+      expect(fs.readdirSync(path.join(gitDir, 'info'))).toEqual(['exclude']);
+    });
+
+    it('leaves an empty section header alone and reverses ensureExcluded', async () => {
+      const repo = path.join(base, 'repo');
+      const gitDir = makeGitDir(repo);
+      const excludePath = path.join(gitDir, 'info', 'exclude');
+      await ensureExcluded(recordFs, repo, LOCAL_RECORD_FILE_NAME);
+
+      expect((await removeExcluded(recordFs, repo, LOCAL_RECORD_FILE_NAME)).status).toBe('removed');
+      expect(fs.readFileSync(excludePath, 'utf8')).toBe(`${EXCLUDE_SECTION_HEADER}\n`);
+      expect(await removeExcluded(recordFs, repo, LOCAL_RECORD_FILE_NAME)).toEqual({ status: 'absent', excludePath });
+    });
+
+    it('removes a rooted entry too', async () => {
+      const repo = path.join(base, 'repo');
+      const gitDir = makeGitDir(repo);
+      fs.mkdirSync(path.join(gitDir, 'info'));
+      const excludePath = path.join(gitDir, 'info', 'exclude');
+      fs.writeFileSync(excludePath, `*.log\n/${LOCAL_RECORD_FILE_NAME}\n`);
+      expect((await removeExcluded(recordFs, repo, LOCAL_RECORD_FILE_NAME)).status).toBe('removed');
+      expect(fs.readFileSync(excludePath, 'utf8')).toBe('*.log\n');
+    });
+
+    it('reports absent when there is no info/exclude file, and creates none', async () => {
+      const repo = path.join(base, 'repo');
+      const gitDir = makeGitDir(repo);
+      expect((await removeExcluded(recordFs, repo, LOCAL_RECORD_FILE_NAME)).status).toBe('absent');
+      expect(fs.existsSync(path.join(gitDir, 'info'))).toBe(false);
+    });
+
+    it('returns a warning instead of throwing when there is no git directory or the write fails', async () => {
+      const repo = path.join(base, 'repo');
+      fs.mkdirSync(repo);
+      const noGit = await removeExcluded(recordFs, repo, LOCAL_RECORD_FILE_NAME);
+      expect(noGit.status).toBe('skipped');
+      expect(noGit.warning).toContain('no git directory');
+
+      const fake = new FakeRecordFs()
+        .addFile('/repo/.git/HEAD', 'ref: refs/heads/main\n')
+        .addFile('/repo/.git/info/exclude', `${LOCAL_RECORD_FILE_NAME}\n`);
+      fake.rename = () => Promise.reject(new Error('disk full'));
+      const failed = await removeExcluded(fake, path.resolve('/repo'), LOCAL_RECORD_FILE_NAME);
+      expect(failed.status).toBe('skipped');
+      expect(failed.warning).toContain('disk full');
     });
   });
 });

@@ -697,8 +697,13 @@ async function performAllUninstall(
   // handled as before, so bundles installed before the record still go.
   const prepared = target.scope === 'repository' ? await prepareRepositoryUninstall(ctx, target) : undefined;
   const recordedIds = prepared === undefined ? [] : [...prepared.entries.keys()];
-  const entries = await findAllBundleEntries(target, opts, ctx);
-  const bundleIds = [...new Set([...recordedIds, ...Object.keys(entries)])];
+  // An id uninstalled from the record is not removed again from the old
+  // store, so each id is handled and reported once.
+  const recordedSet = new Set(recordedIds);
+  const entries = Object.fromEntries(
+    Object.entries(await findAllBundleEntries(target, opts, ctx)).filter(([id]) => !recordedSet.has(id))
+  );
+  const bundleIds = [...recordedIds, ...Object.keys(entries)];
 
   // Dry-run: show what would be removed without deleting
   if (opts.dryRun === true) {
@@ -741,7 +746,7 @@ async function performAllUninstall(
       repositoryPath: target.rootPath ?? ctx.cwd(),
       writerFactory
     });
-    results.push(...await pipeline.runAll());
+    results.push(...await pipeline.runAll({ exclude: recordedSet }));
   } else {
     const lockPath = lockfilePathForTarget(ctx, target);
     results = await runAllUserScopeUninstall(lockPath, target, ctx, writerFactory(target));

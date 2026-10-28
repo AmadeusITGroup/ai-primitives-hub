@@ -135,7 +135,35 @@ suite('Install record listing (repository scope)', () => {
     assert.strictEqual(item.filesMissing, true);
   });
 
-  test('lists a bundle in both new files from the committed file and reports it once', async () => {
+  test('lists a bundle whose tools are split across the two files as one item from the latest entry, with no warning', async () => {
+    writeInstallRecord(root, RECORD_FILE, {
+      split: { vscode: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', files: ['.github/prompts/split.prompt.md'] } }
+    });
+    writeInstallRecord(root, LOCAL_RECORD_FILE, {
+      split: { kiro: { version: '1.1.0', installedAt: '2026-10-28T10:00:00.000Z', files: ['.kiro/steering/split.md'] } }
+    });
+
+    const items = await manager.listInstalledBundles('repository');
+
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].bundleId, 'split');
+    assert.strictEqual(items[0].version, '1.1.0');
+    assert.strictEqual(items[0].commitMode, 'local-only', 'commitMode comes from the file holding the latest entry');
+    assert.deepStrictEqual(items[0].manifest.common.files, ['.kiro/steering/split.md']);
+    assert.ok(showWarning.notCalled, 'a split bundle is not a conflict');
+    assert.strictEqual(logWarn.getCalls().filter((call) => String(call.args[0]).includes('"split"')).length, 0);
+
+    // The latest entry in the committed file gives commit.
+    writeInstallRecord(root, RECORD_FILE, {
+      split: { vscode: { version: '2.0.0', installedAt: '2026-10-29T10:00:00.000Z', files: ['.github/prompts/split.prompt.md'] } }
+    });
+    const [item] = await manager.listInstalledBundles('repository');
+    assert.strictEqual(item.version, '2.0.0');
+    assert.strictEqual(item.commitMode, 'commit');
+    assert.ok(showWarning.notCalled);
+  });
+
+  test('lists the same bundle and tool in both new files from the committed file and reports it once', async () => {
     writeInstallRecord(root, RECORD_FILE, {
       dup: { vscode: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', files: ['.github/prompts/dup.prompt.md'] } }
     });
