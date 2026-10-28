@@ -106,4 +106,6 @@ export interface CommandObservation {
   errorMessages: readonly string[];
   /** Archive-relative paths an install rejected as unsupported content, when it listed them. */
   rejectedPaths?: readonly string[];
+  /** Files a `--skip-unsupported` install left out, with their reason, when it listed them. */
+  skipped?: readonly { path: string; code: string; reason: string }[];
 }

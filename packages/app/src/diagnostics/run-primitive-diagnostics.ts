@@ -152,7 +152,8 @@ const observe = (result: DriverCommandResult): CommandObservation => ({
   errorMessages: result.errorMessages,
   ...(result.status === undefined ? {} : { status: result.status }),
   ...(result.errorCode === undefined ? {} : { errorCode: result.errorCode }),
-  ...(result.rejectedPaths === undefined ? {} : { rejectedPaths: result.rejectedPaths })
+  ...(result.rejectedPaths === undefined ? {} : { rejectedPaths: result.rejectedPaths }),
+  ...(result.skipped === undefined ? {} : { skipped: result.skipped })
 });
 
 /**
