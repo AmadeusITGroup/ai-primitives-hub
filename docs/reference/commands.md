@@ -69,6 +69,69 @@ Beyond placement and clean uninstall, the run checks that a rejected install lis
 - A bundle's `I0` check carries the kind/route mismatch warnings of `collection validate` (see [Kind and Path](../author-guide/validation.md#kind-and-path)) as `warnings`; text output prints each one as a `warning:` line under its bundle. They do not change the outcome.
 - The exit code is 0 when nothing fails, 1 otherwise. `-o json|yaml|ndjson` prints the full report; `--retain-workspace` keeps the workspace for inspection.
 
+## Validation Commands (CLI)
+
+Three commands validate one level each. Rules, scoring, `hub-governance.yml` and PR-mode behavior are described in [Validation](../author-guide/validation.md#cli-governance-validation); every rule is listed in the [rule catalogue](../author-guide/rule-catalogue.md).
+
+The options shared by all three:
+
+| Option | Behavior |
+| --- | --- |
+| `--policy <path>` | Governance configuration to use instead of `hub-governance.yml`. |
+| `--min-score <number>` | Fail below this 0–100 score, overriding `minScore`. |
+| `--report-path <path>` | Write the Markdown report to a file. |
+| `--base-ref <commit>`, `--head-ref <commit>` | PR mode: validate only what changed between two exact commit SHAs. Needs full Git history. |
+| `-o, --output <format>` | `text`, `json`, `yaml` or `ndjson`. |
+
+For `hub validate` and `collection validate`, governance is off unless `--governance`, `--policy`, `--min-score` or `--report-path` is given; without them, output is unchanged. `primitive validate` always reports with governance.
+
+### `hub validate`
+
+`ai-primitives-hub hub validate [--config <path>] [--governance] [--check-sources] [options]`
+
+| Option | Behavior |
+| --- | --- |
+| `--config <path>` | Hub configuration file (default `hub-config.yml`). |
+| `--governance` | Enable rule IDs, the verdict and the score. |
+| `--check-sources` | Contact sources: check accessibility, catalogs and profile bundle references; with governance, also run `COL002` and `COL004`. |
+| `--scope-file <path>` | Validate the sources and profiles listed in a JSON file, `{"schemaVersion": 1, "sourceIds": [...], "profileIds": [...]}`, instead of computing them from `--base-ref`/`--head-ref`. Cannot be combined with them. Requires `--governance`. |
+| `-v, --verbose` | Print per-source progress and GitHub request, retry and backoff events to stderr. Has no effect without `--check-sources`. |
+| `--github-app-id <id>` | GitHub App ID for automatic source-aware authentication (env `AI_PRIMITIVES_HUB_GH_APP_AUTH_APP_ID`). |
+| `--github-app-client-id <id>` | GitHub App client ID (env `AI_PRIMITIVES_HUB_GH_APP_AUTH_CLIENT_ID`). |
+| `--github-app-key-file <path>` | GitHub App private key in PEM format (env `AI_PRIMITIVES_HUB_GH_APP_AUTH_KEY_FILE`). |
+| `--github-app-installation-id <id>` | GitHub App installation to use (env `AI_PRIMITIVES_HUB_GH_APP_AUTH_INSTALLATION_ID`). |
+| `--github-app-setup-timeout-ms <ms>` | Timeout for GitHub App setup. |
+
+The GitHub App options apply only with `--check-sources` and are refused in scoped runs (`--base-ref`/`--head-ref`/`--scope-file`). See [CLI Source-Aware Authentication](../contributor-guide/architecture/authentication.md#cli-source-aware-authentication).
+
+### `collection validate`
+
+`ai-primitives-hub collection validate [--root <dir>] [--collection-file <path>...] [options]`
+
+| Option | Behavior |
+| --- | --- |
+| `--root <dir>` | Repository root to validate (default: current directory). |
+| `--collection-file <path>` | Validate this collection; can be repeated. Omit to validate every collection. |
+| `--governance` | Enable rule IDs, the verdict and the score. |
+| `--check-releases` | Run `COL002` (published release); contacts GitHub and enables governance. |
+| `--repository <owner/repo>` | Repository for `--check-releases`. Does not contact GitHub on its own. |
+| `--markdown-path <path>` | Write the Markdown report to a file. |
+| `--verbose` | Print each valid file in text output. |
+
+PR mode (`--base-ref`/`--head-ref`) enables governance and needs the PR head checked out.
+
+### `primitive validate`
+
+`ai-primitives-hub primitive validate <path>... [--kind <kind>] [options]`
+
+Each path is a file or a directory searched recursively. In PR mode the paths are optional and default to the whole repository; the PR head must be checked out.
+
+| Option | Behavior |
+| --- | --- |
+| `--kind <kind>` | Force the kind instead of inferring it from the file name: `skill`, `agent`, `prompt`, `instruction` or `mcp-server`. |
+
+The kind is inferred from `SKILL.md`, `*.agent.md`, `*.prompt.md`, `*.instructions.md`, `mcp.json` and `*.mcp.json`.
+
 ## Bundle Management
 
 | Command | Title | Description |
