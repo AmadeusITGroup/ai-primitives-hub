@@ -9,6 +9,7 @@
  *   parameters named like a token are removed;
  * - scp-style SSH URLs (`user@host:path`): kept as they are when the user is
  *   `git`; any other user part is removed, leaving `host:path`;
+ * - absolute local paths (`C:\…`, `C:/…`, `/…`, `\\server\…`): kept as they are;
  * - anything else: everything up to and including the last `@` of the
  *   authority (before the first `/`, `?` or `#`) is removed.
  * @module records/sanitize-source
@@ -26,6 +27,12 @@ const TOKEN_PARAM_PATTERN = /token|^sig$|^signature$|^key$|^api[-_]?key$|secret|
 
 /** A `scheme://` prefix. */
 const SCHEME_PATTERN = /^[a-z][\d+.a-z-]*:\/\//i;
+
+/**
+ * An absolute local path: a Windows drive letter (`C:\` or `C:/`), a POSIX
+ * root (`/`), or a UNC path (`\\server\share`).
+ */
+const ABSOLUTE_LOCAL_PATH_PATTERN = /^(?:[a-z]:[/\\]|\/|\\\\)/i;
 
 /** scp-style SSH address: `user@host:path`, with no scheme. */
 const SCP_PATTERN = /^([^\s/:@]+)@([^\s/:@]+):(.*)$/;
@@ -80,6 +87,10 @@ const stripAuthorityUser = (url: string): string => {
  * @returns The URL without a user name, password or token-like query parameter.
  */
 export const sanitizeSourceUrl = (url: string): string => {
+  // A local path has no authority: an `@` in it is part of a folder name.
+  if (ABSOLUTE_LOCAL_PATH_PATTERN.test(url)) {
+    return url;
+  }
   if (SCHEME_PATTERN.test(url)) {
     return sanitizeStandardUrl(url) ?? stripAuthorityUser(url);
   }

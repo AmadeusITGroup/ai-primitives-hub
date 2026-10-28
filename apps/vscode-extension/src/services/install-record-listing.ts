@@ -10,7 +10,9 @@
  * `RegistryManager.listInstalledBundles` uses this; `LockfileManager` and its
  * other callers are unchanged in U1.
  *
- * Problems (a `RECORD.*` error, or a bundle in both new files) are shown once
+ * A bundle whose tools are split across the two new files (BR3.6) is one
+ * item, built from its latest entry in either file. Problems (a `RECORD.*`
+ * error, or the same bundle and tool in both new files) are shown once
  * per file path and content hash, and logged on every later refresh; the rest
  * of the list is still returned.
  * @module services/install-record-listing
@@ -82,11 +84,21 @@ interface ListingProblem {
 
 const UNREADABLE = 'unreadable';
 
-const latestEntry = (bundle: BundleRecord): ToolEntry | undefined => {
-  let latest: ToolEntry | undefined;
-  for (const entry of Object.values(bundle.tools)) {
-    if (latest === undefined || Date.parse(entry.installedAt) > Date.parse(latest.installedAt)) {
-      latest = entry;
+/** A tool entry with the record file it was read from. */
+interface LocatedEntry {
+  entry: ToolEntry;
+  location: RecordLocation;
+}
+
+/**
+ * The entry with the latest `installedAt`; on a tie the first one (committed before local-only) wins.
+ * @param candidates - Entries in file order.
+ */
+const latestEntry = (candidates: readonly LocatedEntry[]): LocatedEntry | undefined => {
+  let latest: LocatedEntry | undefined;
+  for (const candidate of candidates) {
+    if (latest === undefined || Date.parse(candidate.entry.installedAt) > Date.parse(latest.entry.installedAt)) {
+      latest = candidate;
     }
   }
   return latest;
@@ -120,15 +132,28 @@ export class InstallRecordListing {
     }
     const [committed, localOnly] = locations;
     const committedBundles = await this.loadBundles(committed);
-    for (const [bundleId, bundle] of committedBundles) {
-      await this.addItem(items, committed, bundleId, bundle);
-    }
-    for (const [bundleId, bundle] of await this.loadBundles(localOnly)) {
-      if (committedBundles.has(bundleId)) {
-        this.report(await this.conflictProblem(bundleId, committed, localOnly));
-        continue;
+    const localBundles = await this.loadBundles(localOnly);
+    for (const bundleId of new Set([...committedBundles.keys(), ...localBundles.keys()])) {
+      // One bundle's tools may be split across the two files (BR3.6). Only
+      // the same bundle and tool in both files is a conflict (BR5.4): the
+      // committed entry is used for that tool and the conflict is reported.
+      const committedTools = committedBundles.get(bundleId)?.tools ?? {};
+      const candidates: LocatedEntry[] = Object.values(committedTools).map((entry) => ({ entry, location: committed }));
+      const duplicateTools: string[] = [];
+      for (const [tool, entry] of Object.entries(localBundles.get(bundleId)?.tools ?? {})) {
+        if (Object.hasOwn(committedTools, tool)) {
+          duplicateTools.push(tool);
+          continue;
+        }
+        candidates.push({ entry, location: localOnly });
       }
-      await this.addItem(items, localOnly, bundleId, bundle);
+      if (duplicateTools.length > 0) {
+        this.report(await this.conflictProblem(bundleId, duplicateTools, committed, localOnly));
+      }
+      const latest = latestEntry(candidates);
+      if (latest !== undefined) {
+        await this.addItem(items, latest.location, bundleId, latest.entry);
+      }
     }
     return items;
   }
@@ -151,17 +176,13 @@ export class InstallRecordListing {
   }
 
   /**
-   * Build one item per bundle from its latest tool entry (BR5.2).
+   * Build one item per bundle from its latest tool entry across both files (BR5.2).
    * @param items - Items so far, by bundle id.
-   * @param location - File the bundle came from; gives `commitMode`.
+   * @param location - File holding the entry; gives `commitMode`.
    * @param bundleId - Bundle id.
-   * @param bundle - Bundle record.
+   * @param entry - The bundle's latest tool entry.
    */
-  private async addItem(items: Map<string, InstalledBundle>, location: RecordLocation, bundleId: string, bundle: BundleRecord): Promise<void> {
-    const entry = latestEntry(bundle);
-    if (entry === undefined) {
-      return;
-    }
+  private async addItem(items: Map<string, InstalledBundle>, location: RecordLocation, bundleId: string, entry: ToolEntry): Promise<void> {
     // Same minimal manifest and `.github` install path LockfileManager uses:
     // never the git root, which the extension's uninstall would delete recursively.
     const asLockfileEntry: LockfileBundleEntry = {
@@ -216,12 +237,18 @@ export class InstallRecordListing {
     };
   }
 
-  private async conflictProblem(bundleId: string, committed: RecordLocation, localOnly: RecordLocation): Promise<ListingProblem> {
+  private async conflictProblem(
+    bundleId: string,
+    tools: readonly string[],
+    committed: RecordLocation,
+    localOnly: RecordLocation
+  ): Promise<ListingProblem> {
     const [committedHash, localHash] = await Promise.all([this.contentHash(committed.path), this.contentHash(localOnly.path)]);
+    const toolList = tools.map((tool) => `"${tool}"`).join(', ');
     return {
-      key: `conflict\u0000${bundleId}\u0000${committed.path}\u0000${committedHash}\u0000${localOnly.path}\u0000${localHash}`,
-      message: `Bundle "${bundleId}" is in both ${RECORD_FILE_NAMES[0]} and ${RECORD_FILE_NAMES[1]}. `
-        + `The entry from ${RECORD_FILE_NAMES[0]} is listed; remove the bundle from one of the files.`
+      key: `conflict\u0000${bundleId}\u0000${tools.join(',')}\u0000${committed.path}\u0000${committedHash}\u0000${localOnly.path}\u0000${localHash}`,
+      message: `Bundle "${bundleId}" (tool ${toolList}) is in both ${RECORD_FILE_NAMES[0]} and ${RECORD_FILE_NAMES[1]}. `
+        + `The entry from ${RECORD_FILE_NAMES[0]} is used; remove it from one of the files.`
     };
   }
 

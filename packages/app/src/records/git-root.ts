@@ -185,3 +185,66 @@ export const ensureExcluded = async (fs: RecordFs, root: string, name: string): 
     };
   }
 };
+
+/** Outcome of {@link removeExcluded}. */
+export interface RemoveExcludedResult {
+  /** `removed` took the entry out, `absent` found nothing to remove, `skipped` changed nothing because of a problem. */
+  status: 'removed' | 'absent' | 'skipped';
+  /** `info/exclude` path used, when a git directory was found. */
+  excludePath?: string;
+  /** Why nothing was changed, for the caller to log (status `skipped` only). */
+  warning?: string;
+}
+
+/**
+ * Remove `name` from the repository's `info/exclude`, the reverse of {@link ensureExcluded} (BR2.3).
+ *
+ * Only lines that are exactly `name` or `/name` go; the
+ * {@link EXCLUDE_SECTION_HEADER} line (even when its section is now empty)
+ * and every other line stay as they are. Failures never throw: the caller
+ * logs the warning.
+ * @param fs - Filesystem port.
+ * @param root - Repository root holding `.git`.
+ * @param name - File name to remove, relative to the root.
+ * @returns What happened.
+ */
+export const removeExcluded = async (fs: RecordFs, root: string, name: string): Promise<RemoveExcludedResult> => {
+  let excludePath: string | undefined;
+  try {
+    const resolved = await resolveExcludeDir(fs, root);
+    if ('warning' in resolved) {
+      return { status: 'skipped', warning: `${name} was not removed from info/exclude: ${resolved.warning}` };
+    }
+    excludePath = path.join(resolved.dir, 'info', 'exclude');
+    if (!(await fs.exists(excludePath))) {
+      return { status: 'absent', excludePath };
+    }
+    const existing = await readSmallText(fs, excludePath);
+    if (existing === undefined) {
+      return { status: 'skipped', excludePath, warning: `${name} was not removed from ${excludePath}: the file is too large` };
+    }
+    const lines = existing.split('\n');
+    const kept = lines.filter((line) => {
+      const entry = line.trim();
+      return entry !== name && entry !== `/${name}`;
+    });
+    if (kept.length === lines.length) {
+      return { status: 'absent', excludePath };
+    }
+    const temp = `${excludePath}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(temp, kept.join('\n'));
+    try {
+      await fs.rename(temp, excludePath);
+    } catch (error) {
+      await fs.unlink(temp).catch(() => undefined);
+      throw error;
+    }
+    return { status: 'removed', excludePath };
+  } catch (error) {
+    return {
+      status: 'skipped',
+      excludePath,
+      warning: `${name} was not removed from info/exclude: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+};

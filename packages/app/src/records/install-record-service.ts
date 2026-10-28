@@ -42,6 +42,9 @@ import {
   confinePath,
   resolveDeleteTarget,
 } from './confine-path';
+import {
+  removeExcluded,
+} from './git-root';
 import type {
   LoadedRecord,
   RecordStore,
@@ -361,19 +364,25 @@ export class InstallRecordService {
 
   /**
    * Save a changed repository file, or remove it when it has no bundles left
-   * (BR3.6; uninstall of the last entry).
+   * (BR3.6; uninstall of the last entry). Removing the local-only file also
+   * removes its line from `info/exclude` (BR2.3).
    * @param other - The file, as loaded and changed.
    */
   private async saveOther(other: LoadedRecord): Promise<string[]> {
     if (Object.keys(other.record.bundles).length > 0) {
       return (await this.store.save(other.location, other.record)).warnings;
     }
+    const name = path.basename(other.location.path);
     try {
       await this.fs.unlink(other.location.path);
-      return [];
     } catch (error) {
-      return [`Could not remove the empty record ${path.basename(other.location.path)}: ${error instanceof Error ? error.message : String(error)}`];
+      return [`Could not remove the empty record ${name}: ${error instanceof Error ? error.message : String(error)}`];
     }
+    if (other.location.level === 'repository' && other.location.commitMode === 'local-only') {
+      const excluded = await removeExcluded(this.fs, other.location.root, name);
+      return excluded.warning === undefined ? [] : [excluded.warning];
+    }
+    return [];
   }
 
   /**
@@ -403,6 +412,10 @@ export class InstallRecordService {
     const previous = [this.removeEntry(target.record, bundleId, tool)];
     const moved = other === undefined ? undefined : this.removeEntry(other.record, bundleId, tool);
     previous.push(moved);
+    if (other !== undefined && moved !== undefined) {
+      // The other file no longer needs the source when nothing else in it uses it.
+      this.dropUnusedSource(other.record, moved.sourceId);
+    }
 
     const entry = Object.create(null) as ToolEntry;
     entry.version = input.version;

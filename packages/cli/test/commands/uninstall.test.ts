@@ -185,6 +185,28 @@ describe('uninstall command', () => {
   });
 
   describe('repository install record (ai-primitives-hub.lock.json)', () => {
+    const oldLockPath = (): string => path.join(workspace, 'prompt-registry.lock.json');
+    /**
+     * Write an old 2.0.0 `prompt-registry.lock.json`, as an install made before the record would have left it.
+     * @param bundles - Bundle id → its single prompt file, relative to the bundle.
+     */
+    const writeOldLock = async (bundles: Record<string, string>): Promise<void> => {
+      await writeFile(oldLockPath(), `${JSON.stringify({
+        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
+        version: '2.0.0',
+        generatedAt: '2026-10-01T00:00:00.000Z',
+        generatedBy: 'ai-primitives-hub-cli@0.2.1',
+        bundles: Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, {
+          version: '1.0.0',
+          sourceId: 'local-bundle',
+          sourceType: 'local',
+          installedAt: '2026-10-01T00:00:00.000Z',
+          commitMode: 'commit',
+          files: [{ path: file, checksum: '0'.repeat(64) }]
+        }])),
+        sources: { 'local-bundle': { type: 'local', url: bundleDir } }
+      }, null, 2)}\n`);
+    };
     const recordPath = (): string => path.join(workspace, 'ai-primitives-hub.lock.json');
     const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
     const readRecord = async (): Promise<{ bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }> }> =>
@@ -269,30 +291,37 @@ describe('uninstall command', () => {
       expect((await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json'])).exitCode).toBe(0);
       await mkdir(path.dirname(vscodePrompt()), { recursive: true });
       await writeFile(vscodePrompt(), '# Hello Prompt\n');
-      await writeFile(path.join(workspace, 'prompt-registry.lock.json'), `${JSON.stringify({
-        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-        version: '2.0.0',
-        generatedAt: '2026-10-01T00:00:00.000Z',
-        generatedBy: 'ai-primitives-hub-cli@0.2.1',
-        bundles: {
-          'local-foo': {
-            version: '1.0.0',
-            sourceId: 'local-bundle',
-            sourceType: 'local',
-            installedAt: '2026-10-01T00:00:00.000Z',
-            commitMode: 'commit',
-            files: [{ path: 'prompts/hello.prompt.md', checksum: '0'.repeat(64) }]
-          }
-        },
-        sources: { 'local-bundle': { type: 'local', url: bundleDir } }
-      }, null, 2)}\n`);
+      await writeOldLock({ 'local-foo': 'prompts/hello.prompt.md' });
 
       const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(path.join(workspace, 'prompt-registry.lock.json'));
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(oldLockPath());
       expect(await exists(vscodePrompt())).toBe(false);
       expect(Object.keys((await readRecord()).bundles['local-foo'].tools)).toEqual(['kiro']);
+    });
+
+    it('--all reports a bundle in both the record and the old store once, and leaves its old entry alone', async () => {
+      const oldOnly = path.join(workspace, '.github', 'prompts', 'old.prompt.md');
+      await writeFile(oldOnly, '# Old\n');
+      await writeOldLock({ 'local-foo': 'prompts/hello.prompt.md', 'old-only': 'prompts/old.prompt.md' });
+
+      const dryRun = await run(['uninstall', '--all', '--target', 'repo-vscode', '--dry-run', '-o', 'json']);
+      expect(parseJson<{ bundles: string[]; files: string[] }>(dryRun.stdout).data).toMatchObject({
+        bundles: ['local-foo', 'old-only'],
+        files: ['.github/prompts/hello.prompt.md', 'prompts/old.prompt.md']
+      });
+
+      const result = await run(['uninstall', '--all', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = parseJson<{ uninstalled: number; bundles: { id: string }[] }>(result.stdout).data;
+      expect(data.uninstalled).toBe(2);
+      expect(data.bundles.map((bundle) => bundle.id)).toEqual(['local-foo', 'old-only']);
+      expect(await exists(vscodePrompt())).toBe(false);
+      expect(await exists(oldOnly)).toBe(false);
+      const oldLock = JSON.parse(await readFile(oldLockPath(), 'utf8')) as { bundles: Record<string, unknown> };
+      expect(Object.keys(oldLock.bundles)).toEqual(['local-foo']);
     });
   });
 

@@ -216,6 +216,44 @@ describe('InstallRecordService', () => {
     expect(Object.keys(readRecord(localOnly).bundles).toSorted()).toEqual(['acme-tools', 'stays']);
   });
 
+  it('drops the moved entry\'s source from the other file when nothing there uses it', async () => {
+    await service.recordInstall(input({ writtenPaths: writeFiles('.github/prompts/a.prompt.md') }));
+    await service.recordInstall(input({
+      bundleId: 'stays',
+      source: { sourceId: 'other-src', type: 'local', url: '/tmp/other' },
+      sourceType: 'local',
+      writtenPaths: writeFiles('.github/prompts/stays.prompt.md')
+    }));
+
+    await service.recordInstall(input({ location: localOnly, writtenPaths: writeFiles('.github/prompts/a.prompt.md') }));
+
+    expect(Object.keys(readRecord(committed).sources)).toEqual(['other-src']);
+    expect(Object.keys(readRecord(localOnly).sources)).toEqual(['acme-github']);
+  });
+
+  it('keeps the moved entry\'s source in the other file when another entry there still uses it', async () => {
+    await service.recordInstall(input({ writtenPaths: writeFiles('.github/prompts/a.prompt.md') }));
+    await service.recordInstall(input({ bundleId: 'stays', writtenPaths: writeFiles('.github/prompts/stays.prompt.md') }));
+
+    await service.recordInstall(input({ location: localOnly, writtenPaths: writeFiles('.github/prompts/a.prompt.md') }));
+
+    expect(Object.keys(readRecord(committed).sources)).toEqual(['acme-github']);
+  });
+
+  it('removes the local-only file\'s info/exclude line when moving its last entry out deletes it', async () => {
+    const excludePath = path.join(root, '.git/info/exclude');
+    fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+    fs.writeFileSync(excludePath, '*.log\n');
+    await service.recordInstall(input({ location: localOnly, writtenPaths: writeFiles('.github/prompts/a.prompt.md') }));
+    expect(fs.readFileSync(excludePath, 'utf8')).toBe(`*.log\n# Prompt Registry (local)\n${LOCAL_RECORD_FILE_NAME}\n`);
+
+    const change = await service.recordInstall(input({ writtenPaths: writeFiles('.github/prompts/a.prompt.md') }));
+
+    expect(change.warnings).toEqual([]);
+    expect(fs.existsSync(localOnly.path)).toBe(false);
+    expect(fs.readFileSync(excludePath, 'utf8')).toBe('*.log\n# Prompt Registry (local)\n');
+  });
+
   it('carries the moved entry\'s files into the superseded check', async () => {
     await service.recordInstall(input({ writtenPaths: writeFiles('.github/prompts/old.prompt.md') }));
     const change = await service.recordInstall(input({ location: localOnly, writtenPaths: writeFiles('.github/prompts/new.prompt.md') }));
@@ -344,6 +382,28 @@ describe('InstallRecordService', () => {
       const record = readRecord(committed);
       expect(Object.keys(record.bundles)).toEqual(['stays']);
       expect(Object.keys(record.sources)).toEqual(['acme-github']);
+    });
+
+    it('removes the local-only file\'s info/exclude line when its last entry is uninstalled', async () => {
+      const excludePath = path.join(root, '.git/info/exclude');
+      await service.recordInstall(input({ location: localOnly, writtenPaths: writeFiles('.github/prompts/a.prompt.md') }));
+      expect(fs.readFileSync(excludePath, 'utf8')).toContain(LOCAL_RECORD_FILE_NAME);
+
+      const change = await service.recordUninstall({ location: localOnly, bundleId: 'acme-tools', tool: 'vscode' });
+
+      expect(change.warnings).toEqual([]);
+      expect(fs.existsSync(localOnly.path)).toBe(false);
+      expect(fs.readFileSync(excludePath, 'utf8')).toBe('# Prompt Registry (local)\n');
+    });
+
+    it('surfaces an info/exclude problem as a warning when the local-only file is removed', async () => {
+      await service.recordInstall(input({ location: localOnly, writtenPaths: writeFiles('.github/prompts/a.prompt.md') }));
+      fs.rmSync(path.join(root, '.git/HEAD'));
+
+      const change = await service.recordUninstall({ location: localOnly, bundleId: 'acme-tools', tool: 'vscode' });
+
+      expect(fs.existsSync(localOnly.path)).toBe(false);
+      expect(change.warnings).toEqual([expect.stringContaining('was not removed from info/exclude')]);
     });
 
     it('throws RECORD.ENTRY_NOT_FOUND and changes nothing when there is no entry', async () => {
