@@ -69,15 +69,31 @@ describe('expectedStatus', () => {
     expect(expectedStatus(['mcp-server'], 'cursor')).toBe('installed');
   });
 
-  it('is partial when the target supports some kinds of the bundle but not all', () => {
-    expect(expectedStatus(['prompt', 'steering'], 'vscode')).toBe('partial');
+  it('rejects a bundle the target supports only some kinds of in the default all-or-nothing mode', () => {
+    expect(expectedStatus(['prompt', 'steering'], 'vscode')).toBe('rejected');
+    expect(expectedStatus(['prompt', 'steering'], 'vscode', 'default')).toBe('rejected');
     expect(expectedStatus(['prompt', 'steering'], 'kiro')).toBe('installed');
   });
 
-  it('never gives partial for a single-kind bundle', () => {
+  it('is partial with --skip-unsupported when the target supports some kinds of the bundle but not all', () => {
+    expect(expectedStatus(['prompt', 'steering'], 'vscode', 'skip-unsupported')).toBe('partial');
+    expect(expectedStatus(['prompt', 'steering'], 'kiro', 'skip-unsupported')).toBe('installed');
+    expect(expectedStatus(['steering', 'spec'], 'vscode', 'skip-unsupported')).toBe('rejected');
+  });
+
+  it('is never partial in the default mode', () => {
+    for (const kind of catalogued) {
+      for (const target of TARGET_TYPES) {
+        expect(expectedStatus([kind, 'prompt'], target), `${kind}@${target}`).not.toBe('partial');
+      }
+    }
+  });
+
+  it('never gives partial for a single-kind bundle, in either mode', () => {
     for (const kind of catalogued) {
       for (const target of TARGET_TYPES) {
         expect(expectedStatus([kind], target)).not.toBe('partial');
+        expect(expectedStatus([kind], target, 'skip-unsupported')).toBe(expectedStatus([kind], target));
       }
     }
   });
@@ -86,11 +102,13 @@ describe('expectedStatus', () => {
     expect(() => expectedStatus(['bogus' as PrimitiveKind], 'vscode')).toThrow('no support-matrix row for bogus');
   });
 
-  it('expects the portable mix installed everywhere and the all-kinds mix partial everywhere', () => {
+  it('expects the portable mix installed everywhere, and the all-kinds mix rejected by default and partial with --skip-unsupported', () => {
     const kindsOf = (id: string): PrimitiveKind[] => PRIMITIVE_DIAGNOSTIC_BUNDLES.find((b) => b.id === id)!.items.map((i) => i.kind);
     for (const target of TARGET_TYPES) {
       expect(expectedStatus(kindsOf('aph-e2e-mix-portable'), target), target).toBe('installed');
-      expect(expectedStatus(kindsOf('aph-e2e-mix-all-kinds'), target), target).toBe('partial');
+      expect(expectedStatus(kindsOf('aph-e2e-mix-portable'), target, 'skip-unsupported'), target).toBe('installed');
+      expect(expectedStatus(kindsOf('aph-e2e-mix-all-kinds'), target), target).toBe('rejected');
+      expect(expectedStatus(kindsOf('aph-e2e-mix-all-kinds'), target, 'skip-unsupported'), target).toBe('partial');
     }
   });
 });

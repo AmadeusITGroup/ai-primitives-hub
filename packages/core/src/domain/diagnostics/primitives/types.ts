@@ -14,6 +14,16 @@ export const DIAGNOSTIC_SCOPES = ['user', 'repository'] as const;
 export type DiagnosticScope = typeof DIAGNOSTIC_SCOPES[number];
 
 /**
+ * Install modes a diagnostic case is run in: the default all-or-nothing
+ * `install`, and the opt-in partial `install --skip-unsupported`. Only a
+ * bundle that mixes kinds is run in both.
+ */
+export const DIAGNOSTIC_INSTALL_MODES = ['default', 'skip-unsupported'] as const;
+
+/** Install mode of a diagnostic case. */
+export type DiagnosticInstallMode = typeof DIAGNOSTIC_INSTALL_MODES[number];
+
+/**
  * Invariants evaluated by the diagnostics. Ids are stable report values.
  * `HARNESS` marks a defect of the diagnostic run itself (never absorbed by
  * a known gap).
@@ -27,7 +37,7 @@ export const INVARIANTS = [
   { id: 'I2', level: 'bundle' },
   /** The manifest's file inventory matches the archive (validateManifest). */
   { id: 'I3', level: 'bundle' },
-  /** The install status matches the support matrix. */
+  /** The install status matches the support matrix for the case's install mode. */
   { id: 'I4', level: 'case' },
   /** An invalid bundle is rejected by validate and build with the documented message, and writes no archive. */
   { id: 'I5', level: 'bundle' },
@@ -37,7 +47,10 @@ export const INVARIANTS = [
   { id: 'I7', level: 'case' },
   /** The target honours the requested scope. */
   { id: 'I8', level: 'case' },
-  /** A rejected install reports exactly the items of the kinds the target does not support. */
+  /**
+   * The install leaves out exactly the items of the kinds the target does not
+   * support: rejected by the default install, skipped with `--skip-unsupported`.
+   */
   { id: 'I9', level: 'case' },
   /** Executable fixture files stay executable: in the archive (bundle) and where install places them (case). */
   { id: 'I10', level: 'any' },
@@ -49,6 +62,11 @@ export const INVARIANTS = [
   { id: 'I13', level: 'case' },
   /** `${PLUGIN_ROOT}` in each projected plugin MCP server is resolved to the installed plugin root. */
   { id: 'I14', level: 'case' },
+  /**
+   * A `--skip-unsupported` install reports each skipped file with the
+   * unsupported-content reason, and its lockfile records exactly the installed files.
+   */
+  { id: 'I15', level: 'case' },
   { id: 'HARNESS', level: 'any' }
 ] as const;
 
