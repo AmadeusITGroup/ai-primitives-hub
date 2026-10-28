@@ -381,28 +381,28 @@ Follow-up work is named by the step labels of the
      (`streamable-http`, `sse`) plugin servers carry no plugin paths and are
      written in both commit modes. Collection
      `mcpServers` and `mcp-server` items have no plugin paths, are not
-     affected, and stay supported at repository scope (for example on
-     copilot-cli and vscode). The MCP config file is shared by every
-     install's `config` entries, so:
-     - its exclusion is held while any `local-only` install owns entries in
-       it (its `configEntries` in `prompt-registry.local.lock.json`) and is
-       released when the last one is removed;
-     - these are preflight conflicts, like an existing destination the
-       install does not own: a `local-only` stdio plugin install into a file
-       that holds entries owned by a `commit`-mode install; a `commit`-mode
-       `config` install into a file held excluded; and switching a bundle
-       with a stdio plugin server to `commit` mode. A conflict rejects the
-       install, and `--skip-unsupported` does not skip it.
+     affected by this support rule, and stay supported at repository scope
+     (for example on copilot-cli and vscode). They are declared in the
+     manifest, not shipped as files, and are merged as entries into the one
+     MCP config file every install shares.
+   - **Shared MCP config file (known gap).** The exclusion follows today's
+     extension behaviour: any `local-only` install excludes the whole file,
+     and the exclusion is removed when no APH-managed entry remains
+     (`McpServerManager`, `apps/vscode-extension/src/services/mcp-server-manager.ts`).
+     Mixing commit modes in one file is not detected: `commit`-mode entries
+     in a file that a `local-only` install excluded are never seen by git.
+     This is recorded, not changed, by this ADR (O15).
    - **Uninstall** removes the projected skill directories, the projected MCP
      entries, the plugin root and that target's `PLUGIN_DATA`, each through
      its category.
    - **Limitations (accepted).**
-     - MCP entries an older extension wrote for a `bundleId` or `serverName`
-       containing `:` keep their ambiguous default-form name. The uninstall
-       fallback can miss them for their own bundle and match them for a
-       bundle whose `bundleId` equals their text before the first `:`. This
-       lasts until VS Code parity (#551) switches the extension to
-       `configEntries`.
+     - MCP entries an older extension wrote for a `bundleId` containing `:`
+       keep their ambiguous default-form name. The uninstall fallback can
+       miss them for their own bundle and match them for a bundle whose
+       `bundleId` equals their text before the first `:`. This lasts until
+       VS Code parity (#551) switches the extension to `configEntries`. (A
+       `:` only in `serverName` keeps the bundle segment intact, so the
+       fallback still finds those entries.)
      - Distinct triples give distinct sanitised names only up to a hash
        collision: segments the encoding changes or that already look
        encoded, and cut names, are told apart only by 8 hex characters
@@ -531,6 +531,14 @@ Follow-up work is named by the step labels of the
    claude-code and devin-cli may fire twice in Devin; M8 re-checks this and
    documents the behaviour.
 
+   MCP enablement is a further candidate. Writing an entry into the MCP
+   config file installs a server, but whether the server is enabled or
+   started is decided by the harness, through state the file does not hold.
+   How each harness stores that state, and whether APH should set it after
+   install, is open (O15). Where it is settled, it uses this same mechanism:
+   an adaptation id on the `mcp-server` kind and on plugin MCP, run after the
+   `config` strategy and owned and reversed like any adaptation entry.
+
 9. **Kiro routes and power (O3, O6).**
 
    - **Hooks.** Add `hooks/` to the kiro layout at both scopes, as kiro-cli has.
@@ -567,7 +575,7 @@ Follow-up work is named by the step labels of the
     | `InstallCategory` (`file`, `directory`, `config`), the kind → category table, `categoryOf(kind)` | `core` | beside `PRIMITIVE_KINDS` in `packages/core/src/domain/primitive/`, or a new `packages/core/src/domain/install/category.ts` |
     | directory identity and packaging rule from the category | `core` | replaces the `skill`/`plugin` checks in `release-manifest-plan.ts` |
     | layout types: per-kind category override, per-kind target adaptation id, plugin mode, MCP dialect (path, root key, server shape, input support, env-placeholder style, server-name form) and their validation | `core` | `packages/core/src/domain/install/layout.ts` (`ScopedLayoutDef`, `McpLayoutConfig`) |
-    | support derivation (decision 3) | `core` | pure function over the resolved layout |
+    | support derivation (decision 3) | `core` | pure function over the resolved layout and, at repository scope, the commit mode and the tracked state of the MCP config file (queried by `app` through the exclusion port) |
     | Agent Plugins MCP translation and placeholder expansion; config-entry ownership model | `core` | `packages/core/src/domain/plugin/`, `packages/core/src/domain/mcp/` |
     | ports: config file read/merge/write, file modes, `TargetAdaptation` | `core` | `packages/core/src/ports/` (`filesystem.ts`, `target-writer.ts`) |
     | named target adaptation adapters (decision 8) | `infra` | `packages/infra/src/` |
@@ -581,7 +589,7 @@ Follow-up work is named by the step labels of the
     | `realpath` on the `FileSystem` port, returning the on-disk casing | `core` port, `infra` implementation (`fs.realpath.native`) | `packages/core/src/ports/filesystem.ts` |
     | `PLUGIN_DATA` directory per target and plugin | `app`, via the `AppStorage` port | decision 5 |
     | `configEntries` in the lockfile entry | `core` schema and types, written by `app` | `lockfile.schema.json`, `packages/app/src/stores/json-lockfile-store.ts` |
-    | repository-scope exclusion port (`.git/info/exclude` section, and whether a path is already tracked, for O10) | `core` port, `infra` implementation | logic moved from `packages/infra/src/writers/repo-scope-writer.ts` |
+    | repository-scope exclusion port (`.git/info/exclude` section, and whether a path is already tracked, for O10) | `core` port, `infra` implementation | `RepositoryExclusion` (`packages/core/src/ports/repository-exclusion.ts`, since M1) gains a tracked-path query in M7; `GitInfoExclude` in `infra` implements it |
     | writer selection, flags, output | `cli` | `packages/cli/src/commands/install.ts` (`createWriterFactory`) |
 
     `RepositoryScopeWriter` lives in `infra` and cannot call `app`. It first
@@ -724,14 +732,22 @@ baseline everywhere.
   ([Kiro specs][kiro-specs]). `spec` stays `file` until the collection
   convention for spec folders is agreed, because applying the directory rule
   to a flat `specs/foo.md` would capture all of `specs/`.
+- **O15 (open) — shared MCP config file and harness MCP state.** Two topics
+  that no migration step owns yet. First, mixed commit modes in one
+  repository MCP config file (decision 5, known gap): whether to detect
+  them, and how.
+  Second, MCP enable and disable: per target, where the harness keeps that
+  state outside the MCP config file (UNVERIFIED for every target), and
+  whether a target adaptation (decision 8) should set it on install and
+  clear it on uninstall.
 
 The maintainers confirmed all decisions on 2026-10-28, including those
 that change what installs where (decisions 6, 7 and 9, and the O10
 repository-scope rule in decision 5) and what is written (decision 5's
 sanitised owned names for segments with `:`, and per-target `PLUGIN_DATA`,
 with the limitations listed there), and the target adaptations of
-decision 8. O3a and O14, and the cells marked UNVERIFIED, stay open research
-questions; the step that depends on each re-checks it.
+decision 8. O3a, O14 and O15, and the cells marked UNVERIFIED, stay open
+research questions; the step that depends on each re-checks it.
 
 ## Consequences
 
@@ -775,7 +791,10 @@ questions; the step that depends on each re-checks it.
   server is unsupported (O10); it installs only in `local-only` mode.
   Repository-scope powers on Kiro become unsupported. Both installed before,
   as copies the harness did not read. Collection `mcpServers` and
-  `mcp-server` items are not affected.
+  `mcp-server` items are not affected. Mixing commit modes in one MCP
+  config file stays a known gap, as today: entries a `commit`-mode install
+  writes into a file excluded by a `local-only` install are never seen by
+  git (O15).
 - **Unaffected:** all-or-nothing default and opt-in `--skip-unsupported`;
   the root-`plugin.json`-only rule (no legacy layout); bundle and manifest
   formats; the lockfile name and extension identifiers (ADR-0004); storage
@@ -800,7 +819,7 @@ start. O\* ids refer to the open questions above.
 | 4 | **M4** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form, the sanitised form with per-segment encoding, and the sanitised fallback for a segment with `:`; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | M1 | collection MCP servers reach the target |
 | 5 | **M5** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | M4 | `mcp-server` installs wherever an MCP config exists |
 | 6 | **M6** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks |
-| 7 | **M7** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` and `realpath` on the `FileSystem` port; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; the O10 repository-scope rule (decision 5) | M4, M3, M1, M2 (kiro only) | plugins are usable, not inert copies |
+| 7 | **M7** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` and `realpath` on the `FileSystem` port; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; the O10 repository-scope rule (decision 5) and a tracked-path query on the exclusion port | M4, M3, M1, M2 (kiro only) | plugins are usable, not inert copies |
 | 8 | **M8** (optional) `feat`: config-based hooks | `TargetAdaptation` port and its `infra` adapters; `hook` adaptations for claude-code, cursor and devin-cli, and for devin and windsurf each gated on a recorded check, all re-checked against the harness docs; re-check whether Devin also reads the claude-code adaptation's `settings.json` entries, and document the double-install behaviour | M4 | hooks fire on those targets |
 | 9 | **M9** (optional, per target) `feat`: `native` or `register` mode | only with documentation or a recorded manual check for that target (for example O3a for Kiro) | M7 | the harness's own plugin UX where proven |
 | late | **VS Code parity** (#551) | extension scope services and `McpServerManager` delegate to the `app` strategies (ADR-0001) | M4, M7 stable | the same files and lockfile entries from both deliveries |
