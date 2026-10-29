@@ -7,6 +7,7 @@
  * external writers that only implement `write`.
  * @module install/target-write
  */
+import * as path from 'node:path';
 import type {
   CopilotFileType,
   ExtractedFiles,
@@ -256,13 +257,12 @@ export interface RecordedBundleFile {
  * Manifest placement can move a file (`prompts/x.md`, path-routed, becomes
  * `prompts/x.prompt.md`), and a new version can drop one; overwriting the
  * lockfile entry alone would leave those files behind. Files are compared
- * by physical location — `installedPath` when recorded, otherwise the
- * path-routed destination — so a file the new install wrote to the same
- * place is never removed. Removal goes through `writer.remove`, which keeps
- * its target-boundary check, and is best effort like uninstall.
+ * by the absolute location `writer.locate` gives them, so a file the new
+ * install wrote to the same place is never removed, and a recorded file
+ * with no location inside the target root is never touched. Removal goes
+ * through `writer.remove` and is best effort like uninstall.
  *
- * Only a {@link FileTreeTargetWriter} can report physical locations; for
- * any other writer nothing is removed.
+ * A writer without `locate` cannot report locations: nothing is removed.
  * @param writer Writer that performed the new install.
  * @param target Target configuration.
  * @param previous Files of the replaced lockfile entry (`undefined` when none).
@@ -275,11 +275,12 @@ export async function removeSupersededFiles(
   previous: readonly RecordedBundleFile[] | undefined,
   next: readonly RecordedBundleFile[]
 ): Promise<string[]> {
-  if (previous === undefined || previous.length === 0 || !(writer instanceof FileTreeTargetWriter)) {
+  if (previous === undefined || previous.length === 0 || writer.locate === undefined) {
     return [];
   }
-  const produced = new Set(await writer.installedLocations(target, next));
-  const oldLocations = await writer.installedLocations(target, previous);
+  const normalised = (location: string | null): string | null => location === null ? null : path.resolve(location);
+  const produced = new Set((await writer.locate(target, next)).paths.map((location) => normalised(location)));
+  const oldLocations = (await writer.locate(target, previous)).paths.map((location) => normalised(location));
   const removed: string[] = [];
   for (const [index, file] of previous.entries()) {
     const location = oldLocations[index];

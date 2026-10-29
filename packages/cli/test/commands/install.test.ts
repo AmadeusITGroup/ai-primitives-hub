@@ -704,6 +704,40 @@ agents:
     ).rejects.toThrow();
   });
 
+  it('removes a prompt the new version dropped on a vscode repository reinstall', async () => {
+    const manifest = (version: string, prompts: string[]): string => [
+      'id: local-foo',
+      `version: ${version}`,
+      'name: Local Bundle',
+      'prompts:',
+      ...prompts.flatMap((id) => [`  - id: ${id}`, `    file: prompts/${id}.prompt.md`, '    type: prompt'])
+    ].join('\n');
+    const writeVersion = async (version: string, prompts: string[]): Promise<void> => {
+      await rm(bundleDir, { recursive: true, force: true });
+      await writeReleaseArchive(bundleDir, new Map([
+        ['deployment-manifest.yml', new TextEncoder().encode(manifest(version, prompts))],
+        ...prompts.map((id): [string, Uint8Array] => [`prompts/${id}.prompt.md`, new TextEncoder().encode(`# ${id}\n`)])
+      ]));
+    };
+    const addTarget = await run([
+      'target', 'add', 'repository-vscode', '--type', 'vscode', '--scope', 'repository',
+      '--workspace-root', workspace, '-o', 'json'
+    ]);
+    expect(addTarget.exitCode).toBe(0);
+    const install = (): ReturnType<typeof run> => run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'repository-vscode', '-o', 'json'
+    ]);
+
+    await writeVersion('1.0.0', ['kept', 'dropped']);
+    expect((await install()).exitCode).toBe(0);
+    await writeVersion('2.0.0', ['kept']);
+    const reinstall = await install();
+
+    expect(reinstall.exitCode, reinstall.stdout).toBe(0);
+    await expect(readFile(path.join(workspace, '.github', 'prompts', 'kept.prompt.md'), 'utf8')).resolves.toContain('kept');
+    await expect(readFile(path.join(workspace, '.github', 'prompts', 'dropped.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
   it('uses the repository-scope writer for remote installs', async () => {
     const zipBytes = buildZip([
       {
