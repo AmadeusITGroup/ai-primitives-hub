@@ -96,6 +96,7 @@ export type {
 
 export {
   UninstallPipeline,
+  uninstallResultOf,
 } from './uninstall-pipeline';
 
 export type {

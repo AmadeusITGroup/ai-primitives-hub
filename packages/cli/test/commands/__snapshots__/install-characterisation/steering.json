@@ -209,8 +209,7 @@
         "<workspace>/.kiro/plugins",
         "<workspace>/.kiro/powers",
         "<workspace>/.kiro/skills",
-        "<workspace>/.kiro/specs",
-        "<workspace>/.kiro/steering"
+        "<workspace>/.kiro/specs"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -251,7 +250,6 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
         "<workspace>/.ai-primitives-hub"
       ],
       "files": {
@@ -291,8 +289,7 @@
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/powers",
         "<workspace>/.kiro/skills",
-        "<workspace>/.kiro/specs",
-        "<workspace>/.kiro/steering"
+        "<workspace>/.kiro/specs"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -331,8 +328,7 @@
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/powers",
         "<workspace>/.kiro/skills",
-        "<workspace>/.kiro/specs",
-        "<workspace>/.kiro/steering"
+        "<workspace>/.kiro/specs"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -344,7 +340,7 @@
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": "# Prompt Registry (local)\n.kiro/steering/x.md\nprompt-registry.local.lock.json",
-      "gitExcludeAfterUninstall": "# Prompt Registry (local)\n.kiro/steering/x.md\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
       "install": {
         "errorCode": null,
         "exitCode": 0,
@@ -371,7 +367,6 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
         "<workspace>/.ai-primitives-hub"
       ],
       "files": {
@@ -795,8 +790,7 @@
         "<workspace>/.kiro/plugins",
         "<workspace>/.kiro/powers",
         "<workspace>/.kiro/skills",
-        "<workspace>/.kiro/specs",
-        "<workspace>/.kiro/steering"
+        "<workspace>/.kiro/specs"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -837,7 +831,6 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
         "<workspace>/.ai-primitives-hub"
       ],
       "files": {
@@ -877,8 +870,7 @@
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/powers",
         "<workspace>/.kiro/skills",
-        "<workspace>/.kiro/specs",
-        "<workspace>/.kiro/steering"
+        "<workspace>/.kiro/specs"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -917,8 +909,7 @@
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/powers",
         "<workspace>/.kiro/skills",
-        "<workspace>/.kiro/specs",
-        "<workspace>/.kiro/steering"
+        "<workspace>/.kiro/specs"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -930,7 +921,7 @@
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": "# Prompt Registry (local)\n.kiro/steering/x.md\nprompt-registry.local.lock.json",
-      "gitExcludeAfterUninstall": "# Prompt Registry (local)\n.kiro/steering/x.md\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
       "install": {
         "errorCode": null,
         "exitCode": 0,
@@ -957,7 +948,6 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
         "<workspace>/.ai-primitives-hub"
       ],
       "files": {

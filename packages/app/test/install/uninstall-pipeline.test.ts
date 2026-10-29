@@ -6,14 +6,31 @@
  * `stores/json-lockfile-store.ts`'s module doc). Written fresh,
  * covering both the `commit` and `local-only` lockfile search order.
  */
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import * as os from 'node:os';
+import * as nodePath from 'node:path';
 import type {
+  TargetWriter as CoreTargetWriter,
+  FileSystem,
   Target,
 } from '@ai-primitives-hub/core';
+import {
+  NodeFileSystem,
+} from '@ai-primitives-hub/infra';
 import {
   describe,
   expect,
   it,
 } from 'vitest';
+import {
+  createTargetWriterFactory,
+} from '../../src/install/target-writer-factory';
 import {
   UninstallPipeline,
 } from '../../src/install/uninstall-pipeline';
@@ -199,5 +216,65 @@ describe('UninstallPipeline installed paths', () => {
       ['prompts/legacy.prompt.md']
     ]);
     expect(result.removed).toHaveLength(2);
+  });
+});
+
+describe('UninstallPipeline guarded removal', () => {
+  const factoryFor = (fs: FileSystem): ((target: Target) => CoreTargetWriter) => createTargetWriterFactory({
+    fs, env: { HOME: '/home/u' }, projectDir: null, userConfigDir: null, writerOwnsExclusion: false
+  });
+  const seedEntry = async (fs: FileSystem, root: string, bundleId: string, files: string[]): Promise<void> => {
+    const lockPath = getLockfilePathForMode(root, 'commit');
+    const lock = upsertBundleEntry((await readLockfile(lockPath, fs)) ?? emptyLockfile('cli@1.0.0'), bundleId, {
+      version: '1.0.0',
+      sourceId: 'local-src',
+      sourceType: 'local',
+      installedAt: '2024-01-01T00:00:00.000Z',
+      targetType: 'vscode',
+      files: files.map((file) => ({ path: file, checksum: '0'.repeat(64) }))
+    });
+    await writeLockfile(lockPath, lock, fs);
+  };
+
+  it('keeps a file another bundle records and reports it as skipped', async () => {
+    const fs = new InMemoryFileSystem();
+    await fs.writeFile('/repo/.github/prompts/shared.prompt.md', '# Shared\n');
+    await fs.writeFile('/repo/.github/prompts/a.prompt.md', '# A\n');
+    await seedEntry(fs, '/repo', 'bundle-a', ['prompts/shared.prompt.md', 'prompts/a.prompt.md']);
+    await seedEntry(fs, '/repo', 'bundle-b', ['prompts/shared.prompt.md']);
+    const pipeline = new UninstallPipeline({ fs, target: TARGET, repositoryPath: '/repo', writerFactory: factoryFor(fs) });
+
+    const result = await pipeline.run('bundle-a');
+
+    expect(result.removed).toEqual(['prompts/a.prompt.md']);
+    expect(result.skipped).toEqual(['prompts/shared.prompt.md']);
+    expect(result.outcome?.kept).toEqual([{ path: 'prompts/shared.prompt.md', reason: 'shared' }]);
+    expect(await fs.exists('/repo/.github/prompts/shared.prompt.md')).toBe(true);
+    expect(await fs.exists('/repo/.github/prompts/a.prompt.md')).toBe(false);
+  });
+
+  it('prunes the directories a plugin uninstall leaves empty', async () => {
+    const ws = mkdtempSync(nodePath.join(os.tmpdir(), 'uninstall-pipeline-'));
+    try {
+      const fs = new NodeFileSystem();
+      const plugin = nodePath.join(ws, '.github', 'plugins', 'demo');
+      mkdirSync(nodePath.join(plugin, 'scripts'), { recursive: true });
+      writeFileSync(nodePath.join(plugin, 'plugin.json'), '{}\n');
+      writeFileSync(nodePath.join(plugin, 'scripts', 'run.sh'), 'echo\n');
+      await seedEntry(fs, ws, 'demo', ['plugins/demo/plugin.json', 'plugins/demo/scripts/run.sh']);
+      const target: Target = { ...TARGET, rootPath: ws };
+      const pipeline = new UninstallPipeline({ fs, target, repositoryPath: ws, writerFactory: factoryFor(fs) });
+
+      const result = await pipeline.run('demo');
+
+      expect(result.removed).toHaveLength(2);
+      expect(result.outcome?.pruned).toEqual(expect.arrayContaining([
+        nodePath.join(plugin, 'scripts'), plugin, nodePath.join(ws, '.github', 'plugins')
+      ]));
+      expect(existsSync(nodePath.join(ws, '.github', 'plugins'))).toBe(false);
+      expect(existsSync(nodePath.join(ws, '.github'))).toBe(true);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
   });
 });

@@ -473,10 +473,10 @@ async function deactivateProfileBundles(ctx: Context, state: ProfileActivationSt
       }
     } else {
       const lockPath = lockfilePathForTarget(ctx, target);
-      const writer = createUninstallWriterFactory(ctx, {})(target);
+      const writerFactory = createUninstallWriterFactory(ctx, {});
       for (const bundleId of state.syncedBundles) {
         try {
-          await runUserScopeUninstall(bundleId, lockPath, target, ctx, writer);
+          await runUserScopeUninstall(bundleId, lockPath, target, ctx, writerFactory);
         } catch {
           // Best-effort cleanup.
         }

@@ -6,7 +6,6 @@
         "<workspace>/.claude",
         "<workspace>/.claude/agents",
         "<workspace>/.claude/commands",
-        "<workspace>/.claude/hooks",
         "<workspace>/.claude/instructions",
         "<workspace>/.claude/output-styles",
         "<workspace>/.claude/plugins",
@@ -47,7 +46,6 @@
         "$HOME/.claude",
         "$HOME/.claude/agents",
         "$HOME/.claude/commands",
-        "$HOME/.claude/hooks",
         "$HOME/.claude/instructions",
         "$HOME/.claude/output-styles",
         "$HOME/.claude/plugins",
@@ -88,7 +86,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.copilot",
         "$HOME/.copilot/agents",
-        "$HOME/.copilot/hooks",
         "$HOME/.copilot/instructions",
         "$HOME/.copilot/plugins",
         "$HOME/.copilot/prompts",
@@ -129,7 +126,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.copilot",
         "$HOME/.copilot/agents",
-        "$HOME/.copilot/hooks",
         "$HOME/.copilot/instructions",
         "$HOME/.copilot/plugins",
         "$HOME/.copilot/prompts",
@@ -172,7 +168,6 @@
         "<workspace>/.cursor",
         "<workspace>/.cursor/agents",
         "<workspace>/.cursor/commands",
-        "<workspace>/.cursor/hooks",
         "<workspace>/.cursor/plugins",
         "<workspace>/.cursor/rules",
         "<workspace>/.cursor/skills"
@@ -212,7 +207,6 @@
         "$HOME/.cursor",
         "$HOME/.cursor/agents",
         "$HOME/.cursor/commands",
-        "$HOME/.cursor/hooks",
         "$HOME/.cursor/plugins",
         "$HOME/.cursor/rules",
         "$HOME/.cursor/skills",
@@ -253,7 +247,6 @@
         "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
-        "<workspace>/.devin/hooks",
         "<workspace>/.devin/knowledge",
         "<workspace>/.devin/playbooks",
         "<workspace>/.devin/plugins",
@@ -298,7 +291,6 @@
         "$HOME/.config/devin/agents",
         "$HOME/.config/devin/skills",
         "$HOME/.devin",
-        "$HOME/.devin/hooks",
         "$HOME/.devin/knowledge",
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
@@ -341,7 +333,6 @@
         "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
-        "<workspace>/.devin/hooks",
         "<workspace>/.devin/knowledge",
         "<workspace>/.devin/playbooks",
         "<workspace>/.devin/plugins",
@@ -386,7 +377,6 @@
         "$HOME/.config/devin/agents",
         "$HOME/.config/devin/skills",
         "$HOME/.devin",
-        "$HOME/.devin/hooks",
         "$HOME/.devin/knowledge",
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
@@ -429,7 +419,6 @@
         "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
-        "<workspace>/.kiro/hooks",
         "<workspace>/.kiro/plugins",
         "<workspace>/.kiro/powers",
         "<workspace>/.kiro/skills",
@@ -470,7 +459,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.kiro",
         "$HOME/.kiro/agents",
-        "$HOME/.kiro/hooks",
         "$HOME/.kiro/plugins",
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
@@ -574,7 +562,6 @@
         "<workspace>/.opencode",
         "<workspace>/.opencode/agents",
         "<workspace>/.opencode/commands",
-        "<workspace>/.opencode/hooks",
         "<workspace>/.opencode/plugins",
         "<workspace>/.opencode/rules",
         "<workspace>/.opencode/skills",
@@ -615,7 +602,6 @@
         "$HOME/.opencode",
         "$HOME/.opencode/agents",
         "$HOME/.opencode/commands",
-        "$HOME/.opencode/hooks",
         "$HOME/.opencode/plugins",
         "$HOME/.opencode/rules",
         "$HOME/.opencode/skills",
@@ -655,8 +641,7 @@
     "vscode-insiders/repository": {
       "dirsLeftAfterUninstall": [
         "<workspace>/.ai-primitives-hub",
-        "<workspace>/.github",
-        "<workspace>/.github/hooks"
+        "<workspace>/.github"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -692,7 +677,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.copilot",
         "$HOME/.copilot/agents",
-        "$HOME/.copilot/hooks",
         "$HOME/.copilot/instructions",
         "$HOME/.copilot/plugins",
         "$HOME/.copilot/prompts",
@@ -732,8 +716,7 @@
     "vscode/repository": {
       "dirsLeftAfterUninstall": [
         "<workspace>/.ai-primitives-hub",
-        "<workspace>/.github",
-        "<workspace>/.github/hooks"
+        "<workspace>/.github"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -768,8 +751,7 @@
     "vscode/repository/local-only": {
       "dirsLeftAfterUninstall": [
         "<workspace>/.ai-primitives-hub",
-        "<workspace>/.github",
-        "<workspace>/.github/hooks"
+        "<workspace>/.github"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -781,7 +763,7 @@
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": "# Prompt Registry (local)\n.github/hooks/x.json\nprompt-registry.local.lock.json",
-      "gitExcludeAfterUninstall": "# Prompt Registry (local)\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
       "install": {
         "errorCode": null,
         "exitCode": 0,
@@ -805,7 +787,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.copilot",
         "$HOME/.copilot/agents",
-        "$HOME/.copilot/hooks",
         "$HOME/.copilot/instructions",
         "$HOME/.copilot/plugins",
         "$HOME/.copilot/prompts",
@@ -847,7 +828,6 @@
         "<workspace>/.ai-primitives-hub",
         "<workspace>/.windsurf",
         "<workspace>/.windsurf/agents",
-        "<workspace>/.windsurf/hooks",
         "<workspace>/.windsurf/plugins",
         "<workspace>/.windsurf/rules",
         "<workspace>/.windsurf/skills"
@@ -887,7 +867,6 @@
         "$HOME/.codeium",
         "$HOME/.codeium/windsurf",
         "$HOME/.codeium/windsurf/agents",
-        "$HOME/.codeium/windsurf/hooks",
         "$HOME/.codeium/windsurf/plugins",
         "$HOME/.codeium/windsurf/rules",
         "$HOME/.codeium/windsurf/skills",
@@ -931,7 +910,6 @@
         "<workspace>/.claude",
         "<workspace>/.claude/agents",
         "<workspace>/.claude/commands",
-        "<workspace>/.claude/hooks",
         "<workspace>/.claude/instructions",
         "<workspace>/.claude/output-styles",
         "<workspace>/.claude/plugins",
@@ -972,7 +950,6 @@
         "$HOME/.claude",
         "$HOME/.claude/agents",
         "$HOME/.claude/commands",
-        "$HOME/.claude/hooks",
         "$HOME/.claude/instructions",
         "$HOME/.claude/output-styles",
         "$HOME/.claude/plugins",
@@ -1013,7 +990,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.copilot",
         "$HOME/.copilot/agents",
-        "$HOME/.copilot/hooks",
         "$HOME/.copilot/instructions",
         "$HOME/.copilot/plugins",
         "$HOME/.copilot/prompts",
@@ -1054,7 +1030,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.copilot",
         "$HOME/.copilot/agents",
-        "$HOME/.copilot/hooks",
         "$HOME/.copilot/instructions",
         "$HOME/.copilot/plugins",
         "$HOME/.copilot/prompts",
@@ -1097,7 +1072,6 @@
         "<workspace>/.cursor",
         "<workspace>/.cursor/agents",
         "<workspace>/.cursor/commands",
-        "<workspace>/.cursor/hooks",
         "<workspace>/.cursor/plugins",
         "<workspace>/.cursor/rules",
         "<workspace>/.cursor/skills"
@@ -1137,7 +1111,6 @@
         "$HOME/.cursor",
         "$HOME/.cursor/agents",
         "$HOME/.cursor/commands",
-        "$HOME/.cursor/hooks",
         "$HOME/.cursor/plugins",
         "$HOME/.cursor/rules",
         "$HOME/.cursor/skills",
@@ -1178,7 +1151,6 @@
         "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
-        "<workspace>/.devin/hooks",
         "<workspace>/.devin/knowledge",
         "<workspace>/.devin/playbooks",
         "<workspace>/.devin/plugins",
@@ -1223,7 +1195,6 @@
         "$HOME/.config/devin/agents",
         "$HOME/.config/devin/skills",
         "$HOME/.devin",
-        "$HOME/.devin/hooks",
         "$HOME/.devin/knowledge",
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
@@ -1266,7 +1237,6 @@
         "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
-        "<workspace>/.devin/hooks",
         "<workspace>/.devin/knowledge",
         "<workspace>/.devin/playbooks",
         "<workspace>/.devin/plugins",
@@ -1311,7 +1281,6 @@
         "$HOME/.config/devin/agents",
         "$HOME/.config/devin/skills",
         "$HOME/.devin",
-        "$HOME/.devin/hooks",
         "$HOME/.devin/knowledge",
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
@@ -1354,7 +1323,6 @@
         "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
-        "<workspace>/.kiro/hooks",
         "<workspace>/.kiro/plugins",
         "<workspace>/.kiro/powers",
         "<workspace>/.kiro/skills",
@@ -1395,7 +1363,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.kiro",
         "$HOME/.kiro/agents",
-        "$HOME/.kiro/hooks",
         "$HOME/.kiro/plugins",
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
@@ -1499,7 +1466,6 @@
         "<workspace>/.opencode",
         "<workspace>/.opencode/agents",
         "<workspace>/.opencode/commands",
-        "<workspace>/.opencode/hooks",
         "<workspace>/.opencode/plugins",
         "<workspace>/.opencode/rules",
         "<workspace>/.opencode/skills",
@@ -1540,7 +1506,6 @@
         "$HOME/.opencode",
         "$HOME/.opencode/agents",
         "$HOME/.opencode/commands",
-        "$HOME/.opencode/hooks",
         "$HOME/.opencode/plugins",
         "$HOME/.opencode/rules",
         "$HOME/.opencode/skills",
@@ -1580,8 +1545,7 @@
     "vscode-insiders/repository": {
       "dirsLeftAfterUninstall": [
         "<workspace>/.ai-primitives-hub",
-        "<workspace>/.github",
-        "<workspace>/.github/hooks"
+        "<workspace>/.github"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -1617,7 +1581,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.copilot",
         "$HOME/.copilot/agents",
-        "$HOME/.copilot/hooks",
         "$HOME/.copilot/instructions",
         "$HOME/.copilot/plugins",
         "$HOME/.copilot/prompts",
@@ -1657,8 +1620,7 @@
     "vscode/repository": {
       "dirsLeftAfterUninstall": [
         "<workspace>/.ai-primitives-hub",
-        "<workspace>/.github",
-        "<workspace>/.github/hooks"
+        "<workspace>/.github"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -1693,8 +1655,7 @@
     "vscode/repository/local-only": {
       "dirsLeftAfterUninstall": [
         "<workspace>/.ai-primitives-hub",
-        "<workspace>/.github",
-        "<workspace>/.github/hooks"
+        "<workspace>/.github"
       ],
       "files": {
         "<workspace>/.ai-primitives-hub/target-state.json": "present",
@@ -1706,7 +1667,7 @@
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": "# Prompt Registry (local)\n.github/hooks/x.json\nprompt-registry.local.lock.json",
-      "gitExcludeAfterUninstall": "# Prompt Registry (local)\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
       "install": {
         "errorCode": null,
         "exitCode": 0,
@@ -1730,7 +1691,6 @@
       "dirsLeftAfterUninstall": [
         "$HOME/.copilot",
         "$HOME/.copilot/agents",
-        "$HOME/.copilot/hooks",
         "$HOME/.copilot/instructions",
         "$HOME/.copilot/plugins",
         "$HOME/.copilot/prompts",
@@ -1772,7 +1732,6 @@
         "<workspace>/.ai-primitives-hub",
         "<workspace>/.windsurf",
         "<workspace>/.windsurf/agents",
-        "<workspace>/.windsurf/hooks",
         "<workspace>/.windsurf/plugins",
         "<workspace>/.windsurf/rules",
         "<workspace>/.windsurf/skills"
@@ -1812,7 +1771,6 @@
         "$HOME/.codeium",
         "$HOME/.codeium/windsurf",
         "$HOME/.codeium/windsurf/agents",
-        "$HOME/.codeium/windsurf/hooks",
         "$HOME/.codeium/windsurf/plugins",
         "$HOME/.codeium/windsurf/rules",
         "$HOME/.codeium/windsurf/skills",
