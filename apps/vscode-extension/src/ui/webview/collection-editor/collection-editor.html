@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="{{cspSource}}">
+    <title>AI Primitives Hub — Visual Collection Editor</title>
+    <link rel="stylesheet" href="{{iconsUri}}">
+    <link rel="stylesheet" href="{{cssUri}}">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <span class="collection-title" id="collectionTitle">Collection Editor</span>
+            <select id="collectionSwitcher" aria-label="Switch collection in workspace" title="Switch between collections in this workspace"></select>
+            <button class="secondary small" id="btnNewCollection" type="button" title="Create a new collection in this workspace">+ New Collection</button>
+            <span class="pill info" id="versionPill">v1.0.0</span>
+            <span class="pill ok" id="validationPill">✓ Valid</span>
+            <span class="pill clickable" id="upstreamPill" style="display: none;"></span>
+            <span class="pill clickable" id="prPill" style="display: none;"></span>
+        </div>
+        <div class="toolbar">
+            <button class="secondary" id="btnValidateAll" type="button">✓ Validate Collections</button>
+            <button class="secondary" id="btnCreatePrimitive" type="button">✨ + Create New Primitive</button>
+            <button class="secondary" id="btnSplitYaml" type="button">⇄ Split YAML View</button>
+            <button id="btnSubmitPr" type="button">🚀 Commit &amp; Create PR</button>
+        </div>
+    </header>
+
+    <div class="workspace">
+        <aside>
+            <input type="search" id="treeFilter" placeholder="Filter items, MCP servers, or files..." aria-label="Filter collection outline">
+            <div class="tree-list" id="treeContainer"></div>
+            <div id="diagnosticsSidebar"></div>
+        </aside>
+        <main id="inspectorContainer"></main>
+    </div>
+
+    <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+</body>
+</html>

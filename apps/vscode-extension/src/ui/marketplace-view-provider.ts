@@ -5,9 +5,16 @@
  */
 
 import * as fs from 'node:fs';
+import * as nodePath from 'node:path';
 import {
   resolveScoredBundleSearchKeys,
 } from '@ai-primitives-hub/app';
+import {
+  isContributableCollectionSource,
+} from '@ai-primitives-hub/core';
+import {
+  extractGitHubSlugFromRemoteUrl,
+} from '@ai-primitives-hub/infra';
 import MarkdownIt from 'markdown-it';
 import sanitizeHtml from 'sanitize-html';
 import * as vscode from 'vscode';
@@ -59,7 +66,7 @@ import {
  */
 interface WebviewMessage {
   type: 'ready' | 'refresh' | 'search' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
-    | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'completeSetup' | 'openExternalLink';
+    | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'contributeCollection' | 'completeSetup' | 'openExternalLink';
   bundleId?: string;
   installPath?: string;
   filePath?: string;
@@ -363,6 +370,64 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     return BundleIdentityMatcher.matches(installedId, bundleId, sourceType as any);
   }
 
+  private resolveLocalGitRemoteSlug(localUrl: string): string | undefined {
+    try {
+      const localPath = localUrl.startsWith('file://') ? vscode.Uri.parse(localUrl).fsPath : localUrl;
+      const gitEntry = nodePath.join(localPath, '.git');
+      if (!fs.existsSync(gitEntry)) {
+        return undefined;
+      }
+      let gitDir = gitEntry;
+      const stat = fs.statSync(gitEntry);
+      if (stat.isFile()) {
+        const pointer = fs.readFileSync(gitEntry, 'utf8').trim();
+        const match = /^gitdir:\s*(.+)$/i.exec(pointer);
+        if (match?.[1]) {
+          gitDir = nodePath.resolve(localPath, match[1].trim());
+        }
+      }
+      const configPath = nodePath.join(gitDir, 'config');
+      if (!fs.existsSync(configPath)) {
+        return undefined;
+      }
+      const configText = fs.readFileSync(configPath, 'utf8');
+      const remoteUrls: Record<string, string> = {};
+      let currentRemote: string | undefined;
+      for (const rawLine of configText.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        const sectionMatch = /^\[remote\s+"([^"]+)"\]$/i.exec(line);
+        if (sectionMatch) {
+          currentRemote = sectionMatch[1];
+          continue;
+        }
+        if (line.startsWith('[')) {
+          currentRemote = undefined;
+          continue;
+        }
+        if (currentRemote) {
+          const urlMatch = /^url\s*=\s*(.+)$/i.exec(line);
+          if (urlMatch?.[1]) {
+            remoteUrls[currentRemote] = urlMatch[1].trim();
+          }
+        }
+      }
+      const preferredUrl = remoteUrls.upstream ?? remoteUrls.origin;
+      return preferredUrl ? extractGitHubSlugFromRemoteUrl(preferredUrl) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private isSourceContributable(source: RegistrySource | undefined): boolean {
+    if (!source) {
+      return false;
+    }
+    const remoteSlug = (source.type === 'local' || source.type === 'local-awesome-copilot') && source.url
+      ? this.resolveLocalGitRemoteSlug(source.url)
+      : undefined;
+    return isContributableCollectionSource(source, remoteSlug).contributable;
+  }
+
   /**
    * Load bundles from registries and send to webview
    * Uses cacheOnly mode for fast initial load, then updates progressively via onSourceSynced events
@@ -394,6 +459,11 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         ? await autoUpdateService.getAllAutoUpdatePreferences()
         : {};
 
+      const contributableBySourceId = new Map<string, boolean>();
+      for (const src of sources) {
+        contributableBySourceId.set(src.id, this.isSourceContributable(src));
+      }
+
       const enhancedBundles = bundles.map((bundle) => {
         // Find matching installed bundle using identity matching
         const source = sources.find((s) => s.id === bundle.sourceId);
@@ -424,6 +494,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
           ? autoUpdatePreferences[installed.bundleId] ?? false
           : false;
 
+        const contributable = source ? (contributableBySourceId.get(source.id) ?? false) : false;
+
         return {
           ...bundle,
           installed: !!installed,
@@ -433,7 +505,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
           hubName,
           contentBreakdown,
           availableVersions,
-          autoUpdateEnabled
+          autoUpdateEnabled,
+          contributable
         };
       });
 
@@ -672,6 +745,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         }
         break;
       }
+      case 'contributeCollection': {
+        if (message.bundleId) {
+          await this.handleContributeCollection(message.bundleId, message.sourceId);
+        }
+        break;
+      }
       case 'completeSetup': {
         await this.handleCompleteSetup();
         break;
@@ -853,6 +932,24 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     } catch (error) {
       this.logger.error('Failed to open source repository', error as Error);
       vscode.window.showErrorMessage(`Failed to open repository: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Bootstrap collection collaboration (Fork -> Clone -> Branch -> Open Visual Editor)
+   * from a Marketplace collection tile or Bundle Details view.
+   * @param bundleId Marketplace bundle identifier.
+   * @param sourceId Optional source identifier.
+   */
+  private async handleContributeCollection(bundleId: string, sourceId?: string): Promise<void> {
+    try {
+      await vscode.commands.executeCommand('promptregistry.contributeToCollection', {
+        bundleId,
+        sourceId
+      });
+    } catch (error) {
+      this.logger.error('Failed to start collection contribution workflow', error as Error);
+      vscode.window.showErrorMessage(`Failed to contribute to collection: ${(error as Error).message}`);
     }
   }
 
@@ -1183,13 +1280,15 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * @param installed
    * @param breakdown
    * @param autoUpdateEnabled
+   * @param contributable
    */
   private getBundleDetailsHtml(
     webview: vscode.Webview,
     bundle: Bundle,
     installed: InstalledBundle | undefined,
     breakdown: ContentBreakdown,
-    autoUpdateEnabled = false
+    autoUpdateEnabled = false,
+    contributable = false
   ): string {
     const isInstalled = !!installed;
     const installPath = installed?.installPath || 'Not installed';
@@ -1298,6 +1397,13 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
     const mcpServersSection = this.generateMcpServersSection(installed);
     const promptsSection = this.generatePromptsSection(installed, escapedInstallPath);
+    const contributeSection = contributable
+      ? `<div class="section">
+           <button type="button" class="primary-button" data-action="contributeCollection" data-bundle-id="${this.escapeHtml(bundle.id)}" data-source-id="${this.escapeHtml(bundle.sourceId || '')}">
+             ✏️ Contribute / Edit Collection in Visual Editor
+           </button>
+         </div>`
+      : '';
 
     // Replace all placeholders
     html = html
@@ -1309,6 +1415,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       .replaceAll('{{author}}', this.escapeHtml(bundle.author || 'Unknown'))
       .replace('{{version}}', bundle.version)
       .replace('{{autoUpdateSection}}', autoUpdateSection)
+      .replace('{{contributeSection}}', contributeSection)
       .replace('{{description}}', bundle.description || 'No description available')
       .replace('{{breakdownContent}}', breakdownContent)
       .replace('{{displayBundleId}}', isInstalled ? installed.bundleId : bundle.id)
@@ -1593,8 +1700,17 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         });
       });
 
+      const contributable = this.isSourceContributable(source);
+
       // Set HTML content
-      panel.webview.html = this.getBundleDetailsHtml(panel.webview, bundle, installed, breakdown, autoUpdateEnabled);
+      panel.webview.html = this.getBundleDetailsHtml(
+        panel.webview,
+        bundle,
+        installed,
+        breakdown,
+        autoUpdateEnabled,
+        contributable
+      );
 
       // Handle messages from the details panel
       panel.webview.onDidReceiveMessage(
@@ -1607,6 +1723,11 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
             }
             case 'openExternalLink': {
               await this.handleOpenExternalLink(message.url);
+
+              break;
+            }
+            case 'contributeCollection': {
+              await this.handleContributeCollection(message.bundleId || bundle.id, message.sourceId || bundle.sourceId);
 
               break;
             }

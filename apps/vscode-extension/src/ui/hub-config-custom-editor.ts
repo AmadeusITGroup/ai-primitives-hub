@@ -37,6 +37,12 @@ export class HubConfigCustomEditorProvider implements vscode.CustomTextEditorPro
   public static readonly viewType = 'promptregistry.hubConfigEditor';
 
   private readonly activeWebviews = new Map<string, Set<vscode.WebviewPanel>>();
+  private readonly isPostingByPath = new Set<string>();
+  private readonly pendingPostByPath = new Map<
+    string,
+    { panel: vscode.WebviewPanel; focusTarget?: HubVisualEditorFocusTarget }
+  >();
+
   private pendingFocusTarget: HubVisualEditorFocusTarget | undefined;
   private contributionContextProvider?: (workspaceDir: string) => Promise<WorkspaceContributionContext | undefined>;
 
@@ -97,26 +103,48 @@ export class HubConfigCustomEditorProvider implements vscode.CustomTextEditorPro
   private async postStateToWebview(
     panel: vscode.WebviewPanel,
     document: vscode.TextDocument,
-    focusTarget?: HubVisualEditorFocusTarget
+    focusTarget?: HubVisualEditorFocusTarget,
+    precomputedInspection?: HubConfigDocumentInspection
   ): Promise<void> {
-    const content = document.getText();
-    const inspection = this.yamlIntelligence.getLastInspection(document.uri.fsPath)
-      ?? this.yamlIntelligence.validateDocument(document);
-    this.treeProvider.updateFromContent(document.uri.fsPath, content, inspection);
+    const docPath = document.uri.fsPath;
+    if (this.isPostingByPath.has(docPath)) {
+      const existingPending = this.pendingPostByPath.get(docPath);
+      this.pendingPostByPath.set(docPath, {
+        panel,
+        focusTarget: focusTarget ?? existingPending?.focusTarget
+      });
+      return;
+    }
 
-    const workspaceFolder = path.dirname(document.uri.fsPath)
-      || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const contributionContext = (workspaceFolder && this.contributionContextProvider)
-      ? await this.contributionContextProvider(workspaceFolder)
-      : undefined;
+    this.isPostingByPath.add(docPath);
+    try {
+      const content = document.getText();
+      const inspection = precomputedInspection
+        ?? this.yamlIntelligence.getLastInspection(docPath)
+        ?? this.yamlIntelligence.validateDocument(document);
+      this.treeProvider.updateFromContent(docPath, content, inspection);
 
-    void panel.webview.postMessage({
-      type: 'documentState',
-      filePath: document.uri.fsPath,
-      inspection: this.serializeInspection(inspection),
-      contributionContext,
-      focusTarget
-    });
+      const workspaceFolder = path.dirname(docPath)
+        || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const contributionContext = (workspaceFolder && this.contributionContextProvider)
+        ? await this.contributionContextProvider(workspaceFolder)
+        : undefined;
+
+      void panel.webview.postMessage({
+        type: 'documentState',
+        filePath: docPath,
+        inspection: this.serializeInspection(inspection),
+        contributionContext,
+        focusTarget
+      });
+    } finally {
+      this.isPostingByPath.delete(docPath);
+      const pending = this.pendingPostByPath.get(docPath);
+      if (pending) {
+        this.pendingPostByPath.delete(docPath);
+        void this.postStateToWebview(pending.panel, document, pending.focusTarget);
+      }
+    }
   }
 
   /**
@@ -415,7 +443,7 @@ export class HubConfigCustomEditorProvider implements vscode.CustomTextEditorPro
 
     const inspectSub = this.yamlIntelligence.onDidInspectDocument((event) => {
       if (event.uri.fsPath === document.uri.fsPath) {
-        void this.postStateToWebview(webviewPanel, document);
+        void this.postStateToWebview(webviewPanel, document, undefined, event.inspection);
       }
     });
 

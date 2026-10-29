@@ -225,6 +225,19 @@ This is useful when bundle files have been manually deleted but the lockfile sti
 | `promptRegistry.validateCollections` | Validate Collections | Validate collection YAML files including file references and duplicate detection |
 | `promptRegistry.validateApm` | Validate APM Package | Validate an APM package |
 | `promptRegistry.listCollections` | List All Collections | Display all collections |
+| `promptregistry.contributeToCollection` | Contribute to Collection (Fork, Clone & Open Visual Editor) | Fork and clone a GitHub-backed collection repository from a Marketplace tile or Explorer item, check out a branch, and open the target `.collection.yml` in the Visual Collection Editor (Artifactory sources are read-only and excluded) |
+| `promptregistry.openCollectionVisualEditor` | Open Collection in Visual Editor | Open a `.collection.yml` manifest in the Visual Master-Detail Custom Editor |
+| `promptregistry.openCollectionYamlBeside` | Collection: Open Split YAML View | Open the raw `.collection.yml` file in a split editor beside the Visual Collection Editor |
+| `promptregistry.createNewCollectionVisual` | Collection: Create New Collection (Visual) | Create a new `.collection.yml` manifest (with starter README) and open it in the Visual Collection Editor |
+| `promptregistry.duplicateCollectionVisual` | Collection: Duplicate Collection | Duplicate an existing collection under a new ID |
+| `promptregistry.deleteCollectionVisual` | Collection: Delete Collection | Delete a `.collection.yml` manifest from the workspace |
+| `promptregistry.addCollectionItemVisual` | Collection: Create or Add Primitive Item | Open the Visual Collection Editor on the Create/Add Primitive wizard |
+| `promptregistry.scaffoldMissingCollectionFile` | Collection: Create Missing Referenced File | Scaffold a missing referenced item or README file on disk from template |
+| `promptregistry.openCollectionItemFile` | Collection: Open Referenced Primitive File | Open a collection item's referenced primitive file beside the active editor |
+| `promptregistry.bumpCollectionVersion` | Collection: Bump Version (Patch / Minor / Major) | Increment a collection's semantic version (`patch`, `minor`, or `major`) |
+| `promptregistry.submitCollectionPullRequest` | Collection: Commit & Create Pull Request | Validate collections, stage modified `.collection.yml` and primitive files, push to fork, and open a Pull Request against upstream |
+| `promptregistry.refreshCollectionPullRequestStatus` | Collection: Refresh Pull Request Status | Refresh the active collection Pull Request and CI check-run status |
+| `promptregistry.openCollectionPullRequest` | Collection: Open Pull Request in Browser | Open the active collection Pull Request or upstream repository in the browser |
 
 ## Scaffolding & Resources
 

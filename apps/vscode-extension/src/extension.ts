@@ -1,4 +1,5 @@
 import {
+  CollectionEditorService,
   HubConfigEditorService,
 } from '@ai-primitives-hub/app';
 import {
@@ -18,6 +19,9 @@ import {
 import {
   BundleScopeCommands,
 } from './commands/bundle-scope-commands';
+import {
+  CollectionEditorCommands,
+} from './commands/collection-editor-commands';
 import {
   CreateCollectionCommand,
 } from './commands/create-collection-command';
@@ -79,6 +83,9 @@ import {
   AutoUpdateService,
 } from './services/auto-update-service';
 import {
+  CollectionYamlIntelligence,
+} from './services/collection-yaml-intelligence';
+import {
   ElasticSearchTransport,
 } from './services/elastic-search-transport';
 import {
@@ -136,6 +143,12 @@ import {
 import type {
   HubReference,
 } from './types/hub';
+import {
+  CollectionCustomEditorProvider,
+} from './ui/collection-custom-editor';
+import {
+  CollectionTreeProvider,
+} from './ui/collection-tree-provider';
 import {
   HubConfigCustomEditorProvider,
 } from './ui/hub-config-custom-editor';
@@ -392,6 +405,10 @@ export class PromptRegistryExtension {
   private hubConfigTreeProvider: HubConfigTreeProvider | undefined;
   private hubYamlIntelligence: HubYamlIntelligence | undefined;
   private hubCustomEditorProvider: HubConfigCustomEditorProvider | undefined;
+  private collectionEditorCommands: CollectionEditorCommands | undefined;
+  private collectionTreeProvider: CollectionTreeProvider | undefined;
+  private collectionYamlIntelligence: CollectionYamlIntelligence | undefined;
+  private collectionCustomEditorProvider: CollectionCustomEditorProvider | undefined;
   private hubIntegrationCommands: HubIntegrationCommands | undefined;
   private hubProfileCommands: HubProfileCommands | undefined;
   private hubManager: HubManager | undefined;
@@ -574,6 +591,29 @@ export class PromptRegistryExtension {
     );
     this.disposables.push(...this.hubEditorCommands.registerCommands());
     void this.hubEditorCommands.refreshContributableContext();
+
+    // Initialize Collection Visual Editor, Collections Tree View, YAML Intelligence & Contributor Workflow
+    const collectionEditorService = new CollectionEditorService();
+    this.collectionYamlIntelligence = new CollectionYamlIntelligence(collectionEditorService);
+    this.collectionYamlIntelligence.register(this.context);
+    this.collectionTreeProvider = new CollectionTreeProvider(collectionEditorService);
+    this.collectionCustomEditorProvider = new CollectionCustomEditorProvider(
+      this.context,
+      collectionEditorService,
+      this.collectionYamlIntelligence,
+      this.collectionTreeProvider
+    );
+    this.disposables.push(this.collectionCustomEditorProvider.register());
+    this.collectionEditorCommands = new CollectionEditorCommands(
+      this.context,
+      this.registryManager,
+      collectionEditorService,
+      this.collectionTreeProvider,
+      this.collectionYamlIntelligence,
+      this.collectionCustomEditorProvider
+    );
+    this.disposables.push(...this.collectionEditorCommands.registerCommands());
+    void this.collectionEditorCommands.refreshCollectionWorkspaceContext();
 
     // Wire event-driven source sync after every hub sync (activation, manual, periodic).
     // This replaces the ad-hoc syncAllSources call that was previously in syncActiveHub().
@@ -824,6 +864,14 @@ export class PromptRegistryExtension {
         showCollapseAll: true
       });
       this.disposables.push(hubConfigTreeView);
+    }
+
+    if (this.collectionTreeProvider) {
+      const collectionTreeView = vscode.window.createTreeView('promptRegistryCollectionsTree', {
+        treeDataProvider: this.collectionTreeProvider,
+        showCollapseAll: true
+      });
+      this.disposables.push(collectionTreeView);
     }
 
     // Register tree view commands

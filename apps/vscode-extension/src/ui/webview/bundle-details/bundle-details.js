@@ -96,6 +96,14 @@
           toggleAutoUpdate();
           break;
         }
+        case 'contributeCollection': {
+          vscode.postMessage({
+            type: 'contributeCollection',
+            bundleId: actionElement.dataset.bundleId || bundleId,
+            sourceId: actionElement.dataset.sourceId
+          });
+          break;
+        }
       }
     }
   });

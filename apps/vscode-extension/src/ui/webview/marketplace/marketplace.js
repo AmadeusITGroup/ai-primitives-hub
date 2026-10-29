@@ -1145,6 +1145,13 @@
 
     marketplace.innerHTML = filteredBundles.map((bundle) => {
       return '<div class="bundle-card ' + (bundle.installed ? 'installed' : '') + '" data-bundle-id="' + bundle.id + '" data-action="openDetails">'
+        + (bundle.contributable
+          ? '<button class="btn btn-link contribute-collection-button" data-action="contributeCollection"'
+          + ' data-bundle-id="' + bundle.id + '" data-source-id="' + (bundle.sourceId || '') + '" data-stop-propagation="true"'
+          + ' title="Contribute / Edit Collection in Visual Editor" aria-label="Contribute / Edit Collection in Visual Editor">'
+          + '✏️'
+          + '</button>'
+          : '')
         + '<button class="btn btn-link source-repo-button" data-action="openSourceRepo"'
         + ' data-bundle-id="' + bundle.id + '" data-stop-propagation="true"'
         + ' title="Open Source Repository" aria-label="Open Source Repository">'
@@ -1309,6 +1316,10 @@
     vscode.postMessage({ type: 'openSourceRepository', bundleId: bundleId });
   };
 
+  const contributeCollection = (bundleId, sourceId) => {
+    vscode.postMessage({ type: 'contributeCollection', bundleId: bundleId, sourceId: sourceId });
+  };
+
   const completeSetup = () => {
     vscode.postMessage({ type: 'completeSetup' });
   };
@@ -1412,6 +1423,13 @@
           if (bundleId) {
             e.stopPropagation();
             openSourceRepo(bundleId);
+          }
+          break;
+        }
+        case 'contributeCollection': {
+          if (bundleId) {
+            e.stopPropagation();
+            contributeCollection(bundleId, actionElement.dataset.sourceId);
           }
           break;
         }
