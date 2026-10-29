@@ -281,6 +281,8 @@ describe('install command (local --from mode)', () => {
     const nextLock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as Lockfile;
     expect(Object.keys(nextLock.bundles)).toEqual([fixture.catalogId]);
     expect(nextLock.bundles[fixture.catalogId].version).toBe('2.0.0');
+    expect(nextLock.bundles[fixture.catalogId].targetType).toBe('copilot-cli');
+    expect(nextLock.bundles[fixture.catalogId]).not.toHaveProperty('commitMode');
     const replayUpdated = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
     expect(replayUpdated.exitCode).toBe(0);
   });

@@ -10,6 +10,9 @@
  * `doctor diagnostics`' steps 1-9 and 20-21.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   chmod,
   mkdir,
   mkdtemp,
@@ -195,6 +198,46 @@ profiles:
     expect(currentResult.exitCode).toBe(0);
     const currentEnvelope = parseJson<{ active: { hubId: string; profileId: string } }>(currentResult.stdout);
     expect(currentEnvelope.data.active).toEqual({ hubId: 'test-hub', profileId: 'backend' });
+  });
+
+  const userLockfile = (): string => resolveUserConfigPaths({
+    XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+    HOME: workspace,
+    USERPROFILE: workspace
+  }).userLockfile;
+  type EntryShape = { targetType?: string; commitMode?: string; files: { path: string; checksum: string; installedChecksum?: string }[] };
+  const activatedEntry = async (): Promise<EntryShape> =>
+    (JSON.parse(await readFile(userLockfile(), 'utf8')) as { bundles: Record<string, EntryShape> }).bundles['local-foo'];
+
+  it('records the target type and no commit mode for an activated bundle', async () => {
+    expect((await run(['profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+    const entry = await activatedEntry();
+    expect(entry.targetType).toBe('copilot-cli');
+    expect(entry).not.toHaveProperty('commitMode');
+  });
+
+  it('records installedChecksum for a file a kiro target transforms on activation', async () => {
+    await mkdir(path.join(bundleDir, 'agents'), { recursive: true });
+    await writeFile(path.join(bundleDir, 'agents', 'helper.agent.md'), '---\ntitle: Helper\n---\n# Helper\n');
+    await writeFile(path.join(bundleDir, 'deployment-manifest.yml'), [
+      'id: local-foo', 'version: 1.0.0', 'name: Local Foo', 'prompts:',
+      '  - id: hello', '    file: prompts/hello.prompt.md', '    type: prompt',
+      '  - id: helper', '    file: agents/helper.agent.md', '    type: agent', ''
+    ].join('\n'));
+    expect((await run(['hub', 'sync', 'test-hub', '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['target', 'add', 'kiro', '--type', 'kiro', '-o', 'json'])).exitCode).toBe(0);
+
+    const activated = await run(['profile', 'activate', 'backend', '--target', 'kiro', '-o', 'json']);
+
+    expect(activated.exitCode, activated.stdout).toBe(0);
+    const entry = await activatedEntry();
+    expect(entry.targetType).toBe('kiro');
+    expect(entry).not.toHaveProperty('commitMode');
+    const agent = entry.files.find((file) => file.path === 'agents/helper.agent.md');
+    const onDisk = await readFile(path.join(workspace, '.kiro', 'agents', 'helper.agent.md'));
+    expect(agent?.installedChecksum).toBe(createHash('sha256').update(onDisk).digest('hex'));
+    expect(agent?.installedChecksum).not.toBe(agent?.checksum);
   });
 
   it.skipIf(process.platform === 'win32')('activates a profile with the bundle\'s executable bits (#577)', async () => {

@@ -11,7 +11,8 @@
  */
 import * as path from 'node:path';
 import {
-  checksumFiles,
+  buildLockfileBundleEntry,
+  computeInstalledChecksums,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
@@ -601,19 +602,19 @@ async function applyUpdate(
   const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
 
   const writer = createCliWriterFactory(ctx, { scope: scope as Target['scope'], commitMode })(target);
-  const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, target, files, manifest);
+  const write = await writeBundleSafely(writer, target, files, manifest);
 
-  const entry: LockfileBundleEntry = {
+  const installedChecksums = await computeInstalledChecksums({ writer, target, write, fs: ctx.fs });
+  const entry = buildLockfileBundleEntry({
     version: manifest.version,
     sourceId: candidate.entry.sourceId,
     sourceType: candidate.entry.sourceType,
     checksum: dl.sha256,
-    installedAt: new Date().toISOString(),
-    files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-  };
-  if (scope === 'repository') {
-    entry.commitMode = commitMode;
-  }
+    targetType: target.type,
+    write,
+    installedChecksums,
+    now: new Date()
+  });
 
   const lock = await readLockfile(lockPath, ctx.fs);
   if (lock === null) {
