@@ -1,6 +1,11 @@
 import {
   chmodSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
   statSync,
+  symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import {
   chmod,
@@ -141,6 +146,33 @@ describe('NodeFileSystem', () => {
     await fs.remove(subdir, { recursive: true });
 
     expect(await fs.exists(subdir)).toBe(false);
+  });
+
+  describe('realpath', () => {
+    it.skipIf(process.platform === 'win32')('resolves a symlinked directory to its target', async () => {
+      const target = join(dir, 'target');
+      mkdirSync(target);
+      writeFileSync(join(target, 'file.txt'), 'x');
+      symlinkSync(target, join(dir, 'link'), 'dir');
+
+      expect(await fs.realpath(join(dir, 'link', 'file.txt')))
+        .toBe(join(realpathSync.native(target), 'file.txt'));
+    });
+
+    it('rejects a missing path with ENOENT', async () => {
+      await expect(fs.realpath(join(dir, 'missing'))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it('returns the on-disk casing on a case-insensitive filesystem', async (context) => {
+      writeFileSync(join(dir, 'probe'), 'x');
+      if (!existsSync(join(dir, 'PROBE'))) {
+        context.skip();
+      }
+      mkdirSync(join(dir, 'MixedCase'));
+
+      expect(await fs.realpath(join(dir, 'mixedcase')))
+        .toBe(join(realpathSync.native(dir), 'MixedCase'));
+    });
   });
 
   describe('file modes (#577)', () => {

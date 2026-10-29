@@ -12,6 +12,9 @@
  * @module fs/node-filesystem
  */
 import {
+  realpath as realpathCallback,
+} from 'node:fs';
+import {
   access,
   chmod,
   mkdir,
@@ -21,6 +24,9 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
+import {
+  promisify,
+} from 'node:util';
 import type {
   DirEntry,
   FileStat,
@@ -29,6 +35,13 @@ import type {
 
 /** `chmod` errors meaning the mode cannot be changed here, not an I/O failure. */
 const MODE_UNSUPPORTED_CODES: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL']);
+
+/**
+ * The operating system's `realpath(3)`. Unlike `fs/promises` `realpath`
+ * (a JavaScript walk that keeps the input's casing), it returns the
+ * on-disk casing on case-insensitive filesystems.
+ */
+const nativeRealpath = promisify(realpathCallback.native);
 
 export class NodeFileSystem implements FileSystem {
   public async readFile(path: string): Promise<string> {
@@ -127,6 +140,17 @@ export class NodeFileSystem implements FileSystem {
         throw error;
       }
     }
+  }
+
+  /**
+   * Canonical absolute path: resolves symlinks and returns the on-disk
+   * casing (ADR-0009 decision 5).
+   * @param path Existing path.
+   * @returns The real path.
+   * @throws {NodeJS.ErrnoException} `ENOENT` when the path does not exist.
+   */
+  public async realpath(path: string): Promise<string> {
+    return nativeRealpath(path);
   }
 
   public async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {
