@@ -17,12 +17,10 @@
 import * as path from 'node:path';
 import {
   cleanupOrphanedSource,
-  FileTreeTargetWriter,
   type LockfileBundleEntry,
   readLockfile,
   removeBundleEntry,
   type TargetWriter,
-  TransformerRegistry,
   UninstallPipeline,
   type UninstallResult,
   writeLockfile,
@@ -31,15 +29,12 @@ import type {
   Target,
 } from '@ai-primitives-hub/core';
 import {
-  FileSystemLayoutConfigLoader,
   type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   TargetStateStore,
 } from '@ai-primitives-hub/infra';
 import {
   Command,
+  createCliWriterFactory,
   failWith,
   findProjectLockfile,
   loadTargets,
@@ -218,53 +213,14 @@ export class UninstallCommand extends BaseUninstallCommand {
 }
 
 /**
- * Create a writer factory that routes to the appropriate writer based on target scope.
+ * Create a writer factory that routes to the appropriate writer based on
+ * target scope (see `createCliWriterFactory`). Shared with install, so
+ * `writer.remove()` computes the same on-disk path `writer.write()` used.
  * - user scope → FileTreeTargetWriter
- * - repository scope → RepositoryScopeWriter
- * @param ctx CLI context.
- * @param opts Uninstall options.
- * @returns Writer factory function.
+ * - repository scope → RepositoryScopeWriter for Copilot-like targets,
+ *   FileTreeTargetWriter otherwise
  */
-export const createWriterFactory = (
-  ctx: Context,
-  opts: UninstallOptions
-): (target: Target) => TargetWriter => {
-  // Create transformer registry with built-in transformers — must match
-  // install.ts's factory so `writer.remove()` computes the same on-disk
-  // path that `writer.write()` used (targets with a real, non-identity
-  // transformer like Kiro would otherwise resolve the wrong path).
-  const transformerRegistry = TransformerRegistry.withBuiltIns();
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-
-  return (target: Target): TargetWriter => {
-    const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
-    const workspaceRoot = effectiveTarget.rootPath ?? ctx.cwd();
-
-    const copilotLikeTargets = new Set<string>(['vscode', 'vscode-insiders', 'copilot-cli']);
-    if (scope === 'repository' && copilotLikeTargets.has(effectiveTarget.type)) {
-      const writer = new RepositoryScopeWriter({
-        fs: ctx.fs,
-        workspaceRoot,
-        commitMode
-      });
-      return new RepositoryScopeWriterAdapter(writer);
-    }
-    // Default to FileTreeTargetWriter for user scope
-    const transformer = transformerRegistry.getTransformer(effectiveTarget.type);
-    return new FileTreeTargetWriter({
-      fs: ctx.fs,
-      env: ctx.env,
-      transformer,
-      layoutLoader
-    });
-  };
-};
+export const createWriterFactory = createCliWriterFactory;
 
 /**
  * Remove a single bundle's files + lockfile entry directly against the

@@ -43,6 +43,14 @@ export {
   writeBundleForInstall,
 } from './partial-target-write';
 
+export {
+  createTargetWriterFactory,
+} from './target-writer-factory';
+
+export type {
+  TargetWriterFactoryOptions,
+} from './target-writer-factory';
+
 export type {
   BundleInstallWrite,
   SkippedBundleContent,

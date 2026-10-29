@@ -20,7 +20,6 @@ import * as path from 'node:path';
 import {
   checksumFiles,
   emptyLockfile,
-  FileTreeTargetWriter,
   githubRepoSlugForSource,
   type Lockfile,
   type LockfileBundleEntry,
@@ -31,7 +30,6 @@ import {
   resolveUserConfigPaths,
   type SkippedBundleContent,
   type TargetWriter,
-  TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
   writeBundleForInstall,
@@ -62,7 +60,6 @@ import {
   AwesomeCopilotBundleResolver,
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
-  FileSystemLayoutConfigLoader,
   GitHubApiClient,
   GitHubBundleResolver,
   type GitHubSourceAuthRuntime,
@@ -73,9 +70,6 @@ import {
   parseGitHubRepositoryTarget,
   readLocalBundle,
   type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   SourceDispatcher,
   StaticTokenProvider,
   TargetStateStore,
@@ -83,6 +77,7 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   Command,
+  createCliWriterFactory,
   createHubManager,
   failWith,
   findProjectLockfile,
@@ -659,52 +654,12 @@ async function lookupHubSource(
 
 /**
  * Create a writer factory that routes to the appropriate
- * writer based on target scope.
+ * writer based on target scope (see `createCliWriterFactory`).
  * - user scope → FileTreeTargetWriter
- * - repository scope → RepositoryScopeWriter
- * @param ctx CLI context.
- * @param opts Install options.
- * @returns Writer factory function.
+ * - repository scope → RepositoryScopeWriter for Copilot-like targets,
+ *   FileTreeTargetWriter otherwise
  */
-export const createWriterFactory = (
-  ctx: Context,
-  opts: InstallOptions
-): (target: Target) => TargetWriter => {
-  // Create transformer registry and hierarchical layout loader once per command.
-  const transformerRegistry = TransformerRegistry.withBuiltIns();
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-
-  return (target: Target): TargetWriter => {
-    const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
-    const workspaceRoot = effectiveTarget.rootPath ?? ctx.cwd();
-
-    // Copilot / VS Code repository scope still writes the .github tree and
-    // supports commitMode / .git/info/exclude. Every other target uses the
-    // data-driven FileTreeTargetWriter with its repository scope layout.
-    const copilotLikeTargets = new Set<string>(['vscode', 'vscode-insiders', 'copilot-cli']);
-    if (scope === 'repository' && copilotLikeTargets.has(effectiveTarget.type)) {
-      const writer = new RepositoryScopeWriter({
-        fs: ctx.fs,
-        workspaceRoot,
-        commitMode
-      });
-      return new RepositoryScopeWriterAdapter(writer);
-    }
-    const transformer = transformerRegistry.getTransformer(effectiveTarget.type);
-    return new FileTreeTargetWriter({
-      fs: ctx.fs,
-      env: ctx.env,
-      transformer,
-      layoutLoader
-    });
-  };
-};
+export const createWriterFactory = createCliWriterFactory;
 
 /**
  * List bundles from a hub source.

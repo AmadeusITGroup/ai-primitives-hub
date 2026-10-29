@@ -184,6 +184,69 @@ layouts:
     expect(layers[1].layouts.vscode.user.baseDir).toBe('/workspace/.vscode');
   });
 
+  it('skips the project layer when cwd is null', async () => {
+    const userFile = `/home/user/.config/ai-primitives-hub/${LAYOUTS_CONFIG_FILE}`;
+    const projectFile = `/${LAYOUTS_CONFIG_FILE}`;
+    const loader = new FileSystemLayoutConfigLoader({
+      cwd: null,
+      fs: makeFs({
+        [userFile]: `
+layouts:
+  vscode:
+    user:
+      baseDir: "/user/vscode"
+      kindRoutes:
+        "prompts/": "prompts/"
+`,
+        [projectFile]: `
+layouts:
+  kiro:
+    user:
+      baseDir: "/project/.kiro"
+      kindRoutes:
+        "prompts/": "steering/"
+`
+      }),
+      userConfigDir: '/home/user/.config/ai-primitives-hub'
+    });
+    const layers = await loader.load();
+    expect(layers).toHaveLength(2);
+    expect(layers[1].layouts.vscode.user.baseDir).toBe('/user/vscode');
+  });
+
+  it('skips the user layer when userConfigDir is null', async () => {
+    const projectFile = `/project/${LAYOUTS_CONFIG_FILE}`;
+    const exists = vi.fn((p: string): Promise<boolean> => Promise.resolve(p.replaceAll('\\', '/') === projectFile));
+    const fs: LayoutConfigFs = {
+      ...makeFs({
+        [projectFile]: `
+layouts:
+  kiro:
+    user:
+      baseDir: "/project/.kiro"
+      kindRoutes:
+        "prompts/": "steering/"
+`
+      }),
+      exists
+    };
+    const loader = new FileSystemLayoutConfigLoader({ cwd: '/project', fs, userConfigDir: null });
+    const layers = await loader.load();
+    expect(layers).toHaveLength(2);
+    expect(layers[1].layouts.kiro.user.baseDir).toBe('/project/.kiro');
+    expect(exists.mock.calls.some(([p]) => p.replaceAll('\\', '/').includes('ai-primitives-hub/'))).toBe(false);
+  });
+
+  it('returns only built-in when both layers are null', async () => {
+    const loader = new FileSystemLayoutConfigLoader({
+      cwd: null,
+      fs: makeFs({ [`/${LAYOUTS_CONFIG_FILE}`]: 'layouts: {}\n' }),
+      userConfigDir: null
+    });
+    const layers = await loader.load();
+    expect(layers).toHaveLength(1);
+  });
+
   it('skips and warns on invalid user config file', async () => {
     const userFile = `/home/user/.config/ai-primitives-hub/${LAYOUTS_CONFIG_FILE}`;
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});

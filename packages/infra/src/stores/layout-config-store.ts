@@ -7,7 +7,9 @@
  *   3. Project override: ./ai-primitives-hub-layouts.yml (cwd walk, stops at fs root)
  *
  * Each level is optional except the built-in. Missing files are silently
- * skipped. Invalid files log a warning and are skipped.
+ * skipped. Invalid files log a warning and are skipped. A caller that
+ * passes `null` for the user directory or the working directory turns
+ * that level off.
  *
  * Conforms to the LayoutConfigLoader port.
  * @module stores/layout-config-store
@@ -45,15 +47,19 @@ export interface LayoutConfigFs {
  * Options for FileSystemLayoutConfigLoader.
  */
 export interface LayoutConfigLoaderOptions {
-  /** Working directory; project config walk starts here. */
-  cwd: string;
+  /**
+   * Working directory; project config walk starts here. `null` skips the
+   * project layer.
+   */
+  cwd: string | null;
   /** Filesystem abstraction. */
   fs: LayoutConfigFs;
   /**
    * Override the user config directory. Defaults to
-   * `~/.config/ai-primitives-hub` (respects `$XDG_CONFIG_HOME`).
+   * `~/.config/ai-primitives-hub` (respects `$XDG_CONFIG_HOME`) when
+   * omitted; `null` skips the user layer.
    */
-  userConfigDir?: string;
+  userConfigDir?: string | null;
 }
 
 /**
@@ -132,17 +138,19 @@ export class FileSystemLayoutConfigLoader implements LayoutConfigLoader {
     const layers: TargetLayoutsConfig[] = [builtInLayouts];
 
     // Layer 2: user config (~/.config/ai-primitives-hub/layouts.yml)
-    const userConfigDir = this.opts.userConfigDir ?? resolveUserConfigDir();
-    const userFile = path.join(userConfigDir, LAYOUTS_CONFIG_FILE);
-    if (await this.opts.fs.exists(userFile)) {
-      const cfg = await tryLoadFile(userFile, this.opts.fs);
-      if (cfg !== null) {
-        layers.push(cfg);
+    const userConfigDir = this.opts.userConfigDir === undefined ? resolveUserConfigDir() : this.opts.userConfigDir;
+    if (userConfigDir !== null) {
+      const userFile = path.join(userConfigDir, LAYOUTS_CONFIG_FILE);
+      if (await this.opts.fs.exists(userFile)) {
+        const cfg = await tryLoadFile(userFile, this.opts.fs);
+        if (cfg !== null) {
+          layers.push(cfg);
+        }
       }
     }
 
     // Layer 3: project config (nearest ai-primitives-hub-layouts.yml in cwd walk)
-    const projectFile = await findProjectConfigFile(this.opts.cwd, this.opts.fs);
+    const projectFile = this.opts.cwd === null ? null : await findProjectConfigFile(this.opts.cwd, this.opts.fs);
     if (projectFile !== null) {
       const cfg = await tryLoadFile(projectFile, this.opts.fs);
       if (cfg !== null) {

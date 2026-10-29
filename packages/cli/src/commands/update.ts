@@ -12,15 +12,12 @@
 import * as path from 'node:path';
 import {
   checksumFiles,
-  FileTreeTargetWriter,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
   readLockfile,
   removeSupersededFiles,
   resolveUserConfigPaths,
-  type TargetWriter,
-  TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
   writeBundleSafely,
@@ -49,16 +46,12 @@ import {
   ArtifactoryHttpClient,
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
-  FileSystemLayoutConfigLoader,
   GitHubApiClient,
   HttpsBundleDownloader,
   isGitHubAppAuthEnabled,
   NodeHttpClient,
   parseGitHubRepositoryTarget,
   type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   SourceDispatcher,
   StaticTokenProvider,
   TargetStateStore,
@@ -66,6 +59,7 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   Command,
+  createCliWriterFactory,
   createHubManager,
   failWith,
   findProjectLockfile,
@@ -535,34 +529,6 @@ function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skipp
   return failures.length > 0 ? 1 : 0;
 }
 
-/**
- * Build a scope-aware target writer, matching install/uninstall's own
- * `createWriterFactory`.
- * @param ctx CLI context.
- * @param target Target being updated.
- * @param scope Effective scope (may override `target.scope`).
- * @param commitMode Effective commit mode (repository scope only).
- * @returns A TargetWriter.
- */
-function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode): TargetWriter {
-  const effectiveScope = scope as Target['scope'];
-  if (effectiveScope === 'repository' && new Set(['vscode', 'vscode-insiders', 'copilot-cli']).has(target.type)) {
-    const writer = new RepositoryScopeWriter({
-      fs: ctx.fs,
-      workspaceRoot: target.rootPath ?? ctx.cwd(),
-      commitMode
-    });
-    return new RepositoryScopeWriterAdapter(writer);
-  }
-  const transformer = TransformerRegistry.withBuiltIns().getTransformer(target.type);
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-  return new FileTreeTargetWriter({ fs: ctx.fs, env: ctx.env, transformer, layoutLoader });
-}
-
 async function applyUpdates(
   toInstall: UpdateCandidate[],
   target: Target,
@@ -634,7 +600,7 @@ async function applyUpdate(
   const isArtifactory = candidate.source.type === 'artifactory';
   const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
 
-  const writer = writerFor(ctx, target, scope, commitMode);
+  const writer = createCliWriterFactory(ctx, { scope: scope as Target['scope'], commitMode })(target);
   const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, target, files, manifest);
 
   const entry: LockfileBundleEntry = {

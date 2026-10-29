@@ -97,6 +97,7 @@ export {
   createHttpClientAndTokens,
 } from './hub-manager';
 export {
+  createCliWriterFactory,
   findProjectLockfile,
   loadTargets,
   lockfilePathForTarget,

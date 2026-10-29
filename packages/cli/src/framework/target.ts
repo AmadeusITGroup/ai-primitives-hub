@@ -5,6 +5,7 @@
  * @module framework/target
  */
 import {
+  createTargetWriterFactory,
   findLockfile,
   getLockfilePathForMode,
   type RepositoryCommitMode,
@@ -12,9 +13,11 @@ import {
 } from '@ai-primitives-hub/app';
 import {
   type Target,
+  type TargetWriter,
 } from '@ai-primitives-hub/core';
 import {
   readTargetsHierarchical,
+  resolveUserConfigDir,
 } from '@ai-primitives-hub/infra';
 import {
   type Context,
@@ -68,6 +71,34 @@ export const resolveEffectiveTarget = (
     ...(overrides.commitMode === undefined ? {} : { commitMode: overrides.commitMode }),
     ...(rootPath === undefined ? {} : { rootPath })
   };
+};
+
+/**
+ * Create the writer factory a CLI command uses: each target is first
+ * resolved with {@link resolveEffectiveTarget}, then handed to `app`'s
+ * `createTargetWriterFactory` with the project layout lookup starting at
+ * the working directory and the user layout file from the XDG config
+ * directory.
+ * @param ctx CLI context.
+ * @param overrides Per-invocation scope / commit-mode overrides.
+ * @param options Writer options.
+ * @param options.writerOwnsExclusion Whether the repository-scope writer
+ *   updates `.git/info/exclude` itself (default `true`).
+ * @returns Writer factory function.
+ */
+export const createCliWriterFactory = (
+  ctx: Context,
+  overrides: TargetOverrides = {},
+  { writerOwnsExclusion = true }: { writerOwnsExclusion?: boolean } = {}
+): (target: Target) => TargetWriter => {
+  const factory = createTargetWriterFactory({
+    fs: ctx.fs,
+    env: ctx.env,
+    projectDir: ctx.cwd(),
+    userConfigDir: resolveUserConfigDir(ctx.env),
+    writerOwnsExclusion
+  });
+  return (target: Target): TargetWriter => factory(resolveEffectiveTarget(ctx, target, overrides));
 };
 
 /**
