@@ -52,6 +52,23 @@ export {
   computeInstalledChecksums,
 } from './lockfile-entry';
 
+export {
+  locateRecord,
+} from './recorded-files';
+
+export type {
+  LocatedRecord,
+} from './recorded-files';
+
+export {
+  applyBundleUninstall,
+} from './apply-bundle-uninstall';
+
+export type {
+  ApplyBundleUninstallInput,
+  ApplyBundleUninstallResult,
+} from './apply-bundle-uninstall';
+
 export type {
   TargetWriterFactoryOptions,
 } from './target-writer-factory';
