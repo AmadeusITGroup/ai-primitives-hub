@@ -64,6 +64,16 @@ skills:
     file: skills/test-skill/skill.json
     type: skill`;
 
+/**
+ * In-memory filesystem whose workspace is a git repository: a file below
+ * `.git` makes `.git` a directory.
+ */
+const gitWorkspaceFs = (): InMemoryFileSystem => {
+  const fs = new InMemoryFileSystem();
+  fs.seed(path.join(WORKSPACE_ROOT, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+  return fs;
+};
+
 describe('RepositoryScopeWriter', () => {
   it('writes prompts to .github/prompts/', async () => {
     const fs = new InMemoryFileSystem();
@@ -264,7 +274,7 @@ prompts:
   });
 
   it('adds files to .git/info/exclude in local-only mode', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const files = new Map<string, Uint8Array>([
@@ -386,7 +396,7 @@ prompts:
   });
 
   it('removes from .git/info/exclude in local-only mode', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');
@@ -404,7 +414,7 @@ prompts:
   });
 
   it('switches commit mode from commit to local-only', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
     const paths = [path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md')];
@@ -416,7 +426,7 @@ prompts:
   });
 
   it('switches commit mode from local-only to commit', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const paths = [path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md')];
@@ -473,7 +483,7 @@ skills:
   });
 
   it('handles removal when git/info/exclude does not exist', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const manifest = {
@@ -486,7 +496,7 @@ skills:
   });
 
   it('handles removal when git/info/exclude has no Prompt Registry section', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');

@@ -208,6 +208,9 @@ const createSandbox = async (parent: string, name: string): Promise<Sandbox> => 
   const workspace = path.join(root, 'workspace');
   await mkdir(home, { recursive: true });
   await mkdir(workspace, { recursive: true });
+  // The workspace is a git repository, so local-only installs have an
+  // exclude file to update.
+  await mkdir(path.join(workspace, '.git'), { recursive: true });
   return {
     root,
     home,

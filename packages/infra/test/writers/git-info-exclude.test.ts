@@ -37,6 +37,8 @@ const readExclude = async (fs: InMemoryFileSystem): Promise<string | null> =>
 
 const setup = (seed?: string): { fs: InMemoryFileSystem; exclusion: GitInfoExclude } => {
   const fs = new InMemoryFileSystem();
+  // A file below `.git` makes it a directory in the in-memory filesystem.
+  fs.seed('/workspace/.git/HEAD', 'ref: refs/heads/main\n');
   if (seed !== undefined) {
     fs.seed(EXCLUDE_PATH, seed);
   }

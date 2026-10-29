@@ -239,6 +239,8 @@ const EXCLUDE_EXPECTED: Record<string, (string | null)[]> = {
 describe('characterisation: .git/info/exclude bytes in local-only mode', () => {
   const capture = async (run: (fs: InMemoryFileSystem, steps: (string | null)[]) => Promise<void>, seed?: string) => {
     const fs = new InMemoryFileSystem();
+    // The workspace is a git repository: a file below `.git` makes it a directory.
+    fs.seed(`${WORKSPACE_ROOT}/.git/HEAD`, 'ref: refs/heads/main\n');
     if (seed !== undefined) {
       fs.seed(EXCLUDE_PATH, seed);
     }
