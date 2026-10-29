@@ -142,14 +142,35 @@ export class GitWorkspaceAdapter implements GitWorkspacePort {
     const [remotes, currentBranch, porcelain] = await Promise.all([
       this.getRemotes(dir),
       this.getCurrentBranch(dir).catch(() => undefined),
-      this.executor.execFile('git', ['status', '--porcelain'], { cwd: dir })
+      this.executor.execFile('git', ['status', '--porcelain=v1', '-z', '-uall'], { cwd: dir })
     ]);
 
-    const modifiedFiles = porcelain.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((line) => line.replace(/^[A-Z?]{1,2}\s+/, ''));
+    const modifiedFiles: string[] = [];
+    if (porcelain.stdout.includes('\0')) {
+      const fields = porcelain.stdout.split('\0');
+      for (let i = 0; i < fields.length; i++) {
+        const entry = fields[i];
+        if (entry.length < 4) {
+          continue;
+        }
+        const xy = entry.slice(0, 2);
+        modifiedFiles.push(entry.slice(3));
+        if (xy.includes('R') || xy.includes('C')) {
+          i++; // skip the original path of a rename or copy
+        }
+      }
+    } else {
+      for (const rawLine of porcelain.stdout.split(/\r?\n/)) {
+        const line = rawLine.trimEnd();
+        if (line.length < 4) {
+          continue;
+        }
+        const withoutStatus = line.slice(3);
+        const renameParts = withoutStatus.split(' -> ');
+        const target = renameParts.at(-1) ?? withoutStatus;
+        modifiedFiles.push(target.replace(/^"(.*)"$/, '$1'));
+      }
+    }
 
     return {
       isGitRepo: true,
@@ -176,8 +197,10 @@ export class GitWorkspaceAdapter implements GitWorkspacePort {
     remote: string,
     branch: string
   ): Promise<{ commitSha: string }> {
-    await this.executor.execFile('git', ['add', '--', ...files], { cwd: dir });
-    await this.executor.execFile('git', ['commit', '-m', message, '--', ...files], { cwd: dir });
+    if (files.length > 0) {
+      await this.executor.execFile('git', ['add', '--', ...files], { cwd: dir });
+      await this.executor.execFile('git', ['commit', '-m', message, '--', ...files], { cwd: dir });
+    }
     const shaRes = await this.executor.execFile('git', ['rev-parse', 'HEAD'], { cwd: dir });
     const authArgs = await this.buildGitAuthArgs();
     await this.executor.execFile('git', [...authArgs, 'push', '-u', remote, branch], { cwd: dir });
