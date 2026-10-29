@@ -528,6 +528,26 @@
         "effectiveScope": "repository"
       }
     },
+    "kiro/repository/local-only": {
+      "dirsLeftAfterUninstall": [],
+      "files": {
+        "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": "BUNDLE.UNSUPPORTED_CONTENT",
+        "exitCode": 1,
+        "status": "error"
+      },
+      "lockEntry": null,
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
     "kiro/user": {
       "dirsLeftAfterUninstall": [],
       "files": {
@@ -760,8 +780,8 @@
         "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
-      "gitExclude": "# Prompt Registry (local)\n.github/hooks/x.json",
-      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
+      "gitExclude": "# Prompt Registry (local)\n.github/hooks/x.json\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)\nprompt-registry.local.lock.json",
       "install": {
         "errorCode": null,
         "exitCode": 0,
@@ -1433,6 +1453,26 @@
         "effectiveScope": "repository"
       }
     },
+    "kiro/repository/local-only": {
+      "dirsLeftAfterUninstall": [],
+      "files": {
+        "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": "BUNDLE.UNSUPPORTED_CONTENT",
+        "exitCode": 1,
+        "status": "error"
+      },
+      "lockEntry": null,
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
     "kiro/user": {
       "dirsLeftAfterUninstall": [],
       "files": {
@@ -1665,8 +1705,8 @@
         "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
-      "gitExclude": "# Prompt Registry (local)\n.github/hooks/x.json",
-      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
+      "gitExclude": "# Prompt Registry (local)\n.github/hooks/x.json\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)\nprompt-registry.local.lock.json",
       "install": {
         "errorCode": null,
         "exitCode": 0,

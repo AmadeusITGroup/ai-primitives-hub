@@ -756,6 +756,62 @@
         "effectiveScope": "repository"
       }
     },
+    "kiro/repository/local-only": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.kiro",
+        "<workspace>/.kiro/agents",
+        "<workspace>/.kiro/powers",
+        "<workspace>/.kiro/skills",
+        "<workspace>/.kiro/skills/foo",
+        "<workspace>/.kiro/skills/foo/references",
+        "<workspace>/.kiro/skills/foo/scripts",
+        "<workspace>/.kiro/specs",
+        "<workspace>/.kiro/steering"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.kiro/skills/foo/SKILL.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.kiro/skills/foo/references/ref.md": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+        "<workspace>/.kiro/skills/foo/scripts/run.sh": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+        "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": "# Prompt Registry (local)\n.kiro/skills/foo/SKILL.md\n.kiro/skills/foo/references/ref.md\n.kiro/skills/foo/scripts/run.sh\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)\n.kiro/skills/foo/SKILL.md\n.kiro/skills/foo/references/ref.md\n.kiro/skills/foo/scripts/run.sh\nprompt-registry.local.lock.json",
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "skills/foo/SKILL.md",
+            "path": "skills/foo/SKILL.md"
+          },
+          {
+            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "installedPath": "skills/foo/references/ref.md",
+            "path": "skills/foo/references/ref.md"
+          },
+          {
+            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "installedPath": "skills/foo/scripts/run.sh",
+            "path": "skills/foo/scripts/run.sh"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
     "kiro/user": {
       "dirsLeftAfterUninstall": [
         "$HOME/.kiro",
@@ -1103,8 +1159,8 @@
         "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
-      "gitExclude": "# Prompt Registry (local)\n.github/skills/foo/SKILL.md\n.github/skills/foo/references/ref.md\n.github/skills/foo/scripts/run.sh",
-      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
+      "gitExclude": "# Prompt Registry (local)\n.github/skills/foo/SKILL.md\n.github/skills/foo/references/ref.md\n.github/skills/foo/scripts/run.sh\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)\nprompt-registry.local.lock.json",
       "install": {
         "errorCode": null,
         "exitCode": 0,
@@ -2060,6 +2116,62 @@
         "effectiveScope": "repository"
       }
     },
+    "kiro/repository/local-only": {
+      "dirsLeftAfterUninstall": [
+        "<workspace>/.ai-primitives-hub",
+        "<workspace>/.kiro",
+        "<workspace>/.kiro/agents",
+        "<workspace>/.kiro/powers",
+        "<workspace>/.kiro/skills",
+        "<workspace>/.kiro/skills/foo",
+        "<workspace>/.kiro/skills/foo/references",
+        "<workspace>/.kiro/skills/foo/scripts",
+        "<workspace>/.kiro/specs",
+        "<workspace>/.kiro/steering"
+      ],
+      "files": {
+        "<workspace>/.ai-primitives-hub/target-state.json": "present",
+        "<workspace>/.kiro/skills/foo/SKILL.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+        "<workspace>/.kiro/skills/foo/references/ref.md": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+        "<workspace>/.kiro/skills/foo/scripts/run.sh": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+        "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/.ai-primitives-hub/target-state.json",
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": "# Prompt Registry (local)\n.kiro/skills/foo/SKILL.md\n.kiro/skills/foo/references/ref.md\n.kiro/skills/foo/scripts/run.sh\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)\n.kiro/skills/foo/SKILL.md\n.kiro/skills/foo/references/ref.md\n.kiro/skills/foo/scripts/run.sh\nprompt-registry.local.lock.json",
+      "install": {
+        "errorCode": null,
+        "exitCode": 0,
+        "status": "ok"
+      },
+      "lockEntry": {
+        "files": [
+          {
+            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "skills/foo/SKILL.md",
+            "path": "skills/foo/SKILL.md"
+          },
+          {
+            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "installedPath": "skills/foo/references/ref.md",
+            "path": "skills/foo/references/ref.md"
+          },
+          {
+            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "installedPath": "skills/foo/scripts/run.sh",
+            "path": "skills/foo/scripts/run.sh"
+          }
+        ],
+        "sourceType": "local",
+        "version": "1.0.0"
+      },
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
     "kiro/user": {
       "dirsLeftAfterUninstall": [
         "$HOME/.kiro",
@@ -2407,8 +2519,8 @@
         "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
-      "gitExclude": "# Prompt Registry (local)\n.github/skills/foo/SKILL.md\n.github/skills/foo/references/ref.md\n.github/skills/foo/scripts/run.sh",
-      "gitExcludeAfterUninstall": "# Prompt Registry (local)",
+      "gitExclude": "# Prompt Registry (local)\n.github/skills/foo/SKILL.md\n.github/skills/foo/references/ref.md\n.github/skills/foo/scripts/run.sh\nprompt-registry.local.lock.json",
+      "gitExcludeAfterUninstall": "# Prompt Registry (local)\nprompt-registry.local.lock.json",
       "install": {
         "errorCode": null,
         "exitCode": 0,

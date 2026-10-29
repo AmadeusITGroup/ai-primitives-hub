@@ -18,23 +18,21 @@
  */
 import * as path from 'node:path';
 import {
-  checksumFiles,
+  applyBundleInstall,
+  type ApplyBundleInstallInput,
+  type ApplyBundleInstallResult,
+  createLockfileRecordStore,
   emptyLockfile,
   githubRepoSlugForSource,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
   readLockfile,
-  removeSupersededFiles,
   resolveInstallSource,
   resolveUserConfigPaths,
   type SkippedBundleContent,
   type TargetWriter,
-  upsertBundleEntry,
-  upsertSource,
-  writeBundleForInstall,
   writeBundleSafely,
-  writeLockfile,
 } from '@ai-primitives-hub/app';
 import type {
   BundleResolver,
@@ -63,6 +61,7 @@ import {
   GitHubApiClient,
   GitHubBundleResolver,
   type GitHubSourceAuthRuntime,
+  GitInfoExclude,
   HttpsBundleDownloader,
   HubStore,
   isGitHubAppAuthEnabled,
@@ -345,12 +344,62 @@ const renderSkipped = (skipped: readonly SkippedBundleContent[]): string =>
     : 'Skipped:\n' + skipped.map((s) => `  - ${s.path}: ${s.reason}\n`).join('');
 
 /**
- * Output warnings for the content a partial install skipped.
- * @param skipped Skipped content.
- * @returns One warning per skipped item, or `undefined` when none.
+ * Output warnings for an install: content a partial install skipped, a
+ * `local-only` workspace that is not a git repository, exclude-file
+ * updates that failed and superseded files that could not be removed.
+ * @param target Effective target.
+ * @param outcome Install outcome.
+ * @returns The warnings, or `undefined` when there are none.
  */
-const skippedWarnings = (skipped: readonly SkippedBundleContent[]): string[] | undefined =>
-  skipped.length === 0 ? undefined : skipped.map((s) => `skipped ${s.path}: ${s.reason}`);
+const installWarnings = (target: Target, outcome: ApplyBundleInstallResult): string[] | undefined => {
+  const warnings = [
+    ...outcome.skipped.map((s) => `skipped ${s.path}: ${s.reason}`),
+    ...(outcome.exclusionSkipped
+      ? [`${target.rootPath ?? ''} is not a git repository; local-only files are not excluded from git`]
+      : []),
+    ...outcome.exclusionErrors.map((message) => `could not update the git exclude file: ${message}`),
+    ...outcome.errors.map((e) => `could not remove superseded file ${e.path}: ${e.message}`)
+  ];
+  return warnings.length === 0 ? undefined : warnings;
+};
+
+/** `generatedBy` of the lockfiles the CLI creates. */
+const GENERATED_BY = 'ai-primitives-hub-cli';
+
+/**
+ * Install a validated bundle through `app`'s shared install use case: the
+ * repository lockfiles and `.git/info/exclude` at repository scope, the
+ * user lockfile otherwise.
+ * @param ctx CLI context.
+ * @param opts Install options (scope / commit-mode overrides, `skipUnsupported`).
+ * @param target Effective target.
+ * @param input Bundle, record key and where it came from.
+ * @returns The install outcome.
+ */
+async function installRecorded(
+  ctx: Context,
+  opts: InstallOptions,
+  target: Target,
+  input: Pick<ApplyBundleInstallInput, 'files' | 'manifest' | 'key' | 'origin' | 'source'>
+): Promise<ApplyBundleInstallResult> {
+  const rootPath = target.rootPath ?? ctx.cwd();
+  const exclusion = target.scope === 'repository' ? new GitInfoExclude({ fs: ctx.fs, workspaceRoot: rootPath }) : null;
+  const store = exclusion === null
+    ? createLockfileRecordStore({
+      scope: 'user', fs: ctx.fs, lockfilePath: resolveUserConfigPaths(ctx.env).userLockfile, generatedBy: GENERATED_BY
+    })
+    : createLockfileRecordStore({ scope: 'repository', fs: ctx.fs, rootPath, generatedBy: GENERATED_BY, exclusion });
+  return applyBundleInstall({
+    ...input,
+    writerFactory: createWriterFactory(ctx, opts, { writerOwnsExclusion: false }),
+    target,
+    store,
+    exclusion,
+    fs: ctx.fs,
+    preserveModified: false,
+    skipUnsupported: opts.skipUnsupported === true
+  });
+}
 
 /**
  * Command context for install/uninstall commands.
@@ -946,51 +995,32 @@ async function performLocalInstall(
       });
       return 0;
     }
-    const writerFactory = createWriterFactory(ctx, opts);
-    const writer = writerFactory(effectiveTarget);
-    const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
-      writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
-    );
-
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
     const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-    const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
     const localSourceId = `local-${path.basename(opts.from as string)}`;
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: localSourceId,
-      sourceType: 'local',
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
-    }
-    const previousFiles = existing.bundles[manifest.id]?.files;
-    let nextLock = upsertBundleEntry(existing, manifest.id, entry);
-    nextLock = upsertSource(nextLock, localSourceId, {
-      type: 'local',
-      url: path.resolve(ctx.cwd(), opts.from as string)
+    const outcome = await installRecorded(ctx, opts, effectiveTarget, {
+      files,
+      manifest,
+      key: manifest.id,
+      origin: { sourceId: localSourceId, sourceType: 'local' },
+      source: { type: 'local', url: path.resolve(ctx.cwd(), opts.from as string) }
     });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
-    await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
 
     await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
 
+    const warnings = installWarnings(effectiveTarget, outcome);
     formatOutput({
       ctx,
       command: 'install',
       output: fmt,
-      status: skipped.length === 0 ? 'ok' : 'warning',
+      status: warnings === undefined ? 'ok' : 'warning',
       data: {
         target: effectiveTarget.name,
         bundle: { id: manifest.id, version: manifest.version },
-        written: result.written,
-        skipped,
+        written: outcome.written,
+        skipped: outcome.skipped,
         lockfile: lockPath
       },
-      warnings: skippedWarnings(skipped),
+      warnings,
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} into target "${d.target}" `
         + `(${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
@@ -1217,60 +1247,44 @@ async function performRemoteInstall(
       });
       return 0;
     }
-    const writerFactory = createWriterFactory(ctx, opts);
-    const writer = writerFactory(effectiveTarget);
-    const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
-      writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
-    );
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
     const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-    const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: installable.ref.sourceId,
-      sourceType: installable.ref.sourceType,
-      checksum: dl.sha256,
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
-    }
-    const previousFiles = existing.bundles[lockKey]?.files;
-    let nextLock = upsertBundleEntry(existing, lockKey, entry);
     const sourceConfig = opts.sourceConfig;
     const collectionsPath = sourceConfig?.config?.collectionsPath;
-    nextLock = upsertSource(nextLock, installable.ref.sourceId, {
-      type: sourceConfig?.type ?? 'github',
-      url: sourceConfig?.url ?? `https://github.com/${repoSlug}`,
-      ...(collectionsPath ? { collectionsPath } : {}),
-      ...(sourceConfig?.type === 'artifactory'
-        ? {
-          indexFile: typeof sourceConfig.config?.indexFile === 'string' ? sourceConfig.config.indexFile : undefined,
-          authMode: sourceConfig.config?.authMode === 'bearer' ? 'bearer' : 'anonymous',
-          credentialRef: typeof sourceConfig.config?.credentialRef === 'string' ? sourceConfig.config.credentialRef : undefined
-        }
-        : {})
+    const outcome = await installRecorded(ctx, opts, effectiveTarget, {
+      files,
+      manifest,
+      key: lockKey,
+      origin: { sourceId: installable.ref.sourceId, sourceType: installable.ref.sourceType, checksum: dl.sha256 },
+      source: {
+        type: sourceConfig?.type ?? 'github',
+        url: sourceConfig?.url ?? `https://github.com/${repoSlug}`,
+        ...(collectionsPath ? { collectionsPath } : {}),
+        ...(sourceConfig?.type === 'artifactory'
+          ? {
+            indexFile: typeof sourceConfig.config?.indexFile === 'string' ? sourceConfig.config.indexFile : undefined,
+            authMode: sourceConfig.config?.authMode === 'bearer' ? 'bearer' : 'anonymous',
+            credentialRef: typeof sourceConfig.config?.credentialRef === 'string' ? sourceConfig.config.credentialRef : undefined
+          }
+          : {})
+      }
     });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
-    await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
 
+    const warnings = installWarnings(effectiveTarget, outcome);
     formatOutput({
       ctx,
       command: 'install',
       output: fmt,
-      status: skipped.length === 0 ? 'ok' : 'warning',
+      status: warnings === undefined ? 'ok' : 'warning',
       data: {
         target: effectiveTarget.name,
         bundle: { id: lockKey, version: manifest.version },
         source: { type: opts.sourceConfig?.type ?? 'github', repo: repoSlug, sourceId: installable.ref.sourceId },
         sha256: dl.sha256,
-        written: result.written,
-        skipped,
+        written: outcome.written,
+        skipped: outcome.skipped,
         lockfile: lockPath
       },
-      warnings: skippedWarnings(skipped),
+      warnings,
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} from ${d.source.repo} `
         + `into target "${d.target}" (${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
