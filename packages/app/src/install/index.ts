@@ -61,6 +61,15 @@ export type {
 } from './recorded-files';
 
 export {
+  applyBundleInstall,
+} from './apply-bundle-install';
+
+export type {
+  ApplyBundleInstallInput,
+  ApplyBundleInstallResult,
+} from './apply-bundle-install';
+
+export {
   applyBundleUninstall,
 } from './apply-bundle-uninstall';
 
