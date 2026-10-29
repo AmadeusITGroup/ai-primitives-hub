@@ -47,6 +47,11 @@ export {
   createTargetWriterFactory,
 } from './target-writer-factory';
 
+export {
+  buildLockfileBundleEntry,
+  computeInstalledChecksums,
+} from './lockfile-entry';
+
 export type {
   TargetWriterFactoryOptions,
 } from './target-writer-factory';

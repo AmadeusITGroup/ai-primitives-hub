@@ -25,12 +25,10 @@
  * lockfile has never tracked user/workspace-scope installs (no
  * reproducibility/team-sharing use case there), so this store — and
  * the uninstall pipeline that uses it — only applies to
- * `target.scope === 'repository'`. No `target` field exists on
- * `LockfileBundleEntry` for the same reason the extension has none:
- * repository scope always writes to `.github/`, invariant of which
- * IDE type nominally triggered the install (see
- * `writers/repo-scope-writer.ts`'s `RepositoryScopeWriterAdapter`,
- * which ignores its `Target` parameter entirely).
+ * `target.scope === 'repository'`. An entry names no configured target;
+ * its optional `targetType` records which target type placed the files
+ * (Kiro, Cursor … place them outside `.github/`), so uninstall finds
+ * them whichever target it runs with.
  * @module stores/json-lockfile-store
  */
 import {
@@ -57,16 +55,25 @@ export type RepositoryCommitMode = 'commit' | 'local-only';
  * File entry within a bundle.
  */
 export interface LockfileFileEntry {
-  /** Relative path from repository root. */
+  /**
+   * Bundle-relative path. Entries written by earlier extension versions
+   * may hold a workspace-relative path (`.github/prompts/x.prompt.md`).
+   */
   path: string;
   /**
    * SHA256 of the extracted archive bytes for this path (not the
-   * optionally transformed on-disk result). User-modification checks
-   * compare this against the current file; transformed files will
-   * therefore look modified until an `installedChecksum` field is
-   * added (issue #357 Stage 2).
+   * optionally transformed on-disk result). When a target transformer
+   * changed the content, {@link LockfileFileEntry.installedChecksum}
+   * holds the checksum of the bytes on disk.
    */
   checksum: string;
+  /**
+   * SHA256 of the bytes written to disk, recorded only when they differ
+   * from `checksum` (a target transformer rewrote the file).
+   * User-modification checks compare the disk against
+   * `installedChecksum ?? checksum`.
+   */
+  installedChecksum?: string;
   /**
    * Where the file was installed, relative to the target's base directory.
    * Optional: recorded only when the location cannot be recomputed from
@@ -90,9 +97,15 @@ export interface LockfileBundleEntry {
   /** ISO timestamp when the bundle was installed. */
   installedAt: string;
   /**
-   * Whether files are committed to Git or excluded. Deprecated: this
-   * is implicit based on which lockfile contains the entry. Kept
-   * optional for round-tripping entries written by older tooling.
+   * Target type that placed the files (`vscode`, `kiro` …). Optional:
+   * entries written by older tooling have none.
+   */
+  targetType?: string;
+  /**
+   * Whether files are committed to Git or excluded. Deprecated and
+   * read-only: the commit mode is implicit in which lockfile holds the
+   * entry, and new entries don't record it. Kept optional so entries
+   * written by older tooling still read.
    */
   commitMode?: RepositoryCommitMode;
   /** Optional checksum of the bundle archive. */
