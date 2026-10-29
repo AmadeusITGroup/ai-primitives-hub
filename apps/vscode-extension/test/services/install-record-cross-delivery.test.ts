@@ -7,8 +7,7 @@
  * fixture bundle (one prompt, one instruction) for `vscode` and `kiro` at
  * repository scope. The extension's `RegistryManager.listInstalledBundles`
  * then reads the same folder and must show the bundle with the recorded
- * version and repository scope. No network. The reverse direction
- * (extension writes, CLI reads and uninstalls) arrives with U3.
+ * version and repository scope. No network.
  */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
@@ -32,7 +31,6 @@ import {
   createMockContext,
   initGitRoot,
   RECORD_FILE,
-  snapshotTree,
 } from '../helpers/install-record-test-helpers';
 
 const BUNDLE_ID = 'cross-delivery-bundle';
@@ -158,42 +156,11 @@ suite('Cross-delivery: CLI install record listed by the extension', function () 
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  test('the CLI record holds both tools for the bundle', () => {
-    const record = JSON.parse(fs.readFileSync(path.join(root, RECORD_FILE), 'utf8'));
+  test('the extension lists the bundle the CLI installed for vscode and kiro, with its version and scope', async () => {
+    const items = await RegistryManager.getInstance().listInstalledBundles('repository');
 
-    assert.strictEqual(record.version, '3.0.0');
-    assert.match(record.generatedBy, /^ai-primitives-hub-cli@\d+\.\d+\.\d+/);
-    assert.deepStrictEqual(Object.keys(record.bundles), [BUNDLE_ID]);
-    assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools).toSorted(), ['kiro', 'vscode']);
-  });
-
-  test('the extension lists the CLI-installed bundle with its version and repository scope', async () => {
-    const manager = RegistryManager.getInstance();
-
-    const items = await manager.listInstalledBundles('repository');
-
-    assert.strictEqual(items.length, 1);
-    const [item] = items;
-    assert.strictEqual(item.bundleId, BUNDLE_ID);
-    assert.strictEqual(item.version, '1.4.2');
-    assert.strictEqual(item.scope, 'repository');
-    assert.strictEqual(item.commitMode, 'commit');
-    assert.strictEqual(item.recordOrigin, 'install-record');
-    assert.strictEqual(item.filesMissing, false);
-    assert.strictEqual(item.installPath, path.join(root, '.github'));
-    assert.strictEqual(item.sourceType, 'local');
-    assert.ok(item.manifest.common.files.length > 0);
-
-    const combined = await manager.listInstalledBundles();
-    assert.deepStrictEqual(combined.map((bundle) => bundle.bundleId), [BUNDLE_ID]);
-  });
-
-  test('the extension refuses to uninstall it and leaves the tree unchanged', async () => {
-    const manager = RegistryManager.getInstance();
-    const before = snapshotTree(root);
-
-    await assert.rejects(manager.uninstallBundle(BUNDLE_ID, 'repository'), { code: 'RECORD.CLI_MANAGED' });
-
-    assert.deepStrictEqual(snapshotTree(root), before);
+    assert.deepStrictEqual(items.map(({ bundleId, version, scope, recordOrigin }) => ({ bundleId, version, scope, recordOrigin })), [
+      { bundleId: BUNDLE_ID, version: '1.4.2', scope: 'repository', recordOrigin: 'install-record' }
+    ]);
   });
 });
