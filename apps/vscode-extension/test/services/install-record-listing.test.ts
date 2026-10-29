@@ -45,7 +45,7 @@ suite('Install record listing (repository scope)', () => {
 
   setup(() => {
     sandbox = sinon.createSandbox();
-    root = fs.realpathSync(createTestWorkspace());
+    root = fs.realpathSync.native(createTestWorkspace());
     initGitRoot(root);
     (RegistryManager as any).instance = undefined;
     manager = RegistryManager.getInstance(createMockContext(sandbox));

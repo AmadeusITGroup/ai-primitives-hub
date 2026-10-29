@@ -63,7 +63,7 @@ describe('NodeRecordFs', () => {
       fs.writeFileSync(join(dir, 'target.txt'), 'x');
       fs.symlinkSync(join(dir, 'target.txt'), join(dir, 'link.txt'), 'file');
       expect((await recordFs.lstat(join(dir, 'link.txt')))?.kind).toBe('symlink');
-      expect(await recordFs.realpath(join(dir, 'link.txt'))).toBe(fs.realpathSync(join(dir, 'target.txt')));
+      expect(await recordFs.realpath(join(dir, 'link.txt'))).toBe(fs.realpathSync.native(join(dir, 'target.txt')));
       expect(await recordFs.exists(join(dir, 'link.txt'))).toBe(true);
     });
   });

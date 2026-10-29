@@ -98,9 +98,9 @@ describe('confine-path', () => {
 
     it.skipIf(process.platform !== 'darwin')('accepts paths under a macOS /var temp root that realpaths to /private/var', async () => {
       expect(root.startsWith('/var/')).toBe(true);
-      expect(fs.realpathSync(root).startsWith('/private/var/')).toBe(true);
+      expect(fs.realpathSync.native(root).startsWith('/private/var/')).toBe(true);
       expect(await confinePath(recordFs, root, '.github/prompts/a.prompt.md')).toBe('.github/prompts/a.prompt.md');
-      expect(await confinePath(recordFs, fs.realpathSync(root), 'new/folder/a.md')).toBe('new/folder/a.md');
+      expect(await confinePath(recordFs, fs.realpathSync.native(root), 'new/folder/a.md')).toBe('new/folder/a.md');
     });
   });
 
@@ -109,7 +109,7 @@ describe('confine-path', () => {
       fs.writeFileSync(path.join(root, '.github', 'prompts', 'a.md'), 'x');
       expect(await resolveDeleteTarget(recordFs, root, '.github/prompts/a.md')).toEqual({
         status: 'delete',
-        absolute: path.join(fs.realpathSync(root), '.github', 'prompts', 'a.md')
+        absolute: path.join(fs.realpathSync.native(root), '.github', 'prompts', 'a.md')
       });
     });
 
@@ -134,7 +134,7 @@ describe('confine-path', () => {
       fs.writeFileSync(path.join(outside, 'target.txt'), 'x');
       fs.symlinkSync(path.join(outside, 'target.txt'), path.join(root, '.github', 'prompts', 'link.md'), 'file');
       const target = await resolveDeleteTarget(recordFs, root, '.github/prompts/link.md');
-      expect(target).toEqual({ status: 'delete', absolute: path.join(fs.realpathSync(root), '.github', 'prompts', 'link.md') });
+      expect(target).toEqual({ status: 'delete', absolute: path.join(fs.realpathSync.native(root), '.github', 'prompts', 'link.md') });
     });
 
     it('skips a path whose parent folder became a symlink outside the root', async (context) => {
