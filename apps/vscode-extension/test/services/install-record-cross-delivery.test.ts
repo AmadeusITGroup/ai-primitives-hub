@@ -120,7 +120,7 @@ suite('Cross-delivery: CLI install record listed by the extension', function () 
 
   setup(async () => {
     sandbox = sinon.createSandbox();
-    tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'install-record-cross-')));
+    tempRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'install-record-cross-')));
     root = path.join(tempRoot, 'repo');
     bundleDir = path.join(tempRoot, 'bundle');
     fs.mkdirSync(root, { recursive: true });
