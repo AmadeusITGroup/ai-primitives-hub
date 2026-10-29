@@ -11,6 +11,9 @@ import {
   type RecordFs,
   type RecordLocation,
   RegistryError,
+  type RegistrySource,
+  type SourceRecord,
+  type Target,
 } from '@ai-primitives-hub/core';
 import {
   NodeRecordFs,
@@ -25,9 +28,17 @@ import {
 } from 'vitest';
 import {
   InstallRecordService,
+  LOCAL_SOURCE_OUTSIDE_REASON,
+  mapToolToTarget,
   type RecordInstallInput,
   RecordStore,
+  resolveRecordSource,
+  selectRecord,
+  type SelectRecordOptions,
 } from '../../src/records';
+import {
+  findLockfile,
+} from '../../src/stores/json-lockfile-store';
 
 const NOW = new Date('2026-10-26T12:00:00.000Z');
 const POSIX_ONLY = process.platform === 'win32';
@@ -126,7 +137,7 @@ describe('repository install record', () => {
   };
 
   beforeEach(async () => {
-    base = fs.mkdtempSync(path.join(os.tmpdir(), 'install-record-'));
+    base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'install-record-')));
     root = path.join(base, 'repo');
     fs.mkdirSync(path.join(root, '.git'), { recursive: true });
     fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
@@ -154,7 +165,7 @@ describe('repository install record', () => {
     await install('kiro', ['docs/shared.md'], { location: otherFile() });
     await install('vscode', ['docs/shared.md', 'docs/old.md']);
 
-    const change = await install('vscode', ['docs/new.md']);
+    const change = await install('vscode', ['docs/new.md'], { syncSiblings: false });
     const removal = await service.deleteSuperseded(change);
 
     expect(change).toMatchObject({ deletedFiles: ['docs/old.md'], keptSharedFiles: ['docs/shared.md'] });
@@ -404,6 +415,209 @@ describe('repository install record', () => {
       await install('vscode', ['docs/a.md'], { version: '2.0.0' });
 
       expect(entries(committed)).toEqual([`${BUNDLE} vscode 2.0.0`]);
+    });
+  });
+
+  describe('record selection, target mapping and source gate (U2)', () => {
+    const recordFs = new NodeRecordFs();
+    let userLockfile: string;
+    let cwd: string;
+
+    const select = (given?: SelectRecordOptions['given']): ReturnType<typeof selectRecord> => selectRecord({
+      store,
+      fs: recordFs,
+      cwd,
+      given,
+      findOldLockfile: (start) => findLockfile(start, { exists: (file) => Promise.resolve(fs.existsSync(file)) }, userLockfile),
+      userLockfile
+    });
+
+    const target = (name: string, type: Target['type'], scope: Target['scope'], rootPath?: string): Target =>
+      ({ name, type, scope, ...(rootPath === undefined ? {} : { rootPath, commitMode: 'commit' }) });
+
+    const absolute = (...relativePaths: string[]): string[] => relativePaths.map((relative) => path.join(root, relative));
+
+    beforeEach(() => {
+      userLockfile = path.join(base, 'config', 'ai-primitives-hub.lock.json');
+      fs.mkdirSync(path.dirname(userLockfile), { recursive: true });
+      fs.writeFileSync(userLockfile, '{}');
+      cwd = path.join(root, 'nested');
+      fs.mkdirSync(cwd, { recursive: true });
+    });
+
+    it.each([
+      ['--lockfile names a repository record', (): SelectRecordOptions['given'] => ({ lockfile: committed.path }),
+        { level: 'repository', reason: 'lockfile-flag', files: (): string[] => [committed.path] }],
+      ['--lockfile names the user lockfile', (): SelectRecordOptions['given'] => ({ lockfile: userLockfile, scope: 'repository' }),
+        { level: 'user', reason: 'lockfile-flag', files: (): string[] => [] }],
+      ['--scope repository', (): SelectRecordOptions['given'] => ({ scope: 'repository', target: target('k', 'kiro', 'user') }),
+        { level: 'repository', reason: 'explicit-scope', files: (): string[] => [committed.path, localOnly.path] }],
+      ['--scope user', (): SelectRecordOptions['given'] => ({ scope: 'user' }),
+        { level: 'user', reason: 'explicit-scope', files: (): string[] => [] }],
+      ['a repository target', (): SelectRecordOptions['given'] => ({ target: target('k', 'kiro', 'repository', cwd) }),
+        { level: 'repository', reason: 'target-scope', files: (): string[] => [committed.path, localOnly.path] }],
+      ['a workspace target', (): SelectRecordOptions['given'] => ({ target: target('k', 'kiro', 'workspace', cwd) }),
+        { level: 'user', reason: 'target-scope', files: (): string[] => [] }]
+    ])('a given level from %s picks that level', async (_label, given, expected) => {
+      const selection = await select(given());
+
+      expect({ level: selection.level, reason: selection.reason, inferred: selection.inferred, files: selection.locations.map((location) => location.path) })
+        .toEqual({ level: expected.level, reason: expected.reason, inferred: false, files: expected.files() });
+    });
+
+    it.each([
+      ['a new record file is at the git root', (): void => {
+        writeRecord(committed, ['.github/prompts/a.prompt.md']);
+      }, { level: 'repository', reason: 'repository-record-found', old: (): string | undefined => undefined }],
+      ['only an old prompt-registry file is found', (): void => {
+        fs.writeFileSync(path.join(root, 'prompt-registry.lock.json'), '{}');
+      }, { level: 'repository', reason: 'repository-record-found', old: (): string | undefined => path.join(root, 'prompt-registry.lock.json') }],
+      ['neither is there', (): void => undefined,
+        { level: 'user', reason: 'user-fallback', old: (): string | undefined => userLockfile }]
+    ])('with no level, %s selects the %s level', async (_label, arrange, expected) => {
+      arrange();
+
+      const selection = await select();
+
+      expect({ level: selection.level, reason: selection.reason, inferred: selection.inferred, old: selection.oldLockfile })
+        .toEqual({ level: expected.level, reason: expected.reason, inferred: true, old: expected.old() });
+    });
+
+    it('stops with RECORD.MALFORMED before returning a selection with a malformed record', async () => {
+      fs.writeFileSync(localOnly.path, '{ "version": "3.0.0", ');
+
+      await expectCode(select({ scope: 'repository' }), 'RECORD.MALFORMED');
+    });
+
+    it.each([
+      ['an explicit target of the tool\'s type', 'kiro', 'kiro-main', { target: 'kiro-main' }],
+      ['an explicit target of another type', 'vscode', 'kiro-main', { skip: '--target kiro-main is a kiro target, not vscode' }],
+      ['the single matching target', 'kiro', undefined, { target: 'kiro-main' }],
+      ['several matching targets', 'vscode', undefined, { target: 'vscode-a', note: 'several vscode targets match; using vscode-a' }],
+      ['no target of the type', 'claude-code', undefined, { skip: 'no claude-code target configured; add one with `target add`' }],
+      ['a target on another git root only', 'copilot-cli', undefined, { skip: 'no copilot-cli target configured; add one with `target add`' }]
+    ])('maps a repository tool with %s', async (_label, tool, explicitName, expected) => {
+      const otherRepo = path.join(base, 'other');
+      fs.mkdirSync(path.join(otherRepo, '.git'), { recursive: true });
+      const targets = [
+        target('vscode-b', 'vscode', 'repository', cwd),
+        target('vscode-a', 'vscode', 'repository', root),
+        target('kiro-main', 'kiro', 'repository', root),
+        target('kiro-user', 'kiro', 'user'),
+        target('copilot-other', 'copilot-cli', 'repository', otherRepo)
+      ];
+
+      const mapping = await mapToolToTarget({
+        fs: recordFs, tool, level: 'repository', gitRoot: root, targets, cwd,
+        explicit: targets.find((candidate) => candidate.name === explicitName)
+      });
+
+      expect('skip' in mapping ? { skip: mapping.skip } : { target: mapping.target.name, ...(mapping.note === undefined ? {} : { note: mapping.note }) })
+        .toEqual(expected);
+    });
+
+    describe('resolveRecordSource', () => {
+      const configured = new Map<string, RegistrySource>([['acme-github', {
+        id: 'acme-github', name: 'Acme', type: 'github', url: 'https://github.com/acme/configured', enabled: true, priority: 0,
+        config: { branch: 'main', credentialRef: 'ACME_TOKEN' }
+      }]]);
+
+      beforeEach(() => {
+        fs.mkdirSync(path.join(root, 'sources', 'local'), { recursive: true });
+        fs.mkdirSync(path.join(base, 'outside'), { recursive: true });
+      });
+
+      it.each([
+        ['a configured source wins over a different record URL', 'acme-github',
+          (): SourceRecord => ({ type: 'github', url: 'https://evil.example/acme', credentialRef: 'EVIL_TOKEN' }),
+          (): object => ({ use: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/configured', branch: 'main', credentialRef: 'ACME_TOKEN' } })],
+        ['an unconfigured source loses its credentialRef and authMode', 'art',
+          (): SourceRecord => ({ type: 'artifactory', url: 'https://art.example/repo', indexFile: 'index.json', authMode: 'bearer', credentialRef: 'GITHUB_TOKEN' }),
+          (): object => ({ use: { sourceId: 'art', type: 'artifactory', url: 'https://art.example/repo', indexFile: 'index.json' } })],
+        ['a relative local source inside the root is used by its real path', 'mine',
+          (): SourceRecord => ({ type: 'local', url: 'sources/local' }),
+          (): object => ({ use: { sourceId: 'mine', type: 'local', url: path.join(root, 'sources', 'local') } })],
+        ['a local source leaving the root through .. is skipped', 'mine',
+          (): SourceRecord => ({ type: 'local', url: '../outside' }),
+          (): object => ({ skip: LOCAL_SOURCE_OUTSIDE_REASON })],
+        ['an absolute local source outside the root is skipped', 'mine',
+          (): SourceRecord => ({ type: 'local-skills', url: path.join(base, 'outside') }),
+          (): object => ({ skip: LOCAL_SOURCE_OUTSIDE_REASON })]
+      ])('%s', async (_label, sourceId, fromRecord, expected) => {
+        const decision = await resolveRecordSource(sourceId, fromRecord(), configured, root, recordFs);
+
+        expect(decision).toEqual(expected());
+      });
+
+      it.skipIf(POSIX_ONLY)('skips a local source that leaves the root through a symlink', async () => {
+        fs.symlinkSync(path.join(base, 'outside'), path.join(root, 'sources', 'link'), 'dir');
+
+        const decision = await resolveRecordSource('mine', { type: 'local', url: 'sources/link' }, configured, root, recordFs);
+
+        expect(decision).toEqual({ skip: LOCAL_SOURCE_OUTSIDE_REASON });
+      });
+    });
+
+    it('lists one row per bundle and tool over both files, sorted, with their record path', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      await install('kiro', ['.kiro/steering/a.md'], { location: localOnly });
+
+      const rows = await service.listEntries([committed, localOnly]);
+
+      expect(rows).toEqual([
+        { bundleId: BUNDLE, tool: 'kiro', level: 'repository', version: '1.0.0', record: localOnly.path, needsReinstall: false },
+        { bundleId: BUNDLE, tool: 'vscode', level: 'repository', version: '1.0.0', record: committed.path, needsReinstall: false }
+      ]);
+    });
+
+    it('re-recording vscode at a new version moves copilot-cli\'s version and shared list and keeps its own files', async () => {
+      await install('copilot-cli', ['.github/prompts/a.prompt.md', '.github/agents/own.agent.md']);
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      write('.github/prompts/b.prompt.md');
+      fs.writeFileSync(path.join(root, '.github', 'prompts', 'a.prompt.md'), 'version 2\n');
+
+      const change = await service.recordInstall({
+        location: committed, bundleId: BUNDLE, version: '2.0.0', tool: 'vscode',
+        source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' }, sourceType: 'github',
+        writtenPaths: absolute('.github/prompts/a.prompt.md', '.github/prompts/b.prompt.md')
+      });
+
+      const tools = read(committed).bundles[BUNDLE].tools;
+      expect(change.siblings).toEqual([{ tool: 'copilot-cli', version: '2.0.0', location: committed, synced: true }]);
+      expect(tools['copilot-cli'].version).toBe('2.0.0');
+      expect(tools['copilot-cli'].files).toEqual([
+        { path: '.github/agents/own.agent.md', checksum: expect.stringMatching(/^sha256:/) as string },
+        tools.vscode.files[0]
+      ]);
+    });
+
+    it.each([
+      ['is deleted when nothing else lists it', false, { deletedFiles: ['.github/prompts/old.prompt.md'], keptSharedFiles: [] }],
+      ['is kept when an entry in the other repository file lists it', true, { deletedFiles: [], keptSharedFiles: ['.github/prompts/old.prompt.md'] }]
+    ])('a shared path the new version drops %s', async (_label, listedElsewhere, expected) => {
+      await install('copilot-cli', ['.github/prompts/a.prompt.md', '.github/prompts/old.prompt.md']);
+      await install('vscode', ['.github/prompts/a.prompt.md', '.github/prompts/old.prompt.md']);
+      if (listedElsewhere) {
+        await install('kiro', ['.github/prompts/old.prompt.md'], { bundleId: 'other-bundle', location: localOnly });
+      }
+
+      const change = await install('vscode', ['.github/prompts/a.prompt.md'], { version: '2.0.0' });
+      await service.deleteSuperseded(change);
+
+      expect(filesOf(committed, 'copilot-cli')).toEqual(['.github/prompts/a.prompt.md']);
+      expect({ deletedFiles: change.deletedFiles, keptSharedFiles: change.keptSharedFiles }).toEqual(expected);
+      expect(fs.existsSync(path.join(root, '.github', 'prompts', 'old.prompt.md'))).toBe(listedElsewhere);
+    });
+
+    it('re-records an entry held in the local-only file in that file', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md'], { location: localOnly });
+
+      const holding = await service.holdingLocation([committed, localOnly], BUNDLE, 'vscode');
+      await install('vscode', ['.github/prompts/a.prompt.md'], { location: holding, version: '2.0.0' });
+
+      expect(holding).toEqual(localOnly);
+      expect(fs.existsSync(committed.path)).toBe(false);
+      expect(read(localOnly).bundles[BUNDLE].tools.vscode.version).toBe('2.0.0');
     });
   });
 });
