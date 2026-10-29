@@ -28,6 +28,7 @@ export * from './install/copilot-file-type';
 export * from './install/layout';
 export * from './install/category';
 export * from './install/kind-route';
+export * from './install/recorded-location';
 export * from './install/integrity';
 export * from './install/file-mode';
 export * from './install/transform';

@@ -71,4 +71,11 @@ export interface FileSystem {
    * anything. Real I/O errors such as a missing file still reject.
    */
   setExecutable?(path: string, executable: boolean): Promise<void>;
+  /**
+   * Canonical absolute path: resolves symlinks; returns the on-disk casing
+   * (ADR-0009 decision 5). Rejects when the path does not exist.
+   * Optional: adapters without real paths (in-memory doubles) omit it, and
+   * callers fall back to lexical path checks.
+   */
+  realpath?(path: string): Promise<string>;
 }

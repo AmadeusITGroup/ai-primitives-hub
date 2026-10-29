@@ -6,6 +6,10 @@
  * @module ports/target-writer
  */
 import type {
+  RecordedFile,
+  RecordedLocations,
+} from '../domain/install/recorded-location';
+import type {
   Target,
 } from '../domain/install/target';
 import type {
@@ -88,7 +92,28 @@ export interface TargetWriter {
   rollback?(target: Target, written: readonly string[]): Promise<void>;
 
   /**
+   * Locate recorded files without touching the filesystem.
+   *
+   * Invariant shared by `locate`, `write` and `remove`: for a file recorded
+   * from a `write` (bundle path plus its `installedPaths` entry), `locate`
+   * returns the path `write` wrote, and `remove` deletes exactly that path.
+   * Locations follow `resolveRecordedLocation`, so a recorded path that
+   * would leave the target root has no location (`null`).
+   *
+   * Optional for compatibility with custom writers; callers that need
+   * locations (shared-file guards, superseded removal) treat a writer
+   * without it as unable to locate.
+   * @param target Target chosen via `--target <name>`.
+   * @param files Recorded files, as stored in a lockfile entry.
+   * @returns The target root and one location per file, in input order.
+   */
+  locate?(target: Target, files: readonly RecordedFile[]): Promise<RecordedLocations>;
+
+  /**
    * Remove a single file from the target.
+   *
+   * A file with no location inside the target root (see `locate`) is a
+   * no-op: nothing is deleted.
    * @param target Target chosen via `--target <name>`.
    * @param filePath Relative file path to remove.
    * @param installedPath Optional output path relative to the target's

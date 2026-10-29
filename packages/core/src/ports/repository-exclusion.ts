@@ -26,4 +26,11 @@ export interface RepositoryExclusion {
    * @param paths - Absolute paths below the repository root.
    */
   remove(paths: readonly string[]): Promise<void>;
+  /**
+   * Whether the repository has an exclusion list to update (for Git: the
+   * workspace is a git work tree). When it resolves `false`, `add` and
+   * `remove` change nothing. Optional: an adapter without it is always
+   * available.
+   */
+  isAvailable?(): Promise<boolean>;
 }
