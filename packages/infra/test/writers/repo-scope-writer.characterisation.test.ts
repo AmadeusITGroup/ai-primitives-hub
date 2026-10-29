@@ -177,7 +177,9 @@ describe('characterisation: RepositoryScopeWriter output per manifest', () => {
         const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
         const files = bundle(manifest, KIND_FILES);
         const preflight = await writer.preflight(files, allowedKinds);
-        const result = await writer.write(files, allowedKinds);
+        // `installedPaths` is pinned by repo-scope-writer.test.ts; the
+        // snapshots keep today's placement only.
+        const { installedPaths: _installedPaths, ...result } = await writer.write(files, allowedKinds);
         const write = {
           ...result,
           written: result.written.map((filePath) => toPosix(filePath)),
@@ -334,7 +336,13 @@ items:
 
     expect(await writer.preflight(files)).toEqual({ writable: [], skipped: ['plugins/bar/plugin.json'] });
     const result = await writer.write(files);
-    expect(result).toEqual({ written: [], skipped: ['plugins/bar/plugin.json'], skillDirs: [], writtenBundlePaths: [] });
+    expect(result).toEqual({
+      written: [],
+      skipped: ['plugins/bar/plugin.json'],
+      skillDirs: [],
+      writtenBundlePaths: [],
+      installedPaths: {}
+    });
     expect(await listFiles(fs, WORKSPACE_ROOT)).toEqual({});
   });
 });
