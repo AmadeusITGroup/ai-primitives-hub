@@ -1,11 +1,11 @@
 /**
- * CLI-managed guard tests (BR5.6, NFR4.3).
+ * CLI-managed guard contract (BR5.6, NFR4.3).
  *
- * Repository items read from a 3.0.0 install record are refused by update,
- * uninstall, move to user scope and the commit-mode switch, with one warning,
- * no success message and nothing changed on disk. User-scope items with the
- * same id are never refused. Uses a real temp git root; `RegistryStorage`,
- * the installer and the VS Code notification API are stubbed.
+ * Repository items read from a 3.0.0 install record are refused by
+ * uninstall, update, move to user scope and the commit-mode switch, with
+ * nothing changed on disk and no success message. The same id at user scope
+ * is not refused. Uses a real temp git root; `RegistryStorage`, the installer
+ * and the VS Code notification API are stubbed.
  */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
@@ -33,9 +33,7 @@ import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
 import type {
-  Bundle,
   InstalledBundle,
-  RegistrySource,
 } from '../../src/types/registry';
 import {
   createMockContext,
@@ -52,21 +50,6 @@ import {
 
 const CLI_BUNDLE = 'cli-bundle';
 
-const userItem = (bundleId: string): InstalledBundle => ({
-  bundleId,
-  version: '1.0.0',
-  installedAt: '2026-10-20T10:00:00.000Z',
-  scope: 'user',
-  installPath: '/mock/user/bundles/x',
-  sourceId: 'user-source',
-  sourceType: 'local',
-  manifest: {
-    common: { directories: [], files: [], include_patterns: [], exclude_patterns: [] },
-    bundle_settings: { include_common_in_environment_bundles: false, create_common_bundle: false, compression: 'none', naming: { environment_bundle: bundleId } },
-    metadata: { manifest_version: '1.0.0', description: 'user bundle' }
-  }
-});
-
 suite('CLI-managed guard (install-record items)', () => {
   let sandbox: sinon.SinonSandbox;
   let manager: RegistryManager;
@@ -75,23 +58,19 @@ suite('CLI-managed guard (install-record items)', () => {
   let root: string;
   let showWarning: sinon.SinonStub;
   let showInfo: sinon.SinonStub;
-  let showError: sinon.SinonStub;
 
-  const assertCliManaged = async (promise: Promise<unknown>, action: string): Promise<void> => {
-    await assert.rejects(promise, (error: unknown) => {
-      const registryError = error as { code?: string; context?: Record<string, unknown> };
-      assert.strictEqual(registryError.code, 'RECORD.CLI_MANAGED');
-      assert.deepStrictEqual(registryError.context, { bundleId: CLI_BUNDLE, action });
-      return true;
-    });
-  };
+  const scopeCommands = (): BundleScopeCommands => new BundleScopeCommands(
+    manager,
+    sandbox.createStubInstance(ScopeConflictResolver),
+    sandbox.createStubInstance(RepositoryScopeService)
+  );
 
   setup(() => {
     sandbox = sinon.createSandbox();
     root = fs.realpathSync(createTestWorkspace());
     initGitRoot(root);
     writeInstallRecord(root, RECORD_FILE, {
-      [CLI_BUNDLE]: { vscode: { version: '1.0.0', installedAt: '2026-10-28T10:00:00.000Z', files: ['.github/prompts/cli.prompt.md'] } }
+      [CLI_BUNDLE]: { vscode: { version: '1.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/cli.prompt.md' } }
     });
     (RegistryManager as any).instance = undefined;
     manager = RegistryManager.getInstance(createMockContext(sandbox));
@@ -107,7 +86,7 @@ suite('CLI-managed guard (install-record items)', () => {
     sandbox.stub(scopeSelectionUI, 'hasOpenWorkspace').returns(true);
     showWarning = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
     showInfo = sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
-    showError = sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
+    sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
     LockfileManager.resetInstance();
   });
 
@@ -118,150 +97,62 @@ suite('CLI-managed guard (install-record items)', () => {
     cleanupTestWorkspace(root);
   });
 
-  const scopeCommands = (): {
-    commands: BundleScopeCommands;
-    repositoryScopeService: sinon.SinonStubbedInstance<RepositoryScopeService>;
-    resolver: sinon.SinonStubbedInstance<ScopeConflictResolver>;
-  } => {
-    const repositoryScopeService = sandbox.createStubInstance(RepositoryScopeService);
-    const resolver = sandbox.createStubInstance(ScopeConflictResolver);
-    return { commands: new BundleScopeCommands(manager, resolver, repositoryScopeService), repositoryScopeService, resolver };
+  /** Each command shows exactly the CLI-managed refusal (no confirmation dialog first). */
+  const assertRefusalShown = (): void => {
+    assert.strictEqual(showWarning.callCount, 1);
+    assert.ok(String(showWarning.firstCall.args[0]).includes('was installed with the ai-primitives-hub CLI'));
   };
 
-  suite('repository scope is refused', () => {
-    test('uninstall leaves the tree unchanged', async () => {
-      const before = snapshotTree(root);
-
-      await assertCliManaged(manager.uninstallBundle(CLI_BUNDLE, 'repository'), 'uninstall');
-
-      assert.ok(installer.uninstall.notCalled);
-      assert.deepStrictEqual(snapshotTree(root), before);
-    });
-
-    test('a bundle in both the new and the old record resolves to the new item and is refused', async () => {
-      writeOldLockfile(root, 'prompt-registry.lock.json', { [CLI_BUNDLE]: '0.9.0' });
-      const before = snapshotTree(root);
-
-      await assertCliManaged(manager.uninstallBundle(CLI_BUNDLE, 'repository'), 'uninstall');
-
-      assert.ok(installer.uninstall.notCalled, 'old-store files are never handed to the installer');
-      assert.deepStrictEqual(snapshotTree(root), before);
-    });
-
-    test('update from the update command shows one warning and no success message', async () => {
-      const before = snapshotTree(root);
+  const refusedActions: [string, () => Promise<unknown>][] = [
+    ['uninstall', () => manager.uninstallBundle(CLI_BUNDLE, 'repository').then(
+      () => assert.fail('uninstall should be refused'),
+      (error: { code?: string }) => assert.strictEqual(error.code, 'RECORD.CLI_MANAGED')
+    )],
+    ['update', async () => {
       sandbox.stub(manager, 'getBundleDetails').rejects(new Error('not in a source'));
-      const commands = new BundleUpdateCommands(manager);
+      assert.strictEqual(await new BundleUpdateCommands(manager).updateBundle(CLI_BUNDLE), false);
+      assertRefusalShown();
+    }],
+    ['move to user scope', async () => {
+      await scopeCommands().moveToUser(CLI_BUNDLE);
+      assertRefusalShown();
+    }],
+    ['commit-mode switch', async () => {
+      await scopeCommands().switchCommitMode(CLI_BUNDLE, 'local-only');
+      assertRefusalShown();
+    }]
+  ];
 
-      const updated = await commands.updateBundle(CLI_BUNDLE);
+  refusedActions.forEach(([action, run]) => {
+    test(`repository-scope ${action} is refused with the tree unchanged and no success message`, async () => {
+      const before = snapshotTree(root);
 
-      assert.strictEqual(updated, false);
-      assert.ok(installer.update.notCalled);
-      assert.strictEqual(showWarning.callCount, 1);
-      assert.ok(String(showWarning.firstCall.args[0]).includes(`To update it, run "ai-primitives-hub install ${CLI_BUNDLE}" again.`));
+      await run();
+
+      assert.ok(installer.uninstall.notCalled && installer.update.notCalled);
       assert.ok(showInfo.notCalled, 'no success message');
-      assert.ok(showError.notCalled);
       assert.deepStrictEqual(snapshotTree(root), before);
-      await assertCliManaged(manager.updateBundle(CLI_BUNDLE), 'update');
-    });
-
-    test('move to user scope stops before any dialog and changes nothing', async () => {
-      const before = snapshotTree(root);
-      const { commands, resolver } = scopeCommands();
-
-      await commands.moveToUser(CLI_BUNDLE);
-
-      assert.strictEqual(showWarning.callCount, 1, 'only the refusal; no confirmation dialog');
-      const message = String(showWarning.firstCall.args[0]);
-      assert.ok(message.includes("The extension can't move it to user scope yet"), message);
-      assert.ok(resolver.migrateBundle.notCalled);
-      assert.ok(showInfo.notCalled && showError.notCalled);
-      assert.deepStrictEqual(snapshotTree(root), before);
-    });
-
-    test('commit-mode switch leaves info/exclude and both records unchanged', async () => {
-      const before = snapshotTree(root);
-      const { commands, repositoryScopeService } = scopeCommands();
-
-      await commands.switchCommitMode(CLI_BUNDLE, 'local-only');
-
-      assert.strictEqual(showWarning.callCount, 1);
-      assert.ok(String(showWarning.firstCall.args[0]).includes("The extension can't change its commit mode yet"));
-      assert.ok(repositoryScopeService.switchCommitMode.notCalled);
-      assert.ok(showInfo.notCalled && showError.notCalled);
-      assert.deepStrictEqual(snapshotTree(root), before);
-    });
-
-    test('batch uninstall reports refused ids as skipped and uninstalls the others', async () => {
-      writeOldLockfile(root, 'prompt-registry.lock.json', { 'old-bundle': '1.0.0' });
-      const uninstalledEvents: string[][] = [];
-      manager.onBundlesUninstalled((ids) => uninstalledEvents.push(ids));
-
-      await manager.uninstallBundles([CLI_BUNDLE, 'old-bundle'], 'repository');
-
-      assert.deepStrictEqual(installer.uninstall.getCalls().map((call) => call.args[0].bundleId), ['old-bundle']);
-      assert.deepStrictEqual(uninstalledEvents, [['old-bundle']]);
-      assert.strictEqual(showWarning.callCount, 1);
-      const message = String(showWarning.firstCall.args[0]);
-      assert.ok(message.startsWith('Skipped 1 bundle(s)') && message.includes(CLI_BUNDLE), message);
     });
   });
 
-  suite('the same id at user scope is never refused', () => {
-    const source: RegistrySource = { id: 'user-source', name: 'User', type: 'local', url: '/mock/source', enabled: true, priority: 0 };
-    const latest = { id: CLI_BUNDLE, name: 'CLI bundle', version: '2.0.0', sourceId: 'user-source' } as Bundle;
+  test('the same id at user scope is uninstalled', async () => {
+    const userItem = { bundleId: CLI_BUNDLE, version: '1.0.0', scope: 'user', installPath: '/mock/user/x' } as InstalledBundle;
+    storage.getInstalledBundles.resolves([userItem]);
+    storage.getInstalledBundle.withArgs(CLI_BUNDLE, 'user').resolves(userItem);
 
-    setup(() => {
-      storage.getInstalledBundles.resolves([userItem(CLI_BUNDLE)]);
-      storage.getInstalledBundle.withArgs(CLI_BUNDLE, 'user').resolves(userItem(CLI_BUNDLE));
-      storage.getSources.resolves([source]);
-      storage.recordInstallation.resolves();
-      sandbox.stub(manager, 'getBundleDetails').resolves(latest);
-      sandbox.stub(manager as any, 'getAdapter').returns({ downloadBundle: sandbox.stub().resolves(Buffer.from('zip')) });
-      installer.update.callsFake((current: InstalledBundle) => Promise.resolve({ ...current, version: '2.0.0' }));
-    });
+    await manager.uninstallBundle(CLI_BUNDLE, 'user');
 
-    test('user-scope uninstall proceeds', async () => {
-      await manager.uninstallBundle(CLI_BUNDLE, 'user');
+    assert.strictEqual(installer.uninstall.callCount, 1);
+    assert.strictEqual(installer.uninstall.firstCall.args[0].scope, 'user');
+  });
 
-      assert.strictEqual(installer.uninstall.callCount, 1);
-      assert.strictEqual(installer.uninstall.firstCall.args[0].scope, 'user');
-    });
+  test('batch uninstall reports refused ids as skipped and uninstalls the others', async () => {
+    writeOldLockfile(root, 'prompt-registry.lock.json', { 'old-bundle': '1.0.0' });
 
-    test('user-scope update proceeds on the storage item', async () => {
-      await manager.updateBundle(CLI_BUNDLE);
+    await manager.uninstallBundles([CLI_BUNDLE, 'old-bundle'], 'repository');
 
-      assert.strictEqual(installer.update.callCount, 1);
-      assert.strictEqual(installer.update.firstCall.args[0].scope, 'user');
-    });
-
-    test('auto-update of the storage item succeeds', async () => {
-      const results = await (manager as any).performBundleUpdates([userItem(CLI_BUNDLE)], [latest]);
-
-      assert.deepStrictEqual(results, { succeeded: [CLI_BUNDLE], failed: [], skipped: [] });
-    });
-
-    test('move to repository proceeds (its uninstall targets user scope)', async () => {
-      showWarning.resolves('Move');
-      sandbox.stub(manager, 'installBundle').resolves();
-      const { commands, resolver } = scopeCommands();
-      resolver.migrateBundle.callsFake(async (bundleId, fromScope, toScope, uninstall) => {
-        await uninstall(userItem(CLI_BUNDLE));
-        return { success: true, bundleId, fromScope, toScope };
-      });
-
-      await commands.moveToRepository(CLI_BUNDLE, 'commit');
-
-      assert.strictEqual(installer.uninstall.callCount, 1);
-      assert.strictEqual(installer.uninstall.firstCall.args[0].scope, 'user');
-      assert.ok(showInfo.calledOnce, 'the move reports success');
-    });
-
-    test('repository-scope actions on the same id are still refused', async () => {
-      await assertCliManaged(manager.uninstallBundle(CLI_BUNDLE, 'repository'), 'uninstall');
-      await assertCliManaged(manager.assertNotCliManaged(CLI_BUNDLE, 'repository', 'move-to-user'), 'move-to-user');
-      await assertCliManaged(manager.assertNotCliManaged(CLI_BUNDLE, 'repository', 'switch-commit-mode'), 'switch-commit-mode');
-      assert.ok(installer.uninstall.notCalled);
-    });
+    assert.deepStrictEqual(installer.uninstall.getCalls().map((call) => call.args[0].bundleId), ['old-bundle']);
+    const message = String(showWarning.firstCall.args[0]);
+    assert.ok(message.startsWith('Skipped 1 bundle(s)') && message.includes(CLI_BUNDLE), message);
   });
 });

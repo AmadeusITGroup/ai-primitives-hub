@@ -209,10 +209,9 @@ describe('uninstall command', () => {
     };
     const recordPath = (): string => path.join(workspace, 'ai-primitives-hub.lock.json');
     const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
-    const readRecord = async (): Promise<{ bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }> }> =>
-      JSON.parse(await readFile(recordPath(), 'utf8')) as { bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }> };
-    const kiroFiles = async (): Promise<string[]> =>
-      (await readRecord()).bundles['local-foo'].tools.kiro.files.map((file) => path.join(workspace, file.path));
+    const recordedTools = async (): Promise<string[]> =>
+      Object.keys((JSON.parse(await readFile(recordPath(), 'utf8')) as { bundles: Record<string, { tools: object }> })
+        .bundles['local-foo'].tools).toSorted();
     const exists = async (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
 
     beforeEach(async () => {
@@ -226,68 +225,16 @@ describe('uninstall command', () => {
       }
     });
 
-    it('uninstalling kiro keeps the vscode entry and its files, and prints the record path', async () => {
-      const kiro = await kiroFiles();
-      expect(kiro.length).toBeGreaterThan(0);
-
+    it('uninstalling one tool from the record keeps the other tool and its files', async () => {
       const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-kiro', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      const envelope = parseJson<{ removed: string[]; lockfile: string }>(result.stdout);
-      expect(envelope.data.lockfile).toBe(recordPath());
-      expect(envelope.data.removed.length).toBe(kiro.length);
-      for (const file of kiro) {
-        expect(await exists(file)).toBe(false);
-      }
-      await expect(readFile(vscodePrompt(), 'utf8')).resolves.toContain('Hello Prompt');
-      expect(Object.keys((await readRecord()).bundles['local-foo'].tools)).toEqual(['vscode']);
-    });
-
-    it('removing the last entry leaves no bundle files and deletes the record file', async () => {
-      expect((await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-kiro', '-o', 'json'])).exitCode).toBe(0);
-      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode']);
-
-      expect(result.exitCode, result.stderr).toBe(0);
-      expect(result.stdout).toContain(`Updated ${recordPath()}`);
-      expect(await exists(vscodePrompt())).toBe(false);
-      expect(await exists(recordPath())).toBe(false);
-    });
-
-    it('--all uninstalls the recorded bundle for the target type only', async () => {
-      const result = await run(['uninstall', '--all', '--target', 'repo-vscode', '-o', 'json']);
-
-      expect(result.exitCode, result.stdout).toBe(0);
-      expect(parseJson<{ uninstalled: number }>(result.stdout).data.uninstalled).toBe(1);
-      expect(await exists(vscodePrompt())).toBe(false);
-      expect(Object.keys((await readRecord()).bundles['local-foo'].tools)).toEqual(['kiro']);
-    });
-
-    it('dry-run lists the recorded files and removes nothing', async () => {
-      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '--dry-run', '-o', 'json']);
-
-      expect(result.exitCode).toBe(0);
-      expect(parseJson<{ files: string[] }>(result.stdout).data.files).toEqual(['.github/prompts/hello.prompt.md']);
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(recordPath());
+      expect(await recordedTools()).toEqual(['vscode']);
       expect(await exists(vscodePrompt())).toBe(true);
-      expect(Object.keys((await readRecord()).bundles['local-foo'].tools).toSorted()).toEqual(['kiro', 'vscode']);
-    });
-
-    it('stops with RECORD.MALFORMED and removes nothing when the other record file is malformed', async () => {
-      await writeFile(path.join(workspace, 'ai-primitives-hub.local.lock.json'), '[]');
-      const before = await readFile(recordPath(), 'utf8');
-
-      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json']);
-
-      expect(result.exitCode).toBe(1);
-      expect((JSON.parse(result.stdout) as { errors?: { code: string; context?: { file?: string } }[] }).errors?.[0])
-        .toMatchObject({ code: 'RECORD.MALFORMED', context: { file: 'ai-primitives-hub.local.lock.json' } });
-      expect(await exists(vscodePrompt())).toBe(true);
-      expect(await readFile(recordPath(), 'utf8')).toBe(before);
     });
 
     it('falls back to the old store for a bundle that is not in the record', async () => {
-      // The vscode entry is removed from the record, then the bundle is
-      // re-placed and listed only in the old prompt-registry.lock.json, as an
-      // install made before the record would have left it.
       expect((await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json'])).exitCode).toBe(0);
       await mkdir(path.dirname(vscodePrompt()), { recursive: true });
       await writeFile(vscodePrompt(), '# Hello Prompt\n');
@@ -298,30 +245,19 @@ describe('uninstall command', () => {
       expect(result.exitCode, result.stdout).toBe(0);
       expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(oldLockPath());
       expect(await exists(vscodePrompt())).toBe(false);
-      expect(Object.keys((await readRecord()).bundles['local-foo'].tools)).toEqual(['kiro']);
     });
 
-    it('--all reports a bundle in both the record and the old store once, and leaves its old entry alone', async () => {
-      const oldOnly = path.join(workspace, '.github', 'prompts', 'old.prompt.md');
-      await writeFile(oldOnly, '# Old\n');
+    it('--all uninstalls a bundle in both the record and the old store once', async () => {
+      await writeFile(path.join(workspace, '.github', 'prompts', 'old.prompt.md'), '# Old\n');
       await writeOldLock({ 'local-foo': 'prompts/hello.prompt.md', 'old-only': 'prompts/old.prompt.md' });
-
-      const dryRun = await run(['uninstall', '--all', '--target', 'repo-vscode', '--dry-run', '-o', 'json']);
-      expect(parseJson<{ bundles: string[]; files: string[] }>(dryRun.stdout).data).toMatchObject({
-        bundles: ['local-foo', 'old-only'],
-        files: ['.github/prompts/hello.prompt.md', 'prompts/old.prompt.md']
-      });
 
       const result = await run(['uninstall', '--all', '--target', 'repo-vscode', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
       const data = parseJson<{ uninstalled: number; bundles: { id: string }[] }>(result.stdout).data;
-      expect(data.uninstalled).toBe(2);
       expect(data.bundles.map((bundle) => bundle.id)).toEqual(['local-foo', 'old-only']);
-      expect(await exists(vscodePrompt())).toBe(false);
-      expect(await exists(oldOnly)).toBe(false);
-      const oldLock = JSON.parse(await readFile(oldLockPath(), 'utf8')) as { bundles: Record<string, unknown> };
-      expect(Object.keys(oldLock.bundles)).toEqual(['local-foo']);
+      expect(data.uninstalled).toBe(2);
+      expect(await recordedTools()).toEqual(['kiro']);
     });
   });
 

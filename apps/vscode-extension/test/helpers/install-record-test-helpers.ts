@@ -1,12 +1,8 @@
 /**
  * Helpers for tests that read 3.0.0 install records
- * (`ai-primitives-hub.lock.json` / `ai-primitives-hub.local.lock.json`).
- *
- * Records are written as plain JSON files in a real temp folder with a git
- * root marker, so the extension's listing reads them through the real
- * `RecordStore` and `NodeRecordFs`.
+ * (`ai-primitives-hub.lock.json` / `ai-primitives-hub.local.lock.json`)
+ * from a real temp git root.
  */
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
@@ -15,6 +11,11 @@ import {
   createMockFileEntry,
   LockfileBuilder,
 } from './lockfile-test-helpers';
+
+/** Committed install record file name. */
+export const RECORD_FILE = 'ai-primitives-hub.lock.json';
+/** Local-only install record file name. */
+export const LOCAL_RECORD_FILE = 'ai-primitives-hub.local.lock.json';
 
 /**
  * Minimal `ExtensionContext` for constructing a `RegistryManager`.
@@ -32,14 +33,22 @@ export const createMockContext = (sandbox: sinon.SinonSandbox): vscode.Extension
 }) as unknown as vscode.ExtensionContext;
 
 /**
+ * Mark a folder as a git root.
+ * @param root - Folder to mark.
+ */
+export const initGitRoot = (root: string): void => {
+  fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+};
+
+/**
  * Write a prompt-registry lockfile and the files it lists.
  * @param root - Repository root.
  * @param fileName - `prompt-registry.lock.json` or `prompt-registry.local.lock.json`.
  * @param bundles - Bundle id → version.
  */
 export const writeOldLockfile = (root: string, fileName: string, bundles: Record<string, string>): void => {
-  const builder = LockfileBuilder.create()
-    .withSource('old-source', 'github', 'https://github.com/old/repo');
+  const builder = LockfileBuilder.create().withSource('old-source', 'github', 'https://github.com/old/repo');
   for (const [bundleId, version] of Object.entries(bundles)) {
     const file = createMockFileEntry(`.github/prompts/${bundleId}.old.prompt.md`);
     fs.mkdirSync(path.join(root, '.github', 'prompts'), { recursive: true });
@@ -49,89 +58,45 @@ export const writeOldLockfile = (root: string, fileName: string, bundles: Record
   fs.writeFileSync(path.join(root, fileName), JSON.stringify(builder.build(), null, 2));
 };
 
-/** Committed install record file name. */
-export const RECORD_FILE = 'ai-primitives-hub.lock.json';
-/** Local-only install record file name. */
-export const LOCAL_RECORD_FILE = 'ai-primitives-hub.local.lock.json';
-
-/** One tool entry to write. */
-export interface ToolEntrySpec {
-  version: string;
-  installedAt: string;
-  /** Root-relative paths; written to disk unless listed in `missing`. */
-  files: string[];
-  /** Root-relative paths recorded but not created on disk. */
-  missing?: string[];
-  sourceId?: string;
-  sourceType?: string;
-}
-
-/** Bundles to write: bundle id → tool → entry. */
-export type RecordSpec = Record<string, Record<string, ToolEntrySpec>>;
-
-/**
- * Mark a folder as a git root (BR2.1).
- * @param root - Folder to mark.
- */
-export const initGitRoot = (root: string): void => {
-  fs.mkdirSync(path.join(root, '.git'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
-};
-
-const sha256 = (content: string): string => `sha256:${crypto.createHash('sha256').update(content).digest('hex')}`;
+/** Bundles to write: bundle id → tool → version, install time and one recorded file. */
+export type RecordSpec = Record<string, Record<string, { version: string; installedAt: string; file: string }>>;
 
 /**
  * Write an install record and the files it lists.
  * @param root - Git root.
  * @param fileName - {@link RECORD_FILE} or {@link LOCAL_RECORD_FILE}.
  * @param spec - Bundles to record.
- * @returns Absolute path of the record file.
  */
-export const writeInstallRecord = (root: string, fileName: string, spec: RecordSpec): string => {
-  const bundles: Record<string, unknown> = {};
-  const sources: Record<string, unknown> = {};
-  for (const [bundleId, tools] of Object.entries(spec)) {
-    const toolEntries: Record<string, unknown> = {};
-    for (const [tool, entry] of Object.entries(tools)) {
-      const sourceId = entry.sourceId ?? 'acme-github';
-      sources[sourceId] = { type: entry.sourceType ?? 'github', url: `https://github.com/acme/${sourceId}` };
-      const files = [...entry.files, ...(entry.missing ?? [])].toSorted().map((filePath) => {
-        const content = `# ${bundleId} ${tool} ${filePath}\n`;
-        if (!(entry.missing ?? []).includes(filePath)) {
-          const absolute = path.join(root, ...filePath.split('/'));
-          fs.mkdirSync(path.dirname(absolute), { recursive: true });
-          fs.writeFileSync(absolute, content);
-        }
-        return { path: filePath, checksum: sha256(content) };
-      });
-      toolEntries[tool] = {
+export const writeInstallRecord = (root: string, fileName: string, spec: RecordSpec): void => {
+  const bundles = Object.fromEntries(Object.entries(spec).map(([bundleId, tools]) => [bundleId, {
+    tools: Object.fromEntries(Object.entries(tools).map(([tool, entry]) => {
+      const absolute = path.join(root, ...entry.file.split('/'));
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, `# ${bundleId} ${tool}\n`);
+      return [tool, {
         version: entry.version,
-        sourceId,
-        sourceType: entry.sourceType ?? 'github',
+        sourceId: 'acme-github',
+        sourceType: 'github',
         installedAt: entry.installedAt,
-        files
-      };
-    }
-    bundles[bundleId] = { tools: toolEntries };
-  }
-  const record = {
+        files: [{ path: entry.file, checksum: `sha256:${'0'.repeat(64)}` }]
+      }];
+    }))
+  }]));
+  fs.writeFileSync(path.join(root, fileName), `${JSON.stringify({
     $schema: 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json',
     version: '3.0.0',
     level: 'repository',
     generatedAt: '2026-10-28T10:00:00.000Z',
     generatedBy: 'ai-primitives-hub-cli@0.3.0',
     bundles,
-    sources
-  };
-  const recordPath = path.join(root, fileName);
-  fs.writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`);
-  return recordPath;
+    sources: { 'acme-github': { type: 'github', url: 'https://github.com/acme/tools' } }
+  }, null, 2)}\n`);
 };
 
 /**
  * Snapshot every file under a folder (path → content), for "nothing changed on disk" checks.
  * @param root - Folder to snapshot.
- * @returns Sorted map of root-relative paths to contents.
+ * @returns Map of root-relative paths to contents, in walk order.
  */
 export const snapshotTree = (root: string): Map<string, string> => {
   const snapshot = new Map<string, string>();
