@@ -92,7 +92,15 @@ At repository scope, `install` writes a format `3.0.0` install record at the git
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
 - `prompt-registry.lock.json` and user-scope installs are left as they are.
 
-`uninstall` removes the target's entry and its files, keeps files another entry lists, and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`, which `update`, `status` and `install --lockfile` still use.
+`uninstall` removes the target's entry and its files, keeps files another entry lists, and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`.
+
+Commands that use the record end their text output with `Record: <level> <path>`; their `-o json` data adds `level` and `records`.
+
+- `update` updates every tool that has the bundle, each with its own target. Only `--target` narrows it to one tool. Tools that share files (for example `vscode` and `vscode-insiders` in `.github/`) move to the same version and are listed in `alsoUpdated`. Entries it cannot update are listed in `skipped`, with status `warning`.
+- `install --lockfile <ai-primitives-hub.*.lock.json>`, or a bare `install` in a repository with a record, reinstalls every recorded tool at its recorded version. `unknown` tool entries are listed in `needsReinstall`, and entries with no matching target in `skipped`.
+- `uninstall <id>` without `--target` is refused when several tools have the bundle. `uninstall --lockfile <ai-primitives-hub.*.lock.json> --target <name>` removes only that target's entries.
+- `status` lists one row per bundle and tool; `-o json` replaces `lockfile` with `level`, `records` and `entries`. Bundles only in `prompt-registry.lock.json` are still shown.
+- A recorded source is used only through the matching configured source (the active hub's first, then `source add`), with its URL and credentials. Otherwise the recorded copy is used without its `credentialRef`, and a `local` folder outside the repository is skipped. This also applies to `update --dry-run`.
 
 The VS Code extension lists these bundles at repository scope but refuses to uninstall, update, move or switch them (`RECORD.CLI_MANAGED`).
 
