@@ -115,7 +115,8 @@ export function createApmReleaseManifest(manifest: Record<string, unknown>): Rec
 
 /**
  * Repackage a planned release without changing source files or payload bytes.
- * APM's companion inventory excludes itself to avoid a circular content hash.
+ * The embedded deployment inventory omits `apm.yml` to avoid a circular
+ * digest; the final root deployment manifest inventory includes it.
  * @param plan - Existing governed or legacy release plan.
  * @param layout - Opt-in archive layout; the default is unchanged.
  * @returns A validated plan for the selected layout.
