@@ -168,8 +168,8 @@ suite('RepositoryActivationService', () => {
     const message = String(showInfo.firstCall.args[0]);
     assert.ok(message.startsWith('4 sources and hubs from the install records are not configured.'), message);
     assert.ok(message.includes('acme-github-token'), message);
-    for (const write of [storage.addSource, storage.updateSource, storage.removeSource, storage.saveConfig]) {
-      assert.ok(write.notCalled);
+    for (const write of ['addSource', 'updateSource', 'removeSource', 'saveConfig'] as const) {
+      assert.ok(storage[write].notCalled, write);
     }
     assert.ok(hubManager.importHub.notCalled);
     assert.deepStrictEqual(snapshotTree(root), before);
@@ -188,7 +188,7 @@ suite('RepositoryActivationService', () => {
       arrange: () => ({ isComplete: async () => false }) as unknown as SetupStateManager
     }
   ];
-  for (const quiet of quietCases) {
+  quietCases.forEach((quiet) => {
     test(`shows nothing when ${quiet.name}`, async () => {
       const setupStateManager = quiet.arrange();
 
@@ -196,5 +196,5 @@ suite('RepositoryActivationService', () => {
 
       assert.ok(showInfo.notCalled);
     });
-  }
+  });
 });
