@@ -632,6 +632,99 @@ items:
 
   // Real Git subprocesses and archive IO need more than five seconds on Windows CI.
   describe('bundle build', { timeout: 30_000 }, () => {
+    it('warns about native APM discovery but keeps nested APH prompt paths', async () => {
+      await mkdir(path.join(workspace, 'prompts', 'team'), { recursive: true });
+      await writeFile(path.join(workspace, 'prompts', 'team', 'review.prompt.md'), '# Review\n');
+      await writeFile(path.join(workspace, 'collections', 'foo.collection.yml'), [
+        'id: foo',
+        'name: Foo',
+        'items:',
+        '  - path: prompts/team/review.prompt.md',
+        '    kind: prompt'
+      ].join('\n'));
+      commitFixtureChanges();
+      const result = await run([
+        'bundle', 'build', '--layout', 'apm', '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const envelope = parseJson<{ zipAsset: string }>(result.stdout);
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toEqual([
+        expect.stringContaining('.apm/prompts/team/review.prompt.md')
+      ]);
+      const files = await new ZipBundleExtractor().extract(await readFile(envelope.data.zipAsset));
+      expect(new TextDecoder().decode(files.get('.apm/prompts/team/review.prompt.md'))).toBe('# Review\n');
+      expect(validateManifest(files, {}).items).toEqual([
+        expect.objectContaining({ path: '.apm/prompts/team/review.prompt.md' })
+      ]);
+    });
+
+    it('rejects unknown layouts without publishing output artifacts', async () => {
+      const result = await run(['bundle', 'build', '--layout', 'unknown', '--output', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout).errors[0].code).toBe('USAGE.INVALID_ARGUMENT');
+      expect(existsSync(path.join(workspace, 'dist'))).toBe(false);
+    });
+
+    it('builds a reproducible single-copy APM layout without modifying the source collection', async () => {
+      const sourcePath = path.join(workspace, 'collections', 'foo.collection.yml');
+      const source = await readFile(sourcePath);
+      const argv = [
+        'bundle', 'build', '--layout', 'apm', '--version', '1.0.0',
+        '--collection-file', 'collections/foo.collection.yml', '-o', 'json'
+      ];
+      const result = await run(argv);
+
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+      const envelope = parseJson<{ zipAsset: string; manifestAsset: string; apmManifestAsset: string }>(result.stdout);
+      const archive = await readFile(envelope.data.zipAsset);
+      const files = await new ZipBundleExtractor().extract(archive);
+      const manifest = validateManifest(files, { expectedId: 'foo', expectedVersion: '1.0.0' });
+      const apmManifest = yaml.load(new TextDecoder().decode(files.get('apm.yml')));
+      expect([...files.keys()].toSorted()).toEqual([
+        '.apm/LICENSE',
+        '.apm/metadata/source/collections/foo.collection.yml',
+        '.apm/prompts/hello.prompt.md',
+        'apm.yml',
+        'deployment-manifest.yml'
+      ]);
+      expect(manifest).toMatchObject({
+        items: [{ path: '.apm/prompts/hello.prompt.md', kind: 'prompt' }],
+        prompts: [{ file: '.apm/prompts/hello.prompt.md', type: 'prompt' }],
+        provenance: {
+          sourceSnapshotPath: '.apm/metadata/source/collections/foo.collection.yml',
+          licensePath: '.apm/LICENSE'
+        },
+        files: expect.arrayContaining([expect.objectContaining({ path: 'apm.yml', role: 'metadata' })])
+      });
+      expect(apmManifest).toMatchObject({
+        name: 'foo',
+        version: '1.0.0',
+        description: manifest.description,
+        author: manifest.author,
+        license: manifest.license,
+        repository: manifest.repository,
+        'x-aph': {
+          name: 'Foo Collection',
+          items: manifest.items,
+          provenance: manifest.provenance,
+          deploymentManifest: 'deployment-manifest.yml'
+        }
+      });
+      expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([
+        'deployment-manifest.yml',
+        '.apm/prompts/hello.prompt.md'
+      ]);
+      expect(await readFile(sourcePath)).toEqual(source);
+      expect(Buffer.from(files.get('.apm/metadata/source/collections/foo.collection.yml')!)).toEqual(source);
+      expect(await readFile(envelope.data.apmManifestAsset)).toEqual(Buffer.from(files.get('apm.yml')!));
+      expect((await run(argv)).exitCode).toBe(0);
+      expect(await readFile(envelope.data.zipAsset)).toEqual(archive);
+    });
+
     it('builds a self-contained governed archive and retains metadata outside target content', async () => {
       await mkdir(path.join(workspace, 'docs'), { recursive: true });
       await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');

@@ -27,6 +27,30 @@ for options, failure policies, and exit codes.
 | `promptregistry.securityShowLastReport` | Show Last Security Report |
 | `promptregistry.securityClearDiagnostics` | Clear Security Diagnostics |
 
+## Bundle Build (CLI)
+
+```bash
+ai-primitives-hub bundle build --collection-file collections/example.collection.yml --version 1.0.0
+ai-primitives-hub bundle build --collection-file collections/example.collection.yml --version 1.0.0 --layout apm
+```
+
+`--layout aph` is the unchanged default. The experimental `--layout apm` keeps
+source collection files unchanged, packages payload and evidence once under
+`.apm/`, and emits root `deployment-manifest.yml` and `apm.yml`. Both manifests
+are also written beside the ZIP; structured output adds `apmManifestAsset`.
+Primitive paths and governed inventories are rewritten to describe the actual
+archive. Matching root APM metadata is validated but never installed as a target
+primitive.
+
+The initial APM layout packages prompts, instructions, agents/chatmodes and skills,
+including skill resources, under ordinary, `.github/` or `.apm/` directories.
+Nested/noncanonical native discovery and dependency/MCP translation limitations
+produce warnings without dropping APH content. Unsupported kinds, empty
+collections and relocation collisions fail explicitly. See
+[APM layout validation](../author-guide/validation.md#experimental-aphapm-bundle-layout)
+for metadata mapping and qualification limits. This CLI option does not change
+the legacy npm collection builder or Artifactory replication.
+
 ## Bundle Install (CLI)
 
 `ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] --target <target> [--skip-unsupported]`
