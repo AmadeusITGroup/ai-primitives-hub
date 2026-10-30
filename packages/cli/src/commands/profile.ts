@@ -393,7 +393,10 @@ async function activateBundleForTarget(
     type: src.type,
     url: src.url,
     ...(src.config?.branch ? { branch: src.config.branch } : {}),
-    ...(src.config?.collectionsPath ? { collectionsPath: src.config.collectionsPath } : {})
+    ...(src.config?.collectionsPath ? { collectionsPath: src.config.collectionsPath } : {}),
+    ...(typeof src.config?.indexFile === 'string' ? { indexFile: src.config.indexFile } : {}),
+    ...(src.config?.authMode === 'anonymous' || src.config?.authMode === 'bearer' ? { authMode: src.config.authMode } : {}),
+    ...(typeof src.config?.credentialRef === 'string' ? { credentialRef: src.config.credentialRef } : {})
   };
   // `fetchFilesForSource` only reads `.version`/`.sourceId` off this
   // parameter — the rest are dummy values to satisfy `LockfileBundleEntry`'s
@@ -420,7 +423,7 @@ async function activateBundleForTarget(
       return { ok: false, reason: 'failed to fetch bundle files' };
     }
     const manifest = validateManifest(files, {
-      expectedId: bundleRef.id,
+      expectedId: src.type === 'artifactory' ? undefined : bundleRef.id,
       expectedVersion: bundleRef.version === 'latest' ? undefined : bundleRef.version,
       // Hub profiles name GitHub bundles `{owner}-{repo}-{manifestId}`.
       sourceRepoSlug: githubRepoSlugForSource(src)
