@@ -15,15 +15,12 @@ import {
   ManifestValidationError,
   validateManifest,
 } from '../../../src/domain/collection/manifest-validator';
-import type {
-  ExtractedFiles,
-} from '../../../src/ports/bundle-extractor';
 import {
   createGovernedReleaseArchive,
   createLegacyReleaseArchive,
 } from '../../fixtures/release-archives';
 
-const filesWith = (yaml: string): ExtractedFiles => new Map([
+const filesWith = (yaml: string): Map<string, Uint8Array> => new Map([
   ['deployment-manifest.yml', new TextEncoder().encode(yaml)]
 ]);
 
