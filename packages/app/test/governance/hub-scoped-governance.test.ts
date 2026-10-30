@@ -98,13 +98,13 @@ describe('scoped Hub governance app', () => {
     const report = await runHubScopedGovernance(fs, { ...request(base, head), processRunner: runner(base, head, 'minScore: 100\nrules:\n  HUB002:\n    enabled: false\n    reason: noisy\n') });
     expect(report).toMatchObject({ minScore: 100, suppressions: [{ ruleId: 'HUB002', action: 'disabled', reason: 'noisy' }] });
   });
-  it('reports COL002 and COL004 as not checked on an offline scoped run', async () => {
+  it('does not include collection rules in an offline hub run', async () => {
     const base = hub();
     const head = structuredClone(base);
     head.profiles[0].bundles[0].version = '2.0.0';
     const report = await runHubScopedGovernance(fs, request(base, head));
     expect(report.mode).toBe('offline');
-    expect(report.notChecked.map((entry) => entry.ruleId)).toEqual(['COL002', 'COL004']);
+    expect(report.notChecked).toEqual([]);
   });
   it('rejects duplicate IDs from full head context before projection', async () => {
     const head = hub();
@@ -131,11 +131,10 @@ describe('scoped Hub governance app', () => {
       collections: [{ sourceId: 'a', id: 'selected' }, { sourceId: 'b', id: 'unrelated' }, { sourceId: 'c', id: 'unrelated' }], unverifiedSources: []
     }) } });
     expect(report.verdict).toBe('pass');
-    expect(lookup).toHaveBeenCalledTimes(1);
-    expect(lookup).toHaveBeenCalledWith(expect.objectContaining({ sourceId: 'a', id: 'selected' }));
+    expect(lookup).not.toHaveBeenCalled();
     expect(report.findings.some((f) => f.ruleId === 'COL004')).toBe(false);
   });
-  it('cannot suppress incomplete uniqueness evidence into a pass', async () => {
+  it('does not read unrelated collection inventories or fail HUB001 for missing uniqueness evidence', async () => {
     const base = hub();
     const head = hub();
     head.profiles[0].bundles[0].required = false;
@@ -143,7 +142,8 @@ describe('scoped Hub governance app', () => {
     const report = await runHubScopedGovernance(fs, { ...request(base, head), checkSources: true, policy: 'policy.yml', sourceAdapterDeps: deps(),
       releaseLookup: { lookup: () => Promise.resolve({ status: 'published' }) },
       collectionIndex: { read: () => Promise.resolve({ collections: [{ sourceId: 'a', id: 'selected' }], unverifiedSources: [{ sourceId: 'b', message: 'Cannot read context' }] }) } });
-    expect(report.verdict).toBe('fail');
+    expect(report.verdict).toBe('pass');
+    expect(report.findings.some((finding) => finding.ruleId.startsWith('COL'))).toBe(false);
   });
   it('validates scope-file IDs and never silently passes typo selectors', async () => {
     await writeFile(path.join(root, 'hub-config.yml'), JSON.stringify(hub()));
@@ -159,7 +159,7 @@ describe('scoped Hub governance app', () => {
     expect(report.scope?.sources.removed).toEqual(['a']);
     expect(report.findings.some((f) => f.message.includes('non-existent source'))).toBe(true);
   });
-  it('composes real deep resolution, inventories and publication over mocked HTTP', async () => {
+  it('resolves profile versions without performing collection inventory checks', async () => {
     const base = hub();
     const head = hub();
     base.sources[1].type = 'skills';
@@ -170,7 +170,8 @@ describe('scoped Hub governance app', () => {
     expect(report).toMatchObject({ verdict: 'pass', mode: 'sources', scope: { sourceIds: ['a'] } });
     expect(Reflect.get(sourceAdapterDeps.httpClient, 'fetch')).toHaveBeenCalled();
     const requests = vi.mocked(sourceAdapterDeps.httpClient).fetch.mock.calls.map(([httpRequest]) => httpRequest.url);
-    expect(requests.filter((url) => url.includes('/releases?'))).toHaveLength(1);
+    expect(requests.filter((url) => url.includes('/releases?'))).toHaveLength(0);
+    // The pinned profile reference still needs its manifest; this is HUB001 resolution, not COL002.
     expect(requests.filter((url) => url.endsWith('/releases/assets/1'))).toHaveLength(1);
   });
   it('skips all remote evidence for a genuine semantic no-op', async () => {

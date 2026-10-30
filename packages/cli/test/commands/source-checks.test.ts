@@ -127,8 +127,8 @@ profiles: []
 
   it('identifies raw collection IDs shared across two Hub release sources', async () => {
     await writeHub();
-    const result = await run(['hub', 'validate', '--governance', '--check-sources', '-o', 'json'], httpFixture());
-    expect(result).toMatchObject({ exitCode: 1, data: { mode: 'sources', verdict: 'fail', score: 90 } });
+    const result = await run(['collection', 'validate', '--check-sources', '-o', 'json'], httpFixture());
+    expect(result).toMatchObject({ exitCode: 1, data: { subject: 'collection', mode: 'sources', verdict: 'fail' } });
     expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining('first, second') }));
     expect(result.data.findings.some((finding: { ruleId: string }) => finding.ruleId === 'COL002')).toBe(false);
   });

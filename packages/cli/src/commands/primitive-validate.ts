@@ -6,9 +6,19 @@
  * @module commands/primitive-validate
  */
 import {
+  createHubSourceAccess,
+} from '@ai-primitives-hub/app';
+import {
   GOVERNED_PRIMITIVE_KINDS,
   type GovernedPrimitiveKind,
+  type HttpClient,
+  type TokenProvider,
 } from '@ai-primitives-hub/core';
+import {
+  defaultTokenProvider,
+  NodeHttpClient,
+  NodeProcessRunner,
+} from '@ai-primitives-hub/infra';
 import {
   Command,
   type Context,
@@ -36,6 +46,8 @@ export class PrimitiveValidateCommand extends Command {
       PR mode (--base-ref and --head-ref): only primitives the PR added or modified are
       validated, limited to the given paths (default: the whole repository). The checkout
       must be at --head-ref with full history.
+      Added or modified enabled github sources in the hub config are downloaded;
+      primitives referenced by their collections are validated, regardless of profiles.
 
       Options:
         -o, --output <format>   Output format (text, json, yaml, ndjson)
@@ -45,6 +57,7 @@ export class PrimitiveValidateCommand extends Command {
         --report-path <path>    Write the Markdown report to a file
         --base-ref <commit>     PR mode: exact base commit
         --head-ref <commit>     PR mode: exact head commit (must be checked out)
+        --config <path>         Hub configuration for PR source discovery (default: hub-config.yml)
     `,
     examples: [
       ['Validate every primitive in a folder', 'ai-primitives-hub primitive validate prompts/'],
@@ -60,11 +73,12 @@ export class PrimitiveValidateCommand extends Command {
   public reportPath = Option.String('--report-path');
   public baseRef = Option.String('--base-ref');
   public headRef = Option.String('--head-ref');
+  public config = Option.String('--config');
   public inputs = Option.Rest();
-  public commandContext!: { ctx: Context };
+  public commandContext!: { ctx: Context; http?: HttpClient; tokens?: TokenProvider };
 
   public execute(): Promise<number> {
-    const { ctx } = this.commandContext;
+    const { ctx, http, tokens } = this.commandContext;
     if (this.kind !== undefined && !(GOVERNED_PRIMITIVE_KINDS as readonly string[]).includes(this.kind)) {
       ctx.stderr.write(`Unknown --kind '${this.kind}'. Use one of: ${GOVERNED_PRIMITIVE_KINDS.join(', ')}.\n`);
       return Promise.resolve(1);
@@ -75,7 +89,13 @@ export class PrimitiveValidateCommand extends Command {
       return Promise.resolve(1);
     }
     return executeValidationGovernance(ctx, {
-      subject: 'primitive', primitivePaths: this.inputs, primitiveKind: this.kind as GovernedPrimitiveKind | undefined
+      subject: 'primitive', primitivePaths: this.inputs, primitiveKind: this.kind as GovernedPrimitiveKind | undefined, config: this.config,
+      hubSources: prMode
+        ? createHubSourceAccess({
+          fs: ctx.fs, clock: ctx.clock, httpClient: http ?? new NodeHttpClient(), processRunner: new NodeProcessRunner(),
+          fallbackTokenProviders: tokens === undefined ? [defaultTokenProvider(ctx.env)] : [tokens]
+        })
+        : undefined
     }, { governance: true, policy: this.policy, minScore: this.minScore, reportPath: this.reportPath, baseRef: this.baseRef, headRef: this.headRef },
     (this.output ?? 'text') as OutputFormat);
   }

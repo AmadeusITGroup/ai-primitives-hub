@@ -11,15 +11,11 @@ import {
   type FileSystem,
   type GovernanceFinding,
   type GovernanceReport,
-  hubCollectionFindings,
   type HubCollectionIndex,
   type HubScope,
   type HubScopeDocument,
-  hubScopeInventoryDocument,
   hubScopeLocationMapper,
-  releaseFindings,
   type ReleaseLookup,
-  scopedHubInventory,
   selectHubScope,
 } from '@ai-primitives-hub/core';
 import {
@@ -132,10 +128,8 @@ export async function runHubScopedGovernance(fs: FileSystem, request: HubScopedG
     const shouldCheckSources = config.findings.length === 0 && staticErrors.length === 0 && request.checkSources
       && !scope.noOp && (scope.sourceIds.length > 0 || scope.references.length > 0);
     if (shouldCheckSources) {
-      const context = hubScopeInventoryDocument(head, scope);
       // Scoped Git validation must never execute APM/PR code or read checkout-local sources.
-      if (selected.sources.some((s) => s.enabled && !REMOTE_SOURCE_TYPES.has(String(s.type)))
-        || context.sources.some((s) => s.type === 'local-awesome-copilot')) {
+      if (selected.sources.some((s) => s.enabled && !REMOTE_SOURCE_TYPES.has(String(s.type)))) {
         throw new Error('Scoped deep validation supports remote github, awesome-copilot and skills sources only; local/APM execution is prohibited.');
       }
       if (!request.sourceAdapterDeps) {
@@ -150,33 +144,6 @@ export async function runHubScopedGovernance(fs: FileSystem, request: HubScopedG
       const locate = hubScopeLocationMapper(deepDocument, head);
       errors('HUB001', deep.errors, locate);
       findings.push(...(deep.warnings ?? []).map((message) => ({ ruleId: 'HUB002', severity: 'warning' as const, message: locate(message) })));
-
-      // Changed sources are read in full; every other enabled source is context for COL004 only.
-      const checks = createHubGovernanceSourceChecks(hubScopeFileSystem(fs, configPath, context), configPath, deps, request.onInventoryProgress,
-        { fullSourceIds: new Set(scope.sourceIds), deadlineMs: request.inventoryDeadlineMs });
-      const inventory = context.sources.length > 0
-        ? await (request.collectionIndex ?? checks.collectionIndex).read()
-        : { collections: [], unverifiedSources: [] };
-      const evidence = scopedHubInventory(head, scope, inventory);
-      findings.push(...hubCollectionFindings(evidence));
-      if (evidence.unverifiedSources.length > 0) {
-        const unread = [...new Set(evidence.unverifiedSources.map((entry) => entry.sourceId))];
-        findings.push({ ruleId: 'HUB001', severity: 'error', verified: false,
-          message: `The hub cannot be accepted yet: ${unread.length} of ${context.sources.length} enabled collection sources could not be read `
-            + `(${unread.join(', ')}), so the IDs added by this PR cannot be confirmed unique across the hub. `
-            + 'The reason for each source is listed under Collection validation (COL004).',
-          hint: 'Fix those sources (for example update a renamed repository url or grant the token access), then re-run the check.' });
-      }
-      // Deep validation already reports profile references with no discovered bundle (HUB001);
-      // checking their releases again would report the same problem twice.
-      const discovered = new Set(inventory.collections.map((c) => `${c.sourceId}\u0000${c.id}`));
-      for (const collection of (evidence.releaseCandidates ?? []).filter((c) => discovered.has(`${c.sourceId}\u0000${c.id}`))) {
-        try {
-          findings.push(...releaseFindings(collection, await (request.releaseLookup ?? checks.releaseLookup).lookup(collection)));
-        } catch {
-          findings.push(...releaseFindings(collection, { status: 'unverified' }));
-        }
-      }
     }
   } catch (error) {
     errors('HUB001', [error instanceof Error ? error.message : 'Scoped validation could not complete.']);

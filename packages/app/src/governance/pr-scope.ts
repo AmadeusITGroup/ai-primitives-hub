@@ -29,6 +29,8 @@ export interface PrScope {
   changedFiles: string[];
   /** Collection files or primitive files that were validated because of the change. */
   validated: string[];
+  /** Hub sources the PR added or modified, downloaded to validate their collections. */
+  sources?: string[];
 }
 
 /**

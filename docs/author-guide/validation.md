@@ -93,7 +93,9 @@ are not checked. The check is not run for an invalid `kind`, which is already an
 
 ## CLI Governance Validation
 
-The existing `ai-primitives-hub collection validate` command also supports opt-in governance. `--governance` enables rule IDs, a pass/fail verdict, a 0–100 score, and provider Markdown reporting. Supplying `--policy`, `--min-score`, or `--report-path` also enables governance. Without these options, existing validation and output are unchanged.
+The existing `ai-primitives-hub collection validate` command also supports opt-in governance. `--governance` enables rule IDs, a pass/fail verdict, and provider Markdown reporting. Reports and PR comments show problems, warnings and check results without scores. Collection reports put the collapsed **All checks** table first, followed by problems, warnings, policy overrides and PR scope when present. Source-contact/download notes and the generic incomplete-data notice are omitted; specific source failures and **could not verify** results remain visible. Scores remain in structured output for compatibility with existing integrations; configured minimum thresholds are still enforced. Supplying `--policy`, `--min-score`, or `--report-path` also enables governance. Without these options, existing validation and output are unchanged.
+
+Problem and warning tables include a **Rule** column. When one grouped problem comes from multiple rules, the row lists all contributing rule IDs once, in sorted order.
 
 | Option | Behavior |
 | --- | --- |
@@ -106,11 +108,11 @@ The existing `ai-primitives-hub collection validate` command also supports opt-i
 | `--repository <owner/repo>` | GitHub repository (or URL) for release verification; does not enable network checks on its own. |
 | `-o, --output <format>` | Text, JSON, YAML, or NDJSON. JSON/YAML reports are in `data`; NDJSON emits the report directly. |
 
-Governance reuses the existing schema, file-reference, and duplicate checks, requires a non-empty author, and rejects an empty collection set. Errors always fail. The score starts at 100, loses 10 per verified error and 3 per verified warning, and is advisory unless a minimum is configured. Unverified findings do not reduce the score. Floor rules cannot be disabled or downgraded; overrides and their reasons remain visible in reports. A report-write failure also fails the command. Offline runs show the network rules they did not run (`COL002`, and `COL004` for hubs) as **Not run** in the rule table, naming the option that enables them, with no score weight.
+Governance reuses the existing schema, file-reference, and duplicate checks, requires a non-empty author, and rejects an empty collection set. Errors always fail. The score starts at 100, loses 10 per verified error and 3 per verified warning, and is advisory unless a minimum is configured. Unverified findings do not reduce the score. Floor rules cannot be disabled or downgraded; overrides and their reasons remain visible in reports. A report-write failure also fails the command. Collection runs show unrequested network rules (`COL002` and `COL004`) as **Not run**, naming the option that enables each, with no score weight. Hub runs do not include these rules.
 
 Every rule, its default severity and whether it can be configured is listed in the generated [rule catalogue](./rule-catalogue.md).
 
-The configuration, score, and report options are also available on `ai-primitives-hub hub validate` and `ai-primitives-hub skill validate`. Governance stays offline unless explicitly requested. Hub `--governance --check-sources` enables `COL002` and `COL004` (canonical collection IDs across enabled sources). Skill governance rejects an empty skills directory.
+The configuration, score, and report options are also available on `ai-primitives-hub hub validate` and `ai-primitives-hub skill validate`. Governance stays offline unless explicitly requested. Hub `--governance --check-sources` checks source accessibility, catalogs and profile references only. Collection `--check-releases` enables `COL002`; collection `--check-sources` enables `COL004` (canonical collection IDs across enabled sources). Skill governance rejects an empty skills directory.
 
 ### Running the validations
 
@@ -122,7 +124,21 @@ Each level is its own command. Run it on a path, or add `--base-ref`/`--head-ref
 | Collection | `collection validate --governance [--root <dir>] [--collection-file <file>...]` | `collection validate --base-ref <base> --head-ref <head> [--root <dir>]` |
 | Primitive | `primitive validate <file-or-dir>...` | `primitive validate [<dir>...] --base-ref <base> --head-ref <head>` |
 
-In collection PR mode, a collection is validated when the PR changes its `.collection.yml`, its README or any item it references; uniqueness is still checked against every collection. In primitive PR mode, changed primitive files are validated, and a change anywhere in a skill folder re-validates its `SKILL.md`. The report's **PR scope** section lists what was validated.
+In collection PR mode, a collection is validated when the PR changes its `.collection.yml`, its README or any item it references; uniqueness is still checked against every collection. When the PR changes the hub config (`--config`, default `hub-config.yml`), every enabled `github` source it adds or modifies is downloaded from its configured branch (default branch if none) and all its collections are validated, with `--check-releases` checking their releases in that source. Problems are reported as `<source id>/<file>`; a source that cannot be downloaded is reported with the reason. Other source types are not downloaded. In primitive PR mode, changed primitive files are validated, and a change anywhere in a skill folder re-validates its `SKILL.md`. The report's **PR scope** section lists what was validated, including the downloaded sources.
+
+Primitive PR mode also follows enabled `github` sources added or modified in the hub configuration (`--config`, default `hub-config.yml`). It downloads only those sources and validates their collection-referenced skills, agents, prompts, instructions and MCP definitions, without requiring profiles. Findings and validated paths are prefixed with the source ID. Source download or collection-read failures block the run rather than passing with no primitives checked.
+
+### Primitive safety and content checks
+
+| Rule | Default | Behavior |
+| --- | --- | --- |
+| `PTH001` | Error; cannot be disabled or downgraded | Paths must exist and resolve inside the repository root. Out-of-root paths, escaping or broken symlinks, and unavailable canonical-path resolution block validation before content is read. Contained symlinks are allowed; recursive scans avoid loops and duplicate canonical files. |
+| `MCP003` | Error | MCP definitions must have a non-empty server map, exactly one command or URL per server, valid field types, string argument arrays, and consistent `stdio`/`http`/`sse` transport fields. URLs must use HTTP(S) or an input/environment placeholder. Inputs need unique non-empty IDs, supported types (`promptString`, `pickString`, `command`) and their required properties. |
+| `BOD001` | Warning | Skills, agents, prompts and instructions need a non-empty body after frontmatter. Whitespace and HTML comments alone do not count as instructions. |
+
+Run standalone validation from the repository root containing the supplied files. Absolute paths are allowed only within that root. These checks do not execute commands, contact MCP endpoints, or assess instruction quality. Existing `MCP001` and `MCP002` advisories remain available alongside the stricter structure rule.
+
+Primitive reports show **Not applicable** for rules whose primitive kind was not inspected; these rows are excluded from passed-check counts. The structured report includes `applicableRules` for integrations. Rules with findings still show their actual warning or failure, and disabled rules remain marked as disabled. Older report producers without applicability metadata retain their previous rendering.
 
 ### Governance configuration (`hub-governance.yml`)
 
@@ -160,7 +176,7 @@ Any CFG finding fails the run and the rest of the configuration is ignored for t
 | `MCP001` | JSON with servers under `servers` or `mcpServers`, each with a `command` or `url`, string-valued `env`/`headers`, and every `${input:id}` declared in `inputs`. |
 | `MCP002` | No literal secrets in `env`, `headers` or `args`; use `${input:...}` or `${env:...}`. |
 
-`AGT001`, `PRM001`, `INS001`, `MCP001` and `MCP002` are new and report as warnings; they will become errors in a later release. Each level is its own command: `hub validate` does not run collection or primitive rules. Its report shows Hub validation plus the two hub-wide collection checks (`COL002` published release, `COL004` ID unique across the hub), which need `--check-sources`.
+`AGT001`, `PRM001`, `INS001`, `MCP001` and `MCP002` are new and report as warnings; they will become errors in a later release. Each level is its own command: `hub validate` reports only hub rules, not collection or primitive rules. Publication (`COL002`) and hub-wide collection ID uniqueness (`COL004`) belong to `collection validate`.
 
 For Hub source governance, add `--verbose` to see per-source inventory progress and timestamped GitHub request, retry, and backoff events on stderr. Diagnostics show source IDs, hostnames, request categories, attempts, and statuses, but omit URLs, credentials, response bodies, and signed query parameters. JSON stdout remains machine-readable. Without `--verbose`, these progress diagnostics are not emitted.
 
@@ -170,9 +186,9 @@ For PR-scoped hub runs, the sources a PR changed are read in full; every other e
 
 ### Source checks
 
-For `COL002`, use collection `--check-releases --repository owner/repo`. A published release must be neither a draft nor a prerelease and must include a standalone deployment manifest declaring the collection identity/version and a ZIP or TAR.GZ archive asset. Every release page is inspected; a matching published release establishes existence, not compliance with every requested version.
+For `COL002`, use collection `--check-releases --repository owner/repo`. A published release must be neither a draft nor a prerelease and must include a standalone deployment manifest declaring the collection identity/version and a ZIP or TAR.GZ archive asset. Every release page is inspected; a matching published release establishes existence, not compliance with every requested version. When validating sources added or modified by a hub PR, `COL002` applies only to `github` sources; `awesome-copilot` sources need no release.
 
-For `COL004`, Hub `--governance --check-sources` compares raw collection IDs from Awesome Copilot definitions and canonical IDs from GitHub release manifests. Multiple versions within one source do not collide; matching IDs across different enabled sources do. Non-collection sources (skills, APM, local deployment bundles, Azure DevOps bundles) are excluded from this collection inventory. Unreadable or malformed inventory data is not treated as empty success.
+For `COL004`, collection `--check-sources [--config hub-config.yml]` compares raw collection IDs from Awesome Copilot definitions and canonical IDs from GitHub release manifests. Multiple versions within one source do not collide; matching IDs across different enabled sources do. In PR mode, only collisions involving selected collections are reported; other sources supply comparison evidence. Non-collection sources (skills, APM, local deployment bundles, Azure DevOps bundles) are excluded. Unreadable inventory data is not treated as empty success. Hub validation does not read this cross-source inventory or report an additional HUB001 uniqueness error.
 
 Unavailable release evidence or incomplete inventories produce unverified errors: the gate fails without a score penalty. Local-only collection definitions without a verifiable GitHub publication target cannot pass requested release verification. Run remote checks in a separate approved/authenticated job for private sources; never provide source credentials to untrusted fork input.
 

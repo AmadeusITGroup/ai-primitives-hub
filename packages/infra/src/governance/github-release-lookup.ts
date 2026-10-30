@@ -152,7 +152,7 @@ function publishedRelease(value: unknown, target: GitHubRepositoryTarget): Publi
       const configured = `${target.owner}/${target.repository}`;
       if (actual !== undefined && actual.toLowerCase() !== configured.toLowerCase()) {
         throw new ReleaseDataError({
-          reason: `Release assets belong to repository '${actual}', not '${configured}' as configured; the repository was probably renamed or moved.`,
+          reason: 'Source repository was renamed',
           hint: `Update this source's url in hub-config.yml to https://${target.host}/${actual}.`
         });
       }

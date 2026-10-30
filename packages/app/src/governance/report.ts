@@ -57,7 +57,7 @@ export type RenderableGovernanceReport = GovernanceReport & { prScope?: PrScope;
 
 interface RuleRow {
   rule: GovernanceRule;
-  status: 'pass' | 'fail' | 'warn' | 'skipped';
+  status: 'pass' | 'fail' | 'warn' | 'skipped' | 'not-applicable';
   result: string;
   findings: GovernanceFinding[];
 }
@@ -74,7 +74,8 @@ function ruleRow(rule: GovernanceRule, report: GovernanceReport, levelRan: boole
     return { rule, status: 'skipped', result: '⏭️ Disabled by configuration', findings };
   }
   if (!levelRan || report.notChecked.some((entry) => entry.ruleId === rule.id)) {
-    return { rule, status: 'skipped', result: `⏭️ Not run (offline; use ${sourceCheckOption(report.subject)})`, findings };
+    const option = rule.id === 'COL004' ? '--check-sources' : sourceCheckOption(report.subject);
+    return { rule, status: 'skipped', result: `⏭️ Not run (offline; use ${option})`, findings };
   }
   const errors = findings.filter((finding) => finding.severity === 'error');
   if (errors.length > 0) {
@@ -84,55 +85,71 @@ function ruleRow(rule: GovernanceRule, report: GovernanceReport, levelRan: boole
   if (findings.length > 0) {
     return { rule, status: 'warn', result: `⚠️ Pass with ${plural(findings.length, 'warning')}`, findings };
   }
+  if (report.applicableRules !== undefined && !report.applicableRules.includes(rule.id)) {
+    return { rule, status: 'not-applicable', result: '— Not applicable', findings };
+  }
   return { rule, status: 'pass', result: '✅ Pass', findings };
 }
 
-/**
- * One line per finding with the exact error text; unverified means the data could not be read.
- * @param finding
- * @param rule
- */
-const detail = (finding: GovernanceFinding, rule?: GovernanceRule): string => {
-  const icon = finding.severity === 'error' ? '❌' : '⚠️';
-  const where = finding.file === undefined ? '' : ` · ${escape(finding.file)}`;
-  const unverified = finding.verified === false ? ' · could not verify' : '';
-  return [
-    `- ${icon} **${escape(finding.ruleId)}**${where}${unverified}`,
-    ...(rule ? [`  - **Rule:** ${escape(rule.description)}`] : []),
-    `  - **What failed:** ${escape(finding.message)}`,
-    ...(finding.hint ? [`  - **How to fix:** ${escape(finding.hint)}`] : [])
-  ].join('\n');
-};
+interface ProblemRow { problem: string; ruleIds: Set<string>; source?: string; collections: Set<string>; items: Map<string, string[]> }
 
 /**
- * Render one level: every rule with its result, then the details of each failure and warning.
- * @param title
- * @param rows
- * @param levelRan
+ * Group findings into one row per problem. A source that could not be read gets its own row,
+ * with the number of its collections that could not be checked as a result.
+ * @param findings
  */
-function renderLevel(title: string, rows: RuleRow[], levelRan: boolean): string[] {
-  const failed = rows.filter((row) => row.status === 'fail').length;
-  const warned = rows.filter((row) => row.status === 'warn').length;
-  let summary = '✅ PASS';
-  if (!levelRan) {
-    summary = '⏭️ NOT RUN';
-  } else if (failed > 0) {
-    summary = `❌ FAIL (${plural(failed, 'rule')} failed)`;
-  } else if (warned > 0) {
-    summary = `⚠️ PASS (${plural(warned, 'rule')} with warnings)`;
+function groupProblems(findings: GovernanceFinding[]): ProblemRow[] {
+  const rows = new Map<string, ProblemRow>();
+  for (const finding of findings) {
+    // Drop a field label that the text repeats, e.g. "name: name must ..." -> "name must ...".
+    const text = (finding.problem ?? finding.message).replace(/^(\w+): (?=\1\b)/, '').replace(/\.$/, '');
+    const problem = `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+    const source = finding.verified === false
+      ? (finding.subject?.kind === 'source' ? finding.subject.id : finding.subject?.source)
+      : undefined;
+    const key = `${problem}\u0000${source ?? ''}`;
+    const row = rows.get(key) ?? { problem, ruleIds: new Set<string>(), source, collections: new Set<string>(), items: new Map<string, string[]>() };
+    rows.set(key, row);
+    row.ruleIds.add(finding.ruleId);
+    if (source !== undefined) {
+      if (finding.subject?.kind === 'collection') {
+        row.collections.add(finding.subject.id);
+      }
+      continue;
+    }
+    const item = finding.subject?.id ?? finding.file ?? '';
+    const details = row.items.get(item) ?? [];
+    if (finding.detail !== undefined && !details.includes(finding.detail)) {
+      details.push(finding.detail);
+    }
+    row.items.set(item, details);
   }
-  const lines = ['', `### ${title}: ${summary}`, '', '| Rule | Check | Result |', '| --- | --- | --- |',
-    ...rows.map((row) => `| ${row.rule.id} | ${escape(row.rule.description)} | ${row.result} |`)];
-  const of = (severity: string) => rows.flatMap((row) => row.findings.filter((finding) => finding.severity === severity).map((finding) => detail(finding, row.rule)));
-  const errors = of('error');
-  const warnings = of('warning');
-  if (errors.length > 0) {
-    lines.push('', `**Errors (${errors.length})**`, '', ...errors);
-  }
-  if (warnings.length > 0) {
-    lines.push('', `**Warnings (${warnings.length})**`, '', ...warnings);
-  }
-  return lines;
+  // Unreadable sources first: fixing them may reveal more problems.
+  return [...rows.values()].toSorted((a, b) => Number(a.source === undefined) - Number(b.source === undefined));
+}
+
+/**
+ * One numbered row per problem with everything it affects.
+ * @param rows
+ */
+function problemsTable(rows: ProblemRow[]): string[] {
+  const affected = (row: ProblemRow): string => {
+    if (row.source !== undefined) {
+      return row.collections.size === 0 ? escape(row.source) : `${escape(row.source)} (${plural(row.collections.size, 'collection')})`;
+    }
+    const entries = [...row.items].filter(([item, details]) => item !== '' || details.length > 0);
+    // Plain names fit on one line; names with details get a line each.
+    const separator = entries.some(([, details]) => details.length > 0) ? '<br>' : ', ';
+    return entries.map(([item, details]) => {
+      const listed = details.map((detail) => escape(detail)).join(', ');
+      if (item === '') {
+        return listed;
+      }
+      return details.length === 0 ? escape(item) : `${escape(item)} (${listed})`;
+    }).join(separator) || '\u2014';
+  };
+  return ['| # | Rule | Problem | Affected |', '| --- | --- | --- | --- |',
+    ...rows.map((row, index) => `| ${index + 1} | ${[...row.ruleIds].toSorted().map((id) => escape(id)).join(', ')} | ${escape(row.problem)} | ${affected(row)} |`)];
 }
 
 function renderHubScope(scope: HubScopeView): string[] {
@@ -156,6 +173,9 @@ function renderPrScope(scope: PrScope): string[] {
   if (scope.validated.length > 0) {
     lines.push('', ...scope.validated.map((file) => `- ${escape(file)}`));
   }
+  if (scope.sources?.length) {
+    lines.push('', `Validated sources: ${scope.sources.map((id) => escape(id)).join(', ')}`);
+  }
   return lines;
 }
 
@@ -165,57 +185,60 @@ function renderPrScope(scope: PrScope): string[] {
  */
 export function renderGovernanceMarkdown(report: RenderableGovernanceReport): string {
   const marker = report.subject === 'hub' ? 'hub-validation-report' : `${report.subject}-validation-report`;
-  // Each command reports its own level. A hub run adds the two hub-wide collection checks (COL002, COL004).
-  const levels: Level[] = report.subject === 'hub' ? ['hub', 'collection'] : [report.subject];
+  // Each command reports only its own level.
+  const levels: Level[] = [report.subject];
   const rules = rulesForSubject(report.subject);
-  const verdict = report.verdict === 'pass' ? '✅ **PASS**' : '❌ **FAIL**';
-  const lines = [
-    `<!-- ${marker} -->`,
-    `## AI Primitives Hub — ${report.subject} validation: ${verdict}`,
-    '',
-    '| Check | Result |',
-    '| --- | --- |',
-    `| Verdict | ${verdict} |`
-  ];
-  const rendered: string[] = [];
-  for (const level of levels) {
+  const name = `${report.subject.charAt(0).toUpperCase()}${report.subject.slice(1)} validation`;
+  const errors = report.findings.filter((finding) => finding.severity === 'error');
+  const configurationFailed = report.findings.some((finding) => levelOf(finding.ruleId) === 'configuration');
+  const problems = groupProblems(errors);
+  const warnings = groupProblems(report.findings.filter((finding) => finding.severity === 'warning'));
+  let heading = `✅ ${name} passed`;
+  if (report.verdict === 'fail') {
+    heading = problems.length > 0
+      ? `❌ ${name} failed: ${plural(problems.length, 'problem')}`
+      : `❌ ${name} failed: configured policy threshold was not met`;
+  } else if (warnings.length > 0) {
+    heading += ` with ${plural(warnings.length, 'warning')}`;
+  }
+  const header = [`<!-- ${marker} -->`, `## ${heading}`];
+  const lines: string[] = [];
+  if (problems.length > 0) {
+    lines.push('', ...problemsTable(problems));
+  }
+  if (configurationFailed) {
+    lines.push('', 'hub&#45;governance&#46;yml has errors, so it was ignored for this run.');
+  }
+  if (warnings.length > 0) {
+    lines.push('', '### Warnings (do not block)', '', ...problemsTable(warnings));
+  }
+  if (report.suppressions.length > 0) {
+    lines.push('', '**Policy overrides:**', '', ...report.suppressions.map((suppression) =>
+      `- **${escape(suppression.ruleId)}**: ${escape(suppression.action)}${suppression.reason ? ` — ${escape(suppression.reason)}` : ''}`));
+  }
+
+  // Details for anyone who wants them: every check with its result, and what was validated.
+  // Configuration checks are listed only when the configuration has errors.
+  const rows = [...(configurationFailed ? ['configuration' as const] : []), ...levels].flatMap((level) => {
     const ran = !(report.subject === 'hub' && level !== 'hub' && report.mode === 'offline');
-    const rows = rules.filter((rule) => levelOf(rule.id) === level).map((rule) => ruleRow(rule, report, ran));
-    const title = report.subject === 'hub' && level === 'collection'
-      ? 'Hub-wide collection checks'
-      : `${level.charAt(0).toUpperCase()}${level.slice(1)} validation`;
-    const section = renderLevel(title, rows, ran);
-    lines.push(`| ${title} | ${section[1].slice(`### ${title}: `.length)} |`);
-    rendered.push(...section);
+    return rules.filter((rule) => levelOf(rule.id) === level).map((rule) => ruleRow(rule, report, ran));
+  });
+  const count = (status: RuleRow['status']): number => rows.filter((row) => row.status === status).length;
+  const summary = [`${count('pass') + count('warn')} passed`, `${count('fail')} failed`,
+    ...(count('skipped') > 0 ? [`${count('skipped')} not run`] : []), ...(count('not-applicable') > 0 ? [`${count('not-applicable')} not applicable`] : [])];
+  const details = ['', `<details><summary>All checks: ${summary.join(', ')}</summary>`, '', '| Rule | Check | Result |', '| --- | --- | --- |',
+    ...rows.map((row) => `| ${row.rule.id} | ${escape(row.rule.description)} | ${row.result} |`)];
+  if (report.mode !== 'sources') {
+    details.push('', 'Offline; source repositories were not contacted.');
   }
-  lines.push(
-    `| Advisory score | ${report.score}/100 |`,
-    `| Minimum score | ${report.minScore ?? 'Not enforced'} |`,
-    report.mode === 'sources'
-      ? `| Source access | Source repositories were contacted (${sourceCheckOption(report.subject)}) |`
-      : '| Source access | Offline; source repositories were not contacted |'
-  );
-  const configuration = report.findings.filter((finding) => levelOf(finding.ruleId) === 'configuration');
-  if (configuration.length > 0) {
-    lines.push('', `### Configuration (hub-governance.yml): ❌ FAIL`, '',
-      'The configuration was ignored for this run.', '', ...configuration.map((finding) => detail(finding)));
-  }
-  lines.push(...rendered);
+  const scope: string[] = [];
   if (report.scope) {
-    lines.push(...renderHubScope(report.scope));
+    scope.push(...renderHubScope(report.scope));
   }
   if (report.prScope) {
-    lines.push(...renderPrScope(report.prScope));
+    scope.push(...renderPrScope(report.prScope));
   }
-  lines.push('', '### Policy adjustments', '');
-  if (report.suppressions.length === 0) {
-    lines.push('No rules disabled or overridden.');
-  } else {
-    for (const suppression of report.suppressions) {
-      lines.push(`- **${escape(suppression.ruleId)}**: ${escape(suppression.action)}${suppression.reason ? ` — ${escape(suppression.reason)}` : ''}`);
-    }
-  }
-  lines.push('', '> Errors fail the PR; warnings only lower the advisory score. "Could not verify" means the data could not be read'
-  + ' (access, rename or rate limit); it fails the PR without lowering the score.', '');
-  return lines.join('\n');
+  return (report.subject === 'collection'
+    ? [...header, ...details, '', '</details>', ...lines, ...scope, '']
+    : [...header, ...lines, ...details, ...scope, '', '</details>', '']).join('\n');
 }

@@ -70,7 +70,7 @@ describe('configuration rules', () => {
 
 describe('not-checked network rules', () => {
   it('lists enabled network rules for offline runs without score weight', () => {
-    const report = evaluateGovernance('hub', [], { rules: { COL004: { enabled: false } } });
+    const report = evaluateGovernance('collection', [], { rules: { COL004: { enabled: false } } });
     expect(report).toMatchObject({ score: 100, verdict: 'pass', notChecked: [{ ruleId: 'COL002' }] });
   });
 
@@ -91,13 +91,13 @@ describe('primitive rules', () => {
     expect(primitiveFindings('a.prompt.md', '---\ndescription: Summarise\nmode: agent\n---\nBody')).toEqual([]);
     expect(primitiveFindings('a.instructions.md', '---\napplyTo: "**/*.ts, **/*.tsx"\n---\nBody')).toEqual([]);
     expect(primitiveFindings('mcp.json', JSON.stringify({
-      inputs: [{ id: 'token', type: 'promptString' }],
+      inputs: [{ id: 'token', type: 'promptString', description: 'Access token' }],
       servers: { gh: { command: 'npx', env: { GITHUB_TOKEN: '${input:token}' } } }
     }))).toEqual([]);
   });
 
   it('reports invalid agents, prompts and instructions as warnings', () => {
-    expect(primitiveFindings('a.agent.md', '---\ntools: search\n---\n')).toEqual([
+    expect(primitiveFindings('a.agent.md', '---\ntools: search\n---\nReview code.')).toEqual([
       expect.objectContaining({ ruleId: 'AGT001', severity: 'warning', message: expect.stringContaining('description') }),
       expect.objectContaining({ ruleId: 'AGT001', message: expect.stringContaining('tools') })
     ]);
@@ -107,7 +107,7 @@ describe('primitive rules', () => {
   });
 
   it('keeps skill findings as SKL001 errors, including folder/name mismatch', () => {
-    expect(primitiveFindings('skills/other/SKILL.md', '---\nname: demo\ndescription: A demo skill for tests.\n---\n'))
+    expect(primitiveFindings('skills/other/SKILL.md', '---\nname: demo\ndescription: A demo skill for tests.\n---\nUseful instructions.'))
       .toEqual([expect.objectContaining({ ruleId: 'SKL001', severity: 'error', message: expect.stringContaining('does not match') })]);
   });
 
@@ -122,13 +122,15 @@ describe('primitive rules', () => {
       expect.stringMatching(/^MCP001:.*noCommand.*command or a url/),
       expect.stringMatching(/^MCP002:.*API_KEY/),
       expect.stringMatching(/^MCP002:.*args/),
-      expect.stringMatching(/^MCP001:.*input:auth/)
+      expect.stringMatching(/^MCP001:.*input:auth/),
+      expect.stringMatching(/^MCP003:.*noCommand/),
+      expect.stringMatching(/^MCP003:.*leaky/)
     ]);
-    expect(ids(primitiveFindings('mcp.json', '{not json'))).toEqual(['MCP001']);
+    expect(ids(primitiveFindings('mcp.json', '{not json'))).toEqual(['MCP001', 'MCP003']);
   });
 
   it('scores new primitive rules as warnings so they do not fail the gate', () => {
-    const report = evaluateGovernance('primitive', primitiveFindings('a.agent.md', '---\n---\n'));
+    const report = evaluateGovernance('primitive', primitiveFindings('a.agent.md', '---\n---\nReview code.'));
     expect(report).toMatchObject({ verdict: 'pass', score: 97 });
   });
 });

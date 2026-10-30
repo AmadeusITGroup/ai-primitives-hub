@@ -16,6 +16,12 @@ export interface GovernanceFinding {
   verified?: boolean;
   /** How to fix it, shown under the message in reports. */
   hint?: string;
+  /** The source or collection the finding is about, so reports can group failures by problem. */
+  subject?: { kind: 'source' | 'collection'; id: string; source?: string };
+  /** Short plain-language problem used as the report row; defaults to the message. */
+  problem?: string;
+  /** The specific item within the affected file, for example a missing path; shown next to it in reports. */
+  detail?: string;
 }
 
 /** Static description of one rule; the registry is the single source of truth. */
@@ -65,4 +71,6 @@ export interface GovernanceReport {
   findings: GovernanceFinding[];
   suppressions: GovernanceSuppression[];
   notChecked: GovernanceNotChecked[];
+  /** Explicit execution coverage. Omitted by older producers that do not track applicability. */
+  applicableRules?: string[];
 }

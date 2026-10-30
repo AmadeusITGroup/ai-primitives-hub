@@ -36,7 +36,7 @@ describe('primitive validate', () => {
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'cli-primitive-validate-'));
     await mkdir(path.join(root, 'skills/demo'), { recursive: true });
-    await writeFile(path.join(root, 'skills/demo/SKILL.md'), '---\nname: demo\ndescription: A demo skill for tests.\n---\n');
+    await writeFile(path.join(root, 'skills/demo/SKILL.md'), '---\nname: demo\ndescription: A demo skill for tests.\n---\nUseful instructions.');
     await writeFile(path.join(root, 'ask.prompt.md'), '---\ndescription: Ask a question\n---\nBody');
   });
   afterEach(async () => {

@@ -9,7 +9,11 @@ import {
   type GovernanceFinding,
   type GovernedPrimitiveKind,
   primitiveFindings,
+  primitiveRulesForKinds,
 } from '@ai-primitives-hub/core';
+import {
+  resolvePrimitivePath,
+} from './primitive-path-safety-v1';
 
 const SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'out']);
 /** Larger primitive files are reported, not parsed. */
@@ -18,22 +22,10 @@ const OVERSIZE_RULE: Record<GovernedPrimitiveKind, string> = {
   skill: 'SKL002', agent: 'AGT001', prompt: 'PRM001', instruction: 'INS001', 'mcp-server': 'MCP001'
 };
 
-async function walk(fs: FileSystem, directory: string, found: string[]): Promise<void> {
-  for (const entry of (await fs.readDirEntries(directory)).toSorted((a, b) => a.name.localeCompare(b.name))) {
-    const full = path.join(directory, entry.name);
-    if (entry.isDirectory) {
-      if (!SKIPPED_DIRECTORIES.has(entry.name)) {
-        await walk(fs, full, found);
-      }
-    } else if (detectPrimitiveKind(entry.name) !== undefined) {
-      found.push(full);
-    }
-  }
-}
-
 export interface LocalPrimitiveResult {
   files: string[];
   findings: GovernanceFinding[];
+  applicableRules: string[];
 }
 
 /**
@@ -47,32 +39,67 @@ export interface LocalPrimitiveResult {
 export async function validateLocalPrimitives(
   fs: FileSystem, repoRoot: string, inputs: readonly string[], kind?: GovernedPrimitiveKind
 ): Promise<LocalPrimitiveResult> {
-  const files: string[] = [];
-  for (const input of inputs) {
+  const findings: GovernanceFinding[] = [];
+  const files: { canonical: string; display: string }[] = [];
+  const directories = new Set<string>();
+  const canonicalFiles = new Set<string>();
+  const applicable = new Set<string>(inputs.length > 0 ? ['PTH001'] : []);
+  const inspect = async (input: string, explicit: boolean): Promise<void> => {
     const absolute = path.resolve(repoRoot, input);
-    const stat = await fs.stat(absolute);
+    const relative = path.relative(repoRoot, absolute);
+    const display = (relative.startsWith('..') || path.isAbsolute(relative) ? path.basename(input) : relative).split(path.sep).join('/');
+    let canonical: string;
+    try {
+      canonical = await resolvePrimitivePath(fs, repoRoot, absolute);
+    } catch (error) {
+      findings.push({ ruleId: 'PTH001', severity: 'error', verified: false, file: display,
+        message: error instanceof Error ? error.message : 'Path containment could not be verified.' });
+      return;
+    }
+    const stat = await fs.stat(canonical);
     if (stat.isDirectory) {
-      await walk(fs, absolute, files);
-    } else {
-      if (kind === undefined && detectPrimitiveKind(absolute) === undefined) {
+      if (directories.has(canonical)) {
+        return;
+      }
+      directories.add(canonical);
+      for (const entry of (await fs.readDirEntries(canonical)).toSorted((a, b) => a.name.localeCompare(b.name))) {
+        if (!SKIPPED_DIRECTORIES.has(entry.name)) {
+          await inspect(path.join(absolute, entry.name), false);
+        }
+      }
+    } else if (stat.isFile && (explicit || detectPrimitiveKind(display) !== undefined)) {
+      if (kind === undefined && detectPrimitiveKind(display) === undefined) {
         throw new Error(`Cannot infer the primitive kind of '${input}'. Use --kind skill|agent|prompt|instruction|mcp-server.`);
       }
-      files.push(absolute);
+      if (!canonicalFiles.has(canonical)) {
+        canonicalFiles.add(canonical);
+        files.push({ canonical, display });
+      }
     }
+  };
+  for (const input of inputs) {
+    await inspect(input, true);
   }
-  if (files.length === 0) {
+  if (files.length === 0 && findings.length === 0) {
     throw new Error(`No skill, agent, prompt, instruction or MCP files found in: ${inputs.join(', ')}.`);
   }
-  const findings: GovernanceFinding[] = [];
-  for (const file of files) {
-    const display = path.relative(repoRoot, file).split(path.sep).join('/');
-    const stat = await fs.stat(file);
+  const inspected: string[] = [];
+  for (const { canonical, display } of files) {
+    const stat = await fs.stat(canonical);
     if (stat.size > MAX_PRIMITIVE_BYTES) {
-      const ruleId = OVERSIZE_RULE[kind ?? detectPrimitiveKind(file) ?? 'skill'];
+      const ruleId = OVERSIZE_RULE[kind ?? detectPrimitiveKind(display) ?? 'skill'];
       findings.push({ ruleId, severity: 'warning', verified: false, file: display, message: 'File is larger than 1 MB and was not inspected.' });
       continue;
     }
-    findings.push(...primitiveFindings(display, await fs.readFile(file), kind));
+    const content = await fs.readFile(canonical);
+    const inspectedKind = kind ?? detectPrimitiveKind(display);
+    if (inspectedKind) {
+      for (const ruleId of primitiveRulesForKinds([inspectedKind])) {
+        applicable.add(ruleId);
+      }
+    }
+    inspected.push(display);
+    findings.push(...primitiveFindings(display, content, kind));
   }
-  return { files: files.map((file) => path.relative(repoRoot, file).split(path.sep).join('/')), findings };
+  return { files: inspected, findings, applicableRules: [...applicable].toSorted() };
 }

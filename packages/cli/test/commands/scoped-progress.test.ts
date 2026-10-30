@@ -42,8 +42,8 @@ it('emits scoped deep, inventory and request progress only on stderr with verbos
       expect(stderr).not.toMatch(/SECRET_TOKEN|https?:\/\/|Authorization/);
       if (verbose) {
         expect(stderr).toContain('[scoped validation]');
-        expect(stderr).toContain('[governance source]');
-        expect(stderr).toContain('"phase":"complete"');
+        expect(stderr).not.toContain('[governance source]');
+        expect(stderr).toContain('"phase":"completed"');
         expect(stderr).toContain('"kind":"success"');
       } else {
         expect(stderr).toBe('');

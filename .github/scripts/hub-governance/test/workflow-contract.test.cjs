@@ -151,7 +151,7 @@ test('source-token is withheld for offline, mismatched subjects, forks and untru
   // Evaluate the trusted YAML expression itself, rather than a duplicate of its guard.
   const guard = expression.slice(3, -2).replace(/\b(inputs|secrets)\.([a-z][a-z-]*)/g, "$1['$2']");
   const tokenFor = (inputs, eventName, headRepository = 'org/consumer') => runInNewContext(guard, {
-    inputs: { subject: 'hub', 'check-sources': false, 'check-releases': false, ...inputs },
+    inputs: { subject: 'hub', 'check-sources': false, 'check-releases': false, 'head-ref': '', ...inputs },
     secrets: { 'source-token': 'workflow-test-token' },
     github: { event_name: eventName, repository: 'org/consumer', event: {
       ...(['pull_request', 'pull_request_target'].includes(eventName) ? { pull_request: { head: { repo: { full_name: headRepository } } } } : {})
@@ -161,15 +161,18 @@ test('source-token is withheld for offline, mismatched subjects, forks and untru
     assert.equal(tokenFor({}, eventName), '', `Offline ${eventName} must not receive a supplied secret`);
     assert.equal(tokenFor({ subject: 'collection', repository: 'owner/repo' }, eventName), '');
     assert.equal(tokenFor({ subject: 'hub', 'check-releases': true }, eventName), '');
-    assert.equal(tokenFor({ subject: 'collection', 'check-sources': true }, eventName), '');
+    assert.equal(tokenFor({ subject: 'collection', 'check-sources': true }, eventName), 'workflow-test-token');
     assert.equal(tokenFor({ subject: 'skill', 'check-sources': true, 'check-releases': true }, eventName), '');
     assert.equal(tokenFor({ 'check-sources': true }, eventName), 'workflow-test-token');
     assert.equal(tokenFor({ subject: 'collection', 'check-releases': true }, eventName), 'workflow-test-token');
+    assert.equal(tokenFor({ subject: 'collection', 'head-ref': 'b'.repeat(40) }, eventName), 'workflow-test-token');
+    assert.equal(tokenFor({ subject: 'skill', 'head-ref': 'b'.repeat(40) }, eventName), '');
   }
   for (const eventName of ['pull_request', 'pull_request_target']) {
     for (const headRepository of ['other/fork', '']) {
       assert.equal(tokenFor({ 'check-sources': true }, eventName, headRepository), '', `${eventName} fork must not receive a source token`);
       assert.equal(tokenFor({ subject: 'collection', 'check-releases': true }, eventName, headRepository), '');
+      assert.equal(tokenFor({ subject: 'collection', 'head-ref': 'b'.repeat(40) }, eventName, headRepository), '');
     }
   }
   for (const eventName of ['workflow_run', 'repository_dispatch', 'pull_request_target']) {

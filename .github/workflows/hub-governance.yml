@@ -18,11 +18,11 @@ on:
         type: string
         default: hub-config.yml
       base-ref:
-        description: Optional exact PR base commit SHA; requires head-ref (Hub only).
+        description: Optional exact PR base commit SHA; requires head-ref (hub and collection).
         type: string
         default: ''
       head-ref:
-        description: Optional exact PR head commit SHA; compares against merge-base (Hub only).
+        description: Optional exact PR head commit SHA; compares against merge-base. For collection runs, hub sources the PR added or modified are downloaded and validated.
         type: string
         default: ''
       scope-file:
@@ -42,7 +42,7 @@ on:
         type: string
         default: skills
       check-sources:
-        description: Opt-in Hub inventory/release checks; contacts sources.
+        description: Contact sources for hub access/reference checks or collection ID uniqueness (COL004).
         type: boolean
         default: false
       check-releases:
@@ -164,7 +164,7 @@ jobs:
           REPOSITORY: ${{ inputs.repository }}
           SOURCE_TOKEN: >-
             ${{ ((inputs.subject == 'hub' && inputs.check-sources) ||
-                 (inputs.subject == 'collection' && inputs.check-releases)) &&
+                 (inputs.subject == 'collection' && (inputs.check-sources || inputs.check-releases || inputs.head-ref != ''))) &&
                 (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
                  github.event_name == 'schedule' ||
                  (github.event_name == 'pull_request' &&
@@ -183,12 +183,23 @@ jobs:
               [[ -z "$HEAD_REF" ]] || command+=(--head-ref "$HEAD_REF")
               [[ -z "$SCOPE_FILE" ]] || command+=(--scope-file "$SCOPE_FILE")
               ;;
-            collection) [[ -z "$COLLECTION_FILE" ]] || command+=(--collection-file "$COLLECTION_FILE") ;;
+            collection)
+              [[ -z "$COLLECTION_FILE" ]] || command+=(--collection-file "$COLLECTION_FILE")
+              if [[ -n "${BASE_REF}${HEAD_REF}" || "$CHECK_SOURCES" == 'true' ]]; then
+                command+=(--config "$CONFIG_PATH")
+                [[ -z "$BASE_REF" ]] || command+=(--base-ref "$BASE_REF")
+                [[ -z "$HEAD_REF" ]] || command+=(--head-ref "$HEAD_REF")
+              fi
+              ;;
             skill) command+=(--skills-dir "$SKILLS_DIR") ;;
             *) echo 'Unsupported validation subject.' >&2; exit 1 ;;
           esac
-          if [[ "$SUBJECT" != 'hub' && -n "${BASE_REF}${HEAD_REF}${SCOPE_FILE}" ]]; then
+          if [[ "$SUBJECT" != 'hub' && -n "$SCOPE_FILE" ]]; then
             echo 'Scope arguments are supported for hub validation only.' >&2
+            exit 1
+          fi
+          if [[ "$SUBJECT" == 'skill' && -n "${BASE_REF}${HEAD_REF}" ]]; then
+            echo 'Comparison refs are supported for hub and collection validation only.' >&2
             exit 1
           fi
           [[ -z "$POLICY_PATH" ]] || command+=(--policy "$POLICY_PATH")

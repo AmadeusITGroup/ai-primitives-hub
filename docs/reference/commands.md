@@ -93,7 +93,7 @@ For `hub validate` and `collection validate`, governance is off unless `--govern
 | --- | --- |
 | `--config <path>` | Hub configuration file (default `hub-config.yml`). |
 | `--governance` | Enable rule IDs, the verdict and the score. |
-| `--check-sources` | Contact sources: check accessibility, catalogs and profile bundle references; with governance, also run `COL002` and `COL004`. |
+| `--check-sources` | Contact sources to check accessibility, catalogs and profile bundle references. Does not run collection rules. |
 | `--scope-file <path>` | Validate the sources and profiles listed in a JSON file, `{"schemaVersion": 1, "sourceIds": [...], "profileIds": [...]}`, instead of computing them from `--base-ref`/`--head-ref`. Cannot be combined with them. Requires `--governance`. |
 | `-v, --verbose` | Print per-source progress and GitHub request, retry and backoff events to stderr. Has no effect without `--check-sources`. |
 | `--github-app-id <id>` | GitHub App ID for automatic source-aware authentication (env `AI_PRIMITIVES_HUB_GH_APP_AUTH_APP_ID`). |
@@ -114,11 +114,13 @@ The GitHub App options apply only with `--check-sources` and are refused in scop
 | `--collection-file <path>` | Validate this collection; can be repeated. Omit to validate every collection. |
 | `--governance` | Enable rule IDs, the verdict and the score. |
 | `--check-releases` | Run `COL002` (published release); contacts GitHub and enables governance. |
+| `--check-sources` | Run `COL004` (collection IDs unique across enabled sources in `--config`); contacts sources and enables governance. |
 | `--repository <owner/repo>` | Repository for `--check-releases`. Does not contact GitHub on its own. |
+| `--config <path>` | PR mode: hub config whose added or modified enabled `github` sources are downloaded and their collections validated (default `hub-config.yml`). Applies only when the PR changes this file. |
 | `--markdown-path <path>` | Write the Markdown report to a file. |
 | `--verbose` | Print each valid file in text output. |
 
-PR mode (`--base-ref`/`--head-ref`) enables governance and needs the PR head checked out.
+PR mode (`--base-ref`/`--head-ref`) enables governance and needs the PR head checked out. Downloading changed hub sources uses the same GitHub credentials as `--check-releases`.
 
 ### `primitive validate`
 
@@ -129,8 +131,13 @@ Each path is a file or a directory searched recursively. In PR mode the paths ar
 | Option | Behavior |
 | --- | --- |
 | `--kind <kind>` | Force the kind instead of inferring it from the file name: `skill`, `agent`, `prompt`, `instruction` or `mcp-server`. |
+| `--config <path>` | Hub configuration used to discover sources changed by a PR (default: `hub-config.yml`). |
 
 The kind is inferred from `SKILL.md`, `*.agent.md`, `*.prompt.md`, `*.instructions.md`, `mcp.json` and `*.mcp.json`.
+
+Paths must resolve inside the current repository root; escaping or broken symlinks fail the mandatory `PTH001` check. Markdown primitives with no instruction body produce a `BOD001` warning. Invalid MCP transport or input structures fail `MCP003`. Rule results show **Not applicable** when no corresponding primitive kind was inspected, rather than counting it as passed. See [primitive safety and content checks](../author-guide/validation.md#primitive-safety-and-content-checks).
+
+When a PR adds or modifies an enabled `github` source in the hub configuration, the command downloads that source and validates the primitives referenced by all its collections. Profile membership is irrelevant. Collection item kinds determine validation, including MCP JSON files with arbitrary names. Shared items are checked once per path and kind; unreferenced files and unchanged sources are not scanned. Source failures block validation. The report lists downloaded sources and source-qualified primitive paths. Downloads use existing GitHub authentication; source code is never executed.
 
 ## Bundle Management
 

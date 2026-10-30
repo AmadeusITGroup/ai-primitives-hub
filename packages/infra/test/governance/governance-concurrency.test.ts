@@ -119,7 +119,7 @@ it('explains a renamed repository and tells which url to use', async () => {
   const inventory = await new GitHubReleaseLookup(() => api).listCollections('https://github.com/owner/old', 'renamed');
   expect(inventory.unverifiedSources).toEqual([{
     sourceId: 'renamed',
-    message: expect.stringContaining("belong to repository 'owner/new', not 'owner/old'"),
+    message: 'Source repository was renamed',
     hint: 'Update this source\'s url in hub-config.yml to https://github.com/owner/new.'
   }]);
 });

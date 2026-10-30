@@ -87,6 +87,28 @@ test('rejects Hub scope arguments for other subjects before starting the CLI', (
   assert.equal(fs.existsSync(path.join(dir, 'result.json')), false);
 });
 
+test('collection comparison refs select the hub config and forward only the explicit source token', (t) => {
+  const { env, result } = installedProvider(t);
+  const base = 'a'.repeat(40);
+  const head = 'b'.repeat(40);
+  assert.equal(runValidation({ ...env, ...ambientCredentials, SUBJECT: 'collection', BASE_REF: base, HEAD_REF: head, SOURCE_TOKEN: 'explicit-test-token' }), 0);
+  const observed = result();
+  assert.equal(observed.args[observed.args.indexOf('--config') + 1], 'hub-config.yml');
+  assert.equal(observed.args[observed.args.indexOf('--base-ref') + 1], base);
+  assert.equal(observed.args[observed.args.indexOf('--head-ref') + 1], head);
+  assert.equal(observed.ghTokenIsExplicit, true);
+  assert.equal(observed.githubTokenPresent, false);
+  assert.equal(observed.sourceTokenPresent, false);
+});
+
+test('rejects comparison refs for skill validation before starting the CLI', (t) => {
+  const { dir, env } = installedProvider(t);
+  const execution = executeValidation({ ...env, SUBJECT: 'skill', BASE_REF: 'a'.repeat(40), HEAD_REF: 'b'.repeat(40) });
+  assert.notEqual(execution.status, 0);
+  assert.match(execution.stderr, /hub and collection validation only/);
+  assert.equal(fs.existsSync(path.join(dir, 'result.json')), false);
+});
+
 test('publishes a failing summary when provider installation never completed', (t) => {
   const { dir, env } = fixture(t);
   assert.equal(publishValidation(env), 1);
@@ -212,13 +234,21 @@ test('an explicitly selected collection repository does not enable network check
   assert.equal(observed.sourceTokenPresent, false);
 });
 
+test('collection source checks receive the config and explicit credentials', (t) => {
+  const { env, result } = installedProvider(t);
+  assert.equal(runValidation({ ...env, ...ambientCredentials, SUBJECT: 'collection', CHECK_SOURCES: 'true', SOURCE_TOKEN: 'explicit-test-token' }), 0);
+  const observed = result();
+  assert.ok(observed.args.includes('--check-sources'));
+  assert.equal(observed.args[observed.args.indexOf('--config') + 1], 'hub-config.yml');
+  assert.equal(observed.ghTokenIsExplicit, true);
+  assert.equal(observed.githubTokenPresent, false);
+});
+
 for (const [subject, inputs, flag] of [
   ['hub', { CHECK_RELEASES: 'true' }, '--check-releases'],
-  ['collection', { CHECK_SOURCES: 'true' }, '--check-sources'],
   ['skill', { CHECK_SOURCES: 'true' }, '--check-sources'],
   ['skill', { CHECK_RELEASES: 'true' }, '--check-releases'],
   ['hub', { CHECK_SOURCES: 'true', CHECK_RELEASES: 'true' }, '--check-releases'],
-  ['collection', { CHECK_SOURCES: 'true', CHECK_RELEASES: 'true' }, '--check-sources'],
   ['hub', { REPOSITORY: 'owner/repo' }, '--repository'],
   ['skill', { REPOSITORY: 'owner/repo' }, '--repository']
 ]) {

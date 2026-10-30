@@ -50,8 +50,8 @@ profiles: []
       const stderr = ctx.stderr.captured();
       expect(stderr).not.toMatch(/SECRET_TOKEN|https?:\/\/|per_page|Authorization/);
       if (verbose) {
-        expect(stderr).toContain('[governance source]');
-        expect(stderr).toContain('"phase":"complete"');
+        expect(stderr).toContain('[governance request]');
+        expect(stderr).not.toContain('[governance source]');
         expect(stderr).toContain('"kind":"success"');
         expect(stderr).toContain('"resource":"releases"');
       } else {

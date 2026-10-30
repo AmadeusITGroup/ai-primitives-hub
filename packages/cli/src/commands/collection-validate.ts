@@ -16,6 +16,8 @@
 import * as path from 'node:path';
 import {
   createCollectionReleaseLookup,
+  createHubGovernanceSourceChecks,
+  createHubSourceAccess,
   generateMarkdown,
   listCollectionFiles,
   validateAllCollections,
@@ -129,11 +131,13 @@ export class CollectionValidateCommand extends Command {
         --min-score <number>       Enforce a 0-100 score floor (enables governance)
         --report-path <path>       Write provider report (enables governance)
         --check-releases           Verify published releases (enables governance/network)
+        --check-sources            Verify collection IDs across enabled hub sources (COL004)
         --repository <owner/repo>  Repository for release verification
         --collection-file <path>    Collection file path (can be repeated)
         --root <dir>                Repository root to validate (default: current directory)
         --base-ref <commit>         PR mode: exact base commit (with --head-ref; enables governance)
         --head-ref <commit>         PR mode: exact head commit; only collections the PR touched are validated
+        --config <path>             PR mode: hub config whose added or modified github sources are downloaded and validated (default: hub-config.yml)
         --verbose                   Print each ok file in text mode
     `
   });
@@ -145,26 +149,36 @@ export class CollectionValidateCommand extends Command {
   public minScore = Option.String('--min-score');
   public reportPath = Option.String('--report-path');
   public checkReleases = Option.Boolean('--check-releases', false);
+  public checkSources = Option.Boolean('--check-sources', false);
   public repository = Option.String('--repository');
   public collectionFile = Option.Array('--collection-file');
   public root = Option.String('--root');
   public baseRef = Option.String('--base-ref');
   public headRef = Option.String('--head-ref');
+  public config = Option.String('--config');
   public verbose = Option.Boolean('--verbose', false);
   public commandContext!: { ctx: Context; http?: HttpClient; tokens?: TokenProvider };
 
   public async execute(): Promise<number> {
     const { ctx, http, tokens } = this.commandContext;
     const fmt = (this.output ?? 'text') as OutputFormat;
-    if (isGovernanceRequested(this) || this.checkReleases) {
+    if (isGovernanceRequested(this) || this.checkReleases || this.checkSources) {
+      const sourceDeps = {
+        fs: ctx.fs, clock: ctx.clock, httpClient: http ?? new NodeHttpClient(), processRunner: new NodeProcessRunner(),
+        fallbackTokenProviders: tokens === undefined ? [defaultTokenProvider(ctx.env)] : [tokens]
+      };
       const releaseLookup = this.checkReleases && this.repository !== undefined
-        ? createCollectionReleaseLookup(this.repository, {
-          fs: ctx.fs, clock: ctx.clock, httpClient: http ?? new NodeHttpClient(), processRunner: new NodeProcessRunner(),
-          fallbackTokenProviders: tokens === undefined ? [defaultTokenProvider(ctx.env)] : [tokens]
-        })
+        ? createCollectionReleaseLookup(this.repository, sourceDeps)
+        : undefined;
+      const prMode = this.baseRef !== undefined || this.headRef !== undefined;
+      const repoRoot = this.root === undefined ? ctx.cwd() : path.resolve(ctx.cwd(), this.root);
+      const collectionIndex = this.checkSources
+        ? createHubGovernanceSourceChecks(ctx.fs, path.resolve(repoRoot, this.config ?? 'hub-config.yml'), sourceDeps).collectionIndex
         : undefined;
       return executeValidationGovernance(ctx, {
-        subject: 'collection', collectionFiles: this.collectionFile, checkReleases: this.checkReleases, repository: this.repository, releaseLookup
+        subject: 'collection', collectionFiles: this.collectionFile, checkReleases: this.checkReleases, repository: this.repository, releaseLookup,
+        config: this.config, hubSources: prMode ? createHubSourceAccess(sourceDeps) : undefined,
+        checkSources: this.checkSources, collectionIndex
       },
       { ...this, additionalReportPaths: this.markdownPath === undefined ? [] : [this.markdownPath] }, fmt);
     }

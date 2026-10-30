@@ -75,7 +75,7 @@ Configure the resulting **Governance gate** job as required in the consumer's br
 
 Selecting a single collection checks uniqueness only within that selected set. Omit `collection-file` for a repository-wide uniqueness gate.
 
-The reusable workflow optionally accepts the explicitly named `source-token` secret. It is forwarded only for a matching requested source check on pushes, dispatches, schedules, or same-repository PRs, never forks, `pull_request_target`, or unrelated events. Use approved protected jobs for private-source verification and a least-privilege source-read token. No secrets are inherited automatically.
+The reusable workflow optionally accepts the explicitly named `source-token` secret. It is forwarded only for a matching requested source check on pushes, dispatches, schedules, or same-repository PRs, never forks, `pull_request_target`, or unrelated events. A `subject: collection` run with `head-ref` counts as a source check: it downloads the hub sources the PR added or modified in `config-path` and validates their collections. Use approved protected jobs for private-source verification and a least-privilege source-read token. No secrets are inherited automatically.
 
 ### Outputs and reports
 
@@ -154,7 +154,7 @@ Collection repositories can keep using `github-actions/validate-collections` at 
 
 Governance mode supplies `verdict`, `score`, and `exit-code` outputs, prints the provider Markdown report, and writes a job summary. Validation or report-write failure fails the step. This bundled action does not install the CLI or post PR comments; use the reusable workflow when centralized artifacts and comment replacement are needed.
 
-Set `check-releases: 'true'` and `repository: owner/repo` for `COL002`. An optional explicit `source-token` supplies source-read access only in this mode; no ambient token or host CLI credential store is used. The caller must not expose this input on untrusted forks. Hub-wide `COL004` uses the Hub CLI/reusable workflow, not this collection-only action.
+Set `check-releases: 'true'` and `repository: owner/repo` for `COL002`. An optional explicit `source-token` supplies source-read access only in this mode; no ambient token or host CLI credential store is used. The caller must not expose this input on untrusted forks. For hub-wide `COL004`, use `collection validate --check-sources` or the reusable workflow with `subject: collection` and `check-sources: true`, not this collection-only action. Hub validation does not run `COL002` or `COL004`.
 
 ## Optional governance configuration (`hub-governance.yml`)
 

@@ -60,6 +60,8 @@ export interface FileSystem {
   /** Like `readDir`, but with type information — avoids a stat-per-entry scan. */
   readDirEntries(path: string): Promise<DirEntry[]>;
   stat(path: string): Promise<FileStat>;
+  /** Resolve symbolic links. Security-sensitive readers fail closed when unavailable. */
+  realpath?(path: string): Promise<string>;
   remove(path: string, opts?: { recursive?: boolean }): Promise<void>;
   /**
    * Add or clear an existing file's execute permission (issue #577).

@@ -16,6 +16,7 @@ test('standard Hub validation receives optional scope arguments without a new co
   }
   assert.match(run.run, /ai-primitives-hub "\$SUBJECT" validate --governance/);
   assert.match(run.run, /Scope arguments are supported for hub validation only/);
+  assert.match(run.run, /Comparison refs are supported for hub and collection validation only/);
 });
 
 test('comparison history is available and the exact supplied head is checked out', () => {

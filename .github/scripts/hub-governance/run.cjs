@@ -12,8 +12,8 @@ function runValidation(env = process.env, command = process.argv.slice(4)) {
   }
   const checkSources = env.CHECK_SOURCES === 'true';
   const checkReleases = env.CHECK_RELEASES === 'true';
-  if (checkSources && env.SUBJECT !== 'hub') {
-    throw new Error('--check-sources is supported only for hub validation.');
+  if (checkSources && !['hub', 'collection'].includes(env.SUBJECT)) {
+    throw new Error('--check-sources is supported only for hub and collection validation.');
   }
   if (checkReleases && env.SUBJECT !== 'collection') {
     throw new Error('--check-releases is supported only for collection validation.');
@@ -29,8 +29,10 @@ function runValidation(env = process.env, command = process.argv.slice(4)) {
   // CI must use only explicitly supplied credentials, even on self-hosted runners.
   childEnv.AI_PRIMITIVES_HUB_DISABLE_GH_CLI = '1';
   // Never inherit ambient credentials. Forward only a deliberately supplied
-  // source token, only when the matching network check was explicitly enabled.
-  if ((checkSources || checkReleases) && env.SOURCE_TOKEN) {
+  // source token, only when a network check was explicitly enabled. A PR-scoped
+  // collection run downloads the hub sources the PR added or modified.
+  const collectionSources = env.SUBJECT === 'collection' && Boolean(env.HEAD_REF);
+  if ((checkSources || checkReleases || collectionSources) && env.SOURCE_TOKEN) {
     childEnv.GH_TOKEN = env.SOURCE_TOKEN;
   }
   const result = spawnSync(process.execPath, [launcher, ...args], { cwd: env.WORKING_DIRECTORY, encoding: 'utf8', env: childEnv });

@@ -20,13 +20,13 @@
  */
 import * as path from 'node:path';
 import {
-  createHubGovernanceSourceChecks,
   validateHubConfigFile,
 } from '@ai-primitives-hub/app';
 import type {
   DeepHubConfigValidationResult,
   HubConfigFileValidationResult,
   HubValidationProgress,
+  SourceAdapterFactoryDeps,
   SourceAuthenticationContext,
 } from '@ai-primitives-hub/app';
 import type {
@@ -741,7 +741,7 @@ export class HubValidateCommand extends BaseHubCommand {
           if (isGovernanceRequested(this)) {
             return executeValidationGovernance(ctx, {
               subject: 'hub', config: this.config, checkSources: true,
-              collectionIndex: { read: async () => ({ collections: [], unverifiedSources: [{ sourceId: 'hub', message: 'Source authentication preflight failed; check access and retry.' }] }) }
+              hubSourceErrors: prepared.errors
             }, this, fmt);
           }
           const preflightResult: HubConfigFileValidationResult = {
@@ -767,7 +767,7 @@ export class HubValidateCommand extends BaseHubCommand {
         sourceAuthentication = prepared.sourceAuthentication;
       }
       if (isGovernanceRequested(this)) {
-        const checks = createHubGovernanceSourceChecks(ctx.fs, configPath, {
+        const sourceAdapterDeps = {
           fs: ctx.fs, clock: ctx.clock, httpClient: http ?? new NodeHttpClient(), processRunner: new NodeProcessRunner(),
           fallbackTokenProviders: tokens === undefined ? [defaultTokenProvider(ctx.env)] : [tokens], sourceAuthentication,
           onGitHubEvent: this.verbose
@@ -783,8 +783,8 @@ export class HubValidateCommand extends BaseHubCommand {
               ctx.stderr.write(`[governance request] ${JSON.stringify(diagnostic)}\n`);
             }
             : undefined
-        }, this.verbose ? (event) => ctx.stderr.write(`[governance source] ${JSON.stringify(event)}\n`) : undefined);
-        return executeValidationGovernance(ctx, { subject: 'hub', config: this.config, checkSources: true, ...checks }, this, fmt);
+        } satisfies SourceAdapterFactoryDeps;
+        return executeValidationGovernance(ctx, { subject: 'hub', config: this.config, checkSources: true, sourceAdapterDeps }, this, fmt);
       }
       const result = await validateHubConfigFile(ctx.fs, configPath, this.checkSources
         ? {

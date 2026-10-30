@@ -1,7 +1,7 @@
 /**
  * Primitive rules for skills, agents, prompts, instructions and MCP servers.
  * Pure `(path, content)` checks: they run on local files and on content fetched from a source.
- * New rules ship as warnings and are promoted to errors in a later release.
+ * Content advisories are warnings; path safety and invalid MCP structures are errors.
  * @module domain/governance/rules/primitive
  */
 import {
@@ -16,6 +16,11 @@ import type {
   GovernanceFinding,
   GovernanceRule,
 } from '../types';
+import {
+  ADDITIONAL_PRIMITIVE_RULES,
+  emptyPrimitiveBody,
+  mcpStructureFindings,
+} from './primitive-checks-v1';
 
 export const GOVERNED_PRIMITIVE_KINDS = ['skill', 'agent', 'prompt', 'instruction', 'mcp-server'] as const;
 export type GovernedPrimitiveKind = typeof GOVERNED_PRIMITIVE_KINDS[number];
@@ -32,8 +37,25 @@ export const PRIMITIVE_RULES: readonly GovernanceRule[] = [
   rule('PRM001', 'Prompt file is *.prompt.md with frontmatter: description, and a valid agent or mode', 'warning'),
   rule('INS001', 'Instruction file is *.instructions.md with frontmatter applyTo glob(s)', 'warning'),
   rule('MCP001', 'MCP server definition has command or url, and every ${input:id} is declared', 'warning'),
-  rule('MCP002', 'MCP server env and headers contain no literal secrets', 'warning')
+  rule('MCP002', 'MCP server env and headers contain no literal secrets', 'warning'),
+  ...ADDITIONAL_PRIMITIVE_RULES
 ];
+
+/**
+ * Rules applicable to the kinds actually inspected, rather than inferred from findings.
+ * @param kinds
+ */
+export function primitiveRulesForKinds(kinds: readonly GovernedPrimitiveKind[]): string[] {
+  const rules = new Set<string>();
+  for (const kind of kinds) {
+    const ids = { skill: ['SKL001', 'SKL002', 'BOD001'], agent: ['AGT001', 'BOD001'], prompt: ['PRM001', 'BOD001'],
+      instruction: ['INS001', 'BOD001'], 'mcp-server': ['MCP001', 'MCP002', 'MCP003'] }[kind];
+    for (const id of ids) {
+      rules.add(id);
+    }
+  }
+  return [...rules].toSorted();
+}
 
 const baseName = (file: string): string => file.replaceAll('\\', '/').split('/').pop() ?? file;
 const folderOf = (file: string): string => {
@@ -140,14 +162,15 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
   try {
     document = JSON.parse(content);
   } catch {
-    return [finding('MCP001', 'MCP configuration is not valid JSON.')];
+    return [finding('MCP001', 'MCP configuration is not valid JSON.'), { ruleId: 'MCP003', severity: 'error', file, message: 'MCP configuration is not valid JSON.' }];
   }
+  const structure = mcpStructureFindings(file, document);
   if (!isRecord(document)) {
-    return [finding('MCP001', 'MCP configuration root must be an object.')];
+    return [finding('MCP001', 'MCP configuration root must be an object.'), ...structure];
   }
   const servers = document.servers ?? document.mcpServers;
   if (!isRecord(servers) || Object.keys(servers).length === 0) {
-    return [finding('MCP001', 'MCP configuration must declare at least one server under "servers" or "mcpServers".')];
+    return [finding('MCP001', 'MCP configuration must declare at least one server under "servers" or "mcpServers".'), ...structure];
   }
   const findings: GovernanceFinding[] = [];
   const views: Record<string, McpServerInputView> = {};
@@ -177,7 +200,7 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
     if (Array.isArray(server.args) && server.args.some((arg) => typeof arg === 'string' && SECRET_VALUE.test(arg) && !isPlaceholder(arg))) {
       findings.push(finding('MCP002', `MCP server '${name}' args contain what looks like a literal secret.`));
     }
-    views[name] = server;
+    views[name] = { ...server, args: Array.isArray(server.args) ? server.args.filter((arg): arg is string => typeof arg === 'string') : undefined };
   }
   const declared = new Set((Array.isArray(document.inputs) ? document.inputs : [])
     .filter((input): input is { id: string } => isRecord(input) && typeof input.id === 'string').map((input) => input.id));
@@ -186,7 +209,7 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
       findings.push(finding('MCP001', `Input '\${input:${id}}' is referenced but not declared in "inputs".`));
     }
   }
-  return findings;
+  return [...findings, ...structure];
 }
 
 /**
@@ -198,18 +221,21 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
 export function primitiveFindings(file: string, content: string, kind = detectPrimitiveKind(file)): GovernanceFinding[] {
   const warn = (ruleId: string, messages: string[]): GovernanceFinding[] =>
     messages.map((message) => ({ ruleId, severity: 'warning', message, file }));
+  const body: GovernanceFinding[] = kind !== undefined && kind !== 'mcp-server' && emptyPrimitiveBody(content)
+    ? [{ ruleId: 'BOD001', severity: 'warning', file, message: 'Primitive body is empty; add instructions after the frontmatter.' }]
+    : [];
   switch (kind) {
     case 'skill': {
-      return validateSkillContent(folderOf(file), content).map((message) => ({ ruleId: 'SKL001', severity: 'error', message, file }));
+      return [...validateSkillContent(folderOf(file), content).map((message) => ({ ruleId: 'SKL001', severity: 'error' as const, message, file })), ...body];
     }
     case 'agent': {
-      return warn('AGT001', agentErrors(file, content));
+      return [...warn('AGT001', agentErrors(file, content)), ...body];
     }
     case 'prompt': {
-      return warn('PRM001', promptErrors(file, content));
+      return [...warn('PRM001', promptErrors(file, content)), ...body];
     }
     case 'instruction': {
-      return warn('INS001', instructionErrors(file, content));
+      return [...warn('INS001', instructionErrors(file, content)), ...body];
     }
     case 'mcp-server': {
       return mcpFindings(file, content);

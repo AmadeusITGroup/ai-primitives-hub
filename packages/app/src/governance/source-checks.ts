@@ -9,6 +9,7 @@ import {
   canonicalHubCollectionId,
 } from '@ai-primitives-hub/core';
 import {
+  downloadGitHubRepository,
   GitHubReleaseLookup,
   HubSourceCollectionIndex,
   type HubSourceCollectionIndexOptions,
@@ -23,6 +24,27 @@ import {
 import {
   toRegistrySource,
 } from '../registry/validate-hub-config-file';
+import type {
+  HubSourceAccess,
+} from './validate-collection-governance';
+
+/**
+ * Download hub sources from their configured branch with each source's own authentication.
+ * @param deps
+ */
+export function createHubSourceAccess(deps: SourceAdapterFactoryDeps): HubSourceAccess {
+  return {
+    checkout: async (entity) => {
+      const source = toRegistrySource(entity);
+      if (!source) {
+        throw new Error('Invalid collection source.');
+      }
+      const branch = typeof source.config?.branch === 'string' ? source.config.branch : undefined;
+      const snapshot = await downloadGitHubRepository(createSourceGitHubApi(source, deps), parseGitHubRepositoryTarget(source.url), branch);
+      return { ...snapshot, repository: source.url, releaseLookup: new GitHubReleaseLookup(() => createSourceGitHubApi(source, deps)) };
+    }
+  };
+}
 
 /**
  * Compose publication lookup using the existing repository-scoped auth chain.
@@ -79,15 +101,18 @@ export function createHubGovernanceSourceChecks(
           return source;
         });
         const inventory = await new HubSourceCollectionIndex(sources, (source) => createSourceAdapter(source, deps), releases, onProgress, indexOptions).read();
-        const candidates = new Map(inventory.collections.map((collection) => [`${collection.sourceId}\u0000${collection.id}`, collection]));
+        // Only github sources publish releases; awesome-copilot serves collections straight from the repository.
+        const releaseSourceIds = new Set(sources.filter((source) => source.type === 'github').map((source) => source.id));
+        const candidates = new Map(inventory.collections.filter((collection) => releaseSourceIds.has(collection.sourceId))
+          .map((collection) => [`${collection.sourceId}\u0000${collection.id}`, collection]));
         for (const profile of config.profiles ?? []) {
           for (const reference of profile.bundles ?? []) {
             const source = sources.find((candidate) => candidate.id === reference.source && candidate.enabled);
-            if (source?.type !== 'github' && source?.type !== 'awesome-copilot') {
+            if (source?.type !== 'github') {
               continue;
             }
             const target = parseGitHubRepositoryTarget(source.url);
-            const id = source.type === 'github' ? canonicalHubCollectionId(reference.id, `${target.owner}/${target.repository}`) : reference.id;
+            const id = canonicalHubCollectionId(reference.id, `${target.owner}/${target.repository}`);
             candidates.set(`${source.id}\u0000${id}`, { id, sourceId: source.id, repository: source.url, file: configPath });
           }
         }
