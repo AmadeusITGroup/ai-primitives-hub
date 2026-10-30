@@ -1243,6 +1243,9 @@ async function performLockfileInstall(
   return failures.length === 0 ? 0 : 1;
 }
 
+/** Token provider that never returns a token, for sources taken from the record (NFR4.11). */
+const NO_TOKENS: TokenProvider = new StaticTokenProvider('');
+
 /** Inputs of {@link performRecordReplay}. */
 interface RecordReplayRun {
   ctx: Context;
@@ -1270,6 +1273,19 @@ interface RecordReplayData {
   skipped: ReplaySkip[];
   needsReinstall: { bundleId: string; version: string }[];
   failures: ReplaySkip[];
+  /** Bundles only in the old `prompt-registry.*` file, replayed with today's code (BR10.1). */
+  oldFile?: OldFileReplay;
+}
+
+/** What {@link replayOldFileOnly} reports for the old `prompt-registry.*` file. */
+interface OldFileReplay {
+  /** Absolute path of the old file. */
+  lockfile: string;
+  /** Target the old-file bundles were replayed into; absent when none could be resolved. */
+  target?: string;
+  replayPlanned: number;
+  replayed: string[];
+  failures: { bundleId: string; reason: string }[];
 }
 
 /**
@@ -1285,6 +1301,12 @@ function renderRecordReplay(d: RecordReplayData): string {
     ...d.skipped.map((s) => `Skipped ${s.bundleId} (${s.tool}): ${s.reason}`),
     ...d.failures.map((f) => `Failed ${f.bundleId} (${f.tool}): ${f.reason}`)
   ];
+  if (d.oldFile !== undefined) {
+    const old = d.oldFile;
+    lines.push(`Old file ${old.lockfile}: ${String(old.replayed.length)}/${String(old.replayPlanned)} bundle${old.replayPlanned === 1 ? '' : 's'} installed`
+      + (old.target === undefined ? '.' : ` into target "${old.target}".`),
+    ...old.failures.map((f) => `Failed ${f.bundleId}: ${f.reason}`));
+  }
   return lines.join('\n') + '\n' + renderRecordLine({ level: d.level, records: d.records });
 }
 
@@ -1368,12 +1390,17 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
       continue;
     }
     const source = toLockfileSourceEntry(decision.use);
+    // A source taken from the record (no configured match) is fetched without credentials (NFR4.11).
+    const fromRecordOnly = !configured.has(entry.sourceId);
     const target = resolveEffectiveTarget(ctx, mapping.target);
     let written: string[] = [];
     try {
       // Record entries carry per-file checksums and no archive checksum;
       // recordInstall re-checksums the written files.
-      const files = await fetchFilesForSource(source, bundleId, toLockfileBundleEntry(entry), http, tokens, ctx, opts.verbose ?? false, cache);
+      const files = await fetchFilesForSource(
+        source, bundleId, toLockfileBundleEntry(entry), http,
+        fromRecordOnly ? NO_TOKENS : tokens, ctx, opts.verbose ?? false, fromRecordOnly ? undefined : cache
+      );
       if (files === null) {
         data.failures.push({ bundleId, tool, reason: `failed to fetch files from ${source.type} source` });
         continue;
@@ -1407,14 +1434,18 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
   }
 
   const warnings = [...notes];
-  for (const change of changes) {
-    const removal = await service.deleteSuperseded(change);
-    warnings.push(...change.warnings, ...removal.warnings);
-  }
+  // Superseded files go only after every save, keeping any file an entry of either file still lists (FR3.2, NFR4.9).
+  const removal = await service.deleteSupersededAfterAll(changes);
+  warnings.push(...changes.flatMap((change) => change.warnings), ...removal.warnings);
+
+  // Bundles only in the old file replay as today; the record wins for the others (BR10.1, W6 step 4).
+  const recorded = new Set((await service.listEntries(selection.locations)).map((row) => row.bundleId));
+  data.oldFile = await replayOldFileOnly(run, recorded, { http, tokens, cache });
   warnings.push(
     ...data.skipped.map((s) => `${s.bundleId} (${s.tool}): ${s.reason}`),
     ...data.needsReinstall.map((n) => `${n.bundleId}: needs reinstall`),
-    ...data.failures.map((f) => `${f.bundleId} (${f.tool}): ${f.reason}`)
+    ...data.failures.map((f) => `${f.bundleId} (${f.tool}): ${f.reason}`),
+    ...(data.oldFile?.failures ?? []).map((f) => `${f.bundleId}: ${f.reason}`)
   );
 
   formatOutput({
@@ -1426,7 +1457,65 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
     warnings: warnings.length === 0 ? undefined : warnings,
     textRenderer: renderRecordReplay
   });
-  return data.failures.length === 0 ? 0 : 1;
+  // Exit 1 when nothing at all could be processed: every planned entry was skipped (BR6.4).
+  const nothingProcessed = data.replayPlanned > 0 && data.replayed.length === 0 && data.failures.length === 0
+    && (data.oldFile === undefined || data.oldFile.replayed.length === 0);
+  const failed = data.failures.length > 0 || (data.oldFile?.failures.length ?? 0) > 0;
+  return failed || nothingProcessed ? 1 : 0;
+}
+
+/**
+ * Replay the bundles that are only in the selected level's old
+ * `prompt-registry.*` file with today's code, on that file, writing nothing
+ * about them into the new record (BR10.1; W6 step 4). They go to the
+ * `--target` target, else the only configured target, else the last used one, as today.
+ * @param run Replay inputs.
+ * @param recorded Bundle ids the new record has; the record wins for them.
+ * @param fetch HTTP client, token provider and source-aware dependency cache.
+ * @param fetch.http HTTP client.
+ * @param fetch.tokens Token provider.
+ * @param fetch.cache Source-aware dependency cache, when GitHub App auth is on.
+ * @returns What was replayed, or `undefined` when there is no old-file-only bundle.
+ */
+async function replayOldFileOnly(
+  run: RecordReplayRun,
+  recorded: ReadonlySet<string>,
+  fetch: { http: HttpClient; tokens: TokenProvider; cache?: SourceAwareInstallDependencyCache }
+): Promise<OldFileReplay | undefined> {
+  const { ctx, opts, prepared, explicit } = run;
+  const lockPath = prepared.selection.oldLockfile;
+  const lock = lockPath === undefined ? null : await readLockfile(lockPath, ctx.fs);
+  if (lockPath === undefined || lock === null) {
+    return undefined;
+  }
+  const bundleIds = Object.keys(lock.bundles).filter((bundleId) => !recorded.has(bundleId));
+  if (bundleIds.length === 0) {
+    return undefined;
+  }
+  let target: Target;
+  try {
+    const targets = await readTargetsSafely(loadTargets(ctx));
+    const name = explicit?.name ?? (targets.length === 1 ? targets[0].name : await resolveTargetName(undefined, 'install', ctx, () => loadTargets(ctx)));
+    target = explicit ?? resolveEffectiveTarget(ctx, await resolveTarget(name, 'install', ctx, () => loadTargets(ctx)), opts);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { lockfile: lockPath, replayPlanned: bundleIds.length, replayed: [], failures: bundleIds.map((bundleId) => ({ bundleId, reason })) };
+  }
+  const { replayed, failures } = await replayLockfileEntries({
+    bundleIds,
+    lock,
+    http: fetch.http,
+    tokens: fetch.tokens,
+    writer: createWriterFactory(ctx, opts)(target),
+    target,
+    ctx,
+    verbose: opts.verbose ?? false,
+    sourceAwareDependencyCache: fetch.cache
+  });
+  if (replayed.length > 0) {
+    await updateTargetStateFromLockfile(ctx, target.name, lock, replayed);
+  }
+  return { lockfile: lockPath, target: target.name, replayPlanned: bundleIds.length, replayed, failures };
 }
 
 /**

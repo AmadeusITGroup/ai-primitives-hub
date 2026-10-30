@@ -28,6 +28,7 @@ import {
   cleanupOrphanedSource,
   FileTreeTargetWriter,
   type LockfileBundleEntry,
+  mapToolToTarget,
   readLockfile,
   removeBundleEntry,
   type TargetWriter,
@@ -638,15 +639,24 @@ async function performRecordBundleUninstall(
  * `uninstall --lockfile <file>` on a 3.0.0 record file (BR7.2): remove each
  * bundle's entry for the target's type from that record, deleting its files
  * except those another entry still lists (keep-if-listed). Entries for other
- * tools are kept.
+ * tools are kept. The target must write at the record's level and on its
+ * git root, the same check record update and replay use (NFR4.10).
  * @param run Options, target, context and output format.
  * @param prepared The selected record file, loaded and checked.
  * @returns Exit code.
- * @throws {RegistryError} A `RECORD.*` error naming the file.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; `USAGE.INVALID_FLAG` when the target does not write to the record.
  */
 async function performRecordLockfileUninstall(run: UninstallRun, prepared: PreparedRecordSelection): Promise<number> {
   const { target, ctx, fmt, opts } = run;
   const { selection, store, service, fs } = prepared;
+  const mapping = await mapToolToTarget({ fs, tool: target.type, level: selection.level, gitRoot: selection.root, targets: [], explicit: target, cwd: ctx.cwd() });
+  if ('skip' in mapping) {
+    throw new RegistryError({
+      code: 'USAGE.INVALID_FLAG',
+      message: `uninstall: ${mapping.skip}`,
+      hint: 'Pass a --target whose scope and repository match the record.'
+    });
+  }
   const [location] = selection.locations;
   const entries = new Map<string, string[]>();
   const { record } = await store.load(location);

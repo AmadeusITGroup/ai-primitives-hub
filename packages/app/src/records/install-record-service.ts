@@ -643,4 +643,48 @@ export class InstallRecordService {
     }
     return { deleted, warnings };
   }
+
+  /**
+   * Delete the superseded files of several saved changes from one command run
+   * (update, replay), once every save has run (FR3.2, NFR4.9).
+   *
+   * Each change's `deletedFiles` was worked out when that change was saved, so
+   * a later change in the same run may list one of those paths again. Both
+   * repository files at each change's root are loaded again here, and a path
+   * any entry still lists is kept; the rest go through {@link deleteSuperseded}.
+   * @param changes - The saved changes, in the order they were made.
+   * @returns The removed paths and one warning per skipped path.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public async deleteSupersededAfterAll(changes: readonly Pick<RecordChange, 'deletedFiles' | 'location'>[]): Promise<DeleteSupersededResult> {
+    const listedByRecord = new Map<string, Set<string>>();
+    const handled = new Set<string>();
+    const result: DeleteSupersededResult = { deleted: [], warnings: [] };
+    for (const change of changes) {
+      let listed = listedByRecord.get(change.location.path);
+      if (listed === undefined) {
+        const other = this.otherLocation(change.location);
+        const locations = other === undefined ? [change.location] : [change.location, other];
+        const records: InstallRecord[] = [];
+        for (const location of locations) {
+          records.push((await this.store.load(location)).record);
+        }
+        listed = listedPaths(records);
+        listedByRecord.set(change.location.path, listed);
+      }
+      const still = listed;
+      const deletedFiles = change.deletedFiles.filter((recordedPath) => {
+        const key = `${change.location.root}\u0000${recordedPath}`;
+        if (still.has(recordedPath) || handled.has(key)) {
+          return false;
+        }
+        handled.add(key);
+        return true;
+      });
+      const removal = await this.deleteSuperseded({ deletedFiles, location: change.location });
+      result.deleted.push(...removal.deleted);
+      result.warnings.push(...removal.warnings);
+    }
+    return result;
+  }
 }

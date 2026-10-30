@@ -276,6 +276,18 @@ describe('uninstall command', () => {
       expect(await exists(vscodePrompt())).toBe(true);
     });
 
+    it('--lockfile <3.0.0 record> --target <user-scope vscode> refuses with USAGE.INVALID_FLAG, removing nothing (NFR4.10)', async () => {
+      expect((await run(['target', 'add', 'user-vscode', '--type', 'vscode', '--path', path.join(workspace, 'user-vscode'), '-o', 'json'])).exitCode).toBe(0);
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await run(['uninstall', '--lockfile', recordPath(), '--target', 'user-vscode', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect((JSON.parse(result.stdout) as { errors: { code: string }[] }).errors[0].code).toBe('USAGE.INVALID_FLAG');
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
     it('--lockfile <3.0.0 record> --target <kiro> removes only the kiro entries and keeps vscode files', async () => {
       const result = await run(['uninstall', '--lockfile', recordPath(), '--target', 'repo-kiro']);
 
