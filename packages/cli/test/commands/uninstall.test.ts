@@ -262,6 +262,41 @@ describe('uninstall command', () => {
       expect(data.uninstalled).toBe(2);
       expect(await recordedTools()).toEqual(['kiro']);
     });
+
+    it('refuses uninstall <id> without --target when the bundle has several tools, removing nothing', async () => {
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await run(['uninstall', '--bundle', 'local-foo', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      const error = (JSON.parse(result.stdout) as { errors: { code: string; message: string; context: { tools: string[] } }[] }).errors[0];
+      expect(error).toMatchObject({ code: 'USAGE.MISSING_FLAG', context: { tools: ['kiro', 'vscode'] } });
+      expect(error.message).toContain('kiro, vscode');
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('--lockfile <3.0.0 record> --target <kiro> removes only the kiro entries and keeps vscode files', async () => {
+      const result = await run(['uninstall', '--lockfile', recordPath(), '--target', 'repo-kiro']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await recordedTools()).toEqual(['vscode']);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('--lockfile <2.0.0 file> uninstalls as before', async () => {
+      const oldFile = path.join(workspace, '.github', 'prompts', 'old.prompt.md');
+      await writeFile(oldFile, '# Old\n');
+      await writeOldLock({ 'old-only': 'prompts/old.prompt.md' });
+
+      const result = await run(['uninstall', '--lockfile', oldLockPath(), '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string; uninstalled: number }>(result.stdout).data).toMatchObject({ lockfile: oldLockPath(), uninstalled: 1 });
+      expect(await exists(oldFile)).toBe(false);
+      expect(await recordedTools()).toEqual(['kiro', 'vscode']);
+    });
   });
 
   it('fails with exit 1 when neither --bundle, --lockfile, nor --all is given (and no lockfile is discoverable)', async () => {
