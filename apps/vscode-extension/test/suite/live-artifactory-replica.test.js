@@ -4,7 +4,42 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const vscode = require('vscode');
 
+function assertLiveTestSettings(config) {
+  const maximumWaits = new Map([
+    ['observeMs', 300000],
+    ['sourceSyncWaitMs', 30000]
+  ]);
+  for (const [name, value] of Object.entries(config)) {
+    if (name === 'token') {
+      continue;
+    }
+    const maximum = maximumWaits.get(name);
+    if (maximum !== undefined) {
+      assert.ok(
+        Number.isInteger(value) && value >= 0 && value <= maximum,
+        `Live test setting ${name} must be an integer from 0 to ${maximum}.`
+      );
+      continue;
+    }
+    assert.ok(value, `Live test setting ${name} is required.`);
+  }
+}
+
 suite('Live Artifactory replica consumer', () => {
+  test('accepts zero wait settings', () => {
+    assert.doesNotThrow(() => assertLiveTestSettings({
+      root: 'https://artifactory.example.test',
+      configFile: 'hub-config.yml',
+      profileId: 'sample-profile',
+      hubId: 'sample-hub',
+      sourceSyncWaitMs: 0,
+      expectedFile: '/tmp/aph-live/home/installed.instructions.md',
+      token: undefined,
+      credentialRef: 'APH_LIVE_TOKEN',
+      observeMs: 0
+    }));
+  });
+
   test('imports a configured hub and installs a selected profile', async function () {
     this.timeout(10 * 60 * 1000);
 
@@ -23,12 +58,7 @@ suite('Live Artifactory replica consumer', () => {
       observeMs: Number(process.env.APH_LIVE_OBSERVE_MS || '15000')
     };
 
-    for (const [name, value] of Object.entries(config)) {
-      if (name === 'token') {
-        continue;
-      }
-      assert.ok(value, `Live test setting ${name} is required.`);
-    }
+    assertLiveTestSettings(config);
     assert.ok(
       config.expectedFile.startsWith(`${path.resolve(process.env.HOME)}${path.sep}`),
       'The expected install file must remain inside the isolated HOME.'
