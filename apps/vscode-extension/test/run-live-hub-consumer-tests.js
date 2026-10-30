@@ -137,7 +137,7 @@ function readConfig() {
   if (parsedRoot.protocol !== 'https:' && !(parsedRoot.protocol === 'http:' && loopback)) {
     throw new Error('APH_LIVE_ARTIFACTORY_ROOT must use HTTPS (or loopback HTTP for local testing).');
   }
-  if (token && !/^[A-Z_][A-Z0-9_]*$/.test(credentialRef)) {
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(credentialRef)) {
     throw new Error('APH_LIVE_ARTIFACTORY_CREDENTIAL_REF must be an uppercase environment-variable name.');
   }
 
