@@ -37,6 +37,21 @@
         "${workspaceFolder}/apps/vscode-extension/test-dist/**/*.js"
       ],
       "preLaunchTask": "pnpm: compile"
+    },
+    {
+      "name": "Live Artifactory Replica Consumers",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/apps/vscode-extension/test/run-live-hub-consumer-tests.js",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "APH_LIVE_ENV_FILE": "${workspaceFolder}/.art.env",
+        "APH_LIVE_SOURCE_SYNC_WAIT_MS": "5000",
+        "APH_LIVE_OBSERVE_MS": "15000"
+      },
+      "preLaunchTask": "pnpm: build live replica consumer tests",
+      "skipFiles": ["<node_internals>/**"]
     }
   ]
 }
