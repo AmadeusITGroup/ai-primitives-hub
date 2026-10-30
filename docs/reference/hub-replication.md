@@ -46,9 +46,29 @@ Important options:
 | `--dry-run` | false | Explicitly request metadata-only behavior |
 | `--publish` | false | Enable Artifactory writes; requires `--review` |
 | `--review` | false | Acknowledges the publication review gate |
+| `--apm-transition` | false | Temporary migration mode; requires `--publish --review`, accepts structurally APM-ready ZIPs unchanged, and translates other supported ZIPs before publication |
 | `--allow-unverified-existing` | false | Skip unverified bundle objects with warnings; omit them from the generated index and profiles |
 
 The command is metadata-only unless both `--publish` and `--review` are provided. `--dry-run` and `--publish` cannot be combined.
+
+### Temporary Agent Packages transition
+
+`--apm-transition` is an explicit, temporary exception to immutable promotion. The normal mode promotes the release ZIP byte-for-byte into the Generic `sources/replicated` tree. Transition mode instead checks each selected ZIP: an archive with a matching root `apm.yml` and `.apm/` payload is passed through unchanged; otherwise, the CLI creates an APM-compatible ZIP from supported file-backed `prompt`, `instruction`, `agent`, `chat-mode`, and `skill` entries. The translation retains the original APH files and deployment metadata, adds their APM paths, and generates `apm.yml`. For governed (`formatVersion: 1`) manifests, it regenerates the `files` inventory to cover the added APM copies and manifest. The uploaded bytes may therefore differ from the immutable GitHub release asset. JSON output identifies this mode as `data.transitionMode: "temporary-apm"`; enabling the mode alone does not produce a warning or change the exit code.
+
+This transition does not translate APH dependencies or MCP server declarations into native APM dependencies, and it does not run the stock APM validator. Releases with no APM-supported primitives, unsupported primitive types, duplicate ZIP paths, or symbolic links are skipped with warnings; profiles requiring skipped bundles are excluded as a whole. Missing declared files, unsafe ZIP paths, malformed ZIPs, or conflicting content for a shared package coordinate stop the run before any artifact is published. Identical ZIP and manifest bytes sharing a package coordinate are stored once and may be referenced by multiple stable Hub IDs. Warnings identify path conventions that may not be discovered by native APM tooling and metadata that is preserved but not translated. Treat this as a temporary compatibility bridge, not a substitute for authors publishing APM-ready release assets.
+
+Transition mode publishes bundle ZIPs at Agent Packages coordinates and keeps Hub metadata in the repository's `__CONFIG__` area:
+
+```text
+<target-root>/<lowercase-github-owner>/<package-name>/<package-name>-<version>.zip
+<target-root>/__CONFIG__/manifests/<stable-id>/<version>/deployment-manifest.yml
+<target-root>/__CONFIG__/indexes/<sha256>-index-v1.json
+<target-root>/__CONFIG__/index-v1.json
+<target-root>/__CONFIG__/hub-config/<sha256>-hub-config.yml
+<target-root>/__CONFIG__/hub-config.yml
+```
+
+The generated hub source URL is `<target-root>` and its `indexFile` refers to the immutable hash-named index. Only `__CONFIG__/index-v1.json` and `__CONFIG__/hub-config.yml` are refreshed as mutable aliases; hash-named generations and versioned package objects remain immutable. The output explicitly reports `temporary-apm`, and translated archives produce a warning. Do not use this flag for ordinary promotion or after all selected releases publish APM-ready assets.
 
 ## Selection semantics
 
@@ -72,11 +92,11 @@ The release-name collection ID and SemVer must match the parsed manifest `id` an
 
 Before each write, the publisher uses `HEAD` and Artifactory checksum metadata. An existing object with the same SHA-256 is skipped. Versioned bundle objects remain immutable: conflicting or unverifiable bytes stop publication by default. Re-running with the same cache and target root resumes matching bundle objects.
 
-Only `sources/replicated/index-v1.json` and `hub-config.yml` are mutable metadata. After verified bundle publication, the application explicitly permits their refresh. New metadata uses `If-None-Match: *`; changed existing metadata requires a strong ETag from `HEAD` and uses `If-Match`. Missing, weak, or malformed ETags stop the refresh. A concurrent-write precondition failure stops publication without retries, and a failed index write prevents the hub-config write. Servers must honor conditional PUTs; qualify this behavior on the intended Artifactory deployment before production sign-off.
+In normal mode, only `sources/replicated/index-v1.json` and `hub-config.yml` are mutable metadata. In `--apm-transition` mode, only `__CONFIG__/index-v1.json` and `__CONFIG__/hub-config.yml` are mutable aliases. After verified bundle publication, the application explicitly permits their refresh. New metadata uses `If-None-Match: *`; changed existing metadata requires a strong ETag from `HEAD` and uses `If-Match`. Missing, weak, or malformed ETags stop the refresh. A concurrent-write precondition failure stops publication without retries, and a failed index write prevents the hub-config write. Servers must honor conditional PUTs; qualify this behavior on the intended Artifactory deployment before production sign-off.
 
 The generated hub references its immutable catalog generation, not the mutable compatibility projection. Overlapping runs may leave the projection from a different run, but the final hub always resolves the catalog for its own profiles. Catalog generations are retained and never overwritten or deleted by replication. Because source identity includes `indexFile`, successive generations are distinct source snapshots; historical lockfiles retain their original catalog reference. Retention/cleanup is a separate administrative policy.
 
-With `--allow-unverified-existing`, an unverified existing manifest or archive produces a warning and its bundle is omitted from the generated index. Any profile that references that bundle is excluded as a whole, not partially rewritten. The flag never overwrites or repairs bundle objects and does not bypass metadata preconditions. The index and hub config must themselves be conditionally uploaded/refreshed or match a verified existing checksum; if either metadata object is skipped unverified, publication fails. An unverified index prevents hub-config publication. The CLI returns exit code `2` for excluded-release, excluded-profile, or bundle-omission warnings and `1` for publication failures. JSON output exposes these messages in top-level `warnings` and `data.diagnostics`; legacy `data.unresolvedProfiles` remains an alias, although it now includes release diagnostics too.
+With `--allow-unverified-existing`, an unverified existing manifest or archive produces a warning and its bundle is omitted from the generated index. Any profile that references that bundle is excluded as a whole, not partially rewritten. The flag never overwrites or repairs bundle objects and does not bypass metadata preconditions. The index and hub config must themselves be conditionally uploaded/refreshed or match a verified existing checksum; if either metadata object is skipped unverified, publication fails. An unverified index prevents hub-config publication. The CLI returns exit code `2` for excluded-release, excluded-profile, bundle-omission, or archive-translation warnings and `1` for publication failures. JSON output exposes these messages in top-level `warnings` and `data.diagnostics`; legacy `data.unresolvedProfiles` remains an alias, although it now includes release diagnostics too.
 
 Each run fetches the source hub config and every release-list page again so branch updates and newly published releases are discovered. These metadata requests count against `--request-budget`; only manifest and archive downloads are reused from the cache by asset URL. The budget must cover the metadata requests even when reusing a cache directory.
 

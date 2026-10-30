@@ -20,6 +20,10 @@ export interface ReplicationRequest { sourceId: string; bundleId: string; versio
 export interface ReplicationSelection { selected: ReplicationCandidate[]; unresolved: string[] }
 export interface ReplicationCandidateDiscovery { candidates: ReplicationCandidate[]; warnings: string[] }
 export interface ReplicationResult { index: ArtifactorySourceIndex; hubConfig: HubConfig; warnings: string[]; selected: ReplicationCandidate[] }
+export interface PreparedReplicationArchive { bytes: Uint8Array; packageName: string; translated: boolean; warnings: string[] }
+export interface ReplicationArchivePreparer {
+  prepare(candidate: ReplicationCandidate, archive: Uint8Array): Promise<PreparedReplicationArchive>;
+}
 export interface ReplicationSourcePort {
   getHubConfig(ownerRepo: string, ref: string): Promise<Record<string, unknown>>;
   listReleaseCandidates(owner: string, repo: string, sourceId: string): Promise<ReplicationCandidateDiscovery>;

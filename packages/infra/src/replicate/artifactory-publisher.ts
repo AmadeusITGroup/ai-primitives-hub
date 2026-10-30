@@ -10,6 +10,13 @@ import {
   resolveConfinedObject,
 } from '../artifactory/published-object-url';
 
+const mutableMetadataPaths = new Set([
+  'sources/replicated/index-v1.json',
+  'hub-config.yml',
+  '__CONFIG__/index-v1.json',
+  '__CONFIG__/hub-config.yml'
+]);
+
 export class ArtifactoryReplicationPublisher implements ReplicationPublisherPort {
   private readonly root: URL;
   public constructor(private readonly http: HttpClient, private readonly credentials: HttpCredentialProvider, sourceRoot: string, private readonly allowUnverifiedExisting = false) {
@@ -18,7 +25,7 @@ export class ArtifactoryReplicationPublisher implements ReplicationPublisherPort
 
   public async publish(path: string, data: Uint8Array, mediaType: string, options: ReplicationPublishOptions = {}): Promise<'uploaded' | 'skipped-existing' | 'skipped-unverified'> {
     const replace = options.replaceExisting === true;
-    if (replace && path !== 'sources/replicated/index-v1.json' && path !== 'hub-config.yml') {
+    if (replace && !mutableMetadataPaths.has(path)) {
       throw new Error('Replacement is restricted to approved metadata paths. Keep bundle objects immutable.');
     }
     const url = resolveConfinedObject(this.root, path).href; const headers: Record<string, string> = { ...(await this.credentials.headersFor(url, { sourceId: this.root.href, trustedOrigin: this.root.origin, trustedPathPrefix: this.root.pathname })), Accept: '*/*' };
