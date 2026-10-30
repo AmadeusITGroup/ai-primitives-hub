@@ -166,7 +166,7 @@ export class BundleScopeCommands {
       this.logger.debug(`[BundleScopeCommands] Moving bundle ${bundleId} to user scope`);
 
       // Refuse CLI-installed items before any lookup or dialog
-      await this.registryManager.assertNotCliManaged(bundleId, 'repository', 'move-to-user');
+      await this.registryManager.assertHostTool(bundleId, 'repository', 'move-to-user');
 
       // Get bundle from repository scope (uses lockfile)
       const repoBundle = await this.getBundleForScope(bundleId, 'repository');
@@ -244,7 +244,7 @@ export class BundleScopeCommands {
       this.logger.debug(`[BundleScopeCommands] Switching commit mode for ${bundleId} to ${newMode}`);
 
       // Refuse CLI-installed items before any lookup, dialog or exclude change
-      await this.registryManager.assertNotCliManaged(bundleId, 'repository', 'switch-commit-mode');
+      await this.registryManager.assertHostTool(bundleId, 'repository', 'switch-commit-mode');
 
       // Get bundle from repository scope (uses lockfile)
       const repoBundle = await this.getBundleForScope(bundleId, 'repository');

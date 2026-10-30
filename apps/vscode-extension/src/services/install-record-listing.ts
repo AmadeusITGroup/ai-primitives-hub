@@ -35,11 +35,14 @@ import {
   createInstalledBundleFromLockfile,
 } from './lockfile-manager';
 
+/** Marketplace id of this extension (`<publisher>.<name>`, unchanged by ADR-0004). */
+export const EXTENSION_ID = 'AmadeusITGroup.prompt-registry';
+
 /** Writer stamp for records the extension writes: `ai-primitives-hub-extension@<version>`. */
 export const getExtensionRecordGeneratedBy = (): string => {
   let extensionVersion = '0.0.0';
   try {
-    const extension = vscode.extensions.getExtension('prompt-registry');
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
     if (extension) {
       const { version } = extension.packageJSON as { version?: string };
       extensionVersion = version || '0.0.0';
