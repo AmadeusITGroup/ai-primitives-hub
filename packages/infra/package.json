@@ -4,6 +4,14 @@
   "description": "Adapters implementing @ai-primitives-hub/core ports: source adapters, harvest, search, per-target writers, stores, scaffolding.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./governance": { "types": "./dist/governance/index.d.ts", "default": "./dist/governance/index.js" },
+    "./fs": { "types": "./dist/fs/index.d.ts", "default": "./dist/fs/index.js" },
+    "./http": { "types": "./dist/http/index.d.ts", "default": "./dist/http/index.js" },
+    "./default-layouts": { "types": "./dist/writers/default-layouts.d.ts", "default": "./dist/writers/default-layouts.js" },
+    "./dist/*": "./dist/*"
+  },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

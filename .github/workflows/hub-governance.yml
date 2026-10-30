@@ -1,0 +1,295 @@
+name: AI Primitives Hub Governance
+
+on:
+  workflow_call:
+    inputs:
+      provider-ref:
+        description: Immutable 40-character commit SHA matching the workflow release.
+        type: string
+        required: true
+      cli-version:
+        description: Exact released CLI version supporting --governance on standard validators.
+        type: string
+        required: true
+      subject:
+        type: string
+        default: hub
+      config-path:
+        type: string
+        default: hub-config.yml
+      base-ref:
+        description: Optional exact PR base commit SHA; requires head-ref (hub and collection).
+        type: string
+        default: ''
+      head-ref:
+        description: Optional exact PR head commit SHA; compares against merge-base. For collection runs, hub sources the PR added or modified are downloaded and validated.
+        type: string
+        default: ''
+      scope-file:
+        description: Optional JSON source/profile selectors instead of comparison refs (Hub only).
+        type: string
+        default: ''
+      policy-path:
+        type: string
+        default: ''
+      min-score:
+        type: string
+        default: ''
+      collection-file:
+        type: string
+        default: ''
+      skills-dir:
+        type: string
+        default: skills
+      check-sources:
+        description: Contact sources for hub access/reference checks or collection ID uniqueness (COL004).
+        type: boolean
+        default: false
+      check-releases:
+        description: Opt-in collection release checks; contacts GitHub.
+        type: boolean
+        default: false
+      repository:
+        type: string
+        default: ''
+      runner:
+        description: Approved ephemeral runner label selected by the consumer.
+        type: string
+        default: ubuntu-latest
+      post-comment:
+        description: Comment on same-repository PRs only; requires pull-requests write from the caller.
+        type: boolean
+        default: false
+    secrets:
+      source-token:
+        description: Optional least-privilege source-read credential for explicitly requested network checks.
+        required: false
+    outputs:
+      verdict:
+        value: ${{ jobs.validate.outputs.verdict }}
+      score:
+        value: ${{ jobs.validate.outputs.score }}
+      exit-code:
+        value: ${{ jobs.validate.outputs.exit-code }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governance-${{ github.repository }}-${{ inputs.subject }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Provider validation
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+    outputs:
+      verdict: ${{ steps.validation.outputs.verdict }}
+      score: ${{ steps.validation.outputs.score }}
+      exit-code: ${{ steps.validation.outputs.exit-code }}
+    steps:
+      - name: Verify immutable provider reference
+        shell: bash
+        env:
+          PROVIDER_REF: ${{ inputs.provider-ref }}
+        run: |
+          [[ "$PROVIDER_REF" =~ ^[a-fA-F0-9]{40}$ ]] || { echo 'provider-ref must be an immutable commit SHA.' >&2; exit 1; }
+
+      - name: Checkout released provider
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AmadeusITGroup/ai-primitives-hub
+          ref: ${{ inputs.provider-ref }}
+          path: _hub_provider_v1
+          persist-credentials: false
+
+      - name: Checkout consumer configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: _hub_consumer_v1
+          ref: ${{ inputs.head-ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup supported Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Prepare isolated provider tools
+        id: prepare
+        shell: bash
+        env:
+          CLI_VERSION: ${{ inputs.cli-version }}
+          SUBJECT: ${{ inputs.subject }}
+        run: |
+          set -euo pipefail
+          [[ "$CLI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'An exact CLI release version is required.' >&2; exit 1; }
+          case "$SUBJECT" in hub|collection|skill) ;; *) echo 'Unsupported validation subject.' >&2; exit 1 ;; esac
+          report_dir=$(mktemp -d "$RUNNER_TEMP/hub-governance.XXXXXX")
+          echo "report-dir=$report_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned shared CLI
+        id: install
+        continue-on-error: true
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CLI_VERSION: ${{ inputs.cli-version }}
+          REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
+          NPM_CONFIG_USERCONFIG: /dev/null
+        run: |
+          set -euo pipefail
+          npm install --prefix "$REPORT_DIR/tools" --ignore-scripts --package-lock=false --no-audit --no-fund --registry=https://registry.npmjs.org "@ai-primitives-hub/cli@$CLI_VERSION"
+
+      - name: Run standard CLI validation
+        id: run
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          SUBJECT: ${{ inputs.subject }}
+          CONFIG_PATH: ${{ inputs.config-path }}
+          BASE_REF: ${{ inputs.base-ref }}
+          HEAD_REF: ${{ inputs.head-ref }}
+          SCOPE_FILE: ${{ inputs.scope-file }}
+          POLICY_PATH: ${{ inputs.policy-path }}
+          MIN_SCORE: ${{ inputs.min-score }}
+          COLLECTION_FILE: ${{ inputs.collection-file }}
+          SKILLS_DIR: ${{ inputs.skills-dir }}
+          CHECK_SOURCES: ${{ inputs.check-sources }}
+          CHECK_RELEASES: ${{ inputs.check-releases }}
+          REPOSITORY: ${{ inputs.repository }}
+          SOURCE_TOKEN: >-
+            ${{ ((inputs.subject == 'hub' && inputs.check-sources) ||
+                 (inputs.subject == 'collection' && (inputs.check-sources || inputs.check-releases || inputs.head-ref != ''))) &&
+                (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+                 github.event_name == 'schedule' ||
+                 (github.event_name == 'pull_request' &&
+                  github.event.pull_request.head.repo.full_name == github.repository)) &&
+                secrets.source-token || '' }}
+          WORKING_DIRECTORY: ${{ github.workspace }}/_hub_consumer_v1
+          REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
+          PROVIDER_SCRIPT_PATH: ${{ github.workspace }}/_hub_provider_v1/.github/scripts/hub-governance
+        run: |
+          set -euo pipefail
+          command=(ai-primitives-hub "$SUBJECT" validate --governance --output json --report-path "$REPORT_DIR/report.md")
+          case "$SUBJECT" in
+            hub)
+              command+=(--config "$CONFIG_PATH")
+              [[ -z "$BASE_REF" ]] || command+=(--base-ref "$BASE_REF")
+              [[ -z "$HEAD_REF" ]] || command+=(--head-ref "$HEAD_REF")
+              [[ -z "$SCOPE_FILE" ]] || command+=(--scope-file "$SCOPE_FILE")
+              ;;
+            collection)
+              [[ -z "$COLLECTION_FILE" ]] || command+=(--collection-file "$COLLECTION_FILE")
+              if [[ -n "${BASE_REF}${HEAD_REF}" || "$CHECK_SOURCES" == 'true' ]]; then
+                command+=(--config "$CONFIG_PATH")
+                [[ -z "$BASE_REF" ]] || command+=(--base-ref "$BASE_REF")
+                [[ -z "$HEAD_REF" ]] || command+=(--head-ref "$HEAD_REF")
+              fi
+              ;;
+            skill) command+=(--skills-dir "$SKILLS_DIR") ;;
+            *) echo 'Unsupported validation subject.' >&2; exit 1 ;;
+          esac
+          if [[ "$SUBJECT" != 'hub' && -n "$SCOPE_FILE" ]]; then
+            echo 'Scope arguments are supported for hub validation only.' >&2
+            exit 1
+          fi
+          if [[ "$SUBJECT" == 'skill' && -n "${BASE_REF}${HEAD_REF}" ]]; then
+            echo 'Comparison refs are supported for hub and collection validation only.' >&2
+            exit 1
+          fi
+          [[ -z "$POLICY_PATH" ]] || command+=(--policy "$POLICY_PATH")
+          [[ -z "$MIN_SCORE" ]] || command+=(--min-score "$MIN_SCORE")
+          [[ "$CHECK_SOURCES" != 'true' ]] || command+=(--check-sources)
+          [[ "$CHECK_RELEASES" != 'true' ]] || command+=(--check-releases)
+          [[ -z "$REPOSITORY" ]] || command+=(--repository "$REPOSITORY")
+          # The wrapper only isolates credentials, resolves the pinned CLI, and captures its exit/output.
+          NODE_OPTIONS='' NODE_PATH='' node "$PROVIDER_SCRIPT_PATH/run.cjs" run -- "${command[@]}"
+
+      - name: Publish provider report before enforcing gate
+        id: validation
+        if: always() && steps.prepare.outcome == 'success'
+        shell: bash
+        env:
+          SUBJECT: ${{ inputs.subject }}
+          REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
+          PROVIDER_SCRIPT_PATH: ${{ github.workspace }}/_hub_provider_v1/.github/scripts/hub-governance
+        run: node "$PROVIDER_SCRIPT_PATH/run.cjs" publish
+
+      - name: Preserve provider report
+        if: always() && steps.validation.outputs.report-path != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governance-${{ inputs.subject }}
+          path: |
+            ${{ steps.validation.outputs.report-path }}
+            ${{ steps.validation.outputs.result-path }}
+          if-no-files-found: error
+
+  report:
+    name: Replace provider PR report
+    needs: validate
+    if: >-
+      always() && inputs.post-comment &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.validate.outputs.exit-code != ''
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout trusted provider reporting code only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AmadeusITGroup/ai-primitives-hub
+          ref: ${{ inputs.provider-ref }}
+          persist-credentials: false
+
+      - name: Download provider report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: governance-${{ inputs.subject }}
+          path: _governance_report_v1
+
+      - name: Post or replace the bot-owned report
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        env:
+          SUBJECT: ${{ inputs.subject }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { postGovernanceComment } = require('./.github/scripts/hub-governance/post-comment.cjs');
+            // Re-read trusted PR metadata so a stale run cannot replace a newer report.
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: context.payload.pull_request.number });
+            const reportingContext = { repo: context.repo, payload: { pull_request: pr } };
+            await postGovernanceComment({
+              github, context: reportingContext,
+              body: fs.readFileSync('_governance_report_v1/report.md', 'utf8'),
+              subject: process.env.SUBJECT,
+              sourceSha: process.env.SOURCE_SHA
+            });
+
+  gate:
+    name: Governance gate
+    needs: [validate, report]
+    if: always()
+    runs-on: ${{ inputs.runner }}
+    permissions: {}
+    steps:
+      - name: Enforce the provider verdict after reporting
+        shell: bash
+        env:
+          VALIDATION_RESULT: ${{ needs.validate.result }}
+          EXIT_CODE: ${{ needs.validate.outputs.exit-code }}
+          REPORT_RESULT: ${{ needs.report.result }}
+        run: |
+          if [[ "$VALIDATION_RESULT" != 'success' || "$EXIT_CODE" != '0' || "$REPORT_RESULT" == 'failure' || "$REPORT_RESULT" == 'cancelled' ]]; then
+            echo 'Provider governance gate failed. See the validation summary and report.' >&2
+            exit 1
+          fi

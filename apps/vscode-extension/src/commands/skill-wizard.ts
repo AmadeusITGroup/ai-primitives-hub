@@ -1,5 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  COLLECTION_ID_PATTERN,
+} from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
 import {
@@ -70,7 +73,7 @@ export class SkillWizard {
     if (!name || name.trim().length === 0) {
       return 'Skill name is required';
     }
-    if (!/^[a-z0-9-]+$/.test(name)) {
+    if (!COLLECTION_ID_PATTERN.test(name)) {
       return 'Name must contain only lowercase letters, numbers, and hyphens';
     }
     if (name.length > 64) {

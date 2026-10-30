@@ -1,5 +1,37 @@
 name: 'Validate collections'
 description: 'Validate prompt registry collections'
+inputs:
+  governance:
+    description: 'Enable shared governance rules, policy, score, and reports. Legacy validation is retained by default.'
+    default: 'false'
+  policy-path:
+    description: 'Optional committed governance policy; enables governance.'
+    default: ''
+  min-score:
+    description: 'Optional 0-100 minimum score; enables governance.'
+    default: ''
+  collection-file:
+    description: 'Optional selected collection in governance mode. Omit for repository-wide uniqueness.'
+    default: ''
+  report-path:
+    description: 'Optional Markdown output path; enables governance.'
+    default: ''
+  check-releases:
+    description: 'Explicitly verify collection releases on GitHub; enables governance and network access.'
+    default: 'false'
+  repository:
+    description: 'GitHub owner/repo or URL required for release verification.'
+    default: ''
+  source-token:
+    description: 'Optional least-privilege source-read token for release checks. Do not supply for untrusted PR input.'
+    default: ''
+outputs:
+  verdict:
+    description: 'pass or fail in governance mode.'
+  score:
+    description: 'Advisory 0-100 score in governance mode.'
+  exit-code:
+    description: 'Zero only for a successful governance gate and report write.'
 runs:
   using: 'node24'
   main: 'dist/index.js'

@@ -14,6 +14,9 @@
  */
 
 import * as yaml from 'js-yaml';
+import {
+  COLLECTION_ID_PATTERN,
+} from '../collection/validate';
 
 export interface SkillMetadata {
   name: string;
@@ -47,7 +50,7 @@ export const MAX_ASSET_SIZE = 5 * 1024 * 1024; // 5 MB
  * @param content
  */
 export function parseFrontmatter(content: string): SkillMetadata | null {
-  const match = /^---\n([\s\S]*?)\n---/.exec(content);
+  const match = /^---\n([\s\S]*?)\n---/.exec(content.replaceAll('\r\n', '\n'));
   if (!match) {
     return null;
   }
@@ -59,6 +62,32 @@ export function parseFrontmatter(content: string): SkillMetadata | null {
 }
 
 /**
+ * Validate SKILL.md content for a skill folder. Pure, so it runs on local files
+ * and on content fetched from a source alike.
+ * @param folderName Name of the folder that contains SKILL.md.
+ * @param content SKILL.md content.
+ * @returns Error messages; empty when valid.
+ */
+export function validateSkillContent(folderName: string, content: string): string[] {
+  const metadata = parseFrontmatter(content);
+  if (!metadata) {
+    return ['Failed to parse SKILL.md frontmatter'];
+  }
+  const errors: string[] = [];
+  const nameError = validateSkillName(metadata.name);
+  if (nameError) {
+    errors.push(`name: ${nameError}`);
+  } else if (metadata.name !== folderName) {
+    errors.push(`Folder name "${folderName}" does not match skill name "${metadata.name}"`);
+  }
+  const descError = validateSkillDescription(metadata.description);
+  if (descError) {
+    errors.push(`description: ${descError}`);
+  }
+  return errors;
+}
+
+/**
  * Validate skill name format
  * @param name
  */
@@ -66,7 +95,7 @@ export function validateSkillName(name: unknown): string | null {
   if (!name || typeof name !== 'string') {
     return 'name is required and must be a string';
   }
-  if (!/^[a-z0-9-]+$/.test(name)) {
+  if (!COLLECTION_ID_PATTERN.test(name)) {
     return 'name must contain only lowercase letters, numbers, and hyphens';
   }
   if (name.length > SKILL_NAME_MAX_LENGTH) {

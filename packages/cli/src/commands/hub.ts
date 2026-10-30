@@ -26,6 +26,7 @@ import type {
   DeepHubConfigValidationResult,
   HubConfigFileValidationResult,
   HubValidationProgress,
+  SourceAdapterFactoryDeps,
   SourceAuthenticationContext,
 } from '@ai-primitives-hub/app';
 import type {
@@ -64,6 +65,13 @@ import {
   RegistryError,
   renderError,
 } from '../framework';
+import {
+  executeHubScopedGovernance,
+} from './hub-scoped-governance';
+import {
+  executeValidationGovernance,
+  isGovernanceRequested,
+} from './validation-governance';
 
 /**
  * Context passed to hub command execute methods.
@@ -604,7 +612,14 @@ export class HubValidateCommand extends BaseHubCommand {
 
       Options:
         --config <path>          Hub configuration file (default: hub-config.yml)
-        --check-sources          Contact/scan enabled sources and resolve profiles
+        --base-ref <commit>      Scope governance to merge-base/head semantic changes
+        --head-ref <commit>      Explicit PR head (exact 40/64-hex commit IDs)
+        --scope-file <path>      JSON v1 sourceIds/profileIds selectors (instead of refs)
+        --governance            Enable offline governance verdict and scoring
+        --policy <path>         Apply committed governance policy (enables governance)
+        --min-score <number>    Enforce a 0-100 score floor (enables governance)
+        --report-path <path>    Write provider Markdown report (enables governance)
+        --check-sources          Contact sources; governance checks releases and Hub IDs
         --github-app-id <id>     App ID for automatic source-aware setup
         --github-app-key-file <path>
                                  PEM path for automatic source-aware setup
@@ -620,6 +635,13 @@ export class HubValidateCommand extends BaseHubCommand {
   });
 
   public config = Option.String('--config');
+  public governance = Option.Boolean('--governance', false);
+  public policy = Option.String('--policy');
+  public minScore = Option.String('--min-score');
+  public reportPath = Option.String('--report-path');
+  public baseRef = Option.String('--base-ref');
+  public headRef = Option.String('--head-ref');
+  public scopeFile = Option.String('--scope-file');
   public checkSources = Option.Boolean('--check-sources', false);
   public githubAppId = Option.String('--github-app-id');
   public githubAppClientId = Option.String('--github-app-client-id');
@@ -631,6 +653,31 @@ export class HubValidateCommand extends BaseHubCommand {
   public async execute(): Promise<number> {
     const { ctx, http, tokens } = this.commandContext;
     const fmt = (this.output ?? 'text') as OutputFormat;
+    if (this.baseRef !== undefined || this.headRef !== undefined || this.scopeFile !== undefined) {
+      if (!this.governance) {
+        ctx.stderr.write('Scoped hub validation requires --governance.\n');
+        return 1;
+      }
+      if (this.githubAppId !== undefined || this.githubAppClientId !== undefined || this.githubAppKeyFile !== undefined
+        || this.githubAppInstallationId !== undefined || this.githubAppSetupTimeoutMs !== undefined || (this.checkSources && isGitHubAppAuthEnabled(ctx.env))) {
+        ctx.stderr.write('Scoped validation does not support automatic GitHub App setup; use an injected token provider.\n');
+        return 1;
+      }
+      return executeHubScopedGovernance(ctx, this, fmt, {
+        fs: ctx.fs, clock: ctx.clock, httpClient: http ?? new NodeHttpClient(), processRunner: new NodeProcessRunner(),
+        fallbackTokenProviders: tokens === undefined ? [defaultTokenProvider(ctx.env)] : [tokens],
+        onGitHubEvent: this.verbose
+          ? (sourceId, event) => {
+          // Whitelist diagnostics: URLs, headers and raw error reasons may contain credentials.
+            ctx.stderr.write(`[governance request] ${JSON.stringify({ sourceId, kind: event.kind,
+              attempt: event.attempt, status: event.status, sleepMs: event.sleepMs })}\n`);
+          }
+          : undefined
+      });
+    }
+    if (isGovernanceRequested(this) && !this.checkSources) {
+      return executeValidationGovernance(ctx, { subject: 'hub', config: this.config }, this, fmt);
+    }
     const configuredPath = this.config ?? 'hub-config.yml';
     const configPath = path.isAbsolute(configuredPath)
       ? configuredPath
@@ -649,6 +696,9 @@ export class HubValidateCommand extends BaseHubCommand {
       if (this.checkSources && (isGitHubAppAuthEnabled(ctx.env) || appBootstrapRequested)) {
         const staticResult = await validateHubConfigFile(ctx.fs, configPath);
         if (!staticResult.valid) {
+          if (isGovernanceRequested(this)) {
+            return executeValidationGovernance(ctx, { subject: 'hub', config: this.config, checkSources: true }, this, fmt);
+          }
           formatOutput({
             ctx,
             command: 'hub.validate',
@@ -688,6 +738,12 @@ export class HubValidateCommand extends BaseHubCommand {
         );
         sourcePreflight = prepared.report;
         if (prepared.errors.length > 0) {
+          if (isGovernanceRequested(this)) {
+            return executeValidationGovernance(ctx, {
+              subject: 'hub', config: this.config, checkSources: true,
+              hubSourceErrors: prepared.errors
+            }, this, fmt);
+          }
           const preflightResult: HubConfigFileValidationResult = {
             file: configPath,
             valid: false,
@@ -709,6 +765,26 @@ export class HubValidateCommand extends BaseHubCommand {
           return 1;
         }
         sourceAuthentication = prepared.sourceAuthentication;
+      }
+      if (isGovernanceRequested(this)) {
+        const sourceAdapterDeps = {
+          fs: ctx.fs, clock: ctx.clock, httpClient: http ?? new NodeHttpClient(), processRunner: new NodeProcessRunner(),
+          fallbackTokenProviders: tokens === undefined ? [defaultTokenProvider(ctx.env)] : [tokens], sourceAuthentication,
+          onGitHubEvent: this.verbose
+            ? (sourceId, event) => {
+            // Never print raw URLs (signed queries), credentials or response bodies.
+              const url = new URL(event.url);
+              const resource = url.pathname.includes('/releases/assets/')
+                ? 'release-asset'
+                : (url.pathname.endsWith('/releases') ? 'releases' : 'catalog');
+              const diagnostic = { at: new Date().toISOString(), sourceId, host: url.hostname, resource,
+                kind: event.kind, attempt: event.attempt, status: event.status, sleepMs: event.sleepMs,
+                transportFailure: event.reason === 'transport error' ? event.reason : undefined };
+              ctx.stderr.write(`[governance request] ${JSON.stringify(diagnostic)}\n`);
+            }
+            : undefined
+        } satisfies SourceAdapterFactoryDeps;
+        return executeValidationGovernance(ctx, { subject: 'hub', config: this.config, checkSources: true, sourceAdapterDeps }, this, fmt);
       }
       const result = await validateHubConfigFile(ctx.fs, configPath, this.checkSources
         ? {
