@@ -1,10 +1,12 @@
 import type {
   PreparedReplicationArchive,
+  ReleaseManifestFileRole,
   ReplicationArchivePreparer,
   ReplicationCandidate,
 } from '@ai-primitives-hub/core';
 import {
   createApmReleaseManifest,
+  createReleaseManifestFileInventory,
   normalizePrimitiveKind,
   RegistryError,
   serializeReleaseManifest,
@@ -188,6 +190,33 @@ function validateDeclaredFiles(
   }
 }
 
+function getGovernedFileRoles(
+  manifest: Record<string, unknown>
+): Map<string, ReleaseManifestFileRole> {
+  if (manifest.formatVersion !== 1) {
+    return new Map();
+  }
+  if (!Array.isArray(manifest.files)) {
+    throw new RegistryError({
+      code: 'BUNDLE.APM_UNSUPPORTED_CONTENT',
+      message: 'Transition mode cannot translate a governed manifest without a files inventory.'
+    });
+  }
+  const roles = new Map<string, ReleaseManifestFileRole>();
+  for (const entry of manifest.files) {
+    if (!isRecord(entry) || typeof entry.path !== 'string'
+      || (entry.role !== 'installable' && entry.role !== 'metadata' && entry.role !== 'ignored')
+      || roles.has(entry.path)) {
+      throw new RegistryError({
+        code: 'BUNDLE.APM_UNSUPPORTED_CONTENT',
+        message: 'Transition mode cannot translate a governed manifest with an invalid files inventory.'
+      });
+    }
+    roles.set(entry.path, entry.role);
+  }
+  return roles;
+}
+
 export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer {
   // Keep the Promise contract so malformed input becomes a rejected preparation operation.
   // eslint-disable-next-line @typescript-eslint/require-await -- async converts validation throws into rejected Promises.
@@ -208,6 +237,8 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
     if (existingApmName) {
       return { bytes: archive, packageName: existingApmName, translated: false, warnings: [] };
     }
+    const governed = candidate.manifest.formatVersion === 1;
+    const sourceFileRoles = getGovernedFileRoles(candidate.manifest);
 
     const id = candidate.manifest.id;
     if (typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
@@ -223,10 +254,18 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
     }
 
     const output = new Map<string, Uint8Array>();
-    const add = (path: string, contentBytes: Uint8Array): void => {
+    const outputFileRoles = new Map<string, ReleaseManifestFileRole>();
+    const add = (path: string, contentBytes: Uint8Array, role?: ReleaseManifestFileRole): void => {
       const previous = output.get(path);
       if (previous && !Buffer.from(previous).equals(Buffer.from(contentBytes))) {
         throw new Error(`Transition mode found conflicting content for ZIP path "${path}".`);
+      }
+      const previousRole = outputFileRoles.get(path);
+      if (previousRole !== undefined && role !== undefined && previousRole !== role) {
+        throw new Error(`Transition mode found conflicting inventory roles for ZIP path "${path}".`);
+      }
+      if (role !== undefined) {
+        outputFileRoles.set(path, role);
       }
       output.set(path, contentBytes);
     };
@@ -234,16 +273,44 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
       if (file.path === APM_MANIFEST) {
         continue;
       }
-      add(file.path, file.bytes);
-      if (file.path !== DEPLOYMENT_MANIFEST) {
-        add(translatedPath(file.path), file.bytes);
+      if (file.path === DEPLOYMENT_MANIFEST) {
+        add(file.path, file.bytes);
+        continue;
       }
+      const role = sourceFileRoles.get(file.path);
+      if (governed && role === undefined) {
+        throw new RegistryError({
+          code: 'BUNDLE.APM_UNSUPPORTED_CONTENT',
+          message: `Transition mode cannot find a governed inventory role for "${file.path}".`
+        });
+      }
+      add(file.path, file.bytes, role);
+      add(translatedPath(file.path), file.bytes, role);
     }
     if (!existingDeploymentManifest) {
       add(DEPLOYMENT_MANIFEST, candidate.manifestBytes);
     }
     const apmManifest = createApmReleaseManifest(candidate.manifest);
-    add(APM_MANIFEST, new TextEncoder().encode(serializeReleaseManifest(apmManifest)));
+    add(APM_MANIFEST, new TextEncoder().encode(serializeReleaseManifest(apmManifest)), 'metadata');
+    if (governed) {
+      const inventoryEntries = [...output.entries()]
+        .filter(([path]) => path !== DEPLOYMENT_MANIFEST)
+        .map(([path, contentBytes]) => {
+          const role = outputFileRoles.get(path);
+          if (role === undefined) {
+            throw new RegistryError({
+              code: 'BUNDLE.APM_UNSUPPORTED_CONTENT',
+              message: `Transition mode cannot assign a governed inventory role to "${path}".`
+            });
+          }
+          return { path, role, bytes: contentBytes };
+        });
+      const translatedManifest = {
+        ...candidate.manifest,
+        files: createReleaseManifestFileInventory(inventoryEntries)
+      };
+      output.set(DEPLOYMENT_MANIFEST, new TextEncoder().encode(serializeReleaseManifest(translatedManifest)));
+    }
     const nativeCount = [...output.keys()].filter((path) => path.startsWith(APM_ROOT)).length;
     if (nativeCount === 0) {
       throw new Error('Transition mode could not create APM primitive files from this release archive.');
