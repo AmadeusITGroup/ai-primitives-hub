@@ -11,15 +11,24 @@
  * approach in install.test.ts/uninstall.test.ts.
  */
 import {
+  realpathSync,
+} from 'node:fs';
+import {
   access,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type {
+  HttpClient,
+  HttpRequest,
+} from '@ai-primitives-hub/core';
 import {
+  buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
@@ -40,15 +49,23 @@ import {
   InstallCommand,
 } from '../../src/commands/install';
 import {
+  SourceAddCommand,
+} from '../../src/commands/source';
+import {
   StatusCommand,
 } from '../../src/commands/status';
 import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
 import {
+  TargetRemoveCommand,
+} from '../../src/commands/target-remove';
+import {
   UpdateCommand,
 } from '../../src/commands/update';
 import {
+  createTestContext,
+  runCli,
   runCommand,
 } from '../../src/framework';
 
@@ -442,6 +459,240 @@ profiles: []
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{ dryRun: boolean; updated: number }>(result.stdout);
       expect(envelope.data).toMatchObject({ dryRun: true, updated: 0 });
+    });
+  });
+
+  describe('update on the repository install record (format 3.0.0)', () => {
+    const ART_ROOT = 'https://artifactory.example/repo/source';
+    const recordPath = (): string => path.join(workspace, 'ai-primitives-hub.lock.json');
+    const bundleDir = (): string => path.join(workspace, 'bundle');
+    const requests: HttpRequest[] = [];
+    const envReads = new Set<string>();
+
+    /**
+     * Bundle files of `local-foo`; version 1.0.0 also ships `extra.prompt.md`.
+     * @param version
+     */
+    const bundleFiles = (version: string): Map<string, string> => new Map([
+      ['deployment-manifest.yml', [
+        'id: local-foo', `version: ${version}`, 'name: Local Foo', 'prompts:',
+        '  - id: hello', '    file: prompts/hello.prompt.md', '    type: prompt',
+        ...(version === '1.0.0' ? ['  - id: extra', '    file: prompts/extra.prompt.md', '    type: prompt'] : [])
+      ].join('\n') + '\n'],
+      ['prompts/hello.prompt.md', `# Hello ${version}\n`],
+      ...(version === '1.0.0' ? [['prompts/extra.prompt.md', '# Extra\n'] as [string, string]] : [])
+    ]);
+    const v2Zip = buildZip([...bundleFiles('2.0.0')].map(([filePath, text]) => ({ path: filePath, bytes: new TextEncoder().encode(text) })));
+    const json = (request: HttpRequest, body: unknown) =>
+      ({ statusCode: 200, body: new TextEncoder().encode(JSON.stringify(body)), finalUrl: request.url, headers: {} });
+
+    /** HTTP boundary: a GitHub release and an Artifactory index serving `local-foo` 2.0.0. */
+    const http: HttpClient = {
+      fetch: async (request) => {
+        requests.push(request);
+        if (request.url === 'https://api.github.com/repos/acme-org/local-foo/releases') {
+          return json(request, [{ tag_name: 'local-foo-v2.0.0', assets: [{ name: 'bundle.zip', url: 'https://api.github.com/assets/local-foo' }] }]);
+        }
+        if (request.url === 'https://api.github.com/assets/local-foo') {
+          return { statusCode: 200, body: v2Zip, finalUrl: request.url, headers: {} };
+        }
+        if (request.url === `${ART_ROOT}/index-v1.json`) {
+          return json(request, {
+            formatVersion: 1, source: { id: 'art', name: 'Art', updatedAt: '2026-01-01T00:00:00Z' },
+            bundles: [{
+              id: 'local-foo', version: '2.0.0', name: 'Local Foo', description: '', author: 'Test', environments: ['vscode'],
+              tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+              manifest: { path: '2.0.0/local-foo/deployment-manifest.yml', size: 1, sha256: 'a'.repeat(64) },
+              archive: { path: '2.0.0/local-foo.zip', size: v2Zip.length, sha256: 'b'.repeat(64), mediaType: 'application/zip' }
+            }]
+          });
+        }
+        throw new Error(`Unexpected request: ${request.url}`);
+      }
+    };
+
+    /**
+     * Run a command; `ctx.env` records every key read, so a test can prove a variable was never read.
+     * @param argv Command line.
+     */
+    const runRecord = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+      const base = createTestContext({
+        cwd: workspace,
+        fs: new NodeFileSystem(),
+        env: {
+          HOME: workspace,
+          USERPROFILE: workspace,
+          XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+          XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+          ARTIFACTORY_TOKEN: 'reader-token'
+        }
+      });
+      const env = new Proxy(base.env, {
+        get: (target, key, receiver) => {
+          if (typeof key === 'string') {
+            envReads.add(key);
+          }
+          return Reflect.get(target, key, receiver) as unknown;
+        }
+      });
+      const ctx = { ...base, env };
+      const exitCode = await runCli(argv, {
+        ctx,
+        http,
+        tokens: { getToken: async () => undefined },
+        commandClasses: [TargetAddCommand, TargetRemoveCommand, InstallCommand, UpdateCommand, SourceAddCommand],
+        commands: [],
+        name: 'test',
+        version: 'test'
+      });
+      return { exitCode, stdout: base.stdout.captured() };
+    };
+
+    interface RecordJson {
+      bundles: Record<string, { tools: Record<string, { version: string; sourceId: string; sourceType: string; files: { path: string }[] }> }>;
+      sources: Record<string, Record<string, string>>;
+    }
+    interface UpdateData {
+      level: string;
+      records: string[];
+      updates: { bundleId: string; tool: string; from: string; to: string }[];
+      alsoUpdated: { bundleId: string; tool: string }[];
+      skipped: { bundleId: string; tool: string; reason: string }[];
+    }
+    const readRecord = async (): Promise<RecordJson> => JSON.parse(await readFile(recordPath(), 'utf8')) as RecordJson;
+    const versions = async (): Promise<Record<string, string>> =>
+      Object.fromEntries(Object.entries((await readRecord()).bundles['local-foo'].tools).map(([tool, entry]) => [tool, entry.version]));
+    const promptFile = (name: string): string => path.join(workspace, '.github', 'prompts', name);
+
+    /**
+     * Add repository targets, install `local-foo` 1.0.0 from a local folder
+     * with each (in order), then point every record entry at `source`.
+     * @param targets Target name and type pairs, in install order.
+     * @param source Recorded source the entries now come from.
+     */
+    const installAt100 = async (targets: [string, string][], source: Record<string, string>): Promise<void> => {
+      for (const [filePath, text] of bundleFiles('1.0.0')) {
+        await mkdir(path.dirname(path.join(bundleDir(), filePath)), { recursive: true });
+        await writeFile(path.join(bundleDir(), filePath), text);
+      }
+      for (const [name, type] of targets) {
+        expect((await runRecord(['target', 'add', name, '--type', type, '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'])).exitCode).toBe(0);
+      }
+      for (const [name] of targets) {
+        const installed = await runRecord(['install', 'local-foo', '--from', bundleDir(), '--target', name, '-o', 'json']);
+        expect(installed.exitCode, installed.stdout).toBe(0);
+      }
+      const record = await readRecord();
+      record.sources = { remote: source };
+      for (const entry of Object.values(record.bundles['local-foo'].tools)) {
+        entry.sourceId = 'remote';
+        entry.sourceType = source.type;
+      }
+      await writeFile(recordPath(), JSON.stringify(record, null, 2) + '\n');
+    };
+    const GITHUB_SOURCE = { type: 'github', url: 'https://github.com/acme-org/local-foo' };
+
+    beforeEach(async () => {
+      workspace = realpathSync.native(workspace);
+      requests.length = 0;
+      envReads.clear();
+      await mkdir(path.join(workspace, '.git'), { recursive: true });
+      await writeFile(path.join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    });
+
+    it.each([
+      ['vscode then kiro', [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]],
+      ['kiro then vscode', [['repo-kiro', 'kiro'], ['repo-vscode', 'vscode']]]
+    ] as [string, [string, string][]][])('updates every tool at the level with an inferred target (%s), one key per tool', async (_order, targets) => {
+      await installAt100(targets, GITHUB_SOURCE);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<UpdateData>(result.stdout);
+      expect(data).toMatchObject({ level: 'repository', records: [recordPath()], alsoUpdated: [], skipped: [] });
+      expect(data.updates).toEqual([
+        { bundleId: 'local-foo', tool: 'kiro', from: '1.0.0', to: '2.0.0' },
+        { bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }
+      ]);
+      const record = await readRecord();
+      expect(Object.keys(record.bundles)).toEqual(['local-foo']);
+      expect(await versions()).toEqual({ kiro: '2.0.0', vscode: '2.0.0' });
+      expect(await readFile(promptFile('hello.prompt.md'), 'utf8')).toBe('# Hello 2.0.0\n');
+    });
+
+    it('--target narrows the update to that tool and prints the Record line', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], GITHUB_SOURCE);
+
+      const result = await runRecord(['update', '--target', 'repo-kiro', '--no-hub-sync']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.stdout).toContain('local-foo (kiro): 1.0.0 → 2.0.0');
+      expect(result.stdout).not.toContain('(vscode)');
+      expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await versions()).toEqual({ kiro: '2.0.0', vscode: '1.0.0' });
+    });
+
+    // copilot-cli targets are user-scope only, so vscode-insiders is the repository
+    // tool that shares `.github` files with vscode here.
+    it('updates a sibling sharing .github files with its own writer and reports it in alsoUpdated', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-insiders', 'vscode-insiders']], GITHUB_SOURCE);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('ok');
+      expect(data.updates).toEqual([{ bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }]);
+      expect(data.alsoUpdated).toEqual([{ bundleId: 'local-foo', tool: 'vscode-insiders' }]);
+      expect(await versions()).toEqual({ vscode: '2.0.0', 'vscode-insiders': '2.0.0' });
+      await expect(readFile(promptFile('extra.prompt.md'), 'utf8')).rejects.toThrow();
+    });
+
+    it('reports a sibling with no target as out of date and keeps the file it still lists', async () => {
+      await installAt100([['repo-insiders', 'vscode-insiders'], ['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      expect((await runRecord(['target', 'remove', 'repo-insiders', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('warning');
+      expect(data.updates.map((entry) => entry.tool)).toEqual(['vscode']);
+      expect(data.alsoUpdated).toEqual([]);
+      expect(data.skipped).toEqual([{ bundleId: 'local-foo', tool: 'vscode-insiders', reason: expect.stringContaining('out of date (still 1.0.0)') }]);
+      expect(await versions()).toEqual({ vscode: '2.0.0', 'vscode-insiders': '1.0.0' });
+      expect(await readFile(promptFile('extra.prompt.md'), 'utf8')).toBe('# Extra\n');
+    });
+
+    it('--dry-run looks the version up from the configured source only and never reads the record\'s credentialRef', async () => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'artifactory', url: 'https://evil.example/repo', authMode: 'bearer', credentialRef: 'RECORD_SECRET' });
+      const record = await readFile(recordPath(), 'utf8');
+      expect((await runRecord([
+        'source', 'add', '--type', 'artifactory', '--url', ART_ROOT, '--id', 'remote', '--auth', 'bearer', '--credential-ref', 'ARTIFACTORY_TOKEN', '-o', 'json'
+      ])).exitCode).toBe(0);
+      envReads.clear();
+
+      const result = await runRecord(['update', '--dry-run', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<UpdateData>(result.stdout).data.updates).toEqual([{ bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }]);
+      expect(requests.length).toBeGreaterThan(0);
+      expect(requests.every((request) => request.url.startsWith(ART_ROOT) && request.headers?.Authorization === 'Bearer reader-token')).toBe(true);
+      expect(envReads.has('RECORD_SECRET')).toBe(false);
+      expect(await readFile(recordPath(), 'utf8')).toBe(record);
+    });
+
+    it('a user-scope update leaves the repository record byte-identical', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      const record = await readFile(recordPath(), 'utf8');
+      expect((await runRecord(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', path.join(workspace, 'target'), '-o', 'json'])).exitCode).toBe(0);
+      expect((await runRecord(['install', 'local-foo', '--from', bundleDir(), '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runRecord(['update', '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await readFile(recordPath(), 'utf8')).toBe(record);
     });
   });
 });
