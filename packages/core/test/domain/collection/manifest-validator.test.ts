@@ -211,6 +211,30 @@ describe('validateManifest', () => {
     );
   });
 
+  it('identifies apm.yml as the source of invalid companion YAML', () => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes('name: [invalid\n'));
+
+    expect(() => validateManifest(files, {})).toThrowError(
+      expect.objectContaining({
+        code: 'BUNDLE.MANIFEST_INVALID',
+        message: expect.stringMatching(/^apm\.yml is not valid YAML:/)
+      })
+    );
+  });
+
+  it('identifies apm.yml as the source of inconsistent companion metadata', () => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes('name: other\nversion: 1.0.0\n'));
+
+    expect(() => validateManifest(files, {})).toThrowError(
+      expect.objectContaining({
+        code: 'BUNDLE.MANIFEST_INVALID',
+        message: 'apm.yml must declare name "example" and version "1.0.0"'
+      })
+    );
+  });
+
   it.each(['metadata', 'installable', 'ignored'] as const)('requires the governed companion to have metadata role, not %s', (role) => {
     const files = createGovernedReleaseArchive();
     const manifest = validateManifest(files, {});
