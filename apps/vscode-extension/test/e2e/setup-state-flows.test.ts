@@ -515,7 +515,7 @@ suite('E2E: Setup State Flows', () => {
       RepositoryActivationService.resetInstance();
 
       // Record reads are observed at the service's public read; the adapter is not reached
-      records = sandbox.createStubInstance(ExtensionRecordAdapter) as unknown as ExtensionRecordAdapter;
+      records = sandbox.createStubInstance(ExtensionRecordAdapter);
       readSources = sandbox.stub(RepositoryActivationService.prototype, 'readRepositorySources').resolves(createMockLockfile());
 
       // Create mock RegistryStorage

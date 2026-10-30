@@ -214,7 +214,7 @@ export class RepositoryActivationService {
       try {
         const { record, exists } = await this.records.store.load(location);
         found ||= exists;
-        await this.collectSources(result.sources, location.root, record.sources as Record<string, RepositorySourceEntry>);
+        await this.collectSources(result.sources, location.root, record.sources);
       } catch (error) {
         if (!isRecordError(error)) {
           throw error;

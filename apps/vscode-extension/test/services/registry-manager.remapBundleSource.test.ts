@@ -87,7 +87,11 @@ suite('RegistryManager.remapBundleSource', () => {
 
   const readJson = (file: string): any => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 
-  /** Record `bundleId` for vscode from the old source in one record file. */
+  /**
+   * Record `bundleId` for vscode from the old source in one record file.
+   * @param commitMode
+   * @param bundleId
+   */
   const recordFromOldSource = async (commitMode: 'commit' | 'local-only', bundleId: string): Promise<void> => {
     const relative = `.github/prompts/${bundleId}.prompt.md`;
     fs.mkdirSync(path.join(root, '.github', 'prompts'), { recursive: true });

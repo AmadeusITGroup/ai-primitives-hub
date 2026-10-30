@@ -333,7 +333,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-
       // Query repository bundles
       const installedBundles = await testContext.registryManager.listInstalledBundles('repository');
 
@@ -507,7 +506,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-
       // Stub the info message
       const showInfoMessageStub = sandbox.stub(vscode.window, 'showInformationMessage');
       showInfoMessageStub.resolves(undefined);
@@ -559,7 +557,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       // Don't create the files (making the bundle stale)
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
-
 
       // Stub the confirmation dialog to cancel
       const showWarningMessageStub = sandbox.stub(vscode.window, 'showWarningMessage');
@@ -749,7 +746,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-
       // Query repository bundles - this simulates a different user with different hub config
       // The lockfile should work regardless of what hubs the user has configured
       const installedBundles = await testContext.registryManager.listInstalledBundles('repository');
@@ -850,7 +846,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-
       // Query repository bundles - legacy format should still work
       const installedBundles = await testContext.registryManager.listInstalledBundles('repository');
 
@@ -937,7 +932,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       fs.writeFileSync(path.join(promptsDir, 'local-bundle.prompt.md'), '# Local Bundle');
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
-
 
       // Query repository bundles
       const installedBundles = await testContext.registryManager.listInstalledBundles('repository');

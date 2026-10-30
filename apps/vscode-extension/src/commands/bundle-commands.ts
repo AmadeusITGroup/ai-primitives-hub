@@ -3,7 +3,6 @@
  * Orchestrates bundle operations through specialized command handlers
  */
 
-import * as vscode from 'vscode';
 import {
   areAllFilesMissing,
 } from '@ai-primitives-hub/app';
@@ -11,6 +10,7 @@ import {
   isRecordError,
   type RecordLocation,
 } from '@ai-primitives-hub/core';
+import * as vscode from 'vscode';
 import {
   BundleUpdateNotifications,
 } from '../notifications/bundle-update-notifications';
