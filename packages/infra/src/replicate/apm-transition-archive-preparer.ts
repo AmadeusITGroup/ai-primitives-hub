@@ -201,6 +201,9 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
       && !Buffer.from(existingDeploymentManifest.bytes).equals(Buffer.from(candidate.manifestBytes))) {
       throw new Error(`Release ZIP deployment manifest does not match the published manifest asset for ${candidate.bundleId}@${candidate.version}.`);
     }
+    if (candidate.manifest.version !== candidate.version) {
+      throw new Error(`Transition mode found mismatched release version for ${candidate.bundleId}@${candidate.version}.`);
+    }
     const existingApmName = isApmReady(files, candidate);
     if (existingApmName) {
       return { bytes: archive, packageName: existingApmName, translated: false, warnings: [] };
@@ -209,9 +212,6 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
     const id = candidate.manifest.id;
     if (typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
       throw new Error(`Transition mode cannot use manifest id "${String(id)}" as an Agent Packages name.`);
-    }
-    if (candidate.manifest.version !== candidate.version) {
-      throw new Error(`Transition mode found mismatched release version for ${candidate.bundleId}@${candidate.version}.`);
     }
 
     const items = getDeclaredItems(candidate.manifest);
