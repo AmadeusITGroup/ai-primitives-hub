@@ -68,7 +68,7 @@ your-repo/
 The `.git/info/exclude` file will contain:
 
 ```
-# AI Primitives Hub (local)
+# Prompt Registry (local)
 .github/prompts/my-prompt.prompt.md
 .github/agents/my-agent.agent.md
 prompt-registry.local.lock.json
@@ -79,6 +79,16 @@ prompt-registry.local.lock.json
 - Experiment with bundles before committing
 - Override team configurations locally
 - Installing local-only bundles never modifies the shared `prompt-registry.lock.json`
+
+### Local-Only from the CLI
+
+`ai-primitives-hub install … --commit-mode local-only` on a repository-scope target excludes the installed files and `prompt-registry.local.lock.json` from Git on every target type (Kiro, Claude Code, Cursor and the others, not only VS Code and Copilot CLI):
+
+- **Git worktrees and submodules** — the entries go to the exclude file Git actually reads: the main repository's `.git/info/exclude` for a linked worktree, `.git/modules/<name>/info/exclude` for a submodule.
+- **Folders that are not Git repositories** — the install still succeeds, with the warning `<folder> is not a git repository; local-only files are not excluded from git`. No `.git` folder is created.
+- **Uninstall** — `ai-primitives-hub uninstall` removes the files, the folders they leave empty and their exclude entries, including the local lockfile's entry once that lockfile is deleted. A file another installed bundle also lists is kept until the last of them is uninstalled.
+
+See [Command Reference](../reference/commands.md#bundle-uninstall-cli) for the full CLI behaviour.
 
 ## The Lockfile
 
@@ -142,6 +152,16 @@ The local lockfile is automatically added to `.git/info/exclude` when created, e
 - Receive automated update PRs via Renovate
 
 The local lockfile (`prompt-registry.local.lock.json`) is automatically excluded from Git and should not be committed.
+
+Entries written by the `ai-primitives-hub` CLI carry a few more fields:
+
+| Field | Meaning |
+|-------|---------|
+| `targetType` | The target type that installed the bundle (for example `vscode` or `kiro`), so uninstall finds the files where that target placed them |
+| `installedPath` | Where a file was installed, when that differs from its usual location (for example a file renamed after its manifest item) |
+| `installedChecksum` | The checksum of the file as written, when the target adapted its content on install |
+
+Neither the CLI nor the extension writes `commitMode` into new entries: which lockfile holds an entry decides its mode.
 
 ## Moving Bundles Between Scopes
 

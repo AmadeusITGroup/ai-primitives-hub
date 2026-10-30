@@ -45,13 +45,61 @@ for options, failure policies, and exit codes.
 - Entries that are not files, such as `mcpServers`, are not placed this way. Entries whose `type:` is not one of the five above, and bundle files no item lists, keep the path-based routing below.
 - When the target cannot place an item (its type is excluded by the target's `--allowed-kinds`, the layout has no route for it, or an earlier item already uses its destination, such as ids `alpha` and `alpha.instructions` of type `instructions`), the install fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing, unless `--skip-unsupported` is set, which skips the item instead (see above).
 - A skill item's `file:` may name the skill directory (`skills/<name>`) or a file in it (`skills/<name>/SKILL.md`); either way only that skill's directory is copied.
-- Re-installing or updating a bundle that is already in the lockfile removes the files of the previous install that the new one no longer writes (for example a `prompts/x.md` that is now placed as `prompts/x.prompt.md`), compared by installed location.
+- Re-installing or updating a bundle that is already in the lockfile removes the files of the previous install that the new one no longer writes (for example a `prompts/x.md` that is now placed as `prompts/x.prompt.md`), compared by installed location. `install` keeps such a file when another bundle's lockfile entry records the same location, never removes one whose recorded location lies outside the target root, and ends with the warning `could not remove superseded file <path>: <error>` when a removal fails.
 
 Bundles whose manifest lists no items keep path-based routing: a file is installed under the target route matching its bundle path prefix (for example `prompts/`, `skills/`), with its name unchanged.
 
-The lockfile keeps bundle-relative `path` entries with their checksums. For items placed by the manifest it also records `installedPath`, the location relative to the target's base directory, which `uninstall` and `profile deactivate` remove. Entries without `installedPath`, including those written by earlier releases, are removed by path routing as before.
+Repository-scope VS Code, VS Code Insiders and Copilot CLI targets keep their own `.github/` writer and its placement rules.
 
-Repository-scope VS Code and Copilot CLI targets keep their own `.github/` writer and are not affected.
+### What the lockfile records
+
+Each bundle entry lists its files by bundle-relative `path` with `checksum`, the SHA-256 of the bundle's bytes. `install`, `update` and `profile activate` write the same entry shape:
+
+- `targetType`: the target type that placed the files.
+- `installedPath`: where a file landed, relative to the target's base directory, recorded only when it differs from the location the file's route gives (items placed by the manifest; `.github/` files that are flattened, retyped or renamed by item id).
+- `installedChecksum`: the SHA-256 of the bytes on disk, recorded only when the target transformed the file on install (for example Kiro and Claude Code agents, Windsurf prompts and instructions).
+- No `commitMode`: the lockfile an entry lives in gives its commit mode. `commitMode` in existing entries is ignored.
+
+`uninstall` and `profile deactivate` find each file at its `installedPath`, otherwise at its route, using the writer of the entry's `targetType`, so a file is removed where it was placed even through a target of another type. The entry does not record the target's `path`: through a target of another type, files are looked up below the default base directory of the entry's `targetType`, so files placed through a user-scope target with a custom `path` are only found through a target of the same type. Entries without `installedPath` or `targetType`, including those written by earlier releases, are located on the current target by path routing as before; workspace-relative `.github/…` paths of earlier extension versions are still accepted.
+
+### Repository scope and local-only installs
+
+`install <bundle-id>`, `install --from` and `install --source` at repository scope record the bundle in `prompt-registry.lock.json` (`--commit-mode commit`, the default) or `prompt-registry.local.lock.json` (`--commit-mode local-only`). Installing a bundle again in the other commit mode moves its entry to the other lockfile, and a lockfile left without bundles is deleted. If the lockfile cannot be written, the install fails and the new files it wrote are removed again.
+
+A `local-only` install, on every target type, lists the written files and the local lockfile below `# Prompt Registry (local)` in the exclude file git reads for the work tree, with paths relative to the work tree:
+
+| Workspace | Exclude file |
+|-----------|--------------|
+| Plain repository | `.git/info/exclude` |
+| Linked worktree (`git worktree add`) | the main repository's `.git/info/exclude` |
+| Submodule | `.git/modules/<name>/info/exclude` of the superproject |
+
+Moving an entry to `commit` removes its lines again. In a folder that is not a git repository, the install succeeds with the warning `<root> is not a git repository; local-only files are not excluded from git` and no `.git` is created. When the exclude file cannot be updated (for example, it is read-only), the install succeeds with the warning `could not update the git exclude file: <error>` and leaves the file as it was. A warning gives the result status `warning` with exit code 0; text output prints each one as `warning: <text>` on stderr.
+
+`install --lockfile` reinstalls the recorded files without rewriting the lockfile.
+
+## Bundle Uninstall (CLI)
+
+`ai-primitives-hub uninstall (--bundle <id> | --all | --lockfile <path>) --target <target> [--scope <scope>] [--commit-mode <mode>]`
+
+At repository scope the entry is looked up in both lockfiles, and the reported `lockfile` is the one it was found in. For each recorded file, `uninstall`:
+
+- removes it when it is on disk at its recorded location;
+- keeps it when another bundle's entry records the same location (both repository lockfiles at repository scope, the user lockfile at user scope), so a file two bundles share stays until the last one is uninstalled;
+- refuses it when its recorded path has no location inside the target root: an absolute path, a path that climbs out with `..`, a path no route matches, or a file whose parent directory is a symlink resolving outside the root. A symlinked file is removed as a link; its target is never touched;
+- skips it silently when it is already gone.
+
+Directories that the removed files leave empty below the target root are removed too; the root itself, directories still holding files and other empty directories stay. For a `local-only` entry, the lines of the removed files and directories leave the exclude file, and so does the local lockfile line when that lockfile is deleted. The entry is removed from the lockfile in every case.
+
+With `--bundle`, `-o json` returns `data.target`, `data.bundle`, `data.removed` and `data.skipped` (bundle paths kept, refused, missing or failed) and `data.lockfile`; text output reads `Uninstalled <id> from target "<target>" (<n> files removed, <m> skipped). Updated <lockfile>.` With `--all` and `--lockfile`, `data.bundles[]` holds `id`, `removed` and `skipped` counts. These warnings give the result status `warning` with exit code 0:
+
+- `<id>: refused <path>: no location inside the target root`
+- `<id>: could not locate the recorded files (<reason>); none were removed`, for an entry whose `targetType` is unknown; it replaces the per-path refusals
+- `<id>: could not remove <path>: <error>`
+- `<root> is not a git repository; local-only files are not excluded from git`
+- `<id>: could not update the git exclude file: <error>`
+
+Kept and missing files are not warnings.
 
 Files stored executable in the bundle (a committed `100755` file is archived as `0755`) are installed executable by `install`, `install --lockfile`, `profile activate` and `update`, on every target and at both scopes, including the `.github/` writer. Execute permission is added wherever read permission is granted, so the result follows your umask (`0644` becomes `0755`). Every other file keeps the default mode, and an update that ships a file as non-executable clears its execute bits. `install --from <dir>` takes the bit from the files on disk. The lockfile records no mode. On Windows, and on filesystems that do not allow the mode change (for example vfat/exFAT mounts), the mode is ignored without an error. Bundles that the hub assembles itself from `skills` and `awesome-copilot` sources record every file as non-executable, so their scripts are installed without the execute bit.
 
