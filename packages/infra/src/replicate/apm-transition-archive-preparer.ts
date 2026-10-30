@@ -269,6 +269,18 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
       }
       output.set(path, contentBytes);
     };
+    const inventoryEntries = () => [...output.entries()]
+      .filter(([path]) => path !== DEPLOYMENT_MANIFEST)
+      .map(([path, contentBytes]) => {
+        const role = outputFileRoles.get(path);
+        if (role === undefined) {
+          throw new RegistryError({
+            code: 'BUNDLE.APM_UNSUPPORTED_CONTENT',
+            message: `Transition mode cannot assign a governed inventory role to "${path}".`
+          });
+        }
+        return { path, role, bytes: contentBytes };
+      });
     for (const file of files) {
       if (file.path === APM_MANIFEST) {
         continue;
@@ -290,24 +302,19 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
     if (!existingDeploymentManifest) {
       add(DEPLOYMENT_MANIFEST, candidate.manifestBytes);
     }
-    const apmManifest = createApmReleaseManifest(candidate.manifest);
+    const embeddedManifest = governed
+      ? {
+        ...candidate.manifest,
+        files: createReleaseManifestFileInventory(inventoryEntries())
+      }
+      : candidate.manifest;
+    const apmManifest = createApmReleaseManifest(embeddedManifest);
     add(APM_MANIFEST, new TextEncoder().encode(serializeReleaseManifest(apmManifest)), 'metadata');
     if (governed) {
-      const inventoryEntries = [...output.entries()]
-        .filter(([path]) => path !== DEPLOYMENT_MANIFEST)
-        .map(([path, contentBytes]) => {
-          const role = outputFileRoles.get(path);
-          if (role === undefined) {
-            throw new RegistryError({
-              code: 'BUNDLE.APM_UNSUPPORTED_CONTENT',
-              message: `Transition mode cannot assign a governed inventory role to "${path}".`
-            });
-          }
-          return { path, role, bytes: contentBytes };
-        });
       const translatedManifest = {
-        ...candidate.manifest,
-        files: createReleaseManifestFileInventory(inventoryEntries)
+        ...embeddedManifest,
+        // The embedded x-aph manifest omits apm.yml to avoid a circular digest.
+        files: createReleaseManifestFileInventory(inventoryEntries())
       };
       output.set(DEPLOYMENT_MANIFEST, new TextEncoder().encode(serializeReleaseManifest(translatedManifest)));
     }

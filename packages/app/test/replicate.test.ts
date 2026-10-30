@@ -269,7 +269,7 @@ describe('replicateHub', () => {
     ]);
     const hubBytes = published.get('__CONFIG__/hub-config.yml');
     expect(published.get(publishedPaths[4])).toEqual(hubBytes);
-    expect(result.warnings).toContain('TEMPORARY APM TRANSITION: non-APM release archives may be rewritten before publication. This does not promote the immutable release asset byte-for-byte; remove this flag when all authors publish APM-ready assets.');
+    expect(result.warnings).not.toContain('TEMPORARY APM TRANSITION: non-APM release archives may be rewritten before publication. This does not promote the immutable release asset byte-for-byte; remove this flag when all authors publish APM-ready assets.');
     expect(result.warnings).toContain(`Temporarily translated ${c.bundleId}@${c.version} to the dual-manifest APM layout; the uploaded ZIP differs from the immutable GitHub release asset.`);
     expect(result.warnings).toContain('APM dependency translation warning');
   });

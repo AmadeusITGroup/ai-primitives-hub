@@ -72,7 +72,6 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
   const preparedArchives = new Map<string, { owner: string; prepared: PreparedReplicationArchive }>();
   const unsupportedTransitionCandidates = new Set<string>();
   if (options.apmTransition) {
-    warnings.push('TEMPORARY APM TRANSITION: non-APM release archives may be rewritten before publication. This does not promote the immutable release asset byte-for-byte; remove this flag when all authors publish APM-ready assets.');
     const coordinates = new Map<string, { candidate: typeof selection.selected[number]; prepared: PreparedReplicationArchive }>();
     for (const candidate of selection.selected) {
       const owner = candidate.repo.split('/')[0]?.toLowerCase();

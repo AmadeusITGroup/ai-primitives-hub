@@ -231,7 +231,7 @@ describe('hub replicate command', () => {
       ctx, http, tokens: tokenProvider, commandClasses: [HubReplicateCommand], commands: [], name: 'ai-primitives-hub', version: 'test'
     });
 
-    expect(exitCode).toBe(2);
+    expect(exitCode).toBe(0);
     const base = 'https://artifactory.example/replicated';
     const puts = http.requests.filter((request) => request.method === 'PUT');
     expect(puts.map((request) => request.url)).toEqual([
@@ -243,7 +243,9 @@ describe('hub replicate command', () => {
       `${base}/__CONFIG__/hub-config.yml`
     ]);
     expect(puts[1]?.body).toEqual(archive);
-    expect(JSON.parse(ctx.stdout.captured()).data.transitionMode).toBe('temporary-apm');
+    const output = JSON.parse(ctx.stdout.captured());
+    expect(output.status).toBe('ok');
+    expect(output.data.transitionMode).toBe('temporary-apm');
     expect(ctx.stdout.captured()).not.toContain('publisher-token');
   });
 
