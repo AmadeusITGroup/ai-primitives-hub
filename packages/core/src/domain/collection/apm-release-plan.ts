@@ -56,6 +56,29 @@ const nativeRelativePath = (filePath: string): string => {
 
 const apmPath = (filePath: string): string => `.apm/${nativeRelativePath(filePath)}`;
 
+const isNativeApmDiscoveryPathForRelative = (kind: string | null, relative: string): boolean => {
+  if (kind === null) {
+    return false;
+  }
+  const convention = nativePaths[kind];
+  if (convention === undefined) {
+    return false;
+  }
+  const nativeLocation = relative.startsWith(convention.directory) && relative.endsWith(convention.suffix);
+  const nestedLeaf = (kind === 'instruction' || kind === 'prompt')
+    && relative.slice(convention.directory.length).includes('/');
+  const nestedSkill = kind === 'skill' && relative.split('/').length !== 3;
+  return nativeLocation && !nestedLeaf && !nestedSkill;
+};
+
+/**
+ * Whether the native APM tooling discovers a primitive at this path.
+ * @param kind - Normalized primitive kind.
+ * @param filePath - Repository-relative primitive path.
+ */
+export const isNativeApmDiscoveryPath = (kind: string | null, filePath: string): boolean =>
+  isNativeApmDiscoveryPathForRelative(kind, nativeRelativePath(filePath));
+
 const rewireItems = (items: unknown, pathField: 'path' | 'file', warnings: string[]): Record<string, unknown>[] => {
   if (!Array.isArray(items)) {
     throw unsupported('APM layout requires a file-backed primitive list');
@@ -71,11 +94,7 @@ const rewireItems = (items: unknown, pathField: 'path' | 'file', warnings: strin
     if (convention === undefined) {
       throw unsupported(`APM layout does not yet support "${sourcePath}" (${String(kind)})`);
     }
-    const nativeLocation = relative.startsWith(convention.directory) && relative.endsWith(convention.suffix);
-    const nestedLeaf = (kind === 'instruction' || kind === 'prompt')
-      && relative.slice(convention.directory.length).includes('/');
-    const nestedSkill = kind === 'skill' && relative.split('/').length !== 3;
-    if (!nativeLocation || nestedLeaf || nestedSkill) {
+    if (!isNativeApmDiscoveryPathForRelative(kind, relative)) {
       warnings.push(`Native APM discovery is not qualified for "${apmPath(sourcePath)}". `
         + 'APH preserves manifest-driven installation; consider a flat native path if APM consumption is required.');
     }
