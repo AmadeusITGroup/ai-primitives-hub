@@ -179,7 +179,7 @@ export class BundleBuildCommand extends Command {
     `
   });
 
-  public output = Option.String('-o,--output') as OutputFormat | undefined;
+  public output = Option.String<OutputFormat>('-o', '--output');
   public collectionFile = Option.String('--collection-file');
   public version = Option.String('--version');
   public outDir = Option.String('--out-dir');
