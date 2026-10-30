@@ -22,15 +22,15 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  findModifiedFiles,
+} from '@ai-primitives-hub/app';
 import nock from 'nock';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
   BundleScopeCommands,
 } from '../../src/commands/bundle-scope-commands';
-import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
 import {
   RepositoryActivationService,
 } from '../../src/services/repository-activation-service';
@@ -68,9 +68,21 @@ suite('E2E: Repository-Level Installation Tests', () => {
     baseVersion: '1.0.0'
   };
 
-  const LOCKFILE_NAME = 'prompt-registry.lock.json';
-  const LOCAL_LOCKFILE_NAME = 'prompt-registry.local.lock.json';
+  /** Install record files the extension writes (committed and local-only). */
+  const LOCKFILE_NAME = 'ai-primitives-hub.lock.json';
+  const LOCAL_LOCKFILE_NAME = 'ai-primitives-hub.local.lock.json';
+  /** Tool every extension install is recorded under in these tests. */
+  const HOST_TOOL = 'vscode';
   const GITHUB_PROMPTS_DIR = '.github/prompts';
+
+  /**
+   * Read an install record (or old lockfile) of the workspace; `null` when absent.
+   * @param fileName - Workspace-relative file name.
+   */
+  const readRecord = (fileName: string = LOCKFILE_NAME): any => {
+    const file = path.join(workspaceRoot, fileName);
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+  };
 
   // Bundle ID format: owner-repo-manifestId-version
   const BUNDLE_ID = computeBundleId(TEST_CONFIG, TEST_CONFIG.baseVersion || '1.0.0');
@@ -239,6 +251,8 @@ suite('E2E: Repository-Level Installation Tests', () => {
     workspaceRoot = path.join(testContext.tempStoragePath, 'test-workspace');
     fs.mkdirSync(workspaceRoot, { recursive: true });
     fs.mkdirSync(path.join(workspaceRoot, '.git', 'info'), { recursive: true });
+    // A real git directory has HEAD; the record store excludes the local-only record only then
+    fs.writeFileSync(path.join(workspaceRoot, '.git', 'HEAD'), 'ref: refs/heads/main\n');
 
     clearAdapterAuth();
 
@@ -248,7 +262,6 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
   teardown(async function () {
     this.timeout(10_000);
-    LockfileManager.resetInstance();
     RepositoryActivationService.resetInstance();
     await testContext.cleanup();
     sandbox.restore();
@@ -307,8 +320,8 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(lockfileContent.bundles, 'Lockfile should have bundles object');
       assert.ok(Object.keys(lockfileContent.bundles).length > 0, 'Bundles object should not be empty');
 
-      // Req 4.6: Bundle entry fields (version, sourceId, sourceType, installedAt)
-      const bundleEntry = Object.values(lockfileContent.bundles)[0] as any;
+      // Req 4.6: Bundle entry fields (version, sourceId, sourceType, installedAt), per tool
+      const bundleEntry = (Object.values(lockfileContent.bundles)[0] as any).tools[HOST_TOOL];
       assert.ok(bundleEntry.version, 'Bundle entry should have version field');
       assert.ok(bundleEntry.sourceId, 'Bundle entry should have sourceId field');
       assert.ok(bundleEntry.sourceType, 'Bundle entry should have sourceType field');
@@ -320,52 +333,6 @@ suite('E2E: Repository-Level Installation Tests', () => {
   });
 
   suite('Lockfile-Based Reinstallation Workflow', () => {
-    test('Requirement 13.1-13.4: LockfileManager detects lockfile and identifies missing bundles', async function () {
-      this.timeout(60_000);
-
-      // Create a mock lockfile to simulate a repository with committed bundle config
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      const mockLockfile = {
-        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-        version: '1.0.0',
-        generatedAt: new Date().toISOString(),
-        generatedBy: 'prompt-registry@1.0.0',
-        bundles: {
-          'test-bundle-v1.0.0': {
-            version: '1.0.0',
-            sourceId: 'test-source',
-            sourceType: 'github',
-            installedAt: new Date().toISOString(),
-            commitMode: 'commit',
-            files: [{ path: '.github/prompts/test.prompt.md', checksum: 'abc123' }]
-          }
-        },
-        sources: {
-          'test-source': { type: 'github', url: 'https://github.com/test-owner/test-repo' }
-        }
-      };
-
-      fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
-
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const lockfile = await lockfileManager.read();
-      assert.ok(lockfile, 'Lockfile should be readable');
-      assert.strictEqual(Object.keys(lockfile.bundles).length, 1, 'Should have one bundle');
-
-      const bundleCount = Object.keys(lockfile.bundles).length;
-      const profileCount = lockfile.profiles ? Object.keys(lockfile.profiles).length : 0;
-      assert.strictEqual(bundleCount, 1, 'Should detect 1 bundle');
-      assert.strictEqual(profileCount, 0, 'Should detect 0 profiles');
-
-      const installedBundles = await testContext.storage.getInstalledBundles('repository');
-      const installedBundleIds = new Set(installedBundles.map((b) => b.bundleId));
-      const lockfileBundleIds = Object.keys(lockfile.bundles);
-      const missingBundleIds = lockfileBundleIds.filter((id) => !installedBundleIds.has(id));
-
-      assert.strictEqual(missingBundleIds.length, 1, 'Should detect 1 missing bundle');
-      assert.strictEqual(missingBundleIds[0], 'test-bundle-v1.0.0', 'Missing bundle ID should match');
-    });
-
     test('Requirement 5.5-5.6, 13.6: Missing bundles detected and reinstalled from lockfile', async function () {
       this.timeout(90_000);
 
@@ -386,11 +353,9 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should still exist');
 
-      LockfileManager.resetInstance();
       RepositoryActivationService.resetInstance();
 
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const lockfile = await lockfileManager.read();
+      const lockfile = readRecord();
       assert.ok(lockfile, 'Lockfile should be readable');
       assert.ok(Object.keys(lockfile.bundles).length > 0, 'Lockfile should have bundle entries');
     });
@@ -426,13 +391,11 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // === PHASE 3: Simulate fresh VS Code context ===
       // Expected: Singleton instances reset, simulating IDE restart
-      LockfileManager.resetInstance();
       RepositoryActivationService.resetInstance();
 
       // === PHASE 4: Detect lockfile and missing bundles ===
       // Expected: Lockfile readable, same bundle entries as before
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const lockfile = await lockfileManager.read();
+      const lockfile = readRecord();
       assert.ok(lockfile, 'Lockfile should be readable in fresh context');
       assert.deepStrictEqual(Object.keys(lockfile.bundles), originalBundleIds, 'Lockfile should have same bundles');
 
@@ -445,11 +408,11 @@ suite('E2E: Repository-Level Installation Tests', () => {
       await testContext.registryManager.syncSource(sourceId);
 
       for (const lockfileBundleId of Object.keys(lockfile.bundles)) {
-        const bundleEntry = lockfile.bundles[lockfileBundleId];
+        const bundleEntry = lockfile.bundles[lockfileBundleId].tools[HOST_TOOL];
         try {
           await testContext.registryManager.installBundle(lockfileBundleId, {
             scope: 'repository',
-            commitMode: (bundleEntry.commitMode) || 'commit',
+            commitMode: 'commit',
             version: bundleEntry.version
           });
         } catch (reinstallError: any) {
@@ -461,7 +424,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // === PHASE 6: Verify reinstallation ===
       // Expected: Lockfile still valid after reinstallation
-      const finalLockfile = await lockfileManager.read();
+      const finalLockfile = readRecord();
       assert.ok(finalLockfile, 'Lockfile should still be valid');
     });
   });
@@ -912,8 +875,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       await testContext.registryManager.uninstallBundle(actualBundleId, 'repository');
 
       // Verify lockfile was updated (bundle entry removed)
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const lockfileAfter = await lockfileManager.read();
+      const lockfileAfter = readRecord();
 
       // Either lockfile is deleted (last bundle) or bundle entry is removed
       if (lockfileAfter) {
@@ -1129,7 +1091,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const actualBundleId = lockfileBundleIds[0];
 
       // Verify bundle is in lockfile at repository scope
-      const bundleEntry = lockfile.bundles[actualBundleId];
+      const bundleEntry = lockfile.bundles[actualBundleId].tools[HOST_TOOL];
       assert.ok(bundleEntry, `Bundle ${actualBundleId} should be in lockfile`);
       assert.ok(bundleEntry.version, 'Bundle entry should have version');
 
@@ -1347,14 +1309,16 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const readBack = fs.readFileSync(promptFilePath, 'utf8');
       assert.ok(readBack.includes('Local modification'), 'File should contain local modification');
 
-      // Check for modifications using LockfileManager
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const modifiedFiles = await lockfileManager.detectModifiedFiles(bundleId);
+      // Check for modifications against the host tool's record entry
+      const adapter = testContext.registryManager.getRecordAdapter();
+      const located = await adapter.findHostEntry(workspaceRoot, bundleId);
+      assert.ok(located, `Bundle ${bundleId} should have a ${HOST_TOOL} record entry`);
+      const modifiedFiles = await findModifiedFiles(adapter.fs, located.location.root, located.entry.files);
 
       // Should detect the modification
       assert.ok(modifiedFiles.length > 0, 'Should detect at least one modified file');
       assert.ok(
-        modifiedFiles.some((f) => f.path.includes('test-prompt.prompt.md')),
+        modifiedFiles.some((f) => f.includes('test-prompt.prompt.md')),
         'Should detect modification in prompt file'
       );
     });
@@ -1717,8 +1681,8 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(localLockfile.bundles, 'Local lockfile should have bundles object');
       assert.ok(Object.keys(localLockfile.bundles).length > 0, 'Local lockfile should contain the bundle');
 
-      // Verify bundle entry does NOT have commitMode field (Requirement 1.4)
-      const bundleEntry = Object.values(localLockfile.bundles)[0] as any;
+      // Verify bundle entry has a version, per tool (Requirement 1.4)
+      const bundleEntry = (Object.values(localLockfile.bundles)[0] as any).tools[HOST_TOOL];
       assert.ok(bundleEntry.version, 'Bundle entry should have version');
       // Note: commitMode field is deprecated and should not be present in new entries
 
@@ -1754,8 +1718,8 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(mainLockfile.bundles, 'Main lockfile should have bundles object');
       assert.ok(Object.keys(mainLockfile.bundles).length > 0, 'Main lockfile should contain the bundle');
 
-      // Verify bundle entry does NOT have commitMode field (Requirement 1.5)
-      const bundleEntry = Object.values(mainLockfile.bundles)[0] as any;
+      // Verify bundle entry has a version, per tool (Requirement 1.5)
+      const bundleEntry = (Object.values(mainLockfile.bundles)[0] as any).tools[HOST_TOOL];
       assert.ok(bundleEntry.version, 'Bundle entry should have version');
 
       // Verify local lockfile was NOT created
@@ -1784,14 +1748,20 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       const mainLockfileBefore = JSON.parse(fs.readFileSync(mainLockfilePath, 'utf8'));
       const actualBundleId = Object.keys(mainLockfileBefore.bundles)[0];
-      const originalEntry = mainLockfileBefore.bundles[actualBundleId];
+      const originalEntry = mainLockfileBefore.bundles[actualBundleId].tools[HOST_TOOL];
 
       // Stub the VS Code warning message to auto-confirm
       sandbox.stub(vscode.window, 'showWarningMessage').resolves('Switch' as any);
 
-      // Switch to local-only mode using LockfileManager (Requirement 4.1)
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      await lockfileManager.updateCommitMode(actualBundleId, 'local-only');
+      // Switch to local-only mode through the command (Requirement 4.1)
+      const repositoryScopeService = testContext.registryManager.getBundleInstaller().createRepositoryScopeService();
+      assert.ok(repositoryScopeService, 'RepositoryScopeService should be available');
+      const bundleScopeCommands = new BundleScopeCommands(
+        testContext.registryManager,
+        new ScopeConflictResolver(testContext.storage),
+        repositoryScopeService
+      );
+      await bundleScopeCommands.switchCommitMode(actualBundleId, 'local-only');
 
       // Verify bundle was moved to local lockfile (Requirement 4.1)
       assert.ok(fs.existsSync(localLockfilePath), 'Local lockfile should be created after switching to local-only');
@@ -1805,15 +1775,14 @@ suite('E2E: Repository-Level Installation Tests', () => {
       }
 
       // Verify metadata was preserved (Requirement 4.3)
-      const movedEntry = localLockfile.bundles[actualBundleId];
-      assert.strictEqual(movedEntry.version, originalEntry.version, 'Version should be preserved');
-      assert.strictEqual(movedEntry.sourceId, originalEntry.sourceId, 'SourceId should be preserved');
+      const movedEntry = localLockfile.bundles[actualBundleId].tools[HOST_TOOL];
+      assert.deepStrictEqual(movedEntry, originalEntry, 'The entry should move unchanged');
 
       // Verify local lockfile is in git exclude (Requirement 4.4)
       assert.ok(isLocalLockfileExcluded(), 'Local lockfile should be in git exclude after switching to local-only');
 
       // Now switch back to commit mode (Requirement 4.2)
-      await lockfileManager.updateCommitMode(actualBundleId, 'commit');
+      await bundleScopeCommands.switchCommitMode(actualBundleId, 'commit');
 
       // Verify bundle was moved back to main lockfile
       assert.ok(fs.existsSync(mainLockfilePath), 'Main lockfile should exist after switching to commit');
@@ -1966,8 +1935,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(isLocalLockfileExcluded(), 'Local lockfile should be in git exclude');
 
       // Verify unified listing returns all bundles with correct commit modes (Requirement 3.1-3.3)
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const allBundles = await lockfileManager.getInstalledBundles();
+      const allBundles = await testContext.registryManager.listInstalledBundles('repository');
 
       // Should have bundles from both lockfiles
       assert.ok(allBundles.length >= 2, 'Should list bundles from both lockfiles');

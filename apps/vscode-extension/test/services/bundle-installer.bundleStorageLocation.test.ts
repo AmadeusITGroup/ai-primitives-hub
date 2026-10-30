@@ -22,9 +22,6 @@ import {
   BundleInstaller,
 } from '../../src/services/bundle-installer';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   IScopeService,
 } from '../../src/services/scope-service';
 import {
@@ -98,19 +95,6 @@ suite('BundleInstaller - Bundle Storage Location', () => {
 
     // Stub ScopeServiceFactory
     sandbox.stub(ScopeServiceFactory, 'create').returns(mockScopeService);
-
-    // Stub LockfileManager
-    const mockLockfileManager = {
-      createOrUpdate: sandbox.stub().resolves(),
-      remove: sandbox.stub().resolves(),
-      read: sandbox.stub().resolves(null),
-      validate: sandbox.stub().resolves({ valid: true, errors: [], warnings: [] }),
-      detectModifiedFiles: sandbox.stub().resolves([]),
-      getLockfilePath: sandbox.stub().returns(path.join(workspaceDir, 'prompt-registry.lock.json')),
-      onLockfileUpdated: new vscode.EventEmitter().event,
-      dispose: sandbox.stub()
-    };
-    sandbox.stub(LockfileManager, 'getInstance').returns(mockLockfileManager as any);
 
     installer = new BundleInstaller(mockContext);
   });
