@@ -7,6 +7,7 @@ import type {
 import {
   createApmReleaseManifest,
   createReleaseManifestFileInventory,
+  isNativeApmDiscoveryPath,
   normalizePrimitiveKind,
   RegistryError,
   serializeReleaseManifest,
@@ -21,13 +22,6 @@ const DEPLOYMENT_MANIFEST = 'deployment-manifest.yml';
 const APM_MANIFEST = 'apm.yml';
 const APM_ROOT = '.apm/';
 const allowedPrimitiveKinds = new Set(['agent', 'chat-mode', 'instruction', 'prompt', 'skill']);
-const nativePaths: Readonly<Record<string, { directory: string; suffix: string }>> = {
-  prompt: { directory: 'prompts/', suffix: '.prompt.md' },
-  instruction: { directory: 'instructions/', suffix: '.instructions.md' },
-  agent: { directory: 'agents/', suffix: '.agent.md' },
-  'chat-mode': { directory: 'agents/', suffix: '.agent.md' },
-  skill: { directory: 'skills/', suffix: '/SKILL.md' }
-};
 
 interface ArchiveFile {
   path: string;
@@ -182,9 +176,7 @@ function validateDeclaredFiles(
       throw new Error(`Transition mode cannot find declared primitive "${path}" in the release ZIP.`);
     }
     const kind = item.kind as string;
-    const convention = nativePaths[kind];
-    const relative = path.replace(/^(?:\.apm|\.github)\//, '');
-    if (!relative.startsWith(convention.directory) || !relative.endsWith(convention.suffix)) {
+    if (!isNativeApmDiscoveryPath(kind, path)) {
       warnings.push(`APM discovery may not recognize "${translatedPath(path)}"; its path does not follow the native ${kind} layout.`);
     }
   }

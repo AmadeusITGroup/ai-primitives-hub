@@ -140,6 +140,30 @@ describe('ApmTransitionArchivePreparer', () => {
     expect(apmManifest).toContain('x-aph:');
   });
 
+  it.each([
+    ['prompt', 'prompts/team/review.prompt.md'],
+    ['instruction', 'instructions/team/rules.instructions.md'],
+    ['skill', 'skills/team/example/SKILL.md']
+  ])('warns when translating a nested %s outside native APM discovery paths', async (kind, path) => {
+    const nestedCandidate = {
+      ...candidate,
+      manifest: {
+        ...manifest,
+        items: [{ id: 'nested-primitive', kind, path }]
+      }
+    };
+    const archive = buildZip([
+      ...rootFiles,
+      { path, bytes: new TextEncoder().encode('Nested primitive content.') }
+    ]);
+
+    const result = await preparer.prepare(nestedCandidate, archive);
+
+    expect(result.warnings).toEqual([
+      expect.stringContaining(`.apm/${path}`)
+    ]);
+  });
+
   it('updates governed inventories so translated archives remain installable', async () => {
     const payload = [
       { ...rootFiles[1], role: 'installable' },
