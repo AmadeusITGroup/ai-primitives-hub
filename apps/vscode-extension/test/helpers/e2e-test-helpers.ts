@@ -14,9 +14,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -61,7 +58,6 @@ export interface E2ETestContext {
  */
 export async function createE2ETestContext(): Promise<E2ETestContext> {
   RegistryManager.resetInstance();
-  LockfileManager.resetInstance();
 
   // Create unique temporary storage directory
   const tempStoragePath = fs.mkdtempSync(

@@ -12,7 +12,7 @@ import {
   LockfileHubEntry,
   LockfileProfileEntry,
   LockfileSourceEntry,
-} from '../../src/types/lockfile';
+} from '@ai-primitives-hub/app';
 import {
   RepositoryCommitMode,
 } from '../../src/types/registry';

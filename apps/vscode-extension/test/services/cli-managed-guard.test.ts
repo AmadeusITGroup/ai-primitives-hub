@@ -13,9 +13,6 @@ import {
   BundleUpdateCommands,
 } from '../../src/commands/bundle-update-commands';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -82,12 +79,10 @@ suite('CLI-managed guard (install-record items)', () => {
     showWarning = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
     showInfo = sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
     sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
-    LockfileManager.resetInstance();
   });
 
   teardown(() => {
     sandbox.restore();
-    LockfileManager.resetInstance();
     (RegistryManager as any).instance = undefined;
     cleanupTestWorkspace(root);
   });

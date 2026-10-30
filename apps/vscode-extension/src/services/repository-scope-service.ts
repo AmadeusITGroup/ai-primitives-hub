@@ -803,6 +803,8 @@ export class RepositoryScopeService implements IScopeService {
     }
 
     await (newMode === 'local-only' ? this.addToGitExclude(filePaths) : this.removeFromGitExclude(filePaths));
+    // Move the entry between the two old lockfiles (app `json-lockfile-store`).
+    await this.records.moveOldEntry(this.workspaceRoot, bundleId, newMode);
     this.logger.info(`[RepositoryScopeService] ✅ Switched ${bundleId} to ${newMode} mode`);
   }
 

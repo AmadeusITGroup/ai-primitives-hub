@@ -2,7 +2,8 @@
  * Install record listing for the extension's repository view. Reads both
  * repository records at the git root and merges them with the old
  * prompt-registry lockfiles; the install record wins for the same bundle id.
- * Problems are shown once per file and content, and logged on every refresh.
+ * A bundle split across the two files is one item. Problems are shown once
+ * per file and content, and logged on every refresh.
  * @module services/install-record-listing
  */
 import * as path from 'node:path';
@@ -33,7 +34,7 @@ import {
 } from '../utils/logger';
 import {
   createInstalledBundleFromLockfile,
-} from './lockfile-manager';
+} from './installed-bundle-from-entry';
 
 /** Marketplace id of this extension (`<publisher>.<name>`, unchanged by ADR-0004). */
 export const EXTENSION_ID = 'AmadeusITGroup.prompt-registry';
@@ -167,7 +168,7 @@ export class InstallRecordListing {
    * @param entry - The bundle's latest tool entry.
    */
   private async addItem(items: Map<string, InstalledBundle>, location: RecordLocation, bundleId: string, entry: ToolEntry): Promise<void> {
-    // Use `.github`, as LockfileManager does: never the git root, which uninstall would delete recursively.
+    // Use `.github`: never the git root, which uninstall would delete recursively.
     const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(entry), {
       installPath: path.join(location.root, '.github'),
       filesMissing: await this.filesMissing(location.root, entry),
@@ -189,7 +190,7 @@ export class InstallRecordListing {
           return true;
         }
       } catch (error) {
-        // Same policy as LockfileManager: on an I/O error other than "missing", assume the file exists.
+        // On an I/O error other than "missing", assume the file exists.
         this.logger.warn(`Failed to check file existence for ${file.path}:`, error instanceof Error ? error : undefined);
       }
     }
@@ -251,7 +252,7 @@ export class InstallRecordListing {
   /**
    * List repository bundles: install records first, then old lockfile items with other ids.
    * @param workspaceRoot - Workspace root the git-root walk starts from.
-   * @param legacy - Reads the prompt-registry lockfiles.
+   * @param legacy - Reads the old prompt-registry lockfiles.
    */
   public async listRepositoryBundles(
     workspaceRoot: string,
@@ -273,10 +274,27 @@ export class InstallRecordListing {
  * @param root - Repository root.
  * @param onChange - Refreshes the listing.
  */
-export const watchInstallRecords = (root: string, onChange: () => void): vscode.Disposable => {
-  const watcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(root, `{${RECORD_FILE_NAMES.join(',')}}`)
-  );
+export const watchInstallRecords = (root: string, onChange: () => void): vscode.Disposable =>
+  watchFiles(root, `{${RECORD_FILE_NAMES.join(',')}}`, onChange);
+
+/**
+ * Watch the old `prompt-registry*.lock.json` files of a workspace folder and
+ * call `onChange` on create, change or delete.
+ * @param workspaceFolder - Folder the old files live in.
+ * @param onChange - Refreshes the listing.
+ * @returns The watcher's disposable.
+ */
+export const watchOldLockfiles = (workspaceFolder: string, onChange: () => void): vscode.Disposable =>
+  watchFiles(workspaceFolder, 'prompt-registry*.lock.json', onChange);
+
+/**
+ * One file watcher calling `onChange` on create, change or delete.
+ * @param base - Folder the pattern is relative to.
+ * @param pattern - Glob pattern.
+ * @param onChange - Change callback.
+ */
+const watchFiles = (base: string, pattern: string, onChange: () => void): vscode.Disposable => {
+  const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(base, pattern));
   const subscriptions = [watcher.onDidCreate(onChange), watcher.onDidChange(onChange), watcher.onDidDelete(onChange)];
   return {
     dispose: () => {

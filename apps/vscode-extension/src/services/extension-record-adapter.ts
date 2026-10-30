@@ -21,10 +21,12 @@ import * as path from 'node:path';
 import {
   cleanupOrphanedSource,
   deleteLockfile,
+  emptyLockfile,
   findModifiedFiles,
   getLockfilePathForMode,
   InstallRecordService,
   type Lockfile,
+  type LockfileBundleEntry,
   type LockfileFs,
   readLockfile,
   RECORD_SOURCE_TYPES,
@@ -33,6 +35,8 @@ import {
   RecordStore,
   remapSourceId,
   removeBundleEntry,
+  upsertBundleEntry,
+  upsertSource,
   writeLockfile,
 } from '@ai-primitives-hub/app';
 import {
@@ -71,7 +75,7 @@ import {
 } from './install-record-listing';
 import {
   createInstalledBundleFromLockfile,
-} from './lockfile-manager';
+} from './installed-bundle-from-entry';
 
 /** Largest old lockfile read, in bytes (the record cap). */
 const OLD_LOCKFILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -104,11 +108,25 @@ export interface LocatedToolEntry {
   entry: ToolEntry;
 }
 
+/** One tool entry of any bundle in a record file. */
+export interface LocatedBundleToolEntry extends LocatedToolEntry {
+  bundleId: string;
+}
+
 /** One old `prompt-registry` lockfile at a workspace root. */
-interface OldLockfile {
+export interface OldLockfile {
+  /** Absolute file path. */
   path: string;
+  /** Commit mode the file stands for. */
   commitMode: RepositoryCommitMode;
+  /** Parsed content; `null` when absent or unreadable. */
   lock: Lockfile | null;
+}
+
+/** A bundle entry of an old `prompt-registry` lockfile, with the file holding it. */
+export interface OldBundleEntry {
+  old: OldLockfile & { lock: Lockfile };
+  entry: LockfileBundleEntry;
 }
 
 /** Outcome of {@link ExtensionRecordAdapter.retireOldEntry}. */
@@ -126,15 +144,6 @@ export interface RetiredOldEntry {
  * @param recordedPath - Path as recorded.
  */
 const toSlashes = (recordedPath: string): string => recordedPath.replaceAll('\\', '/');
-
-/**
- * An old-file checksum in the record's `sha256:<hex>` form. Old
- * `prompt-registry` lockfiles store the bare hex digest, which
- * `findModifiedFiles` would always report as modified.
- * @param checksum - Checksum as stored in the old file.
- */
-const toRecordChecksum = (checksum: string | undefined): string | undefined =>
-  checksum !== undefined && /^[0-9a-f]{64}$/.test(checksum) ? `sha256:${checksum}` : checksum;
 
 /**
  * `LockfileFs` over `RecordFs`; writes go to an exclusive temp file renamed over the target.
@@ -188,9 +197,10 @@ export class ExtensionRecordAdapter {
 
   /**
    * Both old `prompt-registry` lockfiles of a workspace folder, committed first.
+   * An unreadable file is logged and given as `lock: null`.
    * @param workspaceFolder - Absolute workspace folder path (where the old files live).
    */
-  private async readOldLockfiles(workspaceFolder: string): Promise<OldLockfile[]> {
+  public async readOldLockfiles(workspaceFolder: string): Promise<OldLockfile[]> {
     const files: OldLockfile[] = [];
     for (const commitMode of ['commit', 'local-only'] as const) {
       const file = getLockfilePathForMode(workspaceFolder, commitMode);
@@ -280,6 +290,24 @@ export class ExtensionRecordAdapter {
    */
   public async findHostEntry(workspaceFolder: string, bundleId: string): Promise<LocatedToolEntry | undefined> {
     return (await this.findEntries(workspaceFolder, bundleId)).find((located) => located.tool === this.hostTool);
+  }
+
+  /**
+   * Every tool entry of every bundle in both record files, committed file first.
+   * @param workspaceFolder - Absolute workspace folder path.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
+   */
+  public async listAllEntries(workspaceFolder: string): Promise<LocatedBundleToolEntry[]> {
+    const entries: LocatedBundleToolEntry[] = [];
+    for (const location of await this.locations(workspaceFolder)) {
+      const { record } = await this.store.load(location);
+      for (const [bundleId, bundle] of Object.entries(record.bundles)) {
+        for (const [tool, entry] of Object.entries(bundle.tools)) {
+          entries.push({ bundleId, location, tool, entry });
+        }
+      }
+    }
+    return entries;
   }
 
   /**
@@ -426,6 +454,76 @@ export class ExtensionRecordAdapter {
   }
 
   /**
+   * A bundle's entry in the old `prompt-registry` lockfiles, committed file first.
+   * @param workspaceFolder - Absolute workspace folder path.
+   * @param bundleId - Bundle id.
+   */
+  public async findOldEntry(workspaceFolder: string, bundleId: string): Promise<OldBundleEntry | undefined> {
+    for (const old of await this.readOldLockfiles(workspaceFolder)) {
+      if (old.lock !== null && Object.hasOwn(old.lock.bundles, bundleId)) {
+        return { old: { ...old, lock: old.lock }, entry: old.lock.bundles[bundleId] };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Save an old lockfile, or delete it when it has no bundle left.
+   * @param file - Absolute old lockfile path.
+   * @param lock - Content to save.
+   */
+  private async saveOldLockfile(file: string, lock: Lockfile): Promise<void> {
+    await (Object.keys(lock.bundles).length === 0
+      ? deleteLockfile(file, this.lockfileFs)
+      : writeLockfile(file, lock, this.lockfileFs));
+  }
+
+  /**
+   * Remove a bundle's entry from the old lockfile holding it, without touching
+   * any installed file (stale cleanup, BR12.2). Its source is dropped when no
+   * other entry uses it.
+   * @param workspaceFolder - Absolute workspace folder path.
+   * @param bundleId - Bundle id.
+   * @returns Whether an entry was removed.
+   */
+  public async removeOldEntry(workspaceFolder: string, bundleId: string): Promise<boolean> {
+    const found = await this.findOldEntry(workspaceFolder, bundleId);
+    if (found === undefined) {
+      return false;
+    }
+    const updated = cleanupOrphanedSource(removeBundleEntry(found.old.lock, bundleId), found.entry.sourceId);
+    await this.saveOldLockfile(found.old.path, updated);
+    return true;
+  }
+
+  /**
+   * Move an old-file-only bundle's entry, with its source, to the old lockfile
+   * of the other commit mode (today's behaviour for bundles never rewritten).
+   * The target file is saved first, then the entry leaves the first file.
+   * @param workspaceFolder - Absolute workspace folder path.
+   * @param bundleId - Bundle id.
+   * @param commitMode - Commit mode to move to.
+   * @returns Whether an entry was moved.
+   */
+  public async moveOldEntry(workspaceFolder: string, bundleId: string, commitMode: RepositoryCommitMode): Promise<boolean> {
+    const found = await this.findOldEntry(workspaceFolder, bundleId);
+    if (found === undefined || found.old.commitMode === commitMode) {
+      return false;
+    }
+    const targetPath = getLockfilePathForMode(workspaceFolder, commitMode);
+    const target = (await readLockfile(targetPath, this.lockfileFs)) ?? emptyLockfile(found.old.lock.generatedBy);
+    const { commitMode: _deprecated, ...entry } = found.entry;
+    let moved = upsertBundleEntry(target, bundleId, entry);
+    const source = found.old.lock.sources[found.entry.sourceId];
+    if (source !== undefined) {
+      moved = upsertSource(moved, found.entry.sourceId, source);
+    }
+    await writeLockfile(targetPath, moved, this.lockfileFs);
+    await this.saveOldLockfile(found.old.path, cleanupOrphanedSource(removeBundleEntry(found.old.lock, bundleId), found.entry.sourceId));
+    return true;
+  }
+
+  /**
    * Remove a bundle's entry from the old `prompt-registry` lockfiles and
    * delete its files (BR12.1; the old-only uninstall). A file another old
    * entry or any record entry lists, or that was modified, is kept. The old
@@ -442,7 +540,7 @@ export class ExtensionRecordAdapter {
       return undefined;
     }
     const entry = holder.lock.bundles[bundleId];
-    const files = entry.files.map((file) => ({ path: toSlashes(file.path), checksum: toRecordChecksum(file.checksum) }));
+    const files = entry.files.map((file) => ({ path: toSlashes(file.path), checksum: file.checksum }));
     const keep = new Set(await findModifiedFiles(this.fs, workspaceFolder, files));
     for (const old of olds) {
       for (const [id, other] of Object.entries(old.lock?.bundles ?? {})) {
@@ -458,9 +556,7 @@ export class ExtensionRecordAdapter {
     }
 
     const updated = cleanupOrphanedSource(removeBundleEntry(holder.lock, bundleId), entry.sourceId);
-    await (Object.keys(updated.bundles).length === 0
-      ? deleteLockfile(holder.path, this.lockfileFs)
-      : writeLockfile(holder.path, updated, this.lockfileFs));
+    await this.saveOldLockfile(holder.path, updated);
 
     const removal = await this.service.deleteSuperseded({
       deletedFiles: files.map((file) => file.path).filter((file) => !keep.has(file)),

@@ -781,16 +781,18 @@ describe('repository install record', () => {
     });
 
     it.each([
-      ['unchanged', true, (): void => undefined, []],
-      ['edited', true, (file: string): void => fs.writeFileSync(file, 'edited by the user\n'), ['docs/a.md']],
-      ['missing', true, (file: string): void => fs.rmSync(file), ['docs/a.md']],
-      ['recorded without a checksum', false, (): void => undefined, ['docs/a.md']]
-    ])('findModifiedFiles reports a file that is %s', async (_label, withChecksum, change, expected) => {
+      ['unchanged', 'prefixed', (): void => undefined, []],
+      ['unchanged, recorded with a bare-hex checksum (old file)', 'bare', (): void => undefined, []],
+      ['edited', 'prefixed', (file: string): void => fs.writeFileSync(file, 'edited by the user\n'), ['docs/a.md']],
+      ['missing', 'prefixed', (file: string): void => fs.rmSync(file), ['docs/a.md']],
+      ['recorded without a checksum', 'none', (): void => undefined, ['docs/a.md']]
+    ] as const)('findModifiedFiles reports a file that is %s', async (_label, checksumForm, change, expected) => {
       const [absolute] = write('docs/a.md');
-      const checksum = await recordFs.hashFile(absolute);
+      const hashed = await recordFs.hashFile(absolute);
+      const checksum = checksumForm === 'bare' ? hashed.replace(/^sha256:/, '') : hashed;
       change(absolute);
 
-      const modified = await findModifiedFiles(recordFs, root, [{ path: 'docs/a.md', ...(withChecksum ? { checksum } : {}) }]);
+      const modified = await findModifiedFiles(recordFs, root, [{ path: 'docs/a.md', ...(checksumForm === 'none' ? {} : { checksum }) }]);
 
       expect(modified).toEqual(expected);
     });

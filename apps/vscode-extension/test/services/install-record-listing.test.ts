@@ -5,9 +5,6 @@ import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -47,12 +44,10 @@ suite('Install record listing (repository scope)', () => {
     (manager as any).storage = storage;
     sandbox.stub(require('../../src/utils/scope-selection-ui'), 'getWorkspaceRoot').returns(root);
     showWarning = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
-    LockfileManager.resetInstance();
   });
 
   teardown(() => {
     sandbox.restore();
-    LockfileManager.resetInstance();
     (RegistryManager as any).instance = undefined;
     cleanupTestWorkspace(root);
   });

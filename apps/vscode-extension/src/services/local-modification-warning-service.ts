@@ -2,30 +2,43 @@
  * LocalModificationWarningService
  *
  * Detects local file modifications and warns users before updating bundles
- * that would override their changes.
+ * that would override their changes (NFR4.13).
  *
- * Requirements covered:
- * - 14.1-14.10: Local modification detection and warning dialog
+ * The files and checksums come from the install record: the host tool's
+ * entry when the bundle has one, else the bundle's old `prompt-registry`
+ * lockfile entry. The comparison is app's `findModifiedFiles`.
  */
 
-import * as vscode from 'vscode';
+import * as path from 'node:path';
 import {
-  ModifiedFileInfo,
-} from '../types/lockfile';
+  findModifiedFiles,
+  type RecordedFileCheck,
+} from '@ai-primitives-hub/app';
+import * as vscode from 'vscode';
 import {
   WARNING_RESULTS,
 } from '../utils/constants';
 import {
   Logger,
 } from '../utils/logger';
-import {
-  LockfileManager,
-} from './lockfile-manager';
+import type {
+  ExtensionRecordAdapter,
+} from './extension-record-adapter';
 
 /**
  * Result of the modification warning dialog
  */
 export type ModificationWarningResult = typeof WARNING_RESULTS[keyof typeof WARNING_RESULTS];
+
+/**
+ * A locally modified installed file.
+ */
+export interface ModifiedFileInfo {
+  /** Path relative to the record root (forward slashes). */
+  path: string;
+  /** `missing` when the file is gone, `modified` otherwise. */
+  modificationType: 'modified' | 'missing';
+}
 
 /**
  * LocalModificationWarningService
@@ -36,7 +49,11 @@ export type ModificationWarningResult = typeof WARNING_RESULTS[keyof typeof WARN
 export class LocalModificationWarningService {
   private readonly logger: Logger;
 
-  constructor(private readonly lockfileManager: LockfileManager) {
+  /**
+   * @param adapter - The extension's record adapter.
+   * @param workspaceFolder - Absolute workspace folder path.
+   */
+  constructor(private readonly adapter: ExtensionRecordAdapter, private readonly workspaceFolder: string) {
     this.logger = Logger.getInstance();
   }
 
@@ -52,7 +69,6 @@ export class LocalModificationWarningService {
 
     let message = `The bundle "${bundleId}" has ${fileCount} ${fileWord} been modified locally:\n\n`;
 
-    // List modified files with their modification type
     for (const file of modifiedFiles) {
       const typeIndicator = file.modificationType === 'missing' ? ' (missing)' : '';
       message += `  • ${file.path}${typeIndicator}\n`;
@@ -64,15 +80,44 @@ export class LocalModificationWarningService {
   }
 
   /**
+   * The recorded files of a bundle and the root they are relative to: the
+   * host tool's record entry, else the old lockfile entry.
+   * @param bundleId - Bundle id.
+   */
+  private async recordedFiles(bundleId: string): Promise<{ root: string; files: RecordedFileCheck[] } | undefined> {
+    const host = await this.adapter.findHostEntry(this.workspaceFolder, bundleId);
+    if (host !== undefined) {
+      return { root: host.location.root, files: host.entry.files.map((file) => ({ path: file.path, checksum: file.checksum })) };
+    }
+    const old = await this.adapter.findOldEntry(this.workspaceFolder, bundleId);
+    if (old === undefined) {
+      return undefined;
+    }
+    return {
+      root: this.workspaceFolder,
+      files: old.entry.files.map((file) => ({ path: file.path.replaceAll('\\', '/'), checksum: file.checksum }))
+    };
+  }
+
+  /**
    * Check for modifications to a bundle's files
    * @param bundleId - ID of the bundle to check
-   * @returns Array of modified file information
-   *
-   * Requirements: 14.1-14.3
+   * @returns Array of modified file information; empty when the bundle has no entry
+   * @throws {RegistryError} Any `RECORD.*` error from loading the record.
    */
   public async checkForModifications(bundleId: string): Promise<ModifiedFileInfo[]> {
     try {
-      return await this.lockfileManager.detectModifiedFiles(bundleId);
+      const recorded = await this.recordedFiles(bundleId);
+      if (recorded === undefined) {
+        return [];
+      }
+      const modified = await findModifiedFiles(this.adapter.fs, recorded.root, recorded.files);
+      const result: ModifiedFileInfo[] = [];
+      for (const file of modified) {
+        const exists = await this.adapter.fs.lstat(path.join(recorded.root, ...file.split('/'))).catch(() => undefined);
+        result.push({ path: file, modificationType: exists === undefined ? 'missing' : 'modified' });
+      }
+      return result;
     } catch (error) {
       this.logger.error(`Failed to check modifications for bundle ${bundleId}:`, error instanceof Error ? error : undefined);
       throw error;
@@ -90,18 +135,14 @@ export class LocalModificationWarningService {
    * @param modifiedFiles - Array of modified file information
    * @param bundleRepoUrl - Optional repository URL for contributing changes
    * @returns User's choice: 'contribute', 'override', or 'cancel'
-   *
-   * Requirements: 14.4-14.10
    */
   public async showWarningDialog(
     bundleId: string,
     modifiedFiles: ModifiedFileInfo[],
     bundleRepoUrl?: string
   ): Promise<ModificationWarningResult> {
-    // Build the warning message
     const message = this.buildWarningMessage(bundleId, modifiedFiles);
 
-    // Show dialog with three action buttons
     const choice = await vscode.window.showWarningMessage(
       message,
       'Contribute Changes',
@@ -109,50 +150,36 @@ export class LocalModificationWarningService {
       'Cancel'
     );
 
-    // Handle user choice
     if (choice === 'Contribute Changes') {
-      // Open repository URL if provided
       if (bundleRepoUrl) {
         try {
           await vscode.env.openExternal(vscode.Uri.parse(bundleRepoUrl));
         } catch (error) {
           this.logger.warn(`Failed to open repository URL: ${bundleRepoUrl}`, error instanceof Error ? error : undefined);
-          // Continue even if URL fails to open
         }
       }
       return 'contribute';
     } else if (choice === 'Override') {
       return 'override';
-    } else {
-      // Cancel or dismissed
-      return 'cancel';
     }
+    return 'cancel';
   }
 
   /**
-   * Check for modifications and show warning dialog if needed
-   *
-   * Combines checkForModifications and showWarningDialog into a single call.
+   * Check for modifications and show warning dialog if needed.
    * Returns null if no modifications are detected (no dialog shown).
    * @param bundleId - ID of the bundle to check
    * @param bundleRepoUrl - Optional repository URL for contributing changes
    * @returns User's choice if modifications exist, null otherwise
-   *
-   * Requirements: 14.1-14.10
    */
   public async checkAndWarn(
     bundleId: string,
     bundleRepoUrl?: string
   ): Promise<ModificationWarningResult | null> {
-    // Check for modifications
     const modifiedFiles = await this.checkForModifications(bundleId);
-
-    // If no modifications, return null (no dialog needed)
     if (modifiedFiles.length === 0) {
       return null;
     }
-
-    // Show warning dialog and return result
     return await this.showWarningDialog(bundleId, modifiedFiles, bundleRepoUrl);
   }
 }
