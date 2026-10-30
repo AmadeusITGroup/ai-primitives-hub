@@ -39,6 +39,7 @@ import {
 } from './types';
 
 export const MANIFEST_FILENAME = 'deployment-manifest.yml';
+export const APM_MANIFEST_FILENAME = 'apm.yml';
 
 /**
  * Options for manifest validation.
@@ -158,6 +159,11 @@ export const validateManifest = (
       'BUNDLE.VERSION_MISMATCH'
     );
   }
+  validateCompanionApmManifest(files, id, version);
+  if (files.has(APM_MANIFEST_FILENAME) && Array.isArray(m.prompts)
+    && m.prompts.some((item: unknown) => isRecord(item) && item.file === APM_MANIFEST_FILENAME)) {
+    throw invalidManifest(`${APM_MANIFEST_FILENAME} is package metadata and cannot be an installable primitive`);
+  }
   if (m.formatVersion === undefined) {
     return m as LegacyValidatedManifest;
   }
@@ -207,8 +213,8 @@ export const isReleaseDeploymentManifest = (
  * inventory inside the ZIP, but those files are evidence rather than target
  * content. The root deployment manifest remains available because
  * manifest-driven repository writers need it to determine primitive routing.
- * Legacy manifests return their complete extracted file map to preserve the
- * pre-contract installation behavior.
+ * Legacy manifests retain their content except for the root APM companion,
+ * which is package metadata rather than an installable primitive.
  * @param files - Full extracted archive contents.
  * @param manifest - Previously validated manifest.
  * @returns A deterministic map containing target-installable files.
@@ -218,7 +224,16 @@ export const getInstallableBundleFiles = (
   manifest: ValidatedManifest
 ): ExtractedFiles => {
   if (!isReleaseDeploymentManifest(manifest)) {
-    return files;
+    const isDuplicateApmMirror = (filePath: string): boolean => {
+      const apmRelativePath = filePath.startsWith('.apm/') ? filePath.slice('.apm/'.length) : undefined;
+      return apmRelativePath !== undefined && files.has(apmRelativePath);
+    };
+    if (!files.has(APM_MANIFEST_FILENAME) && ![...files.keys()].some((filePath) => isDuplicateApmMirror(filePath))) {
+      return files;
+    }
+    // Keep APM-only paths, but install only the generic root copy of mirrors.
+    return new Map([...files].filter(([filePath]) =>
+      filePath !== APM_MANIFEST_FILENAME && !isDuplicateApmMirror(filePath)));
   }
 
   const allowedPaths = new Set<string>([
@@ -244,6 +259,22 @@ const RELEASE_FILE_ROLES: ReadonlySet<ReleaseManifestFileRole> = new Set([
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
+const validateCompanionApmManifest = (files: ExtractedFiles, id: string, version: string): void => {
+  const content = files.get(APM_MANIFEST_FILENAME);
+  if (content === undefined) {
+    return;
+  }
+  let manifest: unknown;
+  try {
+    manifest = parseYaml(new TextDecoder().decode(content));
+  } catch (error) {
+    throw invalidManifest(`${APM_MANIFEST_FILENAME} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!isRecord(manifest) || manifest.name !== id || manifest.version !== version) {
+    throw invalidManifest(`${APM_MANIFEST_FILENAME} must declare name "${id}" and version "${version}"`);
+  }
+};
+
 /**
  * Apply semantic rules that JSON Schema alone cannot express: full archive
  * coverage, exact byte sizes and digests, canonical paths, and relationships
@@ -257,6 +288,9 @@ const validateReleaseManifest = (
   files: ExtractedFiles
 ): void => {
   const inventory = validateFileInventory(manifest.files, files);
+  if (files.has(APM_MANIFEST_FILENAME)) {
+    assertMetadataInventoryPath(APM_MANIFEST_FILENAME, APM_MANIFEST_FILENAME, inventory);
+  }
   validateReleaseItems(manifest.items, inventory);
   validateLegacyProjection(manifest.prompts, inventory);
   validateReleaseProvenance(manifest.provenance, inventory);
