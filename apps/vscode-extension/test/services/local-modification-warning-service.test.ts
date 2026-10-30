@@ -1,517 +1,145 @@
 /**
- * LocalModificationWarningService Unit Tests
+ * LocalModificationWarningService contract tests (NFR4.13).
  *
- * Tests for the service that detects local file modifications and warns users
- * before updating bundles that would override their changes.
- *
- * Requirements: 14.1-14.10
+ * Modified files come from app's `findModifiedFiles` over the host tool's
+ * install record entry, or over the bundle's old `prompt-registry` lockfile
+ * entry. Records are written through `InstallRecordService`, old lockfiles
+ * through app's `writeLockfile`, in a real temp git root; only the VS Code
+ * dialog and `openExternal` are stubbed.
  */
 
 import * as assert from 'node:assert';
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {
+  emptyLockfile,
+  getLockfilePathForMode,
+  type LockfileFs,
+  upsertBundleEntry,
+  writeLockfile,
+} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
+import {
+  ExtensionRecordAdapter,
+} from '../../src/services/extension-record-adapter';
 import {
   LocalModificationWarningService,
 } from '../../src/services/local-modification-warning-service';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
+  initGitRoot,
+} from '../helpers/install-record-test-helpers';
 import {
-  ModifiedFileInfo,
-} from '../../src/types/lockfile';
+  cleanupTestWorkspace,
+  createTestWorkspace,
+} from '../helpers/mock-data';
+
+const BUNDLE_ID = 'warn-bundle';
+const FILE = '.github/prompts/warn.prompt.md';
+
+const nodeLockfileFs: LockfileFs = {
+  readFile: (file) => fs.promises.readFile(file, 'utf8'),
+  writeFile: (file, contents) => fs.promises.writeFile(file, contents),
+  exists: async (file) => fs.existsSync(file)
+};
 
 suite('LocalModificationWarningService', () => {
   let sandbox: sinon.SinonSandbox;
-  let mockLockfileManager: sinon.SinonStubbedInstance<LockfileManager>;
+  let root: string;
+  let adapter: ExtensionRecordAdapter;
   let service: LocalModificationWarningService;
-  let showWarningMessageStub: sinon.SinonStub;
-  let openExternalStub: sinon.SinonStub;
+  let showWarning: sinon.SinonStub;
+  let openExternal: sinon.SinonStub;
+
+  const writeFile = (relative: string, content: string): void => {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+    fs.writeFileSync(path.join(root, relative), content);
+  };
+
+  /** Install `FILE` for the host tool through the record service. */
+  const recordInstall = async (): Promise<void> => {
+    writeFile(FILE, '# original\n');
+    const [committed] = await adapter.locations(root);
+    await adapter.service.recordInstall({
+      location: committed,
+      bundleId: BUNDLE_ID,
+      version: '1.0.0',
+      tool: adapter.hostTool,
+      source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' },
+      sourceType: 'github',
+      writtenPaths: [path.join(root, FILE)],
+      syncSiblings: false
+    });
+  };
+
+  /** Install `FILE` through an old `prompt-registry.lock.json` entry (bare-hex checksum). */
+  const oldInstall = async (): Promise<void> => {
+    writeFile(FILE, '# original\n');
+    const checksum = crypto.createHash('sha256').update('# original\n').digest('hex');
+    const lock = upsertBundleEntry(emptyLockfile('prompt-registry@1.0.0'), BUNDLE_ID, {
+      version: '1.0.0',
+      sourceId: 'acme-github',
+      sourceType: 'github',
+      installedAt: '2026-10-28T10:00:00.000Z',
+      files: [{ path: FILE, checksum }]
+    });
+    await writeLockfile(getLockfilePathForMode(root, 'commit'), lock, nodeLockfileFs);
+  };
 
   setup(() => {
     sandbox = sinon.createSandbox();
-    mockLockfileManager = sandbox.createStubInstance(LockfileManager);
-    service = new LocalModificationWarningService(mockLockfileManager);
-
-    // Mock VS Code APIs
-    showWarningMessageStub = sandbox.stub(vscode.window, 'showWarningMessage');
-
-    // Create openExternal stub if it doesn't exist
+    root = fs.realpathSync.native(createTestWorkspace());
+    initGitRoot(root);
+    adapter = new ExtensionRecordAdapter({ sources: { listSources: async () => [] }, hostTool: 'vscode' });
+    service = new LocalModificationWarningService(adapter, root);
+    showWarning = sandbox.stub(vscode.window, 'showWarningMessage');
     if (!vscode.env.openExternal) {
       (vscode.env as any).openExternal = () => Promise.resolve(true);
     }
-    openExternalStub = sandbox.stub(vscode.env, 'openExternal').resolves(true);
+    openExternal = sandbox.stub(vscode.env, 'openExternal').resolves(true);
   });
 
   teardown(() => {
     sandbox.restore();
+    cleanupTestWorkspace(root);
   });
 
-  suite('checkForModifications()', () => {
-    test('should return empty array when no modifications detected', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      mockLockfileManager.detectModifiedFiles.resolves([]);
+  const cases: { name: string; install: () => Promise<void>; change: () => void; expected: { path: string; modificationType: string }[] }[] = [
+    { name: 'record entry, unchanged', install: recordInstall, change: () => undefined, expected: [] },
+    { name: 'record entry, edited', install: recordInstall, change: () => writeFile(FILE, '# edited\n'), expected: [{ path: FILE, modificationType: 'modified' }] },
+    { name: 'record entry, missing', install: recordInstall, change: () => fs.rmSync(path.join(root, FILE)), expected: [{ path: FILE, modificationType: 'missing' }] },
+    { name: 'old lockfile entry, unchanged', install: oldInstall, change: () => undefined, expected: [] },
+    { name: 'old lockfile entry, edited', install: oldInstall, change: () => writeFile(FILE, '# edited\n'), expected: [{ path: FILE, modificationType: 'modified' }] }
+  ];
+  for (const testCase of cases) {
+    test(`checkForModifications: ${testCase.name}`, async () => {
+      await testCase.install();
+      testCase.change();
 
-      // Act
-      const result = await service.checkForModifications(bundleId);
-
-      // Assert
-      assert.deepStrictEqual(result, [], 'Should return empty array when no modifications');
-      assert.ok(mockLockfileManager.detectModifiedFiles.calledOnceWith(bundleId));
+      assert.deepStrictEqual(await service.checkForModifications(BUNDLE_ID), testCase.expected);
     });
+  }
 
-    test('should return modified files when modifications detected', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        },
-        {
-          path: '.github/agents/test.agent.md',
-          originalChecksum: 'ghi789',
-          currentChecksum: 'jkl012',
-          modificationType: 'modified'
-        }
-      ];
-      mockLockfileManager.detectModifiedFiles.resolves(modifiedFiles);
-
-      // Act
-      const result = await service.checkForModifications(bundleId);
-
-      // Assert
-      assert.strictEqual(result.length, 2, 'Should return all modified files');
-      assert.deepStrictEqual(result, modifiedFiles);
-    });
-
-    test('should include missing files in results', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/missing.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: '',
-          modificationType: 'missing'
-        }
-      ];
-      mockLockfileManager.detectModifiedFiles.resolves(modifiedFiles);
-
-      // Act
-      const result = await service.checkForModifications(bundleId);
-
-      // Assert
-      assert.strictEqual(result.length, 1);
-      assert.strictEqual(result[0].modificationType, 'missing');
-    });
-
-    test('should delegate to LockfileManager.detectModifiedFiles', async () => {
-      // Arrange
-      const bundleId = 'my-bundle';
-      mockLockfileManager.detectModifiedFiles.resolves([]);
-
-      // Act
-      await service.checkForModifications(bundleId);
-
-      // Assert
-      assert.ok(mockLockfileManager.detectModifiedFiles.calledOnceWith(bundleId),
-        'Should call LockfileManager.detectModifiedFiles with bundle ID');
-    });
+  test('checkAndWarn returns null without a dialog when the bundle has no entry or no change', async () => {
+    assert.strictEqual(await service.checkAndWarn('not-installed'), null);
+    await recordInstall();
+    assert.strictEqual(await service.checkAndWarn(BUNDLE_ID), null);
+    assert.ok(showWarning.notCalled);
   });
 
-  suite('showWarningDialog()', () => {
-    test('should display warning dialog with modified file list', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      const bundleRepoUrl = 'https://github.com/owner/repo';
-      showWarningMessageStub.resolves('Cancel');
+  test('checkAndWarn lists the modified file and returns the choice; "Contribute Changes" opens the repository', async () => {
+    await recordInstall();
+    writeFile(FILE, '# edited\n');
+    const repoUrl = 'https://github.com/acme/tools';
 
-      // Act
-      await service.showWarningDialog(bundleId, modifiedFiles, bundleRepoUrl);
+    showWarning.resolves('Override');
+    assert.strictEqual(await service.checkAndWarn(BUNDLE_ID, repoUrl), 'override');
+    assert.ok(String(showWarning.firstCall.args[0]).includes(FILE));
+    assert.deepStrictEqual(showWarning.firstCall.args.slice(1), ['Contribute Changes', 'Override', 'Cancel']);
 
-      // Assert
-      assert.ok(showWarningMessageStub.calledOnce, 'Should show warning dialog');
-      const message = showWarningMessageStub.firstCall.args[0] as string;
-      assert.ok(message.includes('modified'), 'Message should mention modifications');
-      assert.ok(message.includes('.github/prompts/test.prompt.md'), 'Message should list modified files');
-    });
-
-    test('should include three action buttons: Contribute Changes, Override, Cancel', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      showWarningMessageStub.resolves('Cancel');
-
-      // Act
-      await service.showWarningDialog(bundleId, modifiedFiles);
-
-      // Assert
-      const callArgs = showWarningMessageStub.firstCall.args;
-      const buttons = callArgs.slice(1); // Skip message, get buttons
-      assert.strictEqual(buttons.length, 3, 'Should have exactly 3 buttons');
-      assert.ok(buttons.includes('Contribute Changes'), 'Should have Contribute Changes button');
-      assert.ok(buttons.includes('Override'), 'Should have Override button');
-      assert.ok(buttons.includes('Cancel'), 'Should have Cancel button');
-    });
-
-    test('should return "contribute" when user clicks Contribute Changes', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      showWarningMessageStub.resolves('Contribute Changes');
-
-      // Act
-      const result = await service.showWarningDialog(bundleId, modifiedFiles);
-
-      // Assert
-      assert.strictEqual(result, 'contribute', 'Should return "contribute" action');
-    });
-
-    test('should return "override" when user clicks Override', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      showWarningMessageStub.resolves('Override');
-
-      // Act
-      const result = await service.showWarningDialog(bundleId, modifiedFiles);
-
-      // Assert
-      assert.strictEqual(result, 'override', 'Should return "override" action');
-    });
-
-    test('should return "cancel" when user clicks Cancel', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      showWarningMessageStub.resolves('Cancel');
-
-      // Act
-      const result = await service.showWarningDialog(bundleId, modifiedFiles);
-
-      // Assert
-      assert.strictEqual(result, 'cancel', 'Should return "cancel" action');
-    });
-
-    test('should return "cancel" when user dismisses dialog', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      showWarningMessageStub.resolves(undefined); // User dismissed
-
-      // Act
-      const result = await service.showWarningDialog(bundleId, modifiedFiles);
-
-      // Assert
-      assert.strictEqual(result, 'cancel', 'Should return "cancel" when dismissed');
-    });
-
-    test('should open repository URL when Contribute Changes is clicked and URL provided', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      const bundleRepoUrl = 'https://github.com/owner/repo';
-      showWarningMessageStub.resolves('Contribute Changes');
-      openExternalStub.resolves(true);
-
-      // Act
-      await service.showWarningDialog(bundleId, modifiedFiles, bundleRepoUrl);
-
-      // Assert
-      assert.ok(openExternalStub.calledOnce, 'Should open external URL');
-      const uri = openExternalStub.firstCall.args[0] as vscode.Uri;
-      assert.strictEqual(uri.toString(), bundleRepoUrl, 'Should open correct repository URL');
-    });
-
-    test('should not open URL when Contribute Changes clicked but no URL provided', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      showWarningMessageStub.resolves('Contribute Changes');
-
-      // Act
-      await service.showWarningDialog(bundleId, modifiedFiles);
-
-      // Assert
-      assert.ok(!openExternalStub.called, 'Should not open URL when none provided');
-    });
-
-    test('should list all modified files in dialog message', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/file1.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        },
-        {
-          path: '.github/agents/file2.agent.md',
-          originalChecksum: 'ghi789',
-          currentChecksum: 'jkl012',
-          modificationType: 'modified'
-        },
-        {
-          path: '.github/instructions/file3.instructions.md',
-          originalChecksum: 'mno345',
-          currentChecksum: '',
-          modificationType: 'missing'
-        }
-      ];
-      showWarningMessageStub.resolves('Cancel');
-
-      // Act
-      await service.showWarningDialog(bundleId, modifiedFiles);
-
-      // Assert
-      const message = showWarningMessageStub.firstCall.args[0] as string;
-      assert.ok(message.includes('file1.prompt.md'), 'Should list first file');
-      assert.ok(message.includes('file2.agent.md'), 'Should list second file');
-      assert.ok(message.includes('file3.instructions.md'), 'Should list third file');
-    });
-
-    test('should indicate file modification type in message', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/modified.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        },
-        {
-          path: '.github/prompts/missing.prompt.md',
-          originalChecksum: 'ghi789',
-          currentChecksum: '',
-          modificationType: 'missing'
-        }
-      ];
-      showWarningMessageStub.resolves('Cancel');
-
-      // Act
-      await service.showWarningDialog(bundleId, modifiedFiles);
-
-      // Assert
-      const message = showWarningMessageStub.firstCall.args[0] as string;
-      assert.ok(message.includes('modified') || message.includes('changed'),
-        'Should indicate modification type');
-    });
-  });
-
-  suite('checkAndWarn()', () => {
-    test('should return null when no modifications detected', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      mockLockfileManager.detectModifiedFiles.resolves([]);
-
-      // Act
-      const result = await service.checkAndWarn(bundleId);
-
-      // Assert
-      assert.strictEqual(result, null, 'Should return null when no modifications');
-      assert.ok(!showWarningMessageStub.called, 'Should not show dialog when no modifications');
-    });
-
-    test('should show dialog and return result when modifications detected', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      const bundleRepoUrl = 'https://github.com/owner/repo';
-      mockLockfileManager.detectModifiedFiles.resolves(modifiedFiles);
-      showWarningMessageStub.resolves('Override');
-
-      // Act
-      const result = await service.checkAndWarn(bundleId, bundleRepoUrl);
-
-      // Assert
-      assert.strictEqual(result, 'override', 'Should return dialog result');
-      assert.ok(showWarningMessageStub.calledOnce, 'Should show dialog');
-    });
-
-    test('should pass bundle repo URL to dialog', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const bundleRepoUrl = 'https://github.com/owner/repo';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      mockLockfileManager.detectModifiedFiles.resolves(modifiedFiles);
-      showWarningMessageStub.resolves('Contribute Changes');
-      openExternalStub.resolves(true);
-
-      // Act
-      await service.checkAndWarn(bundleId, bundleRepoUrl);
-
-      // Assert
-      assert.ok(openExternalStub.calledOnce, 'Should open URL when Contribute Changes clicked');
-      const uri = openExternalStub.firstCall.args[0] as vscode.Uri;
-      assert.strictEqual(uri.toString(), bundleRepoUrl);
-    });
-
-    test('should combine check and warn in single call', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      mockLockfileManager.detectModifiedFiles.resolves(modifiedFiles);
-      showWarningMessageStub.resolves('Cancel');
-
-      // Act
-      const result = await service.checkAndWarn(bundleId);
-
-      // Assert
-      assert.ok(mockLockfileManager.detectModifiedFiles.calledOnce, 'Should check for modifications');
-      assert.ok(showWarningMessageStub.calledOnce, 'Should show warning');
-      assert.strictEqual(result, 'cancel');
-    });
-  });
-
-  suite('Edge cases', () => {
-    test('should handle empty bundle ID gracefully', async () => {
-      // Arrange
-      mockLockfileManager.detectModifiedFiles.resolves([]);
-
-      // Act
-      const result = await service.checkForModifications('');
-
-      // Assert
-      assert.deepStrictEqual(result, []);
-    });
-
-    test('should handle LockfileManager errors gracefully', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      mockLockfileManager.detectModifiedFiles.rejects(new Error('Lockfile error'));
-
-      // Act & Assert
-      await assert.rejects(
-        () => service.checkForModifications(bundleId),
-        /Lockfile error/,
-        'Should propagate LockfileManager errors'
-      );
-    });
-
-    test('should handle dialog errors gracefully', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      showWarningMessageStub.rejects(new Error('Dialog error'));
-
-      // Act & Assert
-      await assert.rejects(
-        () => service.showWarningDialog(bundleId, modifiedFiles),
-        /Dialog error/,
-        'Should propagate dialog errors'
-      );
-    });
-
-    test('should handle openExternal errors gracefully', async () => {
-      // Arrange
-      const bundleId = 'test-bundle';
-      const modifiedFiles: ModifiedFileInfo[] = [
-        {
-          path: '.github/prompts/test.prompt.md',
-          originalChecksum: 'abc123',
-          currentChecksum: 'def456',
-          modificationType: 'modified'
-        }
-      ];
-      const bundleRepoUrl = 'https://github.com/owner/repo';
-      showWarningMessageStub.resolves('Contribute Changes');
-      openExternalStub.rejects(new Error('Failed to open URL'));
-
-      // Act
-      const result = await service.showWarningDialog(bundleId, modifiedFiles, bundleRepoUrl);
-
-      // Assert - should still return contribute even if URL fails to open
-      assert.strictEqual(result, 'contribute', 'Should return contribute action even if URL fails');
-    });
+    showWarning.resolves('Contribute Changes');
+    assert.strictEqual(await service.checkAndWarn(BUNDLE_ID, repoUrl), 'contribute');
+    assert.strictEqual(String(openExternal.firstCall.args[0]), repoUrl);
   });
 });
