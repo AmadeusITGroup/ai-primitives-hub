@@ -15,6 +15,9 @@ import {
   it,
 } from 'vitest';
 import {
+  applyReleaseLayout,
+} from '../../../src/domain/collection/apm-release-plan';
+import {
   assertImmutableRevision,
   createLegacyReleaseManifestPlan,
   createReleaseManifestPlan,
@@ -107,6 +110,116 @@ const governedOptions = {
   revision: REVISION,
   packageMetadata: { license: 'Example-License' }
 };
+
+describe('APM release layout', () => {
+  it('leaves the default plan and its bytes untouched', async () => {
+    const plan = await createReleaseManifestPlan(governedOptions, createSources());
+
+    expect(applyReleaseLayout(plan)).toEqual({ plan, warnings: [] });
+  });
+
+  it.each(['', '.github/', '.apm/'])('rewires %s primitives once and retains skill resources and source metadata', async (prefix) => {
+    const sources = createSources();
+    const rootFiles = [...sources.committed];
+    for (const [file, content] of rootFiles) {
+      if (file.startsWith('prompts/') || file.startsWith('skills/')) {
+        sources.committed.delete(file);
+        sources.committed.set(`${prefix}${file}`, content);
+      }
+    }
+    sources.committed.set(COLLECTION_FILE, sources.committed.get(COLLECTION_FILE)!
+      .replace('path: prompts/', `path: ${prefix}prompts/`)
+      .replace('path: skills/', `path: ${prefix}skills/`));
+    const plan = await createReleaseManifestPlan(governedOptions, sources);
+    const original = serializeReleaseManifest(plan.manifest);
+    const transformed = applyReleaseLayout(plan, 'apm').plan;
+
+    expect(transformed.entries.map((entry) => entry.path)).toEqual([
+      '.apm/LICENSE',
+      '.apm/README.md',
+      '.apm/metadata/source/collections/example.collection.yml',
+      '.apm/prompts/hello.prompt.md',
+      '.apm/skills/example/SKILL.md',
+      '.apm/skills/example/references/reference.md',
+      'apm.yml'
+    ]);
+    for (const entry of plan.entries) {
+      const newPath = `.apm/${entry.path.replace(/^(?:\.github|\.apm)\//, '')}`;
+      expect(transformed.entries.find((candidate) => candidate.path === newPath))
+        .toMatchObject({ bytes: entry.bytes, mode: entry.mode, role: entry.role });
+    }
+    expect(serializeReleaseManifest(plan.manifest)).toBe(original);
+    expect(serializeReleaseManifest(applyReleaseLayout(plan, 'apm').plan.manifest))
+      .toBe(serializeReleaseManifest(transformed.manifest));
+  });
+
+  it('rewires legacy manifests without inventing governed source evidence', async () => {
+    const plan = await createLegacyReleaseManifestPlan(governedOptions, createSources());
+    const transformed = applyReleaseLayout(plan, 'apm').plan;
+
+    expect(transformed.manifest).not.toHaveProperty('formatVersion');
+    expect(transformed.manifest).not.toHaveProperty('provenance');
+    expect(transformed.manifest.readme).toBe('README.md');
+    expect(transformed.manifest).toMatchObject({
+      prompts: [
+        { file: '.apm/prompts/hello.prompt.md' },
+        { file: '.apm/skills/example/SKILL.md' }
+      ]
+    });
+  });
+
+  it('rejects relocation collisions instead of overwriting one payload', async () => {
+    const plan = await createReleaseManifestPlan(governedOptions, createSources());
+    const prompt = plan.entries.find((entry) => entry.path === 'prompts/hello.prompt.md')!;
+    plan.entries.push({ ...prompt, path: '.github/prompts/hello.prompt.md' });
+
+    expect(() => applyReleaseLayout(plan, 'apm')).toThrowError(
+      expect.objectContaining({ code: 'BUNDLE.APM_UNSUPPORTED_CONTENT', message: expect.stringContaining('duplicate') })
+    );
+  });
+
+  it.each(['hook', 'plugin'])('fails explicitly for unsupported native %s semantics', async (kind) => {
+    const plan = await createReleaseManifestPlan(governedOptions, createSources());
+    plan.manifest.items = [{ id: 'unsupported', path: 'prompts/hello.prompt.md', kind }];
+
+    expect(() => applyReleaseLayout(plan, 'apm')).toThrowError(
+      expect.objectContaining({ code: 'BUNDLE.APM_UNSUPPORTED_CONTENT' })
+    );
+  });
+
+  it('does not silently reinterpret APH dependencies as APM dependencies', async () => {
+    const plan = await createReleaseManifestPlan(governedOptions, createSources());
+    plan.manifest.mcpServers = { example: { type: 'http', url: 'https://example.invalid' } };
+
+    const result = applyReleaseLayout(plan, 'apm');
+
+    expect(result.warnings).toEqual([expect.stringContaining('not translated')]);
+    expect(result.plan.manifest.mcpServers).toEqual(plan.manifest.mcpServers);
+  });
+
+  it.each([
+    { kind: 'instruction', itemPath: 'instructions/team/rules.instructions.md' },
+    { kind: 'chat-mode', itemPath: 'chatmodes/legacy.chatmode.md' }
+  ])('warns about native discovery without rejecting APH-supported $kind paths', async ({ kind, itemPath }) => {
+    const sources = createSources();
+    sources.committed.set(itemPath, '# Rules\n');
+    sources.committed.set(COLLECTION_FILE, [
+      'id: example',
+      'name: Example',
+      'items:',
+      `  - path: ${itemPath}`,
+      `    kind: ${kind}`
+    ].join('\n'));
+    const plan = await createReleaseManifestPlan(governedOptions, sources);
+
+    const formatted = applyReleaseLayout(plan, 'apm');
+
+    expect(formatted.warnings).toEqual([expect.stringContaining(`.apm/${itemPath}`)]);
+    expect(formatted.plan.manifest).toMatchObject({
+      items: [{ path: `.apm/${itemPath}` }]
+    });
+  });
+});
 
 describe('createReleaseManifestPlan()', () => {
   it('creates a canonical manifest with an integrity inventory over archive bytes', async () => {
