@@ -9,6 +9,7 @@ import {
   validateManifest,
 } from '@ai-primitives-hub/core';
 import AdmZip = require('adm-zip');
+import * as yaml from 'js-yaml';
 import {
   describe,
   expect,
@@ -56,6 +57,21 @@ const rootFiles = [
   { path: 'instructions/sample.instructions.md', bytes: new TextEncoder().encode('Follow the sample rules.') },
   { path: 'README.md', bytes: new TextEncoder().encode('# Sample') }
 ];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function manifestFilePaths(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.files)) {
+    throw new Error('Expected a manifest with a files inventory.');
+  }
+  return value.files.map((file) => {
+    if (!isRecord(file) || typeof file.path !== 'string') {
+      throw new Error('Expected a manifest file record with a path.');
+    }
+    return file.path;
+  });
+}
 
 describe('ApmTransitionArchivePreparer', () => {
   const preparer = new ApmTransitionArchivePreparer();
@@ -167,8 +183,15 @@ describe('ApmTransitionArchivePreparer', () => {
     }, archive);
     const zip = new AdmZip(Buffer.from(result.bytes));
     const files = new Map(zip.getEntries().map((entry) => [entry.entryName, entry.getData()]));
+    const rootManifest = yaml.load(new TextDecoder().decode(files.get('deployment-manifest.yml')));
+    const apmManifest = yaml.load(new TextDecoder().decode(files.get('apm.yml')));
+    const embeddedManifest = isRecord(apmManifest) ? apmManifest['x-aph'] : undefined;
 
     expect(validateManifest(files, {}).id).toBe('sample-collection');
+    expect(manifestFilePaths(rootManifest)).toContain('apm.yml');
+    expect(manifestFilePaths(embeddedManifest))
+      .toContain('.apm/instructions/sample.instructions.md');
+    expect(manifestFilePaths(embeddedManifest)).not.toContain('apm.yml');
   });
 
   it('rejects source manifests that cannot produce an APM package', async () => {
