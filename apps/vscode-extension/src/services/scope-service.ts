@@ -34,9 +34,10 @@ export interface IScopeService {
    * @param bundleId - The unique identifier of the bundle
    * @param bundlePath - The path to the installed bundle directory
    * @param options - Optional sync options (e.g., commitMode for repository scope)
-   * @returns Promise that resolves when sync is complete
+   * @returns Promise that resolves when sync is complete; the repository
+   *   scope resolves to the absolute paths it wrote, for the install record.
    */
-  syncBundle(bundleId: string, bundlePath: string, options?: SyncBundleOptions): Promise<void>;
+  syncBundle(bundleId: string, bundlePath: string, options?: SyncBundleOptions): Promise<string[] | void>;
 
   /**
    * Remove synced files for a bundle.
