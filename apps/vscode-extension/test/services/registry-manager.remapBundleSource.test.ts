@@ -1,33 +1,26 @@
 /**
- * RegistryManager.remapBundleSource Delegation Tests
+ * RegistryManager.remapBundleSource contract tests (BR11.9).
  *
- * Feature: hub-source-orphan-remap (Cycle F)
- *
- * `remapBundleSource` is a thin delegator over the shared
- * `@ai-primitives-hub/app` use case: it wires the storage, lockfile, and
- * logging boundaries and holds no orchestration of its own. These tests
- * verify that contract through the delegator's observable behavior:
- *
- * - both source ids reach the remap, and the replacement's descriptor is
- *   resolved from stored sources before any store is written
- * - a start line and a completion line are recorded through
- *   `Logger.getInstance()`, each naming both ids
- * - a rejection raised by the use case reaches the caller, with nothing
- *   written — an unresolvable replacement must not half-migrate and then let
- *   the caller delete the orphan
- *
- * Only the storage and lockfile boundaries are mocked; the RegistryManager
- * under test is a real instance.
- *
- * Validates: Requirements 6.4, 7.2
+ * The remap rewrites the source id in both install record files and in the
+ * old `prompt-registry` lockfile of the open workspace, and the installation
+ * records in storage. An unresolvable replacement rejects before anything is
+ * written. Records are written through `InstallRecordService`, the old
+ * lockfile through app's `writeLockfile`, in a real temp git root; only
+ * `RegistryStorage`, `getWorkspaceRoot()` and the logger are stubbed.
  */
 
 import * as assert from 'node:assert';
-import * as sinon from 'sinon';
-import * as vscode from 'vscode';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
+  emptyLockfile,
+  getLockfilePathForMode,
+  type LockfileFs,
+  upsertBundleEntry,
+  upsertSource,
+  writeLockfile,
+} from '@ai-primitives-hub/app';
+import * as sinon from 'sinon';
 import {
   RegistryManager,
 } from '../../src/services/registry-manager';
@@ -41,17 +34,33 @@ import {
 import {
   Logger,
 } from '../../src/utils/logger';
+import {
+  createMockContext,
+  initGitRoot,
+  LOCAL_RECORD_FILE,
+  RECORD_FILE,
+  snapshotTree,
+} from '../helpers/install-record-test-helpers';
+import {
+  cleanupTestWorkspace,
+  createTestWorkspace,
+} from '../helpers/mock-data';
 
-suite('RegistryManager.remapBundleSource - delegates to the app use case', () => {
-  const OLD_SOURCE_ID = 'old-source-id';
-  const NEW_SOURCE_ID = 'new-source-id';
-  const WORKSPACE_ROOT = '/mock/workspace';
+const OLD_SOURCE_ID = 'old-source-id';
+const NEW_SOURCE_ID = 'new-source-id';
+const OLD_LOCKFILE = 'prompt-registry.lock.json';
 
+const nodeLockfileFs: LockfileFs = {
+  readFile: (file) => fs.promises.readFile(file, 'utf8'),
+  writeFile: (file, contents) => fs.promises.writeFile(file, contents),
+  exists: async (file) => fs.existsSync(file)
+};
+
+suite('RegistryManager.remapBundleSource', () => {
   let sandbox: sinon.SinonSandbox;
+  let root: string;
   let manager: RegistryManager;
-  let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
-  let remapSourceIdStub: sinon.SinonStub;
-  let loggedMessages: string[];
+  let storage: sinon.SinonStubbedInstance<RegistryStorage>;
 
   const makeSource = (overrides: Partial<RegistrySource> = {}): RegistrySource => ({
     id: NEW_SOURCE_ID,
@@ -61,182 +70,101 @@ suite('RegistryManager.remapBundleSource - delegates to the app use case', () =>
     enabled: true,
     priority: 1,
     hubId: 'hub-a',
-    config: { branch: 'main', collectionsPath: 'collections' },
+    config: { branch: 'main' },
     ...overrides
   });
 
-  const makeInstalledBundle = (
-    bundleId: string,
-    sourceId: string,
-    scope: 'user' | 'workspace' = 'user'
-  ): InstalledBundle => ({
+  const userBundle = (bundleId: string, sourceId: string): InstalledBundle => ({
     bundleId,
     version: '1.0.0',
     installedAt: '2024-01-01T00:00:00Z',
-    scope,
-    installPath: `/mock/${scope}/${bundleId}`,
+    scope: 'user',
+    installPath: `/mock/user/${bundleId}`,
     sourceId,
     sourceType: 'github',
     manifest: { id: bundleId, name: bundleId, version: '1.0.0' } as any
   });
 
-  const createMockContext = (mockSandbox: sinon.SinonSandbox): vscode.ExtensionContext => ({
-    globalState: {
-      get: mockSandbox.stub(),
-      update: mockSandbox.stub().resolves(),
-      keys: mockSandbox.stub().returns([]),
-      setKeysForSync: mockSandbox.stub()
-    } as any,
-    workspaceState: {
-      get: mockSandbox.stub(),
-      update: mockSandbox.stub().resolves(),
-      keys: mockSandbox.stub().returns([]),
-      setKeysForSync: mockSandbox.stub()
-    } as any,
-    subscriptions: [],
-    extensionPath: '/mock/path',
-    extensionUri: vscode.Uri.file('/mock/path'),
-    storageUri: vscode.Uri.file('/mock/storage'),
-    globalStorageUri: vscode.Uri.file('/mock/global'),
-    asAbsolutePath: (p: string) => `/mock/path/${p}`
-  } as any);
+  const readJson = (file: string): any => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 
-  setup(() => {
+  /** Record `bundleId` for vscode from the old source in one record file. */
+  const recordFromOldSource = async (commitMode: 'commit' | 'local-only', bundleId: string): Promise<void> => {
+    const relative = `.github/prompts/${bundleId}.prompt.md`;
+    fs.mkdirSync(path.join(root, '.github', 'prompts'), { recursive: true });
+    fs.writeFileSync(path.join(root, relative), `# ${bundleId}\n`);
+    const adapter = manager.getRecordAdapter();
+    const [committed, localOnly] = await adapter.locations(root);
+    await adapter.service.recordInstall({
+      location: commitMode === 'commit' ? committed : localOnly,
+      bundleId,
+      version: '1.0.0',
+      tool: 'vscode',
+      source: { sourceId: OLD_SOURCE_ID, type: 'github', url: 'https://github.com/org/old' },
+      sourceType: 'github',
+      writtenPaths: [path.join(root, relative)],
+      syncSiblings: false
+    });
+  };
+
+  setup(async () => {
     sandbox = sinon.createSandbox();
-
-    // Record every line the delegator writes through the shared logger,
-    // whatever level it chooses.
-    loggedMessages = [];
+    root = fs.realpathSync.native(createTestWorkspace());
+    initGitRoot(root);
     const logger = Logger.getInstance();
-    const capture = (message: string): void => {
-      loggedMessages.push(message);
-    };
-    sandbox.stub(logger, 'info').callsFake(capture);
-    sandbox.stub(logger, 'debug').callsFake(capture);
-    sandbox.stub(logger, 'warn').callsFake(capture);
+    for (const level of ['info', 'debug', 'warn'] as const) {
+      sandbox.stub(logger, level);
+    }
 
     RegistryManager.resetInstance();
     manager = RegistryManager.getInstance(createMockContext(sandbox));
+    storage = sandbox.createStubInstance(RegistryStorage);
+    storage.getSources.resolves([]);
+    storage.getInstalledBundles.resolves([]);
+    storage.recordInstallation.resolves();
+    (manager as any).storage = storage;
+    sandbox.stub(require('../../src/utils/scope-selection-ui'), 'getWorkspaceRoot').returns(root);
 
-    mockStorage = sandbox.createStubInstance(RegistryStorage);
-    mockStorage.getSources.resolves([]);
-    mockStorage.getInstalledBundles.resolves([]);
-    mockStorage.recordInstallation.resolves();
-    (manager as any).storage = mockStorage;
-
-    // Lockfile boundary: a workspace is open, so the repository-scope port
-    // is wired.
-    const scopeSelectionUI = require('../../src/utils/scope-selection-ui');
-    sandbox.stub(scopeSelectionUI, 'getWorkspaceRoot').returns(WORKSPACE_ROOT);
-
-    remapSourceIdStub = sandbox.stub().resolves();
-    sandbox.stub(LockfileManager, 'getInstance').returns({
-      remapSourceId: remapSourceIdStub
-    } as any);
+    await recordFromOldSource('commit', 'committed-bundle');
+    await recordFromOldSource('local-only', 'local-bundle');
+    let lock = upsertBundleEntry(emptyLockfile('prompt-registry@1.0.0'), 'old-bundle', {
+      version: '1.0.0', sourceId: OLD_SOURCE_ID, sourceType: 'github', installedAt: '2026-10-28T10:00:00.000Z', files: []
+    });
+    lock = upsertSource(lock, OLD_SOURCE_ID, { type: 'github', url: 'https://github.com/org/old' });
+    await writeLockfile(getLockfilePathForMode(root, 'commit'), lock, nodeLockfileFs);
   });
 
   teardown(() => {
     sandbox.restore();
     RegistryManager.resetInstance();
+    cleanupTestWorkspace(root);
   });
 
-  test('forwards both source ids and the resolved replacement descriptor to every scope', async () => {
-    const replacement = makeSource();
-    mockStorage.getSources.resolves([
-      makeSource({ id: OLD_SOURCE_ID, name: 'Pre-rename Collection', url: 'https://github.com/org/old' }),
-      replacement
-    ]);
-    mockStorage.getInstalledBundles.withArgs('user').resolves([
-      makeInstalledBundle('bundle-a', OLD_SOURCE_ID),
-      makeInstalledBundle('bundle-untouched', 'unrelated-source')
-    ]);
-    mockStorage.getInstalledBundles.withArgs('workspace').resolves([
-      makeInstalledBundle('bundle-b', OLD_SOURCE_ID, 'workspace')
-    ]);
+  test('remaps both record files, the old lockfile and the stored installation records', async () => {
+    storage.getSources.resolves([makeSource({ id: OLD_SOURCE_ID, url: 'https://github.com/org/old' }), makeSource()]);
+    storage.getInstalledBundles.withArgs('user').resolves([userBundle('user-bundle', OLD_SOURCE_ID), userBundle('other', 'unrelated')]);
 
     await manager.remapBundleSource(OLD_SOURCE_ID, NEW_SOURCE_ID);
 
-    assert.strictEqual(remapSourceIdStub.callCount, 1, 'repository scope should be remapped once');
-    const [oldId, newId, descriptor] = remapSourceIdStub.firstCall.args;
-    assert.strictEqual(oldId, OLD_SOURCE_ID, 'old source id should be forwarded');
-    assert.strictEqual(newId, NEW_SOURCE_ID, 'new source id should be forwarded');
-    assert.deepStrictEqual(
-      descriptor,
-      {
-        type: replacement.type,
-        url: replacement.url,
-        branch: 'main',
-        collectionsPath: 'collections'
-      },
-      'descriptor should be resolved from the replacement source'
-    );
-
-    const rewritten = mockStorage.recordInstallation.getCalls().map((call) => call.args[0]);
-    assert.deepStrictEqual(
-      rewritten.map((bundle) => bundle.bundleId).toSorted(),
-      ['bundle-a', 'bundle-b'],
-      'only records referencing the old source id should be rewritten'
-    );
-    assert.ok(
-      rewritten.every((bundle) => bundle.sourceId === NEW_SOURCE_ID),
-      'rewritten records should reference the new source id'
-    );
+    for (const [file, bundleId] of [[RECORD_FILE, 'committed-bundle'], [LOCAL_RECORD_FILE, 'local-bundle']]) {
+      const record = readJson(file);
+      assert.deepStrictEqual(Object.keys(record.sources), [NEW_SOURCE_ID], file);
+      assert.strictEqual(record.sources[NEW_SOURCE_ID].url, 'https://github.com/org/renamed', file);
+      assert.strictEqual(record.bundles[bundleId].tools.vscode.sourceId, NEW_SOURCE_ID, file);
+    }
+    const old = readJson(OLD_LOCKFILE);
+    assert.deepStrictEqual(Object.keys(old.sources), [NEW_SOURCE_ID]);
+    assert.strictEqual(old.bundles['old-bundle'].sourceId, NEW_SOURCE_ID);
+    assert.deepStrictEqual(storage.recordInstallation.getCalls().map((call) => [call.args[0].bundleId, call.args[0].sourceId]), [['user-bundle', NEW_SOURCE_ID]]);
   });
 
-  test('records a start line and a completion line through Logger.getInstance()', async () => {
-    mockStorage.getSources.resolves([
-      makeSource({ id: OLD_SOURCE_ID, url: 'https://github.com/org/old' }),
-      makeSource()
-    ]);
-    mockStorage.getInstalledBundles.withArgs('user').resolves([
-      makeInstalledBundle('bundle-a', OLD_SOURCE_ID)
-    ]);
-    mockStorage.getInstalledBundles.withArgs('workspace').resolves([]);
+  test('rejects, naming the replacement, and writes nothing when the replacement source is absent', async () => {
+    storage.getSources.resolves([makeSource({ id: OLD_SOURCE_ID, url: 'https://github.com/org/old' })]);
+    storage.getInstalledBundles.withArgs('user').resolves([userBundle('user-bundle', OLD_SOURCE_ID)]);
+    const before = snapshotTree(root);
 
-    await manager.remapBundleSource(OLD_SOURCE_ID, NEW_SOURCE_ID);
+    await assert.rejects(manager.remapBundleSource(OLD_SOURCE_ID, NEW_SOURCE_ID), (error: Error) => error.message.includes(NEW_SOURCE_ID));
 
-    const namingBothIds = loggedMessages.filter(
-      (message) => message.includes(OLD_SOURCE_ID) && message.includes(NEW_SOURCE_ID)
-    );
-    const completion = namingBothIds.filter((message) => /complete/i.test(message));
-    const start = namingBothIds.filter((message) => !/complete/i.test(message));
-
-    assert.strictEqual(
-      start.length,
-      1,
-      `expected one start line naming both ids, got: ${JSON.stringify(loggedMessages)}`
-    );
-    assert.strictEqual(
-      completion.length,
-      1,
-      `expected one completion line naming both ids, got: ${JSON.stringify(loggedMessages)}`
-    );
-  });
-
-  test('propagates the use case rejection and writes nothing when the replacement source is absent', async () => {
-    // The replacement id is not in storage: the shared use case rejects
-    // before touching any store, so the caller can keep the orphan alive.
-    mockStorage.getSources.resolves([
-      makeSource({ id: OLD_SOURCE_ID, url: 'https://github.com/org/old' })
-    ]);
-    mockStorage.getInstalledBundles.withArgs('user').resolves([
-      makeInstalledBundle('bundle-a', OLD_SOURCE_ID)
-    ]);
-    mockStorage.getInstalledBundles.withArgs('workspace').resolves([
-      makeInstalledBundle('bundle-b', OLD_SOURCE_ID, 'workspace')
-    ]);
-
-    await assert.rejects(
-      manager.remapBundleSource(OLD_SOURCE_ID, NEW_SOURCE_ID),
-      (error: Error) => error.message.includes(NEW_SOURCE_ID),
-      'an unresolvable replacement should reject, naming the missing source id'
-    );
-
-    assert.strictEqual(remapSourceIdStub.callCount, 0, 'the lockfile must not be rewritten');
-    assert.strictEqual(
-      mockStorage.recordInstallation.callCount,
-      0,
-      'no installation record must be rewritten'
-    );
+    assert.deepStrictEqual(snapshotTree(root), before);
+    assert.ok(storage.recordInstallation.notCalled);
   });
 });
