@@ -33,6 +33,14 @@ Agent Package archive as a direct local bundle; the directory check verifies
 that APM accepts the archive's package layout. This does not add APM to routine
 builds, tests, or CI.
 
+The qualification script uses the built infra package. After installing
+workspace dependencies, build its package dependencies:
+
+```bash
+pnpm -C packages/core build
+pnpm -C packages/infra build
+```
+
 ```bash
 pnpm --filter @ai-primitives-hub/cli qualify:apm-archive -- /path/to/bundle.zip
 ```
