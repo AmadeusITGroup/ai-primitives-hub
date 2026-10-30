@@ -102,7 +102,12 @@ Commands that use the record end their text output with `Record: <level> <path>`
 - `status` lists one row per bundle and tool; `-o json` replaces `lockfile` with `level`, `records` and `entries`. Bundles only in `prompt-registry.lock.json` are still shown, unless the record has the same bundle at another version.
 - A recorded source is used only through the matching configured source (the active hub's first, then `source add`), with its URL and credentials. Otherwise the recorded copy is used without its `credentialRef`, and a `local` folder outside the repository is skipped. This also applies to `update --dry-run`.
 
-The VS Code extension lists these bundles at repository scope but refuses to uninstall, update, move or switch them (`RECORD.CLI_MANAGED`).
+The VS Code extension uses the same record, under the tool of the editor it runs in (`vscode`, `vscode-insiders`, `kiro` or `windsurf`):
+
+- It installs, updates, uninstalls, moves and switches the commit mode of its own tool's entries only. Other tools' entries are listed read-only; changing one shows `RECORD.CLI_MANAGED` with the CLI command to use.
+- An update keeps files you edited and moves tools that share the same files (for example `vscode`, `vscode-insiders` and `copilot-cli` in `.github/`) to the new version.
+- Rewriting a bundle that an old `prompt-registry.lock.json` also lists removes that old entry.
+- "Clean Up Stale Repository Bundles" lists one row per bundle and tool, offers only entries whose files are all missing, and removes the entries without deleting files.
 
 ## Plugin Create (CLI)
 

@@ -1,5 +1,7 @@
 # Repository-Level Installation
 
+> **Unreleased change.** In the release that completes the install-record stack, repository installs are recorded in `ai-primitives-hub.lock.json` (committed) and `ai-primitives-hub.local.lock.json` (local only), one entry per bundle and tool, shared by the CLI and the extension. Bundles that only an older `prompt-registry.lock.json` lists keep working and are moved to the new record when you reinstall or update them. See [Repository install record](../reference/commands.md#repository-install-record). The rest of this page still describes `prompt-registry.lock.json` until that release.
+
 Repository-level installation allows teams to share Copilot configurations through Git. Bundles are installed in the repository's `.github/` directory structure, making them available to all team members who clone the repository.
 
 ## Installation Scopes
