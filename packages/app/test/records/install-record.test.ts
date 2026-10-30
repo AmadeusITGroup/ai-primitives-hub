@@ -27,7 +27,9 @@ import {
   it,
 } from 'vitest';
 import {
+  findModifiedFiles,
   InstallRecordService,
+  isLocalSourceInsideRoot,
   LOCAL_SOURCE_OUTSIDE_REASON,
   mapToolToTarget,
   type RecordInstallInput,
@@ -36,6 +38,7 @@ import {
   selectRecord,
   type SelectRecordOptions,
   toRecordSource,
+  writerGroupFor,
 } from '../../src/records';
 import {
   findLockfile,
@@ -56,6 +59,21 @@ class FailingRenameFs extends NodeRecordFs {
 class FailingUnlinkFs extends NodeRecordFs {
   public override unlink(): Promise<void> {
     return Promise.reject(new Error('EBUSY: unlink failed'));
+  }
+}
+
+/** `NodeRecordFs` whose second rename onto a record file fails, to interrupt a two-file save. */
+class SecondRecordSaveFailsFs extends NodeRecordFs {
+  private recordRenames = 0;
+
+  public override rename(from: string, to: string): Promise<void> {
+    if (to.endsWith('.lock.json')) {
+      this.recordRenames += 1;
+      if (this.recordRenames === 2) {
+        return Promise.reject(new Error('ENOSPC: second save failed'));
+      }
+    }
+    return super.rename(from, to);
   }
 }
 
@@ -685,6 +703,126 @@ describe('repository install record', () => {
       expect(holding).toEqual(localOnly);
       expect(fs.existsSync(committed.path)).toBe(false);
       expect(read(localOnly).bundles[BUNDLE].tools.vscode.version).toBe('2.0.0');
+    });
+  });
+
+  describe('commit-mode move, source remap and extension helpers (U3)', () => {
+    const recordFs = new NodeRecordFs();
+    const LOCAL_NAME = 'ai-primitives-hub.local.lock.json';
+    const move = (location: RecordLocation, tool = 'vscode'): ReturnType<InstallRecordService['moveEntry']> =>
+      service.moveEntry({ location, bundleId: BUNDLE, tool });
+
+    it('moveEntry moves an entry with a user-modified file unchanged to the local-only file and back, with its source', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      fs.writeFileSync(path.join(root, '.github', 'prompts', 'a.prompt.md'), 'edited by the user\n');
+      const recorded = read(committed);
+
+      const there = await move(committed);
+      const moved = read(localOnly);
+      const back = await move(localOnly);
+
+      expect(there).toEqual({ from: committed, to: localOnly, warnings: [] });
+      expect(moved.bundles[BUNDLE].tools.vscode).toEqual(recorded.bundles[BUNDLE].tools.vscode);
+      expect(moved.sources).toEqual(recorded.sources);
+      expect(back).toEqual({ from: localOnly, to: committed, warnings: [] });
+      expect(read(committed).bundles[BUNDLE].tools.vscode).toEqual(recorded.bundles[BUNDLE].tools.vscode);
+      expect(fs.existsSync(localOnly.path)).toBe(false);
+      expect(excludeText()).not.toContain(LOCAL_NAME);
+    });
+
+    it('moveEntry interrupted after the first save leaves the entry in both files; the committed copy wins and the next move leaves one', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      await install('kiro', ['.kiro/steering/a.md']);
+      await build(new SecondRecordSaveFailsFs());
+
+      await expectCode(move(committed), 'RECORD.WRITE_FAILED');
+      const both = [toolsIn(committed), toolsIn(localOnly)];
+      const holding = await service.holdingLocation([committed, localOnly], BUNDLE, 'vscode');
+      await build();
+      await move(committed);
+
+      expect(both).toEqual([['kiro', 'vscode'], ['vscode']]);
+      expect(holding).toEqual(committed);
+      expect([toolsIn(committed), toolsIn(localOnly)]).toEqual([['kiro'], ['vscode']]);
+      expect((await service.listEntries([committed, localOnly])).map((row) => `${row.tool}@${path.basename(row.record)}`))
+        .toEqual(['kiro@ai-primitives-hub.lock.json', `vscode@${LOCAL_NAME}`]);
+    });
+
+    it('remapSource rewrites sources and every sourceId in both files, sanitized, and is a no-op the second time', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      await install('kiro', ['.kiro/steering/a.md'], { location: localOnly });
+      const input = {
+        root, from: 'acme-github', to: 'acme-moved',
+        descriptor: { type: 'github', url: 'https://user:pass@github.com/acme/moved', branch: 'main', token: 'ghp_secret' }
+      };
+
+      const first = await service.remapSource(input);
+      const bytes = [fs.readFileSync(committed.path, 'utf8'), fs.readFileSync(localOnly.path, 'utf8')];
+      const second = await service.remapSource(input);
+
+      expect(first).toEqual({ changed: [committed, localOnly], warnings: [] });
+      for (const [location, tool] of [[committed, 'vscode'], [localOnly, 'kiro']] as const) {
+        expect(read(location).sources).toEqual({ 'acme-moved': { type: 'github', url: 'https://github.com/acme/moved', branch: 'main' } });
+        expect(read(location).bundles[BUNDLE].tools[tool].sourceId).toBe('acme-moved');
+      }
+      expect(second).toEqual({ changed: [], warnings: [] });
+      expect([fs.readFileSync(committed.path, 'utf8'), fs.readFileSync(localOnly.path, 'utf8')]).toEqual(bytes);
+    });
+
+    it('remapSource changes neither file when the local-only file is malformed', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      const before = fs.readFileSync(committed.path, 'utf8');
+      fs.writeFileSync(localOnly.path, '{ "version": "3.0.0", ');
+
+      await expectCode(service.remapSource({ root, from: 'acme-github', to: 'acme-moved', descriptor: { type: 'github', url: 'https://github.com/acme/moved' } }), 'RECORD.MALFORMED');
+
+      expect(fs.readFileSync(committed.path, 'utf8')).toBe(before);
+      expect(fs.readFileSync(localOnly.path, 'utf8')).toBe('{ "version": "3.0.0", ');
+    });
+
+    it.each([
+      ['unchanged', true, (): void => undefined, []],
+      ['edited', true, (file: string): void => fs.writeFileSync(file, 'edited by the user\n'), ['docs/a.md']],
+      ['missing', true, (file: string): void => fs.rmSync(file), ['docs/a.md']],
+      ['recorded without a checksum', false, (): void => undefined, ['docs/a.md']]
+    ])('findModifiedFiles reports a file that is %s', async (_label, withChecksum, change, expected) => {
+      const [absolute] = write('docs/a.md');
+      const checksum = await recordFs.hashFile(absolute);
+      change(absolute);
+
+      const modified = await findModifiedFiles(recordFs, root, [{ path: 'docs/a.md', ...(withChecksum ? { checksum } : {}) }]);
+
+      expect(modified).toEqual(expected);
+    });
+
+    it.each([
+      ['vscode', ['prompts/', 'agents/', 'skills/'], ['copilot-cli', 'vscode', 'vscode-insiders']],
+      ['vscode', ['prompts/', 'chat-modes/'], ['vscode', 'vscode-insiders']],
+      ['kiro', ['prompts', 'instructions/', 'skills/'], ['kiro', 'kiro-cli']],
+      ['windsurf', ['prompts/', 'agents/'], ['windsurf']]
+    ])('writerGroupFor(%s, %j) is %j', (hostTool, kinds, expected) => {
+      expect(writerGroupFor(hostTool, kinds)).toEqual(expected);
+    });
+
+    describe('isLocalSourceInsideRoot', () => {
+      beforeEach(() => {
+        fs.mkdirSync(path.join(root, 'sources', 'local'), { recursive: true });
+        fs.mkdirSync(path.join(base, 'outside'), { recursive: true });
+      });
+
+      it.each([
+        ['a relative folder inside the root', (): string => 'sources/local', true],
+        ['a folder leaving the root through ..', (): string => '../outside', false],
+        ['an absolute folder outside the root', (): string => path.join(base, 'outside'), false]
+      ])('%s', async (_label, localPath, expected) => {
+        expect(await isLocalSourceInsideRoot(recordFs, root, localPath())).toBe(expected);
+      });
+
+      it.skipIf(POSIX_ONLY)('a symlink inside the root pointing outside it', async () => {
+        fs.symlinkSync(path.join(base, 'outside'), path.join(root, 'sources', 'link'), 'dir');
+
+        expect(await isLocalSourceInsideRoot(recordFs, root, 'sources/link')).toBe(false);
+      });
     });
   });
 });

@@ -1,7 +1,8 @@
 /**
  * Install record service: records a tool's install or uninstall of a bundle in
  * the shared record and keeps sibling tools that share its files in step. It
- * deletes nothing itself; superseded files come back in `deletedFiles` for
+ * also moves entries between the two repository files and remaps source ids.
+ * It deletes nothing itself; superseded files come back in `deletedFiles` for
  * `deleteSuperseded` to remove after the save.
  * @module records/install-record-service
  */
@@ -144,6 +145,61 @@ export interface DeleteSupersededResult {
   warnings: string[];
 }
 
+/** Input of {@link InstallRecordService.moveEntry}. */
+export interface MoveEntryInput {
+  /** The repository file that holds the entry now; it moves to the other file at the same root. */
+  location: RecordLocation;
+  /** Bundle id. */
+  bundleId: string;
+  /** Tool key of the entry. */
+  tool: string;
+}
+
+/** Outcome of {@link InstallRecordService.moveEntry}. */
+export interface MoveEntryResult {
+  /** The file the entry left. */
+  from: RecordLocation;
+  /** The file the entry is in now. */
+  to: RecordLocation;
+  /** Non-fatal problems from the saves, for the caller to log. */
+  warnings: string[];
+}
+
+/** The configured source a remapped id points to: the C1 fields of `RecordSourceInput` without the key. */
+export interface RecordSourceDescriptor {
+  /** A `SourceType` value. */
+  type: string;
+  /** Source URL; credentials are removed before it is recorded (NFR4.5). */
+  url: string;
+  branch?: string;
+  collectionsPath?: string;
+  indexFile?: string;
+  authMode?: string;
+  credentialRef?: string;
+  /** Any other field is dropped, never recorded. */
+  [key: string]: unknown;
+}
+
+/** Input of {@link InstallRecordService.remapSource}. */
+export interface RemapSourceInput {
+  /** Repository root (git root) whose two record files are rewritten. */
+  root: string;
+  /** Source id to replace. */
+  from: string;
+  /** Source id to use instead. */
+  to: string;
+  /** Fields recorded under `sources.<to>`. */
+  descriptor: RecordSourceDescriptor;
+}
+
+/** Outcome of {@link InstallRecordService.remapSource}. */
+export interface RemapSourceResult {
+  /** Record files that changed and were saved, committed first; empty when nothing referred to `from`. */
+  changed: RecordLocation[];
+  /** Non-fatal problems from the saves, for the caller to log. */
+  warnings: string[];
+}
+
 /** Dependencies of an {@link InstallRecordService}. */
 export interface InstallRecordServiceOptions {
   /** Record store; loads and saves both repository files. */
@@ -203,6 +259,35 @@ const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
     }
   }
   return listed;
+};
+
+const isSameSource = (left: SourceRecord, right: SourceRecord): boolean => {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every((key) => left[key] === right[key]);
+};
+
+const remapInRecord = (record: InstallRecord, from: string, to: string, source: SourceRecord): boolean => {
+  if (!Object.hasOwn(record.sources, from)) {
+    return false;
+  }
+  let changed = false;
+  if (from !== to) {
+    for (const bundle of Object.values(record.bundles)) {
+      for (const entry of Object.values(bundle.tools)) {
+        if (entry.sourceId === from) {
+          entry.sourceId = to;
+        }
+      }
+    }
+    delete record.sources[from];
+    changed = true;
+  }
+  const current = Object.hasOwn(record.sources, to) ? record.sources[to] : undefined;
+  if (current === undefined || !isSameSource(current, source)) {
+    record.sources[to] = source;
+    changed = true;
+  }
+  return changed;
 };
 
 /** Records installs and uninstalls in the shared install record. */
@@ -575,6 +660,72 @@ export class InstallRecordService {
       warnings,
       siblings: []
     };
+  }
+
+  /**
+   * Move one tool's entry, unchanged, between the committed and the local-only
+   * repository file. The target is saved first; a failed second save leaves
+   * the entry in both files until the next move or install.
+   * @param input - The file holding the entry, the bundle id and the tool.
+   * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` or `RECORD.MALFORMED`, or any `RECORD.*` load or save error.
+   */
+  public async moveEntry(input: MoveEntryInput): Promise<MoveEntryResult> {
+    const { location, bundleId, tool } = input;
+    const targetLocation = this.otherLocation(location);
+    if (targetLocation === undefined) {
+      throw recordError('RECORD.MALFORMED', { file: path.basename(location.path), detail: 'only a repository entry can change commit mode' });
+    }
+    const from = await this.store.load(location);
+    const to = await this.store.load(targetLocation);
+    const entry = this.removeEntry(from.record, bundleId, tool);
+    if (entry === undefined) {
+      throw recordError('RECORD.ENTRY_NOT_FOUND', {
+        file: path.basename(location.path),
+        detail: `no entry for bundle ${JSON.stringify(bundleId)} and tool ${JSON.stringify(tool)}`,
+        context: { bundleId, tool }
+      });
+    }
+    // The store's load checked that the source exists.
+    const source = from.record.sources[entry.sourceId];
+    this.dropUnusedSource(from.record, entry.sourceId);
+    if (!Object.hasOwn(to.record.bundles, bundleId)) {
+      to.record.bundles[bundleId] = createBundle();
+    }
+    to.record.bundles[bundleId].tools[tool] = entry;
+    to.record.sources[entry.sourceId] = source;
+
+    const saved = await this.store.save(targetLocation, to.record);
+    const warnings = [...saved.warnings, ...(await this.saveOther(from))];
+    return { from: location, to: targetLocation, warnings };
+  }
+
+  /**
+   * Rewrite a source id in both repository files at a root. Both files load
+   * before anything is saved, and running it again is a no-op.
+   * @param input - Root, the two ids and the source fields for `to`.
+   * @throws {RegistryError} `RECORD.MALFORMED` for a bad id or source, or any `RECORD.*` load or save error.
+   */
+  public async remapSource(input: RemapSourceInput): Promise<RemapSourceResult> {
+    const { root, from, to } = input;
+    for (const [name, value] of [['from', from], ['to', to]] as const) {
+      if (typeof value !== 'string' || value === '' || FORBIDDEN_KEYS.has(value)) {
+        throw recordError('RECORD.MALFORMED', { detail: `source id ${name} ${JSON.stringify(value)} cannot be recorded` });
+      }
+    }
+    if (!(RECORD_SOURCE_TYPES as readonly string[]).includes(input.descriptor.type)) {
+      throw recordError('RECORD.MALFORMED', { detail: `source type ${JSON.stringify(input.descriptor.type)} is not a source type` });
+    }
+    const source = sanitizeSource(input.descriptor);
+    const [committedLocation, localOnlyLocation] = repositoryLocations(root);
+    const committedFile = await this.store.load(committedLocation);
+    const loaded = [committedFile, await this.store.load(localOnlyLocation)];
+
+    const changed = loaded.filter((file) => remapInRecord(file.record, from, to, source));
+    const warnings: string[] = [];
+    for (const file of changed) {
+      warnings.push(...(await this.store.save(file.location, file.record)).warnings);
+    }
+    return { changed: changed.map((file) => file.location), warnings };
   }
 
   /**
