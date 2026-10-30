@@ -112,14 +112,14 @@ suite('LocalModificationWarningService', () => {
     { name: 'old lockfile entry, unchanged', install: oldInstall, change: () => undefined, expected: [] },
     { name: 'old lockfile entry, edited', install: oldInstall, change: () => writeFile(FILE, '# edited\n'), expected: [{ path: FILE, modificationType: 'modified' }] }
   ];
-  for (const testCase of cases) {
+  cases.forEach((testCase) => {
     test(`checkForModifications: ${testCase.name}`, async () => {
       await testCase.install();
       testCase.change();
 
       assert.deepStrictEqual(await service.checkForModifications(BUNDLE_ID), testCase.expected);
     });
-  }
+  });
 
   test('checkAndWarn returns null without a dialog when the bundle has no entry or no change', async () => {
     assert.strictEqual(await service.checkAndWarn('not-installed'), null);

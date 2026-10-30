@@ -196,6 +196,35 @@ export class ExtensionRecordAdapter {
   }
 
   /**
+   * Whether any of the paths is missing.
+   * @param root - Root the paths are relative to.
+   * @param paths - Root-relative paths.
+   */
+  private async anyMissing(root: string, paths: readonly string[]): Promise<boolean> {
+    for (const recordedPath of paths) {
+      try {
+        if (await this.fs.lstat(path.join(root, ...recordedPath.split('/'))) === undefined) {
+          return true;
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined);
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Save an old lockfile, or delete it when it has no bundle left.
+   * @param file - Absolute old lockfile path.
+   * @param lock - Content to save.
+   */
+  private async saveOldLockfile(file: string, lock: Lockfile): Promise<void> {
+    await (Object.keys(lock.bundles).length === 0
+      ? deleteLockfile(file, this.lockfileFs)
+      : writeLockfile(file, lock, this.lockfileFs));
+  }
+
+  /**
    * Both old `prompt-registry` lockfiles of a workspace folder, committed first.
    * An unreadable file is logged and given as `lock: null`.
    * @param workspaceFolder - Absolute workspace folder path (where the old files live).
@@ -213,24 +242,6 @@ export class ExtensionRecordAdapter {
       files.push({ path: file, commitMode, lock });
     }
     return files;
-  }
-
-  /**
-   * Whether any of the paths is missing.
-   * @param root - Root the paths are relative to.
-   * @param paths - Root-relative paths.
-   */
-  private async anyMissing(root: string, paths: readonly string[]): Promise<boolean> {
-    for (const recordedPath of paths) {
-      try {
-        if (await this.fs.lstat(path.join(root, ...recordedPath.split('/'))) === undefined) {
-          return true;
-        }
-      } catch (error) {
-        this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined);
-      }
-    }
-    return false;
   }
 
   /**
@@ -465,17 +476,6 @@ export class ExtensionRecordAdapter {
       }
     }
     return undefined;
-  }
-
-  /**
-   * Save an old lockfile, or delete it when it has no bundle left.
-   * @param file - Absolute old lockfile path.
-   * @param lock - Content to save.
-   */
-  private async saveOldLockfile(file: string, lock: Lockfile): Promise<void> {
-    await (Object.keys(lock.bundles).length === 0
-      ? deleteLockfile(file, this.lockfileFs)
-      : writeLockfile(file, lock, this.lockfileFs));
   }
 
   /**

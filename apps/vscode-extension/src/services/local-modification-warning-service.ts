@@ -50,6 +50,7 @@ export class LocalModificationWarningService {
   private readonly logger: Logger;
 
   /**
+   * Create a warning service for one workspace folder.
    * @param adapter - The extension's record adapter.
    * @param workspaceFolder - Absolute workspace folder path.
    */

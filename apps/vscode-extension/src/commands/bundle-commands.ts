@@ -64,6 +64,40 @@ export class BundleCommands {
     this.logger = Logger.getInstance();
   }
 
+  /**
+   * Label of a stale row in messages.
+   * @param row - Stale row.
+   */
+  private static rowLabel(row: StaleRow): string {
+    return row.tool === undefined ? `${row.bundleId} (old lockfile)` : `${row.bundleId} (${row.tool})`;
+  }
+
+  /**
+   * Stale rows of a workspace folder (BR12.2): one per bundle and tool entry
+   * of both record files, and one per old lockfile entry, offered only when
+   * every file the row lists is missing (app `areAllFilesMissing`).
+   * @param workspaceRoot - Absolute workspace folder path.
+   * @throws {RegistryError} Any `RECORD.*` error from loading the record files.
+   */
+  private async findStaleRows(workspaceRoot: string): Promise<StaleRow[]> {
+    const adapter = this.registryManager.getRecordAdapter();
+    const rows: StaleRow[] = [];
+    for (const located of await adapter.listAllEntries(workspaceRoot)) {
+      if (await areAllFilesMissing(adapter.fs, located.location.root, located.entry.files.map((file) => file.path))) {
+        rows.push({ bundleId: located.bundleId, tool: located.tool, location: located.location });
+      }
+    }
+    for (const old of await adapter.readOldLockfiles(workspaceRoot)) {
+      for (const [bundleId, entry] of Object.entries(old.lock?.bundles ?? {})) {
+        const paths = entry.files.map((file) => file.path.replaceAll('\\', '/'));
+        if (await areAllFilesMissing(adapter.fs, workspaceRoot, paths)) {
+          rows.push({ bundleId });
+        }
+      }
+    }
+    return rows;
+  }
+
   // ===== Installation Commands =====
 
   /**
@@ -172,40 +206,6 @@ export class BundleCommands {
   }
 
   // ===== Cleanup Commands =====
-
-  /**
-   * Stale rows of a workspace folder (BR12.2): one per bundle and tool entry
-   * of both record files, and one per old lockfile entry, offered only when
-   * every file the row lists is missing (app `areAllFilesMissing`).
-   * @param workspaceRoot - Absolute workspace folder path.
-   * @throws {RegistryError} Any `RECORD.*` error from loading the record files.
-   */
-  private async findStaleRows(workspaceRoot: string): Promise<StaleRow[]> {
-    const adapter = this.registryManager.getRecordAdapter();
-    const rows: StaleRow[] = [];
-    for (const located of await adapter.listAllEntries(workspaceRoot)) {
-      if (await areAllFilesMissing(adapter.fs, located.location.root, located.entry.files.map((file) => file.path))) {
-        rows.push({ bundleId: located.bundleId, tool: located.tool, location: located.location });
-      }
-    }
-    for (const old of await adapter.readOldLockfiles(workspaceRoot)) {
-      for (const [bundleId, entry] of Object.entries(old.lock?.bundles ?? {})) {
-        const paths = entry.files.map((file) => file.path.replaceAll('\\', '/'));
-        if (await areAllFilesMissing(adapter.fs, workspaceRoot, paths)) {
-          rows.push({ bundleId });
-        }
-      }
-    }
-    return rows;
-  }
-
-  /**
-   * Label of a stale row in messages.
-   * @param row - Stale row.
-   */
-  private static rowLabel(row: StaleRow): string {
-    return row.tool === undefined ? `${row.bundleId} (old lockfile)` : `${row.bundleId} (${row.tool})`;
-  }
 
   /**
    * Clean up stale repository entries whose files are all missing (W13;
