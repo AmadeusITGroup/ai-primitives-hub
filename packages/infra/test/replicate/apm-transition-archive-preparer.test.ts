@@ -1,5 +1,12 @@
+import {
+  createHash,
+} from 'node:crypto';
 import type {
   ReplicationCandidate,
+} from '@ai-primitives-hub/core';
+import {
+  serializeReleaseManifest,
+  validateManifest,
 } from '@ai-primitives-hub/core';
 import AdmZip = require('adm-zip');
 import {
@@ -115,6 +122,53 @@ describe('ApmTransitionArchivePreparer', () => {
     expect(apmManifest).toContain('name: sample-collection');
     expect(apmManifest).toContain('version: 1.2.3');
     expect(apmManifest).toContain('x-aph:');
+  });
+
+  it('updates governed inventories so translated archives remain installable', async () => {
+    const payload = [
+      { ...rootFiles[1], role: 'installable' },
+      { ...rootFiles[2], role: 'metadata' },
+      { path: 'LICENSE', bytes: new TextEncoder().encode('Example license.'), role: 'metadata' },
+      {
+        path: 'metadata/source/collections/example.collection.yml',
+        bytes: new TextEncoder().encode('id: sample-collection\n'),
+        role: 'metadata'
+      }
+    ];
+    const governedManifest = {
+      ...manifest,
+      formatVersion: 1,
+      readme: 'README.md',
+      files: payload.map(({ path, bytes, role }) => ({
+        path,
+        role,
+        size: bytes.byteLength,
+        sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+      })),
+      provenance: {
+        source: 'https://github.com/acme/sample-repo.git',
+        revision: 'abcdef0123456789abcdef0123456789abcdef01',
+        collectionPath: 'collections/example.collection.yml',
+        sourceSnapshotPath: 'metadata/source/collections/example.collection.yml',
+        license: 'Apache-2.0',
+        licensePath: 'LICENSE'
+      }
+    };
+    const governedManifestBytes = new TextEncoder().encode(serializeReleaseManifest(governedManifest));
+    const archive = buildZip([
+      { path: 'deployment-manifest.yml', bytes: governedManifestBytes },
+      ...payload.map(({ path, bytes }) => ({ path, bytes }))
+    ]);
+
+    const result = await preparer.prepare({
+      ...candidate,
+      manifest: governedManifest,
+      manifestBytes: governedManifestBytes
+    }, archive);
+    const zip = new AdmZip(Buffer.from(result.bytes));
+    const files = new Map(zip.getEntries().map((entry) => [entry.entryName, entry.getData()]));
+
+    expect(validateManifest(files, {}).id).toBe('sample-collection');
   });
 
   it('rejects source manifests that cannot produce an APM package', async () => {

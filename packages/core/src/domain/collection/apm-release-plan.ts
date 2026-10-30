@@ -18,6 +18,9 @@ import {
   type ReleaseManifestPlan,
   serializeReleaseManifest,
 } from './release-manifest-plan';
+import type {
+  ReleaseManifestFile,
+} from './types';
 import {
   normalizeRepoRelativePath,
 } from './validate';
@@ -80,7 +83,14 @@ const rewireItems = (items: unknown, pathField: 'path' | 'file', warnings: strin
   });
 };
 
-const inventory = (entries: readonly ReleaseArchiveEntry[]): Record<string, unknown>[] => entries.toSorted(
+/**
+ * Create the sorted SHA-256 inventory shared by bundle layouts and replication.
+ * @param entries - Archive files with their intended installation roles.
+ * @returns A complete deployment-manifest inventory excluding the manifest itself.
+ */
+export const createReleaseManifestFileInventory = (
+  entries: readonly Pick<ReleaseArchiveEntry, 'path' | 'role' | 'bytes'>[]
+): ReleaseManifestFile[] => entries.toSorted(
   (a, b) => a.path < b.path ? -1 : (a.path > b.path ? 1 : 0)
 ).map((entry) => ({
   path: entry.path,
@@ -88,6 +98,8 @@ const inventory = (entries: readonly ReleaseArchiveEntry[]): Record<string, unkn
   size: entry.bytes.byteLength,
   sha256: `sha256:${createHash('sha256').update(entry.bytes).digest('hex')}`
 }));
+
+const inventory = createReleaseManifestFileInventory;
 
 /**
  *
