@@ -77,6 +77,27 @@ describe('ApmTransitionArchivePreparer', () => {
     expect(result.bytes).toEqual(archive);
   });
 
+  it('rejects an APM-ready archive when its candidate manifest version differs from the release', async () => {
+    const apmManifest = new TextEncoder().encode([
+      'name: sample-collection',
+      'version: 1.2.3',
+      'dependencies:',
+      '  apm: []',
+      '  mcp: []',
+      ''
+    ].join('\n'));
+    const archive = buildZip([
+      ...rootFiles,
+      { path: 'apm.yml', bytes: apmManifest },
+      { path: '.apm/instructions/sample.instructions.md', bytes: new TextEncoder().encode('Follow the sample rules.') }
+    ]);
+
+    await expect(preparer.prepare({
+      ...candidate,
+      manifest: { ...manifest, version: '9.9.9' }
+    }, archive)).rejects.toThrow(/mismatched release version/i);
+  });
+
   it('adds an APM manifest and .apm copies without removing APH files', async () => {
     const sourceArchive = buildZip(rootFiles);
     const result = await preparer.prepare(candidate, sourceArchive);
