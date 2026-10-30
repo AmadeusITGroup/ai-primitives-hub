@@ -65,6 +65,9 @@ import {
   TargetRemoveCommand,
 } from '../../src/commands/target-remove';
 import {
+  UninstallCommand,
+} from '../../src/commands/uninstall';
+import {
   UpdateCommand,
 } from '../../src/commands/update';
 import {
@@ -1230,6 +1233,14 @@ agents:
         env: { HOME: workspace, USERPROFILE: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'), XDG_CACHE_HOME: path.join(workspace, 'xdg-cache') }
       }
     });
+    const runAll = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
+      commandClasses: [...COMMAND_CLASSES, UpdateCommand, UninstallCommand],
+      context: {
+        cwd: workspace,
+        fs: new NodeFileSystem(),
+        env: { HOME: workspace, USERPROFILE: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'), XDG_CACHE_HOME: path.join(workspace, 'xdg-cache') }
+      }
+    });
 
     beforeEach(async () => {
       // Real paths, so the record root and the local source agree (macOS /var → /private/var).
@@ -1269,7 +1280,7 @@ agents:
       expect(await exists(path.join(workspace, 'ai-primitives-hub.local.lock.json'))).toBe(false);
     });
 
-    it('skips an entry with no mapped target and one whose local source is outside the repository, exit 0', async () => {
+    it('skips an entry with no mapped target and one whose local source is outside the repository; nothing processed, exit 1', async () => {
       expect((await runWithRemove(['target', 'remove', 'repo-kiro', '-o', 'json'])).exitCode).toBe(0);
       const record = await readRecord();
       record.sources.outside = { type: 'local', url: path.dirname(workspace) };
@@ -1278,7 +1289,7 @@ agents:
 
       const result = await run(['install', '--lockfile', recordPath(), '-o', 'json']);
 
-      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.exitCode, result.stdout).toBe(1);
       const { status, data } = parseJson<ReplayData>(result.stdout);
       expect(status).toBe('warning');
       expect(data.replayed).toEqual([]);
@@ -1291,17 +1302,47 @@ agents:
 
     it.each([
       ['install --lockfile <record>', ['install', '--lockfile', 'ai-primitives-hub.lock.json', '-o', 'json']],
-      ['bare install', ['install', '-o', 'json']]
-    ])('%s of a malformed record exits 1 with RECORD.MALFORMED and writes nothing', async (_name, argv) => {
+      ['bare install', ['install', '-o', 'json']],
+      ['update', ['update', '--no-hub-sync', '-o', 'json']],
+      ['uninstall --lockfile <record>', ['uninstall', '--lockfile', 'ai-primitives-hub.lock.json', '--target', 'repo-vscode', '-o', 'json']]
+    ])('%s of a malformed record exits 1 with RECORD.MALFORMED and changes nothing', async (_name, argv) => {
+      await mkdir(path.dirname(vscodePrompt()), { recursive: true });
+      await writeFile(vscodePrompt(), '# Kept\n');
       const text = '{ "version": "3.0.0", ';
       await writeFile(recordPath(), text);
 
-      const result = await run(argv);
+      const result = await runAll(argv);
 
       expect(result.exitCode).toBe(1);
       expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject({ code: 'RECORD.MALFORMED' });
-      expect(await exists(vscodePrompt())).toBe(false);
+      expect(await readFile(vscodePrompt(), 'utf8')).toBe('# Kept\n');
       expect(await readFile(recordPath(), 'utf8')).toBe(text);
+    });
+
+    it('bare install also replays bundles only in the old prompt-registry file and writes nothing about them to the record (BR10.1)', async () => {
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      const oldDir = path.join(workspace, 'old-bundle');
+      await mkdir(path.join(oldDir, 'prompts'), { recursive: true });
+      await writeFile(path.join(oldDir, 'deployment-manifest.yml'),
+        'id: old-only\nversion: 0.1.0\nname: Old Only\nprompts:\n  - id: old\n    file: prompts/old.prompt.md\n    type: prompt\n');
+      await writeFile(path.join(oldDir, 'prompts', 'old.prompt.md'), '# Old\n');
+      const oldEntry = (version: string) => ({ version, sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] });
+      const oldText = JSON.stringify({
+        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
+        bundles: { 'local-foo': oldEntry('0.9.0'), 'old-only': oldEntry('0.1.0') },
+        sources: { 'old-src': { type: 'local', url: oldDir } }
+      });
+      await writeFile(oldPath, oldText);
+
+      const result = await run(['install', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<ReplayData & { oldFile: { lockfile: string; replayed: string[]; target: string } }>(result.stdout);
+      expect(data.replayed.map((r) => `${r.bundleId}:${r.tool}`)).toEqual(['local-foo:vscode']);
+      expect(data.oldFile).toMatchObject({ lockfile: oldPath, replayed: ['old-only'], target: 'repo-vscode' });
+      expect(await exists(path.join(workspace, '.github', 'prompts', 'old.prompt.md'))).toBe(true);
+      expect(Object.keys((await readRecord()).bundles).toSorted()).toEqual(['legacy-bar', 'local-foo']);
+      expect(await readFile(oldPath, 'utf8')).toBe(oldText);
     });
   });
 });
