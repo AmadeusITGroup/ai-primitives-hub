@@ -8,6 +8,9 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  buildZip,
+} from '@ai-primitives-hub/infra';
+import {
   describe,
   expect,
   it,
@@ -55,7 +58,12 @@ profiles:
 
 class RecordingHttp implements HttpClient {
   public readonly requests: HttpRequest[] = [];
-  public constructor(private readonly unverifiedSuffix?: string, private readonly noncompliantRelease = false) {}
+  public constructor(
+    private readonly unverifiedSuffix?: string,
+    private readonly noncompliantRelease = false,
+    private readonly releaseArchive?: Uint8Array
+  ) {}
+
   public async fetch(request: HttpRequest): Promise<HttpResponse> {
     this.requests.push(request);
     if (request.url.startsWith('https://artifactory.example/')) {
@@ -79,7 +87,7 @@ class RecordingHttp implements HttpClient {
     } else if (request.url.endsWith('/assets/manifest')) {
       body = new TextEncoder().encode(manifest);
     } else {
-      body = new Uint8Array([80, 75, 3, 4]);
+      body = this.releaseArchive ?? new Uint8Array([80, 75, 3, 4]);
     }
     return { statusCode: 200, body, finalUrl: request.url, headers: {} };
   }
@@ -183,6 +191,59 @@ describe('hub replicate command', () => {
       `${base}/sources/replicated/index-v1.json`,
       `${base}/hub-config.yml`
     ]);
+    expect(ctx.stdout.captured()).not.toContain('publisher-token');
+  });
+
+  it('requires publication review before enabling temporary APM translation', async () => {
+    const http = new RecordingHttp();
+    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test' } });
+    const exitCode = await runCli([
+      'hub', 'replicate',
+      '--source-hub', 'owner/hub',
+      '--target-root', 'https://artifactory.example/replicated',
+      '--apm-transition',
+      '--output', 'json'
+    ], {
+      ctx, http, tokens: tokenProvider, commandClasses: [HubReplicateCommand], commands: [], name: 'ai-primitives-hub', version: 'test'
+    });
+
+    expect(exitCode).toBe(1);
+    expect(ctx.stderr.captured()).toContain('--apm-transition is temporary');
+    expect(http.requests).toHaveLength(0);
+  });
+
+  it('publishes APM-ready archives unchanged at Agent Packages coordinates', async () => {
+    const archive = buildZip([
+      { path: 'deployment-manifest.yml', bytes: new TextEncoder().encode(manifest) },
+      { path: 'apm.yml', bytes: new TextEncoder().encode('name: bundle\nversion: 1.0.0\ndependencies:\n  apm: []\n  mcp: []\nincludes: auto\n') },
+      { path: '.apm/instructions/test.instructions.md', bytes: new TextEncoder().encode('Test instructions') }
+    ]);
+    const http = new RecordingHttp(undefined, false, archive);
+    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test', ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
+    const exitCode = await runCli([
+      'hub', 'replicate',
+      '--source-hub', 'owner/hub',
+      '--target-root', 'https://artifactory.example/replicated',
+      '--output', 'json',
+      '--publish', '--review', '--apm-transition',
+      '--cache-dir', `/tmp/aph-apm-ready-${process.pid}-${Date.now()}`
+    ], {
+      ctx, http, tokens: tokenProvider, commandClasses: [HubReplicateCommand], commands: [], name: 'ai-primitives-hub', version: 'test'
+    });
+
+    expect(exitCode).toBe(2);
+    const base = 'https://artifactory.example/replicated';
+    const puts = http.requests.filter((request) => request.method === 'PUT');
+    expect(puts.map((request) => request.url)).toEqual([
+      `${base}/__CONFIG__/manifests/owner-repo-bundle/1.0.0/deployment-manifest.yml`,
+      `${base}/owner/bundle/bundle-1.0.0.zip`,
+      expect.stringMatching(/^https:\/\/artifactory\.example\/replicated\/__CONFIG__\/indexes\/[a-f0-9]{64}-index-v1\.json$/),
+      `${base}/__CONFIG__/index-v1.json`,
+      expect.stringMatching(/^https:\/\/artifactory\.example\/replicated\/__CONFIG__\/hub-config\/[a-f0-9]{64}-hub-config\.yml$/),
+      `${base}/__CONFIG__/hub-config.yml`
+    ]);
+    expect(puts[1]?.body).toEqual(archive);
+    expect(JSON.parse(ctx.stdout.captured()).data.transitionMode).toBe('temporary-apm');
     expect(ctx.stdout.captured()).not.toContain('publisher-token');
   });
 
