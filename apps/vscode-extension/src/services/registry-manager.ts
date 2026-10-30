@@ -131,9 +131,6 @@ import {
   LocalModificationWarningService,
 } from './local-modification-warning-service';
 import {
-  LockfileManager,
-} from './lockfile-manager';
-import {
   SourceTokenVault,
 } from './source-token-vault';
 import {
@@ -752,8 +749,7 @@ export class RegistryManager {
       return;
     }
 
-    const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-    const warningService = new LocalModificationWarningService(lockfileManager);
+    const warningService = new LocalModificationWarningService(this.recordAdapter, workspaceRoot);
 
     // Get bundle repository URL for "Contribute Changes" action
     const bundleRepoUrl = current.manifest?.metadata?.repository?.url
@@ -1580,7 +1576,7 @@ export class RegistryManager {
         // (`Record<string, unknown>`) than this extension's `McpServersManifest`
         // (see `listInstalledBundles`'s identical, already-documented cast above) —
         // the data itself is always this extension's own shape here too, since it
-        // only ever flows from `RegistryStorage`/`LockfileManager` above.
+        // only ever flows from `RegistryStorage` and the install record above.
         uninstall: (installedBundle) => this.installer.uninstall(installedBundle as InstalledBundle),
         uninstallSkillSymlink: (installedBundle) => this.installer.uninstallSkillSymlink(installedBundle as InstalledBundle),
         removeInstallation: (id, s) => this.storage.removeInstallation(id, s)
@@ -1684,7 +1680,7 @@ export class RegistryManager {
    *
    * Thin delegator to `@ai-primitives-hub/app`'s `listInstalledBundles`
    * — queries the appropriate source based on scope:
-   * - 'repository': Query the install records and LockfileManager (install record wins)
+   * - 'repository': Query the install records and the old lockfiles (install record wins)
    * - 'user' or 'workspace': Query RegistryStorage only
    * - undefined (no scope): Combine results from both sources
    *
@@ -1715,7 +1711,7 @@ export class RegistryManager {
     // pending a dedicated `domain/mcp` module (see that field's JSDoc in
     // `packages/core/src/domain/collection/types.ts`) — the data itself is
     // always this extension's own shape, since it only ever flows through
-    // `RegistryStorage`/`LockfileManager` above and back out.
+    // `RegistryStorage` and the install record above and back out.
     return bundles as InstalledBundle[];
   }
 

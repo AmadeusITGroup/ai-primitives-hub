@@ -1,16 +1,24 @@
 /**
  * RepositoryActivationService
  *
- * Handles detection of lockfiles on workspace open and prompts users to enable
- * repository bundles. Manages "Don't ask again" persistence and missing source/hub detection.
+ * On workspace open, lists the sources the repository's install records name
+ * and offers to add the ones not configured (W14; BR12.4, NFR4.14).
  *
- * Requirements covered:
- * - 13.1-13.7: Repository bundle activation prompt
- * - 12.4-12.5: Missing source/hub detection
- * - 13.6: Missing bundle installation
+ * Sources come from both 3.0.0 record files (through the record store) and
+ * the old `prompt-registry` lockfiles (through app's `json-lockfile-store`);
+ * hubs from the old lockfiles only. A `local` source whose folder resolves
+ * outside the repository root (app `isLocalSourceInsideRoot`) is skipped. A
+ * source's `credentialRef` is shown by name only, never resolved.
+ * Manages "Don't ask again" persistence.
  */
 
 import * as path from 'node:path';
+import {
+  isLocalSourceInsideRoot,
+} from '@ai-primitives-hub/app';
+import {
+  isRecordError,
+} from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
   RegistryStorage,
@@ -19,20 +27,17 @@ import {
   IBundleInstaller,
 } from '../types/bundle-installer';
 import {
-  Lockfile,
-} from '../types/lockfile';
-import {
   Logger,
 } from '../utils/logger';
 import {
   generateLegacyHubSourceId,
 } from '../utils/source-id-utils';
+import type {
+  ExtensionRecordAdapter,
+} from './extension-record-adapter';
 import {
   HubManager,
 } from './hub-manager';
-import {
-  LockfileManager,
-} from './lockfile-manager';
 import {
   SetupStateManager,
 } from './setup-state-manager';
@@ -46,31 +51,43 @@ export interface MissingSourcesResult {
   offeredToAdd: boolean;
 }
 
+/** A source an install record or old lockfile names. */
+export interface RepositorySourceEntry {
+  type: string;
+  url: string;
+  /** External credential reference; shown by name, never resolved. */
+  credentialRef?: string;
+}
+
+/** Sources and hubs the repository's records name (an old `Lockfile` fits this shape). */
+export interface RepositorySources {
+  sources: Record<string, RepositorySourceEntry>;
+  hubs?: Record<string, unknown>;
+}
+
 /**
  * RepositoryActivationService
  *
- * Detects lockfiles on workspace open and prompts users to enable repository bundles.
- * Uses a per-workspace instance pattern to properly handle workspace switches and
- * multi-root workspaces (similar to LockfileManager).
+ * Detects the repository's recorded sources on workspace open and offers to add missing ones.
+ * Uses a per-workspace instance pattern to handle workspace switches and multi-root workspaces.
  */
 export class RepositoryActivationService {
   private static readonly instances: Map<string, RepositoryActivationService> = new Map();
 
   /**
    * Get or create a RepositoryActivationService instance for a workspace.
-   * Supports multi-root workspaces by maintaining separate instances per workspace.
    * @param workspaceRoot - Path to the workspace root (required)
-   * @param lockfileManager - LockfileManager instance for the workspace
+   * @param records - The extension's record adapter
    * @param hubManager - HubManager instance
    * @param storage - RegistryStorage instance
    * @param bundleInstaller - Optional IBundleInstaller instance for bundle installation
    * @param setupStateManager - Optional SetupStateManager instance for checking setup completion
    * @returns RepositoryActivationService instance for the workspace
-   * @throws {Error} if workspaceRoot is not provided on first call
+   * @throws {Error} if workspaceRoot is not provided, or dependencies are missing on the first call
    */
   public static getInstance(
     workspaceRoot?: string,
-    lockfileManager?: LockfileManager,
+    records?: ExtensionRecordAdapter,
     hubManager?: HubManager,
     storage?: RegistryStorage,
     bundleInstaller?: IBundleInstaller,
@@ -80,16 +97,15 @@ export class RepositoryActivationService {
       throw new Error('Workspace root path required for RepositoryActivationService.getInstance()');
     }
 
-    // Normalize path for consistent key lookup
     const normalizedPath = path.normalize(workspaceRoot);
 
     if (!RepositoryActivationService.instances.has(normalizedPath)) {
-      if (!lockfileManager || !hubManager || !storage) {
+      if (!records || !hubManager || !storage) {
         throw new Error('Dependencies required on first call to RepositoryActivationService.getInstance() for a workspace');
       }
       RepositoryActivationService.instances.set(
         normalizedPath,
-        new RepositoryActivationService(lockfileManager, hubManager, storage, normalizedPath, bundleInstaller, setupStateManager)
+        new RepositoryActivationService(records, hubManager, storage, normalizedPath, bundleInstaller, setupStateManager)
       );
     }
     return RepositoryActivationService.instances.get(normalizedPath)!;
@@ -101,10 +117,8 @@ export class RepositoryActivationService {
    */
   public static resetInstance(workspaceRoot?: string): void {
     if (workspaceRoot) {
-      const normalizedPath = path.normalize(workspaceRoot);
-      RepositoryActivationService.instances.delete(normalizedPath);
+      RepositoryActivationService.instances.delete(path.normalize(workspaceRoot));
     } else {
-      // Reset all instances
       RepositoryActivationService.instances.clear();
     }
   }
@@ -116,7 +130,7 @@ export class RepositoryActivationService {
   private readonly setupStateManager?: SetupStateManager;
 
   constructor(
-    private readonly lockfileManager: LockfileManager,
+    private readonly records: ExtensionRecordAdapter,
     private readonly hubManager: HubManager,
     private readonly storage: RegistryStorage,
     workspaceRoot: string,
@@ -149,15 +163,6 @@ export class RepositoryActivationService {
   }
 
   /**
-   * Extract repository path from lockfile path
-   * @param lockfilePath - Full path to lockfile
-   * @returns Repository root path
-   */
-  private getRepositoryPath(lockfilePath: string): string {
-    return path.dirname(lockfilePath);
-  }
-
-  /**
    * Check if setup is complete before proceeding with source/hub detection.
    * Fail-open: if SetupStateManager is not available or throws, proceed with detection.
    */
@@ -175,44 +180,84 @@ export class RepositoryActivationService {
   }
 
   /**
-   * Check for lockfile and detect missing sources/hubs.
-   * Called on workspace open.
+   * Add a recorded source unless it is a `local` source outside the root (NFR4.14).
+   * @param into - Sources collected so far; the first occurrence of an id is kept.
+   * @param root - Root a `local` source's path is relative to.
+   * @param sources - Sources of one file.
+   */
+  private async collectSources(
+    into: Record<string, RepositorySourceEntry>,
+    root: string,
+    sources: Record<string, RepositorySourceEntry>
+  ): Promise<void> {
+    for (const [id, source] of Object.entries(sources)) {
+      if (Object.hasOwn(into, id)) {
+        continue;
+      }
+      if (source.type === 'local' && !(await isLocalSourceInsideRoot(this.records.fs, root, source.url))) {
+        this.logger.warn(`Skipping local source ${id}: its folder resolves outside ${root}`);
+        continue;
+      }
+      into[id] = source;
+    }
+  }
+
+  /**
+   * Sources of both record files and both old lockfiles, and hubs of the old lockfiles.
+   * A `RECORD.*` error in a record file is shown once and that file is skipped.
+   * @returns `undefined` when no record or old lockfile exists.
+   */
+  public async readRepositorySources(): Promise<RepositorySources | undefined> {
+    const result: Required<RepositorySources> = { sources: {}, hubs: {} };
+    let found = false;
+    for (const location of await this.records.locations(this.workspaceRoot)) {
+      try {
+        const { record, exists } = await this.records.store.load(location);
+        found ||= exists;
+        await this.collectSources(result.sources, location.root, record.sources as Record<string, RepositorySourceEntry>);
+      } catch (error) {
+        if (!isRecordError(error)) {
+          throw error;
+        }
+        this.records.showRecordError(error, [], location.root);
+      }
+    }
+    for (const old of await this.records.readOldLockfiles(this.workspaceRoot)) {
+      if (old.lock === null) {
+        continue;
+      }
+      found = true;
+      await this.collectSources(result.sources, this.workspaceRoot, old.lock.sources);
+      Object.assign(result.hubs, old.lock.hubs ?? {});
+    }
+    return found ? result : undefined;
+  }
+
+  /**
+   * Check the recorded sources on workspace open and offer to add the missing ones.
    *
    * Setup Timing: Detection is deferred until first-run setup is complete.
-   * This prevents confusing users with source configuration prompts before
-   * they've configured the extension. If SetupStateManager is unavailable,
-   * detection proceeds (fail-open behavior).
-   *
-   * Note: No longer shows activation prompt - files are already present in repository.
-   * Only checks for missing sources and hubs that need to be configured.
+   * If SetupStateManager is unavailable, detection proceeds (fail-open behavior).
    */
   public async checkAndPromptActivation(): Promise<void> {
     try {
-      // Check if setup is complete before proceeding
       if (!await this.isSetupComplete()) {
         this.logger.info('First-run setup not complete, deferring source/hub detection');
         return;
       }
 
-      // Check if lockfile exists
-      const lockfile = await this.lockfileManager.read();
-      if (!lockfile) {
-        this.logger.debug('No lockfile found, skipping source/hub detection');
+      const recorded = await this.readRepositorySources();
+      if (!recorded) {
+        this.logger.debug('No install record or lockfile found, skipping source/hub detection');
         return;
       }
 
-      // Check if this repository was previously declined
-      const lockfilePath = this.lockfileManager.getLockfilePath();
-      const repositoryPath = this.getRepositoryPath(lockfilePath);
-
-      if (await this.wasDeclined(repositoryPath)) {
-        this.logger.debug(`Repository ${repositoryPath} was previously declined`);
+      if (await this.wasDeclined(this.workspaceRoot)) {
+        this.logger.debug(`Repository ${this.workspaceRoot} was previously declined`);
         return;
       }
 
-      // No longer show activation prompt - files are already in repository
-      // Just check for missing sources and hubs
-      await this.checkAndOfferMissingSources(lockfile);
+      await this.checkAndOfferMissingSources(recorded);
     } catch (error) {
       this.logger.error('Failed to check and detect sources:', error instanceof Error ? error : undefined);
     }
@@ -220,10 +265,10 @@ export class RepositoryActivationService {
 
   /**
    * Check for missing sources and hubs, offer to add them
-   * @param lockfile - The lockfile to check
+   * @param recorded - Sources and hubs the repository's records name
    * @returns Result with missing sources/hubs and whether offer was made
    */
-  public async checkAndOfferMissingSources(lockfile: Lockfile): Promise<MissingSourcesResult> {
+  public async checkAndOfferMissingSources(recorded: RepositorySources): Promise<MissingSourcesResult> {
     const result: MissingSourcesResult = {
       missingSources: [],
       missingHubs: [],
@@ -231,13 +276,11 @@ export class RepositoryActivationService {
     };
 
     try {
-      // Get configured sources
       const configuredSources = await this.storage.getSources();
       const configuredSourceIds = new Set(configuredSources.map((s) => s.id));
 
       // @migration-cleanup(sourceId-normalization-v2): Remove legacy ID set once all lockfiles are migrated
-      // Build a set that also includes legacy IDs for each configured source,
-      // so lockfile entries written with old-format IDs are still recognized.
+      // Also accept legacy IDs of each configured source, so entries written with old-format IDs are recognized.
       const allKnownSourceIds = new Set(configuredSourceIds);
       for (const source of configuredSources) {
         const legacyId = generateLegacyHubSourceId(source.type, source.url, {
@@ -249,26 +292,26 @@ export class RepositoryActivationService {
         }
       }
 
-      // Check for missing sources (check both current and legacy IDs)
-      const lockfileSourceIds = Object.keys(lockfile.sources);
-      result.missingSources = lockfileSourceIds.filter((id) => !allKnownSourceIds.has(id));
+      result.missingSources = Object.keys(recorded.sources).filter((id) => !allKnownSourceIds.has(id));
 
-      // Check for missing hubs
-      if (lockfile.hubs) {
+      if (recorded.hubs) {
         const configuredHubs = await this.hubManager.listHubs();
         const configuredHubIds = new Set(configuredHubs.map((h) => h.id));
-
-        const lockfileHubIds = Object.keys(lockfile.hubs);
-        result.missingHubs = lockfileHubIds.filter((id) => !configuredHubIds.has(id));
+        result.missingHubs = Object.keys(recorded.hubs).filter((id) => !configuredHubIds.has(id));
       }
 
-      // Offer to add missing sources/hubs
       if (result.missingSources.length > 0 || result.missingHubs.length > 0) {
         const totalMissing = result.missingSources.length + result.missingHubs.length;
         const itemType = result.missingHubs.length > 0 ? 'sources and hubs' : 'sources';
+        const credentialRefs = result.missingSources
+          .map((id) => recorded.sources[id]?.credentialRef)
+          .filter((ref): ref is string => typeof ref === 'string' && ref !== '');
+        const credentialNote = credentialRefs.length === 0
+          ? ''
+          : ` They need these credentials: ${[...new Set(credentialRefs)].join(', ')}.`;
 
         const choice = await vscode.window.showInformationMessage(
-          `${totalMissing} ${itemType} from the lockfile are not configured. Would you like to add them?`,
+          `${totalMissing} ${itemType} from the install records are not configured.${credentialNote} Would you like to add them?`,
           'Add Sources',
           'Not now'
         );

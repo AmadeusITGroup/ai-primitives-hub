@@ -12,9 +12,6 @@ import {
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -135,12 +132,10 @@ suite('Cross-delivery: CLI install record listed by the extension', function () 
     const scopeSelectionUI = require('../../src/utils/scope-selection-ui');
     sandbox.stub(scopeSelectionUI, 'getWorkspaceRoot').returns(root);
     sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
-    LockfileManager.resetInstance();
   });
 
   teardown(() => {
     sandbox.restore();
-    LockfileManager.resetInstance();
     (RegistryManager as any).instance = undefined;
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
