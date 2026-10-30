@@ -2,6 +2,17 @@
 
 This document lists all VS Code commands provided by the AI Primitives Hub extension.
 
+## Hub governance validation (CLI)
+
+`ai-primitives-hub hub validate --governance [--config <path>] [--policy <path>] [--report-path <path>] [--check-sources] [--verbose] [-o <format>]`
+
+`--policy` and `--report-path` also enable governance. The output formats are
+text, json, yaml and ndjson; any error returns exit code 1, warnings alone 0.
+Add `--base-ref <commit> --head-ref <commit>` or `--scope-file <path>` for
+semantic source/profile scope (requires `--governance`). See
+[hub governance](../author-guide/validation.md#hub-governance-cli) and the
+[rule catalogue](../author-guide/rule-catalogue.md). No consumer workflow is included.
+
 ## Hub Replication (CLI)
 
 `ai-primitives-hub hub replicate --source-hub owner/repo --target-root https://artifactory.example/repo`

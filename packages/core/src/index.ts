@@ -50,6 +50,11 @@ export { default as ARTIFACTORY_SOURCE_INDEX_SCHEMA } from './public/schemas/art
 export { default as AGENT_PLUGIN_MANIFEST_SCHEMA } from './public/schemas/agent-plugins/1.0.0/plugin.schema.json';
 
 /**
+ * Schema for the optional consumer governance configuration (`hub-governance.yml`).
+ */
+export { default as HUB_GOVERNANCE_SCHEMA } from './public/schemas/hub-governance.schema.json';
+
+/**
  * Phase 1 scaffolding marker, kept until `infra`/`app`/`cli` each have real
  * code of their own to depend on instead of this placeholder re-export
  * chain (see those packages' `src/index.ts`) — removed in Phase 5 once
