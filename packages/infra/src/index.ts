@@ -11,6 +11,7 @@ export * from './adapters';
 export * from './artifactory';
 export * from './auth';
 export * from './clock';
+export * from './collection';
 export * from './downloaders';
 export * from './extractors';
 export * from './fs';

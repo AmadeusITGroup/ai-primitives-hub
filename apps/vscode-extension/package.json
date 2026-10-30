@@ -492,6 +492,84 @@
         "title": "Hub Config: Open Pull Request in Browser",
         "category": "AI Primitives Hub",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "promptregistry.contributeToCollection",
+        "title": "Contribute to Collection (Fork, Clone & Open Visual Editor)",
+        "category": "AI Primitives Hub",
+        "icon": "$(git-pull-request-create)"
+      },
+      {
+        "command": "promptregistry.openCollectionVisualEditor",
+        "title": "Open Collection in Visual Editor",
+        "category": "AI Primitives Hub",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "promptregistry.openCollectionYamlBeside",
+        "title": "Collection: Open Split YAML View",
+        "category": "AI Primitives Hub",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "promptregistry.createNewCollectionVisual",
+        "title": "Collection: Create New Collection (Visual)",
+        "category": "AI Primitives Hub",
+        "icon": "$(add)"
+      },
+      {
+        "command": "promptregistry.duplicateCollectionVisual",
+        "title": "Collection: Duplicate Collection",
+        "category": "AI Primitives Hub",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "promptregistry.deleteCollectionVisual",
+        "title": "Collection: Delete Collection",
+        "category": "AI Primitives Hub",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "promptregistry.addCollectionItemVisual",
+        "title": "Collection: Create or Add Primitive Item",
+        "category": "AI Primitives Hub",
+        "icon": "$(add)"
+      },
+      {
+        "command": "promptregistry.scaffoldMissingCollectionFile",
+        "title": "Collection: Create Missing Referenced File",
+        "category": "AI Primitives Hub",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "promptregistry.openCollectionItemFile",
+        "title": "Collection: Open Referenced Primitive File",
+        "category": "AI Primitives Hub",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "promptregistry.bumpCollectionVersion",
+        "title": "Collection: Bump Version (Patch / Minor / Major)",
+        "category": "AI Primitives Hub",
+        "icon": "$(versions)"
+      },
+      {
+        "command": "promptregistry.submitCollectionPullRequest",
+        "title": "Collection: Commit & Create Pull Request",
+        "category": "AI Primitives Hub",
+        "icon": "$(git-pull-request)"
+      },
+      {
+        "command": "promptregistry.refreshCollectionPullRequestStatus",
+        "title": "Collection: Refresh Pull Request Status",
+        "category": "AI Primitives Hub",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "promptregistry.openCollectionPullRequest",
+        "title": "Collection: Open Pull Request in Browser",
+        "category": "AI Primitives Hub",
+        "icon": "$(link-external)"
       }
     ],
     "customEditors": [
@@ -501,6 +579,16 @@
         "selector": [
           {
             "filenamePattern": "**/hub-config.{yml,yaml}"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "promptregistry.collectionEditor",
+        "displayName": "AI Primitives Hub Visual Collection Editor",
+        "selector": [
+          {
+            "filenamePattern": "**/*.collection.{yml,yaml}"
           }
         ],
         "priority": "option"
@@ -536,6 +624,13 @@
           "icon": "$(edit)",
           "contextualTitle": "Hub Configuration Editor",
           "when": "promptRegistry.hubWorkspaceActive || promptRegistry.activeHubContributable"
+        },
+        {
+          "id": "promptRegistryCollectionsTree",
+          "name": "Collections Editor",
+          "icon": "$(library)",
+          "contextualTitle": "Collections Editor",
+          "when": "promptRegistry.collectionWorkspaceActive || promptRegistry.activeCollectionEditorOpen"
         }
       ]
     },
@@ -547,6 +642,9 @@
         {
           "command": "promptregistry.contributeToHub",
           "when": "promptRegistry.activeHubContributable"
+        },
+        {
+          "command": "promptregistry.contributeToCollection"
         }
       ],
       "editor/title": [
@@ -563,6 +661,21 @@
         {
           "command": "promptregistry.submitHubPullRequest",
           "when": "resourceFilename =~ /^hub-config\\.ya?ml$/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "promptregistry.openCollectionVisualEditor",
+          "when": "resourceFilename =~ /\\.collection\\.ya?ml$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "promptRegistry.validateCollections",
+          "when": "resourceFilename =~ /\\.collection\\.ya?ml$/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "promptregistry.submitCollectionPullRequest",
+          "when": "resourceFilename =~ /\\.collection\\.ya?ml$/",
           "group": "navigation@3"
         }
       ],
@@ -626,9 +739,74 @@
           "command": "promptregistry.submitHubPullRequest",
           "when": "view == promptRegistryHubConfigTree",
           "group": "navigation@3"
+        },
+        {
+          "command": "promptregistry.createNewCollectionVisual",
+          "when": "view == promptRegistryCollectionsTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "promptRegistry.validateCollections",
+          "when": "view == promptRegistryCollectionsTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "promptregistry.submitCollectionPullRequest",
+          "when": "view == promptRegistryCollectionsTree",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
+        {
+          "command": "promptregistry.openCollectionPullRequest",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_pr_action",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptregistry.refreshCollectionPullRequestStatus",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_pr_action",
+          "group": "inline@2"
+        },
+        {
+          "command": "promptregistry.openCollectionVisualEditor",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_node",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptregistry.openCollectionYamlBeside",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_node",
+          "group": "inline@2"
+        },
+        {
+          "command": "promptregistry.addCollectionItemVisual",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_node",
+          "group": "inline@3"
+        },
+        {
+          "command": "promptregistry.duplicateCollectionVisual",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_node",
+          "group": "collectionActions@1"
+        },
+        {
+          "command": "promptregistry.deleteCollectionVisual",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_node",
+          "group": "collectionActions@2"
+        },
+        {
+          "command": "promptregistry.openCollectionItemFile",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_item",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptregistry.scaffoldMissingCollectionFile",
+          "when": "view == promptRegistryCollectionsTree && viewItem == collection_item_missing",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptregistry.contributeToCollection",
+          "when": "view == promptRegistryExplorer && (viewItem == installed_bundle || viewItem =~ /^installed_bundle_auto_disabled/ || viewItem =~ /^installed_bundle_auto_enabled/ || viewItem =~ /^installed_bundle_updatable_auto_disabled/ || viewItem =~ /^installed_bundle_updatable_auto_enabled/ || viewItem == bundle || viewItem == profile_bundle || viewItem == source)",
+          "group": "bundleActions@6"
+        },
         {
           "command": "promptregistry.openHubPullRequest",
           "when": "view == promptRegistryHubConfigTree && viewItem == hub_config_pr_action",
@@ -869,7 +1047,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "vscode:prepublish": "pnpm run compile",
-    "copy-webview": "cpy \"src/ui/webview/marketplace/*\" dist/webview/marketplace && cpy \"src/ui/webview/bundle-details/*\" dist/webview/bundle-details && cpy \"src/ui/webview/hub-config-editor/*\" dist/webview/hub-config-editor",
+    "copy-webview": "cpy \"src/ui/webview/marketplace/*\" dist/webview/marketplace && cpy \"src/ui/webview/bundle-details/*\" dist/webview/bundle-details && cpy \"src/ui/webview/hub-config-editor/*\" dist/webview/hub-config-editor && cpy \"src/ui/webview/collection-editor/*\" dist/webview/collection-editor",
     "copy-fonts": "cpy \"node_modules/@design-factory/styles/assets/fonts/amadeus-neue/**/*.woff2\" dist/webview/fonts/amadeus-neue && cpy \"node_modules/@design-factory/styles/assets/fonts/font-awesome/*.woff2\" dist/webview/fonts/font-awesome && cpy \"src/ui/webview/fonts/icons.css\" dist/webview/fonts --flat",
     "copy-skill-references": "cd ../.. && cpy docs/README.md apps/vscode-extension/resources/skills/prompt-registry-helper/references/docs-index.md && cpy \"docs/**\" \"!docs/README.md\" \"!docs/contributor-guide\" \"!docs/contributor-guide/**\" \"!docs/reference/adapter-api.md\" \"!docs/AGENTS.md\" apps/vscode-extension/resources/skills/prompt-registry-helper/references",
     "copy-schemas": "node scripts/package-helpers.js expand-schemas",

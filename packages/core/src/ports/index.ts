@@ -28,4 +28,5 @@ export * from './update-notifier';
 export * from './telemetry';
 export * from './primitive-diagnostics-driver';
 export * from './hub-contribution';
+export * from './collection-contribution';
 export * from './repository-exclusion';

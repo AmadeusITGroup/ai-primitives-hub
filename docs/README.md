@@ -47,6 +47,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Testing SSH Remote](contributor-guide/testing/ssh-remote.md)** — SSH testing
 - **[Validation](contributor-guide/validation.md)** — Local validation commands
 - **[Coding Standards](contributor-guide/coding-standards.md)** — Style guide
+- **[Visual Collection Editor Specification](contributor-guide/spec-collection-visual-editor.md)** — Visual collection authoring & GitHub PR workflow
 - **[Releasing](contributor-guide/releasing.md)** — Release process
 - **[Golden Path Test Cases](contributor-guide/testing/golden-path.md)** — The three mandatory manual scenarios, and the release gate
 - **[Full Test Plan](contributor-guide/testing/test-plan.md)** — All 19 plans, for area-by-area manual coverage

@@ -6,6 +6,22 @@ A **collection** groups prompts, instructions, chat modes, and agents around a r
 
 [Create a Source or an additional Bundle](./creating-source-bundle.md)
 
+## Visual Collection Editor & One-Click GitHub Collaboration
+
+You can create, edit, and contribute to collections visually without hand-editing YAML or frontmatter:
+
+1. **From a Marketplace Collection Tile or Registry Explorer Item**:
+   - Click the **✏️ Contribute / Edit Collection** button on any GitHub-backed collection card in the Marketplace (or in the Bundle Details panel), or right-click a bundle/source in the Registry Explorer and select **Contribute to Collection (Fork, Clone & Open Visual Editor)** (`promptregistry.contributeToCollection`).
+   - The extension verifies your GitHub account access, forks and clones the repository (or attaches to your local checkout), creates a feature branch from `upstream/<defaultBranch>`, and opens `collections/<collectionId>.collection.yml` in the **Visual Collection Editor**. *(Note: Artifactory sources are read-only promoted replicas and do not expose contribution actions.)*
+2. **Dedicated `Collections Editor` Sidebar View**:
+   - Opening any workspace with `collections/*.collection.yml` activates the **Collections Editor** view in the AI Primitives Hub sidebar, showing workspace-wide validation status, all detected collections, their items (with file existence badges), MCP servers/inputs, and active Pull Request status.
+3. **Visual CRUD & Friendly Primitive Content Editing**:
+   - Edit collection metadata, bump semantic versions (`+Patch`, `+Minor`, `+Major`), configure display preferences and `README.md`, manage MCP servers/inputs, and reorder or add items.
+   - Click **✨ + Create New Primitive** to scaffold a new `prompt`, `instruction`, `agent`, `skill`, `plugin`, or `hook` and link it to the collection in one click.
+   - Select any item to edit its YAML frontmatter (`name`, `description`, `applyTo`, `tools`, `model`) and Markdown body (or `plugin.json`) in a visual form, while keeping a synchronized **⇄ Split YAML View** open beside the editor.
+4. **Commit & Create Pull Request**:
+   - Click **🚀 Commit & Create PR** (`promptregistry.submitCollectionPullRequest`) to validate collections, stage all modified `.collection.yml` and primitive files, push to your fork, and open/track a Pull Request against the upstream repository.
+
 ## Project Structure
 
 ```

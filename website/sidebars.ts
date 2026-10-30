@@ -70,6 +70,7 @@ const sidebars: SidebarsConfig = {
         { type: "doc", id: "contributor-guide/validation", label: "Validation" },
         { type: "doc", id: "contributor-guide/coding-standards", label: "Coding Standards" },
         { type: "doc", id: "contributor-guide/spec-collection-scripts-lib", label: "Collection Scripts Spec" },
+        { type: "doc", id: "contributor-guide/spec-collection-visual-editor", label: "Collection Visual Editor Spec" },
         { type: "doc", id: "contributor-guide/releasing", label: "Releasing" },
       ],
     },

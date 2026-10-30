@@ -283,8 +283,8 @@ describe('GitWorkspaceAdapter & extractGitHubSlugFromRemoteUrl', () => {
         if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
           return Promise.resolve({ stdout: 'feat/hub-update\n', stderr: '' });
         }
-        if (args[0] === 'status' && args[1] === '--porcelain') {
-          return Promise.resolve({ stdout: ' M hub-config.yml\n', stderr: '' });
+        if (args[0] === 'status' && (args[1] === '--porcelain' || args[1] === '--porcelain=v1')) {
+          return Promise.resolve({ stdout: ' M hub-config.yml\0', stderr: '' });
         }
         if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
           return Promise.resolve({ stdout: 'deadbeef1234\n', stderr: '' });
