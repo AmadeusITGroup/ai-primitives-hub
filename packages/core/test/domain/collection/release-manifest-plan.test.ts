@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import {
   applyReleaseLayout,
+  createApmReleaseManifest,
 } from '../../../src/domain/collection/apm-release-plan';
 import {
   assertImmutableRevision,
@@ -112,6 +113,13 @@ const governedOptions = {
 };
 
 describe('APM release layout', () => {
+  it('omits optional metadata that is absent from the source manifest', () => {
+    const apmManifest = createApmReleaseManifest({ id: 'example', version: '1.2.3' });
+
+    expect(apmManifest).not.toHaveProperty('description');
+    expect(apmManifest).not.toHaveProperty('author');
+  });
+
   it('leaves the default plan and its bytes untouched', async () => {
     const plan = await createReleaseManifestPlan(governedOptions, createSources());
 
