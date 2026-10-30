@@ -218,23 +218,19 @@ describe('doctor/status/init/update commands', () => {
   });
 
   describe('status', () => {
-    it('reports empty state for a fresh workspace', async () => {
+    it('falls back to the user level with no record or lockfile (BR6.2)', async () => {
       const result = await run(['status', '-o', 'json']);
       expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{
-        configPath: string | null;
-        targets: unknown[];
-        activeHubId: string | null;
-        index: unknown;
-        lockfile: unknown;
-      }>(result.stdout);
+      const envelope = parseJson<Record<string, unknown>>(result.stdout);
       expect(envelope.data).toMatchObject({
         configPath: null,
         targets: [],
         activeHubId: null,
         index: null,
-        lockfile: null
+        level: 'user',
+        entries: []
       });
+      expect(envelope.data).not.toHaveProperty('lockfile');
     });
 
     it('reflects a configured target + installed bundle', async () => {
@@ -255,11 +251,12 @@ describe('doctor/status/init/update commands', () => {
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{
         targets: { name: string; type: string }[];
-        lockfile: { entries: number; bundles?: { bundleId: string }[] } | null;
+        level: string;
+        entries: { bundleId: string; version: string }[];
       }>(result.stdout);
       expect(envelope.data.targets).toContainEqual(expect.objectContaining({ name: 'copilot', type: 'copilot-cli' }));
-      expect(envelope.data.lockfile?.entries).toBe(1);
-      expect(envelope.data.lockfile?.bundles?.map((b) => b.bundleId)).toContain('local-foo');
+      expect(envelope.data.level).toBe('user');
+      expect(envelope.data.entries).toMatchObject([{ bundleId: 'local-foo', version: '1.0.0' }]);
     });
   });
 
@@ -540,7 +537,7 @@ profiles: []
         ctx,
         http,
         tokens: { getToken: async () => undefined },
-        commandClasses: [TargetAddCommand, TargetRemoveCommand, InstallCommand, UpdateCommand, SourceAddCommand],
+        commandClasses: [TargetAddCommand, TargetRemoveCommand, InstallCommand, UpdateCommand, SourceAddCommand, StatusCommand],
         commands: [],
         name: 'test',
         version: 'test'
@@ -693,6 +690,36 @@ profiles: []
 
       expect(result.exitCode, result.stdout).toBe(0);
       expect(await readFile(recordPath(), 'utf8')).toBe(record);
+    });
+
+    it('status -o json lists one row per (bundle, tool) and old-file-only bundles with their old path', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], GITHUB_SOURCE);
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeFile(oldPath, JSON.stringify({
+        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
+        bundles: {
+          'local-foo': { version: '0.9.0', sourceId: 's', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] },
+          'old-only': { version: '0.1.0', sourceId: 's', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] }
+        },
+        sources: { s: { type: 'local', url: bundleDir() } }
+      }));
+
+      const result = await runRecord(['status', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<Record<string, unknown>>(result.stdout);
+      expect(data).not.toHaveProperty('lockfile');
+      expect(data).toMatchObject({
+        level: 'repository',
+        records: [recordPath(), oldPath],
+        targets: [{ name: 'repo-vscode', type: 'vscode' }, { name: 'repo-kiro', type: 'kiro' }].map((t) => expect.objectContaining(t)),
+        entries: [
+          { bundleId: 'local-foo', tool: 'kiro', level: 'repository', version: '1.0.0', record: recordPath(), needsReinstall: false },
+          { bundleId: 'local-foo', tool: 'vscode', level: 'repository', version: '1.0.0', record: recordPath(), needsReinstall: false },
+          { bundleId: 'old-only', tool: 'unknown', level: 'repository', version: '0.1.0', record: oldPath, needsReinstall: false }
+        ]
+      });
+      expect(Object.keys(data)).toEqual(expect.arrayContaining(['configPath', 'userTargetsPath', 'activeHubId', 'hubs', 'index']));
     });
   });
 });
