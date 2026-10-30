@@ -371,4 +371,15 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.strictEqual(read(modified), 'edited by the user');
     assert.deepStrictEqual(Object.keys(toolsOf(RECORD_FILE, 'other-bundle')), ['vscode']);
   });
+
+  test('uninstall of a recorded bundle also retires an old prompt-registry entry for it', async () => {
+    await install(V1);
+    await writeOldEntry(BUNDLE_ID, { '.github/prompts/old.prompt.md': { content: 'old content' } });
+
+    await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+    assert.deepStrictEqual(toolsOf(), {});
+    assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the emptied old file is removed');
+    assert.ok(!fs.existsSync(abs('.github/prompts/old.prompt.md')), 'the old file is deleted');
+  });
 });

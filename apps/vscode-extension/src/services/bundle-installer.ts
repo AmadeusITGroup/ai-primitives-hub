@@ -630,6 +630,8 @@ export class BundleInstaller {
     if (!workspaceRoot) {
       throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
     }
+    // The source check runs before anything is written, MCP config included (BR11.1).
+    await this.records.buildSource(bundle.sourceId);
     let inPlace: RepositoryUpdateInPlace;
     try {
       const located = await this.records.findHostEntry(workspaceRoot, installed.bundleId);

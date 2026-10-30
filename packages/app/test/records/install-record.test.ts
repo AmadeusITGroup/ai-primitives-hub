@@ -738,22 +738,24 @@ describe('repository install record', () => {
       await expectCode(move(committed), 'RECORD.WRITE_FAILED');
       const both = [toolsIn(committed), toolsIn(localOnly)];
       const holding = await service.holdingLocation([committed, localOnly], BUNDLE, 'vscode');
+      const listedWhileInBoth = (await service.listEntries([localOnly, committed])).map((row) => `${row.tool}@${path.basename(row.record)}`);
       await build();
       await move(committed);
 
       expect(both).toEqual([['kiro', 'vscode'], ['vscode']]);
       expect(holding).toEqual(committed);
+      expect(listedWhileInBoth).toEqual(['kiro@ai-primitives-hub.lock.json', 'vscode@ai-primitives-hub.lock.json']);
       expect([toolsIn(committed), toolsIn(localOnly)]).toEqual([['kiro'], ['vscode']]);
       expect((await service.listEntries([committed, localOnly])).map((row) => `${row.tool}@${path.basename(row.record)}`))
         .toEqual(['kiro@ai-primitives-hub.lock.json', `vscode@${LOCAL_NAME}`]);
     });
 
-    it('remapSource rewrites sources and every sourceId in both files, sanitized, and is a no-op the second time', async () => {
+    it('remapSource rewrites sources and every sourceId and sourceType in both files, sanitized, and is a no-op the second time', async () => {
       await install('vscode', ['.github/prompts/a.prompt.md']);
       await install('kiro', ['.kiro/steering/a.md'], { location: localOnly });
       const input = {
         root, from: 'acme-github', to: 'acme-moved',
-        descriptor: { type: 'github', url: 'https://user:pass@github.com/acme/moved', branch: 'main', token: 'ghp_secret' }
+        descriptor: { type: 'skills', url: 'https://user:pass@github.com/acme/moved', branch: 'main', token: 'ghp_secret' }
       };
 
       const first = await service.remapSource(input);
@@ -762,8 +764,9 @@ describe('repository install record', () => {
 
       expect(first).toEqual({ changed: [committed, localOnly], warnings: [] });
       for (const [location, tool] of [[committed, 'vscode'], [localOnly, 'kiro']] as const) {
-        expect(read(location).sources).toEqual({ 'acme-moved': { type: 'github', url: 'https://github.com/acme/moved', branch: 'main' } });
+        expect(read(location).sources).toEqual({ 'acme-moved': { type: 'skills', url: 'https://github.com/acme/moved', branch: 'main' } });
         expect(read(location).bundles[BUNDLE].tools[tool].sourceId).toBe('acme-moved');
+        expect(read(location).bundles[BUNDLE].tools[tool].sourceType).toBe('skills');
       }
       expect(second).toEqual({ changed: [], warnings: [] });
       expect([fs.readFileSync(committed.path, 'utf8'), fs.readFileSync(localOnly.path, 'utf8')]).toEqual(bytes);

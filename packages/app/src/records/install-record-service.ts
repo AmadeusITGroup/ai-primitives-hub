@@ -271,14 +271,19 @@ const remapInRecord = (record: InstallRecord, from: string, to: string, source: 
     return false;
   }
   let changed = false;
-  if (from !== to) {
-    for (const bundle of Object.values(record.bundles)) {
-      for (const entry of Object.values(bundle.tools)) {
-        if (entry.sourceId === from) {
-          entry.sourceId = to;
-        }
+  for (const bundle of Object.values(record.bundles)) {
+    for (const entry of Object.values(bundle.tools)) {
+      if (entry.sourceId !== from && entry.sourceId !== to) {
+        continue;
       }
+      if (entry.sourceId !== to || entry.sourceType !== source.type) {
+        changed = true;
+      }
+      entry.sourceId = to;
+      entry.sourceType = source.type;
     }
+  }
+  if (from !== to) {
     delete record.sources[from];
     changed = true;
   }
@@ -664,8 +669,8 @@ export class InstallRecordService {
 
   /**
    * Move one tool's entry, unchanged, between the committed and the local-only
-   * repository file. The target is saved first; a failed second save leaves
-   * the entry in both files until the next move or install.
+   * repository file. The target is saved first and its copy is overwritten, so
+   * a move interrupted between the two saves is repaired by the next one.
    * @param input - The file holding the entry, the bundle id and the tool.
    * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` or `RECORD.MALFORMED`, or any `RECORD.*` load or save error.
    */
@@ -700,8 +705,9 @@ export class InstallRecordService {
   }
 
   /**
-   * Rewrite a source id in both repository files at a root. Both files load
-   * before anything is saved, and running it again is a no-op.
+   * Rewrite a source id, and the matching entries' `sourceType`, in both
+   * repository files at a root. Both files load before anything is saved, and
+   * running it again is a no-op.
    * @param input - Root, the two ids and the source fields for `to`.
    * @throws {RegistryError} `RECORD.MALFORMED` for a bad id or source, or any `RECORD.*` load or save error.
    */
@@ -730,27 +736,37 @@ export class InstallRecordService {
 
   /**
    * One status row per (bundle, tool) entry of the given record files, sorted.
+   * An entry in both repository files at one root is listed once.
    * @param locations - Record files to list.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async listEntries(locations: readonly RecordLocation[]): Promise<StatusRow[]> {
-    const rows: StatusRow[] = [];
+    const rows = new Map<string, { row: StatusRow; committed: boolean }>();
     for (const location of locations) {
       const { record } = await this.store.load(location);
+      const committed = location.commitMode !== 'local-only';
       for (const [bundleId, bundle] of Object.entries(record.bundles)) {
         for (const [tool, entry] of Object.entries(bundle.tools)) {
-          rows.push({
-            bundleId,
-            tool,
-            level: location.level,
-            version: entry.version,
-            record: location.path,
-            needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true
+          const key = JSON.stringify([location.level, location.root, bundleId, tool]);
+          const existing = rows.get(key);
+          if (existing !== undefined && (existing.committed || !committed)) {
+            continue;
+          }
+          rows.set(key, {
+            committed,
+            row: {
+              bundleId,
+              tool,
+              level: location.level,
+              version: entry.version,
+              record: location.path,
+              needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true
+            }
           });
         }
       }
     }
-    return rows.toSorted((left, right) =>
+    return [...rows.values()].map(({ row }) => row).toSorted((left, right) =>
       compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool) || compareCodeUnits(left.record, right.record));
   }
 

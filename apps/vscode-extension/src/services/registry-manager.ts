@@ -38,6 +38,10 @@ import type {
   BundleProvider,
   PrimitiveIndexKey,
   ProfileBundleSyncResult,
+  RegistryError,
+} from '@ai-primitives-hub/core';
+import {
+  isRecordError,
 } from '@ai-primitives-hub/core';
 import {
   BlobCache,
@@ -202,6 +206,28 @@ function createFallbackBundleProvider(
       : primary.readFile(ref, relPath)
   };
 }
+
+/**
+ * The one warning of a batch uninstall stopped by a `RECORD.*` error (BR12.5),
+ * worded like stale cleanup's.
+ * @param failure - The item whose error stopped the batch.
+ * @param failure.id - Its bundle id.
+ * @param failure.error - The error; its `context.file` is named.
+ * @param done - Ids uninstalled before the stop.
+ * @param skipped - Ids refused because another tool's entry holds them.
+ * @param notAttempted - Ids never started.
+ */
+const batchUninstallStoppedMessage = (
+  failure: { id: string; error: RegistryError },
+  done: readonly string[],
+  skipped: readonly string[],
+  notAttempted: readonly string[]
+): string => {
+  const file = typeof failure.error.context?.file === 'string' ? ` in ${failure.error.context.file}` : '';
+  const list = (ids: readonly string[]): string => (ids.length === 0 ? 'none' : ids.join(', '));
+  return `Uninstall stopped at ${failure.id}: ${failure.error.code}${file}. Uninstalled: ${list(done)}. `
+    + `Skipped (installed for another tool): ${list(skipped)}. Not attempted: ${list(notAttempted)}.`;
+};
 
 /**
  * Registry Manager
@@ -1590,43 +1616,57 @@ export class RegistryManager {
   }
 
   /**
-   * Uninstall multiple bundles in parallel
+   * Uninstall multiple bundles in parallel. Repository bundles share the
+   * install-record files, so they are uninstalled one at a time; the batch
+   * stops at the first `RECORD.*` error and one warning names the done,
+   * skipped (another tool's) and not-attempted ids and the error's file (BR12.5).
    * @param bundleIds
    * @param scope
    */
   public async uninstallBundles(bundleIds: string[], scope: InstallationScope = 'user'): Promise<void> {
     const uninstalled: string[] = [];
     const refused: string[] = [];
-    const CONCURRENCY_LIMIT = CONCURRENCY_CONSTANTS.REGISTRY_BATCH_LIMIT;
+    let recordFailure: { id: string; error: RegistryError } | undefined;
+    const CONCURRENCY_LIMIT = scope === 'repository' ? 1 : CONCURRENCY_CONSTANTS.REGISTRY_BATCH_LIMIT;
 
     this.logger.info(`Batch uninstalling ${bundleIds.length} bundles...`);
 
-    for (let i = 0; i < bundleIds.length; i += CONCURRENCY_LIMIT) {
-      const chunk = bundleIds.slice(i, i + CONCURRENCY_LIMIT);
+    const uninstallOne = async (id: string): Promise<{ id: string; error?: unknown }> => {
+      try {
+        await this.uninstallBundle(id, scope, true);
+        return { id };
+      } catch (error) {
+        return { id, error };
+      }
+    };
 
-      const results = await Promise.all(chunk.map(async (id) => {
-        try {
-          await this.uninstallBundle(id, scope, true);
-          return id;
-        } catch (error) {
-          if (isCliManagedError(error)) {
-            this.logger.warn(`Skipped uninstalling bundle ${id}: ${error.message}`);
-            refused.push(id);
-            return null;
-          }
+    let next = 0;
+    while (next < bundleIds.length && recordFailure === undefined) {
+      const chunk = bundleIds.slice(next, next + CONCURRENCY_LIMIT);
+      next += chunk.length;
+
+      for (const { id, error } of await Promise.all(chunk.map((bundleId) => uninstallOne(bundleId)))) {
+        if (error === undefined) {
+          uninstalled.push(id);
+        } else if (isCliManagedError(error)) {
+          this.logger.warn(`Skipped uninstalling bundle ${id}: ${error.message}`);
+          refused.push(id);
+        } else {
           this.logger.error(`Failed to uninstall bundle ${id}`, error as Error);
-          return null;
-        }
-      }));
-
-      for (const result of results) {
-        if (result) {
-          uninstalled.push(result);
+          if (isRecordError(error)) {
+            recordFailure ??= { id, error };
+          }
         }
       }
     }
 
-    showCliManagedBatchWarning(refused, 'uninstall');
+    if (recordFailure === undefined) {
+      showCliManagedBatchWarning(refused, 'uninstall');
+    } else {
+      // Shown once with "Open file", then what the stopped batch did (BR12.5).
+      this.recordAdapter.showRecordError(recordFailure.error);
+      void vscode.window.showWarningMessage(batchUninstallStoppedMessage(recordFailure, uninstalled, refused, bundleIds.slice(next)));
+    }
 
     if (uninstalled.length > 0) {
       this._onBundlesUninstalled.fire(uninstalled);
