@@ -102,8 +102,8 @@ export function createApmReleaseManifest(manifest: Record<string, unknown>): Rec
   return {
     name: manifest.id,
     version: manifest.version,
-    description: manifest.description,
-    author: manifest.author,
+    ...(manifest.description === undefined ? {} : { description: manifest.description }),
+    ...(manifest.author === undefined ? {} : { author: manifest.author }),
     ...(manifest.license === undefined ? {} : { license: manifest.license }),
     ...(manifest.repository === undefined ? {} : { repository: manifest.repository }),
     ...(manifest.tags === undefined ? {} : { tags: manifest.tags }),
