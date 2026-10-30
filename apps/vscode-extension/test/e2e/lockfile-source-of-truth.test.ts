@@ -23,9 +23,6 @@ import {
   BundleCommands,
 } from '../../src/commands/bundle-commands';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RepositoryCommitMode,
 } from '../../src/types/registry';
 import {
@@ -62,8 +59,18 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
     baseVersion: '1.0.0'
   };
 
+  /** Old `prompt-registry` lockfile; still read, written by hand here. */
   const LOCKFILE_NAME = 'prompt-registry.lock.json';
+  /** Install record the extension writes. */
+  const RECORD_FILE_NAME = 'ai-primitives-hub.lock.json';
+  const HOST_TOOL = 'vscode';
   const GITHUB_PROMPTS_DIR = '.github/prompts';
+
+  /**
+   * Read a JSON file of the workspace.
+   * @param fileName - Workspace-relative file.
+   */
+  const readJson = (fileName: string): any => JSON.parse(fs.readFileSync(path.join(workspaceRoot, fileName), 'utf8'));
 
   // Compute bundle ID using shared helper
   const BUNDLE_ID = computeBundleId(TEST_CONFIG, TEST_CONFIG.baseVersion || '1.0.0');
@@ -177,7 +184,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
   teardown(async function () {
     this.timeout(10_000);
-    LockfileManager.resetInstance();
     await testContext.cleanup();
     sandbox.restore();
     cleanupReleaseMocks();
@@ -201,17 +207,16 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
         scope: 'repository', commitMode: 'commit', version: '1.0.0'
       });
 
-      // Verify lockfile was created
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist after installation');
+      // Verify the install record was created
+      assert.ok(fs.existsSync(path.join(workspaceRoot, RECORD_FILE_NAME)), 'Install record should exist after installation');
 
-      // Read lockfile directly to get the actual bundle ID
-      const lockfileContent = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      // Read the record directly to get the actual bundle ID
+      const lockfileContent = readJson(RECORD_FILE_NAME);
       const lockfileBundleIds = Object.keys(lockfileContent.bundles);
-      assert.ok(lockfileBundleIds.length > 0, 'Lockfile should have at least one bundle');
+      assert.ok(lockfileBundleIds.length > 0, 'Install record should have at least one bundle');
 
       const actualBundleId = lockfileBundleIds[0];
-      const lockfileEntry = lockfileContent.bundles[actualBundleId];
+      const lockfileEntry = lockfileContent.bundles[actualBundleId].tools[HOST_TOOL];
 
       // Query repository bundles via listInstalledBundles
       const installedBundles = await testContext.registryManager.listInstalledBundles('repository');
@@ -241,10 +246,8 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
         scope: 'repository', commitMode: 'commit', version: '1.0.0'
       });
 
-      // Get the actual bundle ID from lockfile
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      const lockfileContent = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
-      const actualBundleId = Object.keys(lockfileContent.bundles)[0];
+      // Get the actual bundle ID from the install record
+      const actualBundleId = Object.keys(readJson(RECORD_FILE_NAME).bundles)[0];
 
       // Query all bundles (no scope filter)
       const allBundles = await testContext.registryManager.listInstalledBundles();
@@ -330,8 +333,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-      // Reset LockfileManager to pick up the new lockfile
-      LockfileManager.resetInstance();
 
       // Query repository bundles
       const installedBundles = await testContext.registryManager.listInstalledBundles('repository');
@@ -360,9 +361,8 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
         scope: 'repository', commitMode: 'commit', version: '1.0.0'
       });
 
-      // Verify lockfile was created
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist after installation');
+      // Verify the install record was created
+      assert.ok(fs.existsSync(path.join(workspaceRoot, RECORD_FILE_NAME)), 'Install record should exist after installation');
 
       // Verify RegistryStorage was NOT modified
       const storageBundlesAfter = await testContext.storage.getInstalledBundles('user');
@@ -435,12 +435,8 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-      // Reset LockfileManager to pick up the new lockfile
-      LockfileManager.resetInstance();
-
       // Verify initial state - should have 2 bundles, one with missing files
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const bundlesBefore = await lockfileManager.getInstalledBundles();
+      const bundlesBefore = await testContext.registryManager.listInstalledBundles('repository');
       assert.strictEqual(bundlesBefore.length, 2, 'Should have 2 bundles initially');
 
       const staleBundle = bundlesBefore.find((b) => b.bundleId === staleBundleId);
@@ -466,16 +462,10 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       // Verify confirmation dialog was shown
       assert.ok(showWarningMessageStub.called, 'Should show confirmation dialog');
 
-      // Verify stale entry was removed from lockfile
-      LockfileManager.resetInstance();
-      const lockfileManagerAfter = LockfileManager.getInstance(workspaceRoot);
-      const bundlesAfter = await lockfileManagerAfter.getInstalledBundles();
+      // Verify stale entry was removed from the old lockfile
+      const bundlesAfter = Object.keys(readJson(LOCKFILE_NAME).bundles);
 
-      assert.strictEqual(bundlesAfter.length, 1, 'Should have 1 bundle after cleanup');
-      assert.strictEqual(bundlesAfter[0].bundleId, validBundleId, 'Valid bundle should remain');
-
-      const staleBundleAfter = bundlesAfter.find((b) => b.bundleId === staleBundleId);
-      assert.ok(!staleBundleAfter, 'Stale bundle should be removed');
+      assert.deepStrictEqual(bundlesAfter, [validBundleId], 'Only the valid bundle should remain after cleanup');
     });
 
     test('Requirement 3.4: Cleanup command shows info message when no stale entries', async function () {
@@ -517,8 +507,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-      // Reset LockfileManager
-      LockfileManager.resetInstance();
 
       // Stub the info message
       const showInfoMessageStub = sandbox.stub(vscode.window, 'showInformationMessage');
@@ -572,8 +560,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       // Don't create the files (making the bundle stale)
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-      // Reset LockfileManager
-      LockfileManager.resetInstance();
 
       // Stub the confirmation dialog to cancel
       const showWarningMessageStub = sandbox.stub(vscode.window, 'showWarningMessage');
@@ -584,12 +570,7 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       await bundleCommands.cleanupStaleLockfileEntries();
 
       // Verify stale entry was NOT removed (user cancelled)
-      LockfileManager.resetInstance();
-      const lockfileManagerAfter = LockfileManager.getInstance(workspaceRoot);
-      const bundlesAfter = await lockfileManagerAfter.getInstalledBundles();
-
-      assert.strictEqual(bundlesAfter.length, 1, 'Bundle should still exist after cancellation');
-      assert.strictEqual(bundlesAfter[0].bundleId, staleBundleId, 'Stale bundle should remain');
+      assert.deepStrictEqual(Object.keys(readJson(LOCKFILE_NAME).bundles), [staleBundleId], 'Stale bundle should remain after cancellation');
     });
   });
 
@@ -602,7 +583,7 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
      * - 3.2: onLockfileUpdated event fires with null
      * - 3.4: Complete uninstall workflow verification
      */
-    test('Requirement 3.1, 3.2, 3.4: Uninstalling last bundle deletes lockfile and fires event with null', async function () {
+    test('Requirement 3.1, 3.4: Uninstalling last bundle deletes the install record', async function () {
       this.timeout(60_000);
 
       const { bundle } = await setupSourceAndGetBundle('uninstall-last-source', 'uninstall-last-test');
@@ -612,41 +593,19 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
         scope: 'repository', commitMode: 'commit', version: '1.0.0'
       });
 
-      // Verify lockfile exists after installation
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist after installation');
+      // Verify the install record exists after installation
+      const recordPath = path.join(workspaceRoot, RECORD_FILE_NAME);
+      assert.ok(fs.existsSync(recordPath), 'Install record should exist after installation');
 
-      // Verify this is the only bundle in the lockfile
-      const lockfileBefore = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
-      const bundleCount = Object.keys(lockfileBefore.bundles).length;
-      assert.strictEqual(bundleCount, 1, 'Should have exactly one bundle in lockfile');
+      // Verify this is the only bundle in the record
+      const bundleIds = Object.keys(readJson(RECORD_FILE_NAME).bundles);
+      assert.strictEqual(bundleIds.length, 1, 'Should have exactly one bundle in the install record');
 
-      // Get the actual bundle ID from the lockfile
-      const actualBundleId = Object.keys(lockfileBefore.bundles)[0];
+      // Uninstall the bundle
+      await testContext.registryManager.uninstallBundle(bundleIds[0], 'repository');
 
-      // Set up event listener to capture onLockfileUpdated event
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      let eventFired = false;
-      let eventPayload: any = 'not-fired';
-
-      const disposable = lockfileManager.onLockfileUpdated((lockfile) => {
-        eventFired = true;
-        eventPayload = lockfile;
-      });
-
-      try {
-        // Uninstall the bundle
-        await testContext.registryManager.uninstallBundle(actualBundleId, 'repository');
-
-        // Verify lockfile is deleted
-        assert.ok(!fs.existsSync(lockfilePath), 'Lockfile should be deleted when last bundle is uninstalled');
-
-        // Verify onLockfileUpdated event fired with null
-        assert.ok(eventFired, 'onLockfileUpdated event should fire');
-        assert.strictEqual(eventPayload, null, 'onLockfileUpdated event should fire with null when lockfile is deleted');
-      } finally {
-        disposable.dispose();
-      }
+      // Verify the record is deleted
+      assert.ok(!fs.existsSync(recordPath), 'Install record should be deleted when last bundle is uninstalled');
     });
 
     /**
@@ -690,11 +649,11 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       );
       await installBundleOrSkip(this, bundle2.id, { scope: 'repository', commitMode: 'commit', version: '1.0.0' });
 
-      // Verify lockfile has two bundles
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist');
+      // Verify the install record has two bundles
+      const lockfilePath = path.join(workspaceRoot, RECORD_FILE_NAME);
+      assert.ok(fs.existsSync(lockfilePath), 'Install record should exist');
 
-      const lockfileBefore = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfileBefore = readJson(RECORD_FILE_NAME);
       const bundleIdsBefore = Object.keys(lockfileBefore.bundles);
       assert.strictEqual(bundleIdsBefore.length, 2, 'Should have two bundles in lockfile');
 
@@ -708,21 +667,19 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       await testContext.registryManager.uninstallBundle(actualBundleId1, 'repository');
 
       // Verify lockfile still exists
-      assert.ok(fs.existsSync(lockfilePath), 'Lockfile should still exist after partial uninstall');
+      assert.ok(fs.existsSync(lockfilePath), 'Install record should still exist after partial uninstall');
 
-      // Verify second bundle remains in lockfile
-      LockfileManager.resetInstance();
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const lockfileAfter = await lockfileManager.read();
+      // Verify second bundle remains in the install record
+      const lockfileAfter = readJson(RECORD_FILE_NAME);
 
-      assert.ok(lockfileAfter, 'Lockfile should exist');
+      assert.ok(lockfileAfter, 'Install record should exist');
       const bundleIdsAfter = Object.keys(lockfileAfter.bundles);
-      assert.strictEqual(bundleIdsAfter.length, 1, 'Should have one bundle remaining in lockfile');
-      assert.ok(bundleIdsAfter.includes(actualBundleId2), 'Bundle-2 should remain in lockfile');
-      assert.ok(!bundleIdsAfter.includes(actualBundleId1), 'Bundle-1 should be removed from lockfile');
+      assert.strictEqual(bundleIdsAfter.length, 1, 'Should have one bundle remaining in the install record');
+      assert.ok(bundleIdsAfter.includes(actualBundleId2), 'Bundle-2 should remain in the install record');
+      assert.ok(!bundleIdsAfter.includes(actualBundleId1), 'Bundle-1 should be removed from the install record');
 
       // Verify bundle-2 data is intact
-      const remainingBundle = lockfileAfter.bundles[actualBundleId2];
+      const remainingBundle = lockfileAfter.bundles[actualBundleId2].tools[HOST_TOOL];
       assert.strictEqual(remainingBundle.version, '1.0.0', 'Remaining bundle version should be intact');
       assert.strictEqual(remainingBundle.sourceId, sourceId2, 'Remaining bundle sourceId should be intact');
     });
@@ -792,8 +749,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-      // Reset LockfileManager to pick up the new lockfile
-      LockfileManager.resetInstance();
 
       // Query repository bundles - this simulates a different user with different hub config
       // The lockfile should work regardless of what hubs the user has configured
@@ -895,8 +850,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-      // Reset LockfileManager
-      LockfileManager.resetInstance();
 
       // Query repository bundles - legacy format should still work
       const installedBundles = await testContext.registryManager.listInstalledBundles('repository');
@@ -985,8 +938,6 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
 
-      // Reset LockfileManager
-      LockfileManager.resetInstance();
 
       // Query repository bundles
       const installedBundles = await testContext.registryManager.listInstalledBundles('repository');

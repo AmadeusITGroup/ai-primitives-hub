@@ -16,9 +16,6 @@ import {
   BundleScopeCommands,
 } from '../../src/commands/bundle-scope-commands';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -45,7 +42,6 @@ suite('BundleScopeCommands', () => {
   let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
   let mockScopeConflictResolver: sinon.SinonStubbedInstance<ScopeConflictResolver>;
   let mockRepositoryScopeService: sinon.SinonStubbedInstance<RepositoryScopeService>;
-  let mockLockfileManager: sinon.SinonStubbedInstance<LockfileManager>;
   let mockShowInformationMessage: sinon.SinonStub;
   let mockShowWarningMessage: sinon.SinonStub;
   let mockShowErrorMessage: sinon.SinonStub;
@@ -76,7 +72,6 @@ suite('BundleScopeCommands', () => {
     mockStorage = sandbox.createStubInstance(RegistryStorage);
     mockScopeConflictResolver = sandbox.createStubInstance(ScopeConflictResolver);
     mockRepositoryScopeService = sandbox.createStubInstance(RepositoryScopeService);
-    mockLockfileManager = sandbox.createStubInstance(LockfileManager);
 
     // Setup VS Code mocks
     mockShowInformationMessage = sandbox.stub(vscode.window, 'showInformationMessage');
@@ -88,11 +83,8 @@ suite('BundleScopeCommands', () => {
     mockWorkspaceFolders = [{ uri: vscode.Uri.file('/mock/workspace'), name: 'workspace', index: 0 }];
     sandbox.stub(vscode.workspace, 'workspaceFolders').get(() => mockWorkspaceFolders);
 
-    // Setup LockfileManager.getInstance to return our mock
-    sandbox.stub(LockfileManager, 'getInstance').returns(mockLockfileManager);
-    mockLockfileManager.updateCommitMode.resolves();
-
-    // Setup default behaviors
+    // Setup default behaviors: no repository listing entries, so lookups fall back to storage
+    mockRegistryManager.listRepositoryBundles.resolves([]);
     mockRegistryManager.getStorage.returns(mockStorage);
     mockRegistryManager.getBundleName.resolves(testBundleName);
     mockWithProgress.callsFake(async (_options: any, callback: any) => {

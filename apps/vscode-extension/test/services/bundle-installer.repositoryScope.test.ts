@@ -18,9 +18,6 @@ import {
   BundleInstaller,
 } from '../../src/services/bundle-installer';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RepositoryScopeService,
 } from '../../src/services/repository-scope-service';
 import {
@@ -39,6 +36,7 @@ import {
 import {
   BundleBuilder,
   createMockInstalledBundle,
+  TEST_SOURCE_IDS,
 } from '../helpers/bundle-test-helpers';
 
 suite('BundleInstaller - Repository Scope', () => {
@@ -46,7 +44,6 @@ suite('BundleInstaller - Repository Scope', () => {
   let installer: BundleInstaller;
   let mockContext: vscode.ExtensionContext;
   let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
-  let mockLockfileManager: sinon.SinonStubbedInstance<LockfileManager>;
   let mockRepositoryScopeService: sinon.SinonStubbedInstance<RepositoryScopeService>;
   let mockUserScopeService: sinon.SinonStubbedInstance<UserScopeService>;
   let tempDir: string;
@@ -91,18 +88,10 @@ suite('BundleInstaller - Repository Scope', () => {
     mockStorage.getInstalledBundle.resolves(undefined);
     mockStorage.recordInstallation.resolves();
     mockStorage.removeInstallation.resolves();
-
-    // Create mock LockfileManager
-    mockLockfileManager = {
-      createOrUpdate: sandbox.stub().resolves(),
-      remove: sandbox.stub().resolves(),
-      read: sandbox.stub().resolves(null),
-      validate: sandbox.stub().resolves({ valid: true, errors: [], warnings: [] }),
-      detectModifiedFiles: sandbox.stub().resolves([]),
-      getLockfilePath: sandbox.stub().returns(path.join(tempDir, 'prompt-registry.lock.json')),
-      onLockfileUpdated: new vscode.EventEmitter().event,
-      dispose: sandbox.stub()
-    } as any;
+    // Repository installs record the configured source (NFR4.15).
+    mockStorage.getSources.resolves([
+      { id: TEST_SOURCE_IDS.GITHUB, name: 'GitHub', type: 'github', url: 'https://github.com/test-owner/test-repo', enabled: true, priority: 0 }
+    ] as any);
 
     // Create mock scope services
     mockRepositoryScopeService = {
@@ -128,15 +117,13 @@ suite('BundleInstaller - Repository Scope', () => {
       return mockUserScopeService;
     });
 
-    // Stub LockfileManager.getInstance
-    sandbox.stub(LockfileManager, 'getInstance').returns(mockLockfileManager);
-
     // Stub vscode.workspace.workspaceFolders
     sandbox.stub(vscode.workspace, 'workspaceFolders').value([
       { uri: vscode.Uri.file(tempDir), name: 'test-workspace', index: 0 }
     ]);
 
-    installer = new BundleInstaller(mockContext);
+    installer = new BundleInstaller(mockContext, 'vscode');
+    (installer as any).storage = mockStorage;
   });
 
   teardown(() => {
@@ -266,76 +253,14 @@ prompts:
 `));
       zip.addFile('skills/my-skill/SKILL.md', Buffer.from('# My Skill'));
 
-      // Reset call history to ensure clean assertions
-      mockRepositoryScopeService.syncBundle.resetHistory();
+      // Repository installs go through the workspace's RepositoryScopeService and are recorded
+      const repoSync = sandbox.stub(RepositoryScopeService.prototype, 'syncBundle').resolves([]);
       mockUserScopeService.syncBundle.resetHistory();
 
       await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'skills');
 
-      assert.ok(mockRepositoryScopeService.syncBundle.calledOnce, 'Repository scope should sync via RepositoryScopeService for skills');
+      assert.ok(repoSync.calledOnce, 'Repository scope should sync via RepositoryScopeService for skills');
       assert.ok(!mockUserScopeService.syncBundle.called, 'User scope sync should not be used for repository-scoped skills');
-    });
-
-    test('should call LockfileManager.createOrUpdate for repository scope installation', async () => {
-      // Requirements: 4.1
-      // Verify lockfile is updated when installing at repository scope
-
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-
-        // After implementation, verify lockfile was updated
-        // assert.ok(mockLockfileManager.createOrUpdate.called, 'Should update lockfile for repository scope');
-      } catch {
-        // Expected until implementation
-      }
-    });
-
-    test('should NOT call LockfileManager for user scope installation', async () => {
-      // Requirements: 8.4
-      // Verify lockfile is NOT modified for user scope installations
-
-      const options: InstallOptions = {
-        scope: 'user'
-      };
-
-      // Reset the stub to track calls
-      mockLockfileManager.createOrUpdate.resetHistory();
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-      } catch {
-        // May fail for other reasons
-      }
-
-      // Lockfile should not be touched for user scope
-      assert.ok(!mockLockfileManager.createOrUpdate.called, 'Should NOT update lockfile for user scope');
     });
 
     test('should sync bundle using RepositoryScopeService for repository scope', async () => {
@@ -370,48 +295,6 @@ prompts: []
   });
 
   suite('Repository Scope Uninstallation', () => {
-    test('should call LockfileManager.remove when uninstalling repository scope bundle', async () => {
-      // Requirements: 4.8
-      const installed = createMockInstalledBundle(testBundle.id, '1.0.0', {
-        scope: 'repository',
-        commitMode: 'commit',
-        installPath: path.join(tempDir, 'bundles', testBundle.id)
-      });
-
-      // Create the install path
-      fs.mkdirSync(installed.installPath, { recursive: true });
-
-      try {
-        await installer.uninstall(installed);
-
-        // After implementation, verify lockfile entry was removed
-        // assert.ok(mockLockfileManager.remove.calledWith(testBundle.id), 'Should remove from lockfile');
-      } catch {
-        // May fail for other reasons
-      }
-    });
-
-    test('should NOT call LockfileManager.remove when uninstalling user scope bundle', async () => {
-      // Requirements: 8.4
-      const installed = createMockInstalledBundle(testBundle.id, '1.0.0', {
-        scope: 'user',
-        installPath: path.join(tempDir, 'bundles', testBundle.id)
-      });
-
-      // Create the install path
-      fs.mkdirSync(installed.installPath, { recursive: true });
-
-      mockLockfileManager.remove.resetHistory();
-
-      try {
-        await installer.uninstall(installed);
-      } catch {
-        // May fail for other reasons
-      }
-
-      assert.ok(!mockLockfileManager.remove.called, 'Should NOT remove from lockfile for user scope');
-    });
-
     test('should unsync bundle using RepositoryScopeService for repository scope', async () => {
       // Requirements: 1.2-1.7
       const installed = createMockInstalledBundle(testBundle.id, '1.0.0', {
@@ -483,71 +366,6 @@ prompts: []
     });
   });
 
-  suite('Lockfile Integration', () => {
-    test('should include source information in lockfile entry', async () => {
-      // Requirements: 12.1-12.3
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-
-        // After implementation, verify source info was included
-        // const createOrUpdateCall = mockLockfileManager.createOrUpdate.firstCall;
-        // assert.ok(createOrUpdateCall.args[0].source, 'Should include source in lockfile');
-      } catch {
-        // Expected until implementation
-      }
-    });
-
-    test('should include file checksums in lockfile entry', async () => {
-      // Requirements: 15.1-15.2
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts:
-  - id: test-prompt
-    name: Test Prompt
-    description: A test prompt
-    file: test.prompt.md
-`));
-        zip.addFile('test.prompt.md', Buffer.from('# Test Prompt'));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-
-        // After implementation, verify files with checksums were included
-        // const createOrUpdateCall = mockLockfileManager.createOrUpdate.firstCall;
-        // assert.ok(createOrUpdateCall.args[0].files.length > 0, 'Should include files in lockfile');
-      } catch {
-        // Expected until implementation
-      }
-    });
-  });
-
   suite('Error Handling', () => {
     test('should throw error when repository scope requested but no workspace open', async () => {
       // Requirements: 1.8
@@ -585,36 +403,6 @@ prompts: []
           || error.message.includes('not yet implemented'),
           `Error should mention workspace requirement: ${error.message}`
         );
-      }
-    });
-
-    test('should handle lockfile write failures gracefully', async () => {
-      // Requirements: 15.6
-      mockLockfileManager.createOrUpdate.rejects(new Error('Lockfile write failed'));
-
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-
-        // After implementation, should either throw or handle gracefully
-      } catch {
-        // Expected - lockfile failure should propagate or be handled
-        assert.ok(true, 'Lockfile failure handled');
       }
     });
   });
