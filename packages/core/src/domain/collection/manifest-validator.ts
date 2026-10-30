@@ -268,10 +268,16 @@ const validateCompanionApmManifest = (files: ExtractedFiles, id: string, version
   try {
     manifest = parseYaml(new TextDecoder().decode(content));
   } catch (error) {
-    throw invalidManifest(`${APM_MANIFEST_FILENAME} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`);
+    throw new ManifestValidationError(
+      `${APM_MANIFEST_FILENAME} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+      'BUNDLE.MANIFEST_INVALID'
+    );
   }
   if (!isRecord(manifest) || manifest.name !== id || manifest.version !== version) {
-    throw invalidManifest(`${APM_MANIFEST_FILENAME} must declare name "${id}" and version "${version}"`);
+    throw new ManifestValidationError(
+      `${APM_MANIFEST_FILENAME} must declare name "${id}" and version "${version}"`,
+      'BUNDLE.MANIFEST_INVALID'
+    );
   }
 };
 
