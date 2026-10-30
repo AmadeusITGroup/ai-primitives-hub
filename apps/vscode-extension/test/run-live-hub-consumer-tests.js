@@ -1,4 +1,4 @@
-/* global require, __dirname, process, URL -- Node globals used by the live campaign runner. */
+/* global require, __dirname, module, process, URL -- Node globals used by the live campaign runner. */
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs/promises');
@@ -89,6 +89,9 @@ async function promptForToken() {
 }
 
 async function resolveToken() {
+  if (process.env.APH_LIVE_ARTIFACTORY_AUTH === 'anonymous') {
+    return undefined;
+  }
   const configuredRef = process.env.APH_LIVE_ARTIFACTORY_CREDENTIAL_REF
     || 'ARTIFACTORY_READER_TOKEN';
   const existingToken = process.env.APH_LIVE_ARTIFACTORY_TOKEN
@@ -96,9 +99,6 @@ async function resolveToken() {
     || process.env.ARTIFACTORY_READER_TOKEN;
   if (existingToken) {
     return existingToken;
-  }
-  if (process.env.APH_LIVE_ARTIFACTORY_AUTH === 'anonymous') {
-    return undefined;
   }
   const promptedToken = await promptForToken();
   if (promptedToken) {
@@ -351,7 +351,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { resolveToken };

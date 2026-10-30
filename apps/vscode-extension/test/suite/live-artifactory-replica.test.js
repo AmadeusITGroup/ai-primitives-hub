@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const vscode = require('vscode');
+const { resolveToken } = require('../run-live-hub-consumer-tests');
 
 function assertLiveTestSettings(config) {
   const maximumWaits = new Map([
@@ -26,6 +27,27 @@ function assertLiveTestSettings(config) {
 }
 
 suite('Live Artifactory replica consumer', () => {
+  test('anonymous authentication ignores preconfigured tokens', async () => {
+    const previousAuth = process.env.APH_LIVE_ARTIFACTORY_AUTH;
+    const previousToken = process.env.APH_LIVE_ARTIFACTORY_TOKEN;
+    process.env.APH_LIVE_ARTIFACTORY_AUTH = 'anonymous';
+    process.env.APH_LIVE_ARTIFACTORY_TOKEN = 'test-token-must-not-be-used';
+    try {
+      assert.equal(await resolveToken(), undefined);
+    } finally {
+      if (previousAuth === undefined) {
+        delete process.env.APH_LIVE_ARTIFACTORY_AUTH;
+      } else {
+        process.env.APH_LIVE_ARTIFACTORY_AUTH = previousAuth;
+      }
+      if (previousToken === undefined) {
+        delete process.env.APH_LIVE_ARTIFACTORY_TOKEN;
+      } else {
+        process.env.APH_LIVE_ARTIFACTORY_TOKEN = previousToken;
+      }
+    }
+  });
+
   test('accepts zero wait settings', () => {
     assert.doesNotThrow(() => assertLiveTestSettings({
       root: 'https://artifactory.example.test',
