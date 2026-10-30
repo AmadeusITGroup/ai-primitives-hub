@@ -126,6 +126,7 @@ suite('RepositoryActivationService', () => {
     await recordBundle('local-only', 'private-bundle', { sourceId: 'local-only-src', type: 'github', url: 'https://github.com/acme/private' });
     await recordBundle('commit', 'inside-bundle', { sourceId: 'inside-local', type: 'local', url: 'bundles/inside' });
     await recordBundle('commit', 'outside-bundle', { sourceId: 'outside-local', type: 'local', url: '../outside' });
+    await recordBundle('commit', 'outside-skills-bundle', { sourceId: 'outside-skills', type: 'local-skills', url: '../outside' });
     await writeOldFile();
   });
 
@@ -135,7 +136,7 @@ suite('RepositoryActivationService', () => {
     cleanupTestWorkspace(workspace);
   });
 
-  test('lists sources of both record files and the old lockfile, but not a local source outside the root', async () => {
+  test('lists sources of both record files and the old lockfile, but no local or local-* source outside the root', async () => {
     const recorded = await createService().readRepositorySources();
 
     assert.ok(recorded);

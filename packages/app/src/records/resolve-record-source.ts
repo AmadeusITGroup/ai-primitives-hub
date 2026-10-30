@@ -30,7 +30,11 @@ export type SourceDecision =
 /** Reason reported for a `local` record source that leaves the repository. */
 export const LOCAL_SOURCE_OUTSIDE_REASON = 'local source outside the repository';
 
-const isLocalType = (type: string): boolean => type === 'local' || type.startsWith('local-');
+/**
+ * Whether a source type reads a folder on disk: `local` and every `local-*` type.
+ * @param type - Source type.
+ */
+export const isLocalType = (type: string): boolean => type === 'local' || type.startsWith('local-');
 
 /**
  * The record's copy without credentials, prototype-free.

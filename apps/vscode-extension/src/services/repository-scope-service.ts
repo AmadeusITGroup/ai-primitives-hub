@@ -718,18 +718,20 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Remove a bundle only the old `prompt-registry` lockfile holds (BR12.1).
+   * Remove a bundle's entry from the old `prompt-registry` lockfile, with its
+   * files (BR12.1).
    * @param bundleId - Bundle id.
+   * @returns Whether an old entry existed.
    */
-  private async unsyncOldEntry(bundleId: string): Promise<void> {
+  private async unsyncOldEntry(bundleId: string): Promise<boolean> {
     const retired = await this.records.retireOldEntry(this.workspaceRoot, bundleId);
     if (retired === undefined) {
-      this.logger.debug(`[RepositoryScopeService] Bundle ${bundleId} not found in any record or lockfile`);
-      return;
+      return false;
     }
     retired.warnings.forEach((warning) => this.logger.warn(`[RepositoryScopeService] ${warning}`));
     await this.afterFilesRemoved(true, retired.deleted, retired.kept);
-    this.logger.info(`[RepositoryScopeService] ✅ Removed ${retired.deleted.length} files for bundle: ${bundleId}`);
+    this.logger.info(`[RepositoryScopeService] ✅ Removed ${retired.deleted.length} old-lockfile files for bundle: ${bundleId}`);
+    return true;
   }
 
   /**
@@ -916,7 +918,8 @@ export class RepositoryScopeService implements IScopeService {
    * matches the recorded checksum, or that are missing, are kept too
    * (`findModifiedFiles`, NFR4.13); the rest go through `deleteSuperseded`.
    * A bundle only the old `prompt-registry` lockfile holds is removed from it
-   * the same way (BR12.1), keeping paths any record entry lists.
+   * the same way (BR12.1), keeping paths any record entry lists; after a
+   * record uninstall, an old entry for the same bundle is retired as well.
    * @param bundleId - The unique identifier of the bundle to unsync
    * @throws {RegistryError} Any `RECORD.*` error; the record and files are unchanged when loading fails.
    */
@@ -925,7 +928,9 @@ export class RepositoryScopeService implements IScopeService {
       this.logger.debug(`[RepositoryScopeService] Removing files for bundle: ${bundleId}`);
       const located = await this.records.findHostEntry(this.workspaceRoot, bundleId);
       if (located === undefined) {
-        await this.unsyncOldEntry(bundleId);
+        if (!await this.unsyncOldEntry(bundleId)) {
+          this.logger.debug(`[RepositoryScopeService] Bundle ${bundleId} not found in any record or lockfile`);
+        }
         return;
       }
       const { location, entry } = located;
@@ -941,6 +946,9 @@ export class RepositoryScopeService implements IScopeService {
       const kept = [...change.keptSharedFiles, ...[...modified].filter((file) => change.deletedFiles.includes(file))];
       await this.afterFilesRemoved(location.commitMode === 'local-only', removal.deleted.map((file) => this.fromRootRelative(location.root, file)), kept);
       this.logger.info(`[RepositoryScopeService] ✅ Removed ${removal.deleted.length} files for bundle: ${bundleId}`);
+      // Uninstall removes both (BR12.1): an old entry for the same bundle is
+      // retired too, keeping every path a record entry still lists or that was modified.
+      await this.unsyncOldEntry(bundleId);
     } catch (error) {
       if (isRecordError(error)) {
         throw error;

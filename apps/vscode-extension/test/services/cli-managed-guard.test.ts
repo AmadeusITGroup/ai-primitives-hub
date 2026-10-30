@@ -5,6 +5,9 @@
  */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import {
+  recordError,
+} from '@ai-primitives-hub/core';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -157,5 +160,24 @@ suite('Other-tool guard (install-record items)', () => {
     assert.deepStrictEqual(installer.uninstall.getCalls().map((call) => call.args[0].bundleId), ['old-bundle']);
     const message = String(showWarning.firstCall.args[0]);
     assert.ok(message.startsWith('Skipped 1 bundle(s)') && message.includes(CLI_BUNDLE), message);
+  });
+
+  test('batch uninstall stops at the first RECORD.* error and names done, skipped and not-attempted ids and the file', async () => {
+    writeOldLockfile(root, 'prompt-registry.lock.json', { 'done-bundle': '1.0.0', 'bad-bundle': '1.0.0', 'later-bundle': '1.0.0' });
+    installer.uninstall.callsFake(async (bundle: InstalledBundle) => {
+      if (bundle.bundleId === 'bad-bundle') {
+        throw recordError('RECORD.WRITE_FAILED', { file: RECORD_FILE });
+      }
+    });
+
+    await manager.uninstallBundles(['done-bundle', CLI_BUNDLE, 'bad-bundle', 'later-bundle'], 'repository');
+
+    assert.deepStrictEqual(installer.uninstall.getCalls().map((call) => call.args[0].bundleId), ['done-bundle', 'bad-bundle']);
+    assert.strictEqual(showWarning.callCount, 1);
+    assert.strictEqual(
+      String(showWarning.firstCall.args[0]),
+      `Uninstall stopped at bad-bundle: RECORD.WRITE_FAILED in ${RECORD_FILE}. Uninstalled: done-bundle. `
+      + `Skipped (installed for another tool): ${CLI_BUNDLE}. Not attempted: later-bundle.`
+    );
   });
 });
