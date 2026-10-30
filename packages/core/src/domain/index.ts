@@ -12,6 +12,7 @@ export * from './collection/diagnostics';
 export * from './collection/contribution';
 export * from './collection/manifest-validator';
 export * from './collection/release-manifest-plan';
+export * from './collection/apm-release-plan';
 export * from './scaffold';
 export * from './discovery/types';
 export * from './errors';

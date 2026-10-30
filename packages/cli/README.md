@@ -22,3 +22,28 @@ pnpm --filter @ai-primitives-hub/cli build
 pnpm --filter @ai-primitives-hub/cli test
 pnpm --filter @ai-primitives-hub/cli lint
 ```
+
+### Qualify a bundle with stock APM
+
+The opt-in qualification command provisions the pinned APM CLI `0.35.0`
+through `uv`, tests its direct ZIP-install behavior, then extracts the archive
+and runs the installer in dry-run mode against the package directory. APM's
+local ZIP installer is for plugin bundles, so it is expected to reject this
+Agent Package archive as a direct local bundle; the directory check verifies
+that APM accepts the archive's package layout. This does not add APM to routine
+builds, tests, or CI.
+
+The qualification script uses the built infra package. After installing
+workspace dependencies, build its package dependencies:
+
+```bash
+pnpm -C packages/core build
+pnpm -C packages/infra build
+```
+
+```bash
+pnpm --filter @ai-primitives-hub/cli qualify:apm-archive -- /path/to/bundle.zip
+```
+
+Requires `uv` and network access to resolve the pinned `apm-cli` package. The
+command reports the APM version, exact commands, and both results.

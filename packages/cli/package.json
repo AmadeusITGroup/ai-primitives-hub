@@ -33,6 +33,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "qualify:apm-archive": "node scripts/qualify-apm-archive.mjs",
     "build:sea": "node scripts/build-sea.mjs",
     "build:sea:local": "node scripts/build-sea.mjs --local",
     "prepublishOnly": "pnpm run build"
