@@ -148,10 +148,10 @@ Follow-up work is named by the step labels of the
    requires. `bundleEntry` is `additionalProperties: false`; the extension's
    `LockfileManager.validate()` checks against that schema but has no
    production caller at `4d3b0ed`, so released extensions are not affected.
-   Until VS Code parity, an extension rewrite of the same entry may drop the
+   Until the VS Code MCP step, an extension rewrite of the same entry may drop the
    field. Uninstall then falls back to matching the bundle segment of the
    owned names in either name form (decision 5), which is stable
-   per bundle. VS Code parity (#551) switches `McpServerManager`
+   per bundle. The VS Code MCP step (after M4) switches `McpServerManager`
    tracking to `configEntries`.
 
 2. **Kind → category is data in `core`, with per-target overrides in layout
@@ -314,9 +314,9 @@ Follow-up work is named by the step labels of the
        them for their own bundle, and may match them for a bundle whose
        `bundleId` equals their text before the first `:`. They are removed
        through the extension's own tracking, and the fallback runs only
-       when `configEntries` is missing, until VS Code parity (#551)
+       when `configEntries` is missing, until the VS Code MCP step
        switches the extension to `configEntries`. This residual case is
-       accepted until parity.
+       accepted until then.
      - The CLI and the extension call the same helper with the same
        dialect, so they write the same names on the same target.
    - **Placeholders.** APH expands `${PLUGIN_ROOT}` to the installed plugin
@@ -356,10 +356,12 @@ Follow-up work is named by the step labels of the
      `realpath` is implemented with `fs.realpath.native`. One pure `core`
      helper computes it from the canonical path, beside `generateSourceId`
      (`packages/core/src/domain/source-id.ts`, which already hashes with
-     sha256 and truncates). The real path comes from a `realpath` operation
-     that M7 adds to the `FileSystem` port
-     (`packages/core/src/ports/filesystem.ts`, which has none today),
-     implemented in `infra`. Both deliveries call the same helper, so they
+     sha256 and truncates). The real path comes from the optional
+     `realpath` operation on the `FileSystem` port
+     (`packages/core/src/ports/filesystem.ts`), implemented in `infra` with
+     `fs.realpath.native`; it lands with #614, which uses it for uninstall
+     containment. M7 reuses it for `scopeKey` and decides whether it
+     becomes required. Both deliveries call the same helper, so they
      compute the same key for the same repository. The directory has no
      version segment, so it survives updates, and no two targets, bundles,
      scopes or repositories share one. APH
@@ -400,7 +402,7 @@ Follow-up work is named by the step labels of the
        keep their ambiguous default-form name. The uninstall fallback can
        miss them for their own bundle and match them for a bundle whose
        `bundleId` equals their text before the first `:`. This lasts until
-       VS Code parity (#551) switches the extension to `configEntries`. (A
+       the VS Code MCP step switches the extension to `configEntries`. (A
        `:` only in `serverName` keeps the bundle segment intact, so the
        fallback still finds those entries.)
      - Distinct triples give distinct sanitised names only up to a hash
@@ -592,11 +594,12 @@ Follow-up work is named by the step labels of the
     | owned MCP server names (`generatePrefixedServerName`), default form and sanitised form with per-segment encoding, selected by the dialect, sanitised whenever a segment contains `:` | `core` | moved from `apps/vscode-extension/src/services/mcp-config-service.ts` |
     | `AppStoragePaths.pluginData` | `core` port, `infra` and extension adapters | `packages/core/src/ports/app-storage.ts` (ADR-0005) |
     | `scopeKey` helper (sha256 of the canonical repository root, 16 hex) | `core` | beside `packages/core/src/domain/source-id.ts` |
-    | `realpath` on the `FileSystem` port, returning the on-disk casing | `core` port, `infra` implementation (`fs.realpath.native`) | `packages/core/src/ports/filesystem.ts` |
+    | `realpath` on the `FileSystem` port, returning the on-disk casing | `core` port, `infra` implementation (`fs.realpath.native`) | `packages/core/src/ports/filesystem.ts`; optional, lands with #614; M7 reuses it for `scopeKey` and decides whether it becomes required |
     | `PLUGIN_DATA` directory per target and plugin | `app`, via the `AppStorage` port | decision 5 |
     | `configEntries` in the lockfile entry | `core` schema and types, written by `app` | `lockfile.schema.json`, `packages/app/src/stores/json-lockfile-store.ts` |
     | repository-scope exclusion port (`.git/info/exclude` section, and whether a path is already tracked, for O10) | `core` port, `infra` implementation | `RepositoryExclusion` (`packages/core/src/ports/repository-exclusion.ts`, since M1) gains a tracked-path query in M7; `GitInfoExclude` in `infra` implements it |
-    | writer selection, flags, output | `cli` | `packages/cli/src/commands/install.ts` (`createWriterFactory`) |
+    | writer selection | `app` | `packages/app/src/install/target-writer-factory.ts` (`createTargetWriterFactory`) |
+    | flags, output | `cli` | `packages/cli/src/commands/` |
 
     `RepositoryScopeWriter` lives in `infra` and cannot call `app`. It first
     uses the `core` category helpers to collapse its duplicated branches. Its
@@ -605,16 +608,21 @@ Follow-up work is named by the step labels of the
     exclusion becomes a `core` port with an `infra` implementation (today's
     `.git/info/exclude` section management), and commit mode keeps selecting
     the lockfile file (`getLockfilePathForMode`). The `app` install and
-    uninstall pipelines call both for repository scope. The CLI only selects
-    the scope and passes flags, so the extension reaches the same behaviour
-    through `app` (decision 11).
+    uninstall use cases own the `.git/info/exclude` updates through the
+    exclusion port for every repository target, not only the Copilot-like
+    ones, and select the lockfile file. Writer selection lives in `app`
+    too (`createTargetWriterFactory`). The CLI only selects the scope and
+    passes flags, so the extension reaches the same behaviour through `app`
+    (decision 11).
 
 11. **The VS Code extension consumes the model through `app` (ADR-0001).**
     The extension already calls `FileTreeTargetWriter.writeManifestItems` for
-    repository scope and `app` MCP helpers. In the late VS Code parity step (#551), its
-    user and repository scope services and `McpServerManager` delegate to the
-    `app` category strategies and plugin extension, the same entry points the
-    CLI uses. Services gain no business rules. The extension resolves
+    repository scope and `app` MCP helpers. Its user and repository scope
+    services move onto the `app` install and uninstall use cases, the same
+    entry points the CLI uses, in three steps (see the migration plan):
+    parity with today's CLI (#551), which depends on neither M4 nor M7;
+    MCP after M4, when `McpServerManager` delegates to `installMcpServers`;
+    and plugin projection after M7. Services gain no business rules. The extension resolves
     `PLUGIN_DATA` through its own `AppStorage` adapter (ADR-0005), and keeps
     its identifiers (`AmadeusITGroup.prompt-registry`, `promptregistry.*`,
     `prompt-registry.lock.json`) unchanged (ADR-0004). This ADR designs no
@@ -827,10 +835,17 @@ start. O\* ids refer to the open questions above.
 | 4 | **M4** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form, the sanitised form with per-segment encoding, and the sanitised fallback for a segment with `:`; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | M1 | collection MCP servers reach the target |
 | 5 | **M5** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | M4 | `mcp-server` installs wherever an MCP config exists |
 | 6 | **M6** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks |
-| 7 | **M7** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` and `realpath` on the `FileSystem` port; Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; the O10 repository-scope rule (decision 5) and a tracked-path query on the exclusion port | M4, M3, M1, M2 (kiro only) | plugins are usable, not inert copies |
+| 7 | **M7** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` over the `FileSystem` port's `realpath` (added by #614; whether it becomes required is decided here); Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; the O10 repository-scope rule (decision 5) and a tracked-path query on the exclusion port | M4, M3, M1, M2 (kiro only) | plugins are usable, not inert copies |
 | 8 | **M8** (optional) `feat`: config-based hooks | `TargetAdaptation` port and its `infra` adapters; `hook` adaptations for claude-code, cursor and devin-cli, and for devin and windsurf each gated on a recorded check, all re-checked against the harness docs; re-check whether Devin also reads the claude-code adaptation's `settings.json` entries, and document the double-install behaviour | M4 | hooks fire on those targets |
 | 9 | **M9** (optional, per target) `feat`: `native` or `register` mode | only with documentation or a recorded manual check for that target (for example O3a for Kiro) | M7 | the harness's own plugin UX where proven |
-| late | **VS Code parity** (#551) | extension scope services and `McpServerManager` delegate to the `app` strategies (ADR-0001) | M4, M7 stable | the same files and lockfile entries from both deliveries |
+| late | **VS Code parity with today's CLI** (#551) | extension scope services delegate to the `app` install and uninstall use cases and writer selection (ADR-0001), after #614 moved them out of the CLI | no M4/M7 dependency | the same files and lockfile entries from both deliveries |
+| late | **VS Code MCP** | `McpServerManager` delegates to `installMcpServers` and the `config` strategy through the shared use cases | M4 | the same MCP entries from both deliveries |
+| late | **VS Code projection** | the extension passes `pluginDataRoot` from its `AppStorage` adapter, so plugins are projected as in the CLI | M7 | the same plugin projection from both deliveries |
+
+The shared install and uninstall use cases stay opt-in for the later
+steps: M4's MCP step runs only when the caller passes an MCP port, and
+M7's projection only when it passes `pluginDataRoot`. A caller that passes
+neither, such as the extension after #551, keeps today's behaviour.
 
 Unaffected by this ADR: plugin validation in `bundle build` (#545), the
 `plugin create` scaffold (#546), executable bits in archives (#547),
