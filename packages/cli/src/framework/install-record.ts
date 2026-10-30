@@ -1,26 +1,40 @@
 /**
- * Repository-scope install record wiring for CLI `install` and `uninstall`.
- * User scope still uses the old lockfile, and old `prompt-registry.*` files
- * are never touched here.
+ * Install record wiring for the CLI: builds the record store and service,
+ * selects the record a command acts on, gates record sources and adapts
+ * entries to the lockfile shapes the fetch code reads. User level still uses
+ * the old lockfile, and old `prompt-registry.*` files are never touched here.
  * @module framework/install-record
  */
 import * as path from 'node:path';
 import {
   createInstallRecordServices,
+  findLockfile,
   type InstallRecordService,
   type InstallRecordServices,
+  type LockfileBundleEntry,
+  type LockfileSourceEntry,
+  type RecordSelection,
   type RecordSourceInput,
+  type RecordStore,
   resolveExcludeFile,
+  resolveUserConfigPaths,
+  selectRecord,
 } from '@ai-primitives-hub/app';
 import {
   compareCodeUnits,
+  DEFAULT_LOCAL_HUB_ID,
   describeRecordError,
+  type InstallationScope,
   isRecordError,
   type RecordFs,
+  type RecordLevel,
   type RecordLocation,
   RegistryError,
+  type RegistrySource,
   type RepositoryExclusion,
+  type SourceRecord,
   type Target,
+  type ToolEntry,
 } from '@ai-primitives-hub/core';
 import {
   GitInfoExclude,
@@ -32,6 +46,9 @@ import {
 import type {
   Context,
 } from './context';
+import {
+  createHubManager,
+} from './hub-manager';
 
 /** Writer stamp for records written by the CLI. */
 export const CLI_RECORD_GENERATED_BY = `ai-primitives-hub-cli@${CLI_VERSION}`;
@@ -74,7 +91,7 @@ export interface RecordedRepositoryInstall {
  * @param error - A `RECORD.*` error.
  * @param written - Files already written, for an install that failed after the write.
  */
-const toCommandRecordError = (command: string, error: RegistryError, written?: readonly string[]): RegistryError => {
+export const toCommandRecordError = (command: string, error: RegistryError, written?: readonly string[]): RegistryError => {
   let message = `${command}: ${describeRecordError(error)}`;
   if (written !== undefined && written.length > 0) {
     message += ` These files were written but are not recorded; run the install again to record them: ${written.join(', ')}`;
@@ -298,3 +315,159 @@ export const recordRepositoryUninstall = async (
     warnings
   };
 };
+
+/** What a command was given that fixes the record level (BR6.1). */
+export interface RecordSelectionInput {
+  /** Command name, used as the prefix of a `RECORD.*` error message. */
+  command: string;
+  /** `--lockfile <path>` as typed (not a path found by an upward walk). */
+  lockfile?: string;
+  /** `--scope`. */
+  scope?: InstallationScope;
+}
+
+/** A selected record with the store and service to act on it. */
+export interface PreparedRecordSelection {
+  /** Level, root, loaded new record files and the old-store file (W4). */
+  selection: RecordSelection;
+  /** Store the selected files were loaded with. */
+  store: RecordStore;
+  /** Service to record, list and remove entries with. */
+  service: InstallRecordService;
+  /** Filesystem port the store and service use. */
+  fs: RecordFs;
+}
+
+/**
+ * Select the record a command acts on and load every selected file before
+ * anything is written (W4; BR6.1, BR6.2, NFR4.8). The old `prompt-registry.*`
+ * file is found with today's upward walk from the selection's start folder.
+ * @param ctx - CLI context; `ctx.cwd()` is the current folder.
+ * @param input - Command name and the `--lockfile` / `--scope` values the person typed.
+ * @param target - Resolved target, when the command has one: its scope gives the level, its root the start folder.
+ * @param fs - Filesystem port; `NodeRecordFs` unless a test passes one.
+ * @returns The selection with the store and service that loaded it.
+ * @throws {RegistryError} A `RECORD.*` error naming the command and the file; nothing was written.
+ */
+export const prepareRecordSelection = async (
+  ctx: Context,
+  input: RecordSelectionInput,
+  target?: Target,
+  fs: RecordFs = new NodeRecordFs()
+): Promise<PreparedRecordSelection> => {
+  const { store, service } = createRecordServices(fs);
+  const userLockfile = resolveUserConfigPaths(ctx.env).userLockfile;
+  try {
+    const selection = await selectRecord({
+      store,
+      fs,
+      cwd: ctx.cwd(),
+      given: {
+        ...(input.lockfile === undefined || input.lockfile === '' ? {} : { lockfile: input.lockfile }),
+        ...(input.scope === undefined ? {} : { scope: input.scope }),
+        ...(target === undefined ? {} : { target: { scope: target.scope, rootPath: target.rootPath } })
+      },
+      findOldLockfile: (start) => findLockfile(start, ctx.fs, userLockfile),
+      userLockfile
+    });
+    return { selection, store, service, fs };
+  } catch (error) {
+    throw isRecordError(error) ? toCommandRecordError(input.command, error) : error;
+  }
+};
+
+/**
+ * Configured sources by id for the source trust gate (NFR4.11): the active
+ * hub's sources first, then detached (`default-local`) sources whose id the
+ * active hub does not use. A hub that cannot be read contributes no source,
+ * so its entries fall back to the record's copy without credentials.
+ * @param ctx - CLI context.
+ * @returns Configured sources keyed by id, in lookup order.
+ */
+export const configuredSources = async (ctx: Context): Promise<Map<string, RegistrySource>> => {
+  const manager = createHubManager({ ctx });
+  const sources = new Map<string, RegistrySource>();
+  let active: RegistrySource[] = [];
+  try {
+    active = await manager.listSources();
+  } catch {
+    // No readable active hub: no configured source from it.
+  }
+  const detached = (await manager.listSourcesAcrossAllHubs()).filter((source) => source.hubId === DEFAULT_LOCAL_HUB_ID);
+  for (const source of [...active, ...detached]) {
+    if (!sources.has(source.id)) {
+      sources.set(source.id, source);
+    }
+  }
+  return sources;
+};
+
+/**
+ * A decided record source in the legacy lockfile shape today's fetch and
+ * update code reads. Only the fields the record carries are copied; an
+ * `authMode` other than `bearer` / `anonymous` is dropped.
+ * @param source - Source from `resolveRecordSource` (or a record's copy).
+ * @returns The legacy source entry.
+ */
+export const toLockfileSourceEntry = (source: SourceRecord): LockfileSourceEntry => ({
+  type: source.type,
+  url: source.url,
+  ...(typeof source.branch === 'string' ? { branch: source.branch } : {}),
+  ...(typeof source.collectionsPath === 'string' ? { collectionsPath: source.collectionsPath } : {}),
+  ...(typeof source.indexFile === 'string' ? { indexFile: source.indexFile } : {}),
+  ...(source.authMode === 'bearer' || source.authMode === 'anonymous' ? { authMode: source.authMode } : {}),
+  ...(typeof source.credentialRef === 'string' ? { credentialRef: source.credentialRef } : {})
+});
+
+/**
+ * A record tool entry in the legacy lockfile bundle shape. Record entries
+ * carry per-file checksums and no bundle archive checksum, so the legacy
+ * archive checksum check does not apply; `recordInstall` re-checksums the
+ * written files.
+ * @param entry - Tool entry from a 3.0.0 record.
+ * @returns The legacy bundle entry.
+ */
+export const toLockfileBundleEntry = (entry: ToolEntry): LockfileBundleEntry => ({
+  version: entry.version,
+  sourceId: entry.sourceId,
+  sourceType: entry.sourceType,
+  installedAt: entry.installedAt,
+  files: entry.files.map((file) => ({ path: file.path, checksum: file.checksum }))
+});
+
+/** The `level` and `records` fields every record command reports (BR6.3, NFR5.1). */
+export interface RecordOutputFields {
+  /** Level of the selected record. */
+  level: RecordLevel;
+  /** Absolute paths of the record files the command read or wrote. */
+  records: string[];
+}
+
+/**
+ * The `level` and `records` JSON fields for a selection: the selected new
+ * record files that exist (the first one when none exists yet), or the old
+ * store file at user level and for an old-format `--lockfile`.
+ * @param selection - The command's record selection.
+ * @param fs - Filesystem port, for the existence checks.
+ * @returns The output fields.
+ */
+export const recordOutputFields = async (selection: RecordSelection, fs: RecordFs): Promise<RecordOutputFields> => {
+  if (selection.locations.length === 0) {
+    return { level: selection.level, records: selection.oldLockfile === undefined ? [] : [selection.oldLockfile] };
+  }
+  const existing: string[] = [];
+  for (const location of selection.locations) {
+    if (await fs.exists(location.path)) {
+      existing.push(location.path);
+    }
+  }
+  return { level: selection.level, records: existing.length > 0 ? existing : [selection.locations[0].path] };
+};
+
+/**
+ * The `Record: <level> <path>` text line (BR6.3); several files are comma-separated.
+ * @param fields - Output fields from {@link recordOutputFields}.
+ * @returns The line, newline-terminated.
+ */
+export const renderRecordLine = (fields: RecordOutputFields): string =>
+  `Record: ${fields.level} ${fields.records.join(', ')}\n`;

@@ -90,19 +90,29 @@ export {
   runCommand,
 } from './golden';
 export type {
+  PreparedRecordSelection,
   PreparedRepositoryRecord,
   PreparedRepositoryUninstall,
   RecordedRepositoryInstall,
   RecordedRepositoryUninstall,
+  RecordOutputFields,
+  RecordSelectionInput,
   RepositoryInstallToRecord,
 } from './install-record';
 export {
   CLI_RECORD_GENERATED_BY,
+  configuredSources,
+  prepareRecordSelection,
   prepareRepositoryRecord,
   prepareRepositoryUninstall,
+  recordOutputFields,
   recordRepositoryInstall,
   recordRepositoryUninstall,
+  renderRecordLine,
+  toCommandRecordError,
   toInstallRecordError,
+  toLockfileBundleEntry,
+  toLockfileSourceEntry,
 } from './install-record';
 export type {
   CreateHubManagerOptions,
