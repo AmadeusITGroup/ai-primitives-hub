@@ -637,7 +637,7 @@ profiles: []
     it.each([
       ['vscode then kiro', [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]],
       ['kiro then vscode', [['repo-kiro', 'kiro'], ['repo-vscode', 'vscode']]]
-    ] as [string, [string, string][]][])('updates every tool at the level with an inferred target (%s), one key per tool', async (_order, targets) => {
+    ] as [string, [string, string][]][])('updates every tool at the level with no --target (%s), one key per tool (BR23.3)', async (_order, targets) => {
       await installAt100(targets, GITHUB_SOURCE);
 
       const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
