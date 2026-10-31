@@ -20,6 +20,7 @@ import type {
   PrimitiveKind,
 } from '../../primitive/types';
 import type {
+  DiagnosticInstallMode,
   DiagnosticScope,
   InvariantId,
   JsonValue,
@@ -34,9 +35,9 @@ export interface KnownGap {
   invariant: InvariantId;
   /**
    * Absent selector = all. A selector on a dimension the subject lacks never matches (bundle subjects have no target/scope).
-   * `bundles` lists bundle ids; `kinds` matches a per-item check by its item's kind.
+   * `bundles` lists bundle ids; `kinds` matches a per-item check by its item's kind; `modes` lists case install modes.
    */
-  match: { kinds?: PrimitiveKind[]; bundles?: string[]; targets?: TargetType[]; scopes?: DiagnosticScope[] };
+  match: { kinds?: PrimitiveKind[]; bundles?: string[]; targets?: TargetType[]; scopes?: DiagnosticScope[]; modes?: DiagnosticInstallMode[] };
   /** Must deep-equal the check's `observed` (arrays compared sorted). */
   observed: JsonValue;
   summary: string;
@@ -45,6 +46,9 @@ export interface KnownGap {
 }
 
 const REJECTED: JsonValue = { status: 'rejected', errorCode: 'BUNDLE.UNSUPPORTED_CONTENT' };
+
+/** I4 of a `--skip-unsupported` install that left out content the matrix expects installed. */
+const PARTIAL: JsonValue = { status: 'partial', errorCode: null };
 
 /**
  * One `manifest-id-file-stem` entry: `bundle build` derives the manifest
@@ -65,10 +69,12 @@ const manifestIdFileStem = (kind: PrimitiveKind, id: string): KnownGap => ({
 
 /**
  * Known gaps on current `main`. Chat modes on copilot-cli are not listed:
- * #526 places them through the `agents/` route. A rejection absorbed by
- * several entries lists every matching gap id (e.g. the all-kinds bundle on
- * kiro: `mcp-server-rejected`, `kiro-hook-rejected`, `kiro-plugin-rejected`
- * and `all-or-nothing-install`).
+ * #526 places them through the `agents/` route. The default all-or-nothing
+ * rejection of a mixed bundle is the expected outcome, not a gap. A check
+ * absorbed by several entries lists every matching gap id (e.g. I4 of the
+ * portable mix on kiro: `kiro-hook-rejected` and `kiro-plugin-rejected`).
+ * The I9 entries absorb an item left out in either install mode: rejected
+ * by the default install, or skipped by `install --skip-unsupported`.
  */
 export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
   {
@@ -124,12 +130,22 @@ export const PRIMITIVE_KNOWN_GAPS: readonly KnownGap[] = [
     issue: 549
   },
   {
-    key: 'all-or-nothing-install/I4/aph-e2e-mix-all-kinds',
-    id: 'all-or-nothing-install',
+    key: 'kiro-hook-rejected/I4/hook@kiro/skip-unsupported',
+    id: 'kiro-hook-rejected',
     invariant: 'I4',
-    match: { bundles: ['aph-e2e-mix-all-kinds'] },
-    observed: REJECTED,
-    summary: 'the default all-or-nothing install rejects the whole bundle when one item kind is unsupported (install --skip-unsupported installs the supported items)'
+    match: { kinds: ['hook'], targets: ['kiro'], modes: ['skip-unsupported'] },
+    observed: PARTIAL,
+    summary: 'kiro skips hook items with install --skip-unsupported, so a bundle with a hook installs only partially',
+    issue: 549
+  },
+  {
+    key: 'kiro-plugin-rejected/I4/plugin@kiro/skip-unsupported',
+    id: 'kiro-plugin-rejected',
+    invariant: 'I4',
+    match: { kinds: ['plugin'], targets: ['kiro'], modes: ['skip-unsupported'] },
+    observed: PARTIAL,
+    summary: 'kiro skips plugin items with install --skip-unsupported, so a bundle with a plugin installs only partially',
+    issue: 549
   },
   {
     key: 'copilot-cli-repository-scope/I8/copilot-cli@repository',

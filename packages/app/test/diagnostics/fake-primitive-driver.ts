@@ -11,9 +11,11 @@
  * `ws/ai-primitives-hub.yml` and reports the requested scope, `install`
  * rejects by the support matrix (listing the unsupported files) or writes
  * every item file at its oracle destination with the fixture's executable
- * bits (plus bookkeeping lockfiles),
- * and `uninstall` removes what install placed. Tests override single
- * operations to reproduce a defect.
+ * bits (plus bookkeeping lockfiles; the scope's lockfile records the
+ * installed files). With `skipUnsupported` it writes only the supported
+ * items and reports the files of the others as skipped. `uninstall`
+ * removes what install placed. Tests override single operations to
+ * reproduce a defect.
  * @module test/diagnostics/fake-primitive-driver
  */
 import {
@@ -201,6 +203,15 @@ export interface FakeInstallCall {
   from: string;
   /** Files the healthy product would place (absolute paths). */
   defaultFiles: string[];
+  /** Whether the install ran with `--skip-unsupported`. */
+  skipUnsupported: boolean;
+}
+
+/** One file a scripted `--skip-unsupported` install left out. */
+export interface FakeSkippedContent {
+  path: string;
+  code: string;
+  reason: string;
 }
 
 /** Scripted install outcome. */
@@ -215,7 +226,20 @@ export interface FakeInstallOutcome {
   contents?: Record<string, string>;
   /** Archive paths a rejection lists as unsupported content. */
   rejectedPaths?: string[];
+  /** Content a `--skip-unsupported` install reports as skipped. */
+  skipped?: FakeSkippedContent[];
+  /** Archive paths the scope's lockfile records for the bundle; default every item file. */
+  lockedFiles?: string[];
 }
+
+/**
+ * Lockfile the fake install updates at a scope (as the CLI's `lockfilePathForTarget` picks it).
+ * @param sandbox
+ * @param scope
+ */
+const lockfilePathFor = (sandbox: DiagnosticSandbox, scope: DiagnosticScope): string => (scope === 'repository'
+  ? path.join(sandbox.cwd, 'prompt-registry.lock.json')
+  : path.join(resolveUserConfigPaths(sandboxEnv(sandbox.home)).root, 'ai-primitives-hub.lock.json'));
 
 const ok = <T>(data?: T): DriverCommandResult<T> => ({ exitCode: 0, status: 'ok', data, warnings: [], errorMessages: [] });
 
@@ -317,7 +341,10 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
     return ok({ target: { scope: input.scope } });
   }
 
-  public async install(sandbox: DiagnosticSandbox, input: { bundleId: string; from: string; target: string }): Promise<DriverCommandResult> {
+  public async install(
+    sandbox: DiagnosticSandbox,
+    input: { bundleId: string; from: string; target: string; skipUnsupported?: boolean }
+  ): Promise<DriverCommandResult<{ lockfile?: string }>> {
     this.calls.push({ method: 'install', input, root: sandbox.root });
     const caseId = path.basename(sandbox.root);
     const delay = this.installDelay(caseId);
@@ -331,7 +358,8 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
     const roots = sandboxRoots(sandbox);
     const defaultFiles = bundle.items.flatMap((item) => item.files.map((file) => expectedDestination(type, scope, item, file)))
       .flatMap((destination) => (destination.kind === 'file' ? [resolveLabel(roots, destination.label)] : []));
-    const outcome = this.onInstall({ caseId, sandbox, roots, bundle, target: type, scope, from: input.from, defaultFiles });
+    const skipUnsupported = input.skipUnsupported === true;
+    const outcome = this.onInstall({ caseId, sandbox, roots, bundle, target: type, scope, from: input.from, defaultFiles, skipUnsupported });
     if (outcome.exitCode !== 0) {
       return {
         exitCode: outcome.exitCode,
@@ -350,8 +378,16 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
     }
     await this.fs.writeFile(path.join(sandbox.cwd, 'prompt-registry.lock.json'), '{}');
     await this.fs.writeFile(path.join(resolveUserConfigPaths(sandboxEnv(sandbox.home)).root, 'ai-primitives-hub.lock.json'), '{}');
+    const lockfile = lockfilePathFor(sandbox, scope);
+    const lockedFiles = outcome.lockedFiles ?? bundle.items.flatMap((item) => item.files);
+    await this.fs.writeFile(lockfile, JSON.stringify({ bundles: { [bundle.id]: { files: lockedFiles.map((file) => ({ path: file, checksum: 'x' })) } } }));
     this.placed.set(sandbox.root, outcome.files);
-    return ok();
+    const skipped = outcome.skipped ?? (skipUnsupported ? [] : undefined);
+    return {
+      ...ok({ lockfile }),
+      ...(skipped === undefined ? {} : { skipped }),
+      ...(skipped !== undefined && skipped.length > 0 ? { status: 'warning' as const } : {})
+    };
   }
 
   public async uninstall(sandbox: DiagnosticSandbox, input: { target: string }): Promise<DriverCommandResult> {
@@ -372,24 +408,38 @@ export class FakePrimitiveDriver implements PrimitiveDiagnosticsDriver {
   }
 
   /**
-   * The healthy product: reject by the support matrix (all-or-nothing, so a
-   * `partial` bundle is rejected as today), otherwise place every item file,
-   * keeping the fixture's executable bits.
+   * The healthy product: by the support matrix, place every item file
+   * (keeping the fixture's executable bits) when the target supports every
+   * kind. Otherwise reject (all-or-nothing), unless the install runs with
+   * `--skip-unsupported` and some kind is supported: then place only the
+   * supported items and report the other items' files as skipped.
    * @param call - Install call.
    * @returns Outcome.
    */
   public defaultInstall(call: FakeInstallCall): FakeInstallOutcome {
-    if (expectedStatus(call.bundle.items.map((item) => item.kind), call.target) === 'installed') {
-      const fixture = buildPrimitiveFixture();
-      const executable = call.bundle.items
-        .flatMap((item) => item.files.filter((file) => fixture.get(file)?.mode === 0o755)
-          .map((file) => expectedDestination(call.target, call.scope, item, file)))
-        .flatMap((destination) => (destination.kind === 'file' ? [resolveLabel(call.roots, destination.label)] : []));
+    const unsupported = (item: DiagnosticBundle['items'][number]): boolean => PRIMITIVE_SUPPORT_MATRIX[item.kind]?.[call.target] === 'unsupported';
+    const status = expectedStatus(call.bundle.items.map((item) => item.kind), call.target, call.skipUnsupported ? 'skip-unsupported' : 'default');
+    if (status === 'rejected') {
+      const rejectedPaths = call.bundle.items.filter((item) => unsupported(item)).flatMap((item) => item.files);
+      return { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [], rejectedPaths };
+    }
+    const fixture = buildPrimitiveFixture();
+    const installed = call.bundle.items.filter((item) => !unsupported(item));
+    const placed = (files: (item: DiagnosticBundle['items'][number]) => readonly string[]): string[] => installed
+      .flatMap((item) => files(item).map((file) => expectedDestination(call.target, call.scope, item, file)))
+      .flatMap((destination) => (destination.kind === 'file' ? [resolveLabel(call.roots, destination.label)] : []));
+    const executable = placed((item) => item.files.filter((file) => fixture.get(file)?.mode === 0o755));
+    if (status === 'installed') {
       return { exitCode: 0, files: call.defaultFiles, executable };
     }
-    const rejectedPaths = call.bundle.items
-      .filter((item) => PRIMITIVE_SUPPORT_MATRIX[item.kind]?.[call.target] === 'unsupported')
-      .flatMap((item) => item.files);
-    return { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [], rejectedPaths };
+    const reason = `target "tgt" (${call.target}) cannot install this content`;
+    return {
+      exitCode: 0,
+      files: placed((item) => item.files),
+      executable,
+      skipped: call.bundle.items.filter((item) => unsupported(item)).flatMap((item) => item.files)
+        .toSorted().map((file) => ({ path: file, code: 'BUNDLE.UNSUPPORTED_CONTENT', reason })),
+      lockedFiles: installed.flatMap((item) => item.files)
+    };
   }
 }

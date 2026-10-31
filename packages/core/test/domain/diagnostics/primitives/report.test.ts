@@ -98,6 +98,7 @@ describe('assemblePrimitiveReport', () => {
       kinds: ['chat-mode'],
       target: 'copilot-cli',
       scope: 'repository',
+      mode: 'default',
       effectiveScope: 'user',
       status: 'rejected',
       expectedStatus: 'installed',
@@ -145,6 +146,20 @@ describe('assemblePrimitiveReport', () => {
     const fixedPrompt: BundleResult = { id: 'aph-e2e-only-prompt', checks: [pass('I0'), pass('I1', 'prompts/hello-world.prompt.md'), pass('I2', 'prompts/hello-world.prompt.md'), pass('I3')] };
     const unused = assemblePrimitiveReport(plan, [fixedPrompt, BUNDLES[1]], plan.cases.map((c) => caseResult(c)), withIssue, meta);
     expect(unused.unusedKnownGaps).toEqual([{ key: 'manifest-id-file-stem/I2/prompt', id: 'manifest-id-file-stem', invariant: 'I2', issue: 526 }]);
+  });
+
+  it('reports the install mode each case ran in', () => {
+    const mixPlan = planPrimitiveDiagnostics({ kinds: ['prompt', 'instruction'], targets: ['vscode'], scopes: ['user'] }, [{
+      ...plan.bundles[0],
+      id: 'mix',
+      items: [plan.bundles[0].items[0], { ...plan.bundles[0].items[0], kind: 'instruction', path: 'instructions/code-style.instructions.md' }]
+    }]);
+    const report = assemblePrimitiveReport(mixPlan, [], [], GAPS, meta);
+    expect(report.cases.map((c) => [c.id, c.mode])).toEqual([
+      ['mix__vscode__user', 'default'],
+      ['mix__vscode__user__skip-unsupported', 'skip-unsupported']
+    ]);
+    expect(Object.keys(report.cases[0]).slice(0, 6)).toEqual(['id', 'bundle', 'kinds', 'target', 'scope', 'mode']);
   });
 
   it('fills unfinished items with a HARNESS check on an internal error', () => {

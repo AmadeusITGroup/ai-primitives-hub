@@ -32,6 +32,7 @@ import type {
 } from './support-matrix';
 import type {
   DiagnosticCheck,
+  DiagnosticInstallMode,
   DiagnosticScope,
   InvariantId,
   RollupOutcome,
@@ -60,6 +61,8 @@ export interface PrimitiveDiagnosticsReport {
   bundles: { id: string; kinds: PrimitiveKind[]; outcome: RollupOutcome; checks: DiagnosticCheck[] }[];
   cases: {
     id: string; bundle: string; kinds: PrimitiveKind[]; target: TargetType; scope: DiagnosticScope;
+    /** Install mode the case ran in: the default all-or-nothing install, or `install --skip-unsupported`. */
+    mode: DiagnosticInstallMode;
     effectiveScope: string | null; status: InstallStatus | null;
     expectedStatus: ExpectedInstallStatus; outcome: RollupOutcome; gapIds: string[];
     checks: DiagnosticCheck[]; destinations: string[]; durationMs: number;
@@ -155,6 +158,7 @@ export function assemblePrimitiveReport(
         kinds: [...planned.kinds],
         target: planned.target,
         scope: planned.scope,
+        mode: planned.mode,
         effectiveScope: result?.effectiveScope ?? null,
         status: result?.status ?? null,
         expectedStatus: planned.expectedStatus,

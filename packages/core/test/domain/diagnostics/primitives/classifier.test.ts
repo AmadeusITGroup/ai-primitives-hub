@@ -66,6 +66,14 @@ describe('classifyCheck', () => {
     expect(classifyCheck(failed('I4', rejected), { kinds: ['prompt'], target: 'vscode' }, [gap]).check.outcome).toBe('fail');
   });
 
+  it('matches a modes selector on the subject install mode only', () => {
+    const partial = { status: 'partial', errorCode: null };
+    const gap: KnownGap = { key: 'test-gap/I4/skip', id: 'test-gap', invariant: 'I4', match: { modes: ['skip-unsupported'] }, observed: partial, summary: 's' };
+    expect(classifyCheck(failed('I4', partial), { kinds: ['hook'], target: 'kiro', mode: 'skip-unsupported' }, [gap]).check.outcome).toBe('known-gap');
+    expect(classifyCheck(failed('I4', partial), { kinds: ['hook'], target: 'kiro', mode: 'default' }, [gap]).check.outcome).toBe('fail');
+    expect(classifyCheck(failed('I4', partial), { kinds: ['hook'] }, [gap]).check.outcome).toBe('fail');
+  });
+
   it('never matches a selector on a dimension the subject lacks', () => {
     const gap: KnownGap = {
       key: 'manifest-id-file-stem/I2/prompt@vscode', id: 'manifest-id-file-stem', invariant: 'I2', match: { kinds: ['prompt'], targets: ['vscode'] },
@@ -111,6 +119,7 @@ describe('classifyCase', () => {
       items: [{ path: 'prompts/hello-world.prompt.md', kind: 'prompt' }, { path: 'mcp-servers/github.mcp.json', kind: 'mcp-server' }],
       target: 'vscode',
       scope: 'user',
+      mode: 'default',
       expectedStatus: 'installed'
     };
     const promptGap: KnownGap = { key: 'test-gap/I9/prompt', id: 'test-gap', invariant: 'I9', match: { kinds: ['prompt'] }, observed: { rejected: true }, summary: 's' };
@@ -120,8 +129,8 @@ describe('classifyCase', () => {
       failed('I9', { rejected: true }, 'prompts/hello-world.prompt.md')
     ], [promptGap, bundleGap]);
     expect(result.records.map((r) => [r.subject, r.absorbedBy])).toEqual([
-      [{ kinds: ['mcp-server'], bundle: 'mix', target: 'vscode', scope: 'user' }, ['mix-gap/I9/mix']],
-      [{ kinds: ['prompt'], bundle: 'mix', target: 'vscode', scope: 'user' }, ['test-gap/I9/prompt', 'mix-gap/I9/mix']]
+      [{ kinds: ['mcp-server'], bundle: 'mix', target: 'vscode', scope: 'user', mode: 'default' }, ['mix-gap/I9/mix']],
+      [{ kinds: ['prompt'], bundle: 'mix', target: 'vscode', scope: 'user', mode: 'default' }, ['test-gap/I9/prompt', 'mix-gap/I9/mix']]
     ]);
   });
 
@@ -172,7 +181,7 @@ describe('findUnusedKnownGaps', () => {
     expect(findUnusedKnownGaps(records(fixed)).map((g) => g.key)).toEqual(['manifest-id-file-stem/I2/prompt']);
   });
 
-  it('reports an entry whose targeted check fails differently', () => {
+  it('reports an entry whose targeted check fails differently, but not an entry of another install mode', () => {
     const different = classifyCase(caseOf('hook', 'kiro', 'user'), [failed('I4', { status: 'error', errorCode: 'X' }), ...passingCase().slice(1)]);
     expect(findUnusedKnownGaps(records(different)).map((g) => g.key)).toEqual(['kiro-hook-rejected/I4/hook@kiro']);
   });

@@ -2,7 +2,9 @@
  * Text renderer for `doctor diagnostics --primitives`.
  *
  * Formatting only: every outcome, gap id and expected value comes from the
- * core-assembled report.
+ * core-assembled report. A case row is one bundle on one target in one
+ * install mode; a mixed-kind bundle's row label names its mode
+ * (`[default]` or `[skip-unsupported]`).
  * @module doctor/primitives-text
  */
 import type {
@@ -92,13 +94,13 @@ const scopeCell = (c: ReportCase): string => {
 const renderCases = (report: PrimitiveDiagnosticsReport, verbose: boolean): string[] => {
   const rows = new Map<string, ReportCase[]>();
   for (const c of report.cases) {
-    const key = `${c.bundle}\u0000${c.target}`;
+    const key = `${c.bundle}\u0000${c.target}\u0000${c.mode}`;
     rows.set(key, [...(rows.get(key) ?? []), c]);
   }
   return [...rows.values()].flatMap((row) => {
     const cells = row.map((c, index) => (index === row.length - 1 ? scopeCell(c) : pad(scopeCell(c), SCOPE_WIDTH)));
-    // A single-kind bundle is labelled by its kind, a mixed-kind bundle by its id.
-    const label = row[0].kinds.length === 1 ? row[0].kinds[0] : row[0].bundle;
+    // A single-kind bundle is labelled by its kind, a mixed-kind bundle by its id and install mode.
+    const label = row[0].kinds.length === 1 ? row[0].kinds[0] : `${row[0].bundle} [${row[0].mode}]`;
     const line = `  ${pad(label, KIND_WIDTH)}${pad(row[0].target, TARGET_WIDTH)}${cells.join('')}`;
     return [line, ...row.flatMap((c) => expandChecks(c.checks, verbose, `${c.scope} `))];
   });
