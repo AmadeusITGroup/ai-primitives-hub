@@ -251,10 +251,15 @@ describe('uninstall command', () => {
       await writeFile(oldFile, '# Old\n');
       await writeOldLock({ 'old-only': '.github/prompts/old.prompt.md' });
 
+      // A bundle only the old file lists does not decide with several targets
+      // (BR23.3): a typed --target migrates the level first.
+      const migrate = await run(['uninstall', '--bundle', 'old-only', '--target', 'repo-kiro']);
+      expect(migrate.exitCode, migrate.stdout).toBe(0);
+      expect(migrate.stdout).toContain(`Migrated repository record:\n  merged ${oldLockPath()}\n  needs reinstall: old-only@1.0.0 (tool unknown)\n`);
+
       const result = await run(['uninstall', '--bundle', 'old-only']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      expect(result.stdout).toContain(`Migrated repository record:\n  merged ${oldLockPath()}\n  needs reinstall: old-only@1.0.0 (tool unknown)\n`);
       expect(result.stdout).toContain('Removed the record entry of old-only (tool unknown); 1 file kept because their tool is unknown.');
       expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
       expect(await readFile(oldFile, 'utf8')).toBe('# Old\n');

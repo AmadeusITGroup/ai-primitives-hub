@@ -85,7 +85,6 @@ import {
   RepositoryScopeWriterAdapter,
   SourceDispatcher,
   StaticTokenProvider,
-  TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
@@ -436,7 +435,7 @@ export class InstallCommand extends BaseInstallCommand {
 
       Examples:
         ai-primitives-hub install --from <path> --target my-vscode
-        ai-primitives-hub install --lockfile prompt-registry.lock.json --target my-vscode
+        ai-primitives-hub install --lockfile ai-primitives-hub.lock.json --target my-vscode
         ai-primitives-hub install --source amadeus-hub --interactive --target my-vscode
     `
   });
@@ -506,7 +505,7 @@ export class InstallCommand extends BaseInstallCommand {
         message: 'install: provide either <bundle-id> (imperative), --lockfile <path> (declarative), --from <path> (local directory), or --source <hub-id> (list bundles)',
         hint: 'Examples:\n'
           + '  ai-primitives-hub install --from <path> --target my-vscode\n'
-          + '  ai-primitives-hub install --lockfile prompt-registry.lock.json\n'
+          + '  ai-primitives-hub install --lockfile ai-primitives-hub.lock.json\n'
           + '  ai-primitives-hub install --source amadeus-hub --target my-vscode'
       }));
     }
@@ -1134,8 +1133,6 @@ async function performLocalInstall(
       return legacyLockPath;
     });
 
-    await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
-
     formatOutput({
       ctx,
       command: 'install',
@@ -1224,10 +1221,6 @@ async function performLockfileInstall(
     verbose: opts.verbose ?? false,
     sourceAwareDependencyCache
   });
-
-  if (replayed.length > 0) {
-    await updateTargetStateFromLockfile(ctx, effectiveTarget.name, lock, replayed);
-  }
 
   const status = failures.length === 0 ? 'ok' : 'warning';
   formatOutput({
@@ -1393,7 +1386,6 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
       changes.push(await recordPlannedInstall(
         service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type }, target, ctx, manifest.version, written, false
       ));
-      await updateTargetState(ctx, target.name, bundleId, manifest.version);
       data.replayed.push({ bundleId, tool, version: manifest.version, target: target.name });
     } catch (cause) {
       if (isRecordError(cause)) {
@@ -1432,6 +1424,7 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
 
 /**
  * Replay the bundles only the old `prompt-registry.*` file has, with the old code and on that file.
+ * They go to the `--target` or only configured target, else fail with the missing-target message.
  * @param run Replay inputs.
  * @param fetch HTTP client, token provider and source-aware dependency cache.
  * @param fetch.http HTTP client.
@@ -1464,9 +1457,6 @@ async function replayOldFileOnly(
     verbose: opts.verbose ?? false,
     sourceAwareDependencyCache: fetch.cache
   });
-  if (replayed.length > 0) {
-    await updateTargetStateFromLockfile(ctx, target.name, lock, replayed);
-  }
   return { lockfile: lockPath, target: target.name, replayPlanned: bundleIds.length, replayed, failures };
 }
 
@@ -1676,68 +1666,6 @@ async function performRemoteInstall(
 }
 
 /**
- * Update target state with installed bundle.
- * @param ctx CLI context.
- * @param targetName Target name.
- * @param bundleId Bundle ID.
- * @param version Bundle version.
- */
-async function updateTargetState(ctx: Context, targetName: string, bundleId: string, version: string): Promise<void> {
-  const stateStore = new TargetStateStore({
-    fs: ctx.fs,
-    statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json')
-  });
-  const existingState = await stateStore.load(targetName);
-  const newBundles = existingState?.lastInstalledBundles ?? [];
-  const bundleIndex = newBundles.findIndex((b) => b.bundleId === bundleId);
-  const bundleState = { bundleId, version, installedAt: new Date().toISOString() };
-  if (bundleIndex === -1) {
-    newBundles.push(bundleState);
-  } else {
-    newBundles[bundleIndex] = bundleState;
-  }
-  await stateStore.save({
-    targetName,
-    lastInstalledBundles: newBundles,
-    lastUsedAt: new Date().toISOString()
-  });
-}
-
-/**
- * Update target state from lockfile entries.
- * @param ctx CLI context.
- * @param targetName Target name.
- * @param lock Lockfile.
- * @param replayed Replayed bundle IDs.
- */
-async function updateTargetStateFromLockfile(ctx: Context, targetName: string, lock: Lockfile, replayed: string[]): Promise<void> {
-  const stateStore = new TargetStateStore({
-    fs: ctx.fs,
-    statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json')
-  });
-  const existingState = await stateStore.load(targetName);
-  const newBundles = existingState?.lastInstalledBundles ?? [];
-  for (const bundleId of replayed) {
-    const entry = lock.bundles[bundleId];
-    if (entry === undefined) {
-      continue;
-    }
-    const bundleIndex = newBundles.findIndex((b) => b.bundleId === bundleId);
-    const bundleState = { bundleId, version: entry.version, installedAt: entry.installedAt };
-    if (bundleIndex === -1) {
-      newBundles.push(bundleState);
-    } else {
-      newBundles[bundleIndex] = bundleState;
-    }
-  }
-  await stateStore.save({
-    targetName,
-    lastInstalledBundles: newBundles,
-    lastUsedAt: new Date().toISOString()
-  });
-}
-
-/**
  * Install a single bundle given an explicit source configuration.
  * Shared by `install --interactive` and `index search --install`.
  * @param bundleId Bundle ID to install.
@@ -1789,7 +1717,7 @@ export const createInstallCommand = (
           message: 'install: provide either <bundle-id> (imperative) or --lockfile <path> (declarative)',
           hint: 'Examples:\n'
             + '  ai-primitives-hub install <bundle-id>\n'
-            + '  ai-primitives-hub install --lockfile prompt-registry.lock.json'
+            + '  ai-primitives-hub install --lockfile ai-primitives-hub.lock.json'
         }));
       }
 

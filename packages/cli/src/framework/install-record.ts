@@ -30,6 +30,7 @@ import {
   resolveUserConfigPaths,
   resolveUserHome,
   selectRecord,
+  type StatusRow,
   type TargetLayout,
 } from '@ai-primitives-hub/app';
 import {
@@ -47,6 +48,7 @@ import {
   type RepositoryExclusion,
   type Target,
   type TokenProvider,
+  UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
   FileSystemLayoutConfigLoader,
@@ -694,6 +696,95 @@ export const prepareRecordSelection = async (
 };
 
 /**
+ * A read-only record selection with its entries, for `update` and
+ * `uninstall <bundle-id>` when the record decides the tools.
+ */
+export interface RecordDecision {
+  /** The typed `--lockfile` / `--scope`; never a target. */
+  input: Omit<RecordSelectionInput, 'write'>;
+  /** The selection, made with no target. */
+  prepared: PreparedRecordSelection;
+  /** Every (bundle, tool) entry of the selected 3.0.0 record files. */
+  rows: StatusRow[];
+}
+
+/**
+ * Select the record with no target and list its entries; `options.write` migrates the level first.
+ * @param ctx - CLI context.
+ * @param input - Command name and the typed `--lockfile` / `--scope`.
+ * @param options - Selection options.
+ * @param options.write - `true` to migrate before selecting.
+ * @throws {RegistryError} A `RECORD.*` error naming the command and the file.
+ */
+export const prepareRecordDecision = async (
+  ctx: Context,
+  input: Omit<RecordSelectionInput, 'write'>,
+  options: { write?: boolean } = {}
+): Promise<RecordDecision> => {
+  const prepared = await prepareRecordSelection(ctx, { ...input, write: options.write === true });
+  const { selection, service } = prepared;
+  try {
+    const rows = selection.locations.length === 0 ? [] : await service.listEntries(selection.locations);
+    return { input, prepared, rows };
+  } catch (error) {
+    throw isRecordError(error) ? toCommandRecordError(input.command, error) : error;
+  }
+};
+
+/**
+ * The distinct tools a bundle has entries for, in row order.
+ * @param rows - Rows of a {@link RecordDecision}.
+ * @param bundleId - Bundle id.
+ */
+export const recordedTools = (rows: readonly StatusRow[], bundleId: string): string[] =>
+  [...new Set(rows.filter((row) => row.bundleId === bundleId).map((row) => row.tool))];
+
+/** Outcome of {@link prepareUnknownUninstall}. */
+export type PreparedUnknownUninstall =
+  /** Still a lone `unknown` entry: remove it with {@link recordUnknownUninstall}. */
+  | { uninstall: PreparedRepositoryUninstall }
+  /** The migration changed the bundle's entries: decide again on this selection. */
+  | { changed: RecordDecision };
+
+/**
+ * Prepare `uninstall <bundle-id>` of a lone `unknown` entry with no target; the level is migrated first unless `--dry-run`.
+ * @param ctx - CLI context.
+ * @param decision - The read-only decision that found the entry.
+ * @param bundleId - Bundle to uninstall.
+ * @param options - Preview options.
+ * @param options.dryRun - `true` for `--dry-run`, which never migrates.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
+ */
+export const prepareUnknownUninstall = async (
+  ctx: Context,
+  decision: RecordDecision,
+  bundleId: string,
+  options: { dryRun?: boolean } = {}
+): Promise<PreparedUnknownUninstall> => {
+  const migrated = options.dryRun === true ? decision : await prepareRecordDecision(ctx, decision.input, { write: true });
+  const tools = recordedTools(migrated.rows, bundleId);
+  if (tools.length !== 1 || tools[0] !== UNKNOWN_TOOL_NAME) {
+    return { changed: migrated };
+  }
+  const { selection, service, migration } = migrated.prepared;
+  try {
+    const location = await service.holdingLocation(selection.locations, bundleId, UNKNOWN_TOOL_NAME);
+    return {
+      uninstall: {
+        location: location ?? selection.locations[0],
+        service,
+        tool: UNKNOWN_TOOL_NAME,
+        entries: new Map(),
+        loneUnknown: new Set((await service.findLoneUnknown(selection.locations)).keys()),
+        ...(migration === undefined ? {} : { migration })
+      }
+    };
+  } catch (error) {
+    throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
+  }
+};
+
+/**
  * Configured sources by id for the source trust gate, in `orderConfiguredSources`
  * order. A hub that cannot be read contributes no source.
  * @param ctx - CLI context.
@@ -814,7 +905,8 @@ export interface OldFileTargetInput {
 export type OldFileOnlyPlan = OldFileOnlyBundles & ({ target: Target } | { reason: string });
 
 /**
- * The old-file-only bundles and their target: the given one, else the only configured one, else the last used one.
+ * The old-file-only bundles and their target: the given one, else the only
+ * configured one, with the overrides applied; else the missing-target reason.
  * @param ctx - CLI context.
  * @param prepared - The command's record selection.
  * @param resolve - Command name, the given target and the overrides.
