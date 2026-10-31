@@ -1220,6 +1220,65 @@ agents:
     });
   });
 
+  describe('user install record (ai-primitives-hub.user.lock.json)', () => {
+    let userEnv: Record<string, string>;
+    const runUser = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
+      commandClasses: COMMAND_CLASSES,
+      context: { cwd: workspace, fs: new NodeFileSystem(), env: userEnv }
+    });
+    const userRecordPath = (): string => new XdgAppStorage(userEnv).getPaths().userRecord;
+    const exists = (file: string): Promise<boolean> => stat(file).then(() => true, () => false);
+
+    beforeEach(async () => {
+      userEnv = {
+        HOME: path.join(workspace, 'home'),
+        USERPROFILE: path.join(workspace, 'profile'),
+        XDG_CONFIG_HOME: path.join(workspace, 'user-xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'user-xdg-cache')
+      };
+      await mkdir(userEnv.HOME, { recursive: true });
+      await mkdir(userEnv.USERPROFILE, { recursive: true });
+    });
+
+    const MALFORMED_RECORD = '{ "version": "3.0.0", ';
+    it.each([
+      {
+        name: 'a target folder outside home',
+        targetFolder: (): string => path.join(workspace, 'outside', 'target'),
+        seedRecord: undefined,
+        error: (): object => ({
+          code: 'RECORD.PATH_OUTSIDE_ROOT',
+          hint: `Use a target under ${path.resolve(userEnv.HOME)} or a repository target.`
+        })
+      },
+      {
+        name: 'a malformed user record',
+        targetFolder: (): string => path.join(userEnv.HOME, 'target'),
+        seedRecord: MALFORMED_RECORD,
+        error: (): object => ({ code: 'RECORD.MALFORMED', context: { file: userRecordPath() } })
+      }
+    ])('refuses a user-scope install into $name: exit 1, nothing written', async ({ targetFolder, seedRecord, error }) => {
+      if (seedRecord !== undefined) {
+        await mkdir(path.dirname(userRecordPath()), { recursive: true });
+        await writeFile(userRecordPath(), seedRecord);
+      }
+      expect((await runUser([
+        'target', 'add', 'user-copilot', '--type', 'copilot-cli', '--path', targetFolder(), '-o', 'json'
+      ])).exitCode).toBe(0);
+
+      const result = await runUser(['install', 'local-foo', '--from', bundleDir, '--target', 'user-copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject(error());
+      expect(await exists(path.join(targetFolder(), 'prompts', 'hello.prompt.md'))).toBe(false);
+      if (seedRecord === undefined) {
+        expect(await exists(userRecordPath())).toBe(false);
+      } else {
+        expect(await readFile(userRecordPath(), 'utf8')).toBe(seedRecord);
+      }
+    });
+  });
+
   describe('replay of the repository install record (format 3.0.0)', () => {
     interface ReplayRecord {
       bundles: Record<string, { tools: Record<string, Record<string, unknown> & { sourceId: string }> }>;

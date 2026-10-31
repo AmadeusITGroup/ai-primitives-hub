@@ -16,6 +16,16 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  emptyLockfile,
+  resolveUserConfigPaths,
+  upsertBundleEntry,
+  writeLockfile,
+} from '@ai-primitives-hub/app';
+import {
+  NodeFileSystem,
+  XdgAppStorage,
+} from '@ai-primitives-hub/infra';
+import {
   afterEach,
   beforeEach,
   describe,
@@ -302,6 +312,74 @@ describe('uninstall command', () => {
       expect(parseJson<{ lockfile: string; uninstalled: number }>(result.stdout).data).toMatchObject({ lockfile: oldLockPath(), uninstalled: 1 });
       expect(await exists(oldFile)).toBe(false);
       expect(await recordedTools()).toEqual(['kiro', 'vscode']);
+    });
+  });
+
+  describe('user install record (ai-primitives-hub.user.lock.json)', () => {
+    let userEnv: Record<string, string>;
+    let homeTargetDir: string;
+    const runUser = (argv: string[]): ReturnType<ReturnType<typeof makeRun>> => makeRun(() => workspace, COMMAND_CLASSES, userEnv)(argv);
+    const homePrompt = (): string => path.join(homeTargetDir, 'prompts', 'hello.prompt.md');
+    const exists = (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
+    const installUser = async (): Promise<void> => {
+      const result = await runUser(['install', 'local-foo', '--from', bundleDir, '--target', 'user-copilot', '-o', 'json']);
+      expect(result.exitCode, result.stdout).toBe(0);
+    };
+    const uninstallUser = async (): Promise<{ removed: string[]; lockfile: string }> => {
+      const result = await runUser(['uninstall', '--bundle', 'local-foo', '--target', 'user-copilot', '-o', 'json']);
+      expect(result.exitCode, result.stdout).toBe(0);
+      return parseJson<{ removed: string[]; lockfile: string }>(result.stdout).data;
+    };
+
+    beforeEach(async () => {
+      // HOME and USERPROFILE differ, so the recorded paths show which one is the root.
+      userEnv = {
+        HOME: path.join(workspace, 'home'),
+        USERPROFILE: path.join(workspace, 'profile'),
+        XDG_CONFIG_HOME: path.join(workspace, 'user-xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'user-xdg-cache')
+      };
+      homeTargetDir = path.join(userEnv.HOME, 'target');
+      await mkdir(homeTargetDir, { recursive: true });
+      await mkdir(userEnv.USERPROFILE, { recursive: true });
+      expect((await runUser([
+        'target', 'add', 'user-copilot', '--type', 'copilot-cli', '--path', homeTargetDir, '-o', 'json'
+      ])).exitCode).toBe(0);
+    });
+
+    it('records paths relative to HOME, not USERPROFILE, and uninstall removes exactly those files', async () => {
+      await installUser();
+      const userRecord = new XdgAppStorage(userEnv).getPaths().userRecord;
+      const record = JSON.parse(await readFile(userRecord, 'utf8')) as {
+        bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
+      };
+      const recorded = record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path);
+      expect(recorded).toEqual(['target/prompts/hello.prompt.md']);
+
+      const data = await uninstallUser();
+
+      expect(data.lockfile).toBe(userRecord);
+      expect(data.removed).toEqual(recorded);
+      expect(await exists(homePrompt())).toBe(false);
+    });
+
+    it('keeps a file the old user lockfile still lists for the bundle and leaves that lockfile byte-identical', async () => {
+      const oldLockfile = resolveUserConfigPaths(userEnv).userLockfile;
+      await writeLockfile(oldLockfile, upsertBundleEntry(emptyLockfile('test'), 'local-foo', {
+        version: '1.0.0',
+        sourceId: 'local-src',
+        sourceType: 'local',
+        installedAt: '2026-10-01T00:00:00.000Z',
+        files: [{ path: 'prompts/hello.prompt.md', checksum: '0'.repeat(64) }]
+      }), new NodeFileSystem());
+      const before = await readFile(oldLockfile, 'utf8');
+      await installUser();
+
+      const data = await uninstallUser();
+
+      expect(data.removed).toEqual([]);
+      expect(await exists(homePrompt())).toBe(true);
+      expect(await readFile(oldLockfile, 'utf8')).toBe(before);
     });
   });
 
