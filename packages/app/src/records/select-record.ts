@@ -1,19 +1,24 @@
 /**
  * Record selection: which install record file(s) a command acts on. The level
  * comes from `--lockfile`, `--scope` or the target; without one, a record or old
- * lockfile in the repository picks the repository level. Selected files are
+ * lockfile at the git root picks the repository level. Selected files are
  * loaded, so a bad record stops the command before anything is written. At user
- * level, the shared user record (rooted at home) is used when it is passed in.
+ * level, the shared user record (rooted at home) is used when it is passed in,
+ * with the old user lockfile as its old store until it is imported.
  * @module records/select-record
  */
 import * as path from 'node:path';
 import {
+  IMPORTED_USER_LOCKFILE_FIELD,
   type InstallationScope,
   type RecordFs,
   type RecordLevel,
   type RecordLocation,
   repositoryLocations,
 } from '@ai-primitives-hub/core';
+import {
+  resolveRepositoryRoot,
+} from './git-root';
 import type {
   RecordStore,
 } from './record-store';
@@ -97,8 +102,9 @@ const sharedUserSelection = async (
     return userSelection(options.userLockfile, reason, inferred);
   }
   const location = options.store.resolveUser({ home: options.home, path: options.userRecord });
-  await options.store.load(location);
-  const oldExists = await options.fs.exists(options.userLockfile);
+  const { record } = await options.store.load(location);
+  // Once the old user lockfile was imported, the user level no longer reads it (BR20.1).
+  const oldExists = record[IMPORTED_USER_LOCKFILE_FIELD] === undefined && await options.fs.exists(options.userLockfile);
   return {
     level: 'user',
     root: location.root,
@@ -110,13 +116,19 @@ const sharedUserSelection = async (
 };
 
 /**
- * The old repository file found from `start`, ignoring the user lockfile the walk may fall back to.
+ * The old repository file found from `start`, accepted only at the git root
+ * of `start` (security-design "Which old files"); the user lockfile the walk
+ * may fall back to, and a file in a sub-folder or above the root, are ignored.
  * @param options - Selection inputs.
  * @param start - Walk start.
  */
 const findOldRepositoryFile = async (options: SelectRecordOptions, start: string): Promise<string | undefined> => {
   const found = await options.findOldLockfile(start);
-  return found === null || path.resolve(found) === path.resolve(options.userLockfile) ? undefined : found;
+  if (found === null || path.resolve(found) === path.resolve(options.userLockfile)) {
+    return undefined;
+  }
+  const root = await resolveRepositoryRoot(options.fs, start);
+  return path.dirname(path.resolve(found)) === root ? found : undefined;
 };
 
 /**

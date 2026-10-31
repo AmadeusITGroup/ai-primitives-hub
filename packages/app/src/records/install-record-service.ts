@@ -488,12 +488,26 @@ export class InstallRecordService {
   }
 
   /**
-   * Save a changed repository file, or remove it when it has no bundles left.
-   * Removing the local-only file also removes its `info/exclude` line.
+   * Remove a bundle's `unknown` entry and the source only it used.
+   * @param record - Record to change.
+   * @param bundleId - Bundle id.
+   * @returns Whether there was an entry to remove.
+   */
+  private clearUnknown(record: InstallRecord, bundleId: string): boolean {
+    const removed = this.removeEntry(record, bundleId, UNKNOWN_TOOL_NAME);
+    if (removed !== undefined) {
+      this.dropUnusedSource(record, removed.sourceId);
+    }
+    return removed !== undefined;
+  }
+
+  /**
+   * Save a changed record file, or remove a repository file with no bundles left.
+   * An empty user record is kept so its import marker survives.
    * @param other - The loaded, changed file.
    */
   private async saveOther(other: LoadedRecord): Promise<string[]> {
-    if (Object.keys(other.record.bundles).length > 0) {
+    if (other.location.level !== 'repository' || Object.keys(other.record.bundles).length > 0) {
       return (await this.store.save(other.location, other.record)).warnings;
     }
     const name = path.basename(other.location.path);
@@ -504,7 +518,7 @@ export class InstallRecordService {
       const saved = await this.store.save(other.location, other.record);
       return [`Could not remove the empty record ${name}: ${error instanceof Error ? error.message : String(error)}`, ...saved.warnings];
     }
-    if (other.location.level === 'repository' && other.location.commitMode === 'local-only') {
+    if (other.location.commitMode === 'local-only') {
       const excluded = await removeExcluded(this.fs, other.location.root, name);
       return excluded.warning === undefined ? [] : [excluded.warning];
     }
@@ -609,9 +623,9 @@ export class InstallRecordService {
 
   /**
    * Record that a tool installed a bundle, moving the entry out of the other
-   * repository file and syncing siblings. The tool's entries with the same
-   * bundle identity in either file are replaced. Saves the target file first;
-   * deletes nothing.
+   * repository file, syncing siblings and clearing the bundle's `unknown` entry.
+   * The tool's entries with the same bundle identity in either file are
+   * replaced. Saves the target file first; deletes nothing.
    * @param input - Install to record.
    * @returns The change, with the superseded files to delete after the save and the siblings found.
    * @throws {RegistryError} A `RECORD.*` error; the record is unchanged when the target save fails.
@@ -677,8 +691,12 @@ export class InstallRecordService {
       (stillListed.has(oldPath) ? keptSharedFiles : deletedFiles).push(oldPath);
     }
 
+    // A reinstall clears the bundle's `unknown` entry; its files are only no longer listed (BR21.2).
+    const clearedOther = other !== undefined && this.clearUnknown(other.record, bundleId);
+    this.clearUnknown(target.record, bundleId);
+
     const warnings = [...(await this.store.save(location, target.record)).warnings];
-    if (other !== undefined && (moved.length > 0 || sync.changed.has(other))) {
+    if (other !== undefined && (moved.length > 0 || clearedOther || sync.changed.has(other))) {
       warnings.push(...(await this.saveOther(other)));
     }
     const synced = sync.siblings.filter((sibling) => sibling.synced);
