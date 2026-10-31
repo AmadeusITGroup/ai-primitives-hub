@@ -110,6 +110,7 @@ import {
   prepareOldFileOnly,
   prepareRecordSelection,
   prepareRepositoryRecord,
+  prepareUserRecord,
   readTargetsSafely,
   recordOutputFields,
   recordPlannedInstall,
@@ -1078,10 +1079,10 @@ async function performLocalInstall(
       });
       return 0;
     }
-    // Check both record files before the writer runs, so a RECORD.* error writes nothing.
+    // Check the record files before the writer runs, so a RECORD.* error writes nothing.
     const prepared = effectiveTarget.scope === 'repository'
       ? await prepareRepositoryRecord(ctx, effectiveTarget)
-      : undefined;
+      : (effectiveTarget.scope === 'user' ? await prepareUserRecord(ctx, effectiveTarget) : undefined);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
@@ -1605,10 +1606,10 @@ async function performRemoteInstall(
       });
       return 0;
     }
-    // Check both record files before the writer runs, so a RECORD.* error writes nothing.
+    // Check the record files before the writer runs, so a RECORD.* error writes nothing.
     const prepared = effectiveTarget.scope === 'repository'
       ? await prepareRepositoryRecord(ctx, effectiveTarget)
-      : undefined;
+      : (effectiveTarget.scope === 'user' ? await prepareUserRecord(ctx, effectiveTarget) : undefined);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(

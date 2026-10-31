@@ -1,12 +1,13 @@
 /**
  * Install record wiring for the CLI: builds the record store and service,
  * selects the record a command acts on and gates record sources. User level
- * still uses the old lockfile, and old `prompt-registry.*` files are never
- * touched here.
+ * records into the shared user record and only reads the old user lockfile;
+ * old `prompt-registry.*` files are never touched here.
  * @module framework/install-record
  */
 import * as path from 'node:path';
 import {
+  assertUserFolderInsideHome,
   createInstallRecordServices,
   findLockfile,
   type InstallRecordService,
@@ -22,13 +23,18 @@ import {
   type RecordSourceInput,
   type RecordStore,
   resolveExcludeFile,
+  resolveLayoutAsync,
   resolveUserConfigPaths,
+  resolveUserHome,
   selectRecord,
+  type TargetLayout,
 } from '@ai-primitives-hub/app';
 import {
   describeRecordError,
+  expandPath,
   type InstallationScope,
   isRecordError,
+  matchKindRoute,
   type RecordFs,
   type RecordLevel,
   type RecordLocation,
@@ -39,9 +45,12 @@ import {
   type TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  FileSystemLayoutConfigLoader,
   GitInfoExclude,
   NodeRecordFs,
+  resolveUserConfigDir,
   StaticTokenProvider,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   CLI_VERSION,
@@ -73,8 +82,8 @@ export interface PreparedRepositoryRecord {
   service: InstallRecordService;
   /** Workspace root the writer installs into (where merged MCP config files sit). */
   workspaceRoot: string;
-  /** `info/exclude` section for local-only files, shared with the local-only record. */
-  exclusion: RepositoryExclusion;
+  /** `info/exclude` section for local-only files; absent at user level. */
+  exclusion?: RepositoryExclusion;
 }
 
 /** What `recordRepositoryInstall` records. */
@@ -212,6 +221,53 @@ export const prepareRepositoryRecord = async (
 };
 
 /**
+/**
+ * The layout a user-scope target writes with and its base folder, with `HOME` set to home.
+ * @param ctx - CLI context.
+ * @param target - User-scope target.
+ * @param home - Home folder.
+ */
+const resolveUserTargetLayout = async (
+  ctx: Context,
+  target: Target,
+  home: string
+): Promise<{ layout: TargetLayout; baseDir: string }> => {
+  const loader = new FileSystemLayoutConfigLoader({ cwd: ctx.cwd(), fs: ctx.fs, userConfigDir: resolveUserConfigDir(ctx.env) });
+  const layout = await resolveLayoutAsync(target, loader);
+  return { layout, baseDir: path.resolve(expandPath(layout.baseDir, { ...ctx.env, HOME: home })) };
+};
+
+/**
+ * Load and check the shared user record and refuse a target folder outside
+ * home before anything is written.
+ * @param ctx - CLI context.
+ * @param target - User-scope target.
+ * @param fs - Filesystem port.
+ * @throws {RegistryError} A `RECORD.*` error naming the file or folder; nothing was written.
+ */
+export const prepareUserRecord = async (
+  ctx: Context,
+  target: Target,
+  fs: RecordFs = new NodeRecordFs()
+): Promise<PreparedRepositoryRecord> => {
+  const { store, service } = createRecordServices(fs);
+  const home = resolveUserHome(ctx.env);
+  try {
+    const location = store.resolveUser({ home, path: new XdgAppStorage(ctx.env).getPaths().userRecord });
+    await store.load(location);
+    const { layout, baseDir } = await resolveUserTargetLayout(ctx, target, home);
+    const routes = Object.values(layout.kindRoutes);
+    const folders = new Set(routes.length === 0 ? [baseDir] : routes.map((route) => path.join(baseDir, route)));
+    for (const folder of folders) {
+      await assertUserFolderInsideHome(fs, home, folder);
+    }
+    return { location, service, workspaceRoot: home };
+  } catch (error) {
+    throw isRecordError(error) ? toInstallRecordError(error) : error;
+  }
+};
+
+/**
  * Record a repository install, then remove the files it superseded. On failure
  * the written files stay and the error lists them.
  * @param prepared - From {@link prepareRepositoryRecord}.
@@ -252,10 +308,12 @@ export interface PreparedRepositoryUninstall {
   service: InstallRecordService;
   /** The target's type. */
   tool: string;
-  /** `info/exclude` section local-only files are listed in. */
-  exclusion: RepositoryExclusion;
+  /** `info/exclude` section local-only files are listed in; absent at user level. */
+  exclusion?: RepositoryExclusion;
   /** Bundles with an entry for `tool` in either file, sorted, with their recorded paths. */
   entries: Map<string, string[]>;
+  /** User level only: per bundle, paths the old user lockfile still lists; kept on uninstall. */
+  keepPaths?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** Outcome of `recordRepositoryUninstall`. */
@@ -301,6 +359,72 @@ export const prepareRepositoryUninstall = async (
 };
 
 /**
+/**
+ * Per bundle, the home-relative paths the old user lockfile lists for a
+ * user-scope target, resolved as the old uninstall does.
+ * @param ctx - CLI context.
+ * @param target - User-scope target.
+ * @param home - Home folder.
+ */
+const oldUserLockfilePaths = async (ctx: Context, target: Target, home: string): Promise<Map<string, Set<string>>> => {
+  const out = new Map<string, Set<string>>();
+  const lock = await readLockfile(resolveUserConfigPaths(ctx.env).userLockfile, ctx.fs);
+  if (lock === null || Object.keys(lock.bundles).length === 0) {
+    return out;
+  }
+  const { layout, baseDir } = await resolveUserTargetLayout(ctx, target, home);
+  for (const [bundleId, entry] of Object.entries(lock.bundles)) {
+    const paths = new Set<string>();
+    for (const file of entry.files) {
+      let absolute: string | undefined;
+      if (file.installedPath === undefined) {
+        const route = matchKindRoute(file.path, layout.kindRoutes);
+        absolute = route === null ? undefined : path.join(baseDir, route.outPrefix, route.tail);
+      } else {
+        absolute = path.join(baseDir, file.installedPath);
+      }
+      if (absolute !== undefined) {
+        paths.add(path.relative(home, path.resolve(absolute)).split(path.sep).join('/'));
+      }
+    }
+    out.set(bundleId, paths);
+  }
+  return out;
+};
+
+/**
+ * Load and check the shared user record before anything is removed. Bundles
+ * not recorded there fall back to the old user lockfile.
+ * @param ctx - CLI context.
+ * @param target - User-scope target.
+ * @param fs - Filesystem port.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
+ */
+export const prepareUserUninstall = async (
+  ctx: Context,
+  target: Target,
+  fs: RecordFs = new NodeRecordFs()
+): Promise<PreparedRepositoryUninstall> => {
+  const { store, service } = createRecordServices(fs);
+  const home = resolveUserHome(ctx.env);
+  try {
+    const location = store.resolveUser({ home, path: new XdgAppStorage(ctx.env).getPaths().userRecord });
+    const { record } = await store.load(location);
+    const entries = new Map<string, string[]>();
+    for (const bundleId of Object.keys(record.bundles).toSorted()) {
+      const tools = record.bundles[bundleId].tools;
+      if (Object.hasOwn(tools, target.type)) {
+        entries.set(bundleId, tools[target.type].files.map((file) => file.path));
+      }
+    }
+    const keepPaths = entries.size === 0 ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, home);
+    return { location, service, tool: target.type, entries, keepPaths };
+  } catch (error) {
+    throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
+  }
+};
+
+/**
  * Remove one bundle's entry for the target's type, then delete its files except
  * those another entry lists or that changed since the install (each kept with a warning).
  * @param prepared - From {@link prepareRepositoryUninstall}.
@@ -313,13 +437,19 @@ export const recordRepositoryUninstall = async (
 ): Promise<RecordedRepositoryUninstall> => {
   let result;
   try {
-    result = await prepared.service.uninstallEntry({ location: prepared.location, bundleId, tool: prepared.tool });
+    result = await prepared.service.uninstallEntry({
+      location: prepared.location,
+      bundleId,
+      tool: prepared.tool,
+      // Files the old user lockfile still lists stay on disk for it.
+      keep: prepared.keepPaths?.get(bundleId)
+    });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
   const { change, deleted } = result;
   const warnings = [...result.warnings, ...result.modified.map((file) => `Did not remove ${file}: it was changed after install.`)];
-  if (change.location.commitMode === 'local-only' && deleted.length > 0) {
+  if (change.location.commitMode === 'local-only' && deleted.length > 0 && prepared.exclusion !== undefined) {
     // Drop the removed files' `info/exclude` entries, as the old uninstall did.
     try {
       await prepared.exclusion.remove(deleted.map((relative) => path.join(change.location.root, ...relative.split('/'))));
@@ -381,7 +511,9 @@ export const prepareRecordSelection = async (
         ...(target === undefined ? {} : { target: { scope: target.scope, rootPath: target.rootPath } })
       },
       findOldLockfile: (start) => findLockfile(start, ctx.fs, userLockfile),
-      userLockfile
+      userLockfile,
+      userRecord: new XdgAppStorage(ctx.env).getPaths().userRecord,
+      home: resolveUserHome(ctx.env)
     });
     const exclusion = selection.level === 'repository' && selection.locations.length > 0
       ? await recordExclusion(ctx, fs, selection.root)

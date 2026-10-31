@@ -97,8 +97,8 @@ describe('uninstall command', () => {
 
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
 
-    const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as { bundles: Record<string, unknown> };
-    expect(lockContent.bundles).toEqual({});
+    // The user record held only this entry, so it is removed with it.
+    await expect(readFile(envelope.data.lockfile, 'utf8')).rejects.toThrow();
   });
 
   it('uninstalls a governed bundle using installable-only lockfile paths', async () => {
@@ -117,10 +117,8 @@ describe('uninstall command', () => {
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
 
     const envelope = parseJson<{ lockfile: string }>(uninstallResult.stdout);
-    const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, unknown>;
-    };
-    expect(lockContent.bundles).toEqual({});
+    // The user record held only this entry, so it is removed with it.
+    await expect(readFile(envelope.data.lockfile, 'utf8')).rejects.toThrow();
   });
 
   it('is a warning no-op (exit 0) when the bundle is not installed', async () => {

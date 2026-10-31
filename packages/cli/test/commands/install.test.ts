@@ -40,6 +40,7 @@ import {
 import {
   buildZip,
   NodeFileSystem,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -438,11 +439,12 @@ describe('install command (local --from mode)', () => {
     await expect(readFile(path.join(targetDir, 'metadata', 'source-collection.yml'), 'utf8')).rejects.toThrow();
     await expect(readFile(path.join(targetDir, 'LICENSE'), 'utf8')).rejects.toThrow();
     await expect(readFile(path.join(targetDir, 'ignored', 'build', 'cache.pyc'), 'utf8')).rejects.toThrow();
+    // User-scope installs go to the user record: per-tool entries, paths relative to home.
     const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, { files: { path: string }[] }>;
+      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
     };
-    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toEqual([
-      'prompts/hello.prompt.md'
+    expect(lockfile.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
+      'target/prompts/hello.prompt.md'
     ]);
   });
 
@@ -456,10 +458,10 @@ describe('install command (local --from mode)', () => {
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
     const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, { files: { path: string }[] }>;
+      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
     };
-    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toEqual([
-      'prompts/hello.prompt.md'
+    expect(lockfile.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
+      'target/prompts/hello.prompt.md'
     ]);
   });
 
@@ -477,8 +479,8 @@ describe('install command (local --from mode)', () => {
     ]);
 
     expect(replay.exitCode).toBe(0);
-    const replayEnvelope = parseJson<{ replayed: string[]; failures: unknown[] }>(replay.stdout);
-    expect(replayEnvelope.data.replayed).toEqual(['local-foo']);
+    const replayEnvelope = parseJson<{ replayed: { bundleId: string }[]; failures: unknown[] }>(replay.stdout);
+    expect(replayEnvelope.data.replayed.map((row) => row.bundleId)).toEqual(['local-foo']);
     expect(replayEnvelope.data.failures).toEqual([]);
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
@@ -1179,17 +1181,18 @@ agents:
       expect(lines).toContain('.github/prompts/hello.prompt.md');
     });
 
-    it('keeps user-scope installs on the existing user lockfile', async () => {
+    it('records user-scope installs in the user record, never the old user lockfile', async () => {
       const result = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      const userLockfile = resolveUserConfigPaths({
+      const env = {
         HOME: workspace,
         USERPROFILE: workspace,
         XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
         XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-      }).userLockfile;
-      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(userLockfile);
+      };
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(new XdgAppStorage(env).getPaths().userRecord);
+      await expect(readFile(resolveUserConfigPaths(env).userLockfile, 'utf8')).rejects.toThrow();
       await expect(readFile(recordPath(), 'utf8')).rejects.toThrow();
     });
   });
