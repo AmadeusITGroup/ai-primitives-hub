@@ -567,6 +567,38 @@ export class UserScopeService implements IScopeService {
   }
 
   /**
+   * Every file under a folder; symlinks are listed, not followed.
+   * @param dir - Absolute folder.
+   */
+  private async listFiles(dir: string): Promise<string[]> {
+    const files: string[] = [];
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const absolute = path.join(dir, entry.name);
+      files.push(...(entry.isDirectory() ? await this.listFiles(absolute) : [absolute]));
+    }
+    return files;
+  }
+
+  /**
+   * Whether a regular target file still holds the bundle's content, line endings aside.
+   * @param bundleFile - Bundle-relative file, for the content transform.
+   * @param copilotFile - Source and target of the file.
+   */
+  private async isUnchangedCopy(bundleFile: string, copilotFile: CopilotFile): Promise<boolean> {
+    try {
+      if (!fs.existsSync(copilotFile.sourcePath)) {
+        return false;
+      }
+      const target = await readFile(copilotFile.targetPath, 'utf8');
+      const source = this.transformContent(bundleFile, await readFile(copilotFile.sourcePath, 'utf8'));
+      return target.replace(/\r\n/g, '\n') === source.replace(/\r\n/g, '\n');
+    } catch (error) {
+      this.logger.warn(`Could not compare ${path.basename(copilotFile.targetPath)} with the bundle: ${String(error)}`);
+      return false;
+    }
+  }
+
+  /**
    * The user-level folders this service writes into, for the record's pre-write home check.
    * @param kinds - Primitive kinds; every routed kind by default.
    * @throws {Error} When an explicitly given kind has no route for the target.
@@ -648,6 +680,42 @@ export class UserScopeService implements IScopeService {
       this.logger.error(`Failed to sync bundle ${bundleId}`, error as Error);
     }
     return written;
+  }
+
+  /**
+   * The user-level files this profile synced for a bundle, from its cached
+   * manifest (BR20.2): the paths {@link unsyncBundle} would remove. A prompt,
+   * instructions, chat mode or agent counts when its target is a symlink or a
+   * copy matching the bundle's content; a skill counts with every file in its
+   * folder. A file the user changed or wrote is not listed.
+   * @param bundleId - Bundle id.
+   * @returns Absolute paths; empty when the bundle has no cached manifest.
+   */
+  public async syncedTargetPaths(bundleId: string): Promise<string[]> {
+    const bundlePath = path.join(this.context.globalStorageUri.fsPath, 'bundles', bundleId);
+    const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
+    if (!fs.existsSync(manifestPath)) {
+      return [];
+    }
+    const manifest = yaml.load(await readFile(manifestPath, 'utf8')) as DeploymentManifest | undefined;
+    const paths: string[] = [];
+    for (const promptDef of manifest?.prompts ?? []) {
+      if (promptDef.type === 'skill') {
+        const skillName = getSkillName(promptDef.file);
+        const skillDir = skillName ? path.join(this.getCopilotSkillsDirectory('user'), skillName) : undefined;
+        if (skillDir !== undefined && fs.existsSync(skillDir)) {
+          paths.push(...await this.listFiles(skillDir));
+        }
+        continue;
+      }
+      const sourcePath = path.join(bundlePath, promptDef.file);
+      const copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+      const existing = await checkPathExists(copilotFile.targetPath);
+      if (existing.exists && (existing.isSymbolicLink || await this.isUnchangedCopy(promptDef.file, copilotFile))) {
+        paths.push(copilotFile.targetPath);
+      }
+    }
+    return paths;
   }
 
   /**
