@@ -353,6 +353,17 @@ export class ExtensionRecordAdapter {
   }
 
   /**
+   * Run a job inside the queues of several record files, entered in the given
+   * order; callers always pass the committed file first, so nesting cannot deadlock.
+   * @param recordPaths - Record files the job changes, in a fixed order.
+   * @param work - The job.
+   */
+  private serializeAll<T>(recordPaths: readonly string[], work: () => Promise<T>): Promise<T> {
+    const [first, ...rest] = recordPaths;
+    return first === undefined ? work() : this.serialize(first, () => this.serializeAll(rest, work));
+  }
+
+  /**
    * Run a record mutation after every earlier one queued for the same file;
    * concurrent load-change-save cycles of one file would lose entries.
    * @param recordPath - Record file the job changes.
@@ -731,7 +742,8 @@ export class ExtensionRecordAdapter {
    *   and shown once; the next run removes it. In WSL nothing is migrated.
    *
    * The report is logged and shown once (see {@link showMigrationReport}).
-   * Runs in the record file's queue, after any earlier change of it.
+   * Runs in the queue of every record file it changes (committed, then
+   * local-only at repository level), after any earlier change of them.
    * @param level - Level the action changes.
    * @param root - Repository: a workspace folder or its git root. User: ignored (the home folder).
    * @returns The report, or `undefined` when there was nothing to migrate.
@@ -742,7 +754,7 @@ export class ExtensionRecordAdapter {
       return undefined;
     }
     const targets = level === 'user' ? [this.userLocation()] : await this.locations(root);
-    return this.serialize(targets[0].path, async () => {
+    return this.serializeAll(targets.map((target) => target.path), async () => {
       const profileEntries = level === 'user' ? await this.buildProfileEntries() : [];
       let report: MigrationReport | undefined;
       try {
