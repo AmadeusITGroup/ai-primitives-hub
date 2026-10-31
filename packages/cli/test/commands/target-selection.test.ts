@@ -337,6 +337,21 @@ describe('target selection without target-state.json', () => {
       expect(await exists(path.join(userTargetDir(), 'prompts', 'hello.prompt.md'))).toBe(command === 'update');
     });
 
+    it.each(['text', 'json'])('uninstall --dry-run (%s) names the level and record it would change and changes nothing', async (format) => {
+      const before = await tree(root);
+      const argv = ['uninstall', '--bundle', 'local-foo', '--dry-run'];
+
+      const result = await run(format === 'json' ? [...argv, '-o', 'json'] : argv);
+
+      expect(result.exitCode, result.stdout + result.stderr).toBe(0);
+      if (format === 'json') {
+        expect(json<Record<string, unknown>>(result.stdout).data).toMatchObject({ dryRun: true, level: 'user', records: [userRecord()], target: 'copilot', bundle: 'local-foo' });
+      } else {
+        expect(result.stdout).toContain(`Record: user ${userRecord()}\n`);
+      }
+      expect(await tree(root)).toEqual(before);
+    });
+
     it.each([['uninstall', '--bundle', 'local-foo'], ['update', '--no-hub-sync']])('%s selects the repository level when only an older prompt-registry.lock.json is there', async (...argv) => {
       await writeOldLock(oldRepoLock(), {});
       const before = await tree(root);
