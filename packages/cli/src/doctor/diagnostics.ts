@@ -21,7 +21,7 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  resolveUserConfigPaths,
+  resolveUserHome,
 } from '@ai-primitives-hub/app';
 import {
   getInstallableBundleFiles,
@@ -30,6 +30,7 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   readZipEntryModes,
+  XdgAppStorage,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
@@ -1278,12 +1279,15 @@ export const runDiagnostics = async (
         path: relativePath,
         present: await fileExists(fsAbstraction, path.join(fixtures.targetDir, relativePath))
       })));
-      const lockfilePath = resolveUserConfigPaths(buildDiagnosticEnv(opts.ctx, workspace)).userLockfile;
+      // User-scope installs are in the shared user record: per-tool entries, home-relative paths.
+      const diagnosticEnv = buildDiagnosticEnv(opts.ctx, workspace);
+      const lockfilePath = new XdgAppStorage(diagnosticEnv).getPaths().userRecord;
       const lockfile = await fsAbstraction.readJson<{
-        bundles?: Record<string, { files?: { path: string }[] }>;
+        bundles?: Record<string, { tools?: Record<string, { files?: { path: string }[] }> }>;
       }>(lockfilePath);
-      const lockEntry = lockfile.bundles?.[fixtures.governedBundleId];
-      const lockfilePaths = lockEntry?.files?.map((file) => file.path).toSorted() ?? [];
+      const lockEntry = lockfile.bundles?.[fixtures.governedBundleId]?.tools?.['copilot-cli'];
+      const targetPrefix = path.relative(resolveUserHome(diagnosticEnv), fixtures.targetDir).split(path.sep).join('/') + '/';
+      const lockfilePaths = lockEntry?.files?.map((file) => file.path.startsWith(targetPrefix) ? file.path.slice(targetPrefix.length) : file.path).toSorted() ?? [];
       if (targetInstallable.some((file) => !file.present)) {
         throw new Error('governed install did not write every installable primitive');
       }

@@ -587,7 +587,8 @@ export const recordPlannedInstall = (
   source: { sourceId: item.sourceId, ...item.source },
   sourceType: item.sourceType,
   writtenPaths: written,
-  workspaceRoot: target.rootPath ?? ctx.cwd(),
+  // User level: home is the workspace root, as the user-scope install records it.
+  workspaceRoot: item.location.level === 'user' ? item.location.root : (target.rootPath ?? ctx.cwd()),
   syncSiblings
 });
 

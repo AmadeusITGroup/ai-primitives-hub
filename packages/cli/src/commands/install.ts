@@ -592,8 +592,7 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
 
   if (noMode && !opts.interactive) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', scope: opts.scope });
-    if (prepared.selection.level === 'repository'
-      && (await prepared.service.listEntries(prepared.selection.locations)).length > 0) {
+    if ((await prepared.service.listEntries(prepared.selection.locations)).length > 0) {
       return prepared;
     }
     const found = await findProjectLockfile(ctx);
