@@ -82,7 +82,7 @@ The animation at the top of this page walks through each stage.
 | **Reviewed changes** | Adding a source or changing a profile is a pull request on the hub repository, with normal code-review protections. |
 | **Validation** | `hub validate` checks the schema, source and profile references, and bundle IDs, and can resolve every profile's bundles with `--check-sources`. Authors can validate collections in CI with the [validate-collections action](./github-actions/validate-collections/). |
 | **Lockfile scanner** *(coming soon)* | Hub pull requests will scan lockfiles and primitives before a source is approved. |
-| **Version pinning** | Profiles pin each bundle to a SemVer version (or `latest`). Repository installs record versions and file checksums in `prompt-registry.lock.json`. |
+| **Version pinning** | Profiles pin each bundle to a SemVer version, or use the floating selector `latest`, which is not a pin and can resolve to a newer release on a later sync or activation. Repository installs record versions and file checksums in `prompt-registry.lock.json`. |
 | **Usage tracking** | With `telemetry` configured in the hub, the VS Code extension reports bundle install, update, and uninstall events, plus profile and source events, to your Elastic Search, respecting each user's VS Code telemetry setting. |
 | **Controlled distribution** | `hub replicate` mirrors SHA-256-verified releases into Artifactory. See [Hub Replication](./docs/reference/hub-replication.md). |
 
@@ -91,7 +91,7 @@ See [Creating a Hub](./docs/author-guide/creating-a-hub.md) and [Profiles and Hu
 ## 🧩 Works With Your Tools
 
 - **Tools** — IDEs: VS Code, VS Code Insiders, Kiro, Windsurf, Cursor, and Devin. CLI agents: GitHub Copilot CLI, Claude Code, Kiro CLI, OpenCode, and Devin CLI. The VS Code extension runs in VS Code, VS Code Insiders, Kiro, and Windsurf; the CLI installs into all of them (`ai-primitives-hub target types`).
-- **Primitives** — prompts, instructions, chat modes, agents, skills, MCP servers, hooks, and plugins work everywhere. Tool-specific kinds (Kiro steering and specs, Claude Code commands and output styles, Cursor rules, OpenCode tools, Devin knowledge and playbooks, Kiro and Devin powers) install only where the tool supports them; mixed bundles are all-or-nothing unless you add `--skip-unsupported`.
+- **Primitives** — prompts, instructions, chat modes, agents, skills, MCP servers, hooks, and plugins are portable across targets, with a few gaps: Kiro has no hook or plugin route (Kiro CLI does), and Windsurf has no repository-scope MCP config. Tool-specific kinds (Kiro steering and specs, Claude Code commands and output styles, Cursor rules, OpenCode tools, Devin knowledge and playbooks, Kiro and Devin powers) install only where the tool supports them. By default an install is all-or-nothing and fails on unsupported items; `install --skip-unsupported` installs the supported items and lists the skipped ones (`profile activate` and `update` stay all-or-nothing).
 - **Sources** — GitHub releases, Awesome Copilot collections, skills repositories, APM packages, Azure DevOps, and JFrog Artifactory, plus local folders for bundles, collections, skills, and APM packages. See [Sources](./docs/user-guide/sources.md).
 
 ## 🚀 Quick Start
