@@ -83,8 +83,10 @@ installed-record paths of decision 1.
   must be reinstalled before the extension can move them or switch their
   commit mode.
 - **Negative:** CLI `profile activate` and workspace scope still use the
-  2.0.0 files; bundles `profile activate` writes become `unknown` entries on
-  the next record change. This is a known follow-up.
+  2.0.0 files. For repository targets, bundles `profile activate` writes
+  become `unknown` entries on the next record change; for user targets they
+  are not seen at user level once the old user lockfile was imported. This is
+  a known follow-up.
 - **Negative:** with two or more targets, more CLI commands need `--target`.
 
 ## Alternatives Rejected
