@@ -670,9 +670,10 @@ suite('E2E: Repository-Level Installation Tests', () => {
       }
 
       // Verify bundle is installed at user scope
-      const userBundles = await testContext.storage.getInstalledBundles('user');
+      const userBundles = await testContext.registryManager.listInstalledBundles('user');
       const userBundle = userBundles.find((b) => b.bundleId === bundle!.id);
       assert.ok(userBundle, 'Bundle should be installed at user scope');
+      assert.strictEqual(userBundle.recordOrigin, 'install-record', 'The user install should be in the user record');
 
       // Now attempt to install at repository scope - should detect conflict
       // The behavior depends on implementation: either throws error or prompts for migration
@@ -684,7 +685,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
         });
 
         // If installation succeeded, verify it's NOT at both scopes simultaneously (Req 6.6)
-        const userBundlesAfter = await testContext.storage.getInstalledBundles('user');
+        const userBundlesAfter = await testContext.registryManager.listInstalledBundles('user');
         const repoBundlesAfter = await testContext.storage.getInstalledBundles('repository');
 
         const atUserScope = userBundlesAfter.some((b) => b.bundleId === bundle!.id);
@@ -755,7 +756,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       }
 
       // Final verification: bundle should NOT be at both scopes
-      const finalUserBundles = await testContext.storage.getInstalledBundles('user');
+      const finalUserBundles = await testContext.registryManager.listInstalledBundles('user');
       const finalRepoBundles = await testContext.storage.getInstalledBundles('repository');
 
       const atUserScope = finalUserBundles.some((b) => b.bundleId === bundle!.id);
@@ -797,7 +798,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       }
 
       // Check installed bundles at both scopes
-      const userBundles = await testContext.storage.getInstalledBundles('user');
+      const userBundles = await testContext.registryManager.listInstalledBundles('user');
       const repoBundles = await testContext.storage.getInstalledBundles('repository');
 
       // Verify bundle is at repository scope (or files exist)
@@ -1031,7 +1032,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       }
 
       // Verify bundle is installed at user scope
-      const userBundlesBefore = await testContext.storage.getInstalledBundles('user');
+      const userBundlesBefore = await testContext.registryManager.listInstalledBundles('user');
       const userBundle = userBundlesBefore.find((b) => b.bundleId === bundle.id);
       assert.ok(userBundle, 'Bundle should be installed at user scope initially');
 
@@ -1054,7 +1055,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(repoBundle || filesExist, 'Bundle should be at repository scope after migration');
 
       // Verify bundle is no longer at user scope
-      const userBundlesAfter = await testContext.storage.getInstalledBundles('user');
+      const userBundlesAfter = await testContext.registryManager.listInstalledBundles('user');
       const userBundleAfter = userBundlesAfter.find((b) => b.bundleId === bundle.id);
       assert.ok(!userBundleAfter, 'Bundle should NOT be at user scope after migration');
 
@@ -1105,9 +1106,10 @@ suite('E2E: Repository-Level Installation Tests', () => {
       await bundleScopeCommands.moveToUser(actualBundleId);
 
       // Verify bundle is now at user scope
-      const userBundlesAfter = await testContext.storage.getInstalledBundles('user');
+      const userBundlesAfter = await testContext.registryManager.listInstalledBundles('user');
       const userBundle = userBundlesAfter.find((b) => b.bundleId === actualBundleId);
       assert.ok(userBundle, 'Bundle should be at user scope after migration');
+      assert.strictEqual(userBundle.recordOrigin, 'install-record', 'The moved bundle should be in the user record');
 
       // Verify lockfile is updated (bundle removed)
       if (fs.existsSync(lockfilePath)) {

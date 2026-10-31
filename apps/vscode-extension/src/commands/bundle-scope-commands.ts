@@ -84,9 +84,8 @@ export class BundleScopeCommands {
         return;
       }
 
-      // Get storage and check if bundle is installed at user scope
-      const storage = this.registryManager.getStorage();
-      const userBundle = await storage.getInstalledBundle(bundleId, 'user');
+      // Check if bundle is installed at user scope (RegistryStorage or the shared user record)
+      const userBundle = await this.getBundleForScope(bundleId, 'user');
 
       if (!userBundle) {
         vscode.window.showErrorMessage(`Bundle "${bundleId}" is not installed at user scope.`);

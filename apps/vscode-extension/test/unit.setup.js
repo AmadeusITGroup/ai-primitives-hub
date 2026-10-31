@@ -1,4 +1,7 @@
 // Unit test configuration for better mocking
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const nock = require('nock');
 
 // Mock GitHub API responses to avoid rate limiting in unit tests
@@ -56,9 +59,37 @@ function setupMocks() {
 // Setup mocks immediately
 setupMocks();
 
+/** The current test's XDG config folder and the value it replaced. */
+const xdgIsolation = { saved: undefined, temp: '' };
+
+// Outside a test (suite setup, module load) a run-wide XDG config folder is
+// used, so nothing ever reads or writes the real ~/.config.
+const runXdgConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'unit-xdg-config-run-'));
+process.env.XDG_CONFIG_HOME = runXdgConfigHome;
+process.on('exit', () => fs.rmSync(runXdgConfigHome, { recursive: true, force: true }));
+
 // Export for use in tests if needed
 module.exports = {
   setupMocks,
   mockRelease,
-  mockRepo
+  mockRepo,
+  // Every test gets its own XDG config folder, so the shared user record
+  // (`$XDG_CONFIG_HOME/ai-primitives-hub/ai-primitives-hub.user.lock.json`)
+  // written by user-scope installs never touches the real ~/.config and is
+  // never seen by another test.
+  mochaHooks: {
+    beforeEach() {
+      xdgIsolation.saved = process.env.XDG_CONFIG_HOME;
+      xdgIsolation.temp = fs.mkdtempSync(path.join(os.tmpdir(), 'unit-xdg-config-'));
+      process.env.XDG_CONFIG_HOME = xdgIsolation.temp;
+    },
+    afterEach() {
+      if (xdgIsolation.saved === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = xdgIsolation.saved;
+      }
+      fs.rmSync(xdgIsolation.temp, { recursive: true, force: true });
+    }
+  }
 };
