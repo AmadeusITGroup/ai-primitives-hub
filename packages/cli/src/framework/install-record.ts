@@ -1,8 +1,9 @@
 /**
  * Install record wiring for the CLI: builds the record store and service,
  * selects the record a command acts on and gates record sources. User level
- * records into the shared user record and only reads the old user lockfile;
- * old `prompt-registry.*` files are never touched here.
+ * records into the shared user record and only reads the old user lockfile.
+ * Writing helpers migrate their level's old files before the first record
+ * change; reads, workspace scope and an old-format `--lockfile` never migrate.
  * @module framework/install-record
  */
 import * as path from 'node:path';
@@ -14,6 +15,8 @@ import {
   type InstallRecordServices,
   type Lockfile,
   type LockfileSourceEntry,
+  migrateRecords,
+  type MigrationReport,
   orderConfiguredSources,
   readLockfile,
   recordIdentityOf,
@@ -32,7 +35,9 @@ import {
 import {
   describeRecordError,
   expandPath,
+  IMPORTED_USER_LOCKFILE_FIELD,
   type InstallationScope,
+  type InstallRecord,
   isRecordError,
   matchKindRoute,
   type RecordFs,
@@ -43,6 +48,7 @@ import {
   type RepositoryExclusion,
   type Target,
   type TokenProvider,
+  UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
   FileSystemLayoutConfigLoader,
@@ -93,7 +99,62 @@ export interface PreparedRepositoryRecord {
   workspaceRoot: string;
   /** `info/exclude` section for local-only files; absent at user level. */
   exclusion?: RepositoryExclusion;
+  /** What the migration run before this action did; absent when there was nothing to migrate (BR22.1). */
+  migration?: MigrationReport;
 }
+
+/**
+ * Migrate the old stores of a level into its loaded record files before the
+ * first record change (BR18.1). The level root is the locations' root: the
+ * git root for both repository files, home for the user record, whose old
+ * user lockfile is imported once (BR20.1).
+ * @param ctx - CLI context, for the old user lockfile path.
+ * @param store - Store the locations are loaded with.
+ * @param fs - Filesystem port.
+ * @param targets - Both repository files, or the user record.
+ * @returns The report, or `undefined` when there was nothing to migrate.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+const migrateLevel = async (
+  ctx: Context,
+  store: RecordStore,
+  fs: RecordFs,
+  targets: readonly RecordLocation[]
+): Promise<MigrationReport | undefined> => {
+  const level = targets[0].level;
+  return migrateRecords({
+    store,
+    fs,
+    level,
+    root: targets[0].root,
+    targets,
+    ...(level === 'user' ? { oldUserLockfile: resolveUserConfigPaths(ctx.env).userLockfile } : {}),
+    now: () => new Date()
+  });
+};
+
+/**
+ * The text lines of a migration report, printed before the `Record:` line (BR22.1).
+ * @param report - The command's migration report, if one ran.
+ * @returns The lines, newline-terminated; empty when the report has nothing to show.
+ */
+export const renderMigration = (report: MigrationReport | undefined): string => {
+  if (report === undefined) {
+    return '';
+  }
+  const droppedFiles = report.droppedFiles.length;
+  const droppedEntries = report.droppedEntries.length;
+  const lines = [
+    ...report.renamed.map((renamed) => `  renamed ${renamed.from} → ${renamed.to}`),
+    ...report.mergedFrom.map((merged) => `  merged ${merged}`),
+    ...report.needsReinstall.map((entry) => `  needs reinstall: ${entry.bundleId}@${entry.version} (tool unknown)`),
+    ...report.versionConflicts.map((conflict) => `  version conflict: ${conflict.bundleId} kept ${conflict.kept}, dropped ${conflict.dropped}`),
+    ...(droppedFiles > 0 ? [`  dropped ${String(droppedFiles)} file path${droppedFiles === 1 ? '' : 's'}`] : []),
+    ...(droppedEntries > 0 ? [`  dropped ${String(droppedEntries)} already-recorded entr${droppedEntries === 1 ? 'y' : 'ies'}`] : []),
+    ...report.warnings.map((warning) => `  warning: ${warning}`)
+  ];
+  return lines.length === 0 ? '' : `Migrated ${report.level} record:\n${lines.join('\n')}\n`;
+};
 
 /** What `recordRepositoryInstall` records. */
 export interface RepositoryInstallToRecord {
@@ -230,7 +291,8 @@ const openRepositoryRecords = async (
 };
 
 /**
- * Load and check both repository record files before anything is written.
+ * Load and check both repository record files, then migrate the old
+ * `prompt-registry.*` files at the git root, before anything is written.
  * @param ctx - CLI context.
  * @param target - Repository-scope target.
  * @param fs - Filesystem port.
@@ -243,11 +305,16 @@ export const prepareRepositoryRecord = async (
 ): Promise<PreparedRepositoryRecord> => {
   try {
     const records = await openRepositoryRecords(ctx, target, fs);
+    const migration = await migrateLevel(ctx, records.store, fs, records.locations);
+    for (const location of records.locations) {
+      await records.store.load(location);
+    }
     return {
       location: records.location,
       service: records.service,
       workspaceRoot: records.workspaceRoot,
-      exclusion: records.exclusion
+      exclusion: records.exclusion,
+      ...(migration === undefined ? {} : { migration })
     };
   } catch (error) {
     throw isRecordError(error) ? toInstallRecordError(error) : error;
@@ -266,7 +333,7 @@ const resolveUserTargetLayout = async (
 
 /**
  * Load and check the shared user record and refuse a target folder outside
- * home before anything is written.
+ * home before anything is written, then import the old user lockfile once.
  * @param ctx - CLI context.
  * @param target - User-scope target.
  * @param fs - Filesystem port.
@@ -288,7 +355,9 @@ export const prepareUserRecord = async (
     for (const folder of folders) {
       await assertUserFolderInsideHome(fs, home, folder);
     }
-    return { location, service, workspaceRoot: home };
+    const migration = await migrateLevel(ctx, store, fs, [location]);
+    await store.load(location);
+    return { location, service, workspaceRoot: home, ...(migration === undefined ? {} : { migration }) };
   } catch (error) {
     throw isRecordError(error) ? toInstallRecordError(error) : error;
   }
@@ -339,8 +408,14 @@ export interface PreparedRepositoryUninstall {
   exclusion?: RepositoryExclusion;
   /** Bundles with an entry for `tool` in either file, sorted, with their recorded paths. */
   entries: Map<string, string[]>;
-  /** User level only: per bundle, paths the old user lockfile still lists; kept on uninstall. */
+  /** User level only: per bundle, paths the old user lockfile still lists; kept on uninstall until it is imported. */
   keepPaths?: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Bundles whose only entry at the level is `unknown`; a plain uninstall removes it and keeps its files (BR21.3). */
+  loneUnknown?: ReadonlySet<string>;
+  /** `true` at user level once the old user lockfile was imported: the old store is not read (BR20.1). */
+  ignoresOldStore?: boolean;
+  /** What the migration run before this action did; absent when there was nothing to migrate (BR22.1). */
+  migration?: MigrationReport;
 }
 
 /** Outcome of `recordRepositoryUninstall`. */
@@ -356,29 +431,52 @@ export interface RecordedRepositoryUninstall {
 }
 
 /**
- * Load and check the repository record files before anything is removed.
+ * Bundles whose only tool across the given records is `unknown`.
+ * @param records - The level's loaded records.
+ */
+const loneUnknownBundles = (records: readonly InstallRecord[]): Set<string> => {
+  const tools = new Map<string, Set<string>>();
+  for (const record of records) {
+    for (const [bundleId, bundle] of Object.entries(record.bundles)) {
+      tools.set(bundleId, new Set([...(tools.get(bundleId) ?? []), ...Object.keys(bundle.tools)]));
+    }
+  }
+  return new Set([...tools].filter(([, names]) => names.size === 1 && names.has(UNKNOWN_TOOL_NAME)).map(([bundleId]) => bundleId));
+};
+
+/**
+ * Load, check and migrate the repository record files before anything is removed.
  * Bundles not in `entries` fall back to the old store.
  * @param ctx - CLI context.
  * @param target - Repository-scope target.
- * @param options - Record files already selected (`uninstall --lockfile`).
+ * @param options - Record files already selected (`uninstall --lockfile`) and the preview flag.
  * @param options.locations - The selected record files.
+ * @param options.dryRun - `true` for `--dry-run`, which never migrates.
  * @param fs - Filesystem port.
  * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
  */
 export const prepareRepositoryUninstall = async (
   ctx: Context,
   target: Target,
-  options: { locations?: readonly RecordLocation[] } = {},
+  options: { locations?: readonly RecordLocation[]; dryRun?: boolean } = {},
   fs: RecordFs = new NodeRecordFs()
 ): Promise<PreparedRepositoryUninstall> => {
   try {
-    const { service, locations, location, exclusion } = await openRepositoryRecords(ctx, target, fs, options.locations);
+    const { store, service, locations, location, exclusion } = await openRepositoryRecords(ctx, target, fs, options.locations);
+    const given = options.locations !== undefined && options.locations.length > 0;
+    const migration = options.dryRun === true || given ? undefined : await migrateLevel(ctx, store, fs, locations);
+    const records: InstallRecord[] = [];
+    for (const each of locations) {
+      records.push((await store.load(each)).record);
+    }
     return {
       location,
       service,
       tool: target.type,
       exclusion,
-      entries: await service.entriesForTool(locations, target.type)
+      entries: await service.entriesForTool(locations, target.type),
+      loneUnknown: loneUnknownBundles(records),
+      ...(migration === undefined ? {} : { migration })
     };
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
@@ -413,24 +511,42 @@ const oldUserLockfilePaths = async (ctx: Context, target: Target, home: string):
 };
 
 /**
- * Load and check the shared user record before anything is removed. Bundles
- * not recorded there fall back to the old user lockfile.
+ * Load and check the shared user record and import the old user lockfile
+ * once before anything is removed. Bundles not recorded there fall back to
+ * the old user lockfile.
  * @param ctx - CLI context.
  * @param target - User-scope target.
+ * @param options - Preview flag.
+ * @param options.dryRun - `true` for `--dry-run`, which never migrates.
  * @param fs - Filesystem port.
  * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
  */
 export const prepareUserUninstall = async (
   ctx: Context,
   target: Target,
+  options: { dryRun?: boolean } = {},
   fs: RecordFs = new NodeRecordFs()
 ): Promise<PreparedRepositoryUninstall> => {
   const { store, service } = createRecordServices(fs);
   try {
     const location = userRecordLocation(store, ctx.env);
+    await store.load(location);
+    const migration = options.dryRun === true ? undefined : await migrateLevel(ctx, store, fs, [location]);
+    const { record } = await store.load(location);
     const entries = await service.entriesForTool([location], target.type);
-    const keepPaths = entries.size === 0 ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, location.root);
-    return { location, service, tool: target.type, entries, keepPaths };
+    // Once the old user lockfile was imported, the user level no longer reads it (BR20.1).
+    const imported = record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
+    const keepPaths = entries.size === 0 || imported ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, location.root);
+    return {
+      location,
+      service,
+      tool: target.type,
+      entries,
+      keepPaths,
+      loneUnknown: loneUnknownBundles([record]),
+      ignoresOldStore: imported,
+      ...(migration === undefined ? {} : { migration })
+    };
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
@@ -454,20 +570,23 @@ export const prepareRecordForTarget = async (ctx: Context, target: Target): Prom
  * Load and check the install record a target uninstalls from, before anything is removed.
  * @param ctx - CLI context.
  * @param target - Effective target.
- * @param options - Repository level only.
- * @param options.locations - Record files already selected by `--lockfile`.
+ * @param options - Selected files and the preview flag.
+ * @param options.locations - Repository level only: record files selected by `--lockfile`.
+ * @param options.dryRun - `true` for `--dry-run`, which never migrates.
  * @returns The prepared record; `undefined` for a target that keeps the old lockfile.
  * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
  */
 export const prepareUninstallForTarget = async (
   ctx: Context,
   target: Target,
-  options: { locations?: readonly RecordLocation[] } = {}
+  options: { locations?: readonly RecordLocation[]; dryRun?: boolean } = {}
 ): Promise<PreparedRepositoryUninstall | undefined> => {
   if (!usesInstallRecord(target)) {
     return undefined;
   }
-  return target.scope === 'repository' ? prepareRepositoryUninstall(ctx, target, options) : prepareUserUninstall(ctx, target);
+  return target.scope === 'repository'
+    ? prepareRepositoryUninstall(ctx, target, options)
+    : prepareUserUninstall(ctx, target, { dryRun: options.dryRun });
 };
 
 /**
@@ -511,6 +630,30 @@ export const recordRepositoryUninstall = async (
   };
 };
 
+/**
+ * Remove a bundle's lone `unknown` entry and keep every file it listed.
+ * @param prepared - Result of {@link prepareRepositoryUninstall} or {@link prepareUserUninstall}.
+ * @param bundleId - Bundle whose only entry is `unknown`.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+export const recordUnknownUninstall = async (
+  prepared: PreparedRepositoryUninstall,
+  bundleId: string
+): Promise<RecordedRepositoryUninstall> => {
+  let change;
+  try {
+    change = await prepared.service.recordUninstall({ location: prepared.location, bundleId, tool: UNKNOWN_TOOL_NAME });
+  } catch (error) {
+    throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
+  }
+  return {
+    lockfile: change.location.path,
+    removed: [],
+    kept: [...change.deletedFiles, ...change.keptSharedFiles].toSorted(),
+    warnings: change.warnings
+  };
+};
+
 /** What a command was given that fixes the record level. */
 export interface RecordSelectionInput {
   /** Command name, the prefix of a `RECORD.*` error message. */
@@ -518,6 +661,12 @@ export interface RecordSelectionInput {
   /** `--lockfile <path>` as typed. */
   lockfile?: string;
   scope?: InstallationScope;
+  /**
+   * `true` for an action that changes the selected record (update, replay):
+   * the level is migrated before the selection is returned (BR18.1). Never
+   * for a read such as `status`.
+   */
+  write?: boolean;
 }
 
 /** A selected record with the store and service to act on it. */
@@ -528,12 +677,16 @@ export interface PreparedRecordSelection {
   fs: RecordFs;
   /** `info/exclude` section at the repository record's root, for the writers; absent at user level. */
   exclusion?: RepositoryExclusion;
+  /** What the migration run for a `write` selection did; absent when nothing was migrated (BR22.1). */
+  migration?: MigrationReport;
 }
 
 /**
- * Select the record a command acts on and load every selected file before anything is written.
+ * Select the record a command acts on and load every selected file before
+ * anything is written. With `input.write`, a level with a new record file is
+ * migrated first and selected again.
  * @param ctx - CLI context.
- * @param input - Command name, `--lockfile` and `--scope`.
+ * @param input - Command name, `--lockfile`, `--scope` and `write`.
  * @param target - Resolved target, when the command has one.
  * @param fs - Filesystem port.
  * @throws {RegistryError} A `RECORD.*` error naming the command and the file; nothing was written.
@@ -548,7 +701,7 @@ export const prepareRecordSelection = async (
   const userLockfile = resolveUserConfigPaths(ctx.env).userLockfile;
   const user = userRecordLocation(store, ctx.env);
   try {
-    const selection = await selectRecord({
+    const select = (): Promise<RecordSelection> => selectRecord({
       store,
       fs,
       cwd: ctx.cwd(),
@@ -562,10 +715,27 @@ export const prepareRecordSelection = async (
       userRecord: user.path,
       home: user.root
     });
+    let selection = await select();
+    let migration: MigrationReport | undefined;
+    if (input.write === true && selection.locations.length > 0) {
+      const targets = selection.level === 'user' ? selection.locations : await store.resolveRepository({ start: selection.root });
+      // A `--lockfile` record outside the git root is never migrated.
+      if (targets[0].root === selection.root) {
+        migration = await migrateLevel(ctx, store, fs, targets);
+        selection = await select();
+      }
+    }
     const exclusion = selection.level === 'repository' && selection.locations.length > 0
       ? await recordExclusion(ctx, fs, selection.root)
       : undefined;
-    return { selection, store, service, fs, ...(exclusion === undefined ? {} : { exclusion }) };
+    return {
+      selection,
+      store,
+      service,
+      fs,
+      ...(exclusion === undefined ? {} : { exclusion }),
+      ...(migration === undefined ? {} : { migration })
+    };
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError(input.command, error) : error;
   }

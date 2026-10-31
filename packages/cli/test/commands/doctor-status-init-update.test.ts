@@ -26,13 +26,21 @@ import {
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  emptyLockfile,
+  resolveUserConfigPaths,
+  upsertBundleEntry,
+  writeLockfile,
+} from '@ai-primitives-hub/app';
 import type {
   HttpClient,
   HttpRequest,
 } from '@ai-primitives-hub/core';
 import {
+  addTarget,
   buildZip,
   NodeFileSystem,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -64,6 +72,9 @@ import {
   TargetRemoveCommand,
 } from '../../src/commands/target-remove';
 import {
+  UninstallCommand,
+} from '../../src/commands/uninstall';
+import {
   UpdateCommand,
 } from '../../src/commands/update';
 import {
@@ -91,7 +102,8 @@ const COMMAND_CLASSES = [
   InitCommand,
   UpdateCommand,
   TargetAddCommand,
-  InstallCommand
+  InstallCommand,
+  UninstallCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -144,6 +156,16 @@ describe('doctor/status/init/update commands', () => {
 
   describe('doctor diagnostics', () => {
     it('runs the full self-contained smoke test successfully', async () => {
+      // Old files of the caller's workspace and user level are never migrated by doctor (BR18.1).
+      const oldFiles = [
+        path.join(workspace, 'prompt-registry.lock.json'),
+        resolveUserConfigPaths({ HOME: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config') }).userLockfile
+      ];
+      const oldText = '{"version":"2.0.0","bundles":{},"sources":{}}\n';
+      for (const file of oldFiles) {
+        await mkdir(path.dirname(file), { recursive: true });
+        await writeFile(file, oldText);
+      }
       const result = await run(['doctor', 'diagnostics', '-o', 'json']);
       const envelope = parseJson<{
         ok: boolean;
@@ -174,6 +196,9 @@ describe('doctor/status/init/update commands', () => {
       ]));
       await expect(access(envelope.data.workspace)).rejects.toThrow();
       expect(result.exitCode).toBe(0);
+      for (const file of oldFiles) {
+        expect(await readFile(file, 'utf8')).toBe(oldText);
+      }
     }, 60_000);
 
     it('retains the diagnostic workspace when explicitly requested', async () => {
@@ -496,8 +521,7 @@ profiles: []
     /** Release zips by repository name: each repository acme-org/<name> serves `<name>` 2.0.0. */
     const releaseZips = new Map<string, Uint8Array>([
       ['local-foo', v2Zip],
-      ['other-bar', promptZip('other-bar', '2.0.0', ['bar', 'extra'])],
-      ['old-only', promptZip('old-only', '2.0.0', ['old'])]
+      ['other-bar', promptZip('other-bar', '2.0.0', ['bar', 'extra'])]
     ]);
     let ambientToken: string | undefined;
     const json = (request: HttpRequest, body: unknown) =>
@@ -889,7 +913,7 @@ profiles: []
       expect(await readFile(path.join(workspace, shared), 'utf8')).toBe('# other-bar extra 2.0.0\n');
     });
 
-    it('also updates bundles only in the old prompt-registry file, on that file, and writes nothing about them to the record', async () => {
+    it('migrates the old prompt-registry file before the update: its bundles go on the reinstall list and the old file is gone', async () => {
       await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
       const oldEntry = (version: string, sourceId: string) => ({ version, sourceId, sourceType: 'github', installedAt: '2026-10-01T00:00:00.000Z', files: [] });
@@ -902,14 +926,20 @@ profiles: []
       const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      const { data } = parseJson<UpdateData & { oldFile: { lockfile: string; checked: number; updates: { bundleId: string; from: string; to: string }[] } }>(result.stdout);
+      const { data } = parseJson<UpdateData & { oldFile?: object; migration: object }>(result.stdout);
       expect(data.updates).toEqual([{ bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }]);
-      expect(data.oldFile).toMatchObject({ lockfile: oldPath, checked: 1, updates: [{ bundleId: 'old-only', from: '0.1.0', to: '2.0.0' }] });
-      const old = JSON.parse(await readFile(oldPath, 'utf8')) as { bundles: Record<string, { version: string }> };
-      expect(old.bundles['old-only'].version).toBe('2.0.0');
-      expect(old.bundles['local-foo'].version).toBe('0.9.0');
-      expect(Object.keys((await readRecordJson()).bundles)).toEqual(['local-foo']);
-      expect(await readFile(promptFile('old.prompt.md'), 'utf8')).toBe('# old-only old 2.0.0\n');
+      expect(data.oldFile).toBeUndefined();
+      expect(data.migration).toMatchObject({
+        level: 'repository',
+        mergedFrom: [oldPath],
+        needsReinstall: [{ bundleId: 'old-only', version: '0.1.0' }],
+        droppedEntries: [{ bundleId: 'local-foo', version: '0.9.0' }]
+      });
+      await expect(readFile(oldPath, 'utf8')).rejects.toThrow();
+      const record = await readRecordJson();
+      expect(Object.keys(record.bundles).toSorted()).toEqual(['local-foo', 'old-only']);
+      expect(Object.keys(record.bundles['old-only'].tools)).toEqual(['unknown']);
+      await expect(readFile(promptFile('old.prompt.md'), 'utf8')).rejects.toThrow();
     });
 
     it('status -o json lists one row per (bundle, tool) and old-file-only bundles with their old path', async () => {
@@ -963,6 +993,81 @@ profiles: []
         .map(({ bundleId, tool }) => `${bundleId} ${tool}`)).toEqual([`${versioned('2.0.0')} vscode`]);
       expect(replay.exitCode, replay.stdout).toBe(0);
       expect(parseJson<Record<string, unknown>>(replay.stdout).data).not.toHaveProperty('oldFile');
+    });
+  });
+
+  describe('record migration runs only before a record write (BR18.1)', () => {
+    const env = (): Record<string, string> => ({
+      HOME: workspace,
+      USERPROFILE: workspace,
+      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+      XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+    });
+    const exists = (file: string): Promise<boolean> => access(file).then(() => true, () => false);
+    const oldUserLockfile = (): string => resolveUserConfigPaths(env()).userLockfile;
+    /**
+     * Write a 2.0.0 lockfile holding one local-source bundle.
+     * @param file Lockfile path.
+     * @returns Its text.
+     */
+    const writeOld = async (file: string): Promise<string> => {
+      await writeLockfile(file, upsertBundleEntry(emptyLockfile('test'), 'old-bundle', {
+        version: '0.1.0', sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: []
+      }), new NodeFileSystem());
+      return readFile(file, 'utf8');
+    };
+
+    beforeEach(async () => {
+      await mkdir(path.join(workspace, '.git'), { recursive: true });
+      await writeFile(path.join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      expect((await run(['target', 'add', 'repo-vscode', '--type', 'vscode', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'])).exitCode).toBe(0);
+      expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', path.join(workspace, 'target'), '-o', 'json'])).exitCode).toBe(0);
+    });
+
+    it('status and update --dry-run leave the old repository and user files byte-identical and create no record', async () => {
+      const oldRepository = path.join(workspace, 'prompt-registry.lock.json');
+      const before = [await writeOld(oldRepository), await writeOld(oldUserLockfile())];
+
+      for (const argv of [
+        ['status'],
+        ['update', '--target', 'repo-vscode', '--dry-run', '--no-hub-sync'],
+        ['update', '--target', 'copilot', '--dry-run', '--no-hub-sync']
+      ]) {
+        const result = await run([...argv, '-o', 'json']);
+        expect(result.exitCode, `${argv.join(' ')}: ${result.stdout}`).toBe(0);
+      }
+
+      expect([await readFile(oldRepository, 'utf8'), await readFile(oldUserLockfile(), 'utf8')]).toEqual(before);
+      expect(await exists(path.join(workspace, 'ai-primitives-hub.lock.json'))).toBe(false);
+      expect(await exists(new XdgAppStorage(env()).getPaths().userRecord)).toBe(false);
+    });
+
+    it('a workspace-scope target still records in the old user lockfile, lists and uninstalls after a user-level migration', async () => {
+      const bundleDir = path.join(workspace, 'bundle');
+      const wsDir = path.join(workspace, 'ws-kiro');
+      await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
+      await writeFile(path.join(bundleDir, 'deployment-manifest.yml'),
+        'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n');
+      await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
+      expect((await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      const userRecord = new XdgAppStorage(env()).getPaths().userRecord;
+      expect(JSON.parse(await readFile(userRecord, 'utf8'))).toHaveProperty('importedUserLockfileAt');
+      // `target add` only writes user or repository scope; a workspace-scope target comes from the config file.
+      await addTarget({ cwd: workspace, fs: new NodeFileSystem() }, { name: 'ws-kiro', type: 'kiro', scope: 'workspace', path: wsDir });
+
+      const installed = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'ws-kiro', '-o', 'json']);
+      expect(installed.exitCode, installed.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string }>(installed.stdout).data.lockfile).toBe(oldUserLockfile());
+      const preview = await run(['uninstall', '--bundle', 'local-foo', '--target', 'ws-kiro', '--dry-run', '-o', 'json']);
+      expect(parseJson<{ files: string[] }>(preview.stdout).data.files.length).toBeGreaterThan(0);
+
+      const removed = await run(['uninstall', '--bundle', 'local-foo', '--target', 'ws-kiro', '-o', 'json']);
+
+      expect(removed.exitCode, removed.stdout).toBe(0);
+      expect(parseJson<{ removed: string[]; lockfile: string }>(removed.stdout).data).toMatchObject({ lockfile: oldUserLockfile() });
+      expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed.length).toBeGreaterThan(0);
+      expect(JSON.parse(await readFile(oldUserLockfile(), 'utf8'))).toMatchObject({ bundles: {} });
+      expect(Object.keys((JSON.parse(await readFile(userRecord, 'utf8')) as { bundles: Record<string, { tools: object }> }).bundles['local-foo'].tools)).toEqual(['copilot-cli']);
     });
   });
 });

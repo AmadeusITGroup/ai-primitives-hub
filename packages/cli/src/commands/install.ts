@@ -25,6 +25,7 @@ import {
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  type MigrationReport,
   planRecordEntries,
   readLockfile,
   type RecordInstallResult,
@@ -114,6 +115,7 @@ import {
   recordPlannedInstall,
   recordRepositoryInstall,
   RegistryError,
+  renderMigration,
   renderRecordLine,
   type RepositoryInstallToRecord,
   requireActiveHubOrFail,
@@ -585,14 +587,15 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
   if (!noLockfile && noBundle && !opts.from) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile });
     if (prepared.selection.locations.length > 0) {
-      return prepared;
+      // The replay changes the record: migrate its level first (BR18.1).
+      return prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile, write: true });
     }
   }
 
   if (noMode && !opts.interactive) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', scope: opts.scope });
     if ((await prepared.service.listEntries(prepared.selection.locations)).length > 0) {
-      return prepared;
+      return prepareRecordSelection(ctx, { command: 'install', scope: opts.scope, write: true });
     }
     const found = await findProjectLockfile(ctx);
     if (found !== null) {
@@ -1122,13 +1125,15 @@ async function performLocalInstall(
         bundle: { id: manifest.id, version: manifest.version },
         written: result.written,
         skipped,
-        lockfile: lockPath
+        lockfile: lockPath,
+        ...(prepared?.migration === undefined ? {} : { migration: prepared.migration })
       },
       warnings: installWarnings(skipped, warnings),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} into target "${d.target}" `
         + `(${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
         + renderSkipped(d.skipped)
+        + renderMigration(d.migration)
     });
     return 0;
   } catch (cause) {
@@ -1263,6 +1268,8 @@ interface RecordReplayData {
   failures: ReplaySkip[];
   /** Bundles only in the old `prompt-registry.*` file, replayed with the old code. */
   oldFile?: OldFileReplay;
+  /** What the migration run before the replay did (BR22.1). */
+  migration?: MigrationReport;
 }
 
 /** What {@link replayOldFileOnly} reports for the old `prompt-registry.*` file. */
@@ -1289,7 +1296,7 @@ function renderRecordReplay(d: RecordReplayData): string {
       + (old.target === undefined ? '.' : ` into target "${old.target}".`),
     ...old.failures.map((f) => `Failed ${f.bundleId}: ${f.reason}`));
   }
-  return lines.join('\n') + '\n' + renderRecordLine({ level: d.level, records: d.records });
+  return lines.join('\n') + '\n' + renderMigration(d.migration) + renderRecordLine({ level: d.level, records: d.records });
 }
 
 /**
@@ -1362,7 +1369,8 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
     replayed: [],
     skipped: plan.skipped,
     needsReinstall: plan.needsReinstall.map((row) => ({ bundleId: row.bundleId, version: row.version })),
-    failures: []
+    failures: [],
+    ...(prepared.migration === undefined ? {} : { migration: prepared.migration })
   };
   // Every mapped target is checked against --allow-target before anything is fetched or written.
   for (const item of plan.items) {
@@ -1648,13 +1656,15 @@ async function performRemoteInstall(
         sha256: dl.sha256,
         written: result.written,
         skipped,
-        lockfile: lockPath
+        lockfile: lockPath,
+        ...(prepared?.migration === undefined ? {} : { migration: prepared.migration })
       },
       warnings: installWarnings(skipped, warnings),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} from ${d.source.repo} `
         + `into target "${d.target}" (${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
         + renderSkipped(d.skipped)
+        + renderMigration(d.migration)
     });
     return 0;
   } catch (cause) {

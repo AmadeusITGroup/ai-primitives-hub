@@ -35,6 +35,9 @@ import {
   InstallCommand,
 } from '../../src/commands/install';
 import {
+  StatusCommand,
+} from '../../src/commands/status';
+import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
 import {
@@ -57,7 +60,8 @@ import {
 const COMMAND_CLASSES = [
   TargetAddCommand,
   InstallCommand,
-  UninstallCommand
+  UninstallCommand,
+  StatusCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -108,8 +112,8 @@ describe('uninstall command', () => {
 
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
 
-    // The user record held only this entry, so it is removed with it.
-    await expect(readFile(envelope.data.lockfile, 'utf8')).rejects.toThrow();
+    // The user record is kept empty, with its import marker (BR20.1).
+    expect(await readInstallRecord(envelope.data.lockfile)).toMatchObject({ bundles: {}, importedUserLockfileAt: expect.any(String) });
   });
 
   it('uninstalls a governed bundle using installable-only lockfile paths', async () => {
@@ -128,8 +132,8 @@ describe('uninstall command', () => {
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
 
     const envelope = parseJson<{ lockfile: string }>(uninstallResult.stdout);
-    // The user record held only this entry, so it is removed with it.
-    await expect(readFile(envelope.data.lockfile, 'utf8')).rejects.toThrow();
+    // The user record is kept empty, with its import marker (BR20.1).
+    expect(await readInstallRecord(envelope.data.lockfile)).toMatchObject({ bundles: {}, importedUserLockfileAt: expect.any(String) });
   });
 
   it('is a warning no-op (exit 0) when the bundle is not installed', async () => {
@@ -242,30 +246,34 @@ describe('uninstall command', () => {
       expect(await exists(vscodePrompt())).toBe(onDisk);
     });
 
-    it('falls back to the old store for a bundle that is not in the record', async () => {
-      expect((await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json'])).exitCode).toBe(0);
-      await mkdir(path.dirname(vscodePrompt()), { recursive: true });
-      await writeFile(vscodePrompt(), '# Hello Prompt\n');
-      await writeOldLock({ 'local-foo': 'prompts/hello.prompt.md' });
+    it('a plain uninstall of a bundle migrated from the old file removes its lone unknown entry and keeps its files (BR21.3)', async () => {
+      const oldFile = path.join(workspace, '.github', 'prompts', 'old.prompt.md');
+      await writeFile(oldFile, '# Old\n');
+      await writeOldLock({ 'old-only': '.github/prompts/old.prompt.md' });
 
-      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json']);
+      const result = await run(['uninstall', '--bundle', 'old-only']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(oldLockPath());
-      expect(await exists(vscodePrompt())).toBe(false);
+      expect(result.stdout).toContain(`Migrated repository record:\n  merged ${oldLockPath()}\n  needs reinstall: old-only@1.0.0 (tool unknown)\n`);
+      expect(result.stdout).toContain('Removed the record entry of old-only (tool unknown); 1 file kept because their tool is unknown.');
+      expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await readFile(oldFile, 'utf8')).toBe('# Old\n');
+      expect(await exists(oldLockPath())).toBe(false);
+      expect(Object.keys((JSON.parse(await readFile(recordPath(), 'utf8')) as { bundles: object }).bundles)).toEqual(['local-foo']);
     });
 
-    it('--all uninstalls a bundle in both the record and the old store once', async () => {
-      await writeFile(path.join(workspace, '.github', 'prompts', 'old.prompt.md'), '# Old\n');
+    it('--all migrates the old file first and leaves a migrated bundle under unknown', async () => {
       await writeOldLock({ 'local-foo': 'prompts/hello.prompt.md', 'old-only': 'prompts/old.prompt.md' });
 
       const result = await run(['uninstall', '--all', '--target', 'repo-vscode', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      const data = parseJson<{ uninstalled: number; bundles: { id: string }[] }>(result.stdout).data;
-      expect(data.bundles.map((bundle) => bundle.id)).toEqual(['local-foo', 'old-only']);
-      expect(data.uninstalled).toBe(2);
+      const data = parseJson<{ uninstalled: number; bundles: { id: string }[]; migration: { needsReinstall: object[]; droppedEntries: { bundleId: string }[] } }>(result.stdout).data;
+      expect(data.bundles.map((bundle) => bundle.id)).toEqual(['local-foo']);
+      expect(data.migration.needsReinstall).toEqual([{ bundleId: 'old-only', version: '1.0.0' }]);
+      expect(data.migration.droppedEntries.map((entry) => entry.bundleId)).toEqual(['local-foo']);
       expect(await recordedTools()).toEqual(['kiro']);
+      expect(await exists(oldLockPath())).toBe(false);
     });
 
     it('refuses uninstall <id> without --target when the bundle has several tools, removing nothing', async () => {
@@ -362,7 +370,7 @@ describe('uninstall command', () => {
       expect(await exists(homePrompt())).toBe(false);
     });
 
-    it('keeps a file the old user lockfile still lists for the bundle and leaves that lockfile byte-identical', async () => {
+    it('after the user-level import, uninstall ignores the old user lockfile: the recorded file goes, that lockfile stays byte-identical', async () => {
       const oldLockfile = resolveUserConfigPaths(userEnv).userLockfile;
       await writeLockfile(oldLockfile, upsertBundleEntry(emptyLockfile('test'), 'local-foo', {
         version: '1.0.0',
@@ -373,12 +381,16 @@ describe('uninstall command', () => {
       }), new NodeFileSystem());
       const before = await readFile(oldLockfile, 'utf8');
       await installUser();
+      expect(await readInstallRecord(userRecordPath(userEnv))).toMatchObject({ importedUserLockfileAt: expect.any(String) });
 
       const data = await uninstallUser();
 
-      expect(data.removed).toEqual([]);
-      expect(await exists(homePrompt())).toBe(true);
+      expect(data.removed).toEqual(['target/prompts/hello.prompt.md']);
+      expect(await exists(homePrompt())).toBe(false);
       expect(await readFile(oldLockfile, 'utf8')).toBe(before);
+      const status = await runUser(['status', '-o', 'json']);
+      expect(status.exitCode, status.stdout).toBe(0);
+      expect(status.stdout).not.toContain('local-foo');
     });
 
     it.each([
