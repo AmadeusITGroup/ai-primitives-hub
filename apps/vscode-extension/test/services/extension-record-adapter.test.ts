@@ -952,7 +952,7 @@ suite('user record', function () {
       });
 
       assert.deepStrictEqual(await listedVersions(), [`${idOf('2.0.0')} 2.0.0`]);
-      assert.strictEqual((await findUserRecordBundle({ adapter, storage }, idOf('1.0.0'), '1.0.0'))?.bundleId, idOf('2.0.0'));
+      assert.strictEqual((await findUserRecordBundle({ adapter, storage }, idOf('1.0.0'), { version: '1.0.0' }))?.bundleId, idOf('2.0.0'));
     });
 
     test('a user record holding two versions of the bundle for vscode lists the latest installed', async () => {

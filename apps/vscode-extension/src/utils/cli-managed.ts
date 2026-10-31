@@ -13,13 +13,14 @@ import {
 import * as vscode from 'vscode';
 
 /** Extension actions guarded for repository entries of another tool. */
-export type CliManagedAction = 'update' | 'uninstall' | 'move-to-user' | 'switch-commit-mode';
+export type CliManagedAction = 'update' | 'uninstall' | 'move-to-user' | 'move-to-repository' | 'switch-commit-mode';
 
 /** The CLI command for each refused action: a move starts with an uninstall, a mode switch is a reinstall. */
 const CLI_COMMANDS: Readonly<Record<CliManagedAction, string>> = {
   update: 'update',
   uninstall: 'uninstall',
   'move-to-user': 'uninstall',
+  'move-to-repository': 'uninstall',
   'switch-commit-mode': 'install'
 };
 
