@@ -29,7 +29,7 @@ src/migrations/  Activation-time data migrations
 
 - `RegistryManager` coordinates adapters, storage, and installation. Its first `getInstance()` call needs `ExtensionContext`.
 - `BundleInstaller` requires a root `deployment-manifest.yml` and validates id, version, and name.
-- Repository installations are governed by `prompt-registry.lock.json`; user and workspace placement goes through `UserScopeService`.
+- Repository and user installations are recorded in the shared install records through `ExtensionRecordAdapter` (app `records/`); user and workspace placement goes through `UserScopeService`, and workspace-scope records stay in `RegistryStorage` (`ExtensionAppStorage`).
 - Register source implementations with `RepositoryAdapterFactory.register()`.
 - Use `Logger.getInstance()`, throw actionable errors, and let commands surface them through VS Code notifications.
 

@@ -98,7 +98,7 @@ Local storage for:
 - **Collections**: YAML files defining primitives
 - **Configuration**: `ai-primitives-hub.yml` for targets
 - **Cache**: Primitive index and blob cache under `.ai-primitives-hub/`
-- **Lockfiles**: `prompt-registry.lock.json` for repository installs (kept for compatibility with the extension)
+- **Install records**: `ai-primitives-hub.lock.json` / `ai-primitives-hub.local.lock.json` at the git root and `ai-primitives-hub.user.lock.json` in the user config folder, shared with the extension (format `3.0.0`; older `prompt-registry.*` files are migrated, see ADR-0011)
 
 ## User Stories
 

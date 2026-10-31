@@ -353,36 +353,36 @@ Better automated than it looks. `test/commands/hub-sync-commands.test.ts` and `t
 
 ## TP-11 — Repository Scope and Lockfile — **cannot be waived**
 
-`prompt-registry.lock.json` is the source of truth for repository scope. A regression corrupts state a whole team shares through Git.
+The install record (`ai-primitives-hub.lock.json`, and `ai-primitives-hub.local.lock.json` for local-only installs) is the source of truth for repository scope, shared by the CLI and the extension. A regression corrupts state a whole team shares through Git.
 
 Run every row in both hosts. Repository scope resolves its destination from host detection, so this is where a detection regression does the most damage. This is the **best-automated** area in the document — which is why the manual focus is narrow and specific: real Git, real clone, real Kiro.
 
 | # | Scenario | Expected result | Automation → where to focus |
 |---|---|---|---|
-| ⭐ 11.1 | Install at repository scope in **commit** mode | Committable lockfile entry; files land in the repository | 🟢 `test/services/lockfile-manager.test.ts`, `bundle-installer.repositoryScope.test.ts`, `packages/app/test/stores/json-lockfile-store.test.ts` |
+| ⭐ 11.1 | Install at repository scope in **commit** mode | Committable record entry for the editor's tool; files land in the repository | 🟢 `test/services/extension-record-adapter.test.ts`, `bundle-installer.repositoryScope.test.ts`, `packages/app/test/records/install-record.test.ts` |
 | ⭐ 11.2 | Install at repository scope in **local-only** mode | Entry marked local-only, excluded from the commit | 🟢 `test/services/repository-scope-service.test.ts` (+ `.property.test.ts`) |
 | ⭐ 11.3 | Do 11.1 with the extension running in **VS Code**, then in **Kiro** | Content lands in `<ws>/.github/` under VS Code and `<ws>/.kiro/` under Kiro — never `.github/` while running in Kiro | 🟡 `test/services/repository-scope-service.test.ts` (`Host-Aware Destinations`) covers both hosts on a real filesystem, including the no-regression case for `.github/`. **What is untested is detection from a real running Kiro** — the routing is right if the target is right |
-| 11.4 | `Move to Repository (Commit)`, then `(Local Only)` from user scope | Files and lockfile move together; `contextValue` updates | 🟢 `test/commands/bundle-scope-commands.test.ts` (`moveToRepository`: both modes, cancellation, not-installed and no-workspace errors) |
-| 11.5 | `Move to User` from each repository mode | Reverse move complete, no lockfile residue | 🟢 `test/commands/bundle-scope-commands.test.ts` (`moveToUser`), `test/services/user-scope-service.unsync.test.ts` |
+| 11.4 | `Move to Repository (Commit)`, then `(Local Only)` from user scope | Files and record entry move together; `contextValue` updates | 🟢 `test/commands/bundle-scope-commands.test.ts` (`moveToRepository`: both modes, cancellation, not-installed and no-workspace errors) |
+| 11.5 | `Move to User` from each repository mode | Reverse move complete, no repository record residue | 🟢 `test/commands/bundle-scope-commands.test.ts` (`moveToUser`), `test/services/user-scope-service.unsync.test.ts` |
 | 11.6 | `Switch to Local Only`, then `Switch to Commit` | Mode flips in place without reinstalling | 🟢 `test/services/repository-scope-service.test.ts` |
-| ⭐ 11.7 | Commit the lockfile, clone fresh elsewhere, activate in the host it was created in, then in the **other host** | Bundles restored from the lockfile alone; a lockfile written under one host is read correctly under the other | 🟡 `test/e2e/lockfile-source-of-truth.test.ts` covers restore-from-lockfile. **A real clone, and cross-host reads, are manual** |
-| 11.8 | Inspect the lockfile after each operation | Valid, minimal, diff-friendly — no unrelated churn | 🟡 Shape covered by `packages/app/test/stores/json-lockfile-store.test.ts`. **Diff noise is a human judgement** |
-| 11.9 | Open a repository whose lockfile came from the **previous major** | Read without migration errors or needless rewriting | 🟡 `test/services/lockfile-manager.test.ts` has a `Backward Compatibility - Legacy SourceId Format` suite (legacy hub-prefixed ids, mixed formats, many segments, write-new/preserve-old), and `test/e2e/lockfile-source-of-truth.test.ts` resolves legacy ids. **What is missing is a lockfile captured from an actually shipped release** |
+| ⭐ 11.7 | Commit the install record, clone fresh elsewhere, activate in the host it was created in, then in the **other host**, then with the CLI | Bundles restored from the record alone; a record written under one host or delivery is read correctly by the other | 🟡 `test/e2e/lockfile-source-of-truth.test.ts` covers listing from the record; `test/services/install-record-cross-delivery.test.ts` covers CLI ↔ extension reads and uninstalls. **A real clone, and cross-host reads, are manual** |
+| 11.8 | Inspect the install record after each operation | Valid, minimal, diff-friendly — no unrelated churn | 🟡 Shape covered by `packages/core/test/domain/install/record-format.test.ts` and `packages/app/test/records/install-record.test.ts`. **Diff noise is a human judgement** |
+| 11.9 | Open a repository whose `prompt-registry.lock.json` came from the **previous release** | Read as-is by read-only views; migrated into `ai-primitives-hub.lock.json` (entries under `unknown`) before the first change | 🟡 `packages/app/test/records/install-record.test.ts` (`record migration (U5)`), `test/services/extension-record-adapter.test.ts` (`older records (U5)`), and `test/e2e/lockfile-source-of-truth.test.ts` (`Lockfile Portability - SourceId Format`) for legacy ids. **What is missing is a lockfile captured from an actually shipped release** |
 | 11.10 | Delete an upstream source, then `Clean Up Stale Repository Bundles` | Stale entry removed; valid entries untouched | 🟢 `test/commands/bundle-commands.cleanupStale.property.test.ts`, `test/services/scope-conflict-resolver.test.ts` |
 
 ### Coverage breakdown
 
-This is the most heavily automated area in the repository — `test/services/lockfile-manager.test.ts` alone carries well over a hundred assertions, against a **real filesystem**. Read the unticked boxes as the whole point of running TP-11 by hand.
+This is the most heavily automated area in the repository — the record store and service (`packages/app/test/records/install-record.test.ts`), the extension adapter (`test/services/extension-record-adapter.test.ts`) and the cross-delivery suite (`test/services/install-record-cross-delivery.test.ts`) run against a **real filesystem**. Read the unticked boxes as the whole point of running TP-11 by hand.
 
 **11.1 / 11.2 — install at repository scope, both modes**
 
-- [x] Lockfile created with `$schema`, `version`, `generatedAt`, `generatedBy`, 2-space indentation *(real fs, mock vscode)*
-- [x] Bundle entry records version, `sourceId`, `sourceType`, `installedAt`, file checksums *(real fs)*
+- [x] Record created with `$schema`, `version` `3.0.0`, `level`, `generatedAt`, `generatedBy`; byte-identical output whatever the key order *(real fs, mock vscode)*
+- [x] Each bundle records one entry per tool with version, `sourceId`, `sourceType`, `installedAt` and file checksums taken from disk; a second tool keeps the first tool's entry *(real fs)*
 - [x] `commitMode` deliberately **not** written into entries — it is implied by which file the entry lives in *(real fs)*
-- [x] Commit mode writes `prompt-registry.lock.json`; local-only writes `prompt-registry.local.lock.json` *(real fs; also `packages/app/test/stores/json-lockfile-store.test.ts`, fake port)*
-- [x] The two lockfiles stay separate; source, hub and profile sections recorded *(real fs)*
-- [x] Local lockfile added to `.git/info/exclude` on first local-only install, not duplicated on later ones, skipped when `.git` is absent *(real fs)*
-- [x] Repository scope routes through `RepositoryScopeService`, and `LockfileManager` is **not** called for user scope *(mock vscode)*
+- [x] Commit mode writes `ai-primitives-hub.lock.json`; local-only writes `ai-primitives-hub.local.lock.json` *(real fs)*
+- [x] The two record files stay separate; sources recorded without credentials *(real fs)*
+- [x] Local-only record added to `.git/info/exclude` on first local-only install and not duplicated on later ones, including a worktree's common exclude; its line removed when the file is deleted *(real fs)*
+- [x] Repository scope routes through `RepositoryScopeService`, and user scope records into the shared user record, not `RegistryStorage` (outside WSL) *(mock vscode)*
 - [x] Writer places prompts, instructions, agents and skills, and honours git-exclude only in local-only mode — `packages/infra/test/writers/repo-scope-writer.test.ts` *(fake port)*
 - [ ] Behaviour in a repository with an **unusual Git setup** (worktree, submodule, no `.git/info/`, pre-existing exclude section from another tool)
 
@@ -488,7 +488,7 @@ The bar is parity: the same operation must produce the same on-disk result as th
 | ⭐ 15.2 | `init`, `status`, `doctor` in a real project | Each reports the environment accurately | 🟡 `packages/cli/test/commands/doctor-status-init-update.test.ts` uses a test context. **A real project is the gap** |
 | ⭐ 15.3 | `install`, `apply`, `update`, `uninstall` for a bundle | On-disk result matches the extension for the same bundle | 🟡 `packages/cli/test/commands/install.test.ts`, `uninstall.test.ts`. **Nothing diffs against the extension** |
 | ⭐ 15.4 | `source`, `hub`, `profile` subcommands | Parity with the equivalent extension commands | 🟡 `packages/cli/test/commands/source.test.ts`, `hub.test.ts`, `profile.test.ts` — each alone |
-| ⭐ 15.5 | `target-types`, then `target-add` for both `vscode` and `kiro` | Both listed as supported; both persisted and reflected in `target-list` | 🟢 `packages/cli/test/commands/target.test.ts`, `packages/infra/test/stores/target-state-store.test.ts` |
+| ⭐ 15.5 | `target-types`, then `target-add` for both `vscode` and `kiro` | Both listed as supported; both persisted and reflected in `target-list` | 🟢 `packages/cli/test/commands/target.test.ts` |
 | ⭐ 15.6 | Install the same collection with `vscode` and with `kiro` as the target | Files land under `.copilot`/`.github` and `.kiro` respectively, matching what the extension produces in each host | 🟡 Transformers covered per target. **The cross-layer match is manual** |
 | 15.7 | `target-remove` for one of them | Removed without disturbing the other target's installed content | 🟢 `packages/cli/test/commands/target.test.ts` |
 | 15.8 | `discover` in a real project | Recommendations sensible for the detected context | 🟡 `packages/cli/test/commands/discover.test.ts`, `packages/app/test/discovery/recommendation-engine.test.ts`. **Whether results are *useful* is a judgement** |
@@ -553,7 +553,7 @@ The migration **mechanism** is solid. What is absent is any state that a shipped
 - [x] Legacy id migrated to the new id; already-new ids left alone; non-hub ids untouched *(mock vscode)*
 - [x] Source **cache files renamed** as part of the migration *(mock vscode)*
 - [x] Installation records referencing the old `sourceId` updated *(mock vscode)*
-- [x] Lockfiles containing legacy ids still resolve — `test/services/lockfile-manager.test.ts`, `test/e2e/lockfile-source-of-truth.test.ts` *(real fs / nock)*
+- [x] Lockfiles containing legacy ids still resolve — `test/e2e/lockfile-source-of-truth.test.ts` *(real fs / nock)*
 
 **17.6 / 17.7 — per host, and content still where the host expects it**
 

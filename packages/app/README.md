@@ -8,10 +8,17 @@ that replaces today's duplicated logic between the two delivery mechanisms.
 Status: **scaffolding only** (Phase 1 of `.tmp/ai-primitives-hub-next-migration-plan.md`).
 Real orchestration lands in Phase 4 (§7.5): install/uninstall pipelines
 extracted from the extension's `BundleInstaller`/`UserScopeService`/
-`RepositoryScopeService`/`LockfileManager`/`HubManager`/`RegistryManager`,
+`RepositoryScopeService`/`HubManager`/`RegistryManager`,
 discovery/search orchestration over `infra`'s harvest+BM25 engine, and
 per-target content transforms (Kiro real; Windsurf/Claude-Code to be
 written for real, not left as no-ops).
+
+The install records shared by the CLI and the extension (format `3.0.0`,
+`ai-primitives-hub.lock.json` / `.local.lock.json` / `.user.lock.json`,
+ADR-0011) live in `src/records/` (`RecordStore`, `InstallRecordService`,
+`selectRecord`, `migrateRecords`). `src/stores/json-lockfile-store.ts` is
+the older 2.0.0 `prompt-registry.lock.json` store, kept for migration, the
+CLI's workspace scope and `profile activate`.
 
 Also doubles as the public SDK surface (decision 2 in the migration plan)
 until a standalone `@ai-primitives-hub/sdk` package has a real external
