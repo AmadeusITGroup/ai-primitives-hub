@@ -11,6 +11,7 @@ import {
   realpathSync,
 } from 'node:fs';
 import {
+  cp,
   mkdir,
   mkdtemp,
   readdir,
@@ -311,6 +312,33 @@ describe('target selection without target-state.json', () => {
       expect(await readFile(oldPrompt, 'utf8')).toBe('# Old\n');
       expect(Object.keys((JSON.parse(await readFile(repoRecord(), 'utf8')) as { bundles: object }).bundles)).toEqual(['local-foo']);
     });
+
+    it.each(['text', 'json'])('uninstall --dry-run (%s) of a lone unknown entry names the level and record, no target, and leaves an older file unmigrated (BR18.1, NFR4.30)', async (format) => {
+      await addTargets([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]);
+      const oldPrompt = path.join(repo, '.github', 'prompts', 'old.prompt.md');
+      await mkdir(path.dirname(oldPrompt), { recursive: true });
+      await writeFile(oldPrompt, '# Old\n');
+      await writeOldLock(oldRepoLock(), { 'old-only': '.github/prompts/old.prompt.md' });
+      // The install migrates the old file: old-only becomes a lone unknown entry.
+      await ok(['install', 'local-foo', '--from', bundle, '--target', 'repo-vscode', '-o', 'json']);
+      // An older release then writes the old file again, so a real run would migrate it first.
+      await writeOldLock(oldRepoLock(), { 'old-later': '.github/prompts/later.prompt.md' });
+      const before = await tree(root);
+      const argv = ['uninstall', '--bundle', 'old-only', '--dry-run'];
+
+      const result = await run(format === 'json' ? [...argv, '-o', 'json'] : argv);
+
+      expect(result.exitCode, result.stdout + result.stderr).toBe(0);
+      if (format === 'json') {
+        const { data } = json<Record<string, unknown>>(result.stdout);
+        expect(data).toMatchObject({ dryRun: true, level: 'repository', records: [repoRecord()], bundle: 'old-only' });
+        expect(data).not.toHaveProperty('target');
+      } else {
+        expect(result.stdout).toContain(`Record: repository ${repoRecord()}\n`);
+        expect(result.stdout).not.toContain('Target');
+      }
+      expect(await tree(root)).toEqual(before);
+    });
   });
 
   describe('the default rule picks the level for update and uninstall without --target (NFR4.30)', () => {
@@ -350,6 +378,33 @@ describe('target selection without target-state.json', () => {
         expect(result.stdout).toContain(`Record: user ${userRecord()}\n`);
       }
       expect(await tree(root)).toEqual(before);
+    });
+
+    it.each([
+      ['uninstall --scope repository', ['uninstall', '--bundle', 'local-foo', '--scope', 'repository']],
+      ['update --scope repository', ['update', '--scope', 'repository', '--no-hub-sync']],
+      ['update --lockfile <repository record>', ['update', '--lockfile', 'ai-primitives-hub.lock.json', '--no-hub-sync']]
+    ])('%s acts on the repository record only when the user record holds the bundle too', async (_name, argv) => {
+      // The repository level only trusts a local source inside the repository.
+      const repoBundle = path.join(repo, 'bundles', 'local-foo');
+      await cp(bundle, repoBundle, { recursive: true });
+      const repoBaseline = await tree(repo);
+      // The repository record holds local-foo for another tool (kiro) than the user record (copilot-cli).
+      await ok(['install', 'local-foo', '--from', repoBundle, '--target', 'repo-kiro', '-o', 'json']);
+      const homeBefore = await tree(home);
+
+      const result = await run([...argv, '-o', 'json']);
+
+      expect(result.exitCode, result.stdout + result.stderr).toBe(0);
+      expect(json<{ level: string; records: string[] }>(result.stdout).data).toMatchObject({ level: 'repository', records: [repoRecord()] });
+      // The user record and the user target's files stay byte-identical.
+      expect(await tree(home)).toEqual(homeBefore);
+      if (argv[0] === 'uninstall') {
+        expect(await tree(repo)).toEqual(repoBaseline);
+      } else {
+        const record = JSON.parse(await readFile(repoRecord(), 'utf8')) as { bundles: Record<string, { tools: object }> };
+        expect(Object.keys(record.bundles['local-foo'].tools)).toEqual(['kiro']);
+      }
     });
 
     it.each([['uninstall', '--bundle', 'local-foo'], ['update', '--no-hub-sync']])('%s selects the repository level when only an older prompt-registry.lock.json is there', async (...argv) => {
