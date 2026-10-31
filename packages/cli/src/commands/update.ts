@@ -13,12 +13,16 @@ import * as path from 'node:path';
 import {
   buildLockfileBundleEntry,
   computeInstalledChecksums,
+  getLockfilePathForMode,
+  type InstallRecord,
+  locateRecord,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
   readLockfile,
-  removeSupersededFiles,
+  removeSupersededRecordFiles,
   resolveUserConfigPaths,
+  unexcludePaths,
   upsertBundleEntry,
   upsertSource,
   writeBundleSafely,
@@ -48,6 +52,7 @@ import {
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
   GitHubApiClient,
+  GitInfoExclude,
   HttpsBundleDownloader,
   isGitHubAppAuthEnabled,
   NodeHttpClient,
@@ -576,6 +581,42 @@ async function syncActiveHub(ctx: Context): Promise<void> {
   }
 }
 
+/**
+ * The records an update's superseded-file removal must respect: every
+ * other bundle of the lockfile being updated and, at repository scope,
+ * every other bundle of the repository's other lockfile.
+ * @param ctx CLI context.
+ * @param input Target, scope, commit mode and the lockfile being updated.
+ * @param input.target Effective target.
+ * @param input.scope Effective scope.
+ * @param input.commitMode Effective commit mode.
+ * @param input.lockPath Lockfile being updated.
+ * @param input.lock Its content before the update.
+ * @param input.lockKey Key of the bundle being updated.
+ * @returns The other records.
+ */
+async function otherRecords(
+  ctx: Context,
+  input: { target: Target; scope: string; commitMode: RepositoryCommitMode; lockPath: string; lock: Lockfile; lockKey: string }
+): Promise<InstallRecord[]> {
+  const { target, scope, commitMode, lockPath, lock, lockKey } = input;
+  const recordsOf = (bundles: Lockfile['bundles'], mode: RepositoryCommitMode): InstallRecord[] =>
+    Object.entries(bundles)
+      .filter(([key]) => key !== lockKey)
+      .map(([, entry]) => (scope === 'repository' ? { entry, commitMode: mode } : { entry }));
+  const records = recordsOf(lock.bundles, commitMode);
+  if (scope !== 'repository') {
+    return records;
+  }
+  const otherMode: RepositoryCommitMode = commitMode === 'commit' ? 'local-only' : 'commit';
+  const otherPath = getLockfilePathForMode(target.rootPath ?? ctx.cwd(), otherMode);
+  if (path.resolve(otherPath) === path.resolve(lockPath)) {
+    return records;
+  }
+  const otherLock = await readLockfile(otherPath, ctx.fs);
+  return otherLock === null ? records : [...records, ...recordsOf(otherLock.bundles, otherMode)];
+}
+
 async function applyUpdate(
   candidate: UpdateCandidate,
   target: Target,
@@ -601,7 +642,8 @@ async function applyUpdate(
   const isArtifactory = candidate.source.type === 'artifactory';
   const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
 
-  const writer = createCliWriterFactory(ctx, { scope: scope as Target['scope'], commitMode })(target);
+  const writerFactory = createCliWriterFactory(ctx, { scope: scope as Target['scope'], commitMode });
+  const writer = writerFactory(target);
   const write = await writeBundleSafely(writer, target, files, manifest);
 
   const installedChecksums = await computeInstalledChecksums({ writer, target, write, fs: ctx.fs });
@@ -621,11 +663,36 @@ async function applyUpdate(
     return;
   }
   const lockKey = isArtifactory ? candidate.installable.ref.bundleId : manifest.id;
-  const previousFiles = lock.bundles[lockKey]?.files;
+  const previousEntry = Object.prototype.hasOwnProperty.call(lock.bundles, lockKey) ? lock.bundles[lockKey] : undefined;
   let nextLock = upsertBundleEntry(lock, lockKey, entry);
   nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
   await writeLockfile(lockPath, nextLock, ctx.fs);
-  await removeSupersededFiles(writer, target, previousFiles, entry.files);
+  if (previousEntry !== undefined) {
+    const recordMode = scope === 'repository' ? { commitMode } : {};
+    const next = await locateRecord(writerFactory, target, { entry, ...recordMode });
+    const removal = await removeSupersededRecordFiles({
+      writerFactory,
+      target,
+      previous: { entry: previousEntry, ...recordMode },
+      // The written paths count too, like install: a new version that can't be located still keeps its files.
+      produced: new Set([
+        ...write.result.written,
+        ...(next.kind === 'located' ? next.located.paths.filter((p): p is string => p !== null) : [])
+      ].map((p) => path.resolve(p))),
+      others: await otherRecords(ctx, { target, scope, commitMode, lockPath, lock, lockKey }),
+      fs: ctx.fs,
+      preserveModified: false
+    });
+    if (removal !== null && scope === 'repository') {
+      // Best effort, like install: the lines of removed local-only files leave the exclude file.
+      await unexcludePaths({
+        exclusion: new GitInfoExclude({ fs: ctx.fs, workspaceRoot: target.rootPath ?? ctx.cwd() }),
+        target: { ...target, scope: 'repository' },
+        commitMode,
+        paths: [...removal.removedLocations, ...removal.pruned]
+      });
+    }
+  }
 
   const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
   const existingState = await stateStore.load(target.name);

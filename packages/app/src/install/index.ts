@@ -54,10 +54,13 @@ export {
 
 export {
   locateRecord,
+  removeSupersededRecordFiles,
 } from './recorded-files';
 
 export type {
+  GuardedRemoval,
   LocatedRecord,
+  SupersededRemoval,
 } from './recorded-files';
 
 export {
@@ -71,6 +74,7 @@ export type {
 
 export {
   applyBundleUninstall,
+  unexcludePaths,
 } from './apply-bundle-uninstall';
 
 export type {

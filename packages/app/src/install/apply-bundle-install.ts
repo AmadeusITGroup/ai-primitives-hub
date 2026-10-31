@@ -38,10 +38,8 @@ import {
 } from './partial-target-write';
 import {
   locateRecord,
-  pruneEmptyParents,
   recordedFiles,
-  recordLocations,
-  removeGuarded,
+  removeSupersededRecordFiles,
 } from './recorded-files';
 
 /** Inputs of {@link applyBundleInstall}. */
@@ -216,26 +214,15 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
     : (await writer.locate(target, recordedFiles(entry.files))).paths.filter((p): p is string => p !== null);
   const produced = new Set(newLocations.map((p) => path.resolve(p)));
 
-  const previousLocated = (previous.entry.targetType ?? target.type) === target.type
-    ? await locateRecord(writerFactory, target, previous)
-    : undefined;
-  if (previousLocated?.kind === 'located') {
-    const candidates = previous.entry.files
-      .map((file, index) => ({ file, location: previousLocated.located.paths[index] ?? null }))
-      .filter(({ location }) => location !== null && !produced.has(path.resolve(location)));
-    const removal = await removeGuarded({
-      located: { ...previousLocated, located: { root: previousLocated.located.root, paths: candidates.map(({ location }) => location) } },
-      files: candidates.map(({ file }) => file),
-      others: await recordLocations(writerFactory, target, await store.others(key)),
-      fs,
-      preserveModified
-    });
+  const removal = await removeSupersededRecordFiles({
+    writerFactory, target, previous, produced, others: await store.others(key), fs, preserveModified
+  });
+  if (removal !== null) {
     result.superseded.push(...removal.removed);
     result.supersededKept.push(...removal.kept, ...removal.refused.map((p) => ({ path: p, reason: 'refused' as const })));
     result.errors.push(...removal.errors);
-    const pruned = await pruneEmptyParents({ fs, root: previousLocated.located.root, removedLocations: removal.removedLocations });
     const outcome = await unexcludePaths({
-      exclusion, target, commitMode: previous.commitMode, paths: [...removal.removedLocations, ...pruned]
+      exclusion, target, commitMode: previous.commitMode, paths: [...removal.removedLocations, ...removal.pruned]
     });
     result.exclusionSkipped ||= outcome.exclusionSkipped;
     result.exclusionErrors.push(...outcome.exclusionErrors);

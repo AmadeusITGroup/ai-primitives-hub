@@ -323,6 +323,61 @@ export async function pruneEmptyParents(input: {
   return pruned;
 }
 
+/** Outcome of {@link removeSupersededRecordFiles}. */
+export interface SupersededRemoval extends GuardedRemoval {
+  /** Directories left empty by the removal and removed, deepest first. */
+  pruned: string[];
+}
+
+/**
+ * Remove the files a previous record of a bundle placed that the new
+ * install no longer produces, guarded like uninstall (see
+ * {@link removeGuarded}), then prune the directories they leave empty.
+ *
+ * Only a previous record placed by the caller's target type is handled:
+ * another target type's files are not the new install's to replace.
+ * @param input Previous record, new locations and guard inputs.
+ * @param input.writerFactory Writer factory.
+ * @param input.target Caller's target.
+ * @param input.previous The replaced record.
+ * @param input.produced Normalised locations the new install produced.
+ * @param input.others Records the shared-file guard must respect.
+ * @param input.fs Filesystem.
+ * @param input.preserveModified Keep files whose bytes changed since the previous install.
+ * @returns The outcome, or `null` when the previous record is of another
+ *   target type or its files can't be located.
+ */
+export async function removeSupersededRecordFiles(input: {
+  writerFactory: (target: Target) => TargetWriter;
+  target: Target;
+  previous: InstallRecord;
+  produced: ReadonlySet<string>;
+  others: readonly InstallRecord[];
+  fs: FileSystem;
+  preserveModified: boolean;
+}): Promise<SupersededRemoval | null> {
+  const { writerFactory, target, previous, produced, others, fs, preserveModified } = input;
+  if ((previous.entry.targetType ?? target.type) !== target.type) {
+    return null;
+  }
+  const previousLocated = await locateRecord(writerFactory, target, previous);
+  if (previousLocated.kind !== 'located') {
+    return null;
+  }
+  const candidates = previous.entry.files
+    .map((file, index) => ({ file, location: previousLocated.located.paths[index] ?? null }))
+    .filter(({ location }) => location !== null && !produced.has(path.resolve(location)));
+  const removal = await removeGuarded({
+    located: { ...previousLocated, located: { root: previousLocated.located.root, paths: candidates.map(({ location }) => location) } },
+    files: candidates.map(({ file }) => file),
+    others: await recordLocations(writerFactory, target, others),
+    fs,
+    preserveModified
+  });
+  const pruned = await pruneEmptyParents({ fs, root: previousLocated.located.root, removedLocations: removal.removedLocations });
+  return { ...removal, pruned };
+}
+
 const isEmptyDirectory = async (fs: FileSystem, dir: string): Promise<boolean> => {
   try {
     return (await fs.exists(dir)) && (await fs.readDir(dir)).length === 0;
