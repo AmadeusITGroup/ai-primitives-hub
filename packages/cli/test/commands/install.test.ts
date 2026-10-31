@@ -1405,19 +1405,6 @@ agents:
       expect(await readFile(recordPath(), 'utf8')).toBe(text);
     });
 
-    it('--dry-run lists the entries a replay would install and writes nothing', async () => {
-      const before = await readFile(recordPath(), 'utf8');
-
-      const result = await run(['install', '--lockfile', recordPath(), '--dry-run', '-o', 'json']);
-
-      expect(result.exitCode, result.stdout).toBe(0);
-      const { data } = parseJson<{ dryRun: boolean; planned: { tool: string }[] }>(result.stdout);
-      expect(data.dryRun).toBe(true);
-      expect(data.planned.map((entry) => entry.tool)).toEqual(['kiro', 'vscode']);
-      expect(await exists(vscodePrompt())).toBe(false);
-      expect(await readFile(recordPath(), 'utf8')).toBe(before);
-    });
-
     it('--allow-target refuses a replay to a mapped target it does not list, before writing anything', async () => {
       const result = await run(['install', '--lockfile', recordPath(), '--allow-target', 'repo-vscode', '-o', 'json']);
 
@@ -1522,6 +1509,24 @@ agents:
       expect(data.migration.renamed).toEqual([{ from: oldPath, to: recordPath() }]);
       expect(Object.keys((await readReplayRecord()).bundles['old-only'].tools)).toEqual(['unknown']);
       expect(await exists(oldPath)).toBe(false);
+    });
+
+    it('bare install --dry-run with only prompt-registry.lock.json is refused and writes nothing (R-07)', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      const oldBytes = JSON.stringify({
+        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
+        bundles: { 'old-only': { version: '0.1.0', sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] } },
+        sources: { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } }
+      });
+      await writeFile(oldPath, oldBytes);
+
+      const result = await run(['install', '--dry-run', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).not.toBe(0);
+      expect(result.stdout).toContain('USAGE.INVALID_FLAG');
+      expect(await readFile(oldPath, 'utf8')).toBe(oldBytes);
+      expect(await exists(recordPath())).toBe(false);
     });
   });
 });

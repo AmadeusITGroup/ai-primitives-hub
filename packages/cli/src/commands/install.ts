@@ -569,6 +569,22 @@ async function autoDetectHubSource(opts: InstallOptions, ctx: Context, userPaths
 }
 
 /**
+ * Refuse `--dry-run` for a record replay: the replay migrates older files and
+ * writes the recorded bundles, and a dry run must write nothing.
+ * @param opts Install options.
+ * @throws {RegistryError} `USAGE.INVALID_FLAG` when `--dry-run` is set; nothing was written.
+ */
+function refuseDryRunReplay(opts: InstallOptions): void {
+  if (opts.dryRun === true) {
+    throw new RegistryError({
+      code: 'USAGE.INVALID_FLAG',
+      message: 'install: --dry-run cannot be used to replay an install record; a replay migrates older records and writes every recorded bundle',
+      hint: 'Run `status` to see what is recorded, or install one bundle with install <bundle-id> --dry-run.'
+    });
+  }
+}
+
+/**
  * Detect install context from the project environment.
  * Fills in `opts.lockfile`, `opts.source`, `opts.interactive`, and `opts.target`
  * when they can be inferred without user input. A bare `install` that finds a
@@ -589,6 +605,7 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
     const prepared = await prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile });
     if (prepared.selection.locations.length > 0) {
       // The replay changes the record: migrate its level first (BR18.1).
+      refuseDryRunReplay(opts);
       return prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile, write: true });
     }
   }
@@ -599,6 +616,7 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
     // An old file at the git root is migrated first, then the record is replayed (BR18.1).
     const migratesOldFile = selection.level === 'repository' && selection.oldLockfile !== undefined;
     if (migratesOldFile || (await prepared.service.listEntries(selection.locations)).length > 0) {
+      refuseDryRunReplay(opts);
       return prepareRecordSelection(ctx, { command: 'install', scope: opts.scope, write: true });
     }
     const found = await findProjectLockfile(ctx);
@@ -1304,37 +1322,6 @@ function renderRecordReplay(d: RecordReplayData): string {
 }
 
 /**
- * Report what a record replay would install, without fetching or writing anything.
- * @param ctx CLI context.
- * @param fmt Output format.
- * @param data The planned replay.
- * @param planned The entries that would be installed.
- * @returns Exit code.
- */
-function reportRecordReplayDryRun(
-  ctx: Context,
-  fmt: OutputFormat,
-  data: RecordReplayData,
-  planned: RecordReplayData['replayed']
-): number {
-  const { replayed: _replayed, failures: _failures, ...rest } = data;
-  formatOutput({
-    ctx,
-    command: 'install',
-    output: fmt,
-    status: data.skipped.length === 0 && data.needsReinstall.length === 0 ? 'ok' : 'warning',
-    data: { dryRun: true, ...rest, planned },
-    textRenderer: (d) => [
-      `Dry run: would replay ${String(d.planned.length)}/${String(d.replayPlanned)} entr${d.replayPlanned === 1 ? 'y' : 'ies'}.`,
-      ...d.planned.map((r) => `  ${r.bundleId}@${r.version} (${r.tool}) into target "${r.target}"`),
-      ...d.needsReinstall.map((n) => `Needs reinstall: ${n.bundleId}@${n.version} (tool unknown)`),
-      ...d.skipped.map((s) => `Skipped ${s.bundleId} (${s.tool}): ${s.reason}`)
-    ].join('\n') + '\n' + renderRecordLine({ level: d.level, records: d.records })
-  });
-  return 0;
-}
-
-/**
  * Reinstall every recorded entry at its recorded version with its mapped target, and record it again.
  * @param run Replay inputs.
  * @returns Exit code.
@@ -1379,11 +1366,6 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
   // Every mapped target is checked against --allow-target before anything is fetched or written.
   for (const item of plan.items) {
     checkAllowTarget(resolveEffectiveTarget(ctx, item.target).name, opts);
-  }
-  if (opts.dryRun === true) {
-    return reportRecordReplayDryRun(ctx, fmt, data, plan.items.map((item) => ({
-      bundleId: item.bundleId, tool: item.tool, version: item.entry.version, target: resolveEffectiveTarget(ctx, item.target).name
-    })));
   }
   const changes: RecordInstallResult[] = [];
 
