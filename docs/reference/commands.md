@@ -122,7 +122,7 @@ User-scope installs are recorded in one install record per machine, shared by th
 - The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, keeps its name and is only read: bundles that only it lists are still updated and uninstalled from it, and an uninstall from the new record keeps any file it still lists.
 - In the extension, user-scope installs made before this change in a profile are still listed; the profile's old entry is removed when you reinstall, update or uninstall the bundle.
 - The extension changes only its own tool's user entries; others are read-only, with the CLI command to use (`RECORD.CLI_MANAGED`).
-- In a WSL remote window the extension keeps recording user-scope installs per profile, as before, and does not use the shared record.
+- In a WSL remote window the extension keeps recording user-scope installs per profile, as before, and does not use the shared record. A skill from a `local-skills` source that the extension links to its source folder (instead of copying) is also still recorded per profile, because its files change with the source.
 - The CLI and the extension each read `XDG_CONFIG_HOME` from their own environment. A VS Code started from the macOS Dock or the Windows Start menu does not see a value set only in your shell; set it system-wide, or leave it unset, so both use the same file. The extension logs the path it uses when it starts.
 - Workspace-scope targets keep their current behaviour.
 
