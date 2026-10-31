@@ -31,7 +31,7 @@ const nonEmpty = (value: string | undefined): string | undefined =>
 export const resolveUserHome = (env: Record<string, string | undefined>): string =>
   path.resolve(nonEmpty(env.HOME) ?? nonEmpty(env.USERPROFILE) ?? os.homedir());
 
-const OUTSIDE_HOME_HINT = (home: string): string =>
+const outsideHomeHint = (home: string): string =>
   `Use a target under ${home} or a repository target.`;
 
 /**
@@ -50,7 +50,7 @@ export const assertUserFolderInsideHome = async (fs: RecordFs, home: string, fol
   const refuse = (cause?: unknown) => recordError('RECORD.PATH_OUTSIDE_ROOT', {
     message: 'The user target folder is outside the home folder; nothing was written.',
     detail: `the user target folder ${folder} is outside the home folder ${home}`,
-    hint: OUTSIDE_HOME_HINT(home),
+    hint: outsideHomeHint(home),
     context: { folder, home },
     ...(cause === undefined ? {} : { cause })
   });

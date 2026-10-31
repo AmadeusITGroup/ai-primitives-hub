@@ -43,6 +43,7 @@ describe('XdgAppStorage.getPaths', () => {
     expect(paths.profilesInstalled).toBe(path.join(tmp, 'data', 'ai-primitives-hub', 'installed', 'profiles'));
     expect(paths.profiles).toBe(path.join(tmp, 'data', 'ai-primitives-hub', 'profiles'));
     expect(paths.logs).toBe(path.join(tmp, 'data', 'ai-primitives-hub', 'logs'));
+    expect(paths.userRecord).toBe(path.join(tmp, 'config', 'ai-primitives-hub', 'ai-primitives-hub.user.lock.json'));
   });
 
   it('getPaths returns a fresh copy each call (callers cannot mutate internal state)', () => {

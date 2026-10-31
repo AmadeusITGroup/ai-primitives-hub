@@ -2,7 +2,8 @@
  * Record selection: which install record file(s) a command acts on. The level
  * comes from `--lockfile`, `--scope` or the target; without one, a record or old
  * lockfile in the repository picks the repository level. Selected files are
- * loaded, so a bad record stops the command before anything is written.
+ * loaded, so a bad record stops the command before anything is written. At user
+ * level, the shared user record (rooted at home) is used when it is passed in.
  * @module records/select-record
  */
 import * as path from 'node:path';
@@ -28,7 +29,7 @@ export type RecordSelectionReason =
 /** The record file(s) a command acts on. Never stored. */
 export interface RecordSelection {
   level: RecordLevel;
-  /** The git root or `--lockfile` folder, or the user lockfile's folder. */
+  /** The git root or `--lockfile` folder, the home folder, or the user lockfile's folder. */
   root: string;
   /** Loaded record files, committed first; empty at user level and for an old `--lockfile`. */
   locations: RecordLocation[];
@@ -56,6 +57,14 @@ export interface SelectRecordOptions {
   findOldLockfile: (start: string) => Promise<string | null>;
   /** Absolute path of the user lockfile. */
   userLockfile: string;
+  /**
+   * The shared 3.0.0 user record (`AppStoragePaths.userRecord`, BR14.1). With
+   * {@link home}, the user level selects it (BR15.1); without, the user level
+   * keeps the old user lockfile only.
+   */
+  userRecord?: string;
+  /** Home folder from `resolveUserHome`; the user level's root (BR14.3). */
+  home?: string;
 }
 
 /**
@@ -73,6 +82,38 @@ const userSelection = (userLockfile: string, reason: RecordSelectionReason, infe
   inferred,
   reason
 });
+
+/**
+ * User selection on the shared user record (BR15.1): the loaded user
+ * location, rooted at home, with the old user lockfile as old store when it
+ * exists. Falls back to the old-only selection when the caller did not pass
+ * the user record and home, and for workspace scope (RQ4).
+ * @param options - Selection inputs.
+ * @param reason - Why the user level was picked.
+ * @param inferred - Whether the level was inferred.
+ * @param scope - The given or target scope, when there is one.
+ */
+const sharedUserSelection = async (
+  options: SelectRecordOptions,
+  reason: RecordSelectionReason,
+  inferred: boolean,
+  scope?: InstallationScope
+): Promise<RecordSelection> => {
+  if (options.userRecord === undefined || options.home === undefined || scope === 'workspace') {
+    return userSelection(options.userLockfile, reason, inferred);
+  }
+  const location = options.store.resolveUser({ home: options.home, path: options.userRecord });
+  await options.store.load(location);
+  const oldExists = await options.fs.exists(options.userLockfile);
+  return {
+    level: 'user',
+    root: location.root,
+    locations: [location],
+    ...(oldExists ? { oldLockfile: options.userLockfile } : {}),
+    inferred,
+    reason
+  };
+};
 
 /**
  * The old repository file found from `start`, ignoring the user lockfile the walk may fall back to.
@@ -122,6 +163,9 @@ const lockfileSelection = async (options: SelectRecordOptions, lockfile: string)
   if (absolute === path.resolve(options.userLockfile)) {
     return userSelection(options.userLockfile, 'lockfile-flag', false);
   }
+  if (options.userRecord !== undefined && absolute === path.resolve(options.userRecord)) {
+    return sharedUserSelection(options, 'lockfile-flag', false);
+  }
   const root = path.dirname(absolute);
   const name = path.basename(absolute);
   // The record file name gives the commit mode.
@@ -150,12 +194,12 @@ export const selectRecord = async (options: SelectRecordOptions): Promise<Record
   if (given?.scope !== undefined) {
     return recordLevelForScope(given.scope) === 'repository'
       ? repositorySelection(options, start, 'explicit-scope')
-      : userSelection(options.userLockfile, 'explicit-scope', false);
+      : sharedUserSelection(options, 'explicit-scope', false, given.scope);
   }
   if (given?.target !== undefined) {
     return recordLevelForScope(given.target.scope) === 'repository'
       ? repositorySelection(options, start, 'target-scope')
-      : userSelection(options.userLockfile, 'target-scope', false);
+      : sharedUserSelection(options, 'target-scope', false, given.target.scope);
   }
   const [committed, localOnly] = await options.store.resolveRepository({ start: path.resolve(cwd) });
   const hasNewRecord = (await options.fs.exists(committed.path)) || (await options.fs.exists(localOnly.path));
@@ -163,5 +207,5 @@ export const selectRecord = async (options: SelectRecordOptions): Promise<Record
   if (hasNewRecord || old !== undefined) {
     return repositorySelection(options, path.resolve(cwd), 'repository-record-found', old);
   }
-  return userSelection(options.userLockfile, 'user-fallback', true);
+  return sharedUserSelection(options, 'user-fallback', true);
 };
