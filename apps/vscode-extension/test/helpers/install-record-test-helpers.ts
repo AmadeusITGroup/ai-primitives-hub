@@ -214,6 +214,26 @@ export const writeInstallRecord = (root: string, fileName: string, spec: RecordS
 };
 
 /**
+ * Set process environment variables for one test, e.g. a temp `HOME` so
+ * user-scope installs never write the real home folder.
+ * @param values - Variables to set.
+ * @returns Restores the previous values (unset ones are removed again).
+ */
+export const overrideEnv = (values: Record<string, string>): (() => void) => {
+  const saved = Object.entries(values).map(([key]) => [key, process.env[key]] as const);
+  Object.assign(process.env, values);
+  return () => {
+    for (const [key, value] of saved) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
+    }
+  };
+};
+
+/**
  * Snapshot every file under a folder (path → content), for "nothing changed on disk" checks.
  * @param root - Folder to snapshot.
  */

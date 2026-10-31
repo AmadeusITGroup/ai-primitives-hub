@@ -2,6 +2,9 @@
  * Extension record adapter: the extension, as the `vscode` host, installs,
  * updates, uninstalls and switches a repository bundle against a real temp
  * git root. Only `vscode.window`, the workspace lookup and `RegistryStorage` are stubbed.
+ *
+ * The user record suite installs a user-scope bundle into a temp `HOME`;
+ * `XDG_CONFIG_HOME` is a per-test temp folder, so the real user record is never touched.
  */
 import * as assert from 'node:assert';
 import {
@@ -10,6 +13,9 @@ import {
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  pathToFileURL,
+} from 'node:url';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -19,6 +25,9 @@ import type {
   BundleInstaller,
 } from '../../src/services/bundle-installer';
 import {
+  ExtensionRecordAdapter,
+} from '../../src/services/extension-record-adapter';
+import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -27,15 +36,23 @@ import {
 import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
+import {
+  VsCodeAppStorage,
+} from '../../src/storage/vscode-app-storage';
 import type {
   Bundle,
   InstalledBundle,
+  RegistrySource,
   RepositoryCommitMode,
 } from '../../src/types/registry';
+import {
+  Logger,
+} from '../../src/utils/logger';
 import {
   createMockContext,
   initGitRoot,
   LOCAL_RECORD_FILE,
+  overrideEnv,
   RECORD_FILE,
   recordEntry,
   snapshotTree,
@@ -71,18 +88,31 @@ const V2: BundleVersion = {
 
 const sha256 = (text: string): string => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
+const manifestOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): string => {
+  const prompts = bundle.items.map((item) => `  - id: ${item.id}\n    file: ${item.file}\n    type: ${item.type}\n`).join('');
+  return `id: ${bundleId}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}`;
+};
 const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
   // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
   const AdmZip = require('adm-zip');
   const zip = new AdmZip();
-  const prompts = bundle.items.map((item) => `  - id: ${item.id}\n    file: ${item.file}\n    type: ${item.type}\n`).join('');
-  zip.addFile('deployment-manifest.yml', Buffer.from(
-    `id: ${bundleId}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}`
-  ));
+  zip.addFile('deployment-manifest.yml', Buffer.from(manifestOf(bundle, bundleId)));
   for (const [file, content] of Object.entries(bundle.files)) {
     zip.addFile(file, Buffer.from(content));
   }
   return zip.toBuffer();
+};
+
+/**
+ * Write a bundle version's folder: its manifest and files.
+ * @param dir - Bundle folder.
+ * @param bundle - Bundle version.
+ */
+const writeBundleDir = (dir: string, bundle: BundleVersion): void => {
+  for (const [file, content] of Object.entries({ 'deployment-manifest.yml': manifestOf(bundle), ...bundle.files })) {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    fs.writeFileSync(path.join(dir, file), content);
+  }
 };
 
 suite('ExtensionRecordAdapter: repository installs through the extension', function () {
@@ -474,5 +504,192 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
       assert.strictEqual(read(HELLO), '# Hello 2.0.0\n');
       assert.deepStrictEqual(await listedVersions(), [`${COLL}-2.0.0 2.0.0`]);
     });
+  });
+});
+
+suite('user record (U4)', function () {
+  this.timeout(20_000);
+
+  /** Home-relative files the vscode user layout writes for {@link V1}. */
+  const USER_HELLO = '.copilot/prompts/hello.prompt.md';
+  const USER_STYLE = '.copilot/instructions/style.instructions.md';
+  const WSL_LOG = 'The shared user record is not used in WSL';
+
+  let sandbox: sinon.SinonSandbox;
+  let tempRoot: string;
+  let home: string;
+  let globalStorage: string;
+  let localSource: RegistrySource;
+  let manager: RegistryManager;
+  let storage: RegistryStorage;
+  let showError: sinon.SinonStub;
+  let restoreEnv: () => void;
+
+  const userPath = (relative: string): string => path.join(home, ...relative.split('/'));
+  const userRecordPath = (): string => storage.getPaths().userRecord;
+  const readUserRecord = (): any => fs.existsSync(userRecordPath()) ? JSON.parse(fs.readFileSync(userRecordPath(), 'utf8')) : null;
+  const listedUser = async (): Promise<InstalledBundle | undefined> =>
+    (await manager.listInstalledBundles('user')).find((bundle) => bundle.bundleId === BUNDLE_ID);
+  const installUser = (): Promise<InstalledBundle> => manager.installBundle(BUNDLE_ID, { scope: 'user' });
+  /** The 1.0.0 bundle as the configured local source lists it. */
+  const v1Bundle = (): Bundle => {
+    const bundleDir = path.join(localSource.url, BUNDLE_ID);
+    return {
+      id: BUNDLE_ID, name: 'Record Bundle', version: V1.version, description: 'Test', author: 'test', sourceId: localSource.id,
+      environments: [], tags: [], lastUpdated: '', size: '', dependencies: [], license: 'MIT',
+      manifestUrl: pathToFileURL(path.join(bundleDir, 'deployment-manifest.yml')).href, downloadUrl: pathToFileURL(bundleDir).href
+    };
+  };
+
+  setup(async () => {
+    sandbox = sinon.createSandbox();
+    tempRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'extension-user-record-')));
+    home = path.join(tempRoot, 'home');
+    fs.mkdirSync(home, { recursive: true });
+    restoreEnv = overrideEnv({ HOME: home, USERPROFILE: home });
+    // `User/globalStorage/<id>`, so the user MCP config derived from it stays in the temp folder.
+    globalStorage = path.join(tempRoot, 'User', 'globalStorage', 'acme.extension');
+
+    // A configured local source holding the bundle at 1.0.0, in the source cache.
+    const sourceDir = path.join(tempRoot, 'source');
+    writeBundleDir(path.join(sourceDir, BUNDLE_ID), V1);
+    localSource = { id: 'acme-local', name: 'Acme local', type: 'local', url: sourceDir, enabled: true, priority: 0 };
+
+    (RegistryManager as any).instance = undefined;
+    manager = RegistryManager.getInstance({ ...createMockContext(sandbox), globalStorageUri: vscode.Uri.file(globalStorage) });
+    storage = manager.getStorage();
+    await storage.initialize();
+    await storage.addSource(localSource);
+    await storage.cacheSourceBundles(localSource.id, [v1Bundle()]);
+
+    showError = sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
+    sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+    sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
+  });
+
+  teardown(() => {
+    sandbox.restore();
+    restoreEnv();
+    (RegistryManager as any).instance = undefined;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test('the user record path is under XDG_CONFIG_HOME, not under globalStorageUri', () => {
+    const userRecord = new VsCodeAppStorage({ ...createMockContext(sandbox), globalStorageUri: vscode.Uri.file(globalStorage) }).getPaths().userRecord;
+
+    assert.strictEqual(userRecord, path.join(process.env.XDG_CONFIG_HOME ?? '', 'ai-primitives-hub', 'ai-primitives-hub.user.lock.json'));
+    assert.ok(!userRecord.startsWith(globalStorage), userRecord);
+  });
+
+  test('a user-scope install records the vscode entry with home-relative paths in the user record, not in RegistryStorage', async () => {
+    const recordInstallation = sandbox.spy(RegistryStorage.prototype, 'recordInstallation');
+
+    await installUser();
+
+    const record = readUserRecord();
+    const { installedAt, ...entry } = record.bundles[BUNDLE_ID].tools.vscode;
+    assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools), ['vscode']);
+    assert.ok(!Number.isNaN(Date.parse(installedAt)));
+    assert.deepStrictEqual(entry, {
+      version: '1.0.0',
+      sourceId: localSource.id,
+      sourceType: 'local',
+      files: [
+        { path: USER_STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']) },
+        { path: USER_HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']) }
+      ]
+    });
+    assert.strictEqual(fs.readFileSync(userPath(USER_HELLO), 'utf8'), V1.files['prompts/hello.prompt.md']);
+    assert.strictEqual(recordInstallation.callCount, 0, 'RegistryStorage.recordInstallation is not called');
+    assert.deepStrictEqual(await storage.getInstalledBundles('user'), []);
+  });
+
+  test('an action on a bundle only copilot-cli holds in the user record is refused with RECORD.CLI_MANAGED; the record is unchanged', async () => {
+    const adapter = new ExtensionRecordAdapter({
+      sources: { listSources: () => Promise.resolve([localSource]) },
+      hostTool: 'vscode',
+      userRecordPath: userRecordPath(),
+      env: { HOME: home }
+    });
+    const location = adapter.userLocation();
+    for (const [bundleId, tool, file] of [['vscode-bundle', 'vscode', '.copilot/prompts/mine.prompt.md'], [BUNDLE_ID, 'copilot-cli', '.copilot/prompts/cli.prompt.md']]) {
+      fs.mkdirSync(path.dirname(userPath(file)), { recursive: true });
+      fs.writeFileSync(userPath(file), `# ${tool}\n`);
+      await adapter.service.recordInstall({
+        location, bundleId, version: '1.0.0', tool,
+        source: { sourceId: localSource.id, type: 'local', url: localSource.url }, sourceType: 'local',
+        writtenPaths: [userPath(file)], workspaceRoot: home, syncSiblings: false
+      });
+    }
+    const before = fs.readFileSync(userRecordPath(), 'utf8');
+
+    await assert.rejects(adapter.assertUserHostTool(BUNDLE_ID, 'uninstall'), (error: Error & { code?: string }) => {
+      assert.strictEqual(error.code, 'RECORD.CLI_MANAGED');
+      assert.ok(error.message.includes('copilot-cli') && error.message.includes('user target'), error.message);
+      return true;
+    });
+
+    assert.strictEqual(fs.readFileSync(userRecordPath(), 'utf8'), before);
+  });
+
+  test('a user-scope install retires this profile\'s RegistryStorage entry; a shared path and a regular file only the old entry lists stay', async () => {
+    // The profile's own 0.9.0 install: its bundle cache, a symlink into it and the RegistryStorage entry.
+    const cacheDir = path.join(globalStorage, 'bundles', BUNDLE_ID);
+    const oldVersion: BundleVersion = {
+      version: '0.9.0',
+      files: { 'prompts/hello.prompt.md': '# Hello 0.9.0\n', 'prompts/old.prompt.md': '# Old\n' },
+      items: [{ id: 'hello', file: 'prompts/hello.prompt.md', type: 'prompt' }, { id: 'old', file: 'prompts/old.prompt.md', type: 'prompt' }]
+    };
+    writeBundleDir(cacheDir, oldVersion);
+    const shared = userPath(USER_HELLO);
+    const oldOnly = userPath('.copilot/prompts/old.prompt.md');
+    fs.mkdirSync(path.dirname(shared), { recursive: true });
+    fs.symlinkSync(path.join(cacheDir, 'prompts', 'hello.prompt.md'), shared, 'file');
+    fs.writeFileSync(oldOnly, 'My own copy.\n');
+    await storage.recordInstallation({
+      bundleId: BUNDLE_ID, version: '0.9.0', installedAt: '2026-10-01T10:00:00.000Z', scope: 'user', installPath: cacheDir,
+      manifest: {} as InstalledBundle['manifest'], sourceId: localSource.id, sourceType: 'local'
+    });
+    assert.strictEqual((await listedUser())?.version, '0.9.0');
+    assert.strictEqual(readUserRecord(), null);
+
+    // Through the installer, so only the install's own retirement can remove the
+    // RegistryStorage entry (not `installBundle`'s old-version cleanup).
+    await manager.getBundleInstaller().installFromBuffer(v1Bundle(), zipOf(V1), { scope: 'user' }, 'local');
+
+    assert.strictEqual(await storage.getInstalledBundle(BUNDLE_ID, 'user'), undefined, 'the RegistryStorage entry is retired');
+    assert.strictEqual(fs.readFileSync(shared, 'utf8'), V1.files['prompts/hello.prompt.md'], 'the path both list stays');
+    assert.ok(!fs.lstatSync(oldOnly).isSymbolicLink() && fs.readFileSync(oldOnly, 'utf8') === 'My own copy.\n', 'the regular file stays');
+    const listed = await listedUser();
+    assert.deepStrictEqual({ version: listed?.version, recordOrigin: listed?.recordOrigin }, { version: '1.0.0', recordOrigin: 'install-record' });
+
+    await manager.uninstallBundle(BUNDLE_ID, 'user');
+
+    assert.strictEqual(await listedUser(), undefined);
+  });
+
+  test('a user-scope install with a malformed user record shows one error naming the file and writes nothing to the user folders', async () => {
+    const malformed = '{ "version": "3.0.0", ';
+    fs.mkdirSync(path.dirname(userRecordPath()), { recursive: true });
+    fs.writeFileSync(userRecordPath(), malformed);
+
+    await assert.rejects(installUser(), { code: 'RECORD.MALFORMED' });
+
+    assert.deepStrictEqual(snapshotTree(home), new Map(), 'nothing written under home');
+    assert.strictEqual(fs.readFileSync(userRecordPath(), 'utf8'), malformed);
+    assert.strictEqual(showError.callCount, 1);
+    assert.ok(String(showError.firstCall.args[0]).includes(userRecordPath()), String(showError.firstCall.args[0]));
+  });
+
+  test('in WSL a user-scope install is recorded in RegistryStorage, the user record is never created, and that is logged once', async () => {
+    sandbox.stub(vscode.env, 'remoteName').value('wsl');
+    const info = sandbox.stub(Logger.getInstance(), 'info');
+
+    await installUser();
+    await manager.listInstalledBundles('user');
+
+    assert.strictEqual((await storage.getInstalledBundle(BUNDLE_ID, 'user'))?.version, '1.0.0');
+    assert.ok(!fs.existsSync(userRecordPath()), 'no user record');
+    assert.strictEqual(info.getCalls().filter((call) => String(call.args[0]).includes(WSL_LOG)).length, 1);
   });
 });
