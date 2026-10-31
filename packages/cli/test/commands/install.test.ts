@@ -1503,5 +1503,25 @@ agents:
       expect(Object.keys((await readReplayRecord()).bundles).toSorted()).toEqual(['legacy-bar', 'local-foo', 'old-only']);
       expect(await exists(oldPath)).toBe(false);
     });
+
+    it('bare install in a repository with only prompt-registry.lock.json migrates it, then lists its bundles as needs reinstall (BR18.1)', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeFile(oldPath, JSON.stringify({
+        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
+        bundles: { 'old-only': { version: '0.1.0', sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] } },
+        sources: { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } }
+      }));
+
+      const result = await run(['install', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<ReplayData & { oldFile?: object; migration: { renamed: { from: string; to: string }[] } }>(result.stdout);
+      expect(data).toMatchObject({ level: 'repository', replayed: [], needsReinstall: [{ bundleId: 'old-only', version: '0.1.0' }] });
+      expect(data.oldFile).toBeUndefined();
+      expect(data.migration.renamed).toEqual([{ from: oldPath, to: recordPath() }]);
+      expect(Object.keys((await readReplayRecord()).bundles['old-only'].tools)).toEqual(['unknown']);
+      expect(await exists(oldPath)).toBe(false);
+    });
   });
 });

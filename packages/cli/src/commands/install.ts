@@ -571,7 +571,8 @@ async function autoDetectHubSource(opts: InstallOptions, ctx: Context, userPaths
 /**
  * Detect install context from the project environment.
  * Fills in `opts.lockfile`, `opts.source`, `opts.interactive`, and `opts.target`
- * when they can be inferred without user input.
+ * when they can be inferred without user input. A bare `install` that finds a
+ * record or an old `prompt-registry` file at the git root replays it, migrating the old file first.
  * @param opts Install options (mutated in-place).
  * @param ctx CLI context.
  * @returns The selected record to replay, or `undefined` for the other modes.
@@ -594,7 +595,10 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
 
   if (noMode && !opts.interactive) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', scope: opts.scope });
-    if ((await prepared.service.listEntries(prepared.selection.locations)).length > 0) {
+    const { selection } = prepared;
+    // An old file at the git root is migrated first, then the record is replayed (BR18.1).
+    const migratesOldFile = selection.level === 'repository' && selection.oldLockfile !== undefined;
+    if (migratesOldFile || (await prepared.service.listEntries(selection.locations)).length > 0) {
       return prepareRecordSelection(ctx, { command: 'install', scope: opts.scope, write: true });
     }
     const found = await findProjectLockfile(ctx);
