@@ -5,6 +5,9 @@
  *
  * The user record suite installs a user-scope bundle into a temp `HOME`;
  * `XDG_CONFIG_HOME` is a per-test temp folder, so the real user record is never touched.
+ *
+ * The older-records suite checks that a write migrates old lockfiles and
+ * profile installs first, and how a migrated `unknown` entry is handled.
  */
 import * as assert from 'node:assert';
 import {
@@ -16,6 +19,12 @@ import * as path from 'node:path';
 import {
   pathToFileURL,
 } from 'node:url';
+import {
+  emptyLockfile,
+  upsertBundleEntry,
+  upsertSource,
+  writeLockfile,
+} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -26,6 +35,7 @@ import type {
 } from '../../src/services/bundle-installer';
 import {
   ExtensionRecordAdapter,
+  MIGRATION_LOG_PREFIX,
 } from '../../src/services/extension-record-adapter';
 import {
   HubManager,
@@ -62,6 +72,8 @@ import {
   initGitRoot,
   isOnDisk,
   LOCAL_RECORD_FILE,
+  nodeLockfileFs,
+  overrideEnv,
   RECORD_FILE,
   recordEntry,
   setupUserRecordManager,
@@ -362,47 +374,6 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     const exclude = read('.git/info/exclude').split('\n');
     assert.ok(exclude.includes(STYLE), exclude.join('\n'));
     assert.ok(!exclude.includes(HELLO), exclude.join('\n'));
-  });
-
-  test('install retires the bundle\'s old prompt-registry entry and its unmodified old file', async () => {
-    await writeOldEntry(root, BUNDLE_ID, { files: { '.github/prompts/old.prompt.md': 'old content' } });
-
-    await install(V1);
-
-    assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the emptied old file is removed');
-    assert.ok(!fs.existsSync(abs('.github/prompts/old.prompt.md')), 'the old file is deleted');
-    assert.deepStrictEqual(Object.keys(toolsOf()), ['vscode']);
-  });
-
-  test('uninstall of an old-file-only bundle keeps a path a record entry lists and a modified file', async () => {
-    const shared = '.github/prompts/shared.prompt.md';
-    const modified = '.github/prompts/modified.prompt.md';
-    const plain = '.github/prompts/plain.prompt.md';
-    await writeOldEntry(root, 'old-bundle', { files: {
-      [shared]: 'shared',
-      [modified]: { content: 'edited by the user', recorded: 'as installed' },
-      [plain]: 'plain'
-    } });
-    await recordOtherTool('vscode', [shared], 'other-bundle');
-
-    await manager.uninstallBundle('old-bundle', 'repository');
-
-    assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the emptied old file is removed');
-    assert.ok(!fs.existsSync(abs(plain)), 'the unmodified file is deleted');
-    assert.strictEqual(read(shared), 'shared');
-    assert.strictEqual(read(modified), 'edited by the user');
-    assert.deepStrictEqual(Object.keys(toolsOf(RECORD_FILE, 'other-bundle')), ['vscode']);
-  });
-
-  test('uninstall of a recorded bundle also retires an old prompt-registry entry for it', async () => {
-    await install(V1);
-    await writeOldEntry(root, BUNDLE_ID, { files: { '.github/prompts/old.prompt.md': 'old content' } });
-
-    await manager.uninstallBundle(BUNDLE_ID, 'repository');
-
-    assert.deepStrictEqual(toolsOf(), {});
-    assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the emptied old file is removed');
-    assert.ok(!fs.existsSync(abs('.github/prompts/old.prompt.md')), 'the old file is deleted');
   });
 
   suite('one version per bundle and tool', () => {
@@ -996,6 +967,232 @@ suite('user record', function () {
 
       assert.deepStrictEqual(userEntries(), []);
       assert.ok(!isOnDisk(ownFile('new')) && !isOnDisk(userPath(USER_HELLO)), 'its files are removed');
+    });
+  });
+});
+
+suite('older records (U5)', function () {
+  this.timeout(20_000);
+
+  const OTHER_ID = 'other-bundle';
+  /** File the old `prompt-registry.lock.json` entry lists, root-relative. */
+  const OLD_FILE = '.github/prompts/old.prompt.md';
+  /** Home-relative file this profile's 0.9.0 install synced. */
+  const USER_HELLO = '.copilot/prompts/hello.prompt.md';
+  /** The other bundle: one prompt of its own. */
+  const OTHER: BundleVersion = {
+    version: '1.0.0',
+    files: { 'prompts/other.prompt.md': '# Other\n' },
+    items: [{ id: 'other', file: 'prompts/other.prompt.md', type: 'prompt' }]
+  };
+  /** This profile's RegistryStorage install of the bundle. */
+  const V0: BundleVersion = {
+    version: '0.9.0',
+    files: { 'prompts/hello.prompt.md': '# Hello 0.9.0\n' },
+    items: [{ id: 'hello', file: 'prompts/hello.prompt.md', type: 'prompt' }]
+  };
+
+  let sandbox: sinon.SinonSandbox;
+  let tempRoot: string;
+  let root: string;
+  let home: string;
+  let globalStorage: string;
+  let localSource: RegistrySource;
+  let manager: RegistryManager;
+  let storage: RegistryStorage;
+  let shown: Map<string, unknown>;
+  let showInfo: sinon.SinonStub;
+  let showWarning: sinon.SinonStub;
+  let restoreEnv: () => void;
+
+  /** `globalState` over {@link shown}, so two adapters can share it. */
+  const globalState = (): Pick<vscode.Memento, 'get' | 'update'> => ({
+    get: <T>(key: string): T | undefined => shown.get(key) as T | undefined,
+    update: (key: string, value: unknown) => {
+      shown.set(key, value);
+      return Promise.resolve();
+    }
+  });
+  const abs = (relative: string): string => path.join(root, ...relative.split('/'));
+  const userPath = (relative: string): string => path.join(home, ...relative.split('/'));
+  const readRecord = (): any => fs.existsSync(abs(RECORD_FILE)) ? JSON.parse(fs.readFileSync(abs(RECORD_FILE), 'utf8')) : null;
+  const readUserRecord = (): any => {
+    const file = storage.getPaths().userRecord;
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+  };
+  const messages = (): string[] => [...showInfo.getCalls(), ...showWarning.getCalls()].map((call) => String(call.args[0]));
+
+  /**
+   * A bundle of the configured local source at 1.0.0.
+   * @param bundleId - Bundle id.
+   */
+  const sourceBundle = (bundleId: string): Bundle => {
+    const dir = path.join(localSource.url, bundleId);
+    return {
+      id: bundleId, name: bundleId, version: V1.version, description: 'Test', author: 'test', sourceId: localSource.id,
+      environments: [], tags: [], lastUpdated: '', size: '', dependencies: [], license: 'MIT',
+      manifestUrl: pathToFileURL(path.join(dir, 'deployment-manifest.yml')).href, downloadUrl: pathToFileURL(dir).href
+    };
+  };
+
+  /**
+   * Write `prompt-registry.lock.json` at the git root with the bundle at 0.9.0, listing {@link OLD_FILE}.
+   * @param bundleId - Bundle id.
+   */
+  const writeOldLockfile = async (bundleId: string): Promise<void> => {
+    fs.mkdirSync(path.dirname(abs(OLD_FILE)), { recursive: true });
+    fs.writeFileSync(abs(OLD_FILE), 'old content');
+    const lock = upsertSource(upsertBundleEntry(emptyLockfile('prompt-registry@2.0.0'), bundleId, {
+      version: '0.9.0', sourceId: localSource.id, sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
+      files: [{ path: OLD_FILE, checksum: sha256('old content').slice('sha256:'.length) }]
+    }), localSource.id, { type: 'local', url: localSource.url });
+    await writeLockfile(abs(OLD_LOCKFILE), lock, nodeLockfileFs);
+  };
+
+  /** This profile's 0.9.0 user install: its bundle cache, a symlink into it and the RegistryStorage entry. */
+  const recordProfileInstall = async (): Promise<void> => {
+    const cacheDir = path.join(globalStorage, 'bundles', BUNDLE_ID);
+    writeBundleDir(cacheDir, V0);
+    fs.mkdirSync(path.dirname(userPath(USER_HELLO)), { recursive: true });
+    fs.symlinkSync(path.join(cacheDir, 'prompts', 'hello.prompt.md'), userPath(USER_HELLO), 'file');
+    await storage.recordInstallation({
+      bundleId: BUNDLE_ID, version: V0.version, installedAt: '2026-10-01T10:00:00.000Z', scope: 'user', installPath: cacheDir,
+      manifest: {} as InstalledBundle['manifest'], sourceId: localSource.id, sourceType: 'local'
+    });
+  };
+
+  setup(async () => {
+    sandbox = sinon.createSandbox();
+    tempRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'extension-old-records-')));
+    root = path.join(tempRoot, 'repo');
+    fs.mkdirSync(root, { recursive: true });
+    initGitRoot(root);
+    home = path.join(tempRoot, 'home');
+    fs.mkdirSync(home, { recursive: true });
+    restoreEnv = overrideEnv({ HOME: home, USERPROFILE: home });
+    globalStorage = path.join(tempRoot, 'User', 'globalStorage', 'acme.extension');
+
+    // A configured local source holding both bundles at 1.0.0, in the source cache.
+    const sourceDir = path.join(tempRoot, 'source');
+    writeBundleDir(path.join(sourceDir, BUNDLE_ID), V1);
+    writeBundleDir(path.join(sourceDir, OTHER_ID), OTHER, OTHER_ID);
+    localSource = { id: 'acme-local', name: 'Acme local', type: 'local', url: sourceDir, enabled: true, priority: 0 };
+
+    shown = new Map();
+    (RegistryManager as any).instance = undefined;
+    manager = RegistryManager.getInstance({
+      ...createMockContext(sandbox),
+      globalStorageUri: vscode.Uri.file(globalStorage),
+      globalState: { ...globalState(), keys: () => [...shown.keys()], setKeysForSync: () => undefined }
+    });
+    storage = manager.getStorage();
+    await storage.initialize();
+    await storage.addSource(localSource);
+    await storage.cacheSourceBundles(localSource.id, [sourceBundle(BUNDLE_ID), sourceBundle(OTHER_ID)]);
+
+    const scopeSelectionUI = require('../../src/utils/scope-selection-ui');
+    sandbox.stub(scopeSelectionUI, 'getWorkspaceRoot').returns(root);
+    sandbox.stub(scopeSelectionUI, 'hasOpenWorkspace').returns(true);
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: vscode.Uri.file(root), name: 'repo', index: 0 }]);
+    sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
+    showInfo = sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+    showWarning = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
+  });
+
+  teardown(() => {
+    sandbox.restore();
+    restoreEnv();
+    (RegistryManager as any).instance = undefined;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test('a repository install migrates prompt-registry.lock.json and notifies once; the same report through another adapter is only logged', async () => {
+    await writeOldLockfile('old-bundle');
+    const migrate = sandbox.spy(manager.getRecordAdapter(), 'migrateBeforeWrite');
+    const info = sandbox.spy(Logger.getInstance(), 'info');
+
+    await manager.installBundle(BUNDLE_ID, { scope: 'repository', commitMode: 'commit' });
+
+    const record = readRecord();
+    assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the old file is renamed');
+    assert.deepStrictEqual(record.bundles['old-bundle'].tools, {
+      unknown: {
+        version: '0.9.0', sourceId: localSource.id, sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
+        needsReinstall: true, files: [{ path: OLD_FILE, checksum: sha256('old content') }]
+      }
+    });
+    assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools), ['vscode']);
+    const notices = (): unknown[][] => showInfo.getCalls().filter((call) => String(call.args[0]).startsWith('Migrated the')).map((call) => call.args);
+    assert.deepStrictEqual(notices(), [['Migrated the repository install record: 1 bundle needs reinstalling.', 'Show details']]);
+
+    const report = await migrate.firstCall.returnValue;
+    assert.ok(report, 'the install ran a migration');
+    new ExtensionRecordAdapter({ sources: { listSources: () => Promise.resolve([]) }, memento: globalState() })
+      .showMigrationReport(report, abs(RECORD_FILE));
+
+    assert.strictEqual(notices().length, 1, 'one notification per record path and migratedAt');
+    assert.strictEqual(info.getCalls().filter((call) => String(call.args[0]).startsWith(MIGRATION_LOG_PREFIX)).length, 2, 'two log entries');
+  });
+
+  const profileCases: { name: string; wsl: boolean }[] = [
+    { name: 'outside WSL a user write migrates this profile\'s RegistryStorage user entry under vscode with its file and removes it from RegistryStorage', wsl: false },
+    { name: 'in WSL a user write leaves this profile\'s RegistryStorage user entry as it is', wsl: true }
+  ];
+  profileCases.forEach(({ name, wsl }) => {
+    test(name, async () => {
+      if (wsl) {
+        sandbox.stub(vscode.env, 'remoteName').value('wsl');
+      }
+      await recordProfileInstall();
+
+      await manager.installBundle(OTHER_ID, { scope: 'user' });
+
+      const stored = await storage.getInstalledBundle(BUNDLE_ID, 'user');
+      assert.strictEqual(fs.readFileSync(userPath(USER_HELLO), 'utf8'), V0.files['prompts/hello.prompt.md'], 'the synced file stays');
+      if (wsl) {
+        assert.strictEqual(stored?.version, V0.version);
+        assert.strictEqual(readUserRecord(), null, 'no user record in WSL');
+        return;
+      }
+      assert.strictEqual(stored, undefined, 'removed from RegistryStorage');
+      const { installedAt: _installedAt, ...entry } = readUserRecord().bundles[BUNDLE_ID].tools.vscode;
+      assert.deepStrictEqual(entry, {
+        version: V0.version, sourceId: localSource.id, sourceType: 'local',
+        files: [{ path: USER_HELLO, checksum: sha256(V0.files['prompts/hello.prompt.md']) }]
+      });
+    });
+  });
+
+  const loneUnknownCases: { action: string; run: () => Promise<void>; toolsAfter: string[]; message?: RegExp }[] = [
+    { action: 'update installs it for vscode', run: () => manager.updateBundle(BUNDLE_ID), toolsAfter: ['vscode'] },
+    {
+      action: 'uninstall removes the entry',
+      run: () => manager.uninstallBundle(BUNDLE_ID, 'repository'),
+      toolsAfter: [],
+      message: /Its tool was unknown, so its files were kept: \.github\/prompts\/old\.prompt\.md/
+    },
+    {
+      action: 'move to user scope is refused with the reinstall hint',
+      run: async () => {
+        const repositoryScopeService = manager.getBundleInstaller().createRepositoryScopeService();
+        assert.ok(repositoryScopeService);
+        await new BundleScopeCommands(manager, sandbox.createStubInstance(ScopeConflictResolver), repositoryScopeService).moveToUser(BUNDLE_ID);
+      },
+      toolsAfter: ['unknown'],
+      message: new RegExp(`${BUNDLE_ID} was migrated and its tool is unknown; reinstall it first`)
+    }
+  ];
+  loneUnknownCases.forEach(({ action, run, toolsAfter, message }) => {
+    test(`a bundle only an old prompt-registry file holds: ${action} and keeps the old file`, async () => {
+      await writeOldLockfile(BUNDLE_ID);
+
+      await run();
+
+      assert.deepStrictEqual(Object.keys(readRecord()?.bundles[BUNDLE_ID]?.tools ?? {}), toolsAfter);
+      assert.strictEqual(fs.readFileSync(abs(OLD_FILE), 'utf8'), 'old content');
+      if (message !== undefined) {
+        assert.ok(messages().some((shownMessage) => message.test(shownMessage)), messages().join('\n'));
+      }
     });
   });
 });
