@@ -129,7 +129,7 @@ User-scope installs are recorded in one file per machine, shared by the CLI and 
 
 ### Migrating older records
 
-> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it.
+Upgrading from CLI `0.2.x` or an earlier extension release, including rollback, is described in [Upgrading to 0.3.0: install records](../migration-guide.md#upgrading-to-030-install-records).
 
 Before the first command that changes a record, the CLI and the extension move the older records of that level into the new ones. Commands that only read (`status`, `doctor`, `update --dry-run`, `install --lockfile <older file>`, and the extension's listings and local-modification check) never migrate and leave the older files untouched.
 
