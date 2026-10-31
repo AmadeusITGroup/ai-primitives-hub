@@ -14,9 +14,11 @@ import {
 } from 'node:fs';
 import {
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
+  writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -170,6 +172,49 @@ describe('doctor diagnostics with inherited GIT_* variables', () => {
     expect(await readFile(path.join(scratch, '.git', 'config'))).toEqual(configBefore);
     expect(git(['status', '--porcelain'])).toBe(statusBefore);
     expect(result.exitCode).toBe(0);
+  }, 60_000);
+});
+
+describe('doctor diagnostics with older records in the repository', () => {
+  let scratch: string;
+
+  beforeEach(async () => {
+    scratch = await mkdtemp(path.join(os.tmpdir(), 'cli-doctor-old-records-'));
+    execFileSync('git', ['init', '-q'], { cwd: scratch, env: { PATH: process.env.PATH } });
+  });
+
+  afterEach(async () => {
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it('leaves the older repository records at the git root byte-identical and writes no new record (NFR4.26)', async () => {
+    const oldLockfile = (bundleId: string): string => JSON.stringify({
+      version: '2.0.0',
+      generatedAt: '2025-01-01T00:00:00.000Z',
+      generatedBy: 'prompt-registry@2.0.0',
+      bundles: {
+        [bundleId]: { version: '1.0.0', sourceId: 'src-1', sourceType: 'github', installedAt: '2025-01-01T00:00:00.000Z', files: [] }
+      },
+      sources: { 'src-1': { type: 'github', url: 'https://github.com/example/bundles' } }
+    }, null, 2);
+    const oldFiles = ['prompt-registry.lock.json', 'prompt-registry.local.lock.json'];
+    for (const [index, name] of oldFiles.entries()) {
+      await writeFile(path.join(scratch, name), oldLockfile(`bundle-${String(index)}`));
+    }
+    const before = await Promise.all(oldFiles.map((name) => readFile(path.join(scratch, name))));
+
+    const result = await runCommand(['doctor', 'diagnostics', '-o', 'json'], {
+      commandClasses: [DoctorDiagnosticsCommand],
+      context: {
+        cwd: scratch,
+        fs: new NodeFileSystem(),
+        env: { ...process.env, AI_PRIMITIVES_HUB_SKIP_NETWORK: '1' }
+      }
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(await Promise.all(oldFiles.map((name) => readFile(path.join(scratch, name))))).toEqual(before);
+    expect((await readdir(scratch)).filter((name) => name.startsWith('ai-primitives-hub'))).toEqual([]);
   }, 60_000);
 });
 
