@@ -412,19 +412,41 @@ export class RegistryManager {
   }
 
   /**
+   * Bundle ids of an active hub's profile, read before its deactivation
+   * deletes the activation state: the state's synced bundles, else the
+   * profile definition's bundles. Undefined when it is not a hub profile.
+   * @param profileId - Profile about to be deactivated.
+   */
+  private async getHubProfileBundleIds(profileId: string): Promise<string[] | undefined> {
+    if (!this.hubManager) {
+      return undefined;
+    }
+    const hubProfile = (await this.hubManager.listActiveHubProfiles()).find((candidate) => candidate.id === profileId);
+    if (!hubProfile) {
+      return undefined;
+    }
+    const state = await this.hubManager.getActiveProfile(hubProfile.hubId);
+    return state?.profileId === profileId ? state.syncedBundles : (hubProfile.bundles ?? []).map((bundle) => bundle.id);
+  }
+
+  /**
    * Installs profile deactivation looks through for a profile's bundles: the
    * RegistryStorage installs, plus, on the shared user record (which has no
-   * profile key, BR16.x), the host tool's user record items of the local
-   * profile's bundle ids, attributed to that profile.
+   * profile key, BR16.x), the host tool's user record items of the profile's
+   * bundle ids, attributed to that profile. The bundle ids are the hub
+   * profile's when given, else the local profile's.
    * @param profileId - Profile being deactivated.
+   * @param hubBundleIds - Bundle ids of the hub profile, read before its deactivation.
    */
-  private async listProfileInstalls(profileId: string): Promise<InstalledBundle[]> {
+  private async listProfileInstalls(profileId: string, hubBundleIds?: string[]): Promise<InstalledBundle[]> {
     const stored = await this.storage.getInstalledBundles();
-    const profile = (await this.storage.getProfiles()).find((candidate) => candidate.id === profileId);
-    if (!profile?.bundles?.length || !this.recordAdapter.usesSharedUserRecord()) {
+    const bundleIds = hubBundleIds
+      ?? (await this.storage.getProfiles()).find((candidate) => candidate.id === profileId)?.bundles?.map((bundle) => bundle.id)
+      ?? [];
+    if (bundleIds.length === 0 || !this.recordAdapter.usesSharedUserRecord()) {
       return stored;
     }
-    const profileBundleIds = new Set(profile.bundles.map((bundle) => bundle.id));
+    const profileBundleIds = new Set(bundleIds);
     const attributed = new Set(stored.filter((bundle) => bundle.profileId === profileId).map((bundle) => bundle.bundleId));
     const { items, hostBundleIds } = await this.listUserRecordBundles();
     const owned = items.filter((item) => hostBundleIds.has(item.bundleId) && profileBundleIds.has(item.bundleId) && !attributed.has(item.bundleId));
@@ -2124,11 +2146,13 @@ export class RegistryManager {
    * @param profileId
    */
   public async deactivateProfile(profileId: string): Promise<void> {
+    // The hub deactivation below deletes the activation state before the installs are listed.
+    const hubBundleIds = await this.getHubProfileBundleIds(profileId);
     await deactivateRegistryProfile(
       {
         getProfiles: () => this.storage.getProfiles(),
         updateProfile: (id, updates) => this.storage.updateProfile(id, updates),
-        getInstalledBundles: () => this.listProfileInstalls(profileId),
+        getInstalledBundles: () => this.listProfileInstalls(profileId, hubBundleIds),
         uninstallBundles: (bundleIds) => this.uninstallBundles(bundleIds),
         hub: this.hubManager && {
           listActiveHubProfiles: () => this.hubManager!.listActiveHubProfiles(),

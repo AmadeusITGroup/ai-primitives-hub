@@ -28,11 +28,17 @@ import {
   ExtensionRecordAdapter,
 } from '../../src/services/extension-record-adapter';
 import {
+  HubManager,
+} from '../../src/services/hub-manager';
+import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
   ScopeConflictResolver,
 } from '../../src/services/scope-conflict-resolver';
+import {
+  HubStorage,
+} from '../../src/storage/hub-storage';
 import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
@@ -716,6 +722,32 @@ suite('user record (U4)', function () {
 
     assert.deepStrictEqual(ids.filter((id) => readUserRecord()?.bundles[id] !== undefined), [], 'both are gone from the user record');
     assert.deepStrictEqual(files.filter((file) => fs.existsSync(file)), [], 'their files are removed');
+  });
+
+  test('a hub profile activated at user scope is recorded in the user record; activating another hub profile uninstalls its bundle and files', async () => {
+    const hubStorage = new HubStorage(path.join(tempRoot, 'hubs'));
+    const hubManager = new HubManager(hubStorage, {} as any, process.cwd(), undefined, manager);
+    manager.setHubManager(hubManager);
+    const hubProfile = (id: string, bundleIds: string[]) => ({
+      id, name: id, description: '', icon: '', active: false, createdAt: '', updatedAt: '',
+      bundles: bundleIds.map((bundleId) => ({ id: bundleId, version: '1.0.0', source: localSource.id, required: true }))
+    });
+    await hubStorage.saveHub('acme-hub', {
+      version: '1.0.0', metadata: { name: 'Acme hub', description: '', maintainer: 'test', updatedAt: '' }, sources: [],
+      profiles: [hubProfile('hub-team', [BUNDLE_ID]), hubProfile('hub-empty', [])]
+    }, { type: 'local', location: path.join(tempRoot, 'hub') });
+    await hubStorage.setActiveHubId('acme-hub');
+
+    await hubManager.activateProfile('acme-hub', 'hub-team', { installBundles: true });
+
+    assert.deepStrictEqual(await storage.getInstalledBundles('user'), []);
+    assert.deepStrictEqual(Object.keys(readUserRecord()?.bundles[BUNDLE_ID]?.tools ?? {}), ['vscode']);
+    assert.ok(fs.existsSync(userPath(USER_HELLO)), 'the bundle is installed');
+
+    await hubManager.activateProfile('acme-hub', 'hub-empty', { installBundles: true });
+
+    assert.strictEqual(readUserRecord()?.bundles[BUNDLE_ID], undefined, 'the bundle is gone from the user record');
+    assert.ok(!fs.existsSync(userPath(USER_HELLO)) && !fs.existsSync(userPath(USER_STYLE)), 'its files are removed');
   });
 
   test('a user-scope install from a local-skills source records the skill folder files in the user record; uninstall removes them', async () => {
