@@ -30,6 +30,7 @@ import type {
 import {
   buildZip,
   NodeFileSystem,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -109,6 +110,16 @@ prompts:
 `,
   'prompts/x.md': '# X v2\n',
   'prompts/keep.prompt.md': '# Keep v2\n'
+};
+
+/** Version 1.0.0 of the prompt bundle: no items listed, every file path-routed. */
+const PROMPT_BUNDLE_V1_FILES: Record<string, string> = {
+  'deployment-manifest.yml': `id: sample-prompts
+version: 1.0.0
+name: Sample Prompts
+`,
+  'prompts/x.md': '# X v1\n',
+  'prompts/keep.prompt.md': '# Keep v1\n'
 };
 
 /** Kiro base-relative paths every install of the bundle must produce. */
@@ -238,15 +249,16 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     expect(installed.exitCode, installed.stdout).toBe(0);
     expect(await listFiles(kiroDir)).toEqual(KIRO_PATHS.toSorted());
     expect(await readFile(path.join(kiroDir, 'skills', 'sample-skill', 'references', 'notes.md'), 'utf8')).toBe('# Notes\n');
-    const entry = (await readUserLock()).bundles['sample-skills'];
-    // Lockfile paths stay bundle-relative; the install location is recorded beside them.
-    expect(entry.files.map((f) => [f.path, f.installedPath]).toSorted()).toEqual([
-      ['.github/copilot-instructions.md', 'steering/copilot-instructions.instructions.md'],
-      ['.github/instructions/sample-rules.instructions.md', 'steering/sample-rules.instructions.md'],
-      ['.github/skills/sample-skill/SKILL.md', 'skills/sample-skill/SKILL.md'],
-      ['.github/skills/sample-skill/references/notes.md', 'skills/sample-skill/references/notes.md']
-    ]);
-    expect(entry.files.every((f) => /^[a-f0-9]{64}$/.test(f.checksum))).toBe(true);
+    // User scope records in the user record: one entry per tool, each file at
+    // its install location relative to home.
+    const recordPath = (JSON.parse(installed.stdout) as JsonEnvelope<{ lockfile: string }>).data.lockfile;
+    expect(recordPath).toBe(new XdgAppStorage(env()).getPaths().userRecord);
+    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
+      bundles: Record<string, { tools: Record<string, { files: { path: string; checksum: string }[] }> }>;
+    };
+    const entry = record.bundles['sample-skills'].tools.kiro;
+    expect(entry.files.map((f) => f.path).toSorted()).toEqual(KIRO_PATHS.map((p) => `.kiro/${p}`).toSorted());
+    expect(entry.files.every((f) => /^sha256:[a-f0-9]{64}$/.test(f.checksum))).toBe(true);
 
     const removed = await run(['uninstall', '--bundle', 'sample-skills', '--target', 'kiro-ide', '-o', 'json']);
 
@@ -290,7 +302,14 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
   });
 
   it('re-install removes a path-routed file the new version places under a new name', async () => {
-    await seedPathRoutedPrompts();
+    // Version 1.0.0 lists no items, so both prompts are placed by path.
+    const v1Dir = path.join(workspace, 'prompt-bundle-v1');
+    for (const [filePath, content] of Object.entries(PROMPT_BUNDLE_V1_FILES)) {
+      await mkdir(path.dirname(path.join(v1Dir, filePath)), { recursive: true });
+      await writeFile(path.join(v1Dir, filePath), content);
+    }
+    expect((await run(['install', '--from', v1Dir, '--target', 'kiro-ide', '-o', 'json'])).exitCode).toBe(0);
+    expect(await listFiles(kiroDir)).toEqual(['steering/keep.prompt.md', 'steering/x.md']);
     const promptsDir = path.join(workspace, 'prompt-bundle');
     for (const [filePath, content] of Object.entries(PROMPT_BUNDLE_FILES)) {
       await mkdir(path.dirname(path.join(promptsDir, filePath)), { recursive: true });

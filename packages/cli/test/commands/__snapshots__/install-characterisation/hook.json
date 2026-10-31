@@ -74,10 +74,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".claude/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -115,10 +116,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -156,10 +158,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -239,10 +242,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".cursor/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -328,10 +332,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -417,10 +422,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -502,10 +508,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".kiro/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -627,10 +634,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".opencode/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -705,10 +713,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -820,10 +829,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -902,10 +912,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".codeium/windsurf/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -989,10 +1000,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".claude/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1030,10 +1042,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1071,10 +1084,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1154,10 +1168,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".cursor/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1243,10 +1258,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1332,10 +1348,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1417,10 +1434,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".kiro/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1542,10 +1560,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".opencode/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1620,10 +1639,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1735,10 +1755,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1817,10 +1838,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "hooks/x.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".codeium/windsurf/hooks/x.json"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },

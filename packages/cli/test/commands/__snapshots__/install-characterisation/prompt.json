@@ -74,11 +74,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "commands/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".claude/commands/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -116,11 +116,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "prompts/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".copilot/prompts/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -158,11 +158,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "prompts/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".copilot/prompts/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -242,11 +242,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "rules/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".cursor/rules/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -332,11 +332,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/rules/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/rules/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -422,11 +422,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/rules/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/rules/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -508,11 +508,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "steering/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/steering/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -590,11 +590,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "steering/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/steering/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -676,11 +676,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "commands/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".opencode/commands/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -755,11 +755,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "prompts/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".copilot/prompts/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -871,11 +871,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "prompts/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".copilot/prompts/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -954,11 +954,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "rules/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".codeium/windsurf/rules/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1042,11 +1042,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "commands/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".claude/commands/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1084,11 +1084,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "prompts/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".copilot/prompts/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1126,11 +1126,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "prompts/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".copilot/prompts/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1210,11 +1210,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "rules/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".cursor/rules/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1300,11 +1300,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/rules/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/rules/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1390,11 +1390,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/rules/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/rules/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1476,11 +1476,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "steering/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/steering/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1558,11 +1558,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "steering/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/steering/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1644,11 +1644,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "commands/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".opencode/commands/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1723,11 +1723,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "prompts/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".copilot/prompts/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1839,11 +1839,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "prompts/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".copilot/prompts/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1922,11 +1922,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "rules/x.prompt.md",
-            "path": "prompts/x.prompt.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".codeium/windsurf/rules/x.prompt.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
