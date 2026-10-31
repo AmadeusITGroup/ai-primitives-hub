@@ -139,8 +139,8 @@ interface PreparedUserInstall {
   previousBundleId?: string;
   /** Home-relative paths of that entry that were modified or missing before the write. */
   modified: ReadonlySet<string>;
-  /** Whether RegistryStorage held a user installation of the bundle before the write. */
-  hadProfileEntry: boolean;
+  /** Ids whose RegistryStorage user installation the install replaces: the bundle's, and the previous id's on an update. */
+  profileEntryIds: string[];
 }
 
 /**
@@ -323,12 +323,18 @@ export class BundleInstaller {
     try {
       const location = await this.records.prepareUserInstall(this.copilotSync.userFolders());
       const located = await this.records.findUserHostEntry(previousBundleId ?? bundle.id);
+      const profileEntryIds: string[] = [];
+      for (const id of new Set([bundle.id, previousBundleId ?? bundle.id])) {
+        if ((await this.storage.getInstalledBundle(id, 'user')) !== undefined) {
+          profileEntryIds.push(id);
+        }
+      }
       return {
         location,
         source,
         previousBundleId: located === undefined ? undefined : (previousBundleId ?? bundle.id),
         modified: new Set(located === undefined ? [] : await findModifiedFiles(this.records.fs, location.root, located.entry.files)),
-        hadProfileEntry: (await this.storage.getInstalledBundle(bundle.id, 'user')) !== undefined
+        profileEntryIds
       };
     } catch (error) {
       this.rethrowRecordError(error);
@@ -337,44 +343,48 @@ export class BundleInstaller {
 
   /**
    * Record the host tool's user entry, delete superseded files except modified
-   * ones, then retire the profile installation it replaces, if any.
+   * ones, then retire the profile installations it replaces, if any. Runs in
+   * the user record's queue.
    * @param bundle - Installed bundle.
    * @param prepared - Result of {@link prepareUserInstall}.
    * @param written - Absolute paths the writer wrote.
    */
   private async recordUserInstall(bundle: Bundle, prepared: PreparedUserInstall, written: readonly string[]): Promise<void> {
     const root = prepared.location.root;
-    const changes: RecordInstallResult[] = [];
-    try {
-      changes.push(await this.records.service.recordInstall({
-        location: prepared.location,
-        bundleId: bundle.id,
-        version: bundle.version,
-        tool: this.records.hostTool,
-        source: prepared.source,
-        sourceType: prepared.source.type,
-        writtenPaths: written,
-        workspaceRoot: this.records.home
-      }));
-      if (prepared.previousBundleId !== undefined && prepared.previousBundleId !== bundle.id) {
-        // The new version has another bundle id: the old id's host entry goes.
-        changes.push(await this.records.service.recordUninstall({ location: prepared.location, bundleId: prepared.previousBundleId, tool: this.records.hostTool }));
+    const { changes, removal } = await this.records.serialize(prepared.location.path, async () => {
+      const recorded: RecordInstallResult[] = [];
+      try {
+        recorded.push(await this.records.service.recordInstall({
+          location: prepared.location,
+          bundleId: bundle.id,
+          version: bundle.version,
+          tool: this.records.hostTool,
+          source: prepared.source,
+          sourceType: prepared.source.type,
+          writtenPaths: written,
+          workspaceRoot: this.records.home
+        }));
+        if (prepared.previousBundleId !== undefined && prepared.previousBundleId !== bundle.id) {
+          // The new version has another bundle id: the old id's host entry goes.
+          recorded.push(await this.records.service.recordUninstall({ location: prepared.location, bundleId: prepared.previousBundleId, tool: this.records.hostTool }));
+        }
+      } catch (error) {
+        this.rethrowRecordError(error, written, root);
       }
-    } catch (error) {
-      this.rethrowRecordError(error, written, root);
-    }
-    const removal = await this.records.service.deleteSupersededAfterAll(changes.map((change) => ({
-      location: change.location,
-      deletedFiles: change.deletedFiles.filter((file) => !prepared.modified.has(file))
-    }))).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+      const deleted = await this.records.service.deleteSupersededAfterAll(recorded.map((change) => ({
+        location: change.location,
+        deletedFiles: change.deletedFiles.filter((file) => !prepared.modified.has(file))
+      }))).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+      return { changes: recorded, removal: deleted };
+    });
     for (const warning of [...changes.flatMap((change) => change.warnings), ...removal.warnings]) {
       this.logger.warn(`[BundleInstaller] ${warning}`);
     }
     if (prepared.previousBundleId !== undefined && prepared.previousBundleId !== bundle.id) {
       await this.removeBundleCache(prepared.previousBundleId);
     }
-    if (prepared.hadProfileEntry) {
-      await this.retireProfileEntry(bundle.id, root);
+    for (const id of prepared.profileEntryIds) {
+      await this.retireProfileEntry(id, root);
     }
     this.logger.debug(`Recorded ${bundle.id} for ${this.records.hostTool} in ${prepared.location.path}`);
   }
@@ -434,18 +444,21 @@ export class BundleInstaller {
    */
   private async uninstallUserRecordEntry(bundleId: string, located: LocatedToolEntry): Promise<void> {
     const root = located.location.root;
-    let modified: Set<string>;
-    let change: RecordInstallResult;
-    try {
-      modified = new Set(await findModifiedFiles(this.records.fs, root, located.entry.files));
-      change = await this.records.service.recordUninstall({ location: located.location, bundleId, tool: this.records.hostTool });
-    } catch (error) {
-      this.rethrowRecordError(error, [], root);
-    }
-    const removal = await this.records.service.deleteSuperseded({
-      location: change.location,
-      deletedFiles: change.deletedFiles.filter((file) => !modified.has(file))
-    }).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+    const { modified, change, removal } = await this.records.serialize(located.location.path, async () => {
+      let modifiedFiles: Set<string>;
+      let uninstalled: RecordInstallResult;
+      try {
+        modifiedFiles = new Set(await findModifiedFiles(this.records.fs, root, located.entry.files));
+        uninstalled = await this.records.service.recordUninstall({ location: located.location, bundleId, tool: this.records.hostTool });
+      } catch (error) {
+        this.rethrowRecordError(error, [], root);
+      }
+      const deleted = await this.records.service.deleteSuperseded({
+        location: uninstalled.location,
+        deletedFiles: uninstalled.deletedFiles.filter((file) => !modifiedFiles.has(file))
+      }).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+      return { modified: modifiedFiles, change: uninstalled, removal: deleted };
+    });
     for (const warning of [...change.warnings, ...removal.warnings]) {
       this.logger.warn(`[BundleInstaller] ${warning}`);
     }

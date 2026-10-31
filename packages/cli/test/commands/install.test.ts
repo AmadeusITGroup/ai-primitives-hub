@@ -1277,6 +1277,24 @@ agents:
         expect(await readFile(userRecordPath(), 'utf8')).toBe(seedRecord);
       }
     });
+
+    it('writes a default user-scope target under USERPROFILE when HOME is empty and records home-relative paths', async () => {
+      userEnv = {
+        ...userEnv,
+        HOME: '',
+        XDG_DATA_HOME: path.join(workspace, 'user-xdg-data'),
+        XDG_STATE_HOME: path.join(workspace, 'user-xdg-state')
+      };
+      // No --path: the copilot-cli layout's `${HOME}/.copilot` is expanded by the writer.
+      expect((await runUser(['target', 'add', 'user-copilot', '--type', 'copilot-cli', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runUser(['install', 'local-foo', '--from', bundleDir, '--target', 'user-copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      await expect(readFile(path.join(userEnv.USERPROFILE, '.copilot', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      const record = JSON.parse(await readFile(userRecordPath(), 'utf8')) as InstallRecord;
+      expect(record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toContain('.copilot/prompts/hello.prompt.md');
+    });
   });
 
   describe('replay of the repository install record (format 3.0.0)', () => {

@@ -21,6 +21,7 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  RecordStore,
   resolveUserHome,
 } from '@ai-primitives-hub/app';
 import {
@@ -29,7 +30,9 @@ import {
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
+  NodeRecordFs,
   readZipEntryModes,
+  RecordSchemaValidator,
   XdgAppStorage,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
@@ -137,6 +140,7 @@ import {
 } from '../commands/version-compute';
 import {
   type CapturedOutputStream,
+  CLI_RECORD_GENERATED_BY,
   type CommandClass,
   type Context,
   type FsAbstraction,
@@ -1280,14 +1284,15 @@ export const runDiagnostics = async (
         present: await fileExists(fsAbstraction, path.join(fixtures.targetDir, relativePath))
       })));
       // User-scope installs are in the shared user record: per-tool entries, home-relative paths.
+      // Loaded through the shared store, so a bad record fails this step with its RECORD.* message (BR17.1).
       const diagnosticEnv = buildDiagnosticEnv(opts.ctx, workspace);
+      const userHome = resolveUserHome(diagnosticEnv);
       const lockfilePath = new XdgAppStorage(diagnosticEnv).getPaths().userRecord;
-      const lockfile = await fsAbstraction.readJson<{
-        bundles?: Record<string, { tools?: Record<string, { files?: { path: string }[] }> }>;
-      }>(lockfilePath);
-      const lockEntry = lockfile.bundles?.[fixtures.governedBundleId]?.tools?.['copilot-cli'];
-      const targetPrefix = path.relative(resolveUserHome(diagnosticEnv), fixtures.targetDir).split(path.sep).join('/') + '/';
-      const lockfilePaths = lockEntry?.files?.map((file) => file.path.startsWith(targetPrefix) ? file.path.slice(targetPrefix.length) : file.path).toSorted() ?? [];
+      const store = new RecordStore({ fs: new NodeRecordFs(), validator: new RecordSchemaValidator(), generatedBy: CLI_RECORD_GENERATED_BY });
+      const { record } = await store.load(store.resolveUser({ home: userHome, path: lockfilePath }));
+      const lockEntry = record.bundles[fixtures.governedBundleId]?.tools['copilot-cli'];
+      const targetPrefix = path.relative(userHome, fixtures.targetDir).split(path.sep).join('/') + '/';
+      const lockfilePaths = lockEntry?.files.map((file) => file.path.startsWith(targetPrefix) ? file.path.slice(targetPrefix.length) : file.path).toSorted() ?? [];
       if (targetInstallable.some((file) => !file.present)) {
         throw new Error('governed install did not write every installable primitive');
       }

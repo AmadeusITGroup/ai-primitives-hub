@@ -157,6 +157,8 @@ export class ExtensionRecordAdapter {
   public readonly home: string;
   private readonly userRecordPath: string | undefined;
   private loggedWslUserRecord = false;
+  /** Tail of the job chain of each record file, by resolved path; see {@link serialize}. */
+  private readonly recordQueues = new Map<string, Promise<unknown>>();
 
   public constructor(options: ExtensionRecordAdapterOptions) {
     const services = createInstallRecordServices({ generatedBy: getExtensionRecordGeneratedBy(), fs: options.fs });
@@ -180,6 +182,26 @@ export class ExtensionRecordAdapter {
     await (Object.keys(lock.bundles).length === 0
       ? deleteLockfile(file, this.lockfileFs)
       : writeLockfile(file, lock, this.lockfileFs));
+  }
+
+  /**
+   * Run a record mutation after every earlier one queued for the same file;
+   * concurrent load-change-save cycles of one file would lose entries.
+   * @param recordPath - Record file the job changes.
+   * @param work - The mutation.
+   */
+  public serialize<T>(recordPath: string, work: () => Promise<T>): Promise<T> {
+    const key = path.resolve(recordPath);
+    const previous = this.recordQueues.get(key) ?? Promise.resolve();
+    const run = previous.then(work);
+    const tail = run.then(() => undefined, () => undefined);
+    this.recordQueues.set(key, tail);
+    void tail.then(() => {
+      if (this.recordQueues.get(key) === tail) {
+        this.recordQueues.delete(key);
+      }
+    });
+    return run;
   }
 
   /**
