@@ -1,7 +1,5 @@
 # Repository-Level Installation
 
-> **Unreleased change.** When the install-record stack ships, repository installs are recorded in `ai-primitives-hub.lock.json` (committed) and `ai-primitives-hub.local.lock.json` (local only), one entry per bundle and tool, shared by the CLI and the extension. Before the first install (a bare `install` too), update or uninstall in a repository, older `prompt-registry` files at the git root are moved into the new record and deleted, and their bundles are listed as needing a reinstall; commit the new files and the deletion together. See [Repository install record](../reference/commands.md#repository-install-record) and [Migrating older records](../reference/commands.md#migrating-older-records). User-profile installs are recorded once per machine in `~/.config/ai-primitives-hub/ai-primitives-hub.user.lock.json`; see [User install record](../reference/commands.md#user-install-record). Until then, this page describes `prompt-registry.lock.json`.
-
 Repository-level installation allows teams to share Copilot configurations through Git. Bundles are installed in the repository's `.github/` directory structure, making them available to all team members who clone the repository.
 
 ## Installation Scopes
@@ -24,6 +22,8 @@ When installing a bundle, you can choose from three options:
 
 Repository options require an open workspace. If no workspace is open, only User Profile is available.
 
+The `ai-primitives-hub` CLI installs at repository scope too, into the same files (see [Repository install record](../reference/commands.md#repository-install-record)).
+
 ## Commit vs Local-Only Mode
 
 ### Commit Mode (Recommended)
@@ -42,7 +42,7 @@ your-repo/
 │   └── skills/
 │       └── my-skill/
 │           └── skill.md
-└── prompt-registry.lock.json
+└── ai-primitives-hub.lock.json
 ```
 
 **Benefits:**
@@ -52,98 +52,107 @@ your-repo/
 
 ### Local-Only Mode
 
-Files are placed in the same `.github/` directories but excluded from Git via `.git/info/exclude`. Additionally, local-only bundles are tracked in a separate lockfile:
+Files are placed in the same `.github/` directories but excluded from Git via `.git/info/exclude`. Local-only bundles are recorded in a separate file:
 
 ```
 your-repo/
 ├── .github/
 │   ├── prompts/
-│   │   └── my-prompt.prompt.md       # Excluded from Git
+│   │   └── my-prompt.prompt.md         # Excluded from Git
 │   └── agents/
-│       └── my-agent.agent.md         # Excluded from Git
-├── prompt-registry.local.lock.json   # Excluded from Git (auto-managed)
+│       └── my-agent.agent.md           # Excluded from Git
+├── ai-primitives-hub.local.lock.json   # Excluded from Git (auto-managed)
 └── .git/
     └── info/
-        └── exclude                   # Contains exclusion entries
+        └── exclude                     # Contains exclusion entries
 ```
 
 The `.git/info/exclude` file will contain:
 
 ```
-# AI Primitives Hub (local)
+# Prompt Registry (local)
 .github/prompts/my-prompt.prompt.md
 .github/agents/my-agent.agent.md
-prompt-registry.local.lock.json
+ai-primitives-hub.local.lock.json
 ```
 
 **Benefits:**
 - Personal customizations that don't affect the team
 - Experiment with bundles before committing
 - Override team configurations locally
-- Installing local-only bundles never modifies the shared `prompt-registry.lock.json`
+- Installing local-only bundles never modifies the shared `ai-primitives-hub.lock.json`
 
-## The Lockfile
+## The Install Record
 
-When bundles are installed at repository scope, lockfiles are created at the repository root to track installations:
+Installs are recorded in install record files, shared by the VS Code extension and the CLI. At repository scope they sit at the git root:
 
-| Lockfile | Purpose | Git Tracking |
-|----------|---------|--------------|
-| `prompt-registry.lock.json` | Committed bundles | Tracked in Git |
-| `prompt-registry.local.lock.json` | Local-only bundles | Excluded from Git |
+| File | Purpose | Git Tracking |
+|------|---------|--------------|
+| `ai-primitives-hub.lock.json` | Committed bundles | Tracked in Git |
+| `ai-primitives-hub.local.lock.json` | Local-only bundles | Excluded from Git |
 
-These files:
+The local-only file is added to `.git/info/exclude` when it is created, so your personal installs are never committed. A record file is deleted when its last bundle is removed.
 
-- Track installed bundles and their versions
-- Record source information for reproducibility
-- Store file checksums for modification detection
-- Enable tools like Renovate to propose version updates (main lockfile only)
+The records:
 
-### Dual-Lockfile Architecture
+- Track installed bundles, their versions and the tool each was installed for
+- Record source information for reproducibility (never credentials)
+- Store a checksum of each installed file, used to detect local edits before an update
 
-Bundles are automatically stored in the appropriate lockfile based on their commit mode:
+### Format 3.0.0
 
-- **Commit mode** bundles go in `prompt-registry.lock.json` (shared with team)
-- **Local-only** bundles go in `prompt-registry.local.lock.json` (personal, never committed)
-
-The local lockfile is automatically added to `.git/info/exclude` when created, ensuring your personal bundle installations never accidentally get committed.
-
-### Lockfile Structure
+Each bundle has one entry per tool (`vscode`, `vscode-insiders`, `kiro`, `windsurf`, …). Installing a bundle for a second tool, from the extension running in another editor or from the CLI, adds that tool's entry and keeps the first one. File paths are relative to the git root.
 
 ```json
 {
-  "$schema": "https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json",
-  "version": "1.0.0",
-  "generatedAt": "2026-01-14T10:30:00.000Z",
-  "generatedBy": "prompt-registry@1.0.0",
+  "$schema": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json",
   "bundles": {
     "my-bundle": {
-      "version": "1.2.0",
-      "sourceId": "my-source",
-      "sourceType": "github",
-      "installedAt": "2026-01-14T10:30:00.000Z",
-      "files": [
-        {
-          "path": ".github/prompts/my-prompt.prompt.md",
-          "checksum": "abc123..."
+      "tools": {
+        "kiro": {
+          "files": [
+            { "checksum": "sha256:<64 hex digits>", "path": ".kiro/skills/my-skill/SKILL.md" }
+          ],
+          "installedAt": "2026-01-14T10:35:00.000Z",
+          "sourceId": "my-source",
+          "sourceType": "github",
+          "version": "1.2.0"
+        },
+        "vscode": {
+          "files": [
+            { "checksum": "sha256:<64 hex digits>", "path": ".github/skills/my-skill/SKILL.md" }
+          ],
+          "installedAt": "2026-01-14T10:30:00.000Z",
+          "sourceId": "my-source",
+          "sourceType": "github",
+          "version": "1.2.0"
         }
-      ]
+      }
     }
   },
+  "generatedAt": "2026-01-14T10:35:00.000Z",
+  "generatedBy": "ai-primitives-hub-cli@0.3.0",
+  "level": "repository",
   "sources": {
-    "my-source": {
-      "type": "github",
-      "url": "https://github.com/org/repo"
-    }
-  }
+    "my-source": { "type": "github", "url": "https://github.com/org/repo" }
+  },
+  "version": "3.0.0"
 }
 ```
 
-**Commit the main lockfile** (`prompt-registry.lock.json`) to version control so team members can:
-- See which bundles are installed
-- Get prompted to enable repository bundles when opening the project
-- Receive automated update PRs via Renovate
+The extension changes only the entries of the editor it runs in. Entries of other tools are shown as read-only, with the CLI command to change them.
 
-The local lockfile (`prompt-registry.local.lock.json`) is automatically excluded from Git and should not be committed.
+**Commit `ai-primitives-hub.lock.json`** to version control so team members can see which bundles are installed and which sources they come from. Do not commit `ai-primitives-hub.local.lock.json`.
+
+### User-level installs
+
+User Profile installs are recorded once per machine in `ai-primitives-hub.user.lock.json` in `~/.config/ai-primitives-hub/` (`$XDG_CONFIG_HOME/ai-primitives-hub/` when set), shared by the CLI and every VS Code profile. It uses the same format, with paths relative to your home folder. See [User install record](../reference/commands.md#user-install-record).
+
+### Older `prompt-registry` files
+
+Releases before 0.3.0 used `prompt-registry.lock.json` and `prompt-registry.local.lock.json`. They keep working: before the first install, update or uninstall in the repository, the extension or the CLI moves them into the new files at the git root and deletes them. Commit the new file and the deletion together.
+
+The older files do not say which tool a bundle was installed for, so migrated bundles are listed as needing a reinstall (tool `unknown`). Install or update them again to record them for your tool; their files are kept. See [Migrating older records](../reference/commands.md#migrating-older-records) and, for older releases and rollback, [Upgrading to 0.3.0: install records](../migration-guide.md#upgrading-to-030-install-records).
 
 ## Moving Bundles Between Scopes
 
@@ -160,7 +169,7 @@ Right-click an installed bundle in the Registry Explorer to access scope managem
 - **Switch to Local Only** — Keep in repository but exclude from Git
 - **Switch to Commit** — Keep in repository and track in Git
 
-Moving a bundle preserves its files and version. The extension handles uninstalling from the old scope and reinstalling at the new scope.
+Moving a bundle preserves its files and version. The extension handles uninstalling from the old scope and reinstalling at the new scope. Bundles listed as needing a reinstall cannot be moved or switched until they are reinstalled.
 
 ## Team Workflow
 
@@ -168,19 +177,14 @@ Moving a bundle preserves its files and version. The extension handles uninstall
 
 1. Open your repository in VS Code
 2. Install bundles using **Repository - Commit to Git**
-3. Commit the `.github/` files and `prompt-registry.lock.json`
+3. Commit the `.github/` files and `ai-primitives-hub.lock.json`
 4. Push to share with your team
 
 ### Joining a Repository with Bundles
 
-When you open a repository with a lockfile for the first time:
+When you open a repository whose install record names sources or hubs you have not configured, a notification says how many are missing and names any credentials they need. Add them (for example with **Add Source** or by importing the hub) before installing the recorded bundles.
 
-1. A notification appears asking if you want to enable repository bundles
-2. Click **Enable** to:
-   - Verify all bundles are installed
-   - Download any missing bundles
-   - Sync bundles to Copilot
-3. Click **Don't ask again** to skip for this repository
+To restore the recorded bundles from the command line, run a bare `ai-primitives-hub install` in the repository: it reinstalls every recorded tool that has a configured target, at its recorded version (see [Repository install record](../reference/commands.md#repository-install-record)).
 
 ### Updating Repository Bundles
 
@@ -189,7 +193,7 @@ Updates work the same as user-level bundles:
 1. Check for updates via the Registry Explorer
 2. Review available updates
 3. Update individual bundles or all at once
-4. Commit the updated files and lockfile
+4. Commit the updated files and `ai-primitives-hub.lock.json`
 
 If you've modified bundle files locally, you'll see a warning before updating with options to:
 - **Contribute Changes** — Open the bundle's repository to submit your changes
@@ -208,37 +212,21 @@ If you've modified bundle files locally, you'll see a warning before updating wi
 
 ## Troubleshooting
 
-### Migrating from Legacy Lockfiles
-
-If you have an existing `prompt-registry.lock.json` with a `commitMode` field in bundle entries, no action is required. The extension handles this automatically:
-
-- **On read**: The `commitMode` field is ignored—bundles in `prompt-registry.lock.json` are treated as committed, bundles in `prompt-registry.local.lock.json` are treated as local-only
-- **On write**: New entries are written without the `commitMode` field
-- **Gradual migration**: Existing entries retain the `commitMode` field until they are modified (updated, mode switched, etc.)
-
-If you have local-only bundles in your main lockfile (with `"commitMode": "local-only"`), you can migrate them to the new local lockfile by:
-
-1. Right-click the bundle in Registry Explorer
-2. Select **Switch to Commit** (this updates the entry)
-3. Select **Switch to Local Only** (this moves it to the local lockfile)
-
-Or simply update the bundle—the new entry will be written to the correct lockfile based on its mode.
-
 ### Repository options are disabled
 
 Repository scope requires an open workspace. Open a folder or workspace first.
 
-### Lockfile conflicts
+### Install record conflicts
 
-If multiple team members install bundles simultaneously, merge the lockfile changes like any other file. The extension will reconcile the state on next sync.
+If multiple team members install bundles simultaneously, merge `ai-primitives-hub.lock.json` like any other file. A record that cannot be read after the merge stops the next change with a `RECORD.*` error naming the file, and nothing is written; fix the file and try again.
 
-### Missing bundles after clone
+### Bundles listed as needing a reinstall
 
-When you clone a repository with a lockfile, the extension prompts you to install missing bundles. If you dismissed the prompt, you can manually install bundles from the lockfile.
+These came from an older `prompt-registry` file. Install or update the bundle to record it for your tool, or uninstall it to drop the entry (its files are kept).
 
-### Stale lockfile entries
+### Stale record entries
 
-If you manually delete bundle files but the lockfile still references them, the extension shows a warning indicator on those bundles. Use the "Clean Up Stale Repository Bundles" command (from the Command Palette) to remove these stale entries from the lockfile.
+If you manually delete bundle files but the record still lists them, the extension shows a warning indicator on those bundles. Use the "Clean Up Stale Repository Bundles" command (from the Command Palette) to remove these entries from the record.
 
 ### Local modifications warning
 
@@ -250,3 +238,4 @@ If you see warnings about local modifications when updating, your local files di
 - [Marketplace](./marketplace.md) — Browse and install bundles
 - [Configuration](./configuration.md) — Extension settings
 - [Command Reference](../reference/commands.md) — All available commands
+- [Migration Guide](../migration-guide.md#upgrading-to-030-install-records) — Upgrading to 0.3.0
