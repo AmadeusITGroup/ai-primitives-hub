@@ -90,9 +90,9 @@ At repository scope, `install` writes a format `3.0.0` install record at the git
 - `ai-primitives-hub.lock.json` (commit mode) or `ai-primitives-hub.local.lock.json` (local-only, added to `.git/info/exclude`).
 - Each bundle has one entry per tool, so installing it for `vscode` and `kiro` keeps both. `-o json` reports the file in `data.lockfile`.
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
-- `prompt-registry.lock.json` is left as it is. User-scope installs use the [user install record](#user-install-record).
+- An older `prompt-registry.lock.json` or `prompt-registry.local.lock.json` at the git root is migrated into the new record before the first change; see [Migrating older records](#migrating-older-records). User-scope installs use the [user install record](#user-install-record).
 
-`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`.
+`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. A bundle only an older `prompt-registry.lock.json` lists is migrated first, then uninstalled from the new record.
 
 Commands that use the record end their text output with `Record: <level> <path>`; their `-o json` data adds `level` and `records`.
 
@@ -107,8 +107,8 @@ The VS Code extension uses the same record, under the tool of the editor it runs
 - It installs, updates, uninstalls, moves and switches the commit mode of its own tool's entries only. Other tools' entries are listed read-only; changing one shows `RECORD.CLI_MANAGED` with the CLI command to use.
 - An update keeps files you edited and moves tools that share the same files (for example `vscode`, `vscode-insiders` and `copilot-cli` in `.github/`) to the new version.
 - Installing, updating or downgrading a bundle, or switching its commit mode, leaves its tool one version, also for a bundle id that ends with its version. Files only the old version wrote are deleted unless you edited them. The repository view lists one item per bundle, from the tool that installed it last.
-- Rewriting a bundle that an old `prompt-registry.lock.json` also lists, at any version, removes that old entry.
-- "Clean Up Stale Repository Bundles" lists one row per bundle and tool, offers only entries whose files are all missing, and removes the entries without deleting files.
+- Before its first change to a repository record, it migrates the older `prompt-registry` files at the git root, as the CLI does.
+- "Clean Up Stale Repository Bundles" migrates first, lists one row per bundle and tool, offers only entries whose files are all missing (never an `unknown` entry), and removes the entries without deleting files.
 
 ### User install record
 
@@ -119,13 +119,37 @@ User-scope installs are recorded in one file per machine, shared by the CLI and 
 - User-scope `install`, `uninstall`, `update` and `install --lockfile` use it, and so do `status` and a bare `install` outside a repository with a record. `-o json` names it in `data.lockfile`, and text output ends with `Record: user <path>`.
 - A bundle installed from one VS Code profile is installed for every profile.
 - A target folder outside your home folder, or a tool folder symlinked outside it, is refused with `RECORD.PATH_OUTSIDE_ROOT` before anything is written.
-- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is only read: bundles only it lists are still updated and uninstalled from it, and files it still lists are kept.
+- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is imported into the user record once, before the first user-scope change, and is never changed or deleted. Workspace-scope targets keep using it.
 - Uninstall keeps files you edited after the install, with a warning. An extension link into its bundle cache that still points at the installed content counts as unchanged.
 - As at repository scope, installing, updating or downgrading a bundle leaves each tool one version of it in this file, also for a bundle id that ends with its version; `update` records it under the new version's id. In the extension, the old version's bundle cache and an older per-profile install of the bundle are removed too, and the user view lists one item per bundle.
-- In the extension, older per-profile installs are still listed; the profile entry is removed when you reinstall, update or uninstall the bundle. Other tools' entries are read-only (`RECORD.CLI_MANAGED`).
+- In the extension, the current profile's older user-scope installs move into the user record before the first user-scope change. Other tools' entries are read-only (`RECORD.CLI_MANAGED`).
 - In a WSL remote window, and for `local-skills` skills linked to their source folder, the extension keeps recording per profile.
 - The CLI and the extension each read `XDG_CONFIG_HOME` from their own environment. A VS Code started from the Dock or Start menu does not see a value set only in your shell, so set it system-wide or not at all. The extension logs the path it uses.
 - Workspace-scope targets are unchanged.
+
+### Migrating older records
+
+> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it.
+
+Before the first command that changes a record, the CLI and the extension move the older records of that level into the new ones. Commands that only read (`status`, `doctor`, `update --dry-run`, `install --lockfile <older file>`, and the extension's listings and local-modification check) never migrate and leave the older files untouched.
+
+- **Repository level.** `prompt-registry.lock.json` and `prompt-registry.local.lock.json` at the git root are written as (or merged into) `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json`, then deleted. No backup is kept; the files are in git history. An entry the new record already has wins, and a bundle in both older files keeps the higher version. Older files outside the git root are ignored.
+- **User level.** The CLI's earlier user lockfile is imported once, marked by the user record's `importedUserLockfileAt` field, and stays as it is for workspace scope. The extension moves the current profile's user installs into the user record under its tool and removes them from the profile; linked `local-skills` installs stay, and in a WSL remote window nothing moves.
+- **The `unknown` tool.** Older entries do not say which tool they were for, so they are recorded under `unknown` and listed as needing a reinstall. Installing the bundle for a tool, or updating it in the extension, replaces that entry and keeps its files. Uninstalling a bundle whose only entry is `unknown` removes the entry and keeps its files. The extension refuses to move or switch the commit mode of such a bundle until it is reinstalled.
+- **Report.** CLI text output prints a `Migrated <level> record:` block before `Record:`, and `-o json` adds `data.migration`. The extension logs the report and shows one notification, with **Show details**.
+- **Errors.** An older file that cannot be read stops the command with `RECORD.MALFORMED` and nothing is written. If an older file cannot be deleted after the new record is saved, the command fails with `RECORD.WRITE_FAILED`; the next change deletes it.
+
+### Migrating older records
+
+> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it.
+
+The CLI and the extension move older install records into the new ones before the first command that changes a record, at the level it changes. Commands that only read (`status`, `doctor`, `update --dry-run`, `install --lockfile <older file>`, and the extension's listings and local-modification check) never migrate and leave the older files byte-identical.
+
+- **Repository level.** `prompt-registry.lock.json` and `prompt-registry.local.lock.json` at the git root are written as `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json` (or merged into them when they exist), then deleted. No backup is kept; the files are in git history. A bundle the new record already holds keeps its new entry. A bundle in both older files keeps the higher version. Older files anywhere other than the git root (for example in a workspace folder below it) are ignored.
+- **User level.** The CLI's earlier user lockfile is imported once; the user record's `importedUserLockfileAt` field marks the import, and the earlier file stays as it is for workspace scope. In the extension, the current profile's user installs move into the user record under the editor's tool, with the files the profile synced, and are removed from the profile. Linked `local-skills` installs stay in the profile. In a WSL remote window nothing moves.
+- **The `unknown` tool.** An older entry does not say which tool it was installed for, so it is recorded under the tool `unknown` and listed as needing a reinstall. Installing the bundle for a tool, or updating it in the extension, replaces the `unknown` entry and keeps the files it listed. Uninstalling a bundle whose only entry is `unknown` removes the entry and keeps its files, naming them. The extension refuses to move or switch the commit mode of such a bundle until it is reinstalled. Stale cleanup never offers `unknown` entries.
+- **Report.** CLI text output prints a `Migrated <level> record:` block before `Record:`, and `-o json` carries `data.migration` with `level`, `renamed`, `mergedFrom`, `needsReinstall`, `versionConflicts`, `droppedFiles` (unsafe or missing paths not kept), `droppedEntries` (entries the record already held), `warnings` and `migratedAt`. The extension writes the report to its output channel and shows one notification per migration, with **Show details**.
+- An older file that cannot be read stops the command with `RECORD.MALFORMED` naming it, and nothing is written. If an older file cannot be deleted after the new record is saved, the command fails with `RECORD.WRITE_FAILED`; the next change deletes it without adding its entries again.
 
 ## Plugin Create (CLI)
 
