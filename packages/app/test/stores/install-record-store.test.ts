@@ -45,6 +45,19 @@ class RecordingExclusion implements RepositoryExclusion {
   }
 }
 
+/** In-memory filesystem where writing one file fails. */
+class ReadOnlyFileSystem extends InMemoryFileSystem {
+  public constructor(private readonly readOnly: string) {
+    super();
+  }
+
+  public override async writeFile(file: string, contents: string): Promise<void> {
+    if (file === this.readOnly) {
+      throw new Error(`EACCES: read-only ${file}`);
+    }
+    await super.writeFile(file, contents);
+  }
+}
 const entry = (version: string, files: string[] = ['prompts/a.prompt.md']): LockfileBundleEntry => ({
   version,
   sourceId: 'local-src',
@@ -169,6 +182,19 @@ describe('createLockfileRecordStore (repository)', () => {
     await repositoryStore(fs, exclusion).put('a', entry('1.0.0'), source(), 'local-only');
 
     expect(exclusion.added).toEqual([[LOCAL_LOCK]]);
+  });
+
+  it('restores the lockfile it wrote when the key cannot be removed from the other one', async () => {
+    const fs = new ReadOnlyFileSystem(COMMIT_LOCK);
+    fs.seed(COMMIT_LOCK, lockfile({ a: entry('1.0.0'), keep: entry('1.0.0') }));
+    const exclusion = new RecordingExclusion();
+    const store = repositoryStore(fs, exclusion);
+
+    await expect(store.put('a', entry('2.0.0'), source(), 'local-only')).rejects.toThrow('read-only');
+
+    expect(await fs.exists(LOCAL_LOCK)).toBe(false);
+    expect(exclusion.removed).toEqual([[LOCAL_LOCK]]);
+    expect(await store.get('a')).toEqual({ entry: entry('1.0.0'), commitMode: 'commit' });
   });
 
   it('ignores exclusion errors around the local lockfile', async () => {

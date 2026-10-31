@@ -130,7 +130,8 @@ const withRecord = (lock: Lockfile, key: string, entry: LockfileBundleEntry, sou
  * adds it to the exclusion list (the list skips lines it already has)
  * and deleting it removes it there; errors of those two calls are
  * ignored (the use cases' own exclusion calls on the same list report
- * the problem).
+ * the problem). When `put` cannot remove the key from the other
+ * lockfile, it restores the file it wrote before rethrowing.
  * @param opts Repository store options.
  * @param opts.fs Filesystem.
  * @param opts.rootPath Repository root.
@@ -201,7 +202,13 @@ function repositoryStore(opts: { fs: FileSystem; rootPath: string; generatedBy: 
       const otherMode: RepositoryCommitMode = commitMode === 'commit' ? 'local-only' : 'commit';
       const other = await readLockfile(pathFor(otherMode), fs);
       if (has(other, key)) {
-        await save(otherMode, withoutKey(other, key));
+        try {
+          await save(otherMode, withoutKey(other, key));
+        } catch (err) {
+          // Undo the write so `key` stays where it was: a caller rolling back the install leaves no record behind.
+          await quietly(() => (existing === null ? save(commitMode, emptyLockfile(generatedBy)) : writeLockfile(file, existing, fs)));
+          throw err;
+        }
       }
     },
     remove: async (key) => {
