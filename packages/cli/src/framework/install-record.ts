@@ -75,6 +75,18 @@ import {
 /** Writer stamp for records written by the CLI. */
 export const CLI_RECORD_GENERATED_BY = `ai-primitives-hub-cli@${CLI_VERSION}`;
 
+/**
+ * The env a target writer expands `${HOME}` and `~` against. For a
+ * user-scope target `HOME` is the user level's home from `resolveUserHome`,
+ * so an empty `HOME` falls back the same way the pre-write folder check
+ * does (NFR4.17); repository and workspace scope get `env` unchanged.
+ * @param env - CLI environment (`ctx.env`).
+ * @param scope - Effective scope of the target.
+ * @returns The env to give the writer.
+ */
+export const writerEnv = (env: Record<string, string | undefined>, scope: InstallationScope): Record<string, string | undefined> =>
+  (scope === 'user' ? { ...env, HOME: resolveUserHome(env) } : env);
+
 /** A repository install whose record files were loaded and checked before writing. */
 export interface PreparedRepositoryRecord {
   /** The file the install is recorded in, from the commit mode. */

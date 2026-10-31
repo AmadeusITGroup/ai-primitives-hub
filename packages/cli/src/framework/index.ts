@@ -122,6 +122,7 @@ export {
   toCommandRecordError,
   toInstallRecordError,
   tokensForRecordSource,
+  writerEnv,
 } from './install-record';
 export type {
   CreateHubManagerOptions,
