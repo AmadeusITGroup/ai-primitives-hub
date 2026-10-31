@@ -243,7 +243,23 @@ describe('install command (local --from mode)', () => {
     const tokens = { getToken: () => Promise.reject(new Error('GitHub credentials must not be used')) };
     const context = () => createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env });
     const target: Target = { name: 'copilot', type: 'copilot-cli', scope: 'user', path: targetDir };
+    // The record replay and update apply the source trust gate (NFR4.11): only a
+    // configured source is fetched with credentials. Configure the Artifactory
+    // source as a user would, as a detached `default-local` source, before installing.
+    let sourceConfigured = false;
+    const configureSource = async () => {
+      if (sourceConfigured) {
+        return;
+      }
+      const added = await runCli([
+        'source', 'add', '--type', 'artifactory', '--url', root, '--id', source.id,
+        '--auth', 'bearer', '--credential-ref', 'ARTIFACTORY_TOKEN', '-o', 'json'
+      ], { ctx: context(), http, tokens, commandClasses: [SourceAddCommand], commands: [], name: 'test', version: 'test' });
+      expect(added).toBe(0);
+      sourceConfigured = true;
+    };
     const install = async (bundleId = catalogId) => {
+      await configureSource();
       const ctx = context();
       const exitCode = await installBundleWithSource(bundleId, source, target, ctx, http, tokens, 'json');
       return { exitCode, ctx, lockPath: JSON.parse(ctx.stdout.captured()).data.lockfile as string };
@@ -280,22 +296,25 @@ describe('install command (local --from mode)', () => {
     const installed = await fixture.install();
     const installEnvelope = JSON.parse(installed.ctx.stdout.captured());
     expect(installEnvelope.data.bundle).toEqual({ id: fixture.catalogId, version: '1.0.0' });
-    const lock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as Lockfile;
+    // User-scope installs are in the user record: one entry per tool, home-relative paths.
+    const lock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as InstallRecord;
     expect(Object.keys(lock.bundles)).toEqual([fixture.catalogId]);
+    expect(lock.bundles[fixture.catalogId].tools['copilot-cli'].files.map((file) => file.path)).toContain('target/prompts/hello.prompt.md');
     expect(lock.sources['artifact-source']).toMatchObject({ type: 'artifactory', credentialRef: 'ARTIFACTORY_TOKEN' });
     expect(JSON.stringify(lock)).not.toContain('reader-token');
     await rm(path.join(targetDir, 'prompts', 'hello.prompt.md'));
     const replay = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
     expect(replay.exitCode).toBe(0);
-    expect(JSON.parse(replay.ctx.stdout.captured()).data.replayed).toEqual([fixture.catalogId]);
+    expect(JSON.parse(replay.ctx.stdout.captured()).data.replayed)
+      .toEqual([{ bundleId: fixture.catalogId, tool: 'copilot-cli', version: '1.0.0', target: 'copilot' }]);
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     fixture.setVersion('2.0.0');
     const updated = await fixture.command(['update', '--lockfile', installed.lockPath, '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
     expect(updated.exitCode).toBe(0);
     expect(JSON.parse(updated.ctx.stdout.captured()).data.updated).toBe(1);
-    const nextLock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as Lockfile;
+    const nextLock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as { bundles: Record<string, { tools: Record<string, { version: string }> }> };
     expect(Object.keys(nextLock.bundles)).toEqual([fixture.catalogId]);
-    expect(nextLock.bundles[fixture.catalogId].version).toBe('2.0.0');
+    expect(nextLock.bundles[fixture.catalogId].tools['copilot-cli'].version).toBe('2.0.0');
     const replayUpdated = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
     expect(replayUpdated.exitCode).toBe(0);
   });
@@ -355,9 +374,11 @@ describe('install command (local --from mode)', () => {
     const output = result.ctx.stdout.captured();
 
     expect(result.exitCode).toBe(1);
+    // The user record update lists one line per (bundle, tool) entry.
     expect(output).toContain('Available updates (1):');
-    expect(output).toContain(`${secondBundleId}: 1.0.0 → 2.0.0`);
-    expect(output).toContain('Update check is incomplete.');
+    expect(output).toContain(`${secondBundleId} (copilot-cli): 1.0.0 → 2.0.0`);
+    expect(output).toContain('1 update check or installation failed.');
+    expect(result.ctx.stderr.captured()).toContain(fixture.catalogId);
   });
 
   it('shows completed updates alongside installation failures in text output', async () => {
@@ -375,9 +396,11 @@ describe('install command (local --from mode)', () => {
     const output = result.ctx.stdout.captured();
 
     expect(result.exitCode).toBe(1);
-    expect(output).toContain('Updated 1 bundle:');
-    expect(output).toContain(`${secondBundleId}: 1.0.0 → 2.0.0`);
+    // The user record update lists one line per (bundle, tool) entry.
+    expect(output).toContain('Updated 1 entry:');
+    expect(output).toContain(`${secondBundleId} (copilot-cli): 1.0.0 → 2.0.0`);
     expect(output).toContain('1 update check or installation failed.');
+    expect(result.ctx.stderr.captured()).toContain(`Failed to update ${fixture.catalogId}`);
   });
 
   it('rejects an Artifactory latest install with a different embedded version before writing', async () => {
