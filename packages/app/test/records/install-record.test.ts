@@ -1086,11 +1086,15 @@ describe('repository install record', () => {
      * @param bundles - Version and recorded paths per bundle id.
      * @param sources - The old file's sources.
      */
-    const writeOld = async (file: string, bundles: Record<string, { version: string; files?: string[] }>, sources: Record<string, LockfileSourceEntry> = SOURCES): Promise<void> => {
+    const writeOld = async (
+      file: string,
+      bundles: Record<string, { version: string; files?: string[]; installedAt?: string }>,
+      sources: Record<string, LockfileSourceEntry> = SOURCES
+    ): Promise<void> => {
       let lock = { ...emptyLockfile('prompt-registry-extension@1.0.0'), sources };
-      for (const [bundleId, { version, files = [] }] of Object.entries(bundles)) {
+      for (const [bundleId, { version, files = [], installedAt = INSTALLED_AT }] of Object.entries(bundles)) {
         lock = upsertBundleEntry(lock, bundleId, {
-          version, sourceId: 'acme-github', sourceType: 'github', installedAt: INSTALLED_AT,
+          version, sourceId: 'acme-github', sourceType: 'github', installedAt,
           files: files.map((recorded) => ({ path: recorded, checksum: '0'.repeat(64) }))
         });
       }
@@ -1137,20 +1141,22 @@ describe('repository install record', () => {
     });
 
     it.each([
-      ['safe and present', (): string => 'docs/kept.md', undefined],
-      ['using ..', (): string => '../escape.md', 'unsafe path'],
-      ['absolute', (): string => path.join(base, 'absolute.md'), 'unsafe path'],
-      ['bundle-relative (CLI)', (): string => 'prompts/a.prompt.md', 'not found']
-    ])('an old path that is %s is kept only when safe and present, with its disk checksum', async (_label, recordedPath, reason) => {
+      ['safe and present', (): string => 'docs/kept.md', undefined, INSTALLED_AT, INSTALLED_AT],
+      ['safe and present, installed on an impossible date', (): string => 'docs/kept.md', undefined, '2024-02-30T25:00:00Z', NOW.toISOString()],
+      ['using ..', (): string => '../escape.md', 'unsafe path', INSTALLED_AT, INSTALLED_AT],
+      ['absolute', (): string => path.join(base, 'absolute.md'), 'unsafe path', INSTALLED_AT, INSTALLED_AT],
+      ['bundle-relative (CLI)', (): string => 'prompts/a.prompt.md', 'not found', INSTALLED_AT, INSTALLED_AT]
+    ])('an old path that is %s is kept only when safe and present, with its disk checksum', async (_label, recordedPath, reason, installedAt, recordedAt) => {
       write('docs/kept.md');
       fs.writeFileSync(path.join(base, 'escape.md'), 'outside\n');
       fs.writeFileSync(path.join(base, 'absolute.md'), 'outside\n');
-      await writeOld(oldCommitted(), { [BUNDLE]: { version: '1.0.0', files: [recordedPath()] } });
+      await writeOld(oldCommitted(), { [BUNDLE]: { version: '1.0.0', files: [recordedPath()], installedAt } });
 
       const report = await migrateRepository();
 
       const files = reason === undefined ? [{ path: recordedPath(), checksum: await hashAt(root, recordedPath()) }] : [];
       expect(read(committed).bundles[BUNDLE].tools.unknown.files).toEqual(files);
+      expect(read(committed).bundles[BUNDLE].tools.unknown.installedAt).toBe(recordedAt);
       expect(report?.droppedFiles).toEqual(reason === undefined ? [] : [{ bundleId: BUNDLE, path: recordedPath(), reason }]);
     });
 
@@ -1310,6 +1316,29 @@ describe('repository install record', () => {
         versionConflicts: [{ bundleId: BUNDLE, kept: '1.1.0', dropped: '1.0.0' }],
         droppedEntries: [{ bundleId: 'held-bundle', version: '2.0.0', reason: 'already recorded' }]
       });
+    });
+
+    it('reports the version recorded when a bundle is in both the CLI user lockfile and the profile', async () => {
+      const held = path.join(home, '.copilot', 'prompts', 'held.prompt.md');
+      fs.mkdirSync(path.dirname(held), { recursive: true });
+      fs.writeFileSync(held, 'held\n');
+      await service.recordInstall({
+        location: user, bundleId: 'held-bundle', version: '3.0.0', tool: 'vscode',
+        source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' }, sourceType: 'github', writtenPaths: [held]
+      });
+      await writeOld(userLockfile, { [BUNDLE]: { version: '1.0.0' }, 'held-bundle': { version: '1.0.0' } });
+      const profile = (bundleId: string, version: string): MigratedEntry => ({
+        bundleId, tool: 'vscode', version, sourceId: 'acme-github', sourceType: 'github', files: [], from: 'profile-registry-storage'
+      });
+
+      const report = await migrateUser({ profileEntries: [profile(BUNDLE, '1.1.0'), profile('held-bundle', '2.0.0')] });
+
+      expect(read(user).bundles['held-bundle'].tools.vscode.version).toBe('3.0.0');
+      expect(report?.versionConflicts).toEqual([{ bundleId: BUNDLE, kept: '1.1.0', dropped: '1.0.0' }]);
+      expect(report?.droppedEntries).toEqual([
+        { bundleId: 'held-bundle', version: '2.0.0', sourceId: 'acme-github', reason: 'already recorded' },
+        { bundleId: 'held-bundle', version: '1.0.0', sourceId: 'acme-github', reason: 'already recorded' }
+      ]);
     });
 
     it.each([

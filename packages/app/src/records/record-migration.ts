@@ -15,8 +15,10 @@
  * `RECORD.MALFORMED` naming it, and nothing is written), plan in memory, then
  * save the changed targets and delete the old repository files. Old entries go
  * under the `unknown` tool with `needsReinstall`; only profile entries carry a
- * real tool. A bundle a target already holds under any tool is skipped, so an
- * interrupted run is finished by the next one without adding anything back.
+ * real tool. An old-file entry is skipped when a target already holds the
+ * bundle under any tool, a profile entry only when the user record already
+ * has an entry of its tool, so an interrupted run is finished by the next one
+ * without adding anything back.
  * @module records/record-migration
  */
 import * as path from 'node:path';
@@ -125,7 +127,28 @@ const MISSING_SOURCE_URL = UNKNOWN_TOOL_NAME;
 
 const ALREADY_RECORDED = 'already recorded';
 
-const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i;
+const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/i;
+
+/**
+ * Whether a value is a date-time the record schema accepts: the ISO form,
+ * with a real calendar date, a time of day and an offset under 24 hours
+ * (`2024-02-30T00:00:00Z` or `2024-01-01T25:00:00Z` are not).
+ * @param value - Old `installedAt`.
+ */
+const isDateTime = (value: string | undefined): value is string => {
+  const match = value === undefined ? null : ISO_DATE_TIME.exec(value);
+  if (match === null) {
+    return false;
+  }
+  // With a `Z` zone the offset groups are absent, so they are NaN and pass the offset check.
+  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] = match.slice(1).map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+    && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second
+    && !(offsetHour > 23 || offsetMinute > 59);
+};
 
 const OLD_REPOSITORY_FILES = [
   { name: LOCKFILE_NAME, commitMode: 'commit', origin: 'repository-committed' },
@@ -359,7 +382,7 @@ const addEntry = async (run: MigrationRun, target: LoadedRecord, entry: Migrated
   tool.version = entry.version;
   tool.sourceId = entry.sourceId;
   tool.sourceType = entry.sourceType;
-  tool.installedAt = entry.installedAt !== undefined && ISO_DATE_TIME.test(entry.installedAt) ? entry.installedAt : run.report.migratedAt;
+  tool.installedAt = isDateTime(entry.installedAt) ? entry.installedAt : run.report.migratedAt;
   tool.files = [...files.values()].toSorted((left, right) => (left.path < right.path ? -1 : 1));
   if (entry.tool === UNKNOWN_TOOL_NAME) {
     tool.needsReinstall = true;
@@ -436,17 +459,24 @@ const planRepository = async (run: MigrationRun, oldFiles: readonly OldFile[]): 
 };
 
 /**
- * User plan (BR20.1–BR20.3): profile entries first, replacing a lone
- * `unknown` entry; then the old user lockfile's bundles nothing holds yet, as
- * `unknown` with no files; then the marker.
+ * User plan (BR20.1–BR20.3): profile entries first, each skipped only when
+ * the record already has an entry of its own tool, replacing a lone `unknown`
+ * entry and otherwise added beside other tools' entries; then the old user
+ * lockfile's bundles nothing holds yet, as `unknown` with no files; then the marker.
  * @param run - Current run.
  * @param target - The user record.
  * @param old - The old user lockfile, when it is read.
  */
 const planUser = async (run: MigrationRun, target: LoadedRecord, old: OldFile | undefined): Promise<void> => {
   const profileEntries = run.input.profileEntries ?? [];
+  /** Version of each profile entry this run recorded, by bundle id (BR20.3). */
+  const recordedProfile = new Map<string, string>();
   for (const entry of profileEntries) {
     const tools = Object.hasOwn(target.record.bundles, entry.bundleId) ? target.record.bundles[entry.bundleId].tools : undefined;
+    if (tools !== undefined && Object.hasOwn(tools, entry.tool)) {
+      dropEntry(run.report, entry);
+      continue;
+    }
     const held = Object.keys(tools ?? {});
     if (tools !== undefined && held.length === 1 && held[0] === UNKNOWN_TOOL_NAME) {
       const replaced = tools[UNKNOWN_TOOL_NAME].version;
@@ -454,11 +484,9 @@ const planUser = async (run: MigrationRun, target: LoadedRecord, old: OldFile | 
       if (replaced !== entry.version) {
         run.report.versionConflicts.push({ bundleId: entry.bundleId, kept: entry.version, dropped: replaced });
       }
-    } else if (held.length > 0) {
-      dropEntry(run.report, entry);
-      continue;
     }
     await addEntry(run, target, entry);
+    recordedProfile.set(entry.bundleId, entry.version);
   }
   if (profileEntries.length > 0) {
     run.report.mergedFrom.push(PROFILE_STORE_NAME);
@@ -466,9 +494,9 @@ const planUser = async (run: MigrationRun, target: LoadedRecord, old: OldFile | 
   if (old !== undefined) {
     for (const bundleId of Object.keys(old.lock.bundles)) {
       const entry = fromOldEntry(old, bundleId);
-      const profile = profileEntries.find((candidate) => candidate.bundleId === bundleId);
-      if (profile !== undefined && profile.version !== entry.version) {
-        run.report.versionConflicts.push({ bundleId, kept: profile.version, dropped: entry.version });
+      const kept = recordedProfile.get(bundleId);
+      if (kept !== undefined && kept !== entry.version) {
+        run.report.versionConflicts.push({ bundleId, kept, dropped: entry.version });
       } else if (holdsBundle(run.loaded, bundleId)) {
         dropEntry(run.report, entry);
       } else {
