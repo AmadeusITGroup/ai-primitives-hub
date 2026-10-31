@@ -7,6 +7,7 @@
 import {
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -120,25 +121,36 @@ describe('resolveTargetName', () => {
     expect(result).toBe('copilot');
   });
 
-  it('falls back to the last used target from the project state file', async () => {
-    const stateDir = path.join(workspace, '.ai-primitives-hub');
-    await mkdir(stateDir, { recursive: true });
-    await writeFile(
-      path.join(stateDir, 'target-state.json'),
-      JSON.stringify({
-        targets: {
-          copilot: { targetName: 'copilot', lastInstalledBundles: [], lastUsedAt: '2026-01-01T00:00:00Z' }
-        }
-      })
-    );
+  it('returns the only configured target when none is given (BR23.2)', async () => {
     const ctx = createTestContext({ fs: new NodeFileSystem(), cwd: workspace });
-    const result = await resolveTargetName(undefined, 'install', ctx, () => Promise.resolve([]));
+    const result = await resolveTargetName(undefined, 'install', ctx, () => Promise.resolve([{ name: 'copilot' }]));
     expect(result).toBe('copilot');
   });
 
-  it('throws USAGE.MISSING_FLAG when no target and no last used target exists', async () => {
+  const oldStateLine = 'The last used target (.ai-primitives-hub/target-state.json) is no longer used; pass --target.';
+  it.each([
+    { targets: [], stateFile: false, hint: 'target add', oldLine: false },
+    { targets: ['copilot', 'kiro'], stateFile: false, hint: 'Multiple targets configured: copilot, kiro.', oldLine: false },
+    { targets: ['copilot', 'kiro'], stateFile: true, hint: 'Multiple targets configured: copilot, kiro.', oldLine: true }
+  ])('throws USAGE.MISSING_FLAG for $targets.length targets (target-state.json present: $stateFile) without reading the file (NFR5.5, NFR4.28)', async ({ targets, stateFile, hint, oldLine }) => {
+    const statePath = path.join(workspace, '.ai-primitives-hub', 'target-state.json');
+    const stateText = '{"targets":{"copilot":{"targetName":"copilot"}}}';
+    if (stateFile) {
+      await mkdir(path.dirname(statePath), { recursive: true });
+      await writeFile(statePath, stateText);
+    }
     const ctx = createTestContext({ fs: new NodeFileSystem(), cwd: workspace });
-    await expect(resolveTargetName(undefined, 'install', ctx, () => Promise.resolve([]))).rejects.toThrow(RegistryError);
+
+    const error = await resolveTargetName(undefined, 'install', ctx, () => Promise.resolve(targets.map((name) => ({ name })))).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(RegistryError);
+    expect((error as RegistryError).code).toBe('USAGE.MISSING_FLAG');
+    expect((error as RegistryError).message).toBe('install: --target <name> is required');
+    expect((error as RegistryError).hint).toContain(hint);
+    expect((error as RegistryError).hint?.includes(oldStateLine)).toBe(oldLine);
+    if (stateFile) {
+      expect(await readFile(statePath, 'utf8')).toBe(stateText);
+    }
   });
 });
 

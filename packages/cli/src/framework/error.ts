@@ -13,6 +13,7 @@
  * `.ai-primitives-hub/`).
  * @module framework/error
  */
+import * as path from 'node:path';
 import {
   isRegistryError,
   RegistryError,
@@ -154,13 +155,27 @@ export const throwTargetNotFoundError = (
 };
 
 /**
- * Resolve target name from options or fallback to last used target.
+ * Old per-project "last used target" file. The CLI no longer reads or
+ * writes it (BR23.1); its presence only adds a line to the missing-target
+ * hint (NFR5.5). It is never opened, parsed or deleted (NFR4.28).
+ */
+const OLD_TARGET_STATE_FILE = '.ai-primitives-hub/target-state.json';
+
+/** Hint line shown while an old `target-state.json` is still on disk. */
+const OLD_TARGET_STATE_HINT = `The last used target (${OLD_TARGET_STATE_FILE}) is no longer used; pass --target.`;
+
+/**
+ * Resolve the target name: `--target` when given, else the only configured
+ * target (BR23.2). With none or several configured, throws
+ * `USAGE.MISSING_FLAG` listing them (or saying how to add one); when the
+ * folder still holds an old `.ai-primitives-hub/target-state.json`, the hint
+ * says it is no longer used. Throws before anything is written.
  * @param targetName Target name from options (may be undefined or empty).
  * @param commandName Command name for error message (e.g., 'install', 'uninstall').
  * @param ctx CLI context.
- * @param readTargetsFn Function to read configured targets.
+ * @param readTargetsFn Function to read configured targets (the full `loadTargets` list).
  * @returns Resolved target name.
- * @throws {RegistryError} When target is not provided and no last used target exists.
+ * @throws {RegistryError} When no target is given and not exactly one is configured.
  */
 export const resolveTargetName = async <T extends { name: string }>(
   targetName: string | undefined,
@@ -168,26 +183,20 @@ export const resolveTargetName = async <T extends { name: string }>(
   ctx: Context,
   readTargetsFn: () => Promise<T[]>
 ): Promise<string> => {
-  if (targetName === undefined || targetName.length === 0) {
-    const { TargetStateStore } = await import('@ai-primitives-hub/infra');
-    const path = await import('node:path');
-    const stateStore = new TargetStateStore({
-      fs: ctx.fs,
-      statePath: path.default.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json')
-    });
-    const lastUsed = await stateStore.getLastUsedTarget();
-    if (lastUsed !== null) {
-      return lastUsed;
-    }
-    const configuredTargets = await readTargetsSafely(readTargetsFn());
-    const hint = generateTargetHint(configuredTargets);
-    throw new RegistryError({
-      code: 'USAGE.MISSING_FLAG',
-      message: `${commandName}: --target <name> is required`,
-      hint
-    });
+  if (targetName !== undefined && targetName.length > 0) {
+    return targetName;
   }
-  return targetName;
+  const configuredTargets = await readTargetsSafely(readTargetsFn());
+  if (configuredTargets.length === 1) {
+    return configuredTargets[0].name;
+  }
+  const hasOldTargetState = await ctx.fs.exists(path.join(ctx.cwd(), OLD_TARGET_STATE_FILE)).catch(() => false);
+  const hint = generateTargetHint(configuredTargets);
+  throw new RegistryError({
+    code: 'USAGE.MISSING_FLAG',
+    message: `${commandName}: --target <name> is required`,
+    hint: hasOldTargetState ? `${hint}\n  ${OLD_TARGET_STATE_HINT}` : hint
+  });
 };
 
 /**

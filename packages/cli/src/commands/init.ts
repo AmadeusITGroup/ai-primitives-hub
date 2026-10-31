@@ -14,15 +14,18 @@
  * Curates default hubs (e.g. Amadeus, Prompt Registry Community Hub) in the
  * hub selector alongside "Local directory" and "Skip for now". Non-interactive
  * mode (the `--yes` / CI path) is unaffected and fully at parity with the reference.
+ *
+ * `init` writes no install record. The record (format 3.0.0, keyed by bundle
+ * and tool) exists at repository level (`ai-primitives-hub.lock.json` at the
+ * git root) and at user level (the shared user record); the first install at
+ * a level creates it. Until the first repository install, `status` and a bare
+ * `install` in the repository use the user record (BR25.1).
  */
 import * as path from 'node:path';
 import {
   createEmbeddingProvider,
-  emptyLockfile,
-  getLockfilePathForMode,
   getSearchProfile,
   resolveUserConfigPaths,
-  writeLockfile,
 } from '@ai-primitives-hub/app';
 import type {
   HttpClient,
@@ -581,16 +584,9 @@ async function runInit(ctx: Context, opts: InitOptions): Promise<number> {
       describeTargetStep(targetName, targetType, result.file, result.created ?? false, updated)
     ];
 
-    // Lockfile is repository-scope only (see `stores/json-lockfile-store.ts`'s
-    // module doc) — the extension has never tracked user/workspace-scope
-    // installs via a lockfile, so nothing is pre-created for those scopes.
-    if (targetScope === 'repository') {
-      const lockfilePath = getLockfilePathForMode(ctx.cwd(), 'commit');
-      if (!(await ctx.fs.exists(lockfilePath))) {
-        await writeLockfile(lockfilePath, emptyLockfile('ai-primitives-hub-cli'), ctx.fs);
-        steps.push(`lockfile initialized: ${path.basename(lockfilePath)}`);
-      }
-    }
+    // init creates no install record: the first install at a level creates
+    // it (ai-primitives-hub.lock.json at the git root, or the user record),
+    // and an existing record or older file is left as it is (BR25.1).
 
     let hubId: string | null = null;
     let hubReused = false;
