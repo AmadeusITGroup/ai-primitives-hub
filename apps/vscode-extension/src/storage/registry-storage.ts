@@ -8,10 +8,6 @@ import * as path from 'node:path';
 import {
   promisify,
 } from 'node:util';
-import type {
-  AppStorage,
-  AppStoragePaths,
-} from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
   Bundle,
@@ -22,6 +18,10 @@ import {
   RegistrySettings,
   RegistrySource,
 } from '../types/registry';
+import type {
+  ExtensionAppStorage,
+  ExtensionStoragePaths,
+} from './extension-app-storage';
 import {
   VsCodeAppStorage,
 } from './vscode-app-storage';
@@ -34,9 +34,10 @@ const readdir = promisify(fs.readdir);
 const unlink = promisify(fs.unlink);
 
 /**
- * Storage paths
+ * Storage paths: the shared paths plus the extension's per-profile
+ * bundle-record folders.
  */
-type StoragePaths = AppStoragePaths;
+type StoragePaths = ExtensionStoragePaths;
 
 /**
  * Default registry settings
@@ -70,7 +71,7 @@ export class RegistryStorage {
   private static readonly MAX_FILENAME_LENGTH = 200;
   private static readonly ALLOWED_CHARS_REGEX = /[^A-Za-z0-9._-]/g;
   private readonly paths: StoragePaths;
-  private readonly appStorage: AppStorage;
+  private readonly appStorage: ExtensionAppStorage;
   private configCache?: RegistryConfig;
   private configMutationQueue: Promise<void> = Promise.resolve();
 
@@ -84,13 +85,13 @@ export class RegistryStorage {
   /**
    * Create a RegistryStorage.
    * @param context - VS Code extension context.
-   * @param storage - Storage-root/state port (ADR-0005). Defaults to
-   *   `VsCodeAppStorage`, backed by `context.globalStorageUri`/
-   *   `context.globalState` — the extension's existing, unchanged
-   *   on-disk layout. Injectable for tests and for any future
-   *   non-VS-Code caller (e.g. `infra`'s `XdgAppStorage`).
+   * @param storage - The extension's storage port (`ExtensionAppStorage`:
+   *   the shared `AppStorage` plus the per-profile bundle-record folders).
+   *   Defaults to `VsCodeAppStorage`, backed by `context.globalStorageUri`/
+   *   `context.globalState` — the extension's existing, unchanged on-disk
+   *   layout. Injectable for tests.
    */
-  constructor(private readonly context: vscode.ExtensionContext, storage?: AppStorage) {
+  constructor(private readonly context: vscode.ExtensionContext, storage?: ExtensionAppStorage) {
     this.appStorage = storage ?? new VsCodeAppStorage(context);
     this.paths = this.appStorage.getPaths();
   }
@@ -167,13 +168,14 @@ export class RegistryStorage {
 
   /**
    * Get the list of supported scopes for querying installed bundles.
-   * Repository scope bundles are tracked via LockfileManager, not RegistryStorage.
-   * See: src/services/LockfileManager.ts - read() method for repository bundle queries
+   * Repository scope bundles are tracked in the install record at the git
+   * root (`ai-primitives-hub.lock.json`), not RegistryStorage.
+   * See: src/services/install-record-listing.ts for repository bundle queries
    * @param scope - Optional scope to filter by
    * @returns Array of supported scopes to query
    */
   private getSupportedScopes(scope?: InstallationScope): ('user' | 'workspace')[] {
-    // Repository scope bundles are tracked via LockfileManager, not RegistryStorage
+    // Repository scope bundles are tracked in the install record, not RegistryStorage
     if (scope === 'repository') {
       return [];
     }
@@ -466,8 +468,8 @@ export class RegistryStorage {
    * @param scope
    */
   public async removeInstallation(bundleId: string, scope: InstallationScope): Promise<void> {
-    // Repository scope bundles are tracked via LockfileManager, not RegistryStorage.
-    // See: src/services/LockfileManager.ts - remove() method
+    // Repository scope bundles are tracked in the install record, not RegistryStorage.
+    // See: src/services/extension-record-adapter.ts
     if (scope === 'repository') {
       return;
     }
@@ -521,8 +523,8 @@ export class RegistryStorage {
    * @param scope
    */
   public async getInstalledBundle(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined> {
-    // Repository scope bundles are tracked via LockfileManager, not RegistryStorage.
-    // See: src/services/LockfileManager.ts - read() method for repository bundle queries
+    // Repository scope bundles are tracked in the install record, not RegistryStorage.
+    // See: src/services/install-record-listing.ts for repository bundle queries
     if (scope === 'repository') {
       return undefined;
     }

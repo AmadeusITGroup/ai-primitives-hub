@@ -1,14 +1,16 @@
 /**
  * AppStorage port — universal, non-VS-Code-specific storage-root
- * resolution for the registry/bookkeeping layer (config, cache,
- * installed-bundle records per scope, profiles, logs).
+ * resolution for the registry/bookkeeping layer (config, cache, profiles,
+ * logs and the shared user install record).
  *
- * Models exactly the directory/file responsibilities the extension's
- * `RegistryStorage` (`src/storage/registry-storage.ts`) already defines,
- * plus a tiny generic key/value slot for small persisted state (bundle
- * update preferences today) — so path *and* state resolution are both
- * behind one injectable seam instead of being resolved inline against
- * `vscode.ExtensionContext`.
+ * Models the directory/file responsibilities every client shares, plus a
+ * tiny generic key/value slot for small persisted state (bundle update
+ * preferences today) — so path *and* state resolution are both behind one
+ * injectable seam instead of being resolved inline against
+ * `vscode.ExtensionContext`. Repository-level install records live at the
+ * git root and are not storage paths; the extension's own per-profile
+ * bundle-record folders are declared by the extension
+ * (`ExtensionStoragePaths`), not here (ADR-0009).
  *
  * Two implementations: the VS Code extension's own adapter, backed by
  * `context.globalStorageUri`/`context.globalState` (kept exactly as-is
@@ -19,7 +21,7 @@
  */
 
 /**
- * The fixed set of paths `RegistryStorage` reads/writes today.
+ * The fixed set of paths shared by every client.
  */
 export interface AppStoragePaths {
   /** Root directory this app's data lives under. */
@@ -32,12 +34,6 @@ export interface AppStoragePaths {
   sourcesCache: string;
   /** Cached per-bundle metadata. */
   bundlesCache: string;
-  /** Installed-bundle records, workspace scope. */
-  installed: string;
-  /** Installed-bundle records, user scope. */
-  userInstalled: string;
-  /** Installed-bundle records for profile-driven installs. */
-  profilesInstalled: string;
   /** Profile definitions. */
   profiles: string;
   /** Log output. */
