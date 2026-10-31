@@ -116,7 +116,7 @@ export interface InstalledBundle {
   sourceType?: string; // Source type for identity matching (github, local, etc.)
   commitMode?: RepositoryCommitMode; // Commit mode for repository-scoped installations
   filesMissing?: boolean; // Set when lockfile entry exists but files are missing (repository scope only)
-  /** `'install-record'` when the item comes from a 3.0.0 install record. */
+  /** `'install-record'` when the item comes from a 3.0.0 install record, repository or user. */
   recordOrigin?: 'install-record';
 }
 

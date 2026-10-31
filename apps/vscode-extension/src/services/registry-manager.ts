@@ -332,14 +332,83 @@ export class RegistryManager {
       sources: {
         listSources: () => this.storage.getSources(),
         getActiveHubId: async () => (await this.hubManager?.getActiveHubId()) ?? null
-      }
+      },
+      userRecordPath: this.storage.getPaths().userRecord
     });
     this.installer = new BundleInstaller(context, this.recordAdapter.hostTool, this.recordAdapter);
     this.logger = Logger.getInstance();
+    if (this.recordAdapter.usesSharedUserRecord()) {
+      this.logger.info(`User installs are recorded in the shared user record: ${this.storage.getPaths().userRecord}`);
+    }
 
     // Initialize version consolidator with source type resolver
     this.versionConsolidator = new VersionConsolidator();
     this.versionConsolidator.setSourceTypeResolver((sourceId: string) => this.getSourceType(sourceId));
+  }
+
+  /**
+   * User-scope items of the shared user record (BR16.x), with the ids it
+   * holds for the host tool; none in WSL or when the record cannot be read.
+   */
+  private async listUserRecordBundles(): Promise<{ items: InstalledBundle[]; hostBundleIds: Set<string> }> {
+    if (!this.recordAdapter.usesSharedUserRecord()) {
+      return { items: [], hostBundleIds: new Set() };
+    }
+    try {
+      return await this.getInstallRecordListing().listUserBundles(
+        this.recordAdapter.userLocation(),
+        this.recordAdapter.hostTool,
+        (bundleId) => path.join(this.storage.getPaths().root, 'bundles', bundleId)
+      );
+    } catch (error) {
+      this.logger.warn('Failed to query user bundles from the user record:', error instanceof Error ? error : undefined);
+      return { items: [], hostBundleIds: new Set() };
+    }
+  }
+
+  /**
+   * RegistryStorage installs of a scope (all scopes when omitted). User scope
+   * on the shared user record (BR16.x): every user record bundle, plus the
+   * RegistryStorage user installs whose bundle the user record does not hold
+   * for the host tool, listed first. In WSL: RegistryStorage only.
+   * @param scope - Scope filter.
+   */
+  private async listStoredBundles(scope?: InstallationScope): Promise<InstalledBundle[]> {
+    const stored = await this.storage.getInstalledBundles(scope);
+    if (scope !== undefined && scope !== 'user') {
+      return stored;
+    }
+    const { items, hostBundleIds } = await this.listUserRecordBundles();
+    return [...stored.filter((bundle) => bundle.scope !== 'user' || !hostBundleIds.has(bundle.bundleId)), ...items];
+  }
+
+  /**
+   * The RegistryStorage install of a bundle at a scope; at user scope on the
+   * shared user record, else the user record's item when it holds the host
+   * tool's entry (BR16.x).
+   * @param bundleId - Bundle id.
+   * @param scope - Scope.
+   */
+  private async getStoredOrUserBundle(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined> {
+    const stored = await this.storage.getInstalledBundle(bundleId, scope);
+    if (stored !== undefined || scope !== 'user') {
+      return stored;
+    }
+    const { items, hostBundleIds } = await this.listUserRecordBundles();
+    return hostBundleIds.has(bundleId) ? items.find((bundle) => bundle.bundleId === bundleId) : undefined;
+  }
+
+  /**
+   * Record an installation in RegistryStorage, except a user install the
+   * installer recorded in the shared user record, which is its store (BR16.x),
+   * as repository installs are never written to RegistryStorage.
+   * @param installation - The installation.
+   */
+  private async recordStoredInstallation(installation: InstalledBundle): Promise<void> {
+    if (installation.scope === 'user' && installation.recordOrigin === 'install-record') {
+      return;
+    }
+    await this.storage.recordInstallation(installation);
   }
 
   private invalidatePrimitiveIndexKeyCache(): void {
@@ -596,7 +665,7 @@ export class RegistryManager {
     sourceId: string,
     latestBundles: Bundle[]
   ): Promise<InstalledBundle[]> {
-    const installed = await this.storage.getInstalledBundles();
+    const installed = await this.listStoredBundles();
     const bundlesFromSource = this.filterBundlesBySource(installed, sourceId, latestBundles);
 
     this.logger.info(`Found ${bundlesFromSource.length} installed bundles from source '${sourceId}'`);
@@ -1503,13 +1572,13 @@ export class RegistryManager {
         listSources: () => this.storage.getSources(),
         getCachedSourceBundles: (sourceId) => this.storage.getCachedSourceBundles(sourceId),
         getBundleVersion: (identity, version) => this.versionConsolidator.getBundleVersion(identity, version),
-        getInstalledBundle: (id, scope) => this.storage.getInstalledBundle(id, scope),
+        getInstalledBundle: (id, scope) => this.getStoredOrUserBundle(id, scope),
         getAdapter: (source) => this.getAdapter(source),
         installFromBuffer: (bundle, buffer, installOptions, sourceType) =>
           this.installer.installFromBuffer(bundle, buffer, installOptions, sourceType),
         installLocalSkillAsSymlink: (bundle, skillName, sourcePath, installOptions) =>
           this.installer.installLocalSkillAsSymlink(bundle, skillName, sourcePath, installOptions),
-        recordInstallation: (installedBundle) => this.storage.recordInstallation(installedBundle as InstalledBundle),
+        recordInstallation: (installedBundle) => this.recordStoredInstallation(installedBundle as InstalledBundle),
         getInstalledBundles: (scope) => this.storage.getInstalledBundles(scope),
         removeInstallation: (id, scope) => this.storage.removeInstallation(id, scope)
       },
@@ -1586,7 +1655,7 @@ export class RegistryManager {
       bundleId,
       scope,
       {
-        getInstalledBundle: (id, s) => this.storage.getInstalledBundle(id, s),
+        getInstalledBundle: (id, s) => this.getStoredOrUserBundle(id, s),
         getRepositoryInstalledBundles: async () => {
           const workspaceRoot = getWorkspaceRoot();
           if (!workspaceRoot) {
@@ -1700,7 +1769,7 @@ export class RegistryManager {
         getAdapter: (source) => this.getAdapter(source),
         updateInstalledBundle: (current, bundle, buffer, sourceType) =>
           this.installer.update(current as InstalledBundle, bundle, buffer, sourceType),
-        recordInstallation: (installation) => this.storage.recordInstallation(installation as InstalledBundle),
+        recordInstallation: (installation) => this.recordStoredInstallation(installation as InstalledBundle),
         removeInstallation: (id, scope) => this.storage.removeInstallation(id, scope)
       },
       (event) => this.forwardLogEvent(event)
@@ -1715,7 +1784,8 @@ export class RegistryManager {
    * Thin delegator to `@ai-primitives-hub/app`'s `listInstalledBundles`
    * — queries the appropriate source based on scope:
    * - 'repository': Query the install records and the old lockfiles (install record wins)
-   * - 'user' or 'workspace': Query RegistryStorage only
+   * - 'user': Query the shared user record and RegistryStorage
+   * - 'workspace': Query RegistryStorage only
    * - undefined (no scope): Combine results from both sources
    *
    * Requirements covered:
@@ -1725,7 +1795,7 @@ export class RegistryManager {
    */
   public async listInstalledBundles(scope?: InstallationScope): Promise<InstalledBundle[]> {
     const bundles = await listInstalledBundlesCore(scope, {
-      getInstalledBundles: (s) => this.storage.getInstalledBundles(s),
+      getInstalledBundles: (s) => this.listStoredBundles(s),
       getRepositoryInstalledBundles: async () => {
         const workspaceRoot = getWorkspaceRoot();
         if (!workspaceRoot) {
@@ -1801,14 +1871,22 @@ export class RegistryManager {
   }
 
   /**
-   * Refuse an action on a repository bundle whose record entries all belong to
-   * another tool; other scopes are never refused.
+   * Refuse an action on a repository bundle, or a user bundle on the shared user
+   * record, whose record entries all belong to another tool; workspace items are
+   * never refused.
    * @param bundleId - Bundle the action targets.
    * @param scope - Scope of the exact item the action works on.
    * @param action - The action, for the message.
    * @throws {RegistryError} `RECORD.CLI_MANAGED` naming the entry's tool; any `RECORD.*` error from loading.
    */
   public async assertHostTool(bundleId: string, scope: InstallationScope, action: CliManagedAction): Promise<void> {
+    if (scope === 'user') {
+      // A user item only another tool's user record entry holds; this profile's own install is not refused (BR16.x).
+      if (this.recordAdapter.usesSharedUserRecord() && (await this.storage.getInstalledBundle(bundleId, 'user')) === undefined) {
+        await this.recordAdapter.assertUserHostTool(bundleId, action);
+      }
+      return;
+    }
     if (scope !== 'repository') {
       return;
     }
@@ -1827,10 +1905,10 @@ export class RegistryManager {
   public async checkUpdates(): Promise<BundleUpdate[]> {
     return detectBundleUpdates(
       {
-        getInstalledBundles: (scope) => this.storage.getInstalledBundles(scope),
+        getInstalledBundles: (scope) => this.listStoredBundles(scope),
         getBundleDetails: (bundleId) => this.getBundleDetails(bundleId),
         listSources: () => this.storage.getSources(),
-        getInstalledBundle: (bundleId, scope) => this.storage.getInstalledBundle(bundleId, scope)
+        getInstalledBundle: (bundleId, scope) => this.getStoredOrUserBundle(bundleId, scope)
       },
       (event) => this.forwardLogEvent(event)
     );

@@ -22,6 +22,7 @@ import {
   findModifiedFiles,
   InstallPipeline,
   InstallPipelineError,
+  type LocatedToolEntry,
   type RecordInstallResult,
   type RecordSourceInput,
   type SiblingSync,
@@ -126,6 +127,20 @@ export interface RepositoryUpdateInPlace {
   location?: RecordLocation;
   /** Root-relative paths of the old entry modified or missing before the write. */
   modified: ReadonlySet<string>;
+}
+
+/** A user install on the shared user record, prepared before any file is written (BR16.x). */
+interface PreparedUserInstall {
+  /** The user record location. */
+  location: RecordLocation;
+  /** Configured source the entry records (NFR4.15). */
+  source: RecordSourceInput;
+  /** Bundle id of the host entry being replaced, when the user record has one. */
+  previousBundleId?: string;
+  /** Home-relative paths of that entry that were modified or missing before the write. */
+  modified: ReadonlySet<string>;
+  /** Whether RegistryStorage held a user installation of the bundle before the write. */
+  hadProfileEntry: boolean;
 }
 
 /**
@@ -295,6 +310,149 @@ export class BundleInstaller {
     } catch (error) {
       this.rethrowRecordError(error, [], root);
     }
+  }
+
+  /**
+   * Check the source, load the user record and refuse a user folder outside
+   * home before anything is written; also read the host entry being replaced.
+   * @param bundle - Bundle to install.
+   * @param previousBundleId - Bundle id of the installed version, for an update.
+   */
+  private async prepareUserInstall(bundle: Bundle, previousBundleId?: string): Promise<PreparedUserInstall> {
+    const source = await this.records.buildSource(bundle.sourceId);
+    try {
+      const location = await this.records.prepareUserInstall(this.copilotSync.userFolders());
+      const located = await this.records.findUserHostEntry(previousBundleId ?? bundle.id);
+      return {
+        location,
+        source,
+        previousBundleId: located === undefined ? undefined : (previousBundleId ?? bundle.id),
+        modified: new Set(located === undefined ? [] : await findModifiedFiles(this.records.fs, location.root, located.entry.files)),
+        hadProfileEntry: (await this.storage.getInstalledBundle(bundle.id, 'user')) !== undefined
+      };
+    } catch (error) {
+      this.rethrowRecordError(error);
+    }
+  }
+
+  /**
+   * Record the host tool's user entry, delete superseded files except modified
+   * ones, then retire the profile installation it replaces, if any.
+   * @param bundle - Installed bundle.
+   * @param prepared - Result of {@link prepareUserInstall}.
+   * @param written - Absolute paths the writer wrote.
+   */
+  private async recordUserInstall(bundle: Bundle, prepared: PreparedUserInstall, written: readonly string[]): Promise<void> {
+    const root = prepared.location.root;
+    const changes: RecordInstallResult[] = [];
+    try {
+      changes.push(await this.records.service.recordInstall({
+        location: prepared.location,
+        bundleId: bundle.id,
+        version: bundle.version,
+        tool: this.records.hostTool,
+        source: prepared.source,
+        sourceType: prepared.source.type,
+        writtenPaths: written,
+        workspaceRoot: this.records.home
+      }));
+      if (prepared.previousBundleId !== undefined && prepared.previousBundleId !== bundle.id) {
+        // The new version has another bundle id: the old id's host entry goes.
+        changes.push(await this.records.service.recordUninstall({ location: prepared.location, bundleId: prepared.previousBundleId, tool: this.records.hostTool }));
+      }
+    } catch (error) {
+      this.rethrowRecordError(error, written, root);
+    }
+    const removal = await this.records.service.deleteSupersededAfterAll(changes.map((change) => ({
+      location: change.location,
+      deletedFiles: change.deletedFiles.filter((file) => !prepared.modified.has(file))
+    }))).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+    for (const warning of [...changes.flatMap((change) => change.warnings), ...removal.warnings]) {
+      this.logger.warn(`[BundleInstaller] ${warning}`);
+    }
+    if (prepared.previousBundleId !== undefined && prepared.previousBundleId !== bundle.id) {
+      await this.removeBundleCache(prepared.previousBundleId);
+    }
+    if (prepared.hadProfileEntry) {
+      await this.retireProfileEntry(bundle.id, root);
+    }
+    this.logger.debug(`Recorded ${bundle.id} for ${this.records.hostTool} in ${prepared.location.path}`);
+  }
+
+  /**
+   * Retire the profile's user installation of a bundle, keeping files the user record lists.
+   * @param bundleId - Bundle id.
+   * @param root - User record root, for "Open file".
+   * @param keepAlso - Further absolute paths to leave in place.
+   */
+  private async retireProfileEntry(bundleId: string, root: string, keepAlso: readonly string[] = []): Promise<void> {
+    await this.records.retireProfileEntry(
+      bundleId,
+      (keep) => this.copilotSync.unsyncBundle(bundleId, { keep: new Set([...keep, ...keepAlso]) }),
+      () => this.storage.removeInstallation(bundleId, 'user')
+    ).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+  }
+
+  /**
+   * Remove a bundle's user-scope cache folder, if present.
+   * @param bundleId - Bundle id.
+   */
+  private async removeBundleCache(bundleId: string): Promise<void> {
+    const bundleCachePath = this.getInstallDirectory(bundleId, 'user');
+    if (fs.existsSync(bundleCachePath)) {
+      await this.removeDirectory(bundleCachePath);
+      this.logger.debug(`Removed bundle cache directory: ${bundleCachePath}`);
+    }
+  }
+
+  /**
+   * The host tool's user record entry for a user-scope item, or `undefined`
+   * outside the shared user record or without a host entry.
+   * @param installed - The item.
+   * @param action - The action, for the refusal.
+   * @throws {RegistryError} `RECORD.CLI_MANAGED` for another tool's item, or a `RECORD.*` error.
+   */
+  private async findUserRecordEntry(installed: InstalledBundle, action: 'uninstall' | 'update'): Promise<LocatedToolEntry | undefined> {
+    if (installed.scope !== 'user' || !this.records.usesSharedUserRecord()) {
+      return undefined;
+    }
+    try {
+      if (installed.recordOrigin === 'install-record') {
+        await this.records.assertUserHostTool(installed.bundleId, action);
+      }
+      return await this.records.findUserHostEntry(installed.bundleId);
+    } catch (error) {
+      this.rethrowRecordError(error);
+    }
+  }
+
+  /**
+   * Remove the host tool's user entry and its files except shared and modified
+   * ones, retire the profile installation if any, then remove the bundle cache.
+   * @param bundleId - Bundle id.
+   * @param located - The host tool's user entry.
+   */
+  private async uninstallUserRecordEntry(bundleId: string, located: LocatedToolEntry): Promise<void> {
+    const root = located.location.root;
+    let modified: Set<string>;
+    let change: RecordInstallResult;
+    try {
+      modified = new Set(await findModifiedFiles(this.records.fs, root, located.entry.files));
+      change = await this.records.service.recordUninstall({ location: located.location, bundleId, tool: this.records.hostTool });
+    } catch (error) {
+      this.rethrowRecordError(error, [], root);
+    }
+    const removal = await this.records.service.deleteSuperseded({
+      location: change.location,
+      deletedFiles: change.deletedFiles.filter((file) => !modified.has(file))
+    }).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+    for (const warning of [...change.warnings, ...removal.warnings]) {
+      this.logger.warn(`[BundleInstaller] ${warning}`);
+    }
+    if ((await this.storage.getInstalledBundle(bundleId, 'user')) !== undefined) {
+      await this.retireProfileEntry(bundleId, root, [...modified].map((file) => path.join(root, ...file.split('/'))));
+    }
+    await this.removeBundleCache(bundleId);
   }
 
   /**
@@ -689,6 +847,7 @@ export class BundleInstaller {
    * @param options
    * @param sourceType
    * @param inPlace - For a repository update: the old entry, read before the write.
+   *   For a user update on the shared user record, only `previousBundleId` is read.
    */
   public async installFromBuffer(
     bundle: Bundle,
@@ -708,6 +867,11 @@ export class BundleInstaller {
     // Repository installs check the source and the record before any write.
     const repository = options.scope === 'repository'
       ? await this.prepareRepositoryInstall(bundle, options.commitMode ?? 'commit', inPlace)
+      : undefined;
+    // User installs on the shared user record do the same with the user record (BR16.x);
+    // skills installed straight into the skills folder stay on RegistryStorage.
+    const user = options.scope === 'user' && !installSkillsToCopilotDir && this.records.usesSharedUserRecord()
+      ? await this.prepareUserInstall(bundle, inPlace?.previousBundleId)
       : undefined;
 
     // Bridge the extension's already-resolved Bundle + already-downloaded Buffer (the
@@ -938,6 +1102,11 @@ export class BundleInstaller {
           const repoService = this.getRepositoryScopeService();
           const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
           await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace);
+        } else if (user) {
+          // The user record is the store of this install: RegistryStorage is not written (BR16.x).
+          const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
+          await this.recordUserInstall(bundle, user, written);
+          installed.recordOrigin = 'install-record';
         } else {
           await this.getScopeService(options.scope).syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
         }
@@ -956,7 +1125,8 @@ export class BundleInstaller {
   }
 
   /**
-   * Uninstall a bundle. At repository scope shared and modified files are kept.
+   * Uninstall a bundle. At repository scope, and at user scope when the shared
+   * user record holds the host tool's entry, shared and modified files are kept.
    * @param installed
    * @throws {RegistryError} A `RECORD.*` error, after it was shown once.
    */
@@ -964,9 +1134,18 @@ export class BundleInstaller {
     this.logger.info(`Uninstalling bundle: ${installed.bundleId}`);
 
     try {
+      // A user item on the shared user record: the host tool's entry, if any (BR16.x).
+      const userEntry = await this.findUserRecordEntry(installed, 'uninstall');
+
       // Uninstall MCP servers
       await this.uninstallMcpServers(installed.bundleId, installed.scope);
       this.logger.debug('MCP servers uninstalled');
+
+      if (userEntry !== undefined) {
+        await this.uninstallUserRecordEntry(installed.bundleId, userEntry);
+        this.logger.info('Bundle uninstalled successfully');
+        return;
+      }
 
       // Unsync from appropriate scope directory (repository: the record entry and its files)
       const scopeService = this.getScopeService(installed.scope);
@@ -1023,6 +1202,19 @@ export class BundleInstaller {
       const resolvedSourceType = sourceType ?? installed.sourceType;
       if (installed.scope === 'repository') {
         return await this.updateRepositoryInPlace(installed, bundle, bundleBuffer, resolvedSourceType);
+      }
+      if (await this.findUserRecordEntry(installed, 'update') !== undefined) {
+        // In place over the user record's host entry, like a repository update (BR16.x).
+        await this.uninstallMcpServers(installed.bundleId, 'user');
+        const updated = await this.installFromBuffer(
+          bundle,
+          bundleBuffer,
+          { scope: 'user', version: bundle.version, profileId: installed.profileId },
+          resolvedSourceType,
+          { previousBundleId: installed.bundleId, modified: new Set() }
+        );
+        this.logger.info('Bundle updated successfully');
+        return updated;
       }
 
       // Uninstall old version

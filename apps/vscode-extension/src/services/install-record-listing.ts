@@ -1,10 +1,11 @@
 /**
- * Install record listing for the extension's repository view. Reads both
- * repository records at the git root and merges them with the old
- * prompt-registry lockfiles; the install record wins for any version of a
- * bundle. A bundle split across the two files is one item, and a tool's older
- * version under another versioned key is not listed. Problems are shown once
- * per file and content, and logged on every refresh.
+ * Install record listing for the extension's repository view, and the
+ * user-scope items of the shared user record. Reads both repository records at
+ * the git root and merges them with the old prompt-registry lockfiles; the
+ * install record wins for any version of a bundle. A bundle split across the
+ * two files is one item, and a tool's older version under another versioned
+ * key is not listed. Problems are shown once per file and content, and logged
+ * on every refresh.
  * @module services/install-record-listing
  */
 import * as path from 'node:path';
@@ -281,7 +282,54 @@ export class InstallRecordListing {
     }
     return [...items.values(), ...oldByIdentity.values()];
   }
+
+  /**
+   * List the bundles of the shared user record as user-scope items (BR16.x):
+   * one item per bundle, from the host tool's entry when it has one (the
+   * entry the extension acts on; another tool's entry is refused at action
+   * time), else from its latest entry. A `RECORD.*` error is reported once
+   * and gives no item.
+   * @param location - The user record location.
+   * @param hostTool - The tool the extension records under.
+   * @param installPathFor - The extension's bundle cache folder of a bundle id.
+   * @returns The items, and the ids the user record holds for the host tool.
+   */
+  public async listUserBundles(
+    location: RecordLocation,
+    hostTool: string,
+    installPathFor: (bundleId: string) => string
+  ): Promise<{ items: InstalledBundle[]; hostBundleIds: Set<string> }> {
+    const items: InstalledBundle[] = [];
+    const hostBundleIds = new Set<string>();
+    for (const [bundleId, bundle] of await this.loadBundles(location)) {
+      const host = Object.hasOwn(bundle.tools, hostTool) ? bundle.tools[hostTool] : undefined;
+      if (host !== undefined) {
+        hostBundleIds.add(bundleId);
+      }
+      const entry = host ?? latestEntry(Object.entries(bundle.tools).map(([tool, candidate]) => ({ bundleId, tool, entry: candidate, location })))?.entry;
+      if (entry === undefined) {
+        continue;
+      }
+      const item = createInstalledBundleFromLockfile(bundleId, {
+        version: entry.version,
+        sourceId: entry.sourceId,
+        sourceType: entry.sourceType,
+        installedAt: entry.installedAt,
+        files: entry.files.map((file) => ({ path: file.path, checksum: file.checksum }))
+      }, { installPath: installPathFor(bundleId), filesMissing: await this.filesMissing(location.root, entry) });
+      items.push({ ...item, scope: 'user', commitMode: undefined, recordOrigin: 'install-record' });
+    }
+    return { items, hostBundleIds };
+  }
 }
+
+/**
+ * Call `onChange` when the shared user record file is created, changed or deleted.
+ * @param recordPath - Absolute user record path.
+ * @param onChange - Refreshes the listing.
+ */
+export const watchUserRecord = (recordPath: string, onChange: () => void): vscode.Disposable =>
+  watchFiles(path.dirname(recordPath), path.basename(recordPath), onChange);
 
 /**
  * Call `onChange` when either install record file at a root is created, changed or deleted.

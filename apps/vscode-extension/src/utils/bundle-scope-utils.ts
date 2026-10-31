@@ -3,9 +3,11 @@
  *
  * Shared utilities for working with bundle scopes across different services.
  * Repository scope bundles come from the install record and the old
- * lockfiles; user/workspace scopes use RegistryStorage.
+ * lockfiles; user/workspace scopes use RegistryStorage, and user scope also
+ * the shared user record.
  */
 
+import * as path from 'node:path';
 import {
   ExtensionRecordAdapter,
 } from '../services/extension-record-adapter';
@@ -78,6 +80,33 @@ export async function getInstalledBundleForScope(
     }
   }
 
-  // User and workspace scopes use RegistryStorage
-  return storage.getInstalledBundle(bundleId, scope);
+  // User and workspace scopes use RegistryStorage; at user scope, the shared
+  // user record's host-tool item when RegistryStorage has none (BR16.x).
+  const stored = await storage.getInstalledBundle(bundleId, scope);
+  return stored !== undefined || scope !== 'user' ? stored : findUserRecordBundle(storage, bundleId);
 }
+
+/**
+ * The shared user record's item for a bundle, when the record holds the host
+ * tool's entry (BR16.x); `undefined` in WSL or when the record cannot be read.
+ * @param storage - The RegistryStorage instance (configured sources, user record path, bundle cache root).
+ * @param bundleId - The bundle ID to look up.
+ */
+const findUserRecordBundle = async (storage: RegistryStorage, bundleId: string): Promise<InstalledBundle | undefined> => {
+  try {
+    const paths = storage.getPaths();
+    const adapter = new ExtensionRecordAdapter({ sources: { listSources: () => storage.getSources() }, userRecordPath: paths.userRecord });
+    if (!adapter.usesSharedUserRecord()) {
+      return undefined;
+    }
+    const { items, hostBundleIds } = await new InstallRecordListing().listUserBundles(
+      adapter.userLocation(),
+      adapter.hostTool,
+      (id) => path.join(paths.root, 'bundles', id)
+    );
+    return hostBundleIds.has(bundleId) ? items.find((bundle) => bundle.bundleId === bundleId) : undefined;
+  } catch (error) {
+    Logger.getInstance().warn(`[bundleScopeUtils] Failed to read the user record for bundle ${bundleId}:`, error instanceof Error ? error : undefined);
+    return undefined;
+  }
+};

@@ -103,6 +103,7 @@ import {
 import {
   watchInstallRecords,
   watchOldLockfiles,
+  watchUserRecord,
 } from './services/install-record-listing';
 import {
   MigrationRegistry,
@@ -1177,6 +1178,27 @@ export class PromptRegistryExtension {
   }
 
   /**
+   * Watch the shared user record and refresh the installed view on any
+   * change, like the repository record watchers (BR16.x). Not set up in WSL,
+   * where the user record is not used; a failure is logged and never blocks
+   * activation.
+   */
+  private subscribeUserRecordChanges(): void {
+    try {
+      if (!this.registryManager.getRecordAdapter().usesSharedUserRecord()) {
+        return;
+      }
+      const refresh = (): void => {
+        this.logger.debug('User record changed, refreshing installed bundles');
+        this.registryManager.handleWorkspaceFoldersChanged();
+      };
+      this.disposables.push(watchUserRecord(this.registryManager.getStorage().getPaths().userRecord, refresh));
+    } catch (error) {
+      this.logger.warn('Failed to set up user record watcher:', error instanceof Error ? error : undefined);
+    }
+  }
+
+  /**
    * Initialize repository-level installation services: record watchers for
    * every workspace folder, and the RepositoryActivationService of the first one.
    */
@@ -1933,6 +1955,9 @@ export class PromptRegistryExtension {
 
       // Initialize repository-level installation services
       await this.initializeRepositoryServices();
+
+      // Watch the shared user record (BR16.x)
+      this.subscribeUserRecordChanges();
 
       // Register workspace folder change listener
       this.registerWorkspaceFolderListener();
