@@ -90,7 +90,7 @@ At repository scope, `install` writes a format `3.0.0` install record at the git
 - `ai-primitives-hub.lock.json` (commit mode) or `ai-primitives-hub.local.lock.json` (local-only, added to `.git/info/exclude`).
 - Each bundle has one entry per tool, so installing it for `vscode` and `kiro` keeps both. `-o json` reports the file in `data.lockfile`.
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
-- `prompt-registry.lock.json` and user-scope installs are left as they are.
+- `prompt-registry.lock.json` is left as it is. User-scope installs use the [user install record](#user-install-record).
 
 `uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`.
 
@@ -109,6 +109,22 @@ The VS Code extension uses the same record, under the tool of the editor it runs
 - Installing, updating or downgrading a bundle, or switching its commit mode, leaves its tool one version, also for a bundle id that ends with its version. Files only the old version wrote are deleted unless you edited them. The repository view lists one item per bundle, from the tool that installed it last.
 - Rewriting a bundle that an old `prompt-registry.lock.json` also lists, at any version, removes that old entry.
 - "Clean Up Stale Repository Bundles" lists one row per bundle and tool, offers only entries whose files are all missing, and removes the entries without deleting files.
+
+### User install record
+
+> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it.
+
+User-scope installs are recorded in one install record per machine, shared by the CLI and every VS Code profile: `ai-primitives-hub.user.lock.json` in the user config folder (`$XDG_CONFIG_HOME/ai-primitives-hub/`, by default `~/.config/ai-primitives-hub/`; on Windows `%USERPROFILE%\.config\ai-primitives-hub\`). It uses the same format `3.0.0` as the repository record, with one entry per bundle and tool, and file paths relative to your home folder (`HOME`, else `USERPROFILE`).
+
+- `install`, `uninstall`, `update` and `install --lockfile` at user scope use this record, and so do `status` and a bare `install` run outside a repository that has a record. `-o json` names it in `data.lockfile`, and text output ends with `Record: user <path>`.
+- A bundle installed from one VS Code profile is installed for every profile. Installing it again from another profile replaces the same entry.
+- A user target must write inside your home folder. A target folder outside it, or a tool folder such as `~/.copilot` that is a symlink pointing outside home, is refused with `RECORD.PATH_OUTSIDE_ROOT` before anything is written: use a target under your home folder or a repository target.
+- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, keeps its name and is only read: bundles that only it lists are still updated and uninstalled from it, and an uninstall from the new record keeps any file it still lists.
+- In the extension, user-scope installs made before this change in a profile are still listed; the profile's old entry is removed when you reinstall, update or uninstall the bundle.
+- The extension changes only its own tool's user entries; others are read-only, with the CLI command to use (`RECORD.CLI_MANAGED`).
+- In a WSL remote window the extension keeps recording user-scope installs per profile, as before, and does not use the shared record.
+- The CLI and the extension each read `XDG_CONFIG_HOME` from their own environment. A VS Code started from the macOS Dock or the Windows Start menu does not see a value set only in your shell; set it system-wide, or leave it unset, so both use the same file. The extension logs the path it uses when it starts.
+- Workspace-scope targets keep their current behaviour.
 
 ## Plugin Create (CLI)
 
