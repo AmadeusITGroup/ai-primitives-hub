@@ -774,6 +774,57 @@ suite('user record (U4)', function () {
     assert.ok(!fs.existsSync(userPath('.copilot/skills/review/SKILL.md')) && !fs.existsSync(userPath('.copilot/skills/review/checklist.md')), 'the skill files are removed');
   });
 
+  test('a user-scope skill install writes over a skill folder a copilot-cli user entry lists without the overwrite prompt; its files and both entries stay', async () => {
+    const skillsSource: RegistrySource = { id: 'acme-skills', name: 'Acme skills', type: 'local-skills', url: path.join(tempRoot, 'skills'), enabled: true, priority: 0 };
+    await storage.addSource(skillsSource);
+    const skill = { 'SKILL.md': '---\nname: review\n---\n# Review\n', 'checklist.md': '- tests\n' };
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    // The CLI's copilot-cli entry for the same skill files, in the shared `~/.copilot/skills`.
+    const cliFiles = Object.entries(skill).map(([name, content]) => {
+      zip.addFile(`skills/review/${name}`, Buffer.from(content));
+      const file = userPath(`.copilot/skills/review/${name}`);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+      return file;
+    });
+    const adapter = new ExtensionRecordAdapter({
+      sources: { listSources: () => Promise.resolve([skillsSource]) },
+      hostTool: 'vscode',
+      userRecordPath: userRecordPath(),
+      env: { HOME: home }
+    });
+    await adapter.service.recordInstall({
+      location: adapter.userLocation(), bundleId: 'review-skill', version: '1.0.0', tool: 'copilot-cli',
+      source: { sourceId: skillsSource.id, type: 'local-skills', url: skillsSource.url }, sourceType: 'local-skills',
+      writtenPaths: cliFiles, workspaceRoot: home, syncSiblings: false
+    });
+    const showWarning = vscode.window.showWarningMessage as sinon.SinonStub;
+
+    await manager.getBundleInstaller().installFromBuffer(
+      { ...v1Bundle(), id: 'review-skill', sourceId: skillsSource.id }, zip.toBuffer(), { scope: 'user' }, 'local-skills');
+
+    assert.ok(!showWarning.getCalls().some((call) => String(call.args[0]).includes('already exists')), 'no overwrite prompt');
+    assert.deepStrictEqual(cliFiles.filter((file) => !fs.existsSync(file)), [], 'the copilot-cli entry\'s files stay');
+    assert.deepStrictEqual(Object.keys(readUserRecord().bundles['review-skill'].tools).toSorted(), ['copilot-cli', 'vscode']);
+  });
+
+  test('a user-scope uninstall after ~/.copilot is re-pointed outside home is refused with RECORD.PATH_OUTSIDE_ROOT; the outside file stays', async function () {
+    if (process.platform === 'win32') {
+      this.skip();
+    }
+    await installUser();
+    const outside = path.join(tempRoot, 'outside-copilot');
+    fs.cpSync(userPath('.copilot'), outside, { recursive: true });
+    fs.rmSync(userPath('.copilot'), { recursive: true });
+    fs.symlinkSync(outside, userPath('.copilot'), 'dir');
+
+    await assert.rejects(manager.uninstallBundle(BUNDLE_ID, 'user'), { code: 'RECORD.PATH_OUTSIDE_ROOT' });
+
+    assert.strictEqual(fs.readFileSync(path.join(outside, 'prompts', 'hello.prompt.md'), 'utf8'), V1.files['prompts/hello.prompt.md']);
+  });
+
   test('a user-scope install with a malformed user record shows one error naming the file and writes nothing to the user folders', async () => {
     const malformed = '{ "version": "3.0.0", ';
     fs.mkdirSync(path.dirname(userRecordPath()), { recursive: true });
