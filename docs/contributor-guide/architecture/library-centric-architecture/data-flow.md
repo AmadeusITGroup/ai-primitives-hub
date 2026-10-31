@@ -175,8 +175,7 @@ sequenceDiagram
     participant Transform as TransformerRegistry
     participant Writer as FileTreeTargetWriter
     participant RepoWriter as RepositoryScopeWriter
-    participant Lockfile as LockfileStore
-    participant State as TargetStateStore
+    participant Records as RecordStore and InstallRecordService
     participant FS as File System
 
     User->>CLI: ai-primitives-hub install my-bundle --target my-vscode
@@ -184,6 +183,11 @@ sequenceDiagram
     Targets->>FS: Read ai-primitives-hub.yml
     FS-->>Targets: Target config
     Targets-->>CLI: Target object
+
+    CLI->>Records: select and load the record for the target level
+    Records->>FS: Read ai-primitives-hub.lock.json / .local.lock.json (git root) or the user record
+    Records->>Records: Migrate older files at this level (first change only)
+    Records-->>CLI: Loaded record
 
     CLI->>Source: resolveBundle(bundleId, sources)
     Source->>GitHub: List releases / contents
@@ -219,18 +223,16 @@ sequenceDiagram
         RepoWriter-->>CLI: Written paths
     end
 
-    CLI->>Lockfile: upsertBundle(bundleId, manifest)
-    Lockfile->>FS: Read prompt-registry.lock.json
-    Lockfile->>Lockfile: Add entry
-    Lockfile->>FS: Write lockfile
-    Lockfile-->>CLI: Updated lockfile
+    CLI->>Records: recordInstall(bundleId, tool, written paths)
+    Records->>FS: Checksum the written files
+    Records->>FS: Save the record (temp file, then rename)
+    Records-->>CLI: Superseded files
+    CLI->>FS: Delete superseded files
 
-    CLI->>State: updateTargetState(targetName, bundleId)
-    State->>FS: Write .ai-primitives-hub/target-state.json
-    State-->>CLI: Confirm
-
-    CLI-->>User: ✓ Installed to my-vscode
+    CLI-->>User: ✓ Installed to my-vscode (Record: level and path)
 ```
+
+Text version: the CLI loads the target, then selects and loads the install record for the target's level (migrating older `prompt-registry` files or the old user lockfile before the first change), resolves, downloads, extracts and validates the bundle, writes the files with the target's writer, records the tool's entry with checksums taken from disk, saves the record atomically, and deletes files the previous install wrote that the new one does not. `.ai-primitives-hub/target-state.json` is no longer read or written.
 
 ## 6. Profile Publish Flow
 

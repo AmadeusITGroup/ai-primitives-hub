@@ -114,7 +114,8 @@ graph TD
 - `scaffolding/` - `TemplateEngine` and template files
 - `search/` - BM25 search engine, `PrimitiveIndex`, tokenizer, tuning
 - `storage/` - Index storage utilities
-- `stores/` - JSON lockfile, target-state, and layout-config stores
+- `records/` - `NodeRecordFs` (the `RecordFs` port over `fs/promises`) and `RecordSchemaValidator` for install records
+- `stores/` - Hub, active-hub, target, profile-activation, favorites, index and layout-config stores
 - `telemetry/` - Telemetry and optional Elasticsearch transport
 - `transports/` - Telemetry transport abstractions
 - `writers/` - Per-target file writing (`FileTreeTargetWriter`) and `default-layouts.json`
@@ -151,7 +152,8 @@ graph TD
 - `search/` - Search orchestration
 - `transform/` - Multi-target content transforms (`kiro-transformer`, windsurf/devin, claude-code)
 - `writers/` - Application-level writers
-- `stores/` - Application-level stores
+- `records/` - Install records: `RecordStore`, `InstallRecordService`, `selectRecord`, `migrateRecords`
+- `stores/` - Application-level stores (the older 2.0.0 `json-lockfile-store`, kept for migration, workspace scope and `profile activate`)
 - `update/` - Update orchestration
 
 **Design Principle**: Application layer orchestrates infrastructure adapters for business use cases and exposes the public SDK surface.

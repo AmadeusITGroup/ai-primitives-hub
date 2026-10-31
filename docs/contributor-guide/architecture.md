@@ -160,14 +160,15 @@ and [Hub Schema](../reference/hub-schema.md) for field definitions.
 | Boundary | Current implementation |
 |---|---|
 | Source content | GitHub, Azure DevOps, URLs, local files, APM, skills, and Awesome Copilot adapters where supported by the relevant source model |
-| Shared application state | `AppStorage` port with the XDG-based infrastructure implementation |
-| Extension state | VS Code extension storage facades plus repository lockfiles |
-| Repository installation state | `prompt-registry.lock.json` and local-only lock/exclusion behavior |
+| Shared application state | `AppStorage` port with the XDG-based infrastructure implementation, including the shared user install record (`ai-primitives-hub.user.lock.json`) |
+| Extension state | VS Code extension storage facades (`ExtensionAppStorage`, with the per-profile bundle-record folders) plus the install records |
+| Repository installation state | Install records `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json` at the git root (format `3.0.0`, one entry per bundle and tool; older `prompt-registry.*` files are migrated) |
 | Target files | Host- and scope-aware writers/layout resolution |
 | MCP state | Host configuration files plus managed-server tracking |
 
-The existing `prompt-registry` identifiers are retained where changing them
-would break compatibility. See ADR-0004 in the
+The existing `prompt-registry` identifiers (extension name and publisher,
+`promptregistry.*` command IDs) are retained where changing them would break
+compatibility. See ADR-0004 and ADR-0011 in the
 [ADR index](./architecture/adr/adr-index.md).
 
 ## Documentation Boundaries
