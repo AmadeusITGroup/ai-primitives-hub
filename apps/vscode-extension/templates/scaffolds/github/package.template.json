@@ -37,7 +37,7 @@
     "*.zip"
   ],
   "devDependencies": {
-    "@ai-primitives-hub/cli": "^0.1.0"
+    "@ai-primitives-hub/cli": "^0.2.0"
   },
   "engines": {
     "node": ">=18.0.0"
