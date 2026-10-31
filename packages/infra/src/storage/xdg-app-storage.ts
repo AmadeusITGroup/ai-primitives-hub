@@ -21,6 +21,9 @@ import type {
   AppStoragePaths,
 } from '@ai-primitives-hub/core';
 import {
+  USER_RECORD_FILE_NAME,
+} from '@ai-primitives-hub/core';
+import {
   xdgCacheDir,
   xdgConfigDir,
   xdgDataDir,
@@ -50,7 +53,8 @@ export class XdgAppStorage implements AppStorage {
       userInstalled: path.join(dataDir, 'installed', 'user'),
       profilesInstalled: path.join(dataDir, 'installed', 'profiles'),
       profiles: path.join(dataDir, 'profiles'),
-      logs: path.join(dataDir, 'logs')
+      logs: path.join(dataDir, 'logs'),
+      userRecord: path.join(configDir, USER_RECORD_FILE_NAME)
     };
     this.statePath = path.join(dataDir, STATE_FILENAME);
   }
