@@ -27,6 +27,7 @@ import {
   it,
 } from 'vitest';
 import {
+  assertUserFolderInsideHome,
   findModifiedFiles,
   InstallRecordService,
   isLocalSourceInsideRoot,
@@ -36,6 +37,7 @@ import {
   type RecordInstallInput,
   RecordStore,
   resolveRecordSource,
+  resolveUserHome,
   selectRecord,
   type SelectRecordOptions,
   toRecordSource,
@@ -882,6 +884,134 @@ describe('repository install record', () => {
         fs.symlinkSync(path.join(base, 'outside'), path.join(root, 'sources', 'link'), 'dir');
 
         expect(await isLocalSourceInsideRoot(recordFs, root, 'sources/link')).toBe(false);
+      });
+    });
+  });
+
+  describe('shared user record (U4)', () => {
+    const recordFs = new NodeRecordFs();
+    let home: string;
+    let userRecord: string;
+    let userLockfile: string;
+    let user: RecordLocation;
+
+    beforeEach(() => {
+      home = path.join(base, 'home');
+      fs.mkdirSync(home, { recursive: true });
+      userRecord = path.join(home, '.config', 'ai-primitives-hub', 'ai-primitives-hub.user.lock.json');
+      userLockfile = path.join(home, '.config', 'ai-primitives-hub', 'ai-primitives-hub.lock.json');
+      user = store.resolveUser({ home, path: userRecord });
+    });
+
+    const installAtUser = (files: string[]): ReturnType<InstallRecordService['recordInstall']> => service.recordInstall({
+      location: user,
+      bundleId: BUNDLE,
+      version: '1.0.0',
+      tool: 'vscode',
+      source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' },
+      sourceType: 'github',
+      writtenPaths: files.map((relative) => {
+        const absolute = path.join(home, relative);
+        fs.mkdirSync(path.dirname(absolute), { recursive: true });
+        fs.writeFileSync(absolute, `content of ${relative}\n`);
+        return absolute;
+      })
+    });
+
+    it('loads a missing user record as empty and creates its folder on the first save, with home-relative paths', async () => {
+      const loaded = await store.load(user);
+
+      await installAtUser(['.copilot/prompts/a.prompt.md']);
+
+      const written = JSON.parse(fs.readFileSync(userRecord, 'utf8')) as InstallRecord;
+      expect({ exists: loaded.exists, root: user.root, level: written.level, files: written.bundles[BUNDLE].tools.vscode.files.map((file) => file.path) })
+        .toEqual({ exists: false, root: home, level: 'user', files: ['.copilot/prompts/a.prompt.md'] });
+    });
+
+    it('refuses a 2.0.0 file under the user record name with RECORD.LEGACY_UNMIGRATED', async () => {
+      fs.mkdirSync(path.dirname(userRecord), { recursive: true });
+      fs.writeFileSync(userRecord, JSON.stringify({ version: '2.0.0', bundles: {} }));
+
+      await expectCode(store.load(user), 'RECORD.LEGACY_UNMIGRATED');
+    });
+
+    it.skipIf(POSIX_ONLY)('refuses to load a user record once a recorded folder is re-pointed outside home', async () => {
+      await installAtUser(['.copilot/prompts/a.prompt.md']);
+      const outside = path.join(base, 'outside-copilot');
+      fs.mkdirSync(path.join(outside, 'prompts'), { recursive: true });
+      fs.writeFileSync(path.join(outside, 'prompts', 'a.prompt.md'), 'outside\n');
+      fs.rmSync(path.join(home, '.copilot'), { recursive: true });
+      fs.symlinkSync(outside, path.join(home, '.copilot'), 'dir');
+
+      await expectCode(store.load(user), 'RECORD.PATH_OUTSIDE_ROOT');
+      expect(fs.readFileSync(path.join(outside, 'prompts', 'a.prompt.md'), 'utf8')).toBe('outside\n');
+    });
+
+    it.each([
+      ['HOME when it is set', { HOME: '/h/home', USERPROFILE: '/h/profile' }, (): string => path.resolve('/h/home')],
+      ['USERPROFILE when HOME is empty', { HOME: '', USERPROFILE: '/h/profile' }, (): string => path.resolve('/h/profile')],
+      ['os.homedir() when both are unset', {}, (): string => path.resolve(os.homedir())]
+    ])('resolveUserHome uses %s', (_label, env, expected) => {
+      expect(resolveUserHome(env)).toBe(expected());
+    });
+
+    it.each([
+      ['a folder under home that does not exist yet', (): string => path.join(home, '.copilot', 'prompts'), undefined],
+      ['an absolute folder outside home', (): string => path.join(base, 'elsewhere'), 'RECORD.PATH_OUTSIDE_ROOT']
+    ])('assertUserFolderInsideHome with %s', async (_label, folder, code) => {
+      const check = assertUserFolderInsideHome(recordFs, home, folder());
+
+      await (code === undefined ? expect(check).resolves.toBeUndefined() : expectCode(check, code));
+    });
+
+    it.skipIf(POSIX_ONLY)('assertUserFolderInsideHome refuses a tool folder symlinked outside home', async () => {
+      fs.mkdirSync(path.join(base, 'outside-kiro'), { recursive: true });
+      fs.symlinkSync(path.join(base, 'outside-kiro'), path.join(home, '.kiro'), 'dir');
+
+      await expectCode(assertUserFolderInsideHome(recordFs, home, path.join(home, '.kiro', 'steering')), 'RECORD.PATH_OUTSIDE_ROOT');
+    });
+
+    describe('selectRecord at user level', () => {
+      let cwd: string;
+
+      const select = (given?: SelectRecordOptions['given']): ReturnType<typeof selectRecord> => selectRecord({
+        store,
+        fs: recordFs,
+        cwd,
+        given,
+        findOldLockfile: (start) => findLockfile(start, { exists: (file) => Promise.resolve(fs.existsSync(file)) }, userLockfile),
+        userLockfile,
+        userRecord,
+        home
+      });
+
+      beforeEach(() => {
+        cwd = path.join(base, 'not-a-repo');
+        fs.mkdirSync(cwd, { recursive: true });
+        fs.mkdirSync(path.dirname(userLockfile), { recursive: true });
+        fs.writeFileSync(userLockfile, '{}');
+      });
+
+      it.each([
+        ['--scope user', (): SelectRecordOptions['given'] => ({ scope: 'user' }), 'explicit-scope', false],
+        ['a user-scope target', (): SelectRecordOptions['given'] => ({ target: { scope: 'user' } }), 'target-scope', false],
+        ['no level outside a repository', (): SelectRecordOptions['given'] => undefined, 'user-fallback', true],
+        ['--lockfile naming the user record', (): SelectRecordOptions['given'] => ({ lockfile: userRecord }), 'lockfile-flag', false]
+      ])('%s selects the shared user record with the old user lockfile as old store', async (_label, given, reason, inferred) => {
+        const selection = await select(given());
+        const seen = { level: selection.level, root: selection.root, files: selection.locations.map((location) => location.path) };
+
+        expect({ ...seen, old: selection.oldLockfile, reason: selection.reason, inferred: selection.inferred })
+          .toEqual({ level: 'user', root: home, files: [userRecord], old: userLockfile, reason, inferred });
+      });
+
+      it.each([
+        ['--lockfile naming the old user lockfile', (): SelectRecordOptions['given'] => ({ lockfile: userLockfile })],
+        ['a workspace-scope target', (): SelectRecordOptions['given'] => ({ target: { scope: 'workspace', rootPath: cwd } })]
+      ])('%s keeps the old user lockfile only', async (_label, given) => {
+        const selection = await select(given());
+
+        expect({ level: selection.level, files: selection.locations, old: selection.oldLockfile }).toEqual({ level: 'user', files: [], old: userLockfile });
       });
     });
   });
