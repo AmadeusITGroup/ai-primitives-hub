@@ -1134,16 +1134,39 @@ suite('older records (U5)', function () {
     assert.strictEqual(info.getCalls().filter((call) => String(call.args[0]).startsWith(MIGRATION_LOG_PREFIX)).length, 2, 'two log entries');
   });
 
-  const profileCases: { name: string; wsl: boolean }[] = [
-    { name: 'outside WSL a user write migrates this profile\'s RegistryStorage user entry under vscode with its file and removes it from RegistryStorage', wsl: false },
-    { name: 'in WSL a user write leaves this profile\'s RegistryStorage user entry as it is', wsl: true }
+  const profileCases: { name: string; wsl?: boolean; otherToolFirst?: boolean; removeFailsOnce?: boolean; toolsAfter?: string[] }[] = [
+    { name: 'outside WSL a user write migrates this profile\'s RegistryStorage user entry under vscode with its file and removes it from RegistryStorage', toolsAfter: ['vscode'] },
+    { name: 'in WSL a user write leaves this profile\'s RegistryStorage user entry as it is', wsl: true },
+    {
+      name: 'a user record holding the bundle only for kiro keeps that entry, adds the profile\'s vscode entry beside it and removes it from RegistryStorage',
+      otherToolFirst: true,
+      toolsAfter: ['kiro', 'vscode']
+    },
+    {
+      name: 'a RegistryStorage removal that fails is shown in one warning, the action continues, and the next user write removes it',
+      removeFailsOnce: true,
+      toolsAfter: ['vscode']
+    }
   ];
-  profileCases.forEach(({ name, wsl }) => {
+  profileCases.forEach(({ name, wsl = false, otherToolFirst = false, removeFailsOnce = false, toolsAfter }) => {
     test(name, async () => {
       if (wsl) {
         sandbox.stub(vscode.env, 'remoteName').value('wsl');
       }
       await recordProfileInstall();
+      const adapter = manager.getRecordAdapter();
+      if (otherToolFirst) {
+        const kiroFile = userPath('.kiro/steering/hello.md');
+        fs.mkdirSync(path.dirname(kiroFile), { recursive: true });
+        fs.writeFileSync(kiroFile, '# Hello for kiro\n');
+        await adapter.service.recordInstall({
+          location: adapter.userLocation(), bundleId: BUNDLE_ID, version: V1.version, tool: 'kiro',
+          source: { sourceId: localSource.id, type: 'local', url: localSource.url }, sourceType: 'local', writtenPaths: [kiroFile]
+        });
+      }
+      if (removeFailsOnce) {
+        sandbox.stub(storage, 'removeInstallation').callThrough().onFirstCall().rejects(new Error('storage is busy'));
+      }
 
       await manager.installBundle(OTHER_ID, { scope: 'user' });
 
@@ -1154,12 +1177,29 @@ suite('older records (U5)', function () {
         assert.strictEqual(readUserRecord(), null, 'no user record in WSL');
         return;
       }
-      assert.strictEqual(stored, undefined, 'removed from RegistryStorage');
-      const { installedAt: _installedAt, ...entry } = readUserRecord().bundles[BUNDLE_ID].tools.vscode;
+      const record = readUserRecord();
+      assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools), toolsAfter);
+      assert.deepStrictEqual(Object.keys(record.bundles[OTHER_ID].tools), ['vscode'], 'the action ran');
+      const { installedAt: _installedAt, ...entry } = record.bundles[BUNDLE_ID].tools.vscode;
       assert.deepStrictEqual(entry, {
         version: V0.version, sourceId: localSource.id, sourceType: 'local',
         files: [{ path: USER_HELLO, checksum: sha256(V0.files['prompts/hello.prompt.md']) }]
       });
+      if (removeFailsOnce) {
+        const warnings = showWarning.getCalls().map((call) => String(call.args[0]));
+        assert.deepStrictEqual(warnings.filter((warning) => warning.includes('could not remove the old profile entries')), [
+          `Migrated the user install record, but could not remove the old profile entries of ${BUNDLE_ID}. They are removed on the next change.`
+        ]);
+        assert.strictEqual(stored?.version, V0.version, 'still in RegistryStorage after the failed removal');
+        const saved = fs.readFileSync(storage.getPaths().userRecord, 'utf8');
+
+        await adapter.migrateBeforeWrite('user', home);
+
+        assert.strictEqual(fs.readFileSync(storage.getPaths().userRecord, 'utf8'), saved, 'the saved record is unchanged');
+        assert.strictEqual(await storage.getInstalledBundle(BUNDLE_ID, 'user'), undefined, 'removed on the next user write');
+        return;
+      }
+      assert.strictEqual(stored, undefined, 'removed from RegistryStorage');
     });
   });
 
