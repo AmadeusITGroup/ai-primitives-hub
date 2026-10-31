@@ -1035,6 +1035,18 @@ agents:
       expect(lines).toContain('prompt-registry.local.lock.json');
     });
 
+    it('local-only excludes a local lockfile an earlier install left out of the exclude file', async () => {
+      await mkdir(path.join(workspace, '.git'));
+      await addRepositoryTarget('repo', 'vscode');
+      expect((await installRepository('repo', ['--commit-mode', 'local-only'])).exitCode).toBe(0);
+      await writeFile(path.join(workspace, '.git', 'info', 'exclude'), '# existing\n');
+
+      const result = await installRepository('repo', ['--commit-mode', 'local-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await excludeLines()).toContain('prompt-registry.local.lock.json');
+    });
+
     it('records targetType, no commitMode and installedPath where placement differs from the route', async () => {
       await writeBundle(bundleDir, 'placements', [
         { path: 'prompts/top.prompt.md', kind: 'prompt' },

@@ -126,10 +126,11 @@ const withRecord = (lock: Lockfile, key: string, entry: LockfileBundleEntry, sou
   upsertSource(upsertBundleEntry(lock, key, entry), source.id, source.descriptor);
 
 /**
- * Store over the two repository lockfiles. Creating the local lockfile
- * adds it to the exclusion list and deleting it removes it there; errors
- * of those two calls are ignored (the use cases' own exclusion calls on
- * the same list report the problem).
+ * Store over the two repository lockfiles. Writing the local lockfile
+ * adds it to the exclusion list (the list skips lines it already has)
+ * and deleting it removes it there; errors of those two calls are
+ * ignored (the use cases' own exclusion calls on the same list report
+ * the problem).
  * @param opts Repository store options.
  * @param opts.fs Filesystem.
  * @param opts.rootPath Repository root.
@@ -192,7 +193,8 @@ function repositoryStore(opts: { fs: FileSystem; rootPath: string; generatedBy: 
       const file = pathFor(commitMode);
       const existing = await readLockfile(file, fs);
       await writeLockfile(file, withRecord(existing ?? emptyLockfile(generatedBy), key, entry, source), fs);
-      if (existing === null && commitMode === 'local-only') {
+      if (commitMode === 'local-only') {
+        // Every time, not only on creation: a local lockfile an earlier install left unexcluded gets excluded too.
         await quietly(() => exclusion.add([file]));
       }
       // Written first, removed second: a crash in between leaves the record in both files, never in none.

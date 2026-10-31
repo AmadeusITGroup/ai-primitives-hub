@@ -178,7 +178,7 @@ For local-only mode, paths are added to the git exclude file through the `Reposi
 prompt-registry.local.lock.json
 ```
 
-The local lockfile (`prompt-registry.local.lock.json`) is automatically added to `.git/info/exclude` when created and removed when deleted.
+The local lockfile (`prompt-registry.local.lock.json`) is listed in the same exclude file and removed from it when the lockfile is deleted: `.git/info/exclude` in a plain repository, otherwise the exclude file `GitInfoExclude` resolves from the gitdir (the main repository's for a linked worktree, `.git/modules/<name>/info/exclude` for a submodule; see [Exclusion Ownership](#exclusion-ownership)). The CLI adds it on every local-only install, so a local lockfile an earlier version left out of the exclude file is added too.
 
 This file is local to the user's machine and not committed to Git.
 

@@ -142,15 +142,16 @@ describe('createLockfileRecordStore (repository)', () => {
     expect(Object.keys((await read(fs, LOCAL_LOCK)).bundles)).toEqual(['a']);
   });
 
-  it('excludes the local lockfile when it creates it and un-excludes it when it deletes it', async () => {
+  it('excludes the local lockfile on every local-only put and un-excludes it when it deletes it', async () => {
     const fs = new InMemoryFileSystem();
     const exclusion = new RecordingExclusion();
     const store = repositoryStore(fs, exclusion);
 
     await store.put('a', entry('1.0.0'), source(), 'local-only');
     await store.put('b', entry('1.0.0'), source(), 'local-only');
+    await store.put('c', entry('1.0.0'), source(), 'commit');
 
-    expect(exclusion.added).toEqual([[LOCAL_LOCK]]);
+    expect(exclusion.added).toEqual([[LOCAL_LOCK], [LOCAL_LOCK]]);
 
     await store.remove('a');
     expect(exclusion.removed).toEqual([]);
@@ -158,6 +159,16 @@ describe('createLockfileRecordStore (repository)', () => {
 
     expect(await fs.exists(LOCAL_LOCK)).toBe(false);
     expect(exclusion.removed).toEqual([[LOCAL_LOCK]]);
+  });
+
+  it('excludes a local lockfile that already exists', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed(LOCAL_LOCK, lockfile({ earlier: entry('1.0.0') }));
+    const exclusion = new RecordingExclusion();
+
+    await repositoryStore(fs, exclusion).put('a', entry('1.0.0'), source(), 'local-only');
+
+    expect(exclusion.added).toEqual([[LOCAL_LOCK]]);
   });
 
   it('ignores exclusion errors around the local lockfile', async () => {
