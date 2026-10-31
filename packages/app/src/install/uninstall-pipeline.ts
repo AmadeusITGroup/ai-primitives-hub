@@ -12,7 +12,8 @@
  * (`prompt-registry.lock.json` for `commit` mode,
  * `prompt-registry.local.lock.json` for `local-only`) with no
  * per-entry `target` field, a bundle id is looked up in both files
- * (mirroring the extension's own `LockfileManager.remove()`), and
+ * (the extension's install record service does the same for its old
+ * lockfiles), and
  * whichever file it's found in is the one updated.
  *
  * Known gap (matches the reference branch's own pipeline, not a

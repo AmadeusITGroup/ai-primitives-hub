@@ -4,8 +4,8 @@
  *
  * The interactive "local modifications" warning dialog
  * (`checkLocalModificationsBeforeUpdate` in the original) stays
- * entirely in the extension — it drives VS Code warning dialogs and
- * `LockfileManager`, neither of which are portable — and is injected
+ * entirely in the extension — it drives VS Code warning dialogs and reads
+ * the extension's install records, neither of which are portable — and is injected
  * here as the optional `checkLocalModifications` port, called at the
  * exact point in the sequence the original called it: after resolving
  * the current installation, before resolving the new bundle version.
@@ -97,8 +97,8 @@ export async function updateRegistryBundle(
   // CRITICAL: Write new installation record first, then remove old record.
   // This ordering ensures crash-safety - if removal fails, we have the new
   // record; if the write fails, the old record remains intact.
-  // Note: Repository scope bundles are tracked via LockfileManager, not
-  // RegistryStorage; the lockfile is already updated by the installer during
+  // Note: Repository scope bundles are tracked in the install record, not
+  // RegistryStorage; the record is already updated by the installer during
   // update.
   log(onLog, 'debug', `Recording new installation for '${updated.bundleId}' v${updated.version}`);
   if (current.scope !== 'repository') {
