@@ -107,9 +107,10 @@ const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
  * Write a bundle version's folder: its manifest and files.
  * @param dir - Bundle folder.
  * @param bundle - Bundle version.
+ * @param bundleId - Bundle id the manifest declares.
  */
-const writeBundleDir = (dir: string, bundle: BundleVersion): void => {
-  for (const [file, content] of Object.entries({ 'deployment-manifest.yml': manifestOf(bundle), ...bundle.files })) {
+const writeBundleDir = (dir: string, bundle: BundleVersion, bundleId = BUNDLE_ID): void => {
+  for (const [file, content] of Object.entries({ 'deployment-manifest.yml': manifestOf(bundle, bundleId), ...bundle.files })) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), content);
   }
@@ -687,6 +688,58 @@ suite('user record (U4)', function () {
       assert.deepStrictEqual(Object.keys(record.bundles[id].tools), ['vscode'], id);
       assert.deepStrictEqual(record.bundles[id].tools.vscode.files.map((file: { path: string }) => file.path), [`.copilot/prompts/${id}.prompt.md`], id);
     }
+  });
+
+  test('a profile activated at user scope is recorded only in the user record; deactivating it uninstalls its bundles and files', async () => {
+    const ids = ['profile-a', 'profile-b'];
+    const files = ids.map((id) => userPath(`.copilot/prompts/${id}.prompt.md`));
+    const bundles = ids.map((id, index): Bundle => {
+      const dir = path.join(localSource.url, id);
+      writeBundleDir(dir, { version: '1.0.0', files: { [`prompts/${id}.prompt.md`]: `# ${id}\n` }, items: [{ id, file: `prompts/${id}.prompt.md`, type: 'prompt' }] }, id);
+      return { ...v1Bundle(), id, name: `Team bundle ${index}`, manifestUrl: pathToFileURL(path.join(dir, 'deployment-manifest.yml')).href, downloadUrl: pathToFileURL(dir).href };
+    });
+    await storage.cacheSourceBundles(localSource.id, [v1Bundle(), ...bundles]);
+    await storage.addProfile({
+      id: 'team', name: 'Team', description: '', icon: '', active: false, createdAt: '', updatedAt: '',
+      bundles: ids.map((id) => ({ id, version: '1.0.0', sourceId: localSource.id, required: true }))
+    });
+    const recordInstallation = sandbox.spy(RegistryStorage.prototype, 'recordInstallation');
+
+    await manager.activateProfile('team');
+
+    assert.strictEqual(recordInstallation.callCount, 0, 'RegistryStorage.recordInstallation is not called');
+    assert.deepStrictEqual(await storage.getInstalledBundles('user'), []);
+    assert.deepStrictEqual(ids.map((id) => Object.keys(readUserRecord()?.bundles[id]?.tools ?? {})), [['vscode'], ['vscode']]);
+    assert.ok(files.every((file) => fs.existsSync(file)), 'both bundles are installed');
+
+    await manager.deactivateProfile('team');
+
+    assert.deepStrictEqual(ids.filter((id) => readUserRecord()?.bundles[id] !== undefined), [], 'both are gone from the user record');
+    assert.deepStrictEqual(files.filter((file) => fs.existsSync(file)), [], 'their files are removed');
+  });
+
+  test('a user-scope install from a local-skills source records the skill folder files in the user record; uninstall removes them', async () => {
+    const skillsSource: RegistrySource = { id: 'acme-skills', name: 'Acme skills', type: 'local-skills', url: path.join(tempRoot, 'skills'), enabled: true, priority: 0 };
+    await storage.addSource(skillsSource);
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    zip.addFile('skills/review/SKILL.md', Buffer.from('---\nname: review\n---\n# Review\n'));
+    zip.addFile('skills/review/checklist.md', Buffer.from('- tests\n'));
+    const recordInstallation = sandbox.spy(RegistryStorage.prototype, 'recordInstallation');
+
+    const installed = await manager.getBundleInstaller().installFromBuffer(
+      { ...v1Bundle(), id: 'review-skill', sourceId: skillsSource.id }, zip.toBuffer(), { scope: 'user' }, 'local-skills');
+
+    assert.strictEqual(installed.recordOrigin, 'install-record');
+    assert.deepStrictEqual(readUserRecord().bundles['review-skill'].tools.vscode.files.map((file: { path: string }) => file.path).toSorted(),
+      ['.copilot/skills/review/SKILL.md', '.copilot/skills/review/checklist.md']);
+    assert.strictEqual(recordInstallation.callCount, 0, 'RegistryStorage.recordInstallation is not called');
+
+    await manager.uninstallBundle('review-skill', 'user');
+
+    assert.strictEqual(readUserRecord()?.bundles['review-skill'], undefined);
+    assert.ok(!fs.existsSync(userPath('.copilot/skills/review/SKILL.md')) && !fs.existsSync(userPath('.copilot/skills/review/checklist.md')), 'the skill files are removed');
   });
 
   test('a user-scope install with a malformed user record shows one error naming the file and writes nothing to the user folders', async () => {

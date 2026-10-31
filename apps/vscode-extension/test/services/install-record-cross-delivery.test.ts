@@ -89,8 +89,9 @@ const loadCli = (): CliModules => {
  * @param cli - Loaded CLI.
  * @param cwd - Working folder.
  * @param home - Home folder for the CLI's user config.
+ * @param userProfile - `USERPROFILE`; the home folder by default.
  */
-const cliIn = (cli: CliModules, cwd: string, home: string) => async (argv: string[]): Promise<CliRunResult> => {
+const cliIn = (cli: CliModules, cwd: string, home: string, userProfile = home) => async (argv: string[]): Promise<CliRunResult> => {
   const result = await cli.runCommand(argv, {
     commandClasses: cli.commandClasses,
     context: {
@@ -98,7 +99,7 @@ const cliIn = (cli: CliModules, cwd: string, home: string) => async (argv: strin
       fs: new NodeFileSystem(),
       env: {
         HOME: home,
-        USERPROFILE: home,
+        USERPROFILE: userProfile,
         XDG_CONFIG_HOME: path.join(home, 'xdg-config'),
         XDG_CACHE_HOME: path.join(home, 'xdg-cache')
       }
@@ -290,6 +291,8 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
   let tempRoot: string;
   let bundleDir: string;
   let home: string;
+  /** `USERPROFILE`, a folder other than `HOME`: nothing may be written under it (NFR4.17). */
+  let userProfile: string;
   let cli: CliModules;
   let manager: RegistryManager;
   let restoreEnv: () => void;
@@ -307,9 +310,12 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     ({ tempRoot, bundleDir } = createFixture());
     home = path.join(tempRoot, 'home');
     fs.mkdirSync(home, { recursive: true });
-    // The same HOME and XDG_CONFIG_HOME as `cliIn` gives the CLI.
-    restoreEnv = overrideEnv({ HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, 'xdg-config') });
-    runCli = cliIn(cli, home, home);
+    // A different USERPROFILE: both must use HOME as the one home (NFR4.17).
+    userProfile = path.join(tempRoot, 'profile');
+    fs.mkdirSync(userProfile, { recursive: true });
+    // The same HOME, USERPROFILE and XDG_CONFIG_HOME as `cliIn` gives the CLI.
+    restoreEnv = overrideEnv({ HOME: home, USERPROFILE: userProfile, XDG_CONFIG_HOME: path.join(home, 'xdg-config') });
+    runCli = cliIn(cli, home, home, userProfile);
 
     (RegistryManager as any).instance = undefined;
     manager = RegistryManager.getInstance({
@@ -339,6 +345,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     for (const file of USER_INSTALLED_FILES) {
       assert.ok(fs.existsSync(userFile(file)), `${file} installed`);
     }
+    assert.deepStrictEqual(fs.readdirSync(userProfile), [], 'nothing is written under USERPROFILE');
 
     const items = await manager.listInstalledBundles('user');
     assert.deepStrictEqual(items.map(({ bundleId, version, scope, recordOrigin }) => ({ bundleId, version, scope, recordOrigin })), [
@@ -358,6 +365,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     for (const file of USER_INSTALLED_FILES) {
       assert.ok(fs.existsSync(userFile(file)), `${file} installed`);
     }
+    assert.deepStrictEqual(fs.readdirSync(userProfile), [], 'nothing is written under USERPROFILE');
 
     await runCli(['target', 'add', 'user-vscode', '--type', 'vscode', '-o', 'json']);
     const status = JSON.parse((await runCli(['status', '-o', 'json'])).stdout).data;

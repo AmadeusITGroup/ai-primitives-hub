@@ -881,9 +881,9 @@ export class BundleInstaller {
     const repository = options.scope === 'repository'
       ? await this.prepareRepositoryInstall(bundle, options.commitMode ?? 'commit', inPlace)
       : undefined;
-    // User installs on the shared user record do the same with the user record (BR16.x);
-    // skills installed straight into the skills folder stay on RegistryStorage.
-    const user = options.scope === 'user' && !installSkillsToCopilotDir && this.records.usesSharedUserRecord()
+    // User installs on the shared user record do the same with the user record (BR16.x),
+    // skills installed straight into the skills folder included.
+    const user = options.scope === 'user' && this.records.usesSharedUserRecord()
       ? await this.prepareUserInstall(bundle, inPlace?.previousBundleId)
       : undefined;
 
@@ -1001,9 +1001,10 @@ export class BundleInstaller {
             throw new Error(`Skill directory not found in bundle: ${skillDir}`);
           }
 
-          // Check for existing skill using checkPathExists to detect broken symlinks
+          // Check for existing skill using checkPathExists to detect broken symlinks.
+          // A user update in place writes over its own skill folder (BR16.x): no prompt, no removal.
           const existingEntry = await checkPathExists(installDir);
-          if (existingEntry.exists) {
+          if (existingEntry.exists && !(user && inPlace)) {
             // For broken symlinks, we can safely remove without prompting
             if (existingEntry.isBroken) {
               await fs.promises.unlink(installDir);
@@ -1087,6 +1088,11 @@ export class BundleInstaller {
       // Step 9: Install MCP servers if defined (skip for skills bundles)
       if (installSkillsToCopilotDir) {
         this.logger.debug('Skills bundle - skipping MCP servers and Copilot sync (already installed to ~/.copilot/skills/)');
+        if (user) {
+          // The user record is the store of this install: RegistryStorage is not written (BR16.x).
+          await this.recordUserInstall(bundle, user, outcome.write.written);
+          installed.recordOrigin = 'install-record';
+        }
       } else {
         // Skills bundles going through repository scope should still skip MCP servers
         if (!isSkillsBundle) {
@@ -1366,6 +1372,11 @@ export class BundleInstaller {
    * @param installed The installed bundle record
    */
   public async uninstallSkillSymlink(installed: InstalledBundle): Promise<void> {
+    if (installed.recordOrigin === 'install-record') {
+      // A local skill installed from a buffer is held by the user record, not linked (BR16.x).
+      await this.uninstall(installed);
+      return;
+    }
     this.logger.info(`Uninstalling skill symlink: ${installed.bundleId}`);
 
     try {

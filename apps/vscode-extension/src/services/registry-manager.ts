@@ -411,6 +411,26 @@ export class RegistryManager {
     await this.storage.recordInstallation(installation);
   }
 
+  /**
+   * Installs profile deactivation looks through for a profile's bundles: the
+   * RegistryStorage installs, plus, on the shared user record (which has no
+   * profile key, BR16.x), the host tool's user record items of the local
+   * profile's bundle ids, attributed to that profile.
+   * @param profileId - Profile being deactivated.
+   */
+  private async listProfileInstalls(profileId: string): Promise<InstalledBundle[]> {
+    const stored = await this.storage.getInstalledBundles();
+    const profile = (await this.storage.getProfiles()).find((candidate) => candidate.id === profileId);
+    if (!profile?.bundles?.length || !this.recordAdapter.usesSharedUserRecord()) {
+      return stored;
+    }
+    const profileBundleIds = new Set(profile.bundles.map((bundle) => bundle.id));
+    const attributed = new Set(stored.filter((bundle) => bundle.profileId === profileId).map((bundle) => bundle.bundleId));
+    const { items, hostBundleIds } = await this.listUserRecordBundles();
+    const owned = items.filter((item) => hostBundleIds.has(item.bundleId) && profileBundleIds.has(item.bundleId) && !attributed.has(item.bundleId));
+    return [...stored, ...owned.map((item) => ({ ...item, profileId }))];
+  }
+
   private invalidatePrimitiveIndexKeyCache(): void {
     this.primitiveIndexKeyCache.clear();
   }
@@ -2062,7 +2082,7 @@ export class RegistryManager {
           getAdapter: (source) => this.getAdapter(source),
           installFromBuffer: (bundle, buffer, options, sourceType) =>
             this.installer.installFromBuffer(bundle, buffer, options, sourceType),
-          recordInstallation: (installation) => this.storage.recordInstallation(installation as InstalledBundle),
+          recordInstallation: (installation) => this.recordStoredInstallation(installation as InstalledBundle),
           deactivateOther: (id) => this.deactivateProfile(id),
           hub: this.hubManager && {
             listActiveHubProfiles: () => this.hubManager!.listActiveHubProfiles(),
@@ -2108,7 +2128,7 @@ export class RegistryManager {
       {
         getProfiles: () => this.storage.getProfiles(),
         updateProfile: (id, updates) => this.storage.updateProfile(id, updates),
-        getInstalledBundles: () => this.storage.getInstalledBundles(),
+        getInstalledBundles: () => this.listProfileInstalls(profileId),
         uninstallBundles: (bundleIds) => this.uninstallBundles(bundleIds),
         hub: this.hubManager && {
           listActiveHubProfiles: () => this.hubManager!.listActiveHubProfiles(),
