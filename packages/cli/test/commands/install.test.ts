@@ -712,7 +712,7 @@ agents:
     ).rejects.toThrow();
   });
 
-  it('removes a prompt the new version dropped on a vscode repository reinstall', async () => {
+  it.each(['vscode', 'vscode-insiders', 'copilot-cli'])('removes a prompt the new version dropped on a %s repository reinstall', async (type) => {
     const manifest = (version: string, prompts: string[]): string => [
       'id: local-foo',
       `version: ${version}`,
@@ -728,12 +728,12 @@ agents:
       ]));
     };
     const addTarget = await run([
-      'target', 'add', 'repository-vscode', '--type', 'vscode', '--scope', 'repository',
+      'target', 'add', 'repository-vscode', '--type', type, '--scope', 'repository',
       '--workspace-root', workspace, '-o', 'json'
     ]);
     expect(addTarget.exitCode).toBe(0);
     const install = (): ReturnType<typeof run> => run([
-      'install', 'local-foo', '--from', bundleDir, '--target', 'repository-vscode', '-o', 'json'
+      'install', 'local-foo', '--from', bundleDir, '--target', 'repository-vscode', '--scope', 'repository', '-o', 'json'
     ]);
 
     await writeVersion('1.0.0', ['kept', 'dropped']);
