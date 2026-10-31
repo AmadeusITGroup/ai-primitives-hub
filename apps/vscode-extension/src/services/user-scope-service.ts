@@ -28,6 +28,7 @@ import {
   expandPath,
   KIND_TO_ROUTE_KEY,
   resolveLayout,
+  resolveUserHome,
   TransformerRegistry,
 } from '@ai-primitives-hub/app';
 import {
@@ -71,6 +72,18 @@ const unlink = promisify(fs.unlink);
 const symlink = promisify(fs.symlink);
 const lstat = promisify(fs.lstat);
 
+/** Every primitive kind, in the order {@link UserScopeService.userFolders} lists folders. */
+const ALL_COPILOT_FILE_TYPES: readonly CopilotFileType[] = ['prompt', 'instructions', 'chatmode', 'agent', 'skill'];
+
+/** Options of {@link UserScopeService.unsyncBundle}. */
+export interface UserUnsyncOptions {
+  /**
+   * Absolute paths another user record entry still lists (BR16.x): a target
+   * at one of them, or a skill folder holding one, is left in place.
+   */
+  keep?: ReadonlySet<string>;
+}
+
 export interface CopilotFile {
   bundleId: string;
   type: CopilotFileType;
@@ -93,7 +106,7 @@ export class UserScopeService implements IScopeService {
   private warnedWslFallback = false;
   private cachedPromptsDir: string | undefined;
 
-  constructor(private readonly context: vscode.ExtensionContext, homeDir = os.homedir(), targetType?: TargetType) {
+  constructor(private readonly context: vscode.ExtensionContext, homeDir = resolveUserHome(process.env), targetType?: TargetType) {
     this.logger = Logger.getInstance();
     this.homeDir = homeDir;
     this.targetType = targetType ?? this.detectTargetType();
@@ -347,8 +360,9 @@ export class UserScopeService implements IScopeService {
    * @param bundleId
    * @param bundlePath
    * @param promptDef
+   * @returns Absolute files written; empty when nothing was synced.
    */
-  private async syncSkillFromBundle(bundleId: string, bundlePath: string, promptDef: any): Promise<void> {
+  private async syncSkillFromBundle(bundleId: string, bundlePath: string, promptDef: any): Promise<string[]> {
     try {
       // Extract skill name and source directory from the manifest file path
       const skillPath = promptDef.file;
@@ -356,21 +370,23 @@ export class UserScopeService implements IScopeService {
 
       if (!skillName) {
         this.logger.warn(`Invalid skill path: ${skillPath}`);
-        return;
+        return [];
       }
 
       const skillSourceDir = await resolveExistingPathInside(bundlePath, path.dirname(skillPath));
       if (!skillSourceDir || !(await fs.promises.stat(skillSourceDir)).isDirectory()) {
         this.logger.warn(`Skill directory not found or outside bundle: ${skillPath}`);
-        return;
+        return [];
       }
 
       // Sync skill to ~/.copilot/skills
-      await this.syncSkill(skillName, skillSourceDir, 'user');
+      const written = await this.syncSkill(skillName, skillSourceDir, 'user');
 
       this.logger.info(`✅ Synced skill: ${skillName}`);
+      return written;
     } catch (error) {
       this.logger.error(`Failed to sync skill from bundle ${bundleId}`, error as Error);
+      return [];
     }
   }
 
@@ -415,8 +431,9 @@ export class UserScopeService implements IScopeService {
    * Uses lstat() to detect symlinks (including broken ones) since fs.existsSync()
    * returns false for broken symlinks.
    * @param file
+   * @returns Whether the target was written (symlink or copy).
    */
-  private async createCopilotFile(file: CopilotFile): Promise<void> {
+  private async createCopilotFile(file: CopilotFile): Promise<boolean> {
     try {
       // Check if target already exists using lstat() to detect broken symlinks
       // fs.existsSync() returns false for broken symlinks, but lstat() can still read them
@@ -434,7 +451,7 @@ export class UserScopeService implements IScopeService {
         } else {
           // It's a regular file on non-WSL - might be user's custom file, skip
           this.logger.warn(`File already exists (not managed): ${file.targetPath}`);
-          return;
+          return false;
         }
       }
 
@@ -466,6 +483,7 @@ export class UserScopeService implements IScopeService {
       }
 
       this.logger.info(`✅ Synced ${file.type}: ${file.name} → ${path.basename(file.targetPath)}`);
+      return true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
@@ -475,6 +493,7 @@ export class UserScopeService implements IScopeService {
         bundleId: file.bundleId,
         fileType: file.type
       } as any);
+      return false;
     }
   }
 
@@ -493,8 +512,9 @@ export class UserScopeService implements IScopeService {
    * Copy skill directory recursively
    * @param sourceDir
    * @param targetDir
+   * @param written - Collects the absolute files copied.
    */
-  private async copySkillDirectory(sourceDir: string, targetDir: string): Promise<void> {
+  private async copySkillDirectory(sourceDir: string, targetDir: string, written: string[] = []): Promise<void> {
     await this.ensureDirectory(targetDir);
 
     const entries = await readdir(sourceDir);
@@ -511,10 +531,11 @@ export class UserScopeService implements IScopeService {
       }
 
       if (stats.isDirectory()) {
-        await this.copySkillDirectory(sourcePath, targetPath);
+        await this.copySkillDirectory(sourcePath, targetPath, written);
       } else {
         const fileContent = await readFile(sourcePath);
         await writeFile(targetPath, fileContent);
+        written.push(targetPath);
       }
     }
   }
@@ -547,13 +568,32 @@ export class UserScopeService implements IScopeService {
   }
 
   /**
+   * The user-level folders this service writes into for the given kinds, one
+   * per folder (BR16.x): the record's pre-write home check runs on them. In
+   * WSL, skills resolve under the WSL home and the other kinds under the
+   * Windows home, as `syncBundle` writes them.
+   * @param kinds - Primitive kinds; every kind the target layout routes by default.
+   * @returns Absolute folders, without duplicates.
+   * @throws {Error} When an explicitly given kind has no route for the target.
+   */
+  public userFolders(kinds?: readonly CopilotFileType[]): string[] {
+    const routes = resolveLayout(this.getTarget()).kindRoutes;
+    const selected = kinds ?? ALL_COPILOT_FILE_TYPES.filter((kind) => routes[KIND_TO_ROUTE_KEY[kind]] !== undefined);
+    return [...new Set(selected.map((kind) => this.getTargetPrimitiveDirectory(kind)))];
+  }
+
+  /**
    * Sync a single bundle to Copilot directory
    * Implements IScopeService.syncBundle
    * @param bundleId - The unique identifier of the bundle
    * @param bundlePath - The path to the installed bundle directory
    * @param _options - Ignored for user scope (commitMode only applies to repository scope)
+   * @returns Absolute paths written, for the user install record: each
+   *   prompt/instructions/agent symlink or copy, and every file copied into a
+   *   skill folder. A failure is logged and the paths written so far are returned.
    */
-  public async syncBundle(bundleId: string, bundlePath: string, _options?: SyncBundleOptions): Promise<void> {
+  public async syncBundle(bundleId: string, bundlePath: string, _options?: SyncBundleOptions): Promise<string[]> {
+    const written: string[] = [];
     try {
       this.logger.debug(`Syncing bundle: ${bundleId}`);
 
@@ -567,7 +607,7 @@ export class UserScopeService implements IScopeService {
       const manifestPath = await resolveExistingPathInside(bundlePath, 'deployment-manifest.yml');
       if (!manifestPath) {
         this.logger.warn(`No manifest found for bundle: ${bundleId}`);
-        return;
+        return written;
       }
 
       const manifestContent = await readFile(manifestPath, 'utf8');
@@ -575,14 +615,14 @@ export class UserScopeService implements IScopeService {
 
       if (!manifest.prompts || manifest.prompts.length === 0) {
         this.logger.debug(`Bundle ${bundleId} has no prompts to sync`);
-        return;
+        return written;
       }
 
       // Sync each prompt/skill
       for (const promptDef of manifest.prompts) {
         // Handle skills differently - they are directories
         if (promptDef.type === 'skill') {
-          await this.syncSkillFromBundle(bundleId, bundlePath, promptDef);
+          written.push(...await this.syncSkillFromBundle(bundleId, bundlePath, promptDef));
           continue;
         }
 
@@ -607,11 +647,14 @@ export class UserScopeService implements IScopeService {
         }
 
         // Create symlink or copy
-        await this.createCopilotFile(copilotFile);
+        if (await this.createCopilotFile(copilotFile)) {
+          written.push(copilotFile.targetPath);
+        }
       }
     } catch (error) {
       this.logger.error(`Failed to sync bundle ${bundleId}`, error as Error);
     }
+    return written;
   }
 
   /**
@@ -619,8 +662,14 @@ export class UserScopeService implements IScopeService {
    * Implements IScopeService.unsyncBundle
    * Since we use a flat structure, we need to read the bundle's manifest to know which files to remove
    * @param bundleId
+   * @param options - `keep`: absolute paths left in place (listed by another user record entry).
    */
-  public async unsyncBundle(bundleId: string): Promise<void> {
+  public async unsyncBundle(bundleId: string, options?: UserUnsyncOptions): Promise<void> {
+    const keep = new Set([...(options?.keep ?? [])].map((kept) => path.resolve(kept)));
+    const isKept = (target: string): boolean => {
+      const resolved = path.resolve(target);
+      return [...keep].some((kept) => kept === resolved || kept.startsWith(`${resolved}${path.sep}`));
+    };
     try {
       this.logger.debug(`Removing Copilot files for bundle: ${bundleId}`);
 
@@ -657,7 +706,9 @@ export class UserScopeService implements IScopeService {
         // Handle skills differently - they are directories
         if (promptDef.type === 'skill') {
           const skillName = getSkillName(promptDef.file);
-          if (skillName) {
+          if (skillName && isKept(path.join(this.getCopilotSkillsDirectory('user'), skillName))) {
+            this.logger.debug(`Keeping skill listed by another record entry: ${skillName}`);
+          } else if (skillName) {
             await this.unsyncSkill(skillName, 'user');
             removedCount++;
           }
@@ -675,6 +726,10 @@ export class UserScopeService implements IScopeService {
           copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
         } catch (error) {
           this.logger.warn(`Skipping prompt with invalid target ID while unsyncing bundle ${bundleId}: ${promptDef.id} (${error})`);
+          continue;
+        }
+        if (isKept(copilotFile.targetPath)) {
+          this.logger.debug(`Keeping file listed by another record entry: ${path.basename(copilotFile.targetPath)}`);
           continue;
         }
 
@@ -773,8 +828,10 @@ export class UserScopeService implements IScopeService {
    * @param sourceDir - Source directory containing the skill files
    * @param scope - Installation scope ('user' or 'workspace')
    * @param syncToClaude - Also sync to ~/.claude/skills
+   * @returns Absolute files copied.
    */
-  public async syncSkill(skillName: string, sourceDir: string, scope: 'user' | 'workspace' = 'user', syncToClaude = false): Promise<void> {
+  public async syncSkill(skillName: string, sourceDir: string, scope: 'user' | 'workspace' = 'user', syncToClaude = false): Promise<string[]> {
+    const written: string[] = [];
     try {
       this.logger.info(`Syncing skill: ${skillName} (scope: ${scope})`);
 
@@ -790,7 +847,7 @@ export class UserScopeService implements IScopeService {
       }
 
       // Copy skill directory recursively
-      await this.copySkillDirectory(sourceDir, targetDir);
+      await this.copySkillDirectory(sourceDir, targetDir, written);
 
       this.logger.info(`✅ Synced skill to: ${targetDir}`);
 
@@ -804,9 +861,10 @@ export class UserScopeService implements IScopeService {
           await this.removeSkillDirectory(claudeTargetDir);
         }
 
-        await this.copySkillDirectory(sourceDir, claudeTargetDir);
+        await this.copySkillDirectory(sourceDir, claudeTargetDir, written);
         this.logger.info(`✅ Also synced skill to Claude: ${claudeTargetDir}`);
       }
+      return written;
     } catch (error) {
       this.logger.error(`Failed to sync skill ${skillName}`, error as Error);
       throw error;
