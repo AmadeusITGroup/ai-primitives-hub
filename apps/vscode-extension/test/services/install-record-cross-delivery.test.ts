@@ -3,11 +3,23 @@
  * bundle and the extension lists it; the extension installs it and the CLI
  * lists and uninstalls it. Real temp git folders, no network. At user level
  * both share one temp `HOME` and `XDG_CONFIG_HOME`, so they use the same user record.
+ * Older records: whichever delivery writes the user level first imports the
+ * old user lockfile once.
  */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  pathToFileURL,
+} from 'node:url';
+import {
+  emptyLockfile,
+  resolveUserConfigPaths,
+  upsertBundleEntry,
+  upsertSource,
+  writeLockfile,
+} from '@ai-primitives-hub/app';
 import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -26,12 +38,34 @@ import {
   createMockContext,
   initGitRoot,
   isOnDisk,
+  nodeLockfileFs,
+  overrideEnv,
   RECORD_FILE,
   setupUserRecordManager,
   testBundle,
 } from '../helpers/install-record-test-helpers';
 
 const BUNDLE_ID = 'cross-delivery-bundle';
+
+/**
+ * Write an old 2.0.0 lockfile: each bundle at its version from `sourceId`, listing `files`.
+ * @param file - Absolute lockfile path.
+ * @param bundles - Bundle id -> version.
+ * @param sourceId - Source id of every entry.
+ * @param files - Paths every entry lists.
+ */
+const writeOldLockfile = async (file: string, bundles: Record<string, string>, sourceId: string, files: string[] = []): Promise<void> => {
+  let lock = emptyLockfile('prompt-registry@2.0.0');
+  for (const [bundleId, version] of Object.entries(bundles)) {
+    lock = upsertBundleEntry(lock, bundleId, {
+      version, sourceId, sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
+      files: files.map((recorded) => ({ path: recorded, checksum: '0'.repeat(64) }))
+    });
+  }
+  lock = upsertSource(lock, sourceId, { type: 'local', url: '/old/source' });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  await writeLockfile(file, lock, nodeLockfileFs);
+};
 
 const BUNDLE_FILES: Record<string, string> = {
   'deployment-manifest.yml': `id: ${BUNDLE_ID}
@@ -143,8 +177,10 @@ const bundleZip = (): Buffer => {
  * The fixture bundle as the extension's configured local source lists it.
  * @param bundleDir - Fixture bundle folder.
  */
-const fixtureBundle = (bundleDir: string): Bundle =>
-  testBundle({ id: BUNDLE_ID, name: 'Cross Delivery Bundle', version: '1.4.2', sourceId: `local-${path.basename(bundleDir)}` });
+const fixtureBundle = (bundleDir: string): Bundle => testBundle({
+  id: BUNDLE_ID, name: 'Cross Delivery Bundle', version: '1.4.2', sourceId: `local-${path.basename(bundleDir)}`,
+  manifestUrl: pathToFileURL(path.join(bundleDir, 'deployment-manifest.yml')).href, downloadUrl: pathToFileURL(bundleDir).href
+});
 
 suite('Cross-delivery: CLI install record listed by the extension', function () {
   this.timeout(60_000);
@@ -371,5 +407,155 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     }
     const after = JSON.parse((await runCli(['status', '-o', 'json'])).stdout).data;
     assert.deepStrictEqual(after.entries, []);
+  });
+
+  /** A bundle this profile installed at user scope before the shared user record. */
+  const PROFILE_ID = 'profile-bundle';
+  /** The home-relative file this profile synced for {@link PROFILE_ID}. */
+  const PROFILE_FILE = '.copilot/prompts/profile-hello.prompt.md';
+  const readUserRecord = (): any => JSON.parse(fs.readFileSync(manager.getStorage().getPaths().userRecord, 'utf8'));
+  const oldUserLockfile = (): string => resolveUserConfigPaths(process.env).userLockfile;
+
+  /** This profile's 0.9.0 install of {@link PROFILE_ID}: its bundle cache, its synced file and the RegistryStorage entry. */
+  const recordProfileInstall = async (): Promise<void> => {
+    const cacheDir = path.join(tempRoot, 'User', 'globalStorage', 'acme.extension', 'bundles', PROFILE_ID);
+    fs.mkdirSync(path.join(cacheDir, 'prompts'), { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, 'deployment-manifest.yml'),
+      `id: ${PROFILE_ID}\nversion: 0.9.0\nname: Profile\nprompts:\n  - id: profile-hello\n    file: prompts/profile-hello.prompt.md\n    type: prompt\n`);
+    fs.writeFileSync(path.join(cacheDir, 'prompts', 'profile-hello.prompt.md'), '# Profile hello\n');
+    fs.mkdirSync(path.dirname(userFile(PROFILE_FILE)), { recursive: true });
+    // A copy matching the bundle's content (the symlink fallback), so the file is inside home.
+    fs.copyFileSync(path.join(cacheDir, 'prompts', 'profile-hello.prompt.md'), userFile(PROFILE_FILE));
+    await manager.getStorage().recordInstallation({
+      bundleId: PROFILE_ID, version: '0.9.0', installedAt: '2026-10-01T10:00:00.000Z', scope: 'user', installPath: cacheDir,
+      manifest: {} as any, sourceId: `local-${path.basename(bundleDir)}`, sourceType: 'local'
+    });
+  };
+
+  test('CLI first: the CLI imports the old user lockfile; the extension lists its entries, replaces the unknown entry with this profile\'s entry and uninstalls it (NFR2.4)', async () => {
+    await writeOldLockfile(oldUserLockfile(), { [PROFILE_ID]: '1.0.0', 'cli-only': '1.0.0' }, 'old-source');
+    await recordProfileInstall();
+    await runCli(['target', 'add', 'user-vscode', '--type', 'vscode', '-o', 'json']);
+    await runCli(['install', BUNDLE_ID, '--from', bundleDir, '--target', 'user-vscode', '-o', 'json']);
+    assert.deepStrictEqual(Object.keys(readUserRecord().bundles[PROFILE_ID].tools), ['unknown'], 'imported by the CLI');
+
+    const listed = (await manager.listInstalledBundles('user')).map((item) => item.bundleId);
+    for (const bundleId of [BUNDLE_ID, PROFILE_ID, 'cli-only']) {
+      assert.ok(listed.includes(bundleId), listed.join(', '));
+    }
+
+    // The extension's first user write migrates this profile's entry over the unknown one.
+    await manager.uninstallBundle('cli-only', 'user');
+
+    const { installedAt: _installedAt, ...profileEntry } = readUserRecord().bundles[PROFILE_ID].tools.vscode;
+    assert.deepStrictEqual(Object.keys(readUserRecord().bundles[PROFILE_ID].tools), ['vscode']);
+    assert.deepStrictEqual(profileEntry.files.map((file: { path: string }) => file.path), [PROFILE_FILE]);
+    assert.strictEqual(profileEntry.version, '0.9.0');
+    assert.strictEqual(await manager.getStorage().getInstalledBundle(PROFILE_ID, 'user'), undefined, 'removed from RegistryStorage');
+    assert.strictEqual(readUserRecord().bundles['cli-only'], undefined);
+
+    await manager.uninstallBundle(PROFILE_ID, 'user');
+
+    assert.strictEqual(readUserRecord().bundles[PROFILE_ID], undefined);
+    assert.ok(!fs.lstatSync(userFile(PROFILE_FILE), { throwIfNoEntry: false }), `${PROFILE_FILE} removed`);
+  });
+
+  test('extension first: the extension imports the old user lockfile; a later CLI user install imports nothing and a CLI plain uninstall of the unknown entry keeps its files (NFR2.4)', async () => {
+    const oldFile = '.copilot/prompts/old.prompt.md';
+    fs.mkdirSync(path.dirname(userFile(oldFile)), { recursive: true });
+    fs.writeFileSync(userFile(oldFile), '# Old\n');
+    await writeOldLockfile(oldUserLockfile(), { 'old-cli': '1.0.0' }, 'old-source', [oldFile]);
+    await manager.getStorage().cacheSourceBundles(`local-${path.basename(bundleDir)}`, [fixtureBundle(bundleDir)]);
+
+    await manager.installBundle(BUNDLE_ID, { scope: 'user' });
+
+    assert.ok(readUserRecord().importedUserLockfileAt, 'the import marker is set');
+    assert.deepStrictEqual(Object.keys(readUserRecord().bundles['old-cli'].tools), ['unknown']);
+
+    // A later CLI workspace-scope install adds a bundle to the old user lockfile.
+    await writeOldLockfile(oldUserLockfile(), { 'old-cli': '1.0.0', 'later-workspace': '1.0.0' }, 'old-source', [oldFile]);
+    const oldBytes = fs.readFileSync(oldUserLockfile());
+    await runCli(['target', 'add', 'user-vscode', '--type', 'vscode', '-o', 'json']);
+    await runCli(['install', BUNDLE_ID, '--from', bundleDir, '--target', 'user-vscode', '-o', 'json']);
+    assert.strictEqual(readUserRecord().bundles['later-workspace'], undefined, 'nothing is imported after the marker');
+
+    await runCli(['uninstall', '--bundle', 'old-cli', '-o', 'json']);
+
+    assert.strictEqual(readUserRecord().bundles['old-cli'], undefined);
+    assert.strictEqual(fs.readFileSync(userFile(oldFile), 'utf8'), '# Old\n', 'the file the old entry listed is kept');
+    assert.deepStrictEqual(fs.readFileSync(oldUserLockfile()), oldBytes, 'the old user lockfile is never changed');
+  });
+});
+
+suite('Cross-delivery: an old file in a workspace folder below the git root', function () {
+  this.timeout(60_000);
+
+  let sandbox: sinon.SinonSandbox;
+  let tempRoot: string;
+  let root: string;
+  let bundleDir: string;
+  let workspaceFolder: string;
+  let cli: CliModules;
+  let manager: RegistryManager;
+  let restoreEnv: () => void;
+
+  suiteSetup(() => {
+    cli = loadCli();
+  });
+
+  setup(async () => {
+    sandbox = sinon.createSandbox();
+    ({ tempRoot, root, bundleDir } = createFixture());
+    const home = path.join(tempRoot, 'home');
+    fs.mkdirSync(home, { recursive: true });
+    restoreEnv = overrideEnv({ HOME: home, USERPROFILE: home });
+    // The workspace folder is a sub-folder of the git root, with an old file of its own.
+    workspaceFolder = path.join(root, 'packages', 'app');
+    fs.mkdirSync(path.join(workspaceFolder, '.github', 'prompts'), { recursive: true });
+    fs.writeFileSync(path.join(workspaceFolder, '.github', 'prompts', 'sub-old.prompt.md'), '# Sub old\n');
+    await writeOldLockfile(path.join(workspaceFolder, 'prompt-registry.lock.json'), { 'sub-old': '1.0.0' }, 'old-source', ['.github/prompts/sub-old.prompt.md']);
+
+    (RegistryManager as any).instance = undefined;
+    manager = RegistryManager.getInstance({
+      ...createMockContext(sandbox),
+      globalStorageUri: vscode.Uri.file(path.join(tempRoot, 'User', 'globalStorage', 'acme.extension'))
+    });
+    const storage = manager.getStorage();
+    await storage.initialize();
+    const sourceId = `local-${path.basename(bundleDir)}`;
+    await storage.addSource({ id: sourceId, name: 'Local bundle', type: 'local', url: bundleDir, enabled: true, priority: 0 });
+    await storage.cacheSourceBundles(sourceId, [fixtureBundle(bundleDir)]);
+    const scopeSelectionUI = require('../../src/utils/scope-selection-ui');
+    sandbox.stub(scopeSelectionUI, 'getWorkspaceRoot').returns(workspaceFolder);
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: vscode.Uri.file(workspaceFolder), name: 'app', index: 0 }]);
+    sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
+    sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
+    sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+  });
+
+  teardown(() => {
+    sandbox.restore();
+    restoreEnv();
+    (RegistryManager as any).instance = undefined;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test('it is not listed and stays byte-identical through an extension install and a CLI status and install', async () => {
+    const oldFile = path.join(workspaceFolder, 'prompt-registry.lock.json');
+    const before = fs.readFileSync(oldFile);
+
+    const listed = await manager.listInstalledBundles('repository');
+    await manager.installBundle(BUNDLE_ID, { scope: 'repository', commitMode: 'commit' });
+    const runCli = cliIn(cli, workspaceFolder, path.join(tempRoot, 'home'));
+    await runCli(['target', 'add', 'repo-kiro', '--type', 'kiro', '--scope', 'repository', '--workspace-root', root, '-o', 'json']);
+    const status = JSON.parse((await runCli(['status', '-o', 'json'])).stdout).data;
+    await runCli(['install', BUNDLE_ID, '--from', bundleDir, '--target', 'repo-kiro', '-o', 'json']);
+
+    assert.ok(!listed.some((item) => item.bundleId === 'sub-old'), 'not listed by the extension');
+    assert.ok(!status.entries.some((entry: { bundleId: string }) => entry.bundleId === 'sub-old'), 'not listed by the CLI');
+    assert.deepStrictEqual(fs.readFileSync(oldFile), before);
+    const record = JSON.parse(fs.readFileSync(path.join(root, RECORD_FILE), 'utf8'));
+    assert.deepStrictEqual(Object.keys(record.bundles), [BUNDLE_ID]);
+    assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools).toSorted(), ['kiro', 'vscode']);
   });
 });
