@@ -56,10 +56,7 @@ Discover, govern, install, and share **prompts, instructions, agents, skills, MC
 
 - [How It Works](#-how-it-works)
 - [Works With Your Tools](#-works-with-your-tools)
-- [Supported Primitives](#-supported-primitives)
-- [Supported Sources](#-supported-sources)
 - [Quick Start](#-quick-start)
-- [Repository Structure](#-repository-structure)
 - [Architecture](#%EF%B8%8F-architecture)
 - [Documentation](#-documentation)
 - [Contributing](#-contributing)
@@ -93,65 +90,9 @@ See [Creating a Hub](./docs/author-guide/creating-a-hub.md) and [Profiles and Hu
 
 ## 🧩 Works With Your Tools
 
-| Tool | Target ID | Type | VS Code extension | CLI |
-|------|-----------|------|:-----------------:|:---:|
-| Visual Studio Code | `vscode` | IDE | ✅ | ✅ |
-| VS Code Insiders | `vscode-insiders` | IDE | ✅ | ✅ |
-| Kiro | `kiro` | IDE | ✅ | ✅ |
-| Windsurf | `windsurf` | IDE | ✅ | ✅ |
-| Cursor | `cursor` | IDE | — | ✅ |
-| Devin | `devin` | IDE | — | ✅ |
-| GitHub Copilot CLI | `copilot-cli` | CLI agent | — | ✅ |
-| Claude Code | `claude-code` | CLI agent | — | ✅ |
-| Kiro CLI | `kiro-cli` | CLI agent | — | ✅ |
-| OpenCode | `opencode` | CLI agent | — | ✅ |
-| Devin CLI | `devin-cli` | CLI agent | — | ✅ |
-
-The extension auto-detects the IDE it runs in. The CLI can install into any target: `ai-primitives-hub target types` lists them all.
-
-## 📦 Supported Primitives
-
-**Portable primitives** — work on **every** supported tool:
-
-| | Primitive | Kind |
-|---|-----------|------|
-| 💬 | Prompts | `prompt` |
-| 📋 | Instructions | `instruction` |
-| 🗨️ | Chat modes | `chat-mode` |
-| 🤖 | Agents | `agent` |
-| 🛠️ | Skills | `skill` |
-| 🔌 | MCP servers | `mcp-server` |
-| 🪝 | Hooks | `hook` |
-| 🧩 | Plugins | `plugin` |
-
-**Tool-specific primitives** — installed only where the tool understands them:
-
-| Primitive | Kind | Available on |
-|-----------|------|--------------|
-| 🧭 Steering | `steering` | Kiro, Kiro CLI |
-| 📐 Specs | `spec` | Kiro, Kiro CLI |
-| ⚡ Powers | `power` | Kiro, Kiro CLI, Devin, Devin CLI |
-| ⌨️ Slash commands | `command` | Claude Code |
-| 🎨 Output styles | `output-style` | Claude Code |
-| 📏 Rules | `rule` | Cursor |
-| 🔧 Tools | `tool` | OpenCode |
-| 📚 Knowledge | `knowledge` | Devin, Devin CLI |
-| 📖 Playbooks | `playbook` | Devin, Devin CLI |
-
-Mixed bundles install all-or-nothing by default; add `--skip-unsupported` to install only what the target supports.
-
-## 🌐 Supported Sources
-
-| Remote | Local |
-|--------|-------|
-| GitHub releases (`github`) | Local bundles (`local`) |
-| Awesome Copilot collections (`awesome-copilot`) | Local collections (`local-awesome-copilot`) |
-| Skills repositories (`skills`) | Local skills (`local-skills`) |
-| APM packages (`apm`) | Local APM packages (`local-apm`) |
-| Azure DevOps (`azure-devops`) | |
-| JFrog Artifactory (`artifactory`) | |
-
-See [Sources](./docs/user-guide/sources.md) for configuration details.
+- **Tools** — IDEs: VS Code, VS Code Insiders, Kiro, Windsurf, Cursor, and Devin. CLI agents: GitHub Copilot CLI, Claude Code, Kiro CLI, OpenCode, and Devin CLI. The VS Code extension runs in VS Code, VS Code Insiders, Kiro, and Windsurf; the CLI installs into all of them (`ai-primitives-hub target types`).
+- **Primitives** — prompts, instructions, chat modes, agents, skills, MCP servers, hooks, and plugins work everywhere. Tool-specific kinds (Kiro steering and specs, Claude Code commands and output styles, Cursor rules, OpenCode tools, Devin knowledge and playbooks, Kiro and Devin powers) install only where the tool supports them; mixed bundles are all-or-nothing unless you add `--skip-unsupported`.
+- **Sources** — GitHub releases, Awesome Copilot collections, skills repositories, APM packages, Azure DevOps, and JFrog Artifactory, plus local folders for bundles, collections, skills, and APM packages. See [Sources](./docs/user-guide/sources.md).
 
 ## 🚀 Quick Start
 
@@ -193,40 +134,35 @@ pnpm test         # run all workspace tests
 pnpm lint
 ```
 
-## 📁 Repository Structure
-
-| Path | Purpose |
-|------|---------|
-| `apps/vscode-extension/` | VS Code extension: UI, commands, services, adapters |
-| `packages/core/` | Domain types and port interfaces |
-| `packages/infra/` | Adapter implementations: sources, stores, writers, scaffolding |
-| `packages/app/` | Use-case orchestration: install, registry, discovery, transforms |
-| `packages/cli/` | Terminal interface calling `app` |
-| `lib/` | Legacy collection scripts (deprecated in place) |
-| `github-actions/validate-collections/` | Reusable GitHub Action for validating collections in CI |
-| `docs/` | User, author, and contributor documentation |
-| `website/` | Docusaurus documentation site |
-| `packages/infra/src/hub/` | Shared Hub resolution, validation, and default-Hub definitions |
-
 ## 🏗️ Architecture
 
-The monorepo is organized around a shared `core` domain, with `infra` adapters, an `app` orchestration layer, and thin delivery layers for the VS Code extension and the CLI.
+AI Primitives Hub follows ports and adapters (Clean Architecture): one shared domain behind two thin front doors, with dependencies pointing inward only.
 
 ```mermaid
-flowchart TD
-    subgraph "Delivery"
-        VSC[VS Code extension<br/>apps/vscode-extension]
-        CLI[CLI<br/>packages/cli]
+flowchart LR
+    subgraph Delivery["Delivery · thin, no business rules"]
+        VSC["VS Code extension<br/>apps/vscode-extension"]
+        CLI["ai-primitives-hub CLI<br/>packages/cli"]
     end
-    VSC --> APP[packages/app]
+    APP["Application · packages/app<br/>install · registry · discovery · transforms"]
+    INF["Infrastructure · packages/infra<br/>adapters implementing core ports"]
+    CORE["Domain · packages/core<br/>types · rules · ports · JSON schemas"]
+    SRC[("Sources<br/>GitHub · Azure DevOps · Artifactory · APM · local")]
+    OUT[("Targets and state<br/>tool folders · lockfiles · XDG storage")]
+
+    VSC --> APP
     CLI --> APP
-    APP --> CORE[packages/core]
-    APP --> INF[packages/infra]
+    APP --> INF
+    APP --> CORE
     INF --> CORE
-    INF --> AD[Adapters<br/>GitHub / Local / APM / Skills / Awesome Copilot / Azure DevOps / Artifactory]
+    INF -- fetch --> SRC
+    INF -- write --> OUT
 ```
 
-For extension details, see the [Contributor Architecture Guide](./docs/contributor-guide/architecture.md).
+- **Composition root:** the CLI and the extension wire `infra` adapters into `app` at startup and hold no business rules. The extension is moving its remaining services onto `app` ([ADR-0001](./docs/contributor-guide/architecture/adr/0001-ports-and-adapters-for-cli-and-extension.md)).
+- **Other folders:** `lib/` (legacy collection scripts), `github-actions/validate-collections/` (CI validation action), `docs/` and `website/` (documentation and Docusaurus site).
+
+Learn more: [Clean architecture](./docs/contributor-guide/architecture/library-centric-architecture/clean-architecture.md) · [C4 diagrams](./docs/contributor-guide/architecture/library-centric-architecture/system-context.md) · [Codemap](./docs/contributor-guide/architecture/library-centric-architecture/codemap.md) · [ADRs](./docs/contributor-guide/architecture/adr/adr-index.md) · [Contributor architecture guide](./docs/contributor-guide/architecture.md)
 
 ## 📚 Documentation
 
