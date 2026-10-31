@@ -28,9 +28,10 @@ never used those per-profile folders; only the extension did.
 
 1. **One record format, keyed by bundle and tool.** Install records use format
    `3.0.0` (`packages/core/src/domain/install/record-types.ts`, schema
-   `public/schemas/install-record.schema.json`). Each bundle holds one entry
-   per tool (`vscode`, `kiro`, …) with its version, source and the files it
-   wrote (checksums taken from disk). Unknown fields are kept on write.
+   `packages/core/src/public/schemas/install-record.schema.json`). Each bundle
+   holds one entry per tool (`vscode`, `kiro`, …) with its version, source and
+   the files it wrote (checksums taken from disk). Unknown fields are kept on
+   write.
 2. **New file names, shared by both deliveries.**
    - Repository level, at the git root: `ai-primitives-hub.lock.json`
      (committed) and `ai-primitives-hub.local.lock.json` (local only, added to
@@ -72,9 +73,11 @@ installed-record paths of decision 1.
 - **Positive:** one user record replaces the CLI user lockfile and the
   per-profile records, so an install made in one profile or in the CLI is
   visible everywhere.
-- **Positive:** the record names match the product name; the old names remain
-  only as migration sources (and in the CLI's workspace scope and
-  `profile activate`, see below).
+- **Positive:** the record names match the product name; the old
+  `prompt-registry.*` names remain only as migration sources and in what CLI
+  `profile activate` writes for repository targets (see below). The CLI's
+  workspace scope and user-target `profile activate` write the CLI's old user
+  lockfile.
 - **Negative:** older releases (CLI 0.2.x, extension releases before this
   change) do not find the renamed files; both deliveries should be upgraded,
   or rolled back, together. Rolling back needs manual steps (see the
