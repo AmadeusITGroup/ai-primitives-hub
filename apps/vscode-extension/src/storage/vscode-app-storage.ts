@@ -13,6 +13,12 @@ import type {
   AppStorage,
   AppStoragePaths,
 } from '@ai-primitives-hub/core';
+import {
+  USER_RECORD_FILE_NAME,
+} from '@ai-primitives-hub/core';
+import {
+  xdgConfigDir,
+} from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 
 export class VsCodeAppStorage implements AppStorage {
@@ -31,7 +37,10 @@ export class VsCodeAppStorage implements AppStorage {
       userInstalled: path.join(storagePath, 'installed', 'user'),
       profilesInstalled: path.join(storagePath, 'installed', 'profiles'),
       profiles: path.join(storagePath, 'profiles'),
-      logs: path.join(storagePath, 'logs')
+      logs: path.join(storagePath, 'logs'),
+      // The user record is per machine, not per profile: it lives in the same
+      // XDG config folder the CLI uses, never under globalStorageUri (BR14.1).
+      userRecord: path.join(xdgConfigDir(process.env), USER_RECORD_FILE_NAME)
     };
   }
 
