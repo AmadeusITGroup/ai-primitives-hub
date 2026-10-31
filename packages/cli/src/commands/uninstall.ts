@@ -45,6 +45,9 @@ import {
   writeLockfile,
 } from '@ai-primitives-hub/app';
 import {
+  LOCAL_RECORD_FILE_NAME,
+  RECORD_FILE_NAME,
+  type RecordLocation,
   type Target,
   UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
@@ -541,7 +544,9 @@ async function findAllBundleEntries(
  * @param target Target the bundle is uninstalled from.
  * @param bundleId Bundle id.
  * @param files Paths that would be removed.
- * @param warnings Non-fatal notes to report, such as tool-to-target mapping notes (BR6.4).
+ * @param extra Notes and the record a real run would change; none for the old lockfile path.
+ * @param extra.warnings Non-fatal notes to report, such as tool-to-target mapping notes (BR6.4).
+ * @param extra.record The `level` / `records` fields and `Record:` line naming the file a real run would change (NFR4.30).
  * @returns Exit code.
  */
 function renderBundleDryRun(
@@ -550,18 +555,26 @@ function renderBundleDryRun(
   target: Target,
   bundleId: string,
   files: readonly string[],
-  warnings: readonly string[] = []
+  extra: { warnings?: readonly string[]; record?: RecordOutputFields } = {}
 ): number {
+  const { warnings = [], record } = extra;
   formatOutput({
     ctx,
     command: 'uninstall',
     output: fmt,
     status: 'ok',
-    data: { dryRun: true, target: target.name, bundle: bundleId, files: [...files] },
+    data: {
+      dryRun: true,
+      ...(record === undefined ? {} : { level: record.level, records: [...record.records] }),
+      target: target.name,
+      bundle: bundleId,
+      files: [...files]
+    },
     warnings: warnings.length > 0 ? [...warnings] : undefined,
     textRenderer: (d) => `[dry-run] Would uninstall bundle "${d.bundle}" from target "${d.target}":\n`
       + `  Files: ${d.files.join(', ')}\n`
       + 'Run without --dry-run to apply.\n'
+      + (record === undefined ? '' : renderRecordLine(record))
   });
   return 0;
 }
@@ -699,6 +712,26 @@ interface UninstallRun {
 }
 
 /**
+ * The record file a real uninstall would change: the prepared file, else the other repository file.
+ * @param prepared The level's record files, loaded and checked.
+ * @param bundleId Bundle to uninstall.
+ */
+async function holdingRecordLocation(prepared: PreparedRepositoryUninstall, bundleId: string): Promise<RecordLocation> {
+  const { location } = prepared;
+  const candidates = [location];
+  if (location.level === 'repository') {
+    const isLocal = location.commitMode === 'local-only';
+    candidates.push({
+      level: 'repository',
+      root: location.root,
+      path: path.join(location.root, isLocal ? RECORD_FILE_NAME : LOCAL_RECORD_FILE_NAME),
+      commitMode: isLocal ? 'commit' : 'local-only'
+    });
+  }
+  return await prepared.service.holdingLocation(candidates, bundleId, prepared.tool) ?? location;
+}
+
+/**
  * Uninstall one bundle recorded in the repository install record for the target's type.
  * @param run Options, target, context and output format.
  * @param prepared Both record files, loaded and checked.
@@ -716,7 +749,13 @@ async function performRecordBundleUninstall(
 ): Promise<number> {
   const { opts, target, ctx, fmt } = run;
   if (opts.dryRun === true) {
-    return renderBundleDryRun(ctx, fmt, target, bundleId, recordedFiles, notes);
+    // Name the file a real run would change (NFR4.30): the default rule may
+    // have picked the level, so the preview says which one.
+    const location = await holdingRecordLocation(prepared, bundleId);
+    return renderBundleDryRun(ctx, fmt, target, bundleId, recordedFiles, {
+      warnings: notes,
+      record: { level: location.level, records: [location.path] }
+    });
   }
 
   const recorded = await recordRepositoryUninstall(prepared, bundleId);
