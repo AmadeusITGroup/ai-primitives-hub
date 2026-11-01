@@ -7,11 +7,9 @@ import {
   type GovernanceFinding,
   type GovernanceReport,
   type GovernanceRule,
+  type HubScope,
   rulesForSubject,
 } from '@ai-primitives-hub/core';
-import type {
-  PrScope,
-} from './pr-scope';
 
 /**
  * Treat repository content as text, not Markdown/HTML or a report marker.
@@ -22,38 +20,15 @@ const escape = (value: string): string => value
   .replace(/[\\`*_{}[\]()#+.!|~-]/g, (character) => `&#${character.charCodeAt(0)};`)
   .replace(/@/g, '&#64;').replace(/\r?\n/g, '<br>');
 
-type Level = 'hub' | 'collection' | 'primitive' | 'configuration';
-
-const levelOf = (ruleId: string): Level => {
-  if (ruleId.startsWith('HUB')) {
-    return 'hub';
-  }
-  if (ruleId.startsWith('COL')) {
-    return 'collection';
-  }
-  return ruleId.startsWith('CFG') ? 'configuration' : 'primitive';
-};
-
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-/**
- * The option that enables source checks: hub runs use `--check-sources`, collection runs `--check-releases`.
- * @param subject
- */
-const sourceCheckOption = (subject: GovernanceReport['subject']): string => subject === 'hub' ? '--check-sources' : '--check-releases';
-
 /** Minimal view of the hub PR scope attached by scoped hub runs. */
-interface HubScopeView {
-  sources: { added: string[]; modified: string[]; removed: string[] };
-  profiles: { added: string[]; modified: string[]; removed: string[] };
-  sourceIds: string[];
-  profileIds: string[];
-  noOp: boolean;
+type HubScopeView = Pick<HubScope, 'sources' | 'profiles' | 'sourceIds' | 'profileIds' | 'noOp'> & {
   mergeBase?: string;
   headRef?: string;
-}
+};
 
-export type RenderableGovernanceReport = GovernanceReport & { prScope?: PrScope; scope?: HubScopeView };
+export type RenderableGovernanceReport = GovernanceReport & { scope?: HubScopeView };
 
 interface RuleRow {
   rule: GovernanceRule;
@@ -74,8 +49,7 @@ function ruleRow(rule: GovernanceRule, report: GovernanceReport, levelRan: boole
     return { rule, status: 'skipped', result: '⏭️ Disabled by configuration', findings };
   }
   if (!levelRan || report.notChecked.some((entry) => entry.ruleId === rule.id)) {
-    const option = rule.id === 'COL004' ? '--check-sources' : sourceCheckOption(report.subject);
-    return { rule, status: 'skipped', result: `⏭️ Not run (offline; use ${option})`, findings };
+    return { rule, status: 'skipped', result: '⏭️ Not run (offline; use --check-sources)', findings };
   }
   const errors = findings.filter((finding) => finding.severity === 'error');
   if (errors.length > 0) {
@@ -166,31 +140,16 @@ function renderHubScope(scope: HubScopeView): string[] {
     ...list('Validated sources', scope.sourceIds), ...list('Validated profiles', scope.profileIds)];
 }
 
-function renderPrScope(scope: PrScope): string[] {
-  const compared = `Compared ${escape(scope.mergeBase.slice(0, 12))} (merge base) with ${escape(scope.headRef.slice(0, 12))}`;
-  const lines = ['', '### PR scope', '',
-    `${compared}: ${plural(scope.changedFiles.length, 'changed file')}, ${scope.validated.length} validated.`];
-  if (scope.validated.length > 0) {
-    lines.push('', ...scope.validated.map((file) => `- ${escape(file)}`));
-  }
-  if (scope.sources?.length) {
-    lines.push('', `Validated sources: ${scope.sources.map((id) => escape(id)).join(', ')}`);
-  }
-  return lines;
-}
-
 /**
  * Render one safe provider-owned report for the job summary and PR comment.
  * @param report Structured verdict including findings, policy adjustments and optional PR scope.
  */
 export function renderGovernanceMarkdown(report: RenderableGovernanceReport): string {
-  const marker = report.subject === 'hub' ? 'hub-validation-report' : `${report.subject}-validation-report`;
-  // Each command reports only its own level.
-  const levels: Level[] = [report.subject];
+  const marker = `${report.subject}-validation-report`;
   const rules = rulesForSubject(report.subject);
   const name = `${report.subject.charAt(0).toUpperCase()}${report.subject.slice(1)} validation`;
   const errors = report.findings.filter((finding) => finding.severity === 'error');
-  const configurationFailed = report.findings.some((finding) => levelOf(finding.ruleId) === 'configuration');
+  const configurationFailed = report.findings.some((finding) => finding.ruleId.startsWith('CFG'));
   const problems = groupProblems(errors);
   const warnings = groupProblems(report.findings.filter((finding) => finding.severity === 'warning'));
   let heading = `✅ ${name} passed`;
@@ -217,10 +176,8 @@ export function renderGovernanceMarkdown(report: RenderableGovernanceReport): st
 
   // Details for anyone who wants them: every check with its result, and what was validated.
   // Configuration checks are listed only when the configuration has errors.
-  const rows = [...(configurationFailed ? ['configuration' as const] : []), ...levels].flatMap((level) => {
-    const ran = !(report.subject === 'hub' && level !== 'hub' && report.mode === 'offline');
-    return rules.filter((rule) => levelOf(rule.id) === level).map((rule) => ruleRow(rule, report, ran));
-  });
+  const rows = rules.filter((rule) => configurationFailed || !rule.id.startsWith('CFG'))
+    .map((rule) => ruleRow(rule, report, !rule.id.startsWith('CFG') || report.mode === 'sources'));
   const count = (status: RuleRow['status']): number => rows.filter((row) => row.status === status).length;
   const summary = [`${count('pass') + count('warn')} passed`, `${count('fail')} failed`,
     ...(count('skipped') > 0 ? [`${count('skipped')} not run`] : []), ...(count('not-applicable') > 0 ? [`${count('not-applicable')} not applicable`] : [])];
@@ -229,14 +186,6 @@ export function renderGovernanceMarkdown(report: RenderableGovernanceReport): st
   if (report.mode !== 'sources') {
     details.push('', 'Offline; source repositories were not contacted.');
   }
-  const scope: string[] = [];
-  if (report.scope) {
-    scope.push(...renderHubScope(report.scope));
-  }
-  if (report.prScope) {
-    scope.push(...renderPrScope(report.prScope));
-  }
-  return (report.subject === 'collection'
-    ? [...header, ...details, '', '</details>', ...lines, ...scope, '']
-    : [...header, ...lines, ...details, ...scope, '', '</details>', '']).join('\n');
+  const scope = report.scope ? renderHubScope(report.scope) : [];
+  return [...header, ...lines, ...details, ...scope, '', '</details>', ''].join('\n');
 }

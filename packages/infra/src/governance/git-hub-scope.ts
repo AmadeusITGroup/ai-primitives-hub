@@ -102,41 +102,6 @@ export async function readGitHubScope(runner: ArgvProcessRunner, repoRoot: strin
   }
 }
 
-export interface GitChangedFiles { baseRef: string; headRef: string; mergeBase: string; files: string[] }
-
-/**
- * Files added or modified between the merge base and an exact PR head (deletions excluded).
- * The checkout must be at the PR head, because collection and primitive checks read files from disk.
- * @param runner
- * @param repoRoot
- * @param baseRef Exact base commit.
- * @param headRef Exact head commit; must equal the checkout's HEAD.
- */
-export async function readGitChangedFiles(runner: ArgvProcessRunner, repoRoot: string, baseRef: string, headRef: string): Promise<GitChangedFiles> {
-  const commit = /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/;
-  if (!commit.test(baseRef) || !commit.test(headRef)) {
-    throw new Error('--base-ref and --head-ref must be exact 40- or 64-hex commit IDs.');
-  }
-  const git = async (...args: string[]) => (await runner.execFile('git', ['--no-replace-objects', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: repoRoot, timeoutMs: 30_000 })).stdout;
-  let checkout: string;
-  let mergeBases: string[];
-  try {
-    checkout = (await git('rev-parse', 'HEAD')).trim();
-    mergeBases = (await git('merge-base', '--all', baseRef, headRef)).trim().split('\n');
-  } catch {
-    throw new Error('Cannot read PR history. Fetch complete base/head history (fetch-depth: 0) and retry.');
-  }
-  if (checkout.toLowerCase() !== headRef.toLowerCase()) {
-    throw new Error('The checkout is not at --head-ref. Check out the PR head commit before validating.');
-  }
-  if (mergeBases.length !== 1 || !commit.test(mergeBases[0])) {
-    throw new Error('A unique merge base is required.');
-  }
-  const output = await git('diff', '--name-only', '-z', '--no-renames', '--diff-filter=d', mergeBases[0], headRef);
-  const files = output.split('\0').filter((file) => file.length > 0).toSorted();
-  return { baseRef, headRef, mergeBase: mergeBases[0], files };
-}
-
 /**
  * Read one committed file at an exact commit, or `undefined` when the path is not a blob there.
  * Used to load governance configuration from the PR base so a PR cannot relax its own gate.

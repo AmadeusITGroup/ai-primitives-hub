@@ -26,7 +26,7 @@ import {
   runCommand,
 } from '../../src/framework';
 
-describe('governance stack command boundary v1', () => {
+describe('governance stack command boundary', () => {
   let root: string;
   const run = (args: string[]) => runCommand(args, {
     commandClasses: ALL_COMMAND_CLASSES,
@@ -49,7 +49,7 @@ profiles: []
   });
 
   it('exposes only the hub and configuration rule families', () => {
-    expect([...new Set(GOVERNANCE_RULES.map((rule) => rule.id.slice(0, 3)))].sort()).toEqual(['CFG', 'HUB']);
+    expect([...new Set(GOVERNANCE_RULES.map((rule) => rule.id.slice(0, 3)))].toSorted()).toEqual(['CFG', 'HUB']);
   });
 
   it('validates through the registered hub command and writes the shared report', async () => {

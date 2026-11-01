@@ -4,8 +4,8 @@
  */
 export * from './types';
 export * from './rule-registry';
-export * from './rules';
-export * from './floor';
+export * from './rules/config';
+export * from './rules/hub';
 export * from './effective-rules';
 export * from './evaluate';
 export * from './catalogue';

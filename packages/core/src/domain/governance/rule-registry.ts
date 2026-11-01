@@ -19,7 +19,7 @@ export const GOVERNANCE_RULES: readonly GovernanceRule[] = [
 
 /**
  * Look up a rule by id.
- * @param id Rule id, for example COL001.
+ * @param id Rule id, for example HUB001.
  */
 export function getGovernanceRule(id: string): GovernanceRule | undefined {
   return GOVERNANCE_RULES.find((rule) => rule.id === id);
@@ -31,4 +31,15 @@ export function getGovernanceRule(id: string): GovernanceRule | undefined {
  */
 export function rulesForSubject(subject: GovernanceSubject): GovernanceRule[] {
   return GOVERNANCE_RULES.filter((rule) => rule.subjects.includes(subject));
+}
+
+/** Configurable floor rules: policy can neither disable nor downgrade them. */
+export const FLOOR_RULE_IDS: readonly string[] = GOVERNANCE_RULES.filter((rule) => !rule.disableable && rule.configurable).map((rule) => rule.id);
+
+/**
+ * True when a rule id belongs to the floor.
+ * @param ruleId
+ */
+export function isFloorRule(ruleId: string): boolean {
+  return FLOOR_RULE_IDS.includes(ruleId);
 }
