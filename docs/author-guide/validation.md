@@ -47,6 +47,13 @@ COL001, COL002 and COL005 are mandatory; configurable overrides and reasons rema
 visible in reports. Any error (including unverified errors) or report-write failure
 fails the command; warnings alone pass. Reports have no scores.
 
+Governance has three independent commands: `hub validate`, `collection validate`
+and `primitive validate`. The existing `skill validate` command keeps its legacy
+specification-validation output and does not accept governance options. Collection
+reports show the collapsed **All checks** table first; problem and warning tables
+include all contributing rule IDs. Specific source failures remain visible, while
+generic incomplete-data notices and source-contact notes are omitted.
+
 ### Source checks
 
 `--check-releases --repository owner/repo` enables COL002 and checks published
@@ -74,6 +81,63 @@ Deleted referenced files also select their collections for validation. Skills tr
 both the declared entry file and files within their directory, so deleting the
 entry file still reports COL005 even when supporting files remain.
 
+### Primitive validation
+
+Run `ai-primitives-hub primitive validate <file-or-dir>...` from the repository root.
+Directories are searched recursively. `--policy <path>`, `--report-path <path>`
+and `-o text|json|yaml|ndjson` are supported; primitive validation always uses governance.
+An empty standalone selection fails. The filename determines the kind: `SKILL.md`,
+`*.agent.md`, `*.prompt.md`, `*.instructions.md`, `mcp.json` or `*.mcp.json`.
+Use `--kind skill|agent|prompt|instruction|mcp-server` to override it.
+
+| Rule | Checks | Default |
+| --- | --- | --- |
+| `SKL001` | Agent Skills frontmatter, name/folder agreement and description | Mandatory error |
+| `SKL002` | Skill validation advisories | Warning |
+| `AGT001` | Agent filename, non-empty description and string-list tools | Warning |
+| `PRM001` | Prompt filename, description, non-empty agent and valid mode (`ask`, `edit`, `agent`) when supplied | Warning |
+| `INS001` | Instruction filename and relative `applyTo` glob or glob list | Warning |
+| `MCP001` | Server command or URL, string env/headers and declared input references | Warning |
+| `MCP002` | No literal secrets in env, headers or args; use input/environment placeholders | Warning |
+| `MCP003` | Non-empty server map, exactly one command or HTTP(S) URL, valid transport/field types and unique, supported input declarations | Error |
+| `BOD001` | Non-empty Markdown body after frontmatter; whitespace and HTML comments do not count | Warning |
+| `PTH001` | Existing paths resolve inside the repository root before content is read | Mandatory error |
+
+These rules do not execute source code, contact MCP endpoints or assess instruction
+quality. Content advisories can be configured; floor rules cannot be disabled or
+downgraded. For detailed policy flags, see the [rule catalogue](./rule-catalogue.md).
+
+### Primitive safety and content checks
+
+Absolute paths are allowed only inside the current repository root. Escaping or
+broken symlinks and unavailable canonical-path resolution fail `PTH001` before
+content is read. Contained symlinks are allowed; recursive scans avoid loops and
+duplicate canonical files. Invalid MCP transport/input structures fail `MCP003`.
+Input types are `promptString`, `pickString` and `command`, with their required
+properties. URLs can also use input/environment placeholders.
+
+Reports mark rules for kinds not inspected as **Not applicable**, excluding them
+from passed-check counts. Structured reports expose `applicableRules`. Findings
+and disabled rules retain their actual status; older producers without this metadata
+keep their previous rendering.
+
+### Primitive PR validation
+
+Add `--base-ref <commit> --head-ref <commit>` with full history and the PR head
+checked out. Paths are optional in PR mode and default to the whole repository.
+Only changed primitive files are validated; a change anywhere in a skill folder
+revalidates its `SKILL.md`.
+
+Enabled GitHub sources added or modified in the hub config (`--config`, default
+`hub-config.yml`) are downloaded from their configured branch. All their
+collection-referenced skills, agents, prompts, instructions and MCP definitions
+are validated, regardless of profiles. Item kinds drive validation, including MCP
+files with arbitrary names. Shared items are checked once per path and kind;
+unreferenced files and unchanged sources are not scanned. Source-download,
+collection-read or unsafe-path failures block validation. Findings and validated
+paths use `<source id>/<file>`; the **PR scope** section lists downloaded sources.
+Downloads reuse existing GitHub authentication and never execute source contents.
+
 ### Governance configuration (`hub-governance.yml`)
 
 The repository-root policy is discovered automatically; `--policy <path>` replaces
@@ -81,6 +145,9 @@ it. Each `rules` entry can specify `enabled`, `severity` and an explanatory `rea
 CFG001 rejects unreadable or malformed YAML/schema, CFG002 rejects unknown or
 non-configurable rule IDs, and CFG003 rejects disabling or downgrading floor rules.
 Invalid configuration fails the run and its overrides are ignored.
+
+For PR-scoped hub validation, policy is read from the merge base so the PR cannot
+relax its own gate. Collection and primitive runs use the repository-root policy.
 
 ### External workflow consumption
 

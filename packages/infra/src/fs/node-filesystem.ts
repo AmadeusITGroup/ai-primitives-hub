@@ -17,6 +17,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
@@ -31,6 +32,10 @@ import type {
 const MODE_UNSUPPORTED_CODES: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL']);
 
 export class NodeFileSystem implements FileSystem {
+  public realpath(path: string): Promise<string> {
+    return realpath(path);
+  }
+
   public async readFile(path: string): Promise<string> {
     return readFile(path, 'utf8');
   }

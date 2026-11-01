@@ -117,6 +117,9 @@ import {
   PluginsListCommand,
 } from './plugins-list';
 import {
+  PrimitiveValidateCommand,
+} from './primitive-validate';
+import {
   ProfileActivateCommand,
   ProfileCreateCommand,
   ProfileCurrentCommand,
@@ -233,6 +236,7 @@ export const ALL_COMMAND_CLASSES: CommandClass[] = [
   DoctorDiagnosticsCommand,
   PluginsListCommand,
   SkillValidateCommand,
+  PrimitiveValidateCommand,
   CompletionCommand,
   DiscoverCommand
 ];

@@ -10,11 +10,11 @@ import type {
 } from '../types';
 
 export const CONFIG_RULES: readonly GovernanceRule[] = [
-  { id: 'CFG001', subjects: ['hub', 'collection'], description: 'Governance configuration is readable YAML matching hub-governance.schema.json',
+  { id: 'CFG001', subjects: ['hub', 'collection', 'primitive'], description: 'Governance configuration is readable YAML matching hub-governance.schema.json',
     defaultSeverity: 'error', disableable: false, configurable: false, needsNetwork: false },
-  { id: 'CFG002', subjects: ['hub', 'collection'], description: 'Governance configuration references only known, configurable rule ids',
+  { id: 'CFG002', subjects: ['hub', 'collection', 'primitive'], description: 'Governance configuration references only known, configurable rule ids',
     defaultSeverity: 'error', disableable: false, configurable: false, needsNetwork: false },
-  { id: 'CFG003', subjects: ['hub', 'collection'], description: 'Governance configuration does not disable or downgrade a floor rule',
+  { id: 'CFG003', subjects: ['hub', 'collection', 'primitive'], description: 'Governance configuration does not disable or downgrade a floor rule',
     defaultSeverity: 'error', disableable: false, configurable: false, needsNetwork: false }
 ];
 

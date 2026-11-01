@@ -166,6 +166,33 @@ describe('collection validation of hub sources changed by a PR', () => {
     expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'CFG003' }));
   });
 
+  it('validates collection primitives in changed hub sources, not unrelated source files', async () => {
+    const base = await commit(hubConfig([source('kept')]));
+    const head = await commit(hubConfig([source('kept'), source('added'), source('missing')]));
+    const sourceAdapterDeps = deps({
+      '/repos/owner/added/zipball': zipball('added', {
+        'collections/one.collection.yml': 'id: one\nname: One\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n  - path: servers.json\n    kind: mcp-server\n',
+        'collections/two.collection.yml': 'id: two\nname: Two\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
+        'a.prompt.md': 'Missing frontmatter',
+        'servers.json': '{"servers":{"test":{"command":"node","env":{"TOKEN":"literal-secret"}}}}',
+        'unreferenced.agent.md': 'Not part of any collection'
+      })
+    });
+    const report = await runGovernance(fs, {
+      subject: 'primitive', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), hubSources: createHubSourceAccess(sourceAdapterDeps)
+    });
+    expect(sourceAdapterDeps.requests.toSorted()).toEqual(['/repos/owner/added/zipball', '/repos/owner/missing/zipball']);
+    expect(report.verdict).toBe('fail');
+    expect(report.mode).toBe('sources');
+    expect(report.prScope?.sources).toEqual(['added', 'missing']);
+    expect(report.prScope?.validated).toEqual(['added/a.prompt.md', 'added/servers.json']);
+    expect(report.findings.filter((finding) => finding.ruleId === 'PRM001')).toHaveLength(1);
+    expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'MCP002', file: 'added/servers.json' }));
+    expect(report.findings).toContainEqual(expect.objectContaining({ verified: false, subject: { kind: 'source', id: 'missing' } }));
+    expect(report.findings.some((finding) => finding.file?.includes('unreferenced'))).toBe(false);
+    expect(renderGovernanceMarkdown(report)).not.toContain(os.tmpdir());
+  });
+
   it('leaves the hub sources alone when the PR does not change the hub config', async () => {
     const base = await commit(hubConfig([source('kept')]));
     await writeFile(path.join(root, 'README.md'), 'Docs');
