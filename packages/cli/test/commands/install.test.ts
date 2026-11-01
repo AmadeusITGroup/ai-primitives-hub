@@ -1169,6 +1169,46 @@ agents:
       await expect(readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
+    it('a reinstall through another target type removes the previous target\'s files and exclude lines', async () => {
+      await mkdir(path.join(workspace, '.git'));
+      await addRepositoryTarget('kiro-repo', 'kiro');
+      await addRepositoryTarget('vscode-repo', 'vscode');
+      const first = await installRepository('kiro-repo', ['--commit-mode', 'local-only']);
+      expect(first.exitCode, first.stdout).toBe(0);
+      const kiroFiles = parseJson<{ written: string[] }>(first.stdout).data.written;
+
+      const result = await installRepository('vscode-repo', ['--commit-mode', 'local-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson(result.stdout).status).toBe('ok');
+      const lines = await excludeLines();
+      for (const file of kiroFiles) {
+        await expect(stat(file)).rejects.toThrow();
+        expect(lines).not.toContain(toPosix(path.relative(workspace, file)));
+      }
+      expect(lines).toContain('.github/prompts/hello.prompt.md');
+      expect((await readLock(localLock())).bundles['local-foo'].targetType).toBe('vscode');
+    });
+
+    it('warns about each previous file it keeps because the previous target type cannot be located', async () => {
+      await addRepositoryTarget('kiro-repo', 'kiro');
+      await addRepositoryTarget('vscode-repo', 'vscode');
+      expect((await installRepository('kiro-repo')).exitCode).toBe(0);
+      const lock = await readLock(commitLock());
+      lock.bundles['local-foo'].targetType = 'emacs';
+      await writeFile(commitLock(), JSON.stringify(lock));
+
+      const result = await installRepository('vscode-repo');
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const envelope = JSON.parse(result.stdout) as JsonEnvelope<unknown> & { warnings?: string[] };
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toEqual([
+        'kept superseded file prompts/hello.prompt.md: could not locate the previous install\'s files (unknown target type "emacs")'
+      ]);
+      await expect(readFile(path.join(workspace, '.kiro', 'steering', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    });
+
     posixNonRoot('an exclude file that cannot be written is a warning, not an install error', async () => {
       await mkdir(path.join(workspace, '.git', 'info'), { recursive: true });
       await writeFile(path.join(workspace, '.git', 'info', 'exclude'), '# existing\n');

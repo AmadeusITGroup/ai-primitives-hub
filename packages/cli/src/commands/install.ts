@@ -346,7 +346,9 @@ const renderSkipped = (skipped: readonly SkippedBundleContent[]): string =>
 /**
  * Output warnings for an install: content a partial install skipped, a
  * `local-only` workspace that is not a git repository, exclude-file
- * updates that failed and superseded files that could not be removed.
+ * updates that failed, superseded files that could not be removed, and
+ * the files of a previous install through another target type that
+ * could not be located.
  * @param target Effective target.
  * @param outcome Install outcome.
  * @returns The warnings, or `undefined` when there are none.
@@ -358,7 +360,10 @@ const installWarnings = (target: Target, outcome: ApplyBundleInstallResult): str
       ? [`${target.rootPath ?? ''} is not a git repository; local-only files are not excluded from git`]
       : []),
     ...outcome.exclusionErrors.map((message) => `could not update the git exclude file: ${message}`),
-    ...outcome.errors.map((e) => `could not remove superseded file ${e.path}: ${e.message}`)
+    ...outcome.errors.map((e) => `could not remove superseded file ${e.path}: ${e.message}`),
+    ...outcome.supersededKept
+      .filter((kept) => kept.reason === 'unresolvable')
+      .map((kept) => `kept superseded file ${kept.path}: could not locate the previous install's files (${outcome.supersededUnresolvable ?? 'unknown reason'})`)
   ];
   return warnings.length === 0 ? undefined : warnings;
 };

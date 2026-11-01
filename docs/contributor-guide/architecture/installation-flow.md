@@ -218,7 +218,7 @@ The use cases, not the writers, update the exclusion list for `local-only` insta
 
 ### Install Steps
 
-`applyBundleInstall` reads the previous record, writes the bundle (`writeBundleForInstall`, all-or-nothing unless `skipUnsupported`), excludes the written files when `local-only`, computes `installedChecksum`s and stores the entry. A failure while recording rolls back the new files the previous record does not own and the exclusion lines it added, then rethrows. Afterwards, for a previous record of the same target type, it removes that record's files the new entry does not produce (guarded as above), prunes, and un-excludes them; switching from `local-only` to `commit` un-excludes the new locations.
+`applyBundleInstall` reads the previous record, writes the bundle (`writeBundleForInstall`, all-or-nothing unless `skipUnsupported`), excludes the written files when `local-only`, computes `installedChecksum`s and stores the entry. A failure while recording rolls back the new files the previous record does not own and the exclusion lines it added, then rethrows. Afterwards it locates the previous record with the writer of its own `targetType`, removes that record's files the new entry does not produce (guarded as above), prunes, and un-excludes them; switching from `local-only` to `commit` un-excludes the new locations. A store keeps one record per bundle id, so a reinstall through another target type replaces the record and removes the previous type's files the same way. When a previous record of another type can't be located, its files stay and are reported in `supersededKept` as `unresolvable`, with the reason in `supersededUnresolvable`.
 
 ## Lockfile Management
 
