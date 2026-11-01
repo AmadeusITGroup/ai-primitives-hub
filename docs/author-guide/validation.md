@@ -20,8 +20,12 @@ sources and resolves profile references; it does not validate collection or
 primitive content. Existing validation without governance flags is unchanged.
 
 For PR scope, add `--base-ref <commit> --head-ref <commit>` (exact 40- or
-64-character hexadecimal commit IDs). Git mode uses the merge base policy, so
-a PR cannot relax its own gate. Alternatively use `--scope-file scope.json`
+64-character hexadecimal commit IDs). Git mode reads both the default policy
+and an explicit `--policy` from the merge base, so a PR cannot relax its own gate.
+Explicit paths must resolve within the repository and exist at the merge base;
+missing or outside-repository policies fail with CFG001. Without Git refs,
+including scope-file mode, policies are read from the working tree.
+Alternatively use `--scope-file scope.json`
 with `schemaVersion: 1`, `sourceIds` and `profileIds` arrays. Both scoped modes
 require `--governance`; automatic GitHub App setup is not supported there.
 Scoped source checks support remote github, awesome-copilot and skills sources

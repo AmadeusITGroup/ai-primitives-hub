@@ -1,7 +1,8 @@
 # Governance rule catalogue
 
 Generated from `packages/core/src/domain/governance/rule-registry.ts`. Do not edit by hand;
-regenerate with `pnpm -C packages/app run generate:rule-catalogue`.
+build the required packages with `pnpm --filter @ai-primitives-hub/app... run build`,
+then regenerate with `pnpm -C packages/app run generate:rule-catalogue`.
 
 Any error fails the run. Warnings do not fail the run.
 Unverified findings retain their severity and can fail the run when reported as errors.

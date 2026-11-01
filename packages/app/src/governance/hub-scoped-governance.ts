@@ -47,7 +47,7 @@ export interface HubScopedGovernanceRequest {
   headRef?: string;
   scopeFile?: string;
   processRunner: ArgvProcessRunner;
-  /** Explicit governance configuration. Otherwise `hub-governance.yml` is read from the PR base. */
+  /** Governance configuration path. Git mode reads explicit and default policies from the merge base. */
   policy?: string;
   checkSources?: boolean;
   sourceAdapterDeps?: SourceAdapterFactoryDeps;
@@ -66,14 +66,26 @@ const REMOTE_SOURCE_TYPES = new Set(['github', 'awesome-copilot', 'skills']);
  * @param mergeBase
  */
 async function scopedConfig(fs: FileSystem, request: HubScopedGovernanceRequest, mergeBase?: string): Promise<LoadedGovernanceConfig> {
-  if (request.policy !== undefined || mergeBase === undefined) {
+  if (mergeBase === undefined) {
     return loadGovernanceConfig(fs, request.repoRoot, request.policy);
   }
+  const relative = path.relative(request.repoRoot, path.resolve(request.repoRoot, request.policy ?? GOVERNANCE_CONFIG_FILE));
+  const file = relative.split(path.sep).join('/');
   try {
-    return governanceConfigFromContent(await readGitBlob(request.processRunner, request.repoRoot, mergeBase, GOVERNANCE_CONFIG_FILE), GOVERNANCE_CONFIG_FILE);
+    if (!file || path.isAbsolute(relative) || file.split('/').includes('..') || file.includes('\\') || file.includes(':')
+      || [...file].some((char) => char.codePointAt(0)! < 32)) {
+      throw new Error('Policy must be a safe repository-relative path.');
+    }
+    const content = await readGitBlob(request.processRunner, request.repoRoot, mergeBase, file);
+    if (content === undefined && request.policy !== undefined) {
+      throw new Error('Explicit policy is missing from the merge base.');
+    }
+    return governanceConfigFromContent(content, file);
   } catch {
-    return { policy: {}, file: GOVERNANCE_CONFIG_FILE,
-      findings: [{ ruleId: 'CFG001', severity: 'error', file: GOVERNANCE_CONFIG_FILE, message: 'Unable to read governance configuration from the PR base.' }] };
+    const displayFile = file.startsWith('../') || path.isAbsolute(relative) ? path.basename(file) : file;
+    return { policy: {}, file: displayFile,
+      findings: [{ ruleId: 'CFG001', severity: 'error', file: displayFile,
+        message: 'Unable to read governance configuration from the PR base. Explicit policies must exist at the merge base within the repository.' }] };
   }
 }
 

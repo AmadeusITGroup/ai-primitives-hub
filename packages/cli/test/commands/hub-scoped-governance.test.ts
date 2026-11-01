@@ -92,6 +92,35 @@ describe('released CLI scoped Hub governance', () => {
     expect(JSON.parse(noOp.stdout).data.scope.noOp).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
   });
+  it('loads explicit Git-mode policies from the merge base and fails closed on missing or outside paths', async () => {
+    const git = (...args: string[]) => execFileSync('git', args, {
+      cwd: root, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }
+    }).trim();
+    git('init', '--quiet');
+    git('config', 'user.name', 'Scope Test');
+    git('config', 'user.email', 'scope@example.invalid');
+    await writeFile(path.join(root, 'policy.yml'), 'rules:\n  HUB001:\n    enabled: false\n');
+    git('add', 'hub-config.yml', 'policy.yml');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base policy');
+    const base = git('rev-parse', 'HEAD');
+    await writeFile(path.join(root, 'policy.yml'), 'rules: {}\n');
+    await writeFile(path.join(root, 'head-only.yml'), 'rules: {}\n');
+    git('add', 'policy.yml', 'head-only.yml');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Relax policy');
+    const headRef = git('rev-parse', 'HEAD');
+    const options = ['--governance', '--base-ref', base, '--head-ref', headRef];
+    for (const policy of ['policy.yml', path.join(root, 'policy.yml')]) {
+      const result = await run([...options, '--policy', policy]);
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout).data.findings).toContainEqual(expect.objectContaining({ ruleId: 'CFG003' }));
+    }
+    for (const policy of ['head-only.yml', '../outside.yml']) {
+      const result = await run([...options, '--policy', policy]);
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout).data.findings).toContainEqual(expect.objectContaining({ ruleId: 'CFG001' }));
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it.each([
     ['--base-ref', 'main', '--head-ref', 'HEAD'], ['--base-ref', 'a'.repeat(40)],
     ['--scope-file', 'scope.json', '--base-ref', 'a'.repeat(40), '--head-ref', 'b'.repeat(40)]

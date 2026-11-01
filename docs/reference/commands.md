@@ -9,7 +9,10 @@ This document lists all VS Code commands provided by the AI Primitives Hub exten
 `--policy` and `--report-path` also enable governance. The output formats are
 text, json, yaml and ndjson; any error returns exit code 1, warnings alone 0.
 Add `--base-ref <commit> --head-ref <commit>` or `--scope-file <path>` for
-semantic source/profile scope (requires `--governance`). See
+semantic source/profile scope (requires `--governance`). In Git mode, both default
+and explicit `--policy` files are read from the merge base. Explicit policies must
+resolve within the repository and exist at that commit; otherwise CFG001 fails.
+Without Git refs, policies are loaded from the working tree. See
 [hub governance](../author-guide/validation.md#hub-governance-cli) and the
 [rule catalogue](../author-guide/rule-catalogue.md). No consumer workflow is included.
 

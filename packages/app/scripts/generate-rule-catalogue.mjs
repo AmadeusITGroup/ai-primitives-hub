@@ -2,7 +2,7 @@
 /**
  * Regenerate docs/author-guide/rule-catalogue.md from the rule registry.
  * Usage: pnpm -C packages/app run generate:rule-catalogue [-- --check]
- * Requires a prior `pnpm -C packages/app run build`.
+ * Requires a prior `pnpm --filter @ai-primitives-hub/app... run build`.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
