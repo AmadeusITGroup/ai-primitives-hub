@@ -39,7 +39,8 @@ export async function executeHubScopedGovernance(ctx: Context, options: ScopedOp
   }
   const report = await runHubScopedGovernance(ctx.fs, {
     ...options, repoRoot: ctx.cwd(), processRunner: new NodeArgvProcessRunner(), sourceAdapterDeps,
-    onProgress: options.verbose ? (event) => ctx.stderr.write(`[scoped validation] ${JSON.stringify(event)}\n`) : undefined
+    onProgress: options.verbose ? (event) => ctx.stderr.write(`[scoped validation] ${JSON.stringify(event)}\n`) : undefined,
+    onInventoryProgress: options.verbose ? (event) => ctx.stderr.write(`[governance source] ${JSON.stringify(event)}\n`) : undefined
   });
   // The report renders the PR scope itself, as a readable list.
   const markdown = renderGovernanceMarkdown(report);

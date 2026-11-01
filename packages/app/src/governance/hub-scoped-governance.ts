@@ -11,9 +11,11 @@ import {
   type FileSystem,
   type GovernanceFinding,
   type GovernanceReport,
+  type HubCollectionIndex,
   type HubScope,
   type HubScopeDocument,
   hubScopeLocationMapper,
+  type ReleaseLookup,
   selectHubScope,
 } from '@ai-primitives-hub/core';
 import {
@@ -39,6 +41,9 @@ import {
   loadGovernanceConfig,
   withDisplayPaths,
 } from './load-config';
+import {
+  createHubGovernanceSourceChecks,
+} from './source-checks';
 
 export interface HubScopedGovernanceRequest {
   repoRoot: string;
@@ -51,7 +56,12 @@ export interface HubScopedGovernanceRequest {
   policy?: string;
   checkSources?: boolean;
   sourceAdapterDeps?: SourceAdapterFactoryDeps;
+  collectionIndex?: HubCollectionIndex;
+  releaseLookup?: ReleaseLookup;
+  /** Overall time limit for reading hub-wide collection ids (COL004). */
+  inventoryDeadlineMs?: number;
   onProgress?: (event: HubValidationProgress) => void;
+  onInventoryProgress?: Parameters<typeof createHubGovernanceSourceChecks>[3];
 }
 export interface HubScopedGovernanceReport extends GovernanceReport {
   scope?: HubScope & { baseRef?: string; headRef?: string; mergeBase?: string; origin: 'git' | 'file' };

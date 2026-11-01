@@ -3,6 +3,9 @@
  * @module domain/governance/rule-registry
  */
 import {
+  COLLECTION_RULES,
+} from './rules/collection';
+import {
   CONFIG_RULES,
 } from './rules/config';
 import {
@@ -14,7 +17,7 @@ import type {
 } from './types';
 
 export const GOVERNANCE_RULES: readonly GovernanceRule[] = [
-  ...HUB_RULES, ...CONFIG_RULES
+  ...COLLECTION_RULES, ...HUB_RULES, ...CONFIG_RULES
 ].toSorted((a, b) => a.id.localeCompare(b.id));
 
 /**

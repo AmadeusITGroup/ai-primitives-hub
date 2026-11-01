@@ -26,6 +26,9 @@ export interface SourceAdapter {
 
   fetchBundles(): Promise<Bundle[]>;
 
+  /** Optional strict catalog capability; reject unreadable entries instead of silently skipping them. */
+  fetchBundlesStrict?(): Promise<Bundle[]>;
+
   /**
    * Optional lightweight catalog discovery returning only `{ id, version }`
    * entries without downloading per-bundle READMEs, frontmatter, or release

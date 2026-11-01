@@ -85,6 +85,18 @@ Beyond placement and clean uninstall, the run checks that a rejected install lis
 
 ## Bundle Management
 
+### Collection governance (CLI)
+
+`ai-primitives-hub collection validate --governance [--root <dir>] [--collection-file <path>...]`
+
+Use `--policy <path>`, `--report-path <path>`, `--markdown-path <path>` and
+`-o text|json|yaml|ndjson` for configuration and reports. `--check-releases
+--repository owner/repo` enables publication verification (COL002); `--check-sources
+[--config hub-config.yml]` enables cross-source ID uniqueness (COL004).
+`--base-ref <commit> --head-ref <commit>` enables PR scope and requires the head
+checked out and full history. Changed enabled GitHub hub sources are downloaded
+and their collections validated. See [CLI governance validation](../author-guide/validation.md#cli-governance-validation).
+
 | Command | Title | Description |
 |---------|-------|-------------|
 | `promptRegistry.viewBundle` | View Bundle Details | View detailed information about a bundle |

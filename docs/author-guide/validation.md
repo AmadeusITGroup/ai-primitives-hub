@@ -31,8 +31,57 @@ require `--governance`; automatic GitHub App setup is not supported there.
 Scoped source checks support remote github, awesome-copilot and skills sources
 only and never execute local/APM code. `--verbose` sends redacted progress to stderr.
 
-Governance is available on `hub validate` only in this stage. The existing
-collection and skill validators remain unchanged; no consumer workflow is installed.
+No consumer workflow is installed. The existing skill validator remains unchanged.
+
+## CLI governance validation
+
+Run `ai-primitives-hub collection validate --governance` for collection rule IDs,
+an error-based verdict and a Markdown report. `--policy <path>` or `--report-path
+<path>` also enables governance. Without these flags, legacy validation is unchanged.
+Use `--root <dir>` to select a repository and repeat `--collection-file <path>`
+to select collections. `--markdown-path` remains supported, including with governance.
+
+COL001 requires unique IDs and names; COL003 requires authors; COL005 checks structure
+and referenced files; COL006 reports advisories. Empty collection selections fail.
+COL001, COL002 and COL005 are mandatory; configurable overrides and reasons remain
+visible in reports. Any error (including unverified errors) or report-write failure
+fails the command; warnings alone pass. Reports have no scores.
+
+### Source checks
+
+`--check-releases --repository owner/repo` enables COL002 and checks published
+non-draft, non-prerelease releases with a standalone deployment manifest and ZIP or
+TAR.GZ asset. `--check-sources [--config hub-config.yml]` enables COL004, comparing
+canonical collection IDs across enabled GitHub and Awesome Copilot sources.
+Versions within one source do not collide. Unreadable evidence is an unverified
+error, never an empty inventory. Unrequested network rules are shown as **Not run**.
+Hub validation does not run collection rules.
+
+### PR validation
+
+Add `--base-ref <commit> --head-ref <commit>` to validate collections whose manifest,
+README or referenced item changed. Full Git history and the PR head checkout are
+required. Uniqueness still uses every collection as context. Enabled GitHub sources
+added or modified in the hub config are downloaded from their configured branch;
+their collections are validated, with source-qualified paths in the report. Source
+download failures block validation. `--check-releases` checks their publication.
+Unchanged sources and non-GitHub source types are not downloaded in this mode.
+
+### Governance configuration (`hub-governance.yml`)
+
+The repository-root policy is discovered automatically; `--policy <path>` replaces
+it. Each `rules` entry can specify `enabled`, `severity` and an explanatory `reason`.
+CFG001 rejects unreadable or malformed YAML/schema, CFG002 rejects unknown or
+non-configurable rule IDs, and CFG003 rejects disabling or downgrading floor rules.
+Invalid configuration fails the run and its overrides are ignored.
+
+### External workflow consumption
+
+External consumers invoke the CLI, consume structured output (`-o json|yaml|ndjson`),
+and preserve its exit status when publishing `--report-path` Markdown. Exit code 0
+means pass; 1 means validation or report writing failed. Credentials, publication,
+PR comments and merge gating belong to the consumer. No governance workflow or
+action integration is shipped; the collection-validation action remains unchanged.
 
 ## Quick Validation
 

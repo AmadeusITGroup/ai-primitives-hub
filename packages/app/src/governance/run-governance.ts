@@ -16,9 +16,16 @@ import {
   loadGovernanceConfig,
   withDisplayPaths,
 } from './load-config';
+import type {
+  PrScope,
+} from './pr-scope';
+import {
+  type CollectionGovernanceRequest,
+  validateCollectionGovernance,
+} from './validate-collection-governance';
 
-export interface GovernanceRequest {
-  subject: 'hub';
+export interface GovernanceRequest extends CollectionGovernanceRequest {
+  subject: 'hub' | 'collection';
   repoRoot: string;
   config?: string;
   policy?: string;
@@ -32,7 +39,10 @@ export interface GovernanceRequest {
  * @param fs
  * @param request
  */
-export async function runGovernance(fs: FileSystem, request: GovernanceRequest): Promise<GovernanceReport> {
+export async function runGovernance(fs: FileSystem, request: GovernanceRequest): Promise<GovernanceReport & { prScope?: PrScope }> {
+  if (request.subject === 'collection') {
+    return validateCollectionGovernance(fs, request);
+  }
   const config = await loadGovernanceConfig(fs, request.repoRoot, request.policy);
   const mode = request.checkSources ? 'sources' : 'offline';
   if (config.findings.length > 0) {

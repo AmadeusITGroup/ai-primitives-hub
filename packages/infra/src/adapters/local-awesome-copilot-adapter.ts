@@ -346,11 +346,19 @@ export class LocalAwesomeCopilotAdapter extends BaseSourceAdapter {
     return false;
   }
 
-  public async fetchBundles(): Promise<Bundle[]> {
+  /** Read a complete catalog for governance without changing the legacy discovery contract. */
+  public fetchBundlesStrict(): Promise<Bundle[]> {
+    return this.fetchBundles({ strict: true });
+  }
+
+  public async fetchBundles(options?: { strict?: boolean }): Promise<Bundle[]> {
     let collectionFiles: string[];
     try {
       collectionFiles = await this.listCollectionFiles();
     } catch (error) {
+      if (options?.strict) {
+        throw new Error('Could not read the complete local awesome-copilot catalog. Check source configuration and access, then retry.');
+      }
       throw new Error(`Failed to list local awesome-copilot collections: ${error instanceof Error ? error.message : error}`);
     }
 
@@ -362,6 +370,9 @@ export class LocalAwesomeCopilotAdapter extends BaseSourceAdapter {
         const { mtimeMs } = await this.fs.stat(collectionPath);
         bundles.push(this.buildBundle(collection, collectionFile, mtimeMs));
       } catch {
+        if (options?.strict) {
+          throw new Error('Could not read every local awesome-copilot collection. Check collection definitions and file access, then retry.');
+        }
         // Skip a malformed collection file; the rest of the source should still load.
       }
     }

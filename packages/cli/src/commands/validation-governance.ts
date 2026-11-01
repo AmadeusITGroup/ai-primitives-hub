@@ -6,6 +6,9 @@ import {
   runGovernance,
 } from '@ai-primitives-hub/app';
 import {
+  NodeArgvProcessRunner,
+} from '@ai-primitives-hub/infra';
+import {
   type Context,
   formatOutput,
   type OutputFormat,
@@ -49,9 +52,13 @@ export async function executeValidationGovernance(
     ctx.stderr.write('Unsupported output format. Use json, yaml, ndjson, or text.\n');
     return 1;
   }
+  const prMode = options.baseRef !== undefined || options.headRef !== undefined;
   const report = await runGovernance(ctx.fs, {
     ...request,
     repoRoot: options.root === undefined ? ctx.cwd() : path.resolve(ctx.cwd(), options.root),
+    baseRef: options.baseRef,
+    headRef: options.headRef,
+    processRunner: prMode ? new NodeArgvProcessRunner() : undefined,
     policy: options.policy
   });
   const markdown = renderGovernanceMarkdown(report);

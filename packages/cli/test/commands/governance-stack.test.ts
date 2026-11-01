@@ -48,8 +48,8 @@ profiles: []
     await rm(root, { recursive: true, force: true });
   });
 
-  it('exposes only the hub and configuration rule families', () => {
-    expect([...new Set(GOVERNANCE_RULES.map((rule) => rule.id.slice(0, 3)))].toSorted()).toEqual(['CFG', 'HUB']);
+  it('exposes only the hub, collection and configuration rule families', () => {
+    expect([...new Set(GOVERNANCE_RULES.map((rule) => rule.id.slice(0, 3)))].toSorted()).toEqual(['CFG', 'COL', 'HUB']);
   });
 
   it('validates through the registered hub command and writes the shared report', async () => {
@@ -67,8 +67,9 @@ profiles: []
     expect(JSON.parse(result.stdout).data.findings).toContainEqual(expect.objectContaining({ ruleId: 'CFG003' }));
   });
 
-  it('does not activate collection governance, primitive validation, or legacy skill governance', async () => {
-    expect((await run(['collection', 'validate', '--governance'])).exitCode).not.toBe(0);
+  it('activates collection governance without primitive validation or legacy skill governance', async () => {
+    const collection = await run(['collection', 'validate', '--governance', '-o', 'json']);
+    expect(JSON.parse(collection.stdout).data).toMatchObject({ subject: 'collection' });
     expect((await run(['primitive', 'validate', '.'])).exitCode).not.toBe(0);
     expect((await run(['skill', 'validate', '--governance'])).exitCode).not.toBe(0);
   });

@@ -3,6 +3,8 @@
  * @module ports
  */
 export * from './source-adapter';
+export * from './hub-collection-index';
+export * from './release-lookup';
 export * from './schema-validator';
 export * from './argv-process-runner';
 export * from './app-storage';
