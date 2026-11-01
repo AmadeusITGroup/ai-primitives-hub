@@ -94,7 +94,9 @@ Use `--policy <path>`, `--report-path <path>`, `--markdown-path <path>` and
 --repository owner/repo` enables publication verification (COL002); `--check-sources
 [--config hub-config.yml]` enables cross-source ID uniqueness (COL004).
 `--base-ref <commit> --head-ref <commit>` enables PR scope and requires the head
-checked out and full history. Changed enabled GitHub hub sources are downloaded
+checked out and full history. Default and explicit policies come from the merge
+base; missing explicit policies and outside-repository paths fail CFG001.
+Changed enabled GitHub hub sources are downloaded
 and their collections validated. See [CLI governance validation](../author-guide/validation.md#cli-governance-validation).
 
 | Command | Title | Description |

@@ -154,6 +154,18 @@ describe('collection validation of hub sources changed by a PR', () => {
     }));
   });
 
+  it('reads explicit collection policies from the merge base instead of a relaxed head policy', async () => {
+    await writeFile(path.join(root, 'policy.yml'), 'rules:\n  COL005:\n    enabled: false\n');
+    const base = await commit(hubConfig([source('kept')]));
+    await writeFile(path.join(root, 'policy.yml'), 'rules: {}\n');
+    const head = await commit(hubConfig([source('kept')]));
+    const report = await runGovernance(fs, {
+      subject: 'collection', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), policy: 'policy.yml'
+    });
+    expect(report.verdict).toBe('fail');
+    expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'CFG003' }));
+  });
+
   it('leaves the hub sources alone when the PR does not change the hub config', async () => {
     const base = await commit(hubConfig([source('kept')]));
     await writeFile(path.join(root, 'README.md'), 'Docs');

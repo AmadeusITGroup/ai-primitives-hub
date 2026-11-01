@@ -37,7 +37,7 @@ describe('scoped Hub governance app', () => {
     await rm(root, { recursive: true, force: true });
   });
   const runner = (base: unknown, head: unknown, baseGovernance?: string) => ({ execFile: vi.fn((_file: string, args: readonly string[]) => {
-    if (args.at(-1)?.endsWith(':hub-governance.yml')) {
+    if (args.at(-1)?.endsWith(':hub-governance.yml') || args.at(-1)?.endsWith(':policy.yml')) {
       // Only the merge base ('c…') may carry the governance configuration in these tests.
       if (baseGovernance === undefined || !args.at(-1)?.startsWith('c')) {
         return Promise.reject(new Error('fatal: path does not exist'));
@@ -85,7 +85,8 @@ describe('scoped Hub governance app', () => {
   it('enforces mandatory policy checks even for semantic no-op', async () => {
     const base = hub();
     await writeFile(path.join(root, 'policy.yml'), 'rules:\n  HUB001:\n    enabled: false\n');
-    const report = await runHubScopedGovernance(fs, { ...request(base, base), policy: 'policy.yml', checkSources: true, sourceAdapterDeps: deps() });
+    const report = await runHubScopedGovernance(fs, { ...request(base, base), processRunner: runner(base, base, 'rules:\n  HUB001:\n    enabled: false\n'),
+      policy: 'policy.yml', checkSources: true, sourceAdapterDeps: deps() });
     expect(report).toMatchObject({ verdict: 'fail', scope: { noOp: true } });
     expect(report.findings.map((f) => f.ruleId)).toContain('CFG003');
   });
@@ -139,7 +140,8 @@ describe('scoped Hub governance app', () => {
     const head = hub();
     head.profiles[0].bundles[0].required = false;
     await writeFile(path.join(root, 'policy.yml'), 'rules:\n  COL004:\n    enabled: false\n');
-    const report = await runHubScopedGovernance(fs, { ...request(base, head), checkSources: true, policy: 'policy.yml', sourceAdapterDeps: deps(),
+    const report = await runHubScopedGovernance(fs, { ...request(base, head), processRunner: runner(base, head, 'rules:\n  COL004:\n    enabled: false\n'),
+      checkSources: true, policy: 'policy.yml', sourceAdapterDeps: deps(),
       releaseLookup: { lookup: () => Promise.resolve({ status: 'published' }) },
       collectionIndex: { read: () => Promise.resolve({ collections: [{ sourceId: 'a', id: 'selected' }], unverifiedSources: [{ sourceId: 'b', message: 'Cannot read context' }] }) } });
     expect(report.verdict).toBe('pass');

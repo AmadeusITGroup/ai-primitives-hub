@@ -10,6 +10,9 @@ import {
   type HubScope,
   rulesForSubject,
 } from '@ai-primitives-hub/core';
+import type {
+  PrScope,
+} from './pr-scope';
 
 /**
  * Treat repository content as text, not Markdown/HTML or a report marker.
@@ -28,7 +31,7 @@ type HubScopeView = Pick<HubScope, 'sources' | 'profiles' | 'sourceIds' | 'profi
   headRef?: string;
 };
 
-export type RenderableGovernanceReport = GovernanceReport & { scope?: HubScopeView };
+export type RenderableGovernanceReport = GovernanceReport & { scope?: HubScopeView; prScope?: PrScope };
 
 interface RuleRow {
   rule: GovernanceRule;
@@ -49,7 +52,8 @@ function ruleRow(rule: GovernanceRule, report: GovernanceReport, levelRan: boole
     return { rule, status: 'skipped', result: '⏭️ Disabled by configuration', findings };
   }
   if (!levelRan || report.notChecked.some((entry) => entry.ruleId === rule.id)) {
-    return { rule, status: 'skipped', result: '⏭️ Not run (offline; use --check-sources)', findings };
+    const option = report.subject === 'collection' && rule.id !== 'COL004' ? '--check-releases' : '--check-sources';
+    return { rule, status: 'skipped', result: `⏭️ Not run (offline; use ${option})`, findings };
   }
   const errors = findings.filter((finding) => finding.severity === 'error');
   if (errors.length > 0) {
@@ -177,7 +181,7 @@ export function renderGovernanceMarkdown(report: RenderableGovernanceReport): st
   // Details for anyone who wants them: every check with its result, and what was validated.
   // Configuration checks are listed only when the configuration has errors.
   const rows = rules.filter((rule) => configurationFailed || !rule.id.startsWith('CFG'))
-    .map((rule) => ruleRow(rule, report, !rule.id.startsWith('CFG') || report.mode === 'sources'));
+    .map((rule) => ruleRow(rule, report, !rule.id.startsWith('CFG') || report.subject !== 'hub' || report.mode === 'sources'));
   const count = (status: RuleRow['status']): number => rows.filter((row) => row.status === status).length;
   const summary = [`${count('pass') + count('warn')} passed`, `${count('fail')} failed`,
     ...(count('skipped') > 0 ? [`${count('skipped')} not run`] : []), ...(count('not-applicable') > 0 ? [`${count('not-applicable')} not applicable`] : [])];
@@ -187,5 +191,18 @@ export function renderGovernanceMarkdown(report: RenderableGovernanceReport): st
     details.push('', 'Offline; source repositories were not contacted.');
   }
   const scope = report.scope ? renderHubScope(report.scope) : [];
-  return [...header, ...lines, ...details, ...scope, '', '</details>', ''].join('\n');
+  if (report.prScope) {
+    const pr = report.prScope;
+    scope.push('', '### PR scope', '',
+      `Compared ${escape(pr.mergeBase.slice(0, 12))} (merge base) with ${escape(pr.headRef.slice(0, 12))}: ${plural(pr.changedFiles.length, 'changed file')}, ${pr.validated.length} validated.`);
+    if (pr.validated.length > 0) {
+      scope.push('', ...pr.validated.map((file) => `- ${escape(file)}`));
+    }
+    if (pr.sources?.length) {
+      scope.push('', `Validated sources: ${pr.sources.map((id) => escape(id)).join(', ')}`);
+    }
+  }
+  return (report.subject === 'collection'
+    ? [...header, ...details, '', '</details>', ...lines, ...scope, '']
+    : [...header, ...lines, ...details, ...scope, '', '</details>', '']).join('\n');
 }

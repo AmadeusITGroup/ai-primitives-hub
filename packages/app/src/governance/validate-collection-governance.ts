@@ -33,7 +33,8 @@ import {
   validateAllCollections,
 } from '../collection/read-collection';
 import {
-  loadGovernanceConfig,
+  type LoadedGovernanceConfig,
+  loadScopedGovernanceConfig,
   withDisplayPaths,
 } from './load-config';
 import {
@@ -187,14 +188,15 @@ async function sourceCollectionFindings(fs: FileSystem, source: HubEntity, reque
  */
 export async function validateCollectionGovernance(fs: FileSystem, request: CollectionGovernanceRequest): Promise<CollectionGovernanceReport> {
   let mode: 'sources' | 'offline' = request.checkReleases || request.checkSources ? 'sources' : 'offline';
-  const config = await loadGovernanceConfig(fs, request.repoRoot, request.policy);
-  if (config.findings.length > 0) {
-    return evaluateGovernance('collection', config.findings, {}, { mode });
-  }
+  let config: LoadedGovernanceConfig = { policy: {}, findings: [] };
   let findings: GovernanceFinding[];
   let prScope: PrScope | undefined;
   try {
     const changes = await readPrChanges(request, request.repoRoot);
+    config = await loadScopedGovernanceConfig(fs, request, changes?.mergeBase);
+    if (config.findings.length > 0) {
+      return evaluateGovernance('collection', config.findings, {}, { mode, configFile: config.file });
+    }
     if (changes && request.collectionFiles?.length) {
       throw new Error('--collection-file cannot be combined with --base-ref/--head-ref.');
     }

@@ -23,7 +23,6 @@ import {
   hubScopeFileSystem,
   parseHubScopeDocument,
   parseHubScopeFile,
-  readGitBlob,
   readGitHubScope,
   validateHubScopeDocument,
 } from '@ai-primitives-hub/infra';
@@ -35,10 +34,8 @@ import {
   validateHubConfigFile,
 } from '../registry/validate-hub-config-file';
 import {
-  GOVERNANCE_CONFIG_FILE,
-  governanceConfigFromContent,
   type LoadedGovernanceConfig,
-  loadGovernanceConfig,
+  loadScopedGovernanceConfig,
   withDisplayPaths,
 } from './load-config';
 import {
@@ -68,36 +65,6 @@ export interface HubScopedGovernanceReport extends GovernanceReport {
 }
 
 const REMOTE_SOURCE_TYPES = new Set(['github', 'awesome-copilot', 'skills']);
-
-/**
- * In Git mode the configuration comes from the merge base, so a PR cannot relax its own gate.
- * @param fs
- * @param request
- * @param mergeBase
- */
-async function scopedConfig(fs: FileSystem, request: HubScopedGovernanceRequest, mergeBase?: string): Promise<LoadedGovernanceConfig> {
-  if (mergeBase === undefined) {
-    return loadGovernanceConfig(fs, request.repoRoot, request.policy);
-  }
-  const relative = path.relative(request.repoRoot, path.resolve(request.repoRoot, request.policy ?? GOVERNANCE_CONFIG_FILE));
-  const file = relative.split(path.sep).join('/');
-  try {
-    if (!file || path.isAbsolute(relative) || file.split('/').includes('..') || file.includes('\\') || file.includes(':')
-      || [...file].some((char) => char.codePointAt(0)! < 32)) {
-      throw new Error('Policy must be a safe repository-relative path.');
-    }
-    const content = await readGitBlob(request.processRunner, request.repoRoot, mergeBase, file);
-    if (content === undefined && request.policy !== undefined) {
-      throw new Error('Explicit policy is missing from the merge base.');
-    }
-    return governanceConfigFromContent(content, file);
-  } catch {
-    const displayFile = file.startsWith('../') || path.isAbsolute(relative) ? path.basename(file) : file;
-    return { policy: {}, file: displayFile,
-      findings: [{ ruleId: 'CFG001', severity: 'error', file: displayFile,
-        message: 'Unable to read governance configuration from the PR base. Explicit policies must exist at the merge base within the repository.' }] };
-  }
-}
 
 /**
  * Validate only semantic PR changes and dependencies using shared validators.
@@ -130,7 +97,7 @@ export async function runHubScopedGovernance(fs: FileSystem, request: HubScopedG
       const explicit = parseHubScopeFile(await fs.readFile(path.resolve(request.repoRoot, request.scopeFile)));
       scope = { ...computeHubScope(head, head, explicit), origin: 'file' };
     }
-    config = await scopedConfig(fs, request, scope.mergeBase);
+    config = await loadScopedGovernanceConfig(fs, request, scope.mergeBase);
     findings.push(...config.findings);
 
     const selected = selectHubScope(head, scope);

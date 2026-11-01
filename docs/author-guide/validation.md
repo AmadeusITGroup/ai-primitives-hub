@@ -61,7 +61,9 @@ Hub validation does not run collection rules.
 
 Add `--base-ref <commit> --head-ref <commit>` to validate collections whose manifest,
 README or referenced item changed. Full Git history and the PR head checkout are
-required. Uniqueness still uses every collection as context. Enabled GitHub sources
+required. Both default and explicit policies are read from the merge base;
+missing explicit policies or paths outside the repository fail with CFG001.
+Uniqueness still uses every collection as context. Enabled GitHub sources
 added or modified in the hub config are downloaded from their configured branch;
 their collections are validated, with source-qualified paths in the report. Source
 download failures block validation. `--check-releases` checks their publication.
