@@ -216,14 +216,67 @@ describe('applyBundleInstall (in-memory)', () => {
     expect(await fs.exists(edited)).toBe(true);
   });
 
-  it('removes nothing when the previous entry was placed by another target type', async () => {
+  it('removes the files the previous entry placed through another target type', async () => {
     await install(prompts('a', '1.0.0', ['kept', 'dropped']), { target: { ...vscodeRepo, type: 'kiro' } });
 
     const result = await install(prompts('a', '2.0.0', ['kept']));
 
+    expect(result.superseded).toEqual(['prompts/kept.prompt.md', 'prompts/dropped.prompt.md']);
+    expect(result.supersededKept).toEqual([]);
+    expect(await fs.exists(path.join('/ws', '.kiro', 'steering', 'kept.prompt.md'))).toBe(false);
+    expect(await fs.exists(path.join('/ws', '.kiro', 'steering', 'dropped.prompt.md'))).toBe(false);
+    expect(await fs.exists(github('prompts', 'kept.prompt.md'))).toBe(true);
+    expect((await store.get('a'))?.entry.targetType).toBe('vscode');
+  });
+
+  it('keeps a previous file of another target type that another record holds or that was modified', async () => {
+    const kiro = { target: { ...vscodeRepo, type: 'kiro' as const } };
+    const steering = (name: string): string => path.join('/ws', '.kiro', 'steering', `${name}.prompt.md`);
+    await install(prompts('a', '1.0.0', ['shared', 'edited', 'pristine']), kiro);
+    await install(prompts('b', '1.0.0', ['shared']), kiro);
+    fs.seed(steering('edited'), '# changed\n');
+
+    const result = await install(prompts('a', '2.0.0', ['new']), { preserveModified: true });
+
+    expect(result.superseded).toEqual(['prompts/pristine.prompt.md']);
+    expect(result.supersededKept).toEqual([
+      { path: 'prompts/shared.prompt.md', reason: 'shared' },
+      { path: 'prompts/edited.prompt.md', reason: 'modified' }
+    ]);
+    expect(await fs.exists(steering('shared'))).toBe(true);
+    expect(await fs.exists(steering('edited'))).toBe(true);
+    expect(await fs.exists(steering('pristine'))).toBe(false);
+  });
+
+  it('keeps and reports every previous file when the other target type cannot be located', async () => {
+    await install(prompts('a', '1.0.0', ['kept', 'dropped']), { target: { ...vscodeRepo, type: 'kiro' } });
+    const base = factoryFor(fs);
+    const writerFactory = (target: Target): ReturnType<typeof base> => {
+      if (target.type === 'kiro') {
+        throw new Error('no kiro layout on this host');
+      }
+      return base(target);
+    };
+
+    const result = await install(prompts('a', '2.0.0', ['kept']), { writerFactory });
+
     expect(result.superseded).toEqual([]);
+    expect(result.supersededKept).toEqual([
+      { path: 'prompts/kept.prompt.md', reason: 'unresolvable' },
+      { path: 'prompts/dropped.prompt.md', reason: 'unresolvable' }
+    ]);
+    expect(result.supersededUnresolvable).toBe('no kiro layout on this host');
     expect(await fs.exists(path.join('/ws', '.kiro', 'steering', 'dropped.prompt.md'))).toBe(true);
     expect((await store.get('a'))?.entry.targetType).toBe('vscode');
+  });
+
+  it('reports no unresolvable previous record when it was placed by the same target type', async () => {
+    await install(prompts('a', '1.0.0', ['kept']));
+
+    const result = await install(prompts('a', '2.0.0', ['kept']));
+
+    expect(result.supersededKept).toEqual([]);
+    expect(result).not.toHaveProperty('supersededUnresolvable');
   });
 
   it('rolls back every written file when the first record cannot be stored', async () => {
@@ -346,6 +399,25 @@ describe('applyBundleInstall (on disk, git exclusion)', () => {
     expect(result.exclusionErrors).toEqual([]);
     expect(excludeLines()).toEqual([HEADER]);
     expect(existsSync(path.join(ws, LOCKFILE_NAME))).toBe(true);
+  });
+
+  it('removes the files and exclusion lines of a local-only install placed through another target type', async () => {
+    mkdirSync(path.join(ws, '.git'), { recursive: true });
+    const kiro: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
+    await install(kiro, prompts('a', '1.0.0', ['hello']));
+
+    const result = await install({ ...kiro, name: 'v', type: 'vscode' }, prompts('a', '1.0.0', ['hello']));
+
+    expect(result.superseded).toEqual(['prompts/hello.prompt.md']);
+    expect(result.exclusionErrors).toEqual([]);
+    expect(existsSync(path.join(ws, '.kiro', 'steering', 'hello.prompt.md'))).toBe(false);
+    expect(existsSync(path.join(ws, '.github', 'prompts', 'hello.prompt.md'))).toBe(true);
+    expect(excludeLines()).not.toContain('.kiro/steering/hello.prompt.md');
+    expect(excludeLines()).toEqual(expect.arrayContaining([
+      HEADER,
+      '.github/prompts/hello.prompt.md',
+      'prompt-registry.local.lock.json'
+    ]));
   });
 
   it('removes the exclusion lines it added when the record cannot be stored', async () => {

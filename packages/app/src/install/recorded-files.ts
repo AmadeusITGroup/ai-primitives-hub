@@ -334,8 +334,10 @@ export interface SupersededRemoval extends GuardedRemoval {
  * install no longer produces, guarded like uninstall (see
  * {@link removeGuarded}), then prune the directories they leave empty.
  *
- * Only a previous record placed by the caller's target type is handled:
- * another target type's files are not the new install's to replace.
+ * The previous record is located with the writer of its own target type
+ * (see {@link locateRecord}), so a reinstall through another target type
+ * removes the files the replaced record placed instead of leaving them
+ * with no record.
  * @param input Previous record, new locations and guard inputs.
  * @param input.writerFactory Writer factory.
  * @param input.target Caller's target.
@@ -344,8 +346,8 @@ export interface SupersededRemoval extends GuardedRemoval {
  * @param input.others Records the shared-file guard must respect.
  * @param input.fs Filesystem.
  * @param input.preserveModified Keep files whose bytes changed since the previous install.
- * @returns The outcome, or `null` when the previous record is of another
- *   target type or its files can't be located.
+ * @returns The outcome, or `null` when the previous record's files can't
+ *   be located.
  */
 export async function removeSupersededRecordFiles(input: {
   writerFactory: (target: Target) => TargetWriter;
@@ -357,9 +359,6 @@ export async function removeSupersededRecordFiles(input: {
   preserveModified: boolean;
 }): Promise<SupersededRemoval | null> {
   const { writerFactory, target, previous, produced, others, fs, preserveModified } = input;
-  if ((previous.entry.targetType ?? target.type) !== target.type) {
-    return null;
-  }
   const previousLocated = await locateRecord(writerFactory, target, previous);
   if (previousLocated.kind !== 'located') {
     return null;

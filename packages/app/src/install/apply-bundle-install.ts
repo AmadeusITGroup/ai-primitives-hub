@@ -82,8 +82,14 @@ export interface ApplyBundleInstallResult {
   skipped: SkippedBundleContent[];
   /** Bundle paths of the previous install's files that were removed. */
   superseded: string[];
-  /** Previous files kept: another record holds them, they were modified, or their location was refused. */
-  supersededKept: { path: string; reason: 'shared' | 'modified' | 'refused' }[];
+  /**
+   * Previous files kept: another record holds them, they were modified,
+   * their location was refused, or the previous record was placed by
+   * another target type whose files can't be located (`unresolvable`).
+   */
+  supersededKept: { path: string; reason: 'shared' | 'modified' | 'refused' | 'unresolvable' }[];
+  /** Why the previous record, placed by another target type, could not be located; set only then. */
+  supersededUnresolvable?: string;
   /** Previous files whose removal threw. */
   errors: { path: string; message: string }[];
   /** The workspace is not a git repository: nothing was excluded. */
@@ -131,9 +137,11 @@ const rollbackWritten = async (writer: TargetWriter, target: Target, fs: FileSys
  * 4–5. checksum the written files and store the entry;
  * 6. on a failure of 4–5, roll back the written files the previous record
  *    doesn't own, remove the exclusion lines this install added, rethrow;
- * 7. previous record of the same target type → remove its files the new
- *    entry doesn't produce, guarded like uninstall, prune, and un-exclude
- *    them when the previous record was `local-only`;
+ * 7. previous record, located with the writer of its own target type →
+ *    remove its files the new entry doesn't produce, guarded like
+ *    uninstall, prune, and un-exclude them when the previous record was
+ *    `local-only`; a previous record of another target type that can't be
+ *    located → keep its files and report them as `unresolvable`;
  * 8. previous `local-only`, new `commit` → un-exclude the new locations.
  * @param input Install inputs.
  * @returns The outcome.
@@ -217,6 +225,15 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
   const removal = await removeSupersededRecordFiles({
     writerFactory, target, previous, produced, others: await store.others(key), fs, preserveModified
   });
+  if (removal === null && (previous.entry.targetType ?? target.type) !== target.type) {
+    // The new entry replaced a record of another target type whose files
+    // can't be located here: nothing removes them later, so report them.
+    const located = await locateRecord(writerFactory, target, previous);
+    result.supersededUnresolvable = located.kind === 'unresolvable'
+      ? located.reason
+      : `the writer of target type "${previous.entry.targetType ?? target.type}" cannot locate files`;
+    result.supersededKept.push(...previous.entry.files.map((file) => ({ path: file.path, reason: 'unresolvable' as const })));
+  }
   if (removal !== null) {
     result.superseded.push(...removal.removed);
     result.supersededKept.push(...removal.kept, ...removal.refused.map((p) => ({ path: p, reason: 'refused' as const })));
