@@ -16,6 +16,10 @@ import {
   TreeItemType,
 } from '../../src/ui/registry-tree-provider';
 import {
+  createMockBundleDetails,
+  createMockInstalledBundle,
+} from '../helpers/bundle-test-helpers';
+import {
   setupTreeProviderMocks,
 } from '../helpers/ui-test-helpers';
 
@@ -1263,5 +1267,96 @@ suite('RegistryTreeProvider - Files Missing Warning Indicator', () => {
       !normalItem.contextValue?.startsWith('installedBundle.filesMissing'),
       'Normal bundle should not have filesMissing context value'
     );
+  });
+});
+
+suite('RegistryTreeProvider - Installed bundle contents', () => {
+  let provider: RegistryTreeProvider;
+  let registryManagerStub: sinon.SinonStubbedInstance<RegistryManager>;
+  let sandbox: sinon.SinonSandbox;
+
+  const pluginItem = { path: 'plugins/demo/plugin.json', kind: 'plugin', id: 'demo' };
+  const promptItem = { path: 'prompts/hello.prompt.md', kind: 'prompt', id: 'hello' };
+  const releaseManifest = (items: { path: string; kind: string; id: string }[]): any => ({
+    formatVersion: 1,
+    id: 'bundle',
+    version: '1.0.0',
+    items,
+    prompts: items.map((item) => ({ id: item.id, name: item.id, file: item.path, type: item.kind }))
+  });
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+    registryManagerStub = sandbox.createStubInstance(RegistryManager);
+    const hubManagerStub = sandbox.createStubInstance(HubManager);
+    setupTreeProviderMocks(registryManagerStub, hubManagerStub, sandbox);
+    provider = new RegistryTreeProvider(registryManagerStub, hubManagerStub);
+  });
+
+  teardown(() => {
+    sandbox.restore();
+  });
+
+  const installedItems = async (): Promise<RegistryTreeItem[]> => provider.getChildren(new RegistryTreeItem(
+    'Installed Bundles',
+    TreeItemType.INSTALLED_ROOT,
+    undefined,
+    vscode.TreeItemCollapsibleState.Expanded
+  ));
+
+  const tooltipOf = (item: RegistryTreeItem): string => {
+    assert.strictEqual(typeof item.tooltip, 'string');
+    return item.tooltip as string;
+  };
+
+  test('names the plugin count of an installed plugin-only bundle and keeps it a leaf', async () => {
+    registryManagerStub.listInstalledBundles.resolves([
+      createMockInstalledBundle('plugin-only', '1.0.0', { manifest: releaseManifest([pluginItem]) })
+    ]);
+    registryManagerStub.getBundleDetails.resolves(createMockBundleDetails('plugin-only'));
+
+    const [item] = await installedItems();
+
+    const tooltip = tooltipOf(item);
+    assert.ok(tooltip.startsWith('Version 1.0.0'), tooltip);
+    assert.ok(tooltip.includes('\nContains: 1 plugin'), tooltip);
+    assert.strictEqual(item.collapsibleState, vscode.TreeItemCollapsibleState.None);
+  });
+
+  test('lists every kind of an installed mixed bundle in canonical kind order', async () => {
+    registryManagerStub.listInstalledBundles.resolves([
+      createMockInstalledBundle('mixed', '1.0.0', { manifest: releaseManifest([pluginItem, promptItem]) })
+    ]);
+    registryManagerStub.getBundleDetails.resolves(createMockBundleDetails('mixed'));
+
+    const [item] = await installedItems();
+
+    assert.ok(tooltipOf(item).includes('\nContains: 1 prompt, 1 plugin'), tooltipOf(item));
+  });
+
+  test('omits the contents line when the installed manifest lists no items', async () => {
+    registryManagerStub.listInstalledBundles.resolves([
+      createMockInstalledBundle('repo-bundle', '1.0.0', {
+        scope: 'repository',
+        manifest: { common: { directories: [], files: [] }, metadata: {} } as any
+      })
+    ]);
+    registryManagerStub.getBundleDetails.resolves(createMockBundleDetails('repo-bundle'));
+
+    const [item] = await installedItems();
+
+    assert.ok(!tooltipOf(item).includes('Contains:'), tooltipOf(item));
+  });
+
+  test('names the plugin count when bundle details are unavailable', async () => {
+    registryManagerStub.listInstalledBundles.resolves([
+      createMockInstalledBundle('plugin-only', '1.0.0', { manifest: releaseManifest([pluginItem]) })
+    ]);
+    registryManagerStub.getBundleDetails.rejects(new Error('not found'));
+
+    const [item] = await installedItems();
+
+    assert.strictEqual(item.label.includes('plugin-only'), true);
+    assert.ok(tooltipOf(item).includes('\nContains: 1 plugin'), tooltipOf(item));
   });
 });
