@@ -1,0 +1,11 @@
+id: mcp-bad-server-type
+name: MCP Bad Server Type Collection
+description: This collection has an MCP server with an unsupported transport type
+mcp:
+  items:
+    demo-server:
+      type: websocket
+      url: https://example.com/mcp
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

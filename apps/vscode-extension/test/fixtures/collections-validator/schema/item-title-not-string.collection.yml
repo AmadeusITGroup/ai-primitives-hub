@@ -1,0 +1,7 @@
+id: item-title-not-string
+name: Item Title Not String Collection
+description: This collection has an item whose title is not a string
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+    title: 42

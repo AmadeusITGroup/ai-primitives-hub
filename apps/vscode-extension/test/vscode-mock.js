@@ -127,6 +127,7 @@ module.exports = {
     },
     createOutputChannel: (name) => ({
       appendLine: () => undefined,
+      clear: () => undefined,
       show: () => undefined,
       dispose: () => undefined
     }),

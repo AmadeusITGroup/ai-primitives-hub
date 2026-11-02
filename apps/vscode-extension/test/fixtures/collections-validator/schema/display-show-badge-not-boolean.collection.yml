@@ -1,0 +1,8 @@
+id: display-show-badge-not-boolean
+name: Display Show Badge Not Boolean Collection
+description: This collection has a display show_badge that is not a boolean
+display:
+  show_badge: "yes"
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

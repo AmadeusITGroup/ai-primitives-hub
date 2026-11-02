@@ -237,7 +237,7 @@ This is useful when bundle files have been manually deleted but the lockfile sti
 | Command | Title | Description |
 |---------|-------|-------------|
 | `promptRegistry.createCollection` | Create New Collection | Create a new prompt collection |
-| `promptRegistry.validateCollections` | Validate Collections | Validate collection YAML files including file references and duplicate detection |
+| `promptRegistry.validateCollections` | Validate Collections | Validate collection YAML files against the collection schema, file references, duplicate IDs and names, and Agent Plugin manifests of `kind: plugin` items; reports the same errors and warnings as `ai-primitives-hub collection validate` |
 | `promptRegistry.validateApm` | Validate APM Package | Validate an APM package |
 | `promptRegistry.listCollections` | List All Collections | Display all collections |
 | `promptregistry.contributeToCollection` | Contribute to Collection (Fork, Clone & Open Visual Editor) | Fork and clone a GitHub-backed collection repository from a Marketplace tile or Explorer item, check out a branch, and open the target `.collection.yml` in the Visual Collection Editor (Artifactory sources are read-only and excluded) |

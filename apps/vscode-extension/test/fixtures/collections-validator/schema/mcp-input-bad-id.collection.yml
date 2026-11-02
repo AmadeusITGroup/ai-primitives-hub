@@ -1,0 +1,10 @@
+id: mcp-input-bad-id
+name: MCP Input Bad ID Collection
+description: This collection has an MCP input id with a space
+mcp:
+  inputs:
+    - id: api token
+      type: promptString
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

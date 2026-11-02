@@ -1,0 +1,10 @@
+id: mcp-invalid-server-name
+name: MCP Invalid Server Name Collection
+description: This collection has an MCP server name with a space
+mcp:
+  items:
+    bad name:
+      command: node
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

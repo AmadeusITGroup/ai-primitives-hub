@@ -1,0 +1,10 @@
+id: mcp-stdio-missing-command
+name: MCP Stdio Missing Command Collection
+description: This collection has a stdio MCP server without a command
+mcp:
+  items:
+    demo-server:
+      type: stdio
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

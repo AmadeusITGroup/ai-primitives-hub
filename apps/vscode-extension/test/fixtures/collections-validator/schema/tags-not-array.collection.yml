@@ -1,0 +1,7 @@
+id: tags-not-array
+name: Tags Not Array Collection
+description: This collection has tags that are not an array
+tags: testing
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

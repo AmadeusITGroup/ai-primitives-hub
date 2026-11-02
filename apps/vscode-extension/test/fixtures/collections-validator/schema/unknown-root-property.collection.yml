@@ -1,0 +1,7 @@
+id: unknown-root-property
+name: Unknown Root Property Collection
+description: This collection has a root property the schema does not define
+homepage: https://example.com
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
