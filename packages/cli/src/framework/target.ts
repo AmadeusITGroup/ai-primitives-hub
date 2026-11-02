@@ -85,6 +85,7 @@ export const findProjectLockfile = async (ctx: Context): Promise<string | null> 
 
 /**
  * Resolve the older 2.0.0 lockfile path for a target's scope (not the install record).
+ * Only workspace scope still records installs here; repository paths serve old-file fallbacks.
  * `repository` scope uses `prompt-registry.lock.json` or
  * `prompt-registry.local.lock.json` under `target.rootPath` (else `ctx.cwd()`);
  * every other scope the CLI's old user lockfile.
