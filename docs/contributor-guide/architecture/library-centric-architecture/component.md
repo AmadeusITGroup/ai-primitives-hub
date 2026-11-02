@@ -407,7 +407,7 @@ flowchart TB
 | RecordStore | Load and atomically save install record files | `records/record-store.ts` |
 | InstallRecordService | Record installs, superseded files, `status` rows, entry moves | `records/install-record-service.ts` |
 | Record Migration | Move older 2.0.0 stores into the install record | `records/record-migration.ts` |
-| Older Lockfile Store | Older 2.0.0 lockfiles (migration, workspace scope, `profile activate`) | `stores/json-lockfile-store.ts` |
+| Older Lockfile Store | Older 2.0.0 lockfiles (migration, workspace scope) | `stores/json-lockfile-store.ts` |
 | Check Updates | Update checking orchestration | `update/check-updates.ts` |
 | Auto Update | Auto-update orchestration | `update/auto-update.ts` |
 

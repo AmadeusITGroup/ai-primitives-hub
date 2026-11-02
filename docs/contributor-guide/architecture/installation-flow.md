@@ -194,7 +194,7 @@ Repository and user installs are recorded in format `3.0.0` install records shar
 | Repository, local-only mode | `ai-primitives-hub.local.lock.json` at the git root (in `.git/info/exclude`) | git root |
 | User | `ai-primitives-hub.user.lock.json` in the user config folder (`AppStoragePaths.userRecord`) | home folder |
 
-Each bundle has one entry per tool under `bundles.<id>.tools.<tool>`, with its version, source and `sha256:` file checksums. The file an entry is in gives its commit mode. Migrated entries with no known tool use the tool `unknown`. The older 2.0.0 lockfile store (`packages/app/src/stores/json-lockfile-store.ts`) remains for migration, the CLI's workspace scope and `profile activate`.
+Each bundle has one entry per tool under `bundles.<id>.tools.<tool>`, with its version, source and `sha256:` file checksums. The file an entry is in gives its commit mode. Migrated entries with no known tool use the tool `unknown`. The older 2.0.0 lockfile store (`packages/app/src/stores/json-lockfile-store.ts`) remains for migration and the CLI's workspace scope.
 
 ### Components
 

@@ -99,9 +99,9 @@ CLI `0.2.x` and earlier extension releases do not see the new files. A teammate 
 - A record replay (`install --lockfile <record>`, or a bare `install`) needs no target.
 - `init` no longer creates a lockfile; the first repository install creates `ai-primitives-hub.lock.json`.
 
-### Known limitation: `profile activate`
+### `profile activate`
 
-CLI `profile activate` and `profile deactivate` still write the older files: `prompt-registry.*` for repository targets (migrated as `unknown` on the next record change), and the CLI's old user lockfile for user targets (not read at user level once imported). Reinstall those bundles with `install` to record them.
+CLI `profile activate` and `profile deactivate` use the install record like `install` and `uninstall`; workspace-scope targets keep the CLI's old user lockfile. Bundles a profile activated with an older release migrate as `unknown` entries, which `profile deactivate` keeps with their files. Activate the profile again to record them, or remove them with `ai-primitives-hub uninstall <bundle-id>`.
 
 ### Rolling back
 
