@@ -44,6 +44,18 @@ graph TD
 7. Host calls `RegistryManager.installBundle()`
 8. Success → refresh tiles with installed badge
 
+### Content Breakdown
+
+Each bundle in `bundlesLoaded` carries a `contentBreakdown` (`ContentBreakdown` in `utils/filter-utils.ts`): counts of prompts, instructions, chat modes, agents, skills, plugins and MCP servers. `MarketplaceViewProvider.getContentBreakdown` takes the counts from core, without a per-type switch of its own:
+
+1. When the installed manifest declares items, core `countManifestItemsByKind` counts them by primitive kind. It reads the items through core `manifestItems`: only the canonical `items[]` for a `formatVersion: 1` manifest, otherwise `items[]` followed by the legacy per-type lists (`prompts`, `agents`, `instructions`, `hooks`, `plugins`, `skills`). A legacy entry without a `type` gets its list's kind.
+2. Otherwise, the same count runs over bundle data that embeds `items` or `prompts`.
+3. Otherwise, the adapter's pre-computed `breakdown` or a `skills` array is used, and the counts are zero when neither is present.
+
+`contentBreakdownFromKindCounts` maps the kind counts onto `ContentBreakdown` fields. Kinds without a field (hooks, steering, …) are not shown. MCP servers are counted from the manifest's `mcpServers` map.
+
+The webview's **Primitives** filter ids are the `ContentBreakdown` fields (`agents`, `skills`, `prompts`, `mcpServers`, `instructions`, `plugins`), so the filter selects a bundle when the selected field is non-zero. Cards and the details panel show a Plugins count with the `fa-plug-circle-check` icon; breakdown icons are `aria-hidden` because the text label carries the meaning. Display nouns for kinds ("Plugin", "MCP server", …) come from `utils/primitive-kind-labels.ts`, keyed by core's `PrimitiveKind`, so a new kind does not compile until it has a label.
+
 ### README Rendering
 
 Bundle README markdown is rendered to HTML in the details panel via `markdown-it` and sanitized with `sanitize-html` (`getMarkdownRender`). Links (`<a>`) are preserved and tagged with a `data-external-link` attribute. The details webview intercepts clicks on these links and sends an `openExternalLink` message; the host then prompts the user for confirmation before opening the URL with `vscode.env.openExternal`. Images remain HTTPS-only to match the webview CSP; links may use `https`, `http`, or `mailto`.
@@ -127,6 +139,12 @@ graph TD
 - **⬆️**: Update available
 - **🔄**: Auto-update enabled
 - Version display shows current version or "current → latest" when updates available
+
+#### Installed Bundle Tooltip
+
+An installed bundle's tooltip shows its version and install date, followed by a `Contains:` line listing its non-zero item counts in core `PRIMITIVE_KINDS` order (for example `Contains: 1 prompt, 1 plugin`). The counts come from core `countManifestItemsByKind` over the installed manifest and are formatted by `formatKindCounts` (`utils/primitive-kind-labels.ts`). Installed bundles stay leaves (`TreeItemCollapsibleState.None`).
+
+The line is omitted when the installed manifest declares no items. This is the case for repository-scope bundles today: they are rebuilt from the lockfile with a minimal manifest that has no item list. Bundles whose files are missing keep their warning tooltip instead.
 
 #### Hub Source Loading Progress
 - `LoadHubSourcesOptions.onProgress` reports bounded, monotonic source-work percentages. Registration-only loads use one unit per declaration; progressive loads reserve two fixed units per declaration (registration and sync). Skips, updates and registration failures settle the unused sync unit; sync failures also settle their work. Empty hubs report 0% then 100%. Observer exceptions are isolated from loading.
