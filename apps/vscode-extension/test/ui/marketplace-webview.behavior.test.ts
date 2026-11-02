@@ -593,7 +593,7 @@ suite('Marketplace webview Agent Plugins', () => {
     try {
       loadBundleList(harness, [makeBundleWith('plugin-only', { plugins: 1 })]);
       const { document } = harness.dom.window;
-      const checkbox = document.querySelector('#contentType-plugins') as unknown as HTMLInputElement | null;
+      const checkbox = document.querySelector('#contentType-plugins') as unknown as { type: string } | null;
       assert.ok(checkbox, 'Plugins checkbox exists');
       assert.strictEqual(checkbox.type, 'checkbox');
       assert.strictEqual(document.querySelector('label[for="contentType-plugins"]')?.textContent?.trim(), 'Plugins');
