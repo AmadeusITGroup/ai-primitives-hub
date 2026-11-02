@@ -126,7 +126,10 @@ keep their previous rendering.
 Add `--base-ref <commit> --head-ref <commit>` with full history and the PR head
 checked out. Paths are optional in PR mode and default to the whole repository.
 Only changed primitive files are validated; a change anywhere in a skill folder
-revalidates its `SKILL.md`.
+revalidates its `SKILL.md`, including deletion of supporting files. Deleted primitive
+files themselves are not inspected; collection validation detects broken references.
+Both discovered and explicit policies are read from the merge base, so the PR
+cannot relax its own gate. Missing explicit policies fail with CFG001.
 
 Enabled GitHub sources added or modified in the hub config (`--config`, default
 `hub-config.yml`) are downloaded from their configured branch. All their
@@ -146,8 +149,9 @@ CFG001 rejects unreadable or malformed YAML/schema, CFG002 rejects unknown or
 non-configurable rule IDs, and CFG003 rejects disabling or downgrading floor rules.
 Invalid configuration fails the run and its overrides are ignored.
 
-For PR-scoped hub validation, policy is read from the merge base so the PR cannot
-relax its own gate. Collection and primitive runs use the repository-root policy.
+For PR-scoped hub, collection and primitive validation, policy is read from the
+merge base so the PR cannot relax its own gate. Unscoped runs use the working-tree
+policy.
 
 ### External workflow consumption
 

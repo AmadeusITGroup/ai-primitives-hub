@@ -62,7 +62,7 @@ export async function changedPrimitiveFiles(fs: FileSystem, repoRoot: string, ch
   const normalizedRoots = roots.map((root) => path.posix.normalize(root.replaceAll('\\', '/')));
   const selected = new Set<string>();
   for (const file of changedFiles.filter((candidate) => isInside(candidate, normalizedRoots))) {
-    if (detectPrimitiveKind(file) !== undefined) {
+    if (detectPrimitiveKind(file) !== undefined && await fs.exists(path.join(repoRoot, file))) {
       selected.add(file);
       continue;
     }

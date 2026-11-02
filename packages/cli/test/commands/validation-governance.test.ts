@@ -24,11 +24,11 @@ import {
   HubValidateCommand,
 } from '../../src/commands/hub';
 import {
-  SkillValidateCommand,
-} from '../../src/commands/skill-validate';
-import {
   PrimitiveValidateCommand,
 } from '../../src/commands/primitive-validate';
+import {
+  SkillValidateCommand,
+} from '../../src/commands/skill-validate';
 import {
   runCommand,
 } from '../../src/framework';

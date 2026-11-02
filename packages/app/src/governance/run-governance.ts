@@ -27,7 +27,8 @@ import {
   validateHubSourcePrimitives,
 } from './hub-source-primitives';
 import {
-  loadGovernanceConfig,
+  type LoadedGovernanceConfig,
+  loadScopedGovernanceConfig,
   withDisplayPaths,
 } from './load-config';
 import {
@@ -87,7 +88,8 @@ async function hubFindings(fs: FileSystem, request: GovernanceRequest): Promise<
 }
 
 async function primitiveSubjectFindings(
-  fs: FileSystem, request: GovernanceRequest, onScope: (scope: PrScope) => void, applicable: Set<string>
+  fs: FileSystem, request: GovernanceRequest, changes: Awaited<ReturnType<typeof readPrChanges>>,
+  onScope: (scope: PrScope) => void, applicable: Set<string>
 ): Promise<GovernanceFinding[]> {
   const inspect = async (root: string, inputs: string[], kind?: GovernedPrimitiveKind) => {
     const localResult = await validateLocalPrimitives(fs, root, inputs, kind);
@@ -96,7 +98,6 @@ async function primitiveSubjectFindings(
     }
     return localResult;
   };
-  const changes = await readPrChanges(request, request.repoRoot);
   if (changes) {
     // PR mode: only primitives the PR added or modified, under the given paths (default: whole repository).
     const roots = request.primitivePaths?.length ? request.primitivePaths : [request.skillsDir ?? '.'];
@@ -149,19 +150,21 @@ export async function runGovernance(fs: FileSystem, request: GovernanceRequest):
   if (request.subject === 'collection') {
     return validateCollectionGovernance(fs, request);
   }
-  const config = await loadGovernanceConfig(fs, request.repoRoot, request.policy);
+  let config: LoadedGovernanceConfig = { policy: {}, findings: [] };
   const mode = request.subject === 'hub' && request.checkSources ? 'sources' : 'offline';
-  if (config.findings.length > 0) {
-    const invalid = evaluateGovernance(request.subject, config.findings, {}, { mode });
-    return request.subject === 'primitive' ? { ...invalid, applicableRules: [] } : invalid;
-  }
   let findings: GovernanceFinding[];
   let prScope: PrScope | undefined;
   const applicable = new Set<string>();
   try {
+    const changes = request.subject === 'primitive' ? await readPrChanges(request, request.repoRoot) : undefined;
+    config = await loadScopedGovernanceConfig(fs, request, changes?.mergeBase);
+    if (config.findings.length > 0) {
+      const invalid = evaluateGovernance(request.subject, config.findings, {}, { mode, configFile: config.file });
+      return request.subject === 'primitive' ? { ...invalid, applicableRules: [] } : invalid;
+    }
     findings = request.subject === 'hub'
       ? await hubFindings(fs, request)
-      : await primitiveSubjectFindings(fs, request, (scope) => {
+      : await primitiveSubjectFindings(fs, request, changes, (scope) => {
         prScope = scope;
       }, applicable);
   } catch (error) {

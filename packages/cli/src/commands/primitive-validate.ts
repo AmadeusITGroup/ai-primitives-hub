@@ -46,6 +46,7 @@ export class PrimitiveValidateCommand extends Command {
       PR mode (--base-ref and --head-ref): only primitives the PR added or modified are
       validated, limited to the given paths (default: the whole repository). The checkout
       must be at --head-ref with full history.
+      Default and explicit policies are read from the merge base, not the PR head.
       Added or modified enabled github sources in the hub config are downloaded;
       primitives referenced by their collections are validated, regardless of profiles.
 
