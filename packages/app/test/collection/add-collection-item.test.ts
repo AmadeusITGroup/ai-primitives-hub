@@ -60,6 +60,14 @@ describe('addCollectionItem', () => {
     expect(collection.items).toEqual(items);
   });
 
+  it('appends an item to a collection that already has 50 items', () => {
+    const collection = baseCollection();
+    collection.items = Array.from({ length: 50 }, (_, i) => ({ path: `prompts/p${i}.prompt.md`, kind: 'prompt' }));
+    addCollectionItem(collection, { path: 'prompts/p50.prompt.md', kind: 'prompt' });
+    expect(collection.items).toHaveLength(51);
+    expect(collection.items[50]).toEqual({ path: 'prompts/p50.prompt.md', kind: 'prompt' });
+  });
+
   describe('written collection', () => {
     let tempDir: string;
 

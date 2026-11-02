@@ -45,7 +45,7 @@ describe('governance source checks through the public app entry point', () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'governance-sources-'));
     await mkdir(path.join(root, 'collections'));
     await writeFile(path.join(root, 'test.prompt.md'), 'Test');
-    await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: test\nname: Test\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+    await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: test\nname: Test\ndescription: Test collection\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
     await writeFile(path.join(root, 'hub-config.yml'), [
       'version: 1.0.0', 'metadata:', '  name: Test', '  description: Test',
       '  maintainer: Test', "  updatedAt: '2026-01-01T00:00:00Z'", 'sources: []', 'profiles: []', ''
@@ -95,7 +95,7 @@ describe('governance source checks through the public app entry point', () => {
     git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base');
     const baseRef = git('rev-parse', 'HEAD');
     await writeFile(path.join(root, 'collections/test.collection.yml'),
-      'id: test\nname: Test\nauthor: ""\nitems:\n  - path: missing.prompt.md\n    kind: prompt\n');
+      'id: test\nname: Test\ndescription: Test collection\nauthor: ""\nitems:\n  - path: missing.prompt.md\n    kind: prompt\n');
     git('add', '-A');
     git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Broken collection');
     const headRef = git('rev-parse', 'HEAD');
@@ -109,7 +109,7 @@ describe('governance source checks through the public app entry point', () => {
     }
     expect(report.prScope?.validated).toEqual(['collections/test.collection.yml']);
     await writeFile(path.join(root, 'collections/test.collection.yml'),
-      'id: test\nname: Test\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+      'id: test\nname: Test\ndescription: Test collection\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
     git('add', '-A');
     git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Valid collection');
     const lookup = vi.fn().mockResolvedValue({ status: 'missing' });
@@ -121,7 +121,7 @@ describe('governance source checks through the public app entry point', () => {
     expect(published.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL002', file: 'collections/test.collection.yml' }));
     const previous = git('rev-parse', 'HEAD');
     await writeFile(path.join(root, 'collections/z-duplicate.collection.yml'),
-      'id: test\nname: Test\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+      'id: test\nname: Test\ndescription: Test collection\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
     git('add', '-A');
     git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Duplicate collection');
     const duplicate = await runGovernance(new NodeFileSystem(), {
@@ -138,7 +138,7 @@ describe('governance source checks through the public app entry point', () => {
     git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base');
     const baseRef = git('rev-parse', 'HEAD');
     await writeFile(path.join(root, 'collections/a-duplicate.collection.yml'),
-      'id: test\nname: Another\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+      'id: test\nname: Another\ndescription: Another collection\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
     git('add', '-A');
     git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Duplicate listed first');
     const report = await runGovernance(new NodeFileSystem(), {
@@ -155,7 +155,7 @@ describe('governance source checks through the public app entry point', () => {
     await writeFile(path.join(root, skillPath), '# Example\n');
     await writeFile(path.join(root, scriptPath), '// Original\n');
     await writeFile(path.join(root, 'collections/test.collection.yml'),
-      `id: test\nname: Test\nauthor: Test\nitems:\n  - path: ${skillPath}\n    kind: skill\n`);
+      `id: test\nname: Test\ndescription: Test collection\nauthor: Test\nitems:\n  - path: ${skillPath}\n    kind: skill\n`);
     git('init', '--quiet');
     git('config', 'user.name', 'Skill Test');
     git('config', 'user.email', 'skills@example.invalid');
@@ -246,7 +246,7 @@ describe('governance source checks through the public app entry point', () => {
       git('add', '-A');
       git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base');
       const base = git('rev-parse', 'HEAD');
-      await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: renamed\nname: Test\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+      await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: renamed\nname: Test\ndescription: Test collection\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
       git('add', '-A');
       git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Rename');
       const head = git('rev-parse', 'HEAD');
@@ -314,7 +314,7 @@ describe('governance source checks through the public app entry point', () => {
   });
   it('reports collection problems once, with each affected file and its details', async () => {
     await writeFile(path.join(root, 'collections/bad.collection.yml'),
-      'id: bad\nname: Bad\nauthor: ""\nitems:\n  - path: one.prompt.md\n    kind: prompt\n  - path: two.prompt.md\n    kind: prompt\n');
+      'id: bad\nname: Bad\ndescription: Bad collection\nauthor: ""\nitems:\n  - path: one.prompt.md\n    kind: prompt\n  - path: two.prompt.md\n    kind: prompt\n');
     const markdown = renderGovernanceMarkdown(await runGovernance(new NodeFileSystem(), { repoRoot: root, subject: 'collection' }));
     expect(markdown).toContain('| Referenced file not found | collections/bad&#46;collection&#46;yml (one&#46;prompt&#46;md, two&#46;prompt&#46;md) |');
     expect(markdown).toContain('| Collection author is empty | collections/bad&#46;collection&#46;yml |');

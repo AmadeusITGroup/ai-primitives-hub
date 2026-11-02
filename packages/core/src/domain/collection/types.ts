@@ -77,6 +77,14 @@ export interface ObjectValidationResult {
 }
 
 /**
+ * Result of validating a parsed collection object against the published
+ * collection schema. `ok` means no errors; warnings never fail validation.
+ */
+export interface CollectionObjectValidationResult extends ObjectValidationResult {
+  warnings: string[];
+}
+
+/**
  * Result of validating a collection file on disk (parse + structure).
  */
 export interface FileValidationResult extends ObjectValidationResult {

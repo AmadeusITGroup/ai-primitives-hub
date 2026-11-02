@@ -2,10 +2,15 @@
 
 Collection manifests (`.collection.yml`) define the structure and contents of a prompt collection.
 
+`ai-primitives-hub collection validate` enforces `collection.schema.json` as published.
+A field that is not listed here is reported as a warning at the root, in items, `mcp`,
+`mcp.items` servers, `mcp.inputs` and `display`; `readme` accepts extra fields without a
+warning. Every other schema rule is an error. See [Schema Rules](./validation.md#schema-rules).
+
 ## Annotated Example
 
 ```yaml
-id: python-development              # Required. Lowercase, numbers, hyphens only
+id: python-development              # Required. Lowercase, numbers, hyphens only (max 100 chars)
 name: Python Development Suite      # Required. Human-readable display name (max 100 chars)
 description: Prompts for Python dev # Required. What this collection does (max 500 chars)
 version: 2.1.0                      # Optional. Semantic version
@@ -52,7 +57,6 @@ mcp:                                # Optional. MCP server configurations
         TOKEN: "${input:apiToken}"  # Reference an input
       envFile: "${bundlePath}/.env" # Optional. Path to env file
       disabled: false               # Optional. Default: false
-      description: Python analyzer  # Optional. Human-readable description
 
     # Remote HTTP server
     api-server:

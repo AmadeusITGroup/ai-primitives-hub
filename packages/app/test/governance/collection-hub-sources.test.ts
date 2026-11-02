@@ -104,7 +104,7 @@ describe('collection validation of hub sources changed by a PR', () => {
     const head = await commit(hubConfig([source('kept'), source('added')]), file);
     const sourceAdapterDeps = deps({
       '/repos/owner/added/zipball': zipball('added', {
-        'collections/good.collection.yml': 'id: good\nname: Good\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
+        'collections/good.collection.yml': 'id: good\nname: Good\ndescription: Good collection\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
         'a.prompt.md': 'A'
       })
     });
@@ -166,12 +166,12 @@ describe('collection validation of hub sources changed by a PR', () => {
     await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  good: {sourceId: added}\n  fine: {sourceId: changed}\n');
     const sourceAdapterDeps = deps({
       '/repos/owner/added/zipball': zipball('added', {
-        'collections/good.collection.yml': 'id: good\nname: Good\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
+        'collections/good.collection.yml': 'id: good\nname: Good\ndescription: Good collection\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
         'a.prompt.md': 'A',
-        'collections/bad.collection.yml': 'id: bad\nname: Bad\nauthor: ""\nitems:\n  - path: a.prompt.md\n    kind: prompt\n'
+        'collections/bad.collection.yml': 'id: bad\nname: Bad\ndescription: Bad collection\nauthor: ""\nitems:\n  - path: a.prompt.md\n    kind: prompt\n'
       }),
       '/repos/owner/changed/zipball': zipball('changed', {
-        'collections/fine.collection.yml': 'id: fine\nname: Fine\nauthor: Team\nitems:\n  - path: b.prompt.md\n    kind: prompt\n',
+        'collections/fine.collection.yml': 'id: fine\nname: Fine\ndescription: Fine collection\nauthor: Team\nitems:\n  - path: b.prompt.md\n    kind: prompt\n',
         'b.prompt.md': 'B'
       })
     });
@@ -202,7 +202,7 @@ describe('collection validation of hub sources changed by a PR', () => {
     const head = await commit(hubConfig([source('kept'), source('added', ['    config:', '      branch: release/v1'])]));
     const sourceAdapterDeps = deps({
       '/repos/owner/added/zipball/release/v1': zipball('added', {
-        'collections/good.collection.yml': 'id: good\nname: Good\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
+        'collections/good.collection.yml': 'id: good\nname: Good\ndescription: Good collection\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
         'a.prompt.md': 'A'
       }),
       '/repos/owner/added/releases': text('[]')
@@ -280,8 +280,9 @@ describe('collection validation of hub sources changed by a PR', () => {
     const head = await commit(hubConfig([source('kept'), source('added'), source('missing')]));
     const sourceAdapterDeps = deps({
       '/repos/owner/added/zipball': zipball('added', {
-        'collections/one.collection.yml': 'id: one\nname: One\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n  - path: servers.json\n    kind: mcp-server\n',
-        'collections/two.collection.yml': 'id: two\nname: Two\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
+        'collections/one.collection.yml': 'id: one\nname: One\ndescription: One collection\nauthor: Team\n'
+          + 'items:\n  - path: a.prompt.md\n    kind: prompt\n  - path: servers.json\n    kind: mcp-server\n',
+        'collections/two.collection.yml': 'id: two\nname: Two\ndescription: Two collection\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
         'a.prompt.md': 'Missing frontmatter',
         'servers.json': '{"servers":{"test":{"command":"node","env":{"TOKEN":"literal-secret"}}}}',
         'unreferenced.agent.md': 'Not part of any collection'
@@ -312,9 +313,9 @@ describe('collection validation of hub sources changed by a PR', () => {
   };
 
   it.each([
-    ['an item escaping the source', { 'collections/one.collection.yml': 'id: one\nname: One\nauthor: Team\nitems:\n  - path: ../outside.prompt.md\n    kind: prompt\n' },
+    ['an item escaping the source', { 'collections/one.collection.yml': 'id: one\nname: One\ndescription: One collection\nauthor: Team\nitems:\n  - path: ../outside.prompt.md\n    kind: prompt\n' },
       { ruleId: 'PTH001', file: 'added/collections/one.collection.yml', message: expect.stringContaining("'../outside.prompt.md'") }],
-    ['a missing item', { 'collections/one.collection.yml': 'id: one\nname: One\nauthor: Team\nitems:\n  - path: gone.prompt.md\n    kind: prompt\n' },
+    ['a missing item', { 'collections/one.collection.yml': 'id: one\nname: One\ndescription: One collection\nauthor: Team\nitems:\n  - path: gone.prompt.md\n    kind: prompt\n' },
       { ruleId: 'VAL001', file: 'added/collections/one.collection.yml', message: expect.stringContaining("'gone.prompt.md' is missing") }],
     ['an unparseable collection', { 'collections/one.collection.yml': 'id: [unclosed\n' },
       { ruleId: 'VAL001', file: 'added/collections/one.collection.yml', message: expect.stringContaining('Cannot read collection') }],

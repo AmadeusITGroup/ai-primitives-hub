@@ -117,6 +117,7 @@ profiles: []
     await writeFile(path.join(workspace, 'prompts/test.prompt.md'), 'Test prompt');
     await writeFile(path.join(workspace, 'collections/test.collection.yml'), `id: test
 name: Test
+description: Test collection
 author: test
 items:
   - path: prompts/test.prompt.md
@@ -129,6 +130,27 @@ items:
     const suppressed = await run(['collection', 'validate', '--output', 'json', '--policy', 'policy.yml']);
     expect(suppressed.exitCode).toBe(0);
     expect(JSON.parse(suppressed.stdout).data).toMatchObject({ verdict: 'pass', suppressions: [expect.objectContaining({ ruleId: 'COL006', reason: 'README tracked separately' })] });
+  });
+
+  it('reports collection schema errors under COL005 and unknown properties under COL006', async () => {
+    await mkdir(path.join(workspace, 'collections'));
+    await mkdir(path.join(workspace, 'prompts'));
+    await writeFile(path.join(workspace, 'prompts/test.prompt.md'), 'Test prompt');
+    await writeFile(path.join(workspace, 'collections/test.collection.yml'), `id: test
+name: Test
+author: test
+mcpServers: {}
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+`);
+    const result = await run(['collection', 'validate', '--output', 'json']);
+    expect(result.exitCode).toBe(1);
+    const findings = JSON.parse(result.stdout).data.findings;
+    expect(findings).toContainEqual(expect.objectContaining({
+      ruleId: 'COL005', severity: 'error', problem: 'Missing required field', detail: 'description' }));
+    expect(findings).toContainEqual(expect.objectContaining({
+      ruleId: 'COL006', severity: 'warning', message: expect.stringContaining("unknown root property 'mcpServers'") }));
   });
 
   it('rejects unsupported output formats', async () => {
