@@ -23,6 +23,10 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 | `local-skills` | Local filesystem skills directory | Active |
 | `artifactory` | Static bundle index and ZIP archives in a generic JFrog Artifactory repository | Active |
 
+### Local collection assets
+
+The `local-awesome-copilot` source includes the entire directory of each skill listed in a collection, including nested binary assets such as Python wheels, images, and ZIP files. These files are packaged as raw bytes, without text decoding. Referencing an asset in the collection's `mcp:` configuration does not include it automatically; keep it inside a listed skill's directory.
+
 ### Artifactory sources
 
 An Artifactory source uses a credential-free HTTPS repository root and a static `index-v1.json` file by default. For local development only, `http://localhost`, `http://127.0.0.1`, and `http://[::1]` are accepted with a warning; non-loopback HTTP remains rejected. The index references each bundle's manifest and ZIP archive with a relative path, size, and lowercase SHA-256 digest. Custom index paths can be configured with `indexFile`.
