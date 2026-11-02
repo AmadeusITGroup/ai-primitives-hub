@@ -111,16 +111,18 @@ async function repositoryFindings(fs: FileSystem, repoRoot: string, options: Rep
       ? [{ ruleId: 'COL005', severity: 'error' as const, message: 'No collection files found. Supply --collection-file or a non-empty collections/ directory.' }]
       : [];
   }
-  const affected = options.affected;
+  const affected = options.affected === undefined ? undefined : new Set([...options.affected].map((file) => file.replaceAll('\\', '/')));
+  const all = withDisplayPaths(collectionGovernanceFindings(result), repoRoot);
   const findings = affected === undefined
-    ? collectionGovernanceFindings(result)
-    : collectionGovernanceFindings(result).filter((finding) => concerns(finding, affected));
+    ? all
+    : all.filter((finding) => concerns(finding, affected));
   if (options.checkReleases) {
     for (const file of result.fileResults) {
-      if (!file.ok || !file.collection || (affected !== undefined && !affected.has(file.file))) {
+      const collectionFile = file.file.replaceAll('\\', '/');
+      if (!file.ok || !file.collection || (affected !== undefined && !affected.has(collectionFile))) {
         continue;
       }
-      const collection = { id: file.collection.id, name: file.collection.name, sourceId: options.sourceId, repository: options.repository, file: file.file };
+      const collection = { id: file.collection.id, name: file.collection.name, sourceId: options.sourceId, repository: options.repository, file: collectionFile };
       let evidence;
       try {
         evidence = options.releaseLookup === undefined
@@ -201,7 +203,7 @@ export async function validateCollectionGovernance(fs: FileSystem, request: Coll
       throw new Error('--collection-file cannot be combined with --base-ref/--head-ref.');
     }
     const hasCollectionsDir = await fs.exists(path.join(request.repoRoot, 'collections'));
-    const affected = changes ? new Set(hasCollectionsDir ? affectedCollections(request.repoRoot, changes.files).map((c) => c.file) : []) : undefined;
+    const affected = changes ? new Set(hasCollectionsDir ? affectedCollections(request.repoRoot, changes.files).map((c) => c.file.replaceAll('\\', '/')) : []) : undefined;
     const sources = changes ? await changedGitHubSources(request, changes) : [];
     if (changes) {
       prScope = { baseRef: changes.baseRef, headRef: changes.headRef, mergeBase: changes.mergeBase, changedFiles: changes.files,

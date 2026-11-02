@@ -68,6 +68,8 @@ added or modified in the hub config are downloaded from their configured branch;
 their collections are validated, with source-qualified paths in the report. Source
 download failures block validation. `--check-releases` checks their publication.
 Unchanged sources and non-GitHub source types are not downloaded in this mode.
+Collection finding paths and PR scope paths use forward slashes on every platform,
+including Windows, so changed-file filtering and reports use the same paths.
 
 ### Governance configuration (`hub-governance.yml`)
 

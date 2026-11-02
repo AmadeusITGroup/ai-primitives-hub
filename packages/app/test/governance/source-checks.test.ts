@@ -1,4 +1,7 @@
 import {
+  execFileSync,
+} from 'node:child_process';
+import {
   mkdir,
   mkdtemp,
   rm,
@@ -7,6 +10,7 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  NodeArgvProcessRunner,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
@@ -17,6 +21,9 @@ import {
   it,
   vi,
 } from 'vitest';
+import {
+  withDisplayPaths,
+} from '../../src/governance/load-config';
 import {
   renderGovernanceMarkdown,
 } from '../../src/governance/report';
@@ -38,6 +45,59 @@ describe('governance source checks through the public app entry point', () => {
   });
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
+  });
+  it('normalizes Windows relative finding paths without changing pathless findings', () => {
+    expect(withDisplayPaths([
+      { ruleId: 'COL005', severity: 'error', file: 'collections\\bad.collection.yml', message: 'Invalid collection' },
+      { ruleId: 'COL005', severity: 'error', message: 'No collections' }
+    ], root)).toEqual([
+      { ruleId: 'COL005', severity: 'error', file: 'collections/bad.collection.yml', message: 'Invalid collection' },
+      { ruleId: 'COL005', severity: 'error', message: 'No collections' }
+    ]);
+  });
+  it('retains touched collection findings and normalized release and scope paths in a real Git run', async () => {
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+    git('init', '--quiet');
+    git('config', 'user.name', 'Path Test');
+    git('config', 'user.email', 'paths@example.invalid');
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base');
+    const baseRef = git('rev-parse', 'HEAD');
+    await writeFile(path.join(root, 'collections/test.collection.yml'),
+      'id: test\nname: Test\nauthor: ""\nitems:\n  - path: missing.prompt.md\n    kind: prompt\n');
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Broken collection');
+    const headRef = git('rev-parse', 'HEAD');
+    const report = await runGovernance(new NodeFileSystem(), {
+      repoRoot: root, subject: 'collection', baseRef, headRef, processRunner: new NodeArgvProcessRunner(), checkReleases: true,
+      releaseLookup: { lookup: () => Promise.resolve({ status: 'missing' }) }
+    });
+    expect(report.verdict).toBe('fail');
+    for (const ruleId of ['COL003', 'COL005', 'COL006']) {
+      expect(report.findings).toContainEqual(expect.objectContaining({ ruleId, file: 'collections/test.collection.yml' }));
+    }
+    expect(report.prScope?.validated).toEqual(['collections/test.collection.yml']);
+    await writeFile(path.join(root, 'collections/test.collection.yml'),
+      'id: test\nname: Test\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Valid collection');
+    const lookup = vi.fn().mockResolvedValue({ status: 'missing' });
+    const published = await runGovernance(new NodeFileSystem(), {
+      repoRoot: root, subject: 'collection', baseRef: headRef, headRef: git('rev-parse', 'HEAD'), processRunner: new NodeArgvProcessRunner(),
+      checkReleases: true, releaseLookup: { lookup }
+    });
+    expect(lookup).toHaveBeenCalledWith(expect.objectContaining({ file: 'collections/test.collection.yml' }));
+    expect(published.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL002', file: 'collections/test.collection.yml' }));
+    const previous = git('rev-parse', 'HEAD');
+    await writeFile(path.join(root, 'collections/z-duplicate.collection.yml'),
+      'id: test\nname: Test\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Duplicate collection');
+    const duplicate = await runGovernance(new NodeFileSystem(), {
+      repoRoot: root, subject: 'collection', baseRef: previous, headRef: git('rev-parse', 'HEAD'), processRunner: new NodeArgvProcessRunner()
+    });
+    expect(duplicate.verdict).toBe('fail');
+    expect(duplicate.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL001', file: 'collections/z-duplicate.collection.yml' }));
   });
   it('keeps plain governance offline even if network ports are supplied', async () => {
     const lookup = vi.fn();

@@ -104,8 +104,11 @@ export async function loadScopedGovernanceConfig(
 export function withDisplayPaths(findings: readonly GovernanceFinding[], repoRoot: string): GovernanceFinding[] {
   const root = path.resolve(repoRoot);
   return findings.map((finding) => {
-    if (finding.file === undefined || !path.isAbsolute(finding.file)) {
+    if (finding.file === undefined) {
       return finding;
+    }
+    if (!path.isAbsolute(finding.file)) {
+      return { ...finding, file: finding.file.replaceAll('\\', '/') };
     }
     const relative = path.relative(root, finding.file);
     return relative.startsWith('..') || path.isAbsolute(relative)
