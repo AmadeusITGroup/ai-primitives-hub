@@ -13,7 +13,9 @@ import {
   resolveScoredBundleSearchKeys,
 } from '@ai-primitives-hub/app';
 import {
+  countManifestItemsByKind,
   isContributableCollectionSource,
+  manifestItems,
 } from '@ai-primitives-hub/core';
 import {
   extractGitHubSlugFromRemoteUrl,
@@ -50,6 +52,7 @@ import {
 } from '../utils/constants';
 import {
   ContentBreakdown,
+  contentBreakdownFromKindCounts,
   extractAllEnvironments,
   extractAllTags,
   extractBundleSources,
@@ -66,6 +69,9 @@ import {
 import {
   resolveExistingPathInside,
 } from '../utils/path-safety';
+import {
+  primitiveKindLabel,
+} from '../utils/primitive-kind-labels';
 import {
   VersionManager,
 } from '../utils/version-manager';
@@ -553,50 +559,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Count prompts by type from an array of prompt objects
-   * @param prompts
-   * @param mcpServersCount
-   */
-  private countPromptsByType(prompts: any[], mcpServersCount = 0): ContentBreakdown {
-    const breakdown: ContentBreakdown = {
-      prompts: 0,
-      instructions: 0,
-      chatmodes: 0,
-      agents: 0,
-      skills: 0,
-      mcpServers: mcpServersCount
-    };
-
-    for (const prompt of prompts) {
-      const type = prompt.type || 'prompt';
-      switch (type) {
-        case 'prompt': {
-          breakdown.prompts++;
-          break;
-        }
-        case 'instructions': {
-          breakdown.instructions++;
-          break;
-        }
-        case 'chatmode': {
-          breakdown.chatmodes++;
-          break;
-        }
-        case 'agent': {
-          breakdown.agents++;
-          break;
-        }
-        case 'skill': {
-          breakdown.skills++;
-          break;
-        }
-      }
-    }
-
-    return breakdown;
-  }
-
-  /**
    * Calculate content breakdown from bundle metadata
    * @param bundle
    * @param manifest
@@ -605,14 +567,18 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const bundleData = bundle as any;
     const mcpCount = manifest?.mcpServers ? Object.keys(manifest.mcpServers).length : this.countMcpServers(bundleData);
 
-    // First: Use manifest if provided (from installed bundle)
-    if (manifest?.prompts && Array.isArray(manifest.prompts)) {
-      return this.countPromptsByType(manifest.prompts, mcpCount);
+    const declaresItemList = (data: any): boolean => Array.isArray(data?.items) || Array.isArray(data?.prompts);
+
+    // First: Count the items the installed manifest declares. An empty item
+    // list counts too: the marketplace bundle data may list items that are
+    // not installed.
+    if (declaresItemList(manifest) || manifestItems(manifest).length > 0) {
+      return contentBreakdownFromKindCounts(countManifestItemsByKind(manifest), mcpCount);
     }
 
-    // Second: Try to parse from bundle data (some sources embed this)
-    if (bundleData.prompts && Array.isArray(bundleData.prompts)) {
-      return this.countPromptsByType(bundleData.prompts, mcpCount);
+    // Second: Count the items some sources embed in bundle data
+    if (declaresItemList(bundleData)) {
+      return contentBreakdownFromKindCounts(countManifestItemsByKind(bundleData), mcpCount);
     }
 
     // Third: Use pre-calculated breakdown from adapters (AwesomeCopilot, LocalAwesomeCopilot)
@@ -623,6 +589,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         chatmodes: bundleData.breakdown.chatmodes || 0,
         agents: bundleData.breakdown.agents || 0,
         skills: bundleData.breakdown.skills || 0,
+        plugins: bundleData.breakdown.plugins || 0,
         mcpServers: bundleData.breakdown.mcpServers || this.countMcpServers(bundleData)
       };
     }
@@ -635,6 +602,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         chatmodes: 0,
         agents: 0,
         skills: bundleData.skills.length,
+        plugins: 0,
         mcpServers: this.countMcpServers(bundleData)
       };
     }
@@ -648,6 +616,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       chatmodes: 0,
       agents: 0,
       skills: 0,
+      plugins: 0,
       mcpServers: this.countMcpServers(bundleData)
     };
   }
@@ -1364,27 +1333,32 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const breakdownContent = `
         <div class="breakdown">
             <div class="breakdown-item">
-                <div class="breakdown-icon fa-icon fa-file-lines"></div>
+                <div class="breakdown-icon fa-icon fa-file-lines" aria-hidden="true"></div>
                 <div class="breakdown-count">${breakdown.prompts}</div>
                 <div class="breakdown-label">Prompts</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon fa-icon fa-list-check"></div>
+                <div class="breakdown-icon fa-icon fa-list-check" aria-hidden="true"></div>
                 <div class="breakdown-count">${breakdown.instructions}</div>
                 <div class="breakdown-label">Instructions</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon fa-icon fa-robot"></div>
+                <div class="breakdown-icon fa-icon fa-robot" aria-hidden="true"></div>
                 <div class="breakdown-count">${breakdown.agents}</div>
                 <div class="breakdown-label">Agents</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon fa-icon fa-puzzle-piece"></div>
+                <div class="breakdown-icon fa-icon fa-puzzle-piece" aria-hidden="true"></div>
                 <div class="breakdown-count">${breakdown.skills}</div>
                 <div class="breakdown-label">Skills</div>
             </div>
             <div class="breakdown-item">
-                <div class="breakdown-icon fa-icon fa-plug"></div>
+                <div class="breakdown-icon fa-icon fa-plug-circle-check" aria-hidden="true"></div>
+                <div class="breakdown-count">${breakdown.plugins}</div>
+                <div class="breakdown-label">Plugins</div>
+            </div>
+            <div class="breakdown-item">
+                <div class="breakdown-icon fa-icon fa-plug" aria-hidden="true"></div>
                 <div class="breakdown-count">${breakdown.mcpServers}</div>
                 <div class="breakdown-label">MCP Servers</div>
             </div>
@@ -1548,7 +1522,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
                 <div class="info-label">${this.escapeHtml(p.id)}:</div>
                 <div class="info-value">
                     ${this.escapeHtml(p.name)}
-                    <em style="color: var(--vscode-descriptionForeground);">(${this.escapeHtml(p.type || 'prompt')})</em>
+                    <em style="color: var(--vscode-descriptionForeground);">(${this.escapeHtml(primitiveKindLabel(p.type))})</em>
                     <span style="color: var(--vscode-textLink-foreground); margin-left: 8px;">📄 Open</span>
                 </div>
             </div>
