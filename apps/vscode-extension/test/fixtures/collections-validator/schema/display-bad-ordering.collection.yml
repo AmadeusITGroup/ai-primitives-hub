@@ -1,0 +1,8 @@
+id: display-bad-ordering
+name: Display Bad Ordering Collection
+description: This collection has a display ordering outside the allowed values
+display:
+  ordering: newest
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

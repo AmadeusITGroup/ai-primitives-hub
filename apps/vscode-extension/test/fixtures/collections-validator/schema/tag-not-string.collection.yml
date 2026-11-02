@@ -1,0 +1,9 @@
+id: tag-not-string
+name: Tag Not String Collection
+description: This collection has a tag that is not a string
+tags:
+  - testing
+  - 42
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

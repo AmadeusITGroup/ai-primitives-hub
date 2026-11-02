@@ -10,15 +10,19 @@ echo "🚀 Quick validation check..."
 echo "▶ Linting..."
 pnpm run lint
 
-# 2. Compile
+# 2. Build packages (the extension compiles against them; the unit tests run the built CLI)
+echo "▶ Building packages..."
+pnpm -C packages -r build
+
+# 3. Compile
 echo "▶ Compiling..."
 pnpm run compile
 
-# 3. Compile Tests
+# 4. Compile Tests
 echo "▶ Compiling tests..."
 pnpm run compile-tests
 
-# 4. Unit tests only
+# 5. Unit tests only
 echo "▶ Unit tests..."
 pnpm run test:unit
 

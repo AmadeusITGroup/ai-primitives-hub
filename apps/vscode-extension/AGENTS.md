@@ -6,9 +6,10 @@ Business logic lives in `@ai-primitives-hub/app`/`core`/`infra`, not here. Per [
 
 ## Commands
 
-Run from the repository root:
+Run from the repository root. Build the packages first: the extension compiles against them, and `test:unit` runs the built CLI (`packages/cli/dist`) in the collection-validation parity suite, which fails when it is missing.
 
 ```bash
+pnpm -C packages -r build
 pnpm -C apps/vscode-extension run compile
 pnpm -C apps/vscode-extension run compile-tests
 pnpm -C apps/vscode-extension run test:unit

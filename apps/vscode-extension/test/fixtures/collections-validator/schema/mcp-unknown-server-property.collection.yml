@@ -1,0 +1,11 @@
+id: mcp-unknown-server-property
+name: MCP Unknown Server Property Collection
+description: This collection has an MCP server property the schema does not define
+mcp:
+  items:
+    demo-server:
+      command: node
+      description: A demo server
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

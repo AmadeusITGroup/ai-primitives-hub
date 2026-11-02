@@ -13,7 +13,10 @@ The regular extension suites use a **two-tier** test layout:
 | Unit / Property / E2E (mocked) | `test/{services,adapters,commands,ui,utils,storage,e2e}/**/*.test.ts` | Node.js with `vscode` mocked via `test/mocha.setup.js` | Pure logic, data flow, multi-component workflows |
 | Integration (real VS Code) | `test/suite/**/*.test.ts` | Electron via `test/runExtensionTests.js` | Extension activation, command registration, UI wiring |
 
-These TypeScript tests compile to `test-dist/` first (`pnpm run compile-tests`).
+These TypeScript tests compile to `test-dist/` first (`pnpm run compile-tests`) — Mocha runs the compiled JS.
+Build the packages before running them (`pnpm -C packages -r build`): the extension compiles
+against them, and the collection-validation parity suite in `test:unit` runs the built CLI and
+fails when `packages/cli/dist` is missing.
 Separate opt-in acceptance campaigns exercise complete workflows in real environments.
 
 ## Quick Start
