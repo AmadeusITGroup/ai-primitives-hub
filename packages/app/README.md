@@ -15,7 +15,7 @@ written for real, not left as no-ops).
 
 The install records shared by the CLI and the extension (ADR-0011) live in
 `src/records/`. `src/stores/json-lockfile-store.ts` is the older 2.0.0
-lockfile store, kept for migration, workspace scope and `profile activate`.
+lockfile store, kept for migration and the CLI's workspace scope.
 
 Also doubles as the public SDK surface (decision 2 in the migration plan)
 until a standalone `@ai-primitives-hub/sdk` package has a real external
