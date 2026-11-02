@@ -611,7 +611,7 @@ suite('Marketplace webview Agent Plugins', () => {
       ]);
       const { document } = harness.dom.window;
       (document.querySelector('#contentType-plugins') as unknown as { click: () => void }).click();
-      const shown = Array.from(document.querySelectorAll('.bundle-card')).map((card) => card.dataset.bundleId);
+      const shown = Array.from(document.querySelectorAll('.bundle-card')).map((card) => (card as unknown as { dataset: { bundleId?: string } }).dataset.bundleId);
       assert.deepStrictEqual(shown.toSorted(), ['mixed', 'plugin-only']);
       assert.strictEqual(document.querySelector('#contentTypeSelectorText')?.textContent, 'Plugins');
     } finally {
