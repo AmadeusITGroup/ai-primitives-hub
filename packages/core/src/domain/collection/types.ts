@@ -28,7 +28,8 @@ export type CompressionFormat = 'zip' | 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'none'
 export interface CollectionItem {
   path: string;
   kind: string;
-  name?: string;
+  /** Display name (the collection schema's `title` field). */
+  title?: string;
   description?: string;
   tags?: string[];
 }

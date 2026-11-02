@@ -101,7 +101,11 @@ Scaffold a plugin and add it to a collection with:
 ai-primitives-hub plugin create my-plugin --collection <collection-id>
 ```
 
-This writes `plugins/my-plugin/plugin.json` and adds the item above. `--path <dir>`
+This writes `plugins/my-plugin/plugin.json` and adds the item above: only `path`
+and `kind: plugin`, plus `description` when `--description` is given (the plugin's
+name is its directory). The other `<kind> create --collection` commands (`prompt`,
+`agent`, `instruction`, `skill`, `hook`) write the name you pass as the item
+`title`. `--path <dir>`
 changes the parent directory (default `plugins/`). The manifest passes
 `collection validate` as written:
 
