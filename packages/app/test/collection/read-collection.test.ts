@@ -10,6 +10,8 @@ import {
 } from 'vitest';
 import {
   generateMarkdown,
+  readCollection,
+  resolveCollectionItemPaths,
   resolveCollectionReadmePath,
   validateAllCollections,
   validateCollectionFile,
@@ -33,6 +35,27 @@ const writeCollection = (content: string): string => {
   fs.writeFileSync(path.join(tempDir, collectionFile), content);
   return collectionFile;
 };
+
+describe('collection skill paths', () => {
+  it.each([false, true])('retains the declared skill path and directory files when SKILL.md exists: %s', (exists) => {
+    fs.mkdirSync(path.join(tempDir, 'skills/example/scripts'), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'skills/example/scripts/run.js'), '// Script\n');
+    if (exists) {
+      fs.writeFileSync(path.join(tempDir, 'skills/example/SKILL.md'), '# Example\n');
+    }
+    const file = writeCollection(`id: foo
+name: Foo
+items:
+  - path: skills/example/SKILL.md
+    kind: skill
+`);
+
+    expect(resolveCollectionItemPaths(tempDir, readCollection(tempDir, file)).toSorted()).toEqual([
+      'skills/example/SKILL.md',
+      'skills/example/scripts/run.js'
+    ]);
+  });
+});
 
 describe('collection README handling', () => {
   it('resolves a normalized nested README path', () => {

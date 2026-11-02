@@ -127,7 +127,7 @@ export async function readGitBlob(runner: ArgvProcessRunner, repoRoot: string, c
 export interface GitChangedFiles { baseRef: string; headRef: string; mergeBase: string; files: string[] }
 
 /**
- * Read non-deleted changed files for collection validation. The checkout must be at the exact head.
+ * Read changed files, including deleted references, for collection validation. The checkout must be at the exact head.
  * @param runner
  * @param repoRoot
  * @param baseRef
@@ -153,7 +153,7 @@ export async function readGitChangedFiles(runner: ArgvProcessRunner, repoRoot: s
   if (mergeBases.length !== 1 || !commit.test(mergeBases[0])) {
     throw new Error('A unique merge base is required.');
   }
-  const output = await git('diff', '--name-only', '-z', '--no-renames', '--diff-filter=d', mergeBases[0], headRef);
+  const output = await git('diff', '--name-only', '-z', '--no-renames', mergeBases[0], headRef);
   const files = output.split('\0').filter((file) => file.length > 0).toSorted();
   return { baseRef, headRef, mergeBase: mergeBases[0], files };
 }

@@ -99,6 +99,45 @@ describe('governance source checks through the public app entry point', () => {
     expect(duplicate.verdict).toBe('fail');
     expect(duplicate.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL001', file: 'collections/z-duplicate.collection.yml' }));
   });
+  it('retains COL005 for a deleted skill entry while tracking remaining skill files in PR scope', async () => {
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+    const skillPath = 'skills/example/SKILL.md';
+    const scriptPath = 'skills/example/scripts/run.js';
+    await mkdir(path.join(root, 'skills/example/scripts'), { recursive: true });
+    await writeFile(path.join(root, skillPath), '# Example\n');
+    await writeFile(path.join(root, scriptPath), '// Original\n');
+    await writeFile(path.join(root, 'collections/test.collection.yml'),
+      `id: test\nname: Test\nauthor: Test\nitems:\n  - path: ${skillPath}\n    kind: skill\n`);
+    git('init', '--quiet');
+    git('config', 'user.name', 'Skill Test');
+    git('config', 'user.email', 'skills@example.invalid');
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base');
+    const baseRef = git('rev-parse', 'HEAD');
+    await rm(path.join(root, skillPath));
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Delete skill entry');
+    const report = await runGovernance(new NodeFileSystem(), {
+      repoRoot: root, subject: 'collection', baseRef, headRef: git('rev-parse', 'HEAD'), processRunner: new NodeArgvProcessRunner()
+    });
+    expect(report.prScope?.changedFiles).toEqual([skillPath]);
+    expect(report.prScope?.validated).toEqual(['collections/test.collection.yml']);
+    expect(report.verdict).toBe('fail');
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      ruleId: 'COL005', file: 'collections/test.collection.yml', message: expect.stringContaining(skillPath)
+    }));
+
+    const previous = git('rev-parse', 'HEAD');
+    await writeFile(path.join(root, scriptPath), '// Updated\n');
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Update remaining script');
+    const scriptReport = await runGovernance(new NodeFileSystem(), {
+      repoRoot: root, subject: 'collection', baseRef: previous, headRef: git('rev-parse', 'HEAD'), processRunner: new NodeArgvProcessRunner()
+    });
+    expect(scriptReport.prScope?.changedFiles).toEqual([scriptPath]);
+    expect(scriptReport.prScope?.validated).toEqual(['collections/test.collection.yml']);
+    expect(scriptReport.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL005' }));
+  });
   it('keeps plain governance offline even if network ports are supplied', async () => {
     const lookup = vi.fn();
     const report = await runGovernance(new NodeFileSystem(), { repoRoot: root, subject: 'collection', releaseLookup: { lookup } });

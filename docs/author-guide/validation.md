@@ -70,6 +70,9 @@ download failures block validation. `--check-releases` checks their publication.
 Unchanged sources and non-GitHub source types are not downloaded in this mode.
 Collection finding paths and PR scope paths use forward slashes on every platform,
 including Windows, so changed-file filtering and reports use the same paths.
+Deleted referenced files also select their collections for validation. Skills track
+both the declared entry file and files within their directory, so deleting the
+entry file still reports COL005 even when supporting files remain.
 
 ### Governance configuration (`hub-governance.yml`)
 
