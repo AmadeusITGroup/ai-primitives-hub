@@ -12,6 +12,9 @@ import {
   LocalSkillsAdapter,
 } from '../../src/adapters/local-skills-adapter';
 import {
+  ZipBundleExtractor,
+} from '../../src/extractors/zip-bundle-extractor';
+import {
   FixedClock,
 } from '../helpers/fixed-clock';
 import {
@@ -198,6 +201,19 @@ describe('LocalSkillsAdapter', () => {
       // ZIP local-file-header magic number: "PK\x03\x04".
       expect(zip.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4B, 0x03, 0x04]));
       expect(zip.length).toBeGreaterThan(0);
+    });
+
+    it('preserves nested binary assets when packaging a local skill', async () => {
+      const fs = new InMemoryFileSystem();
+      const binary = Buffer.from([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x80]);
+      fs.seed('/skills-root/skills/my-skill/SKILL.md', skillMdContent({ name: 'My Skill' }));
+      fs.seed('/skills-root/skills/my-skill/dist/example.whl', binary);
+      const adapter = makeAdapter({ fs });
+      const [bundle] = await adapter.fetchBundles();
+
+      const files = await new ZipBundleExtractor().extract(await adapter.downloadBundle(bundle));
+
+      expect(Buffer.from(files.get('skills/my-skill/dist/example.whl')!)).toEqual(binary);
     });
 
     it('throws a descriptive error when the skill cannot be found', async () => {

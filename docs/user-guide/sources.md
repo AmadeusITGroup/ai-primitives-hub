@@ -27,6 +27,8 @@ If you select a hub during first-run setup, all sources defined in that hub are 
 
 The `local-awesome-copilot` source includes the entire directory of each skill listed in a collection, including nested binary assets such as Python wheels, images, and ZIP files. These files are packaged as raw bytes, without text decoding. Referencing an asset in the collection's `mcp:` configuration does not include it automatically; keep it inside a listed skill's directory.
 
+Raw-byte packaging also applies to files included by `local`, `local-skills`, `local-apm`, and `apm` sources. This preserves binary assets without changing which files each source includes: APM sources recursively package `.apm/` contents and select supported prompt files elsewhere. Local skill installations that use symlinks continue to link directly to the source files.
+
 ### Artifactory sources
 
 An Artifactory source uses a credential-free HTTPS repository root and a static `index-v1.json` file by default. For local development only, `http://localhost`, `http://127.0.0.1`, and `http://[::1]` are accepted with a warning; non-loopback HTTP remains rejected. The index references each bundle's manifest and ZIP archive with a relative path, size, and lowercase SHA-256 digest. Custom index paths can be configured with `indexFile`.
