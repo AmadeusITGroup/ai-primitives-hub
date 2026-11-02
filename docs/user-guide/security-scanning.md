@@ -163,6 +163,32 @@ steps:
 
 Pin the action to a full commit SHA. Set `pull-requests: write` and `comment-on-pr: 'true'` only when the workflow should add a pull request comment. The action invokes the released CLI with `--ci --ignore-trust none`.
 
+## Rating a source
+
+`security rate` turns a scan into a 0-100 quality score for each collection (or skill) of a source checkout, and scores the source as the average of its bundles:
+
+```bash
+ai-primitives-hub security rate . \
+  --fail-on CRITICAL \
+  --report-json artifacts/quality-report.json \
+  --report-markdown artifacts/quality-report.md
+```
+
+Bundles are the `collections/*.collection.yml` files and their items. A checkout without collections uses each `skills/*/SKILL.md` folder, and a checkout with neither is rated as one unit. Use `--collections-path` and `--skills-path` for other layouts, and `--repository owner/repo`, `--tag` and `--commit` to record where the report came from (CI environments set them from `GITHUB_REPOSITORY`, `GITHUB_REF_NAME` and `GITHUB_SHA`).
+
+Every finding costs points, weighted by severity, confidence, where the file is (documentation and vendored files cost less) and how often the same rule repeats in one file. Evidence is never copied into the report. Repository-controlled suppressions are ignored by default, so a source cannot tune its own rating; pass `--ignore-trust repository` to honor them.
+
+| Score | Risk |
+|---:|---|
+| 90-100 | low |
+| 70-89 | medium |
+| 40-69 | high |
+| 0-39 | critical |
+
+The gate fails when any bundle scores below the limit of `--fail-on`: `CRITICAL` fails below 40 (default), `HIGH` below 70, `MEDIUM` below 90, `LOW` below 100. `--fail-on none` reports without failing. The exit codes are those of `security scan`; `65` also covers a checkout with nothing to rate unless `--allow-empty` is set.
+
+`quality-report.json` follows the `quality-report.schema.json` schema (`QUALITY_REPORT_SCHEMA` in `@ai-primitives-hub/core`), so hubs that read quality reports can consume it unchanged.
+
 ## VS Code
 
 The AI Primitives Hub extension provides:

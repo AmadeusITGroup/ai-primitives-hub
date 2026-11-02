@@ -39,8 +39,11 @@ Primitive search reads only a pre-built local index. It does not synchronize sou
 | Command | Description |
 |---|---|
 | `ai-primitives-hub security scan [PATH...]` | Scan Markdown AI artifacts and supported Claude settings for security findings |
+| `ai-primitives-hub security rate [PATH]` | Score each collection or skill of a source checkout (0-100) and the source as their average, and fail when a bundle is below the `--fail-on` limit |
 
 The command supports text, JSON, YAML, and NDJSON output. Use `--ci` for fail-closed CI defaults and `--ignore-trust none` to prevent repository-controlled ignore files from suppressing findings. Findings are reported with severity, confidence, remediation, and compatible fingerprints. Secret evidence is redacted by default. Report files are opt-in via `--report-json`, `--report-markdown`, or `--output-directory`.
+
+`security rate` writes a hub-compatible `quality-report.json` with `--report-json` and a Markdown summary with `--report-markdown`; see [Rating a source](../user-guide/security-scanning.md#rating-a-source).
 
 See the [Security Scanner Reference](security-scanner.md) and command `--help` for resource limits, `.markdown.ignore` / `.markdown-file.ignore` behavior, and the `--fail-on` policy.
 

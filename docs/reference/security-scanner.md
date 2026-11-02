@@ -111,6 +111,37 @@ A finding is a signal for triage, not an automatic patch instruction:
 
 Prompt delimiters and written security constraints are defense in depth. They do not replace authorization, sandboxing, network controls, or human approval gates.
 
+## Quality rating
+
+`ai-primitives-hub security rate [PATH]` runs the same scanner and scores the result. The scoring lives in `@ai-primitives-hub/core` (`scoreFindings`, `buildQualityReport`), bundle discovery and the use case in `@ai-primitives-hub/app` (`runQualityRating`), and the command only parses options and writes reports.
+
+```text
+points  = severity x confidence x context x rule x repeat
+penalty = sum of points
+score   = round(100 x exp(-penalty / 40))
+```
+
+| Factor | Values |
+|---|---|
+| Severity points | CRITICAL 40, HIGH 20, MEDIUM 8, LOW 3, INFO 0 |
+| Confidence | HIGH 1, MEDIUM 0.5, LOW 0.25 |
+| Context | primitive 1, documentation 0.25, vendored 0.1 |
+| Repeat of one rule in one file | 1st 1, 2nd 0.5, 3rd and later 0.25 |
+
+One full-strength finding of each severity lands in its own band: LOW 93, MEDIUM 82, HIGH 61, CRITICAL 37. The source score is the average of its bundle scores, rounded half up; with no bundles the whole checkout is rated (`basis: repository`).
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--fail-on` | `CRITICAL` | `none`, `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`; the gate fails when a bundle scores below the limit of the level |
+| `--collections-path`, `--skills-path` | `collections`, `skills` | Where bundles are found |
+| `--repository`, `--tag`, `--commit` | CI environment, else `local/<folder>` | Recorded in the report |
+| `--ignore-trust` | `none` | `repository`, `none` or `baseline`; unlike `security scan`, repository suppressions are not trusted by default |
+| `--allow-empty` | off | Do not fail with `65` when there is nothing to rate |
+| `--report-json`, `--report-markdown`, `--report-overwrite` | off, off, `never` | Report files; JSON follows `quality-report.schema.json` |
+| `-o, --output` | `text` | `text`, `json` or `yaml` |
+
+Exit codes are `0` passed, `1` gate failed, `64` usage, `65` incomplete scan or nothing to rate, `74` failure.
+
 ## API and architecture
 
 The scanner is exposed through `@ai-primitives-hub/app` as a delivery-neutral use case. Core owns the normalized domain contracts, fingerprints, suppression semantics, policy, and pure rules. Infra owns bounded filesystem discovery, atomic report storage, and worker isolation. The CLI and VS Code extension are delivery adapters.
