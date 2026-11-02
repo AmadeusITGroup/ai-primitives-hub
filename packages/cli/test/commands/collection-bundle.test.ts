@@ -221,6 +221,44 @@ items:
       expect(envelope.data.ok).toBe(false);
     });
 
+    const licenseWarning = (file: string): string =>
+      `${file}: unknown root property 'license' is not in the collection schema; `
+      + 'remove it or rename it to one of: id, name, description, items, mcp, readme, version, author, tags, display';
+
+    it('warns for a collection with an unknown root property', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'extra.collection.yml'),
+        'id: extra\nname: Extra Collection\ndescription: Extra\nlicense: MIT\nitems: []\n'
+      );
+      const args = ['collection', 'validate', '--collection-file', 'collections/extra.collection.yml'];
+      const result = await run([...args, '-o', 'json']);
+      expect(result.exitCode).toBe(0);
+      const envelope = parseJson<{ ok: boolean; errors: string[] }>(result.stdout);
+      expect(envelope.status).toBe('warning');
+      expect(envelope.data.ok).toBe(true);
+      expect(envelope.data.errors).toEqual([]);
+      expect(envelope.warnings).toContain(licenseWarning('collections/extra.collection.yml'));
+
+      const text = await run(args);
+      expect(text.exitCode).toBe(0);
+      expect(text.stderr).toContain(`warning: ${licenseWarning('collections/extra.collection.yml')}`);
+    });
+
+    it('fails for an unknown root property next to a missing description', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'extra.collection.yml'),
+        'id: extra\nname: Extra\nlicense: MIT\nitems: []\n'
+      );
+      const result = await run([
+        'collection', 'validate', '--collection-file', 'collections/extra.collection.yml', '-o', 'json'
+      ]);
+      expect(result.exitCode).toBe(1);
+      const envelope = parseJson<{ ok: boolean; errors: string[] }>(result.stdout);
+      expect(envelope.data.ok).toBe(false);
+      expect(envelope.data.errors).toEqual(['collections/extra.collection.yml: Missing required field: description']);
+      expect(envelope.warnings).toContain(licenseWarning('collections/extra.collection.yml'));
+    });
+
     describe('plugin items', () => {
       const writePluginCollection = async (name: string, manifest: Record<string, unknown>): Promise<string> => {
         await mkdir(path.join(workspace, 'plugins', name), { recursive: true });
@@ -232,7 +270,7 @@ items:
         const collectionFile = `collections/${name}.collection.yml`;
         await writeFile(
           path.join(workspace, collectionFile),
-          `id: ${name}\nname: ${name}\nreadme:\n  path: README.md\nitems:\n  - path: plugins/${name}/plugin.json\n    kind: plugin\n`
+          `id: ${name}\nname: ${name}\ndescription: ${name} collection\nreadme:\n  path: README.md\nitems:\n  - path: plugins/${name}/plugin.json\n    kind: plugin\n`
         );
         return collectionFile;
       };
@@ -268,7 +306,7 @@ items:
       const collectionFile = 'collections/mismatch.collection.yml';
       await writeFile(
         path.join(workspace, collectionFile),
-        'id: mismatch\nname: mismatch\nreadme:\n  path: README.md\nitems:\n  - path: plugins/p/skills/s/SKILL.md\n    kind: skill\n'
+        'id: mismatch\nname: mismatch\ndescription: mismatch collection\nreadme:\n  path: README.md\nitems:\n  - path: plugins/p/skills/s/SKILL.md\n    kind: skill\n'
       );
       const result = await run(['collection', 'validate', '--collection-file', collectionFile, '-o', 'json']);
       expect(result.exitCode).toBe(0);
@@ -745,6 +783,32 @@ items:
       );
     });
 
+    it('agrees with collection validate on a collection with root mcpServers and license', async () => {
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo
+name: Foo Collection
+description: Test collection
+license: MIT
+mcpServers:
+  demo:
+    command: node
+items:
+  - path: prompts/hello.prompt.md
+    kind: prompt
+`
+      );
+      commitFixtureChanges();
+      const args = ['--collection-file', 'collections/foo.collection.yml', '-o', 'json'];
+
+      const validate = await run(['collection', 'validate', ...args]);
+      const build = await run(['bundle', 'build', '--version', '1.0.0', ...args]);
+
+      expect(validate.exitCode, validate.stdout).toBe(0);
+      expect(parseJson<{ ok: boolean }>(validate.stdout).data.ok).toBe(true);
+      expect(build.exitCode, `${build.stderr}\n${build.stdout}`).toBe(0);
+    });
+
     it('returns the declared README as a release asset', async () => {
       await mkdir(path.join(workspace, 'docs'), { recursive: true });
       await writeFile(path.join(workspace, 'docs', 'collection-overview.md'), '# Overview\n');
@@ -830,7 +894,7 @@ items:
         const collectionFile = `collections/${id}.collection.yml`;
         await writeFile(
           path.join(workspace, collectionFile),
-          `id: ${id}\nname: ${id}\nreadme:\n  path: README.md\nitems:\n  - path: ${manifestDir}/plugin.json\n    kind: plugin\n`
+          `id: ${id}\nname: ${id}\ndescription: ${id} collection\nreadme:\n  path: README.md\nitems:\n  - path: ${manifestDir}/plugin.json\n    kind: plugin\n`
         );
         commitFixtureChanges();
         return collectionFile;

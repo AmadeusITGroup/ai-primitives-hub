@@ -14,22 +14,73 @@ Validates all `.collection.yml` files in your `collections/` directory, includin
 
 From a terminal, run `ai-primitives-hub collection validate` in the repository
 root (or `--collection-file collections/<id>.collection.yml` for one file).
-The CLI also checks plugin manifests, described in [Plugin Manifests](#plugin-manifests),
-and that each item's kind fits its path, described in [Kind and Path](#kind-and-path).
+The CLI enforces the published [collection schema](./collection-schema.md) in full,
+described in [Schema Rules](#schema-rules). It also checks plugin manifests, described
+in [Plugin Manifests](#plugin-manifests), and that each item's kind fits its path,
+described in [Kind and Path](#kind-and-path).
 
 ## What Gets Validated
 
 | Check | Description |
 |-------|-------------|
 | Required fields | `id`, `name`, `description`, `items` |
+| Unknown properties | Only the fields of the [collection schema](./collection-schema.md) are allowed, at the root, in items, `mcp`, `mcp.items` servers, `mcp.inputs` and `display` |
 | ID format | Lowercase letters, numbers, hyphens only |
+| Lengths | `id` and `name` at most 100 characters, `description` at most 500 |
 | Item paths | Valid relative paths |
 | Item kinds | One of the kinds listed in the [collection schema](./collection-schema.md#item-kinds), such as `prompt`, `instruction`, `agent`, `skill` or `plugin` |
+| Field types and values | Strings, booleans and string lists where the schema requires them, and the allowed values of `mcp` server `type`, `mcp.inputs` `type` and `display.ordering` |
+| MCP servers | Server names use letters, digits, `_` and `-`; a `stdio` server (or one without `type`) needs `command`; an `http` or `sse` server needs `url` |
+| Tags | Each tag is a string; more than 10 tags or a tag over 30 characters is a warning |
 | File references | Referenced files exist |
 | Duplicate IDs | No two collections share the same ID |
 | Duplicate names | No two collections share the same name |
 | Plugin manifests | `kind: plugin` items point to the plugin's root `plugin.json`, which passes the Agent Plugins 1.0.0 checks (CLI `collection validate` and `bundle build`) |
 | Kind and path | An item's `kind` matches the kind of the install folder its path is under (CLI `collection validate`, warning only) |
+
+## Schema Rules
+
+`ai-primitives-hub collection validate` enforces `collection.schema.json` as published.
+Every schema violation is an **error**:
+
+- A property the schema does not define, at the root, in an item, in `mcp`, in an
+  `mcp.items` server, in an `mcp.inputs` entry or in `display`.
+- A missing or empty `id`, `name` or `description`, a missing `items` or one that is not a
+  list, or a missing item `path` or `kind`. An empty list (`items: []`, as `collection create`
+  writes it) is valid.
+- An `id` or `name` over 100 characters, or a `description` over 500 characters. Lengths
+  count characters (Unicode code points), as the schema does. The number of items is not
+  limited.
+- A `version` that is not a string in `X.Y.Z` form; an empty `version:` key is an error.
+- A field of the wrong type: `author`, item `title` / `description`, server `command` /
+  `envFile` / `url`, input `description` / `default`, `display.color` / `icon` must be
+  strings; `disabled`, `password` and `show_badge` must be booleans; `tags`, item `tags`,
+  server `args` and input `options` must be lists of strings; server `env` and `headers`
+  must map names to strings.
+- An `mcp.items` server name or an `mcp.inputs` `id` other than letters, digits, `_` and `-`.
+- A server `type` other than `stdio`, `http` or `sse`, an input `type` other than
+  `promptString`, `pickString` or `command`, or a `display.ordering` other than
+  `manual` or `alphabetical`.
+- A `stdio` server, or one without `type`, without `command`; an `http` or `sse` server without `url`.
+
+Two tag checks are **warnings** and don't fail validation: more than 10 tags, and a tag
+longer than 30 characters.
+
+Item kinds are matched case-insensitively (`Prompt` is accepted as `prompt`), the one
+place where validation is more lenient than the schema.
+
+### Stricter Validation
+
+Earlier releases of `collection validate` checked only `id`, `name`, `version`, `readme`
+and item `path` / `kind`. Collections that carry other fields now fail, including the
+root `mcpServers` and `license` fields some older collections still have: move MCP
+servers under `mcp.items` and remove `license` (governed bundles take their license
+from the repository's `package.json` and license file). Collections without a
+`description` also fail now.
+
+`ai-primitives-hub bundle build` does not run these schema checks; it checks plugin
+manifests only (see [Plugin Checks in `bundle build`](#plugin-checks-in-bundle-build)).
+Run `collection validate` before building.
 
 ## Plugin Manifests
 
@@ -95,6 +146,19 @@ are not checked. The check is not run for an invalid `kind`, which is already an
 
 **Missing required field**
 → Add the missing `id`, `name`, `description`, or `items` field
+
+**has unexpected property '…'**
+→ Remove the field or rename it to the schema's name, for example an item `name` to `title`;
+see [Collection Schema](./collection-schema.md) for the allowed fields
+
+**name / description must be at most … characters**
+→ Shorten the field to 100 (`name`) or 500 (`description`) characters
+
+**mcp.items.…: Missing required field: command / url**
+→ Give a `stdio` server (or one without `type`) a `command`, and an `http` or `sse` server a `url`
+
+**More than 10 tags (recommended max)** / **tags[…] is longer than 30 characters** (warning)
+→ Keep a few short tags
 
 **Invalid ID format**
 → Use only lowercase letters, numbers, and hyphens (e.g., `my-collection`)

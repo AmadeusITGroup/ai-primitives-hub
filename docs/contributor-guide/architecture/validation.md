@@ -9,6 +9,7 @@ JSON Schema validation for collections, APM packages, and hub configurations.
 | **SchemaValidator** | JSON schema validation using AJV |
 | **ValidateCollectionsCommand** | Command handler for collection validation |
 | **ValidateApmCommand** | Command handler for APM package validation |
+| **validateCollectionObject** | Pure, hand-written enforcement of `collection.schema.json` (`packages/core/src/domain/collection/validate.ts`, nested sections and rule constants in `collection-schema-rules.ts`). Returns `{ ok, errors, warnings }`; the tag count/length checks are its only warnings. Wired by app `validateCollectionFile`, which adds YAML parsing, file references, readme, kind/route and plugin checks; app `validateAllCollections` adds duplicate id/name detection over `listCollectionFiles` (sorted) |
 | **HubManager** | Hub configuration validation and runtime checks |
 | **validateAgentPluginItem** | Pure Agent Plugins 1.0.0 `plugin.json` checks plus the plugin-root rule (`packages/core/src/domain/plugin/agent-plugin-spec.ts`). Wired by app `validateCollectionFile` for `kind: plugin` items: fatal issues become errors, non-fatal issues become warnings. Also wired by app `planBundleRelease` (`bundle build`) on the release tree it packages, read through `ReleaseSourceTree`, with the same messages (`app/src/collection/plugin-item-issues.ts`): fatal issues reject with `PLUGIN.INVALID_MANIFEST` before any archive is written, non-fatal issues become build warnings |
 | **findKindRouteMismatch** | Pure kind/route comparison (`packages/core/src/domain/install/kind-route.ts`): the kind of the longest built-in layout route an item path matches, against the declared kind. Wired by app `validateCollectionFile` (`app/src/collection/kind-route-warning.ts`) over every built-in layout's routes, as a warning only; `doctor diagnostics --primitives` carries these warnings on the bundle's `I0` check |
@@ -89,7 +90,7 @@ The extension provides JSON Schema validation for all major configuration file t
 **Validates:** Copilot prompt collection files (`.collection.yml`)
 
 **Required fields:**
-- `id` — Unique identifier (lowercase letters, numbers, hyphens only)
+- `id` — Unique identifier (lowercase letters, numbers, hyphens only; 1-100 characters)
 - `name` — Human-readable collection name (1-100 characters)
 - `description` — Detailed purpose description (1-500 characters)
 - `items` — Array of collection resources (no upper limit)
@@ -109,6 +110,20 @@ The extension provides JSON Schema validation for all major configuration file t
 - MCP server configuration validation
 
 See [Author Guide: Collection Schema](../../author-guide/collection-schema.md) for complete reference.
+
+**Enforcement in core:** core has no JSON Schema engine, so `validateCollectionObject`
+mirrors every rule of `packages/core/src/public/schemas/collection.schema.json` by hand:
+unknown properties in every closed object (root, `items[]`, `mcp`, `mcp.items`, each
+server, `mcp.inputs[]`, `display`), required fields, lengths, item count, types, enums,
+patterns and the MCP server `type` / `command` / `url` conditions. Messages follow
+`<collection>: <message>` and `<collection>: items[<i>]: <message>`. Item kinds are
+matched case-insensitively, the one deliberate difference from the schema. The drift
+guard `packages/core/test/domain/collection/collection-schema-drift.test.ts` compares
+the constants in `collection-schema-rules.ts` with the exported `COLLECTION_SCHEMA`
+(property lists, required lists, enums, limits, patterns, and the set of
+`additionalProperties: false` objects) and fails when the schema changes without them.
+`bundle build` (`planBundleRelease`) does not run these checks; it runs the plugin
+checks only.
 
 ### Agent Plugins Manifest Schema
 

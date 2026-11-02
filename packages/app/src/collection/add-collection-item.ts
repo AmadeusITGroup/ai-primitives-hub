@@ -26,7 +26,8 @@ export interface NewCollectionItem {
  * @param item Item to add.
  * @returns The same collection.
  * @throws {Error} when `items` is present but not an array, so the caller
- * does not overwrite the declarations it holds.
+ * does not overwrite the declarations it holds. The collection is left
+ * unchanged.
  */
 export function addCollectionItem(collection: Collection, item: NewCollectionItem): Collection {
   const items: unknown = collection.items;

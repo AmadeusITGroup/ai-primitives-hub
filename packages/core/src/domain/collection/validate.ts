@@ -16,9 +16,20 @@ import * as path from 'node:path';
 import {
   PRIMITIVE_KINDS,
 } from '../primitive/types';
+import {
+  COLLECTION_DESCRIPTION_MAX_LENGTH,
+  COLLECTION_NAME_MAX_LENGTH,
+  COLLECTION_ROOT_PROPERTIES,
+  optionalTypeErrors,
+  unknownPropertyWarnings,
+  validateCollectionDisplay,
+  validateCollectionItemFields,
+  validateCollectionMcp,
+  validateCollectionTags,
+} from './collection-schema-rules';
 import type {
   CollectionFieldValidationResult,
-  ObjectValidationResult,
+  CollectionObjectValidationResult,
   ValidationRules,
 } from './types';
 
@@ -176,24 +187,32 @@ export function isSafeRepoRelativePath(p: string): boolean {
 }
 
 /**
- * Validate a collection object structure.
+ * Validate a collection object against the published collection schema
+ * (`public/schemas/collection.schema.json`), whose rules are mirrored in
+ * `collection-schema-rules.ts`. Item kinds are matched case-insensitively
+ * (the schema enum is case-sensitive). Properties the schema does not
+ * define (at the root, in items, `mcp`, MCP servers, `mcp.inputs` and
+ * `display`) and the tag count and length produce warnings, which never
+ * fail validation.
  * @param collection - Parsed collection object
  * @param sourceLabel - Label for error messages
  * @param rules - Validation rules (uses DEFAULT_VALIDATION_RULES if not provided)
- * @returns Validation result
+ * @returns Validation result; `ok` means no errors
  */
 export function validateCollectionObject(
   collection: unknown,
   sourceLabel: string,
   rules: ValidationRules = DEFAULT_VALIDATION_RULES
-): ObjectValidationResult {
+): CollectionObjectValidationResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   if (!collection || typeof collection !== 'object') {
-    return { ok: false, errors: [`${sourceLabel}: YAML did not parse to an object`] };
+    return { ok: false, errors: [`${sourceLabel}: YAML did not parse to an object`], warnings };
   }
 
   const col = collection as Record<string, unknown>;
+  warnings.push(...unknownPropertyWarnings(col, COLLECTION_ROOT_PROPERTIES, sourceLabel, 'root property'));
 
   // Validate collection ID
   if (!col.id || typeof col.id !== 'string') {
@@ -205,17 +224,42 @@ export function validateCollectionObject(
     }
   }
 
+  // Lengths are counted in code points, as JSON Schema `maxLength` does.
   if (!col.name || typeof col.name !== 'string') {
     errors.push(`${sourceLabel}: Missing required field: name`);
+  } else {
+    const nameLength = [...col.name].length;
+    if (nameLength > COLLECTION_NAME_MAX_LENGTH) {
+      errors.push(`${sourceLabel}: name must be at most ${COLLECTION_NAME_MAX_LENGTH} characters (got ${nameLength})`);
+    }
   }
 
-  // Validate version if present
-  if (col.version !== undefined) {
+  if (!col.description || typeof col.description !== 'string') {
+    errors.push(`${sourceLabel}: Missing required field: description`);
+  } else {
+    const descriptionLength = [...col.description].length;
+    if (descriptionLength > COLLECTION_DESCRIPTION_MAX_LENGTH) {
+      errors.push(
+        `${sourceLabel}: description must be at most ${COLLECTION_DESCRIPTION_MAX_LENGTH} characters (got ${descriptionLength})`
+      );
+    }
+  }
+
+  // Validate version if present. The schema requires a string, so an empty
+  // `version:` key (null) is a type error, not an omitted version.
+  if (col.version === null) {
+    errors.push(`${sourceLabel}: Version must be a string`);
+  } else if (col.version !== undefined) {
     const versionResult = validateVersion(col.version as string, rules);
     if (!versionResult.valid) {
       errors.push(`${sourceLabel}: ${versionResult.error}`);
     }
   }
+
+  errors.push(...optionalTypeErrors(col, ['author'], 'string', sourceLabel));
+  const tags = validateCollectionTags(col.tags, sourceLabel);
+  errors.push(...tags.errors);
+  warnings.push(...tags.warnings);
 
   if (col.readme !== undefined) {
     if (!col.readme || typeof col.readme !== 'object') {
@@ -260,8 +304,16 @@ export function validateCollectionObject(
           errors.push(`${prefix}: ${kindResult.error}`);
         }
       }
+      const fields = validateCollectionItemFields(it, prefix);
+      errors.push(...fields.errors);
+      warnings.push(...fields.warnings);
     });
   }
 
-  return { ok: errors.length === 0, errors };
+  for (const section of [validateCollectionMcp(col.mcp, sourceLabel), validateCollectionDisplay(col.display, sourceLabel)]) {
+    errors.push(...section.errors);
+    warnings.push(...section.warnings);
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
 }

@@ -351,7 +351,7 @@ describe('planBundleRelease() plugin items', () => {
       write('LICENSE', 'Example license\n');
       write('README.md', '# Example\n');
       write('plugins/demo/skills/demo/SKILL.md', '# Demo\n');
-      write(collectionFile, 'id: example\nname: Example\nreadme:\n  path: README.md\nitems:\n  - path: plugins/demo/plugin.json\n    kind: plugin\n');
+      write(collectionFile, 'id: example\nname: Example\ndescription: Example collection\nreadme:\n  path: README.md\nitems:\n  - path: plugins/demo/plugin.json\n    kind: plugin\n');
       writeManifest({ ...validManifest('demo'), author: 'someone' });
       git(['init']);
       git(['config', 'user.email', 'test@example.invalid']);
