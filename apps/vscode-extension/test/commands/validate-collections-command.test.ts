@@ -353,8 +353,11 @@ suite('ValidateCollectionsCommand', () => {
       { fixture: 'valid/good.collection.yml', as: 'a.collection.yml' },
       { fixture: 'valid/good.collection.yml', as: 'b.collection.yml' }
     ]);
-    const duplicateId = 'collections/b.collection.yml: Duplicate collection ID \'test-collection\' (also in collections/a.collection.yml)';
-    const duplicateName = 'collections/b.collection.yml: Duplicate collection name \'Test Collection\' (also in collections/a.collection.yml)';
+    // Duplicate errors name the files as listCollectionFiles returns them (platform separator).
+    const fileA = path.join('collections', 'a.collection.yml');
+    const fileB = path.join('collections', 'b.collection.yml');
+    const duplicateId = `${fileB}: Duplicate collection ID 'test-collection' (also in ${fileA})`;
+    const duplicateName = `${fileB}: Duplicate collection name 'Test Collection' (also in ${fileA})`;
 
     const run = await runValidateCollections(sandbox, workspaceDir);
 
