@@ -105,7 +105,7 @@ description: A useful test skill description.
     await writeFile(path.join(root, 'skills', 'test-skill', 'SKILL.md'), '# Missing metadata');
     const result = await run(['primitive', 'validate', 'skills']);
     expect(result.exitCode).toBe(1);
-    expect(result.output.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'SKL001', file: path.join('skills', 'test-skill', 'SKILL.md') }));
+    expect(result.output.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'SKL001', file: 'skills/test-skill/SKILL.md' }));
   });
 
   it('reports unsupported policy fields as configuration findings', async () => {
