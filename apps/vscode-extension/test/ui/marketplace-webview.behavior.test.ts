@@ -50,9 +50,32 @@ const makeBundle = () => ({
     instructions: 0,
     agents: 0,
     skills: 0,
+    plugins: 0,
     mcpServers: 0
   }
 });
+/**
+ * A test bundle with the given id and content counts.
+ * @param id - Bundle id.
+ * @param counts - Content breakdown counts that differ from zero.
+ */
+const makeBundleWith = (id: string, counts: Record<string, number>) => ({
+  ...makeBundle(),
+  id,
+  name: id,
+  contentBreakdown: { prompts: 0, instructions: 0, agents: 0, skills: 0, plugins: 0, mcpServers: 0, ...counts }
+});
+const loadBundleList = (harness: WebviewHarness, bundles: unknown[]): void => {
+  harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+    data: {
+      type: 'bundlesLoaded',
+      bundles,
+      filterOptions: { tags: ['alpha', 'beta', 'gamma'], sources: [], environments: [] },
+      setupState: 'complete',
+      sourcesCount: 1
+    }
+  }));
+};
 
 const createHarness = (): WebviewHarness => {
   const htmlPath = path.join(MARKETPLACE_DIR, 'marketplace.html');
@@ -539,6 +562,58 @@ suite('Marketplace webview behavior', () => {
       assert.match(document.querySelector('#marketplace')?.textContent ?? '', /no hub is set up yet/);
       assert.strictEqual(document.querySelectorAll('.bundle-card').length, 1,
         'bundles should remain visible while the setup warning is displayed');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+});
+suite('Marketplace webview Agent Plugins', () => {
+  const cardItems = (harness: WebviewHarness, bundleId: string): string[] => Array.from(
+    harness.dom.window.document.querySelectorAll(`.bundle-card[data-bundle-id="${bundleId}"] .content-breakdown .content-item`)
+  ).map((item) => (item.textContent ?? '').trim());
+  test('shows the plugin count on plugin-only and mixed bundle cards', () => {
+    const harness = createHarness();
+    try {
+      loadBundleList(harness, [
+        makeBundleWith('plugin-only', { plugins: 1 }),
+        makeBundleWith('mixed', { plugins: 1, prompts: 1 })
+      ]);
+      assert.deepStrictEqual(cardItems(harness, 'plugin-only'), ['1Plugin']);
+      assert.deepStrictEqual(cardItems(harness, 'mixed'), ['1Prompt', '1Plugin']);
+      const icon = harness.dom.window.document
+        .querySelector('.bundle-card[data-bundle-id="plugin-only"] .content-item .content-icon');
+      assert.ok(icon?.classList.contains('fa-plug-circle-check'), 'plugin count uses the plugin icon');
+      assert.strictEqual(icon?.getAttribute('aria-hidden'), 'true');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+  test('offers a labelled Plugins checkbox in the Primitives filter', () => {
+    const harness = createHarness();
+    try {
+      loadBundleList(harness, [makeBundleWith('plugin-only', { plugins: 1 })]);
+      const { document } = harness.dom.window;
+      const checkbox = document.querySelector('#contentType-plugins') as unknown as HTMLInputElement | null;
+      assert.ok(checkbox, 'Plugins checkbox exists');
+      assert.strictEqual(checkbox.type, 'checkbox');
+      assert.strictEqual(document.querySelector('label[for="contentType-plugins"]')?.textContent?.trim(), 'Plugins');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+  test('selects plugin-only and mixed bundles with the Plugins filter', () => {
+    const harness = createHarness();
+    try {
+      loadBundleList(harness, [
+        makeBundleWith('plugin-only', { plugins: 1 }),
+        makeBundleWith('mixed', { plugins: 1, prompts: 1 }),
+        makeBundleWith('prompt-only', { prompts: 2 })
+      ]);
+      const { document } = harness.dom.window;
+      (document.querySelector('#contentType-plugins') as unknown as { click: () => void }).click();
+      const shown = Array.from(document.querySelectorAll('.bundle-card')).map((card) => card.dataset.bundleId);
+      assert.deepStrictEqual(shown.toSorted(), ['mixed', 'plugin-only']);
+      assert.strictEqual(document.querySelector('#contentTypeSelectorText')?.textContent, 'Plugins');
     } finally {
       harness.dom.window.close();
     }

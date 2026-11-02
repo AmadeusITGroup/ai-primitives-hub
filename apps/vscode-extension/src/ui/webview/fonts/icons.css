@@ -33,6 +33,7 @@
 .fa-robot::before { content: '\f544'; }
 .fa-puzzle-piece::before { content: '\f12e'; }
 .fa-plug::before { content: '\f1e6'; }
+.fa-plug-circle-check::before { content: '\e55c'; }
 .fa-layer-group::before { content: '\f5fd'; }
 .fa-circle-info::before { content: '\f05a'; }
 .fa-tags::before { content: '\f02c'; }
