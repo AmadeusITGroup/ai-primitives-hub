@@ -38,6 +38,7 @@ import type {
 import {
   buildZip,
   NodeFileSystem,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -232,17 +233,18 @@ profiles:
     await expect(readFile(path.join(targetDir, 'ignored', 'build', 'cache.pyc'), 'utf8'))
       .rejects.toThrow();
 
-    const lockfilePath = resolveUserConfigPaths({
+    const env = {
       XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
       HOME: workspace,
       USERPROFILE: workspace
-    }).userLockfile;
-    const lockfile = JSON.parse(await readFile(lockfilePath, 'utf8')) as {
-      bundles: Record<string, { files: { path: string }[] }>;
     };
-    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toEqual([
-      'prompts/hello.prompt.md'
+    const record = JSON.parse(await readFile(new XdgAppStorage(env).getPaths().userRecord, 'utf8')) as {
+      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
+    };
+    expect(record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
+      'target/prompts/hello.prompt.md'
     ]);
+    await expect(readFile(resolveUserConfigPaths(env).userLockfile, 'utf8')).rejects.toThrow();
   });
 
   it('deactivates a profile: removes installed files and clears the active profile', async () => {
@@ -274,6 +276,151 @@ profiles:
     }
 
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
+  describe('install record', () => {
+    interface RecordFile {
+      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
+    }
+    const userEnv = (): Record<string, string> => ({ HOME: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config') });
+    const project = (): string => path.join(workspace, 'project');
+    const recordPath = (): string => path.join(project(), 'ai-primitives-hub.lock.json');
+    const oldLockPath = (): string => path.join(project(), 'prompt-registry.lock.json');
+    const repoPrompt = (): string => path.join(project(), '.github', 'prompts', 'hello.prompt.md');
+    const userRecord = (): string => new XdgAppStorage(userEnv()).getPaths().userRecord;
+    const exists = (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
+    const readRecord = async (file: string): Promise<RecordFile> => JSON.parse(await readFile(file, 'utf8')) as RecordFile;
+    const toolsOf = (record: RecordFile, bundleId: string): string[] => Object.keys(record.bundles[bundleId]?.tools ?? {});
+    /**
+     * Write an older 2.0.0 `prompt-registry.lock.json`, as a profile activated before the record would have left it.
+     * @param bundles - Bundle id → its single installed file, relative to the project.
+     */
+    const writeOldLock = async (bundles: Record<string, string>): Promise<void> => {
+      await writeFile(oldLockPath(), `${JSON.stringify({
+        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
+        version: '2.0.0',
+        generatedAt: '2026-10-01T00:00:00.000Z',
+        generatedBy: 'ai-primitives-hub-cli@0.2.1',
+        bundles: Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, {
+          version: '1.0.0',
+          sourceId: 'local-foo-src',
+          sourceType: 'local',
+          installedAt: '2026-10-01T00:00:00.000Z',
+          commitMode: 'commit',
+          files: [{ path: file, checksum: '0'.repeat(64) }]
+        }])),
+        sources: { 'local-foo-src': { type: 'local', url: bundleDir } }
+      }, null, 2)}\n`);
+    };
+
+    beforeEach(async () => {
+      await mkdir(path.join(project(), '.git'), { recursive: true });
+      await writeFile(path.join(project(), '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      expect((await run([
+        'target', 'add', 'repo', '--type', 'vscode', '--scope', 'repository', '--workspace-root', project(), '-o', 'json'
+      ])).exitCode).toBe(0);
+    });
+
+    it('records a repository activation in ai-primitives-hub.lock.json and deactivate removes it, never writing prompt-registry.lock.json', async () => {
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json']);
+
+      expect(activated.exitCode, activated.stdout).toBe(0);
+      expect(parseJson<{ records: unknown[] }>(activated.stdout).data.records)
+        .toEqual([{ target: 'repo', level: 'repository', path: recordPath() }]);
+      expect((await readRecord(recordPath())).bundles['local-foo'].tools.vscode.files.map((file) => file.path))
+        .toEqual(['.github/prompts/hello.prompt.md']);
+      expect(await exists(repoPrompt())).toBe(true);
+
+      const deactivated = await run(['profile', 'deactivate']);
+
+      expect(deactivated.exitCode, deactivated.stdout).toBe(0);
+      expect(deactivated.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await exists(repoPrompt())).toBe(false);
+      expect(await exists(recordPath()) ? toolsOf(await readRecord(recordPath()), 'local-foo') : []).toEqual([]);
+      expect(await exists(oldLockPath())).toBe(false);
+    });
+
+    it('records a user activation in the user record and deactivate removes it, never writing the old user lockfile', async () => {
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'copilot']);
+
+      expect(activated.exitCode, activated.stdout).toBe(0);
+      expect(activated.stdout).toContain(`Record: user ${userRecord()}\n`);
+      expect((await readRecord(userRecord())).bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path))
+        .toEqual(['target/prompts/hello.prompt.md']);
+
+      const deactivated = await run(['profile', 'deactivate', '-o', 'json']);
+
+      expect(deactivated.exitCode, deactivated.stdout).toBe(0);
+      expect(parseJson<{ records: unknown[] }>(deactivated.stdout).data.records)
+        .toEqual([{ target: 'copilot', level: 'user', path: userRecord() }]);
+      expect(await exists(path.join(targetDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+      expect(toolsOf(await readRecord(userRecord()), 'local-foo')).toEqual([]);
+      expect(await exists(resolveUserConfigPaths(userEnv()).userLockfile)).toBe(false);
+    });
+
+    it('migrates an older prompt-registry.lock.json before activating', async () => {
+      await writeOldLock({ 'old-only': '.github/prompts/old.prompt.md' });
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json']);
+
+      expect(activated.exitCode, activated.stdout).toBe(0);
+      const { migrations } = parseJson<{ migrations: { needsReinstall: unknown[] }[] }>(activated.stdout).data;
+      expect(migrations.map((migration) => migration.needsReinstall)).toEqual([[{ bundleId: 'old-only', version: '1.0.0' }]]);
+      expect(await exists(oldLockPath())).toBe(false);
+      const record = await readRecord(recordPath());
+      expect(toolsOf(record, 'old-only')).toEqual(['unknown']);
+      expect(toolsOf(record, 'local-foo')).toEqual(['vscode']);
+    });
+
+    it('deactivate keeps a profile bundle only an older file lists: entry and files kept, reported as unknown', async () => {
+      expect((await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json'])).exitCode).toBe(0);
+      // As a profile activated before the record would have left it.
+      await rm(recordPath());
+      await writeOldLock({ 'local-foo': '.github/prompts/hello.prompt.md' });
+
+      const deactivated = await run(['profile', 'deactivate', '-o', 'json']);
+
+      expect(deactivated.exitCode, deactivated.stdout).toBe(0);
+      const envelope = parseJson<{ unknown: unknown[] }>(deactivated.stdout);
+      expect(envelope.status).toBe('warning');
+      expect(envelope.data.unknown).toEqual([{ bundleId: 'local-foo', target: 'repo', lockfile: recordPath() }]);
+      expect(await exists(repoPrompt())).toBe(true);
+      expect(toolsOf(await readRecord(recordPath()), 'local-foo')).toEqual(['unknown']);
+      expect(await exists(oldLockPath())).toBe(false);
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect(parseJson<{ active: null }>(current.stdout).data.active).toBeNull();
+
+      // Activating again records the bundle for the target's tool.
+      expect((await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json'])).exitCode).toBe(0);
+      expect(toolsOf(await readRecord(recordPath()), 'local-foo')).toEqual(['vscode']);
+    });
+
+    it('a record that cannot be read stops the activation before any file is written', async () => {
+      await writeFile(recordPath(), 'not json\n');
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json']);
+
+      expect(activated.exitCode).toBe(1);
+      expect(activated.stdout).toContain('RECORD.MALFORMED');
+      expect(activated.stdout).toContain('profile activate:');
+      expect(await exists(repoPrompt())).toBe(false);
+      expect(await readFile(recordPath(), 'utf8')).toBe('not json\n');
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect(parseJson<{ active: null }>(current.stdout).data.active).toBeNull();
+    });
+
+    it('refuses two targets that record the same tool at one level, writing nothing', async () => {
+      const otherDir = path.join(workspace, 'other-target');
+      await mkdir(otherDir, { recursive: true });
+      expect((await run(['target', 'add', 'copilot-2', '--type', 'copilot-cli', '--path', otherDir, '-o', 'json'])).exitCode).toBe(0);
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'copilot,copilot-2', '-o', 'json']);
+
+      expect(activated.exitCode).toBe(1);
+      expect(activated.stdout).toContain('USAGE.INVALID_FLAG');
+      expect(await exists(path.join(targetDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+      expect(await exists(path.join(otherDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+    });
   });
 });
 
@@ -419,27 +566,26 @@ profiles:
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
     expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
-    // The bundle that did install is rolled back: its files and lockfile entry are gone.
+    // The bundle that did install is rolled back: its files and user record entry are gone.
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
-    const lock = await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8').catch(() => '{"bundles":{}}');
-    expect(Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
+    const record = await readFile(new XdgAppStorage(env()).getPaths().userRecord, 'utf8').catch(() => '{"bundles":{}}');
+    expect(Object.keys((JSON.parse(record) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
     const current = await run(['profile', 'current', '-o', 'json']);
     expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
   });
 
-  it('replays the activated profile\'s lockfile into a clean target', async () => {
+  it('replays the activated profile\'s user record into a clean target', async () => {
     const activated = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
     expect(activated.exitCode, activated.stdout).toBe(0);
-    const lockfile = path.join(workspace, 'replay.lock.json');
-    await writeFile(lockfile, await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8'));
-    // The lockfile keeps the hub's versionless bundle id as its key.
-    expect(Object.keys((JSON.parse(await readFile(lockfile, 'utf8')) as { bundles: object }).bundles))
+    const userRecord = new XdgAppStorage(env()).getPaths().userRecord;
+    // The record keeps the hub's versionless bundle id as its key.
+    expect(Object.keys((JSON.parse(await readFile(userRecord, 'utf8')) as { bundles: object }).bundles))
       .toEqual(['acme-org-sample-skills-sample-skills']);
     const cleanDir = path.join(workspace, 'clean-target');
     await mkdir(cleanDir, { recursive: true });
     expect((await run(['target', 'add', 'clean', '--type', 'copilot-cli', '--path', cleanDir, '-o', 'json'])).exitCode).toBe(0);
 
-    const replay = await run(['install', '--lockfile', lockfile, '--target', 'clean', '-o', 'json']);
+    const replay = await run(['install', '--lockfile', userRecord, '--target', 'clean', '-o', 'json']);
 
     expect(replay.exitCode, replay.stdout).toBe(0);
     await expect(readFile(path.join(cleanDir, 'prompts', 'hello.prompt.md'), 'utf8'))
@@ -476,32 +622,32 @@ profiles:
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
   });
 
-  it('rolls the activation back when the sync fails unexpectedly', async () => {
-    // Fault-inject the lockfile write: the bundle files are already written
-    // and the activation state + hub flag already saved when it fails.
-    const userLockfile = resolveUserConfigPaths(env()).userLockfile;
-    class FailingLockfileFs extends NodeFileSystem {
-      public override async writeFile(filePath: string, contents: string): Promise<void> {
-        if (filePath === userLockfile) {
-          throw new Error('EROFS: read-only file system');
-        }
-        await super.writeFile(filePath, contents);
-      }
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('rolls the activation back when recording fails after the bundle is written', async () => {
+    // Make the folder of the user record read-only: the record loads (it does
+    // not exist yet), the bundle files are written and the activation state +
+    // hub flag are already saved (in sub-folders) when the record write fails.
+    const userRecord = new XdgAppStorage(env()).getPaths().userRecord;
+    const recordDir = path.dirname(userRecord);
+    await mkdir(path.join(recordDir, 'hubs', 'profile-activations'), { recursive: true });
+    await chmod(recordDir, 0o555);
+    let result: { exitCode: number; stdout: string };
+    try {
+      result = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+    } finally {
+      await chmod(recordDir, 0o755);
     }
 
-    const result = await run(
-      ['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'],
-      new FailingLockfileFs()
-    );
-
-    // The original (unexpected) error is rethrown after the rollback.
-    expect(result.exitCode).not.toBe(0);
+    // The record error is reported under the profile command after the rollback.
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('RECORD.WRITE_FAILED');
+    expect(result.stdout).toContain('profile activate:');
     const current = await run(['profile', 'current', '-o', 'json']);
     expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
     const shown = await run(['profile', 'show', 'organization-sample-developer', '-o', 'json']);
     expect((JSON.parse(shown.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).not.toBe(true);
     expect(await readdir(targetDir, { recursive: true }).then((entries) => entries.filter((e) => e.endsWith('.md'))))
       .toEqual([]);
+    await expect(readFile(userRecord, 'utf8')).rejects.toThrow();
   });
 
   it('still rejects a manifest whose id is not the bundle named by the profile', async () => {
