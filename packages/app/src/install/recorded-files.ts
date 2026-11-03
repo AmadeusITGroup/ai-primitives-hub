@@ -275,6 +275,76 @@ export async function removeGuarded(input: {
   return outcome;
 }
 
+/** Outcome of {@link inspectRecordedFiles}, by bundle path. */
+export interface RecordedFilesInspection {
+  /** Files not on disk, or with no location inside the root. */
+  missing: string[];
+  /** Files whose bytes differ from `installedChecksum ?? checksum`, with the checksum on disk. */
+  modified: { path: string; currentChecksum: string }[];
+  /**
+   * Files whose state can't be known: the record isn't located (unknown
+   * target type, a writer without `locate`, a failed locate), or reading
+   * the file failed with an error other than "not found".
+   */
+  unknown: string[];
+}
+
+/**
+ * Compare a record's files with the disk.
+ *
+ * A `located` record: a file with no location or not on disk is
+ * `missing`; one whose bytes don't match `installedChecksum ?? checksum`
+ * is `modified`; a read error other than "not found" makes it `unknown`.
+ * A record that isn't located has every file `unknown`. Nothing is
+ * changed on disk.
+ * @param input Located record, files and filesystem.
+ * @param input.located The record located by {@link locateRecord}.
+ * @param input.files The record's files, index-aligned with `located.located.paths`.
+ * @param input.fs Filesystem the bytes are read from.
+ * @returns The files missing, modified and of unknown state.
+ */
+export async function inspectRecordedFiles(input: {
+  located: LocatedRecord;
+  files: readonly LockfileFileEntry[];
+  fs: Pick<FileSystem, 'readFileBytes'>;
+}): Promise<RecordedFilesInspection> {
+  const { located, files, fs } = input;
+  const outcome: RecordedFilesInspection = { missing: [], modified: [], unknown: [] };
+  if (located.kind !== 'located') {
+    outcome.unknown.push(...files.map((file) => file.path));
+    return outcome;
+  }
+  for (const [index, file] of files.entries()) {
+    const location = located.located.paths[index] ?? null;
+    if (location === null) {
+      outcome.missing.push(file.path);
+      continue;
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = await fs.readFileBytes(location);
+    } catch (err) {
+      (isNotFound(err) ? outcome.missing : outcome.unknown).push(file.path);
+      continue;
+    }
+    const currentChecksum = sha256(bytes);
+    if (currentChecksum !== (file.installedChecksum ?? file.checksum)) {
+      outcome.modified.push({ path: file.path, currentChecksum });
+    }
+  }
+  return outcome;
+}
+
+/**
+ * Whether an installed record lacks files: some file is `missing`. A
+ * file of `unknown` state counts as present, so a record is not reported
+ * incomplete only because its files can't be checked.
+ * @param inspection Outcome of {@link inspectRecordedFiles}.
+ * @returns True when a recorded file is missing.
+ */
+export const isRecordIncomplete = (inspection: Pick<RecordedFilesInspection, 'missing'>): boolean =>
+  inspection.missing.length > 0;
+
 /**
  * Remove the directories left empty by removed files: every ancestor of
  * a removed location strictly below the root, deepest first, when it is

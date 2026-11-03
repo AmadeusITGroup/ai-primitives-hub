@@ -54,6 +54,8 @@ export {
 } from './lockfile-entry';
 
 export {
+  inspectRecordedFiles,
+  isRecordIncomplete,
   locateRecord,
   removeSupersededRecordFiles,
 } from './recorded-files';
@@ -61,8 +63,18 @@ export {
 export type {
   GuardedRemoval,
   LocatedRecord,
+  RecordedFilesInspection,
   SupersededRemoval,
 } from './recorded-files';
+
+export {
+  switchRecordedCommitMode,
+} from './recorded-commit-mode';
+
+export type {
+  SwitchRecordedCommitModeInput,
+  SwitchRecordedCommitModeResult,
+} from './recorded-commit-mode';
 
 export {
   applyBundleInstall,
