@@ -130,6 +130,9 @@ import {
   PromptCreateCommand,
 } from './prompt-create';
 import {
+  SecurityRateCommand,
+} from './security-rate';
+import {
   SkillCreateCommand,
 } from './skill-create';
 import {
@@ -213,6 +216,7 @@ export const ALL_COMMAND_CLASSES: CommandClass[] = [
   ConfigGetCommand,
   ConfigListCommand,
   ApplyCommand,
+  SecurityRateCommand,
   SkillNewCommand,
   BundleBuildCommand,
   BundleManifestCommand,
