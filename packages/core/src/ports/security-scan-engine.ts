@@ -39,6 +39,7 @@ export interface SecurityScanEngine {
     options: SecurityEngineOptions,
     cancellation: SecurityCancellation
   ): Promise<readonly SecurityFinding[]>;
+  dispose?(): void | Promise<void>;
 }
 
 export const isSecuritySeverity = (value: unknown): value is SecuritySeverity =>

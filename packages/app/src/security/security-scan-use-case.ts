@@ -115,150 +115,154 @@ export const runSecurityScan = async (
     compatibility?: string;
   }
 ): Promise<SecurityScanResult> => {
-  const startedAt = options.clock.now();
-  const scanOptions = options.scanOptions ?? { includeLlmControls: false, skipInfoControls: false };
-  const failOn = options.failOn ?? 'HIGH';
-  const limits = options.limits ?? DEFAULT_LIMITS;
-  options.cancellation.throwIfCancelled();
-  let timedOut = false;
-  const cancellation: SecurityCancellation = {
-    get cancelled() {
-      return timedOut || options.cancellation.cancelled;
-    },
-    throwIfCancelled: () => {
-      options.cancellation.throwIfCancelled();
-      if (timedOut) {
-        throw new Error('SECURITY.LIMIT_EXCEEDED: whole-scan deadline exceeded');
-      }
-    }
-  };
-  const withinDeadline = async <T>(operation: () => Promise<T>): Promise<T> => {
-    const remaining = limits.timeoutMs - (options.clock.now() - startedAt);
-    if (remaining <= 0) {
-      timedOut = true;
-      cancellation.throwIfCancelled();
-    }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        operation(),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            timedOut = true;
-            reject(new Error('SECURITY.LIMIT_EXCEEDED: whole-scan deadline exceeded'));
-          }, remaining);
-        })
-      ]);
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-  const operationalError = (error: unknown, fallbackCode: string) => {
-    options.cancellation.throwIfCancelled();
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      code: message.startsWith('SECURITY.LIMIT_EXCEEDED:') ? 'SECURITY.LIMIT_EXCEEDED' : fallbackCode,
-      message
-    };
-  };
-  let collection: SecurityInputCollection;
   try {
-    collection = await withinDeadline(() => options.input.collect(toInputRequest(options.request), limits, cancellation));
-  } catch (error) {
-    collection = {
-      candidates: [], ignoredFiles: [], skippedFiles: [], suppressions: [], warnings: [],
-      errors: [operationalError(error, 'SECURITY.INPUT_UNREADABLE')]
-    };
-  }
-  const scanned: { path: string; rootId: string; bytes: number }[] = [];
-  const coverageErrors = [...collection.errors];
-  const allFindings: SecurityFinding[] = [];
-  let totalBytes = 0;
-
-  for (const candidate of collection.candidates) {
+    const startedAt = options.clock.now();
+    const scanOptions = options.scanOptions ?? { includeLlmControls: false, skipInfoControls: false };
+    const failOn = options.failOn ?? 'HIGH';
+    const limits = options.limits ?? DEFAULT_LIMITS;
     options.cancellation.throwIfCancelled();
-    let read;
+    let timedOut = false;
+    const cancellation: SecurityCancellation = {
+      get cancelled() {
+        return timedOut || options.cancellation.cancelled;
+      },
+      throwIfCancelled: () => {
+        options.cancellation.throwIfCancelled();
+        if (timedOut) {
+          throw new Error('SECURITY.LIMIT_EXCEEDED: whole-scan deadline exceeded');
+        }
+      }
+    };
+    const withinDeadline = async <T>(operation: () => Promise<T>): Promise<T> => {
+      const remaining = limits.timeoutMs - (options.clock.now() - startedAt);
+      if (remaining <= 0) {
+        timedOut = true;
+        cancellation.throwIfCancelled();
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          operation(),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              timedOut = true;
+              reject(new Error('SECURITY.LIMIT_EXCEEDED: whole-scan deadline exceeded'));
+            }, remaining);
+          })
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    const operationalError = (error: unknown, fallbackCode: string) => {
+      options.cancellation.throwIfCancelled();
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        code: message.startsWith('SECURITY.LIMIT_EXCEEDED:') ? 'SECURITY.LIMIT_EXCEEDED' : fallbackCode,
+        message
+      };
+    };
+    let collection: SecurityInputCollection;
     try {
-      read = await withinDeadline(() => options.input.read(candidate, limits, cancellation));
+      collection = await withinDeadline(() => options.input.collect(toInputRequest(options.request), limits, cancellation));
     } catch (error) {
-      coverageErrors.push({ path: candidate.displayPath, ...operationalError(error, 'SECURITY.INPUT_UNREADABLE') });
-      if (timedOut) {
+      collection = {
+        candidates: [], ignoredFiles: [], skippedFiles: [], suppressions: [], warnings: [],
+        errors: [operationalError(error, 'SECURITY.INPUT_UNREADABLE')]
+      };
+    }
+    const scanned: { path: string; rootId: string; bytes: number }[] = [];
+    const coverageErrors = [...collection.errors];
+    const allFindings: SecurityFinding[] = [];
+    let totalBytes = 0;
+
+    for (const candidate of collection.candidates) {
+      options.cancellation.throwIfCancelled();
+      let read;
+      try {
+        read = await withinDeadline(() => options.input.read(candidate, limits, cancellation));
+      } catch (error) {
+        coverageErrors.push({ path: candidate.displayPath, ...operationalError(error, 'SECURITY.INPUT_UNREADABLE') });
+        if (timedOut) {
+          break;
+        }
+        continue;
+      }
+      if (read.error !== undefined || read.document === undefined) {
+        coverageErrors.push({ path: candidate.displayPath, code: read.error?.code ?? 'SECURITY.INPUT_UNREADABLE', message: read.error?.message ?? 'Input could not be read.' });
+        continue;
+      }
+      totalBytes += read.document.metadata.bytes;
+      if (totalBytes > limits.maxTotalBytes) {
+        coverageErrors.push({ path: candidate.displayPath, code: 'SECURITY.LIMIT_EXCEEDED', message: 'Maximum total input bytes exceeded.' });
         break;
       }
-      continue;
-    }
-    if (read.error !== undefined || read.document === undefined) {
-      coverageErrors.push({ path: candidate.displayPath, code: read.error?.code ?? 'SECURITY.INPUT_UNREADABLE', message: read.error?.message ?? 'Input could not be read.' });
-      continue;
-    }
-    totalBytes += read.document.metadata.bytes;
-    if (totalBytes > limits.maxTotalBytes) {
-      coverageErrors.push({ path: candidate.displayPath, code: 'SECURITY.LIMIT_EXCEEDED', message: 'Maximum total input bytes exceeded.' });
-      break;
-    }
-    const remainingFindings = limits.maxFindings - allFindings.length;
-    let findings: readonly SecurityFinding[];
-    try {
-      const document = read.document;
-      findings = await withinDeadline(() => options.engine.scanDocument(document, {
-        includeLlmControls: scanOptions.includeLlmControls,
-        skipInfoControls: scanOptions.skipInfoControls,
-        maxFindings: remainingFindings + 1
-      }, cancellation));
-    } catch (error) {
-      coverageErrors.push({ path: candidate.displayPath, ...operationalError(error, 'SECURITY.ENGINE_FAILED') });
-      if (timedOut) {
+      const remainingFindings = limits.maxFindings - allFindings.length;
+      let findings: readonly SecurityFinding[];
+      try {
+        const document = read.document;
+        findings = await withinDeadline(() => options.engine.scanDocument(document, {
+          includeLlmControls: scanOptions.includeLlmControls,
+          skipInfoControls: scanOptions.skipInfoControls,
+          maxFindings: remainingFindings + 1
+        }, cancellation));
+      } catch (error) {
+        coverageErrors.push({ path: candidate.displayPath, ...operationalError(error, 'SECURITY.ENGINE_FAILED') });
+        if (timedOut) {
+          break;
+        }
+        continue;
+      }
+      scanned.push({ path: candidate.displayPath, rootId: candidate.rootId, bytes: read.document.metadata.bytes });
+      allFindings.push(...findings.slice(0, remainingFindings));
+      if (findings.length > remainingFindings) {
+        coverageErrors.push({ code: 'SECURITY.LIMIT_EXCEEDED', message: 'Maximum finding count exceeded.' });
         break;
       }
-      continue;
     }
-    scanned.push({ path: candidate.displayPath, rootId: candidate.rootId, bytes: read.document.metadata.bytes });
-    allFindings.push(...findings.slice(0, remainingFindings));
-    if (findings.length > remainingFindings) {
-      coverageErrors.push({ code: 'SECURITY.LIMIT_EXCEEDED', message: 'Maximum finding count exceeded.' });
-      break;
+
+    const suppressed: SuppressedFinding[] = [];
+    const active: SecurityFinding[] = [];
+    const rootIds = new Set(scanned.map((file) => file.rootId));
+    for (const rootId of rootIds) {
+      const rootFindings = allFindings.filter((finding) => finding.rootId === rootId || (finding.rootId === undefined && scanned.some((file) => file.rootId === rootId && file.path === finding.file)));
+      const result = applySuppressions(rootFindings, collection.suppressions, rootId);
+      active.push(...result.active);
+      suppressed.push(...result.suppressed);
     }
-  }
+    const sortedActive = sortFindings(selectSeverities(active, scanOptions.selectedSeverities));
+    const policy = evaluateFailurePolicy(active, failOn);
+    const completedAt = options.clock.now();
+    const errors = coverageErrors.map((error) => ({ path: error.path, code: error.code, message: error.message }));
 
-  const suppressed: SuppressedFinding[] = [];
-  const active: SecurityFinding[] = [];
-  const rootIds = new Set(scanned.map((file) => file.rootId));
-  for (const rootId of rootIds) {
-    const rootFindings = allFindings.filter((finding) => finding.rootId === rootId || (finding.rootId === undefined && scanned.some((file) => file.rootId === rootId && file.path === finding.file)));
-    const result = applySuppressions(rootFindings, collection.suppressions, rootId);
-    active.push(...result.active);
-    suppressed.push(...result.suppressed);
+    return {
+      schemaVersion: 1,
+      scanId: `${startedAt}-${options.engine.descriptor.rulePackDigest.slice(-12)}`,
+      complete: errors.length === 0,
+      engine: options.engine.descriptor,
+      compatibility: options.compatibility ?? 'md-security-scanner@1.10.9',
+      options: { ...scanOptions, failOn, ignoreTrust: options.request.ignoreTrust },
+      coverage: { scanned, ignored: collection.ignoredFiles, skipped: collection.skippedFiles, errors },
+      summary: {
+        active: { total: sortedActive.length, bySeverity: bySeverity(sortedActive) },
+        suppressed: { total: suppressed.length, bySeverity: bySeverity(suppressed.map((item) => item.finding)) },
+        policy: { failOn, passed: policy.passed && errors.length === 0, blocking: policy.blocking }
+      },
+      findings: sortedActive,
+      suppressed: suppressed.map((item) => ({
+        ruleId: item.finding.ruleId,
+        severity: item.finding.severity,
+        fingerprint: item.kind === 'instance' ? item.finding.fingerprint : item.finding.canonicalFingerprint,
+        kind: item.kind,
+        sourcePath: item.declaration.sourcePath
+      })),
+      warnings: collection.warnings.map((warning) => `${warning.sourcePath}:${warning.line}: ${warning.message}`),
+      errors,
+      timing: { startedAt: new Date(startedAt).toISOString(), completedAt: new Date(completedAt).toISOString(), durationMs: completedAt - startedAt }
+    };
+  } finally {
+    await options.engine.dispose?.();
   }
-  const sortedActive = sortFindings(selectSeverities(active, scanOptions.selectedSeverities));
-  const policy = evaluateFailurePolicy(active, failOn);
-  const completedAt = options.clock.now();
-  const errors = coverageErrors.map((error) => ({ path: error.path, code: error.code, message: error.message }));
-
-  return {
-    schemaVersion: 1,
-    scanId: `${startedAt}-${options.engine.descriptor.rulePackDigest.slice(-12)}`,
-    complete: errors.length === 0,
-    engine: options.engine.descriptor,
-    compatibility: options.compatibility ?? 'md-security-scanner@1.10.9',
-    options: { ...scanOptions, failOn, ignoreTrust: options.request.ignoreTrust },
-    coverage: { scanned, ignored: collection.ignoredFiles, skipped: collection.skippedFiles, errors },
-    summary: {
-      active: { total: sortedActive.length, bySeverity: bySeverity(sortedActive) },
-      suppressed: { total: suppressed.length, bySeverity: bySeverity(suppressed.map((item) => item.finding)) },
-      policy: { failOn, passed: policy.passed && errors.length === 0, blocking: policy.blocking }
-    },
-    findings: sortedActive,
-    suppressed: suppressed.map((item) => ({
-      ruleId: item.finding.ruleId,
-      severity: item.finding.severity,
-      fingerprint: item.kind === 'instance' ? item.finding.fingerprint : item.finding.canonicalFingerprint,
-      kind: item.kind,
-      sourcePath: item.declaration.sourcePath
-    })),
-    warnings: collection.warnings.map((warning) => `${warning.sourcePath}:${warning.line}: ${warning.message}`),
-    errors,
-    timing: { startedAt: new Date(startedAt).toISOString(), completedAt: new Date(completedAt).toISOString(), durationMs: completedAt - startedAt }
-  };
 };
 
 export { DEFAULT_LIMITS as SECURITY_SCAN_DEFAULT_LIMITS };

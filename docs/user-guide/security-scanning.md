@@ -48,7 +48,7 @@ Limit displayed findings:
 
 ```bash
 ai-primitives-hub security scan . --minimum-severity HIGH
-ai-primitives-hub security scan . --severity CRITICAL HIGH
+ai-primitives-hub security scan . --severity CRITICAL --severity HIGH
 ```
 
 The severity filter controls the reported findings. The failure policy is independent:

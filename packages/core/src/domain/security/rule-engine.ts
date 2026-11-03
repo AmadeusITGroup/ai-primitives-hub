@@ -306,6 +306,12 @@ const entropy = (value: string): number => {
   }, 0);
 };
 
+const containsSecret = (value: string): boolean =>
+  Object.values(secretPatterns).some((pattern) => pattern.test(value))
+  || [...value.matchAll(assignment)].some((match) => entropy(match[1]) >= 4.5 && !safeSecretPlaceholder.test(match[1]));
+
+const redactSecrets = (value: string): string => containsSecret(value) ? '[REDACTED]' : value;
+
 const createFinding = (
   document: SecurityDocument,
   rule: PatternRule,
@@ -322,15 +328,15 @@ const createFinding = (
     ?? (/^AGT-00[4-7]$/.test(rule.id) ? 'AST03:2026' : undefined)
     ?? (/^MCP-00[67]$/.test(rule.id) ? 'AST02:2026' : undefined)
     ?? (rule.id === 'ASI-005' ? 'AST05:2026' : undefined),
-  title: rule.title,
+  title: redactSecrets(rule.title),
   severity,
   confidence,
   category: rule.category,
   rootId: document.rootId,
   file: document.displayPath,
   line,
-  section,
-  vulnerableContent: rule.category === 'secrets' ? '[REDACTED]' : snippet.slice(0, 400),
+  section: section === undefined ? undefined : redactSecrets(section),
+  vulnerableContent: rule.category === 'secrets' || rule.id === 'MCP-011' || containsSecret(snippet) ? '[REDACTED]' : snippet.slice(0, 400),
   risk: rule.risk,
   recommendedFix: rule.fix,
   owasp: rule.owasp,

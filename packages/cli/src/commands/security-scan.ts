@@ -77,6 +77,22 @@ const reportJson = (result: SecurityScanResult): string => `${JSON.stringify({
   references: { rule_pack: result.engine.rulePackId }
 }, null, 2)}\n`;
 
+const escapeMarkdown = (value: string): string => value
+  .replaceAll(/[\r\n]/g, ' ')
+  .replaceAll('&', '&amp;')
+  .replaceAll(/[\\`*_{}[\]()<>#!|~]/g, '\\$&')
+  .replaceAll('@', '&#64;');
+
+const backtickLength = (value: string): number =>
+  [...value.matchAll(/`+/g)].reduce((maximum, match) => Math.max(maximum, match[0].length), 0);
+
+const inlineCode = (value: string): string => {
+  const text = value.replaceAll(/[\r\n]/g, ' ');
+  const length = backtickLength(text);
+  const fence = '`'.repeat(length + 1);
+  return length === 0 ? `${fence}${text}${fence}` : `${fence} ${text} ${fence}`;
+};
+
 const reportMarkdown = (result: SecurityScanResult): string => {
   const lines = [
     '# AI Primitives Hub Security Report',
@@ -93,32 +109,37 @@ const reportMarkdown = (result: SecurityScanResult): string => {
     lines.push('No active findings.');
   }
   for (const finding of result.findings) {
+    const location = `${finding.file.replaceAll(/[\r\n]/g, ' ')}${finding.line === undefined ? '' : `:${String(finding.line)}`}`;
+    const suggestions = [
+      `${finding.fingerprint} # Fingerprint — ${finding.ruleId} — ${location}`,
+      `${finding.canonicalFingerprint} # Canonical fingerprint — ${finding.ruleId} — ${location}`
+    ].join('\n');
+    const fence = '`'.repeat(Math.max(3, backtickLength(suggestions) + 1));
     lines.push(
-      `### ${finding.severity} — ${finding.title}`,
+      `### ${finding.severity} — ${escapeMarkdown(finding.title)}`,
       '',
       `- Rule: \`${finding.ruleId}\``,
-      `- Location: \`${finding.file}\`${finding.line === undefined ? '' : ` — line ${String(finding.line)}`}`,
+      `- Location: ${inlineCode(finding.file)}${finding.line === undefined ? '' : ` — line ${String(finding.line)}`}`,
       `- Confidence: ${finding.confidence}`,
-      ...(finding.relatedAst === undefined ? [] : [`- Related AST: ${finding.relatedAst}`]),
-      `- Vulnerable content: \`${finding.vulnerableContent.replaceAll('`', '\\`')}\``,
+      ...(finding.relatedAst === undefined ? [] : [`- Related AST: ${escapeMarkdown(finding.relatedAst)}`]),
+      `- Vulnerable content: ${inlineCode(finding.vulnerableContent)}`,
       ...(finding.owasp === undefined ? [] : [`- OWASP: [${finding.owasp.id} — ${finding.owasp.name}](${finding.owasp.url})`]),
-      `- Risk: ${finding.risk.replaceAll('`', '\\`')}`,
-      `- Recommended fix: ${finding.recommendedFix.replaceAll('`', '\\`')}`,
+      `- Risk: ${escapeMarkdown(finding.risk)}`,
+      `- Recommended fix: ${escapeMarkdown(finding.recommendedFix)}`,
       '',
       '**.markdown.ignore suggestions:**',
       '',
-      '```text',
-      `${finding.fingerprint} # Fingerprint — ${finding.ruleId} — ${finding.file}${finding.line === undefined ? '' : `:${String(finding.line)}`}`,
-      `${finding.canonicalFingerprint} # Canonical fingerprint — ${finding.ruleId} — ${finding.file}${finding.line === undefined ? '' : `:${String(finding.line)}`}`,
-      '```',
+      `${fence}text`,
+      suggestions,
+      fence,
       ''
     );
   }
   if (result.warnings.length > 0) {
-    lines.push('## Warnings', '', ...result.warnings.map((warning) => `- ${warning}`), '');
+    lines.push('## Warnings', '', ...result.warnings.map((warning) => `- ${escapeMarkdown(warning)}`), '');
   }
   if (result.errors.length > 0) {
-    lines.push('## Coverage Errors', '', ...result.errors.map((error) => `- ${error.code}: ${error.message}`), '');
+    lines.push('## Coverage Errors', '', ...result.errors.map((error) => `- ${error.code}: ${escapeMarkdown(error.message)}`), '');
   }
   return `${lines.join('\n')}\n`;
 };

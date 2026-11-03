@@ -253,6 +253,31 @@ describe('security scan command', () => {
     }
   });
 
+  it('keeps artifact-controlled titles and backticks inert in Markdown reports', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
+    try {
+      const file = path.join(directory, 'settings.json');
+      const report = path.join(directory, 'report.md');
+      await writeFile(file, JSON.stringify({
+        mcpServers: {
+          'server`name [link](https://example.test) @reviewers': { url: 'https://example.test/`<img src=x>`' }
+        }
+      }));
+      const result = await runCommand(['security', 'scan', file, '--report-markdown', report, '--fail-on', 'none'], {
+        commandClasses: [SecurityScanCommand],
+        context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(result.exitCode).toBe(0);
+      const markdown = await readFile(report, 'utf8');
+      expect(markdown).not.toContain(' @reviewers');
+      expect(markdown).toContain('server\\`name \\[link\\]');
+      expect(markdown).toContain('&#64;reviewers');
+      expect(markdown).toContain('- Vulnerable content: `` ');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('rejects invalid overwrite modes and durations that overflow Node timers', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
     try {

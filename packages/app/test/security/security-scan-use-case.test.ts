@@ -203,4 +203,22 @@ describe('runSecurityScan', () => {
     expect(result.findings).toHaveLength(3);
     expect(result.errors).toContainEqual(expect.objectContaining({ code: 'SECURITY.LIMIT_EXCEEDED' }));
   });
+
+  it('releases engine resources even when cancellation aborts the scan', async () => {
+    let disposed = false;
+    const engine: SecurityScanEngine = {
+      ...new StubEngine(),
+      scanDocument: new StubEngine().scanDocument.bind(new StubEngine()),
+      dispose: () => {
+        disposed = true;
+      }
+    };
+    await expect(runSecurityScan({
+      input: new StubInput(), engine, clock, request, limits,
+      cancellation: { cancelled: true, throwIfCancelled: () => {
+        throw new Error('cancelled');
+      } }
+    })).rejects.toThrow('cancelled');
+    expect(disposed).toBe(true);
+  });
 });

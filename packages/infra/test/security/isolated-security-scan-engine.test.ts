@@ -27,10 +27,14 @@ describe('IsolatedSecurityScanEngine', () => {
     const base = new RuleBasedSecurityScanEngine();
     const engine = new IsolatedSecurityScanEngine(base.descriptor, base.capabilities, 2000,
       path.join(__dirname, '../../dist/security/isolated-security-scan-worker.js'));
-    const result = await engine.scanDocument(document, {
-      includeLlmControls: false, skipInfoControls: false, maxFindings: 10
-    }, cancellation);
-    expect(result[0]).toMatchObject({ ruleId: 'SEC-001', vulnerableContent: '[REDACTED]' });
+    try {
+      const result = await engine.scanDocument(document, {
+        includeLlmControls: false, skipInfoControls: false, maxFindings: 10
+      }, cancellation);
+      expect(result[0]).toMatchObject({ ruleId: 'SEC-001', vulnerableContent: '[REDACTED]' });
+    } finally {
+      await engine.dispose();
+    }
   });
 
   it('fails closed when the packaged worker is missing', async () => {
@@ -39,5 +43,35 @@ describe('IsolatedSecurityScanEngine', () => {
     await expect(engine.scanDocument(document, {
       includeLlmControls: false, skipInfoControls: false, maxFindings: 10
     }, cancellation)).rejects.toThrow('worker is not packaged');
+  });
+
+  it('reuses worker state across successive documents', async () => {
+    const base = new RuleBasedSecurityScanEngine();
+    const engine = new IsolatedSecurityScanEngine(base.descriptor, base.capabilities, 2000,
+      path.join(__dirname, 'fixtures/stateful-worker.mjs'));
+    const options = { includeLlmControls: false, skipInfoControls: false, maxFindings: 10 };
+    try {
+      const first = await engine.scanDocument(document, options, cancellation);
+      const second = await engine.scanDocument(document, options, cancellation);
+      expect(first[0].vulnerableContent).toBe('1');
+      expect(second[0].vulnerableContent).toBe('2');
+    } finally {
+      await engine.dispose();
+    }
+  });
+
+  it('restarts a timed-out worker and rejects scans after disposal', async () => {
+    const base = new RuleBasedSecurityScanEngine();
+    const engine = new IsolatedSecurityScanEngine(base.descriptor, base.capabilities, 250,
+      path.join(__dirname, 'fixtures/stateful-worker.mjs'));
+    const options = { includeLlmControls: false, skipInfoControls: false, maxFindings: 10 };
+    try {
+      await expect(engine.scanDocument({ ...document, id: 'wait' }, options, cancellation)).rejects.toThrow('timed out');
+      const result = await engine.scanDocument(document, options, cancellation);
+      expect(result[0].vulnerableContent).toBe('1');
+    } finally {
+      await engine.dispose();
+    }
+    await expect(engine.scanDocument(document, options, cancellation)).rejects.toThrow('disposed');
   });
 });

@@ -96,6 +96,11 @@ Use `--ignore-trust none` for security gates over attacker-controlled changes. U
 
 The default engine limits input to 10,000 files, 1 MiB per file, 100 MiB total, depth 64, 5,000 findings, 64 KiB/1,024 lines per ignore file, 10 MiB per report, and 60 seconds per scan. Symbolic links and special files are not followed. Limit or read failures produce an incomplete result rather than a clean result.
 
+`--max-files` bounds traversal: it counts discovered regular files, including
+nonmatching extensions and ignored documentation, not just scanned Markdown.
+Raise it explicitly for large repositories rather than removing the traversal
+bound.
+
 ## Remediation
 
 A finding is a signal for triage, not an automatic patch instruction:

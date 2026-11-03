@@ -107,7 +107,17 @@ Core owns the interface. The Node adapter supplies bounded filesystem discovery 
 
 Core owns the engine contract and the pure built-in rule behavior. The engine descriptor reports its ID, implementation version, rule-pack version, and digest. Alternative engines must normalize into the same finding model and explicitly declare capabilities.
 
-The CLI composes the built-in engine behind `IsolatedSecurityScanEngine`. The worker boundary is required because synchronous JavaScript regular expressions cannot be interrupted from the calling thread. A timeout or cancellation produces an incomplete scan.
+The CLI and extension compose the built-in engine behind
+`IsolatedSecurityScanEngine`. The worker boundary is required because
+synchronous JavaScript regular expressions cannot be interrupted from the
+calling thread. Each engine reuses one worker across documents, serializes
+requests, and replaces the worker after a failure or cancellation. Missing
+packaged workers fail closed; there is no synchronous fallback.
+
+Engine instances supplied to `runSecurityScan` have scan-scoped ownership:
+the use case calls their optional `dispose()` in `finally`, including on
+cancellation or input failure. Create a new isolated engine for each scan.
+A timeout produces an incomplete scan with coverage errors.
 
 ### `SecurityReportStore`
 
