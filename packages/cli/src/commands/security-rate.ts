@@ -1,8 +1,9 @@
 /**
  * `security rate` subcommand.
  *
- * Rates the collections (or skills) of a source checkout from the findings of a security scan:
- * each bundle and the source get a 0-100 score, a risk band and a pass/fail gate.
+ * Rates the collections (or skills) of a source checkout: each bundle and the source get a 0-100 score,
+ * a risk band and a pass/fail gate. The findings come from the built-in scanner, or from a scan report
+ * given with `--findings`.
  * @module commands/security-rate
  */
 import * as path from 'node:path';
@@ -10,21 +11,25 @@ import {
   type QualityRatingResult,
   renderQualityMarkdown,
   runQualityRating,
+  scanSource,
 } from '@ai-primitives-hub/app';
 import {
   gateFailed,
   parseFindingsDocument,
   type QualityFailOn,
+  type QualityFinding,
 } from '@ai-primitives-hub/core';
 import {
   Command,
   type Context,
   formatOutput,
   Option,
+  type OutputFormat,
 } from '../framework';
 
 const FAIL_ON_LEVELS = ['NONE', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
-const OUTPUT_FORMATS = ['text', 'json', 'yaml', 'ndjson'];
+const OUTPUT_FORMATS: readonly string[] = ['text', 'json', 'yaml', 'ndjson'];
+const isOutputFormat = (value: string): value is OutputFormat => OUTPUT_FORMATS.includes(value);
 const LISTED_FINDINGS = 3;
 const EXIT_USAGE = 64;
 const EXIT_BAD_INPUT = 65;
@@ -32,7 +37,7 @@ const EXIT_IO = 74;
 
 const score = (value: number | null): string => (value === null ? 'n/a' : `${String(value)}/100`);
 
-const renderText = (result: QualityRatingResult, failOn: QualityFailOn, skipped: number): string => {
+const renderText = (result: QualityRatingResult, failOn: QualityFailOn, skipped: number, scannedFiles?: number): string => {
   const { report } = result;
   const failedBundles = report.bundles.filter((bundle) => gateFailed(bundle.score, failOn));
   const gate = failOn === 'none'
@@ -44,6 +49,7 @@ const renderText = (result: QualityRatingResult, failOn: QualityFailOn, skipped:
       ? `average of ${String(report.bundles.length)} bundle(s)`
       : 'whole repository'}`,
     gate,
+    ...(scannedFiles === undefined ? [] : [`Scanned ${String(scannedFiles)} file(s)`]),
     ...(skipped > 0 ? [`Warning: ${String(skipped)} finding(s) without a rule id, file or severity were skipped`] : []),
     ...result.warnings.map((warning) => `Warning: ${warning}`)
   ];
@@ -84,26 +90,28 @@ export class SecurityRateCommand extends Command {
   public static readonly paths = [['security', 'rate']];
 
   public static readonly usage = Command.Usage({
-    description: 'Rate the collections or skills of a source checkout from the findings of a security scan.',
+    description: 'Scan a source checkout and rate its collections or skills, or rate the findings of another scanner.',
     category: 'Security',
     details: `
-      Usage: ai-primitives-hub security rate [PATH] --findings <report.json> [options]
+      Usage: ai-primitives-hub security rate [PATH] [--findings <report.json>] [options]
 
       Scores each collection (or skill) of PATH (default: the current directory) from 0 to 100 and
-      the source as the average of its bundles. The findings come from a scan report: a JSON object
-      with a "findings" array, or a bare array. Each finding needs ruleId, file and severity.
+      the source as the average of its bundles. Without --findings, PATH is scanned with the built-in
+      scanner. With --findings, the findings of another scanner are rated instead: a JSON object with
+      a "findings" array, or a bare array, where each finding needs ruleId, file and severity.
       The gate fails when a bundle scores below the limit of --fail-on (CRITICAL by default, none to
       disable); the exit code is then 1.
 
       Options:
-        --findings <file>          Scan report to rate (required)
+        --findings <file>          Rate the findings of this scan report instead of scanning
         --fail-on <level>          none, CRITICAL, HIGH, MEDIUM or LOW (default: CRITICAL)
         --repository <owner/repo>  Recorded in the report (default: GITHUB_REPOSITORY, else local/<dir>)
         --tag <tag>                Release tag (default: GITHUB_REF_NAME)
         --commit <sha>             Commit (default: GITHUB_SHA)
         --collections-path <dir>   Collections folder (default: collections)
         --skills-path <dir>        Skills folder (default: skills)
-        --scanner-name <name>      Scanner recorded in the report (default: unspecified)
+        --scanner-name <name>      Scanner recorded in the report (default: ai-primitives-hub, or
+                                   unspecified with --findings)
         --report-json <file>       Write the quality report as JSON
         --report-markdown <file>   Write the report as Markdown
         --overwrite                Replace existing report files
@@ -118,7 +126,7 @@ export class SecurityRateCommand extends Command {
   public commit = Option.String('--commit');
   public collectionsPath = Option.String('--collections-path');
   public skillsPath = Option.String('--skills-path');
-  public scannerName = Option.String('--scanner-name', 'unspecified');
+  public scannerName = Option.String('--scanner-name');
   public reportJson = Option.String('--report-json');
   public reportMarkdown = Option.String('--report-markdown');
   public overwrite = Option.Boolean('--overwrite', false);
@@ -129,18 +137,15 @@ export class SecurityRateCommand extends Command {
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
-    const fmt = this.output ?? 'text';
-    if (!OUTPUT_FORMATS.includes(fmt)) {
+    const requested = this.output ?? 'text';
+    if (!isOutputFormat(requested)) {
       ctx.stderr.write(`Invalid --output value: ${String(this.output)}\n`);
       return EXIT_USAGE;
     }
+    const fmt = requested;
     const level = this.failOn.toUpperCase();
     if (!FAIL_ON_LEVELS.includes(level)) {
       ctx.stderr.write(`Invalid --fail-on value: ${this.failOn}\n`);
-      return EXIT_USAGE;
-    }
-    if (this.findings === undefined) {
-      ctx.stderr.write('security rate needs --findings <report.json>\n');
       return EXIT_USAGE;
     }
     if (this.rest.length > 1) {
@@ -150,17 +155,28 @@ export class SecurityRateCommand extends Command {
     const failOn = (level === 'NONE' ? 'none' : level) as QualityFailOn;
     const root = path.resolve(ctx.cwd(), this.rest[0] ?? '.');
 
-    let parsed: ReturnType<typeof parseFindingsDocument>;
-    try {
-      parsed = parseFindingsDocument(JSON.parse(await ctx.fs.readFile(path.resolve(ctx.cwd(), this.findings))));
-    } catch (error) {
-      ctx.stderr.write(`Cannot read findings from ${this.findings}: ${error instanceof Error ? error.message : String(error)}\n`);
-      return EXIT_BAD_INPUT;
+    let findings: QualityFinding[];
+    let skipped = 0;
+    let scannedFiles: number | undefined;
+    if (this.findings === undefined) {
+      try {
+        ({ findings, scannedFiles } = scanSource(root));
+      } catch (error) {
+        ctx.stderr.write(`Cannot scan ${root}: ${error instanceof Error ? error.message : String(error)}\n`);
+        return EXIT_BAD_INPUT;
+      }
+    } else {
+      try {
+        ({ findings, skipped } = parseFindingsDocument(JSON.parse(await ctx.fs.readFile(path.resolve(ctx.cwd(), this.findings)))));
+      } catch (error) {
+        ctx.stderr.write(`Cannot read findings from ${this.findings}: ${error instanceof Error ? error.message : String(error)}\n`);
+        return EXIT_BAD_INPUT;
+      }
     }
 
     try {
       const result = runQualityRating({
-        findings: parsed.findings,
+        findings,
         generatedAt: ctx.clock.nowIso(),
         request: {
           root,
@@ -170,7 +186,7 @@ export class SecurityRateCommand extends Command {
           failOn,
           collectionsPath: this.collectionsPath,
           skillsPath: this.skillsPath,
-          scannerName: this.scannerName
+          scannerName: this.scannerName ?? (this.findings === undefined ? 'ai-primitives-hub' : 'unspecified')
         }
       });
       if (this.reportJson !== undefined) {
@@ -184,8 +200,8 @@ export class SecurityRateCommand extends Command {
         command: 'security.rate',
         output: fmt,
         status: result.report.gate.passed ? 'ok' : 'warning',
-        data: { report: result.report, warnings: result.warnings, skippedFindings: parsed.skipped },
-        textRenderer: () => renderText(result, failOn, parsed.skipped)
+        data: { report: result.report, warnings: result.warnings, skippedFindings: skipped, scannedFiles },
+        textRenderer: () => renderText(result, failOn, skipped, scannedFiles)
       });
       return result.report.gate.passed ? 0 : 1;
     } catch (error) {

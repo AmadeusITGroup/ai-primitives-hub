@@ -40,6 +40,7 @@ export * from './hub/diagnostics';
 export * from './hub/replicate';
 export * from './primitive/types';
 export * from './quality';
+export * from './scanner';
 export * from './skill/validate';
 export * from './plugin/agent-plugin-spec';
 export * from './mcp';
