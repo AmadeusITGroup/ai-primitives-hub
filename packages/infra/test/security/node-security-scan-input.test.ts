@@ -105,6 +105,27 @@ describe('NodeSecurityScanInput', () => {
     expect(result.warnings).toHaveLength(1);
   });
 
+  it('bounds wildcard matching for long nonmatching filenames', async () => {
+    await writeFile(join(directory, `${'x'.repeat(180)}.md`), '# file');
+    await writeFile(join(directory, '.markdown-file.ignore'), '********a\n*x*x*x*x*x*b\n');
+    const start = performance.now();
+    const result = await new NodeSecurityScanInput().collect(request(directory), SECURITY_DEFAULT_LIMITS, cancellation);
+    expect(result.candidates).toHaveLength(1);
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  it('preserves component, globstar and question-mark ignore semantics', async () => {
+    await mkdir(join(directory, 'nested', 'deep'), { recursive: true });
+    await writeFile(join(directory, 'nested', 'deep', 'a1.md'), '# file');
+    await writeFile(join(directory, 'nested', 'a2.md'), '# file');
+    await writeFile(join(directory, '.markdown-file.ignore'), 'nested/*/a?.md\n');
+    const input = new NodeSecurityScanInput();
+    const first = await input.collect(request(directory), SECURITY_DEFAULT_LIMITS, cancellation);
+    expect(first.candidates.map((entry) => entry.displayPath)).toEqual(['nested/a2.md']);
+    await writeFile(join(directory, '.markdown-file.ignore'), 'nested/**a?.md\n');
+    expect((await input.collect(request(directory), SECURITY_DEFAULT_LIMITS, cancellation)).candidates).toEqual([]);
+  });
+
   it('rejects a candidate moved behind a symlinked parent before reading', async () => {
     const nested = join(directory, 'nested');
     await mkdir(nested);

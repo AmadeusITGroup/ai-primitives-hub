@@ -85,6 +85,7 @@ Security scanning operates on untrusted repositories:
 - establish canonical root containment before reading;
 - enforce per-file and aggregate byte limits;
 - bound ignore-file size, line count, and pattern count;
+- use bounded wildcard matching, not backtracking regular expressions over repository-controlled ignore patterns;
 - do not read or write through symlinks;
 - use atomic owner-only report writes;
 - keep absolute paths out of default reports and logs;

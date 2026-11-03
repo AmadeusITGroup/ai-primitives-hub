@@ -49,21 +49,31 @@ const isWithin = (candidate: string, root: string): boolean => {
 };
 
 const globMatch = (value: string, pattern: string): boolean => {
-  let expression = '^';
+  const input = normalize(value);
+  let previous = new Uint8Array(input.length + 1);
+  let next = new Uint8Array(input.length + 1);
+  previous[0] = 1;
   for (let index = 0; index < pattern.length; index++) {
     const character = pattern[index];
-    if (character === '*' && pattern[index + 1] === '*') {
-      expression += '.*';
-      index++;
-    } else if (character === '*') {
-      expression += '[^/]*';
-    } else if (character === '?') {
-      expression += '[^/]';
+    next.fill(0);
+    if (character === '*') {
+      const globstar = pattern[index + 1] === '*';
+      while (pattern[index + 1] === '*') {
+        index++;
+      }
+      next[0] = previous[0];
+      for (let offset = 1; offset <= input.length; offset++) {
+        next[offset] = previous[offset] || ((globstar || input[offset - 1] !== '/') ? next[offset - 1] : 0);
+      }
     } else {
-      expression += /[\\^$+?.()|{}[\]]/.test(character) ? `\\${character}` : character;
+      for (let offset = 1; offset <= input.length; offset++) {
+        const matches = character === '?' ? input[offset - 1] !== '/' : input[offset - 1] === character;
+        next[offset] = matches ? previous[offset - 1] : 0;
+      }
     }
+    [previous, next] = [next, previous];
   }
-  return new RegExp(`${expression}$`).test(normalize(value));
+  return previous[input.length] === 1;
 };
 
 const matchesFilePattern = (file: string, scope: string, pattern: string): boolean => {
