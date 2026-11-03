@@ -24,7 +24,7 @@ suite('security report', () => {
     assert.ok(html.includes('&lt;unreadable&gt;'));
     assert.ok(html.includes('large.md'));
     assert.ok(html.includes('Some files were skipped'));
-    assert.ok(!html.includes('<p>No active findings</p>'));
+    assert.ok(!html.includes('No active findings'));
   });
 
   test('renders escaped finding details and suppression fingerprints', () => {

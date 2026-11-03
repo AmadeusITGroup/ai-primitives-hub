@@ -5,6 +5,10 @@ import type {
 import type {
   SecuritySeverity,
 } from '@ai-primitives-hub/core';
+import {
+  SECURITY_SEVERITIES,
+  selectSeverities,
+} from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
   SecurityScanService,
@@ -35,14 +39,24 @@ const diagnosticSeverity = (severity: SecuritySeverity): vscode.DiagnosticSeveri
   return severity === 'LOW' ? vscode.DiagnosticSeverity.Information : vscode.DiagnosticSeverity.Hint;
 };
 
+const withinRoot = (file: string, root: string): boolean => {
+  const relative = path.relative(root, file);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+};
+
 export class SecurityScanCommands implements vscode.Disposable {
   private readonly logger = Logger.getInstance();
   private readonly diagnostics = vscode.languages.createDiagnosticCollection('promptregistry-security');
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly versions = new Map<string, number>();
-  private readonly findingsByFile = new Map<string, vscode.Diagnostic[]>();
+  private readonly findingsByFile = new Map<string, { diagnostic: vscode.Diagnostic; severity: SecuritySeverity }[]>();
+  private readonly fileGenerations = new Map<string, number>();
+  private readonly workspaceGenerations = new Map<string, number>();
+  private generation = 0;
+  private lastPresentation?: SecurityScanResult;
   private readonly subscriptions: vscode.Disposable[] = [];
+  private readonly reportPanels = new Set<vscode.WebviewPanel>();
   private epoch = 0;
   private disposed = false;
 
@@ -62,6 +76,34 @@ export class SecurityScanCommands implements vscode.Disposable {
   private localDocument(document: vscode.TextDocument): boolean {
     return document.uri.scheme === 'file' && !document.isUntitled && !document.isClosed
       && /\.(md|markdown)$/i.test(document.uri.fsPath);
+  }
+
+  private supportedDocument(document: vscode.TextDocument): boolean {
+    return this.localDocument(document) || (document.uri.scheme === 'file' && !document.isUntitled && !document.isClosed
+      && path.basename(path.dirname(document.uri.fsPath)) === '.claude'
+      && ['settings.json', 'settings.local.json'].includes(path.basename(document.uri.fsPath)));
+  }
+
+  private scanOptions(): SecurityScanServiceOptions {
+    return { ...this.options(), minimumSeverity: 'INFO' };
+  }
+
+  private selectedSeverities(): readonly SecuritySeverity[] {
+    return SECURITY_SEVERITIES.slice(0, SECURITY_SEVERITIES.indexOf(this.options().minimumSeverity ?? 'INFO') + 1);
+  }
+
+  private filteredResult(result: SecurityScanResult): SecurityScanResult {
+    const findings = selectSeverities(result.findings, this.selectedSeverities());
+    return {
+      ...result, findings,
+      summary: {
+        ...result.summary,
+        active: {
+          total: findings.length,
+          bySeverity: Object.fromEntries(SECURITY_SEVERITIES.map((severity) => [severity, findings.filter((finding) => finding.severity === severity).length]))
+        }
+      }
+    };
   }
 
   private automaticAllowed(document: vscode.TextDocument, setting: string): boolean {
@@ -89,7 +131,7 @@ export class SecurityScanCommands implements vscode.Disposable {
     this.timers.set(key, setTimeout(() => {
       this.timers.delete(key);
       if (this.automaticAllowed(document, setting)) {
-        void this.run(key, () => this.scanner.scanFile(document.uri.fsPath, this.options()), false);
+        void this.run(key, () => this.scanner.scanFile(document.uri.fsPath, this.scanOptions()), false, undefined, document.uri.fsPath);
       }
     }, delay));
   }
@@ -100,12 +142,12 @@ export class SecurityScanCommands implements vscode.Disposable {
       void vscode.window.showWarningMessage('AI Primitives Hub: No active file to scan.');
       return;
     }
-    if (!this.localDocument(document) || document.isDirty) {
-      void vscode.window.showWarningMessage('AI Primitives Hub: Save a local Markdown file before scanning. Virtual and untitled documents cannot be scanned.');
+    if (!this.supportedDocument(document) || document.isDirty) {
+      void vscode.window.showWarningMessage('AI Primitives Hub: Save a local Markdown or supported .claude/settings JSON file before scanning. Virtual and untitled documents cannot be scanned.');
       return;
     }
     this.clearTimer(document.uri.toString());
-    await this.run(document.uri.toString(), () => this.scanner.scanFile(document.uri.fsPath, this.options()), true);
+    await this.run(document.uri.toString(), () => this.scanner.scanFile(document.uri.fsPath, this.scanOptions()), true, undefined, document.uri.fsPath);
   }
 
   private async scanWorkspace(): Promise<void> {
@@ -123,23 +165,37 @@ export class SecurityScanCommands implements vscode.Disposable {
       location: vscode.ProgressLocation.Notification,
       title: 'AI Primitives Hub Security Scan',
       cancellable: false
-    }, async () => this.run('workspace', () => this.scanner.scanWorkspaces(roots, this.options()), true, roots));
+    }, async () => this.run('workspace', () => this.scanner.scanWorkspaces(roots, this.scanOptions()), true, roots));
   }
 
-  private async run(key: string, scan: () => Promise<SecurityScanResult>, manual: boolean, roots?: readonly string[]): Promise<void> {
+  private async run(key: string, scan: () => Promise<SecurityScanResult>, manual: boolean, roots?: readonly string[], file?: string): Promise<void> {
     if (this.disposed) {
       return;
     }
     const epoch = this.epoch;
     const version = (this.versions.get(key) ?? 0) + 1;
     this.versions.set(key, version);
-    const current = (): boolean => !this.disposed && epoch === this.epoch && this.versions.get(key) === version;
+    const generation = ++this.generation;
+    if (roots === undefined) {
+      if (file !== undefined) {
+        this.fileGenerations.set(path.resolve(file), generation);
+      }
+    } else {
+      for (const root of roots) {
+        this.workspaceGenerations.set(root, generation);
+      }
+    }
+    const current = (): boolean => !this.disposed && epoch === this.epoch && this.versions.get(key) === version
+      && (file === undefined || ![...this.workspaceGenerations].some(([root, started]) => started > generation && withinRoot(file, root)))
+      && (roots === undefined || ![...this.fileGenerations].some(([scannedFile, started]) =>
+        started > generation && roots.some((root) => withinRoot(scannedFile, root))));
     try {
-      const result = await scan();
+      const rawResult = await scan();
       if (!current()) {
         return;
       }
-      this.present(result, roots);
+      const result = this.filteredResult(rawResult);
+      this.present(rawResult, roots);
       if (!result.complete) {
         const errors = result.errors.map((error) => `${error.code}: ${error.message}`).join('; ');
         const message = `AI Primitives Hub: Security scan incomplete. ${errors || 'Review scan coverage in the security report.'}`;
@@ -173,16 +229,13 @@ export class SecurityScanCommands implements vscode.Disposable {
   private present(result: SecurityScanResult, roots?: readonly string[]): void {
     if (result.complete && roots !== undefined) {
       for (const file of this.findingsByFile.keys()) {
-        if (roots.some((root) => {
-          const relative = path.relative(root, file);
-          return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
-        })) {
+        if (roots.some((root) => withinRoot(file, root))) {
           this.diagnostics.delete(vscode.Uri.file(file));
           this.findingsByFile.delete(file);
         }
       }
     }
-    const grouped = new Map<string, vscode.Diagnostic[]>(
+    const grouped = new Map<string, { diagnostic: vscode.Diagnostic; severity: SecuritySeverity }[]>(
       result.coverage.scanned.map((file) => [path.join(file.rootId, file.path), []])
     );
     for (const finding of result.findings) {
@@ -199,13 +252,22 @@ export class SecurityScanCommands implements vscode.Disposable {
       );
       diagnostic.source = 'AI Primitives Hub Security Scanner';
       diagnostic.code = finding.ruleId;
-      grouped.set(file, [...(grouped.get(file) ?? []), diagnostic]);
+      grouped.set(file, [...(grouped.get(file) ?? []), { diagnostic, severity: finding.severity }]);
     }
     for (const [file, findings] of grouped) {
       this.findingsByFile.set(file, findings);
-      this.diagnostics.set(vscode.Uri.file(file), findings);
     }
-    const total = [...this.findingsByFile.values()].reduce((count, findings) => count + findings.length, 0);
+    this.lastPresentation = result;
+    this.refreshDiagnostics(result);
+  }
+
+  private refreshDiagnostics(result: SecurityScanResult): void {
+    let total = 0;
+    for (const [file, findings] of this.findingsByFile) {
+      const visible = selectSeverities(findings, this.selectedSeverities()).map((finding) => finding.diagnostic);
+      total += visible.length;
+      this.diagnostics.set(vscode.Uri.file(file), visible);
+    }
     if (!result.complete) {
       this.status.text = '$(warning) Security scan: incomplete';
     } else if (result.coverage.scanned.length === 0) {
@@ -217,14 +279,15 @@ export class SecurityScanCommands implements vscode.Disposable {
   }
 
   private showReport(): void {
-    const result = this.scanner.getLastResult();
+    const result = this.lastPresentation ?? this.scanner.getLastResult();
     if (result === undefined) {
       void vscode.window.showInformationMessage('AI Primitives Hub: No security report is available.');
       return;
     }
     const panel = vscode.window.createWebviewPanel('promptregistrySecurityReport', 'Security scan report', vscode.ViewColumn.Beside, { enableScripts: false });
-    panel.webview.html = renderSecurityReportHtml(result);
-    this.subscriptions.push(panel);
+    panel.webview.html = renderSecurityReportHtml(this.filteredResult(result));
+    this.reportPanels.add(panel);
+    panel.onDidDispose(() => this.reportPanels.delete(panel));
   }
 
   private clear(): void {
@@ -235,6 +298,9 @@ export class SecurityScanCommands implements vscode.Disposable {
     this.scanner.cancelAll();
     this.diagnostics.clear();
     this.findingsByFile.clear();
+    this.fileGenerations.clear();
+    this.workspaceGenerations.clear();
+    this.lastPresentation = undefined;
     this.status.text = '$(shield) Security scan: diagnostics cleared';
     this.status.tooltip = 'Diagnostics cleared; this does not establish that files are safe. Show the latest security report.';
   }
@@ -251,8 +317,22 @@ export class SecurityScanCommands implements vscode.Disposable {
       vscode.commands.registerCommand('promptregistry.securityShowLastReport', () => this.showReport()),
       vscode.workspace.onDidOpenTextDocument((document) => this.schedule(document, 'scanOnOpen')),
       vscode.workspace.onDidSaveTextDocument((document) => this.schedule(document, 'scanOnSave')),
-      vscode.workspace.onDidCloseTextDocument((document) => this.clearTimer(document.uri.toString()))
+      vscode.workspace.onDidCloseTextDocument((document) => this.clearTimer(document.uri.toString())),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('promptregistry.security.minimumSeverity') && this.lastPresentation !== undefined) {
+          this.refreshDiagnostics(this.lastPresentation);
+          const result = this.lastPresentation ?? this.scanner.getLastResult();
+          if (result !== undefined) {
+            for (const panel of this.reportPanels) {
+              panel.webview.html = renderSecurityReportHtml(this.filteredResult(result));
+            }
+          }
+        }
+      })
     );
+    for (const document of vscode.workspace.textDocuments) {
+      this.schedule(document, 'scanOnOpen');
+    }
     return this;
   }
 
@@ -263,6 +343,10 @@ export class SecurityScanCommands implements vscode.Disposable {
     this.disposed = true;
     this.clear();
     this.scanner.dispose();
+    for (const panel of this.reportPanels) {
+      panel.dispose();
+    }
+    this.reportPanels.clear();
     for (const subscription of this.subscriptions) {
       subscription.dispose();
     }

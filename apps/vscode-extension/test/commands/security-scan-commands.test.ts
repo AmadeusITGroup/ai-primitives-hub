@@ -17,7 +17,9 @@ const resultFor = (file: string, findings = true, complete = true, rootId = '/re
   findings: findings
     ? [{
       rootId, file, ruleId: 'SEC-001', line: 1, severity: 'HIGH',
-      title: 'Credential', recommendedFix: 'Remove credential'
+      title: 'Credential', recommendedFix: 'Remove credential',
+      confidence: 'HIGH', category: 'secrets', vulnerableContent: '[REDACTED]',
+      risk: 'Credential exposure', fingerprint: 'a'.repeat(32), canonicalFingerprint: 'b'.repeat(32)
     }]
     : [],
   summary: { active: { total: findings ? 1 : 0 }, suppressed: { total: 0 } },
@@ -31,6 +33,7 @@ suite('SecurityScanCommands', () => {
   let onOpen: (document: vscode.TextDocument) => void;
   let onSave: (document: vscode.TextDocument) => void;
   let onClose: (document: vscode.TextDocument) => void;
+  let onConfiguration: (event: vscode.ConfigurationChangeEvent) => void;
   let diagnostics: vscode.DiagnosticCollection;
   let status: vscode.StatusBarItem;
   let scanner: {
@@ -55,6 +58,11 @@ suite('SecurityScanCommands', () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     sandbox.stub(vscode.workspace, 'workspaceFolders').value(undefined);
+    sandbox.stub(vscode.workspace, 'textDocuments').value([]);
+    sandbox.stub(vscode.workspace, 'onDidChangeConfiguration').callsFake((handler) => {
+      onConfiguration = handler;
+      return { dispose: () => undefined };
+    });
     commands = new Map();
     sandbox.stub(vscode.commands, 'registerCommand').callsFake((id, handler) => {
       commands.set(id, handler);
@@ -98,6 +106,102 @@ suite('SecurityScanCommands', () => {
     assert.strictEqual(diagnostics.get(vscode.Uri.file('/repo/first.md'))?.length, 1);
     assert.strictEqual(diagnostics.get(vscode.Uri.file('/repo/second.md'))?.length ?? 0, 0);
     assert.ok(status.text.includes('1'));
+  });
+
+  test('minimum severity changes re-filter cached diagnostics in both directions without rescanning', async () => {
+    await runFile(resultFor('first.md'));
+    const panel = vscode.window.createWebviewPanel('test', 'test', vscode.ViewColumn.Beside, {});
+    sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel);
+    commands.get('promptregistry.securityShowLastReport')!();
+    assert.ok(panel.webview.html.includes('SEC-001'));
+    let minimum = 'CRITICAL';
+    sandbox.stub(vscode.workspace, 'getConfiguration').returns({
+      get: (key: string, fallback: unknown) => key === 'minimumSeverity' ? minimum : fallback
+    } as vscode.WorkspaceConfiguration);
+    onConfiguration({ affectsConfiguration: (key: string) => key === 'promptregistry.security.minimumSeverity' });
+    assert.strictEqual(diagnostics.get(vscode.Uri.file('/repo/first.md'))?.length ?? 0, 0);
+    assert.ok(!panel.webview.html.includes('SEC-001'));
+    minimum = 'HIGH';
+    onConfiguration({ affectsConfiguration: (key: string) => key === 'promptregistry.security.minimumSeverity' });
+    assert.strictEqual(diagnostics.get(vscode.Uri.file('/repo/first.md'))?.length, 1);
+    assert.ok(panel.webview.html.includes('SEC-001'));
+    assert.strictEqual(scanner.scanFile.callCount, 1);
+  });
+
+  test('registration schedules already-open trusted local Markdown documents', async () => {
+    const clock = sandbox.useFakeTimers();
+    controller.dispose();
+    sandbox.stub(vscode.workspace, 'textDocuments').value([document(), document('/repo/virtual.md', 'vscode-vfs')]);
+    controller = new SecurityScanCommands(scanner);
+    controller.register();
+    await clock.tickAsync(300);
+    assert.strictEqual(scanner.scanFile.callCount, 1);
+    assert.strictEqual(scanner.scanFile.firstCall.args[0], '/repo/first.md');
+  });
+
+  test('manual current-file scans accept supported Claude settings', async () => {
+    await runFile(resultFor('settings.json'), document('/repo/.claude/settings.json'));
+    assert.strictEqual(scanner.scanFile.callCount, 1);
+    await runFile(resultFor('settings.json'), document('/repo/settings.json'));
+    assert.strictEqual(scanner.scanFile.callCount, 1);
+  });
+
+  test('closed report panels are released before controller disposal', () => {
+    let close!: () => void;
+    const panel = vscode.window.createWebviewPanel('test', 'test', vscode.ViewColumn.Beside, {});
+    const dispose = sandbox.stub(panel, 'dispose').callsFake(() => close());
+    sandbox.stub(panel, 'onDidDispose').callsFake((listener) => {
+      close = listener;
+      return { dispose: () => undefined };
+    });
+    sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel);
+    scanner.getLastResult.returns(resultFor('first.md', false));
+    commands.get('promptregistry.securityShowLastReport')!();
+    dispose();
+    dispose.resetHistory();
+    controller.dispose();
+    assert.strictEqual(dispose.called, false);
+  });
+
+  test('older workspace results cannot replace newer file diagnostics or resurrect cleared findings', async () => {
+    const information = sandbox.stub(vscode.window, 'showInformationMessage');
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ name: 'repo', uri: vscode.Uri.file('/repo') }]);
+    let finish!: (result: SecurityScanResult) => void;
+    scanner.scanWorkspaces.callsFake(() => new Promise<SecurityScanResult>((resolve) => {
+      finish = resolve;
+    }));
+    const pending = commands.get('promptregistry.securityScanWorkspace')!();
+    await runFile(resultFor('first.md'));
+    finish(resultFor('first.md', false));
+    await pending;
+    assert.strictEqual(diagnostics.get(vscode.Uri.file('/repo/first.md'))?.length, 1);
+    assert.strictEqual(information.called, false);
+    const panel = vscode.window.createWebviewPanel('test', 'test', vscode.ViewColumn.Beside, {});
+    sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel);
+    scanner.getLastResult.returns(resultFor('first.md', false));
+    commands.get('promptregistry.securityShowLastReport')!();
+    assert.ok(panel.webview.html.includes('SEC-001'));
+
+    const older = commands.get('promptregistry.securityScanWorkspace')!();
+    await runFile(resultFor('first.md', false));
+    finish(resultFor('first.md'));
+    await older;
+    assert.strictEqual(diagnostics.get(vscode.Uri.file('/repo/first.md'))?.length ?? 0, 0);
+  });
+
+  test('older file results cannot replace a newer workspace scan', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ name: 'repo', uri: vscode.Uri.file('/repo') }]);
+    let finish!: (result: SecurityScanResult) => void;
+    scanner.scanFile.returns(new Promise<SecurityScanResult>((resolve) => {
+      finish = resolve;
+    }));
+    sandbox.stub(vscode.window, 'activeTextEditor').value({ document: document() });
+    const pending = commands.get('promptregistry.securityScanFile')!();
+    scanner.scanWorkspaces.resolves(resultFor('first.md', false));
+    await commands.get('promptregistry.securityScanWorkspace')!();
+    finish(resultFor('first.md'));
+    await pending;
+    assert.strictEqual(diagnostics.get(vscode.Uri.file('/repo/first.md'))?.length ?? 0, 0);
   });
 
   test('incomplete manual scans show errors, not a clear status or completion', async () => {
