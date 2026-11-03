@@ -5,6 +5,13 @@
  * `writeBundleSafely`; with it, supported content is written and the rest
  * is reported instead of failing the install.
  */
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+} from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   ExtractedFiles,
@@ -15,18 +22,30 @@ import type {
   ValidatedManifest,
 } from '@ai-primitives-hub/core';
 import {
+  validateManifest,
+} from '@ai-primitives-hub/core';
+import {
+  NodeFileSystem,
+} from '@ai-primitives-hub/infra';
+import {
+  afterEach,
+  beforeEach,
   describe,
   expect,
   it,
   vi,
 } from 'vitest';
 import {
+  planBundleInstall,
   writeBundleForInstall,
 } from '../../src/install/partial-target-write';
 import {
   TargetWriteRejectedError,
   writeBundleSafely,
 } from '../../src/install/target-write';
+import {
+  createTargetWriterFactory,
+} from '../../src/install/target-writer-factory';
 import {
   FileTreeTargetWriter,
 } from '../../src/writers/file-tree-writer';
@@ -311,5 +330,99 @@ describe('writeBundleForInstall (skipUnsupported)', () => {
     expect(outcome.result).toEqual(reference.result);
     expect(outcome.installableFiles).toEqual(reference.installableFiles);
     expect(outcome.skipped).toEqual([]);
+  });
+});
+
+describe('planBundleInstall', () => {
+  let tmp: string;
+  let ws: string;
+  const nodeFs = new NodeFileSystem();
+
+  beforeEach(() => {
+    tmp = mkdtempSync(path.join(os.tmpdir(), 'plan-install-'));
+    ws = path.join(tmp, 'ws');
+    mkdirSync(ws, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  /**
+   * A bundle with a `type: plugin` item and, for `mixed`, a prompt item.
+   * @param kind
+   */
+  const pluginBundle = (kind: 'plugin' | 'mixed'): Map<string, Uint8Array> => new Map([
+    ['deployment-manifest.yml', text([
+      'id: demo',
+      'version: 1.0.0',
+      'name: Demo',
+      'prompts:',
+      '  - id: demo-plugin',
+      '    file: plugins/demo-plugin/plugin.json',
+      '    type: plugin',
+      ...(kind === 'mixed' ? ['  - id: hello', '    file: prompts/hello.prompt.md', '    type: prompt'] : []),
+      ''
+    ].join('\n'))],
+    ['plugins/demo-plugin/plugin.json', text('{"name":"demo-plugin","version":"1.0.0"}')],
+    ...(kind === 'mixed' ? [['prompts/hello.prompt.md', text('# Hello\n')] as [string, Uint8Array]] : [])
+  ]);
+  const writerFor = (target: Target): TargetWriter => createTargetWriterFactory({
+    fs: nodeFs, env: { HOME: path.join(tmp, 'home') }, projectDir: null, userConfigDir: null, writerOwnsExclusion: false
+  })(target);
+  const repositoryTarget = (type: Target['type']): Target => ({ name: type, type, scope: 'repository', rootPath: ws, commitMode: 'commit' });
+  const plan = (type: Target['type'], files: Map<string, Uint8Array>, skipUnsupported: boolean): Promise<void> => {
+    const target = repositoryTarget(type);
+    return planBundleInstall(writerFor(target), target, files, validateManifest(files, {}), { skipUnsupported });
+  };
+  const filesBelow = (dir: string): string[] => readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)));
+
+  it('rejects a plugin bundle on kiro and writes nothing', async () => {
+    const writer = writerFor(repositoryTarget('kiro'));
+    expect(writer).toBeInstanceOf(FileTreeTargetWriter);
+
+    const error = await plan('kiro', pluginBundle('plugin'), false).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect((error as TargetWriteRejectedError).code).toBe('BUNDLE.UNSUPPORTED_CONTENT');
+    expect((error as TargetWriteRejectedError).skipped).toEqual(['plugins/demo-plugin/plugin.json']);
+    expect(filesBelow(tmp)).toEqual([]);
+  });
+
+  it('accepts a plugin bundle on a vscode repository target and writes nothing', async () => {
+    await expect(plan('vscode', pluginBundle('plugin'), false)).resolves.toBeUndefined();
+
+    expect(filesBelow(tmp)).toEqual([]);
+  });
+
+  it('accepts a mixed bundle on kiro with skipUnsupported and writes nothing', async () => {
+    await expect(plan('kiro', pluginBundle('mixed'), true)).resolves.toBeUndefined();
+
+    expect(filesBelow(tmp)).toEqual([]);
+  });
+
+  it('rejects a plugin-only bundle on kiro with skipUnsupported', async () => {
+    const error = await plan('kiro', pluginBundle('plugin'), true).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect((error as TargetWriteRejectedError).skipped).toEqual(['plugins/demo-plugin/plugin.json']);
+    expect(filesBelow(tmp)).toEqual([]);
+  });
+
+  it('rejects a mixed bundle on kiro without skipUnsupported, like writeBundleForInstall', async () => {
+    const files = pluginBundle('mixed');
+    const target = repositoryTarget('kiro');
+    const expected = await writeBundleForInstall(writerFor(target), target, files, validateManifest(files, {}))
+      .catch((e: unknown) => e) as TargetWriteRejectedError;
+    rmSync(ws, { recursive: true, force: true });
+    mkdirSync(ws, { recursive: true });
+
+    const error = await plan('kiro', files, false).catch((e: unknown) => e) as TargetWriteRejectedError;
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect(error.message).toBe(expected.message);
+    expect(filesBelow(tmp)).toEqual([]);
   });
 });

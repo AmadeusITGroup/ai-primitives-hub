@@ -15,19 +15,15 @@ import type {
   ValidatedManifest,
 } from '@ai-primitives-hub/core';
 import {
-  determineFileType,
-  getInstallableBundleFiles,
   mergeReplacedFiles,
 } from '@ai-primitives-hub/core';
 import {
   FileTreeTargetWriter,
-  type ManifestPlacementItem,
-  skillSourcePrefix,
 } from '../writers/file-tree-writer';
 import {
   type BundleTargetWrite,
-  isInstallableItem,
-  manifestPlacementItems,
+  type BundleWritePreflight,
+  preflightBundleWrite,
   TargetWriteRejectedError,
   writeBundleSafely,
 } from './target-write';
@@ -70,6 +66,32 @@ interface SkippingWrite {
 }
 
 /**
+ * Check a bundle install against the target without writing anything.
+ *
+ * Runs the preflight {@link writeBundleForInstall} runs before its first
+ * write, in the same mode, so a caller can refuse the bundle before any
+ * other side effect (an uninstall, a cache swap). It checks only what
+ * preflight can see: `writeBundleForInstall` stays the authority, and a
+ * skip the writer only reports while writing is still rejected there.
+ * @param writer Target writer.
+ * @param target Target configuration.
+ * @param files Extracted bundle files (full archive).
+ * @param manifest Validated manifest of `files`.
+ * @param options Install options (`skipUnsupported`).
+ * @throws {TargetWriteRejectedError} When content cannot be placed (default)
+ *   or when nothing can be placed (`skipUnsupported`).
+ */
+export async function planBundleInstall(
+  writer: TargetWriter,
+  target: Target,
+  files: ExtractedFiles,
+  manifest: ValidatedManifest,
+  options: WriteBundleForInstallOptions = {}
+): Promise<void> {
+  await preflightBundleWrite(writer, target, files, manifest, options.skipUnsupported === true);
+}
+
+/**
  * Write a validated bundle into a target for an install.
  *
  * Without `skipUnsupported` this is {@link writeBundleSafely}, unchanged:
@@ -102,13 +124,11 @@ export async function writeBundleForInstall(
     return { ...(await writeBundleSafely(writer, target, files, manifest)), skipped: [] };
   }
 
-  const installableFiles = getInstallableBundleFiles(files, manifest);
-  const items = writer instanceof FileTreeTargetWriter
-    ? manifestPlacementItems(manifest).filter((item) => isInstallableItem(item, installableFiles))
-    : [];
-  const { result, skippedPaths } = writer instanceof FileTreeTargetWriter && items.length > 0
-    ? await writeItemsSkipping(writer, target, installableFiles, items)
-    : await writeSkipping(writer, target, installableFiles);
+  const plan = await preflightBundleWrite(writer, target, files, manifest, true);
+  const { installableFiles } = plan;
+  const { result, skippedPaths } = writer instanceof FileTreeTargetWriter && plan.items.length > 0
+    ? await writeItemsSkipping(writer, target, plan)
+    : await writeSkipping(writer, target, plan);
 
   const skipped = [...new Set(skippedPaths)].toSorted();
   const skippedSet = new Set(skipped);
@@ -126,26 +146,22 @@ export async function writeBundleForInstall(
 }
 
 /**
- * Partial write through the writer's own `preflight`/`write`. The full
- * file map is passed on: writers skip what they cannot place, and a
- * repository-scope writer needs every file of a skill directory.
+ * Partial write through the writer's own `write`, after the preflight.
+ * The full file map is passed on: writers skip what they cannot place,
+ * and a repository-scope writer needs every file of a skill directory.
  * @param writer Target writer.
  * @param target Target configuration.
- * @param installableFiles Installable bundle files.
+ * @param plan The preflight (see {@link preflightBundleWrite}).
  * @returns The writer result and every skipped bundle path.
  * @throws {TargetWriteRejectedError} When nothing can be written.
  */
 async function writeSkipping(
   writer: TargetWriter,
   target: Target,
-  installableFiles: ExtractedFiles
+  plan: BundleWritePreflight
 ): Promise<SkippingWrite> {
-  const plan = writer.preflight === undefined ? undefined : await writer.preflight(target, installableFiles);
-  if (plan !== undefined && plan.skipped.length > 0 && plan.writable.length === 0) {
-    throw new TargetWriteRejectedError(plan.skipped);
-  }
-  const result = await writer.write(target, installableFiles);
-  const skippedPaths = [...(plan?.skipped ?? []), ...result.skipped];
+  const result = await writer.write(target, plan.installableFiles);
+  const skippedPaths = [...plan.skipped, ...result.skipped];
   if (result.written.length === 0 && skippedPaths.length > 0) {
     throw new TargetWriteRejectedError(skippedPaths);
   }
@@ -153,48 +169,25 @@ async function writeSkipping(
 }
 
 /**
- * Partial write of a bundle whose manifest lists placement items: items
- * go through `writeManifestItems`, every other file through path-routed
- * `write`. The files of a skipped item are never path-routed, so they
- * cannot land elsewhere (or over another item's file) by accident.
+ * Partial write of a bundle whose manifest lists placement items, after
+ * the preflight: items go through `writeManifestItems`, the preflight's
+ * `rest` through path-routed `write`. The files of a skipped item are not
+ * in `rest`, so they cannot land elsewhere (or over another item's file)
+ * by accident.
  * @param writer File-tree writer.
  * @param target Target configuration.
- * @param installableFiles Installable bundle files.
- * @param items Installable placement items.
+ * @param plan The preflight (see {@link preflightBundleWrite}).
  * @returns The merged writer result and every skipped bundle path.
- * @throws {TargetWriteRejectedError} When nothing can be written.
  */
 async function writeItemsSkipping(
   writer: FileTreeTargetWriter,
   target: Target,
-  installableFiles: ExtractedFiles,
-  items: readonly ManifestPlacementItem[]
+  plan: BundleWritePreflight
 ): Promise<SkippingWrite> {
-  const itemPlan = await writer.preflightManifestItems(target, installableFiles, items);
-  const covered = new Set(itemPlan.writable);
-  const skippedFiles = new Set(itemPlan.skipped);
-  const skippedItems = items.filter((item) => skippedFiles.has(item.file));
-  const belongsToSkippedItem = (bundlePath: string): boolean => skippedItems.some((item) => {
-    if (bundlePath === item.file) {
-      return true;
-    }
-    if ((item.type ?? determineFileType(item.file, item.tags)) !== 'skill') {
-      return false;
-    }
-    const prefix = skillSourcePrefix(item.file);
-    return prefix !== null && bundlePath.startsWith(prefix);
-  });
-  const rest: ExtractedFiles = new Map([...installableFiles]
-    .filter(([bundlePath]) => !covered.has(bundlePath) && !belongsToSkippedItem(bundlePath)));
-  const restPlan = await writer.preflight(target, rest);
-  if (covered.size + restPlan.writable.length === 0) {
-    throw new TargetWriteRejectedError([...itemPlan.skipped, ...restPlan.skipped]);
-  }
-
-  const itemResult = await writer.writeManifestItems(target, installableFiles, items);
+  const itemResult = await writer.writeManifestItems(target, plan.installableFiles, plan.items);
   let restResult: TargetWriteResult;
   try {
-    restResult = await writer.write(target, rest);
+    restResult = await writer.write(target, plan.rest);
   } catch (cause) {
     await writer.rollback(target, itemResult.written, itemResult.replaced);
     throw cause;
@@ -208,6 +201,6 @@ async function writeItemsSkipping(
       installedPaths: itemResult.installedPaths ?? {},
       ...(replaced === undefined ? {} : { replaced })
     },
-    skippedPaths: [...itemPlan.skipped, ...restPlan.skipped, ...itemResult.skipped, ...restResult.skipped]
+    skippedPaths: [...plan.skipped, ...itemResult.skipped, ...restResult.skipped]
   };
 }

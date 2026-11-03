@@ -59,7 +59,23 @@ export async function writeTargetSafely(
       throw new TargetWriteRejectedError(plan.skipped);
     }
   }
+  return writeTargetChecked(writer, target, files);
+}
 
+/**
+ * The write half of {@link writeTargetSafely}: write, and reject (rolling
+ * back what was written) when the writer skipped content.
+ * @param writer Target writer.
+ * @param target Target configuration.
+ * @param files Files to write.
+ * @returns The successful writer result.
+ * @throws {TargetWriteRejectedError} When content is skipped.
+ */
+const writeTargetChecked = async (
+  writer: TargetWriter,
+  target: Target,
+  files: ExtractedFiles
+): Promise<TargetWriteResult> => {
   const result = await writer.write(target, files);
   if (result.skipped.length > 0) {
     if (writer.rollback !== undefined && result.written.length > 0) {
@@ -72,7 +88,7 @@ export async function writeTargetSafely(
     throw new TargetWriteRejectedError(result.skipped);
   }
   return result;
-}
+};
 
 const COPILOT_FILE_TYPES: ReadonlySet<string> = new Set<CopilotFileType>([
   'prompt',
@@ -175,6 +191,92 @@ export interface BundleTargetWrite {
 }
 
 /**
+ * What the preflight of a bundle write decided, before the first write.
+ */
+export interface BundleWritePreflight {
+  /** The installable files (see `getInstallableBundleFiles`). */
+  installableFiles: ExtractedFiles;
+  /**
+   * Installable placement items; empty unless the writer is a
+   * {@link FileTreeTargetWriter} and the manifest lists items.
+   */
+  items: ManifestPlacementItem[];
+  /**
+   * Files for path-routed `write`: every installable file when `items` is
+   * empty, else the files no item covers and no skipped item owns.
+   */
+  rest: ExtractedFiles;
+  /** Bundle paths the preflight skipped; empty unless `skipUnsupported`. */
+  skipped: string[];
+}
+
+/**
+ * Preflight a bundle write without writing anything: the check
+ * {@link writeBundleSafely} and `writeBundleForInstall` run before their
+ * first write.
+ *
+ * Without `skipUnsupported`, any content preflight cannot place rejects
+ * the bundle. With it, the bundle is rejected only when preflight can
+ * place none of its content, and the files of a skipped skill item are
+ * left out of `rest` so they are never path-routed.
+ * @param writer Target writer.
+ * @param target Target configuration.
+ * @param files Extracted bundle files (full archive).
+ * @param manifest Validated manifest of `files`.
+ * @param skipUnsupported Report unsupported content instead of rejecting.
+ * @returns What to write and what preflight skipped.
+ * @throws {TargetWriteRejectedError} When the bundle is rejected.
+ */
+export async function preflightBundleWrite(
+  writer: TargetWriter,
+  target: Target,
+  files: ExtractedFiles,
+  manifest: ValidatedManifest,
+  skipUnsupported: boolean
+): Promise<BundleWritePreflight> {
+  const installableFiles = getInstallableBundleFiles(files, manifest);
+  const items = writer instanceof FileTreeTargetWriter
+    ? manifestPlacementItems(manifest).filter((item) => isInstallableItem(item, installableFiles))
+    : [];
+  if (!(writer instanceof FileTreeTargetWriter) || items.length === 0) {
+    const plan = writer.preflight === undefined ? undefined : await writer.preflight(target, installableFiles);
+    if (plan !== undefined && plan.skipped.length > 0 && (!skipUnsupported || plan.writable.length === 0)) {
+      throw new TargetWriteRejectedError(plan.skipped);
+    }
+    return { installableFiles, items: [], rest: installableFiles, skipped: plan?.skipped ?? [] };
+  }
+
+  const itemPlan = await writer.preflightManifestItems(target, installableFiles, items);
+  if (!skipUnsupported && itemPlan.skipped.length > 0) {
+    throw new TargetWriteRejectedError(itemPlan.skipped);
+  }
+  const covered = new Set(itemPlan.writable);
+  const skippedFiles = new Set(itemPlan.skipped);
+  const skippedItems = items.filter((item) => skippedFiles.has(item.file));
+  const belongsToSkippedItem = (bundlePath: string): boolean => skippedItems.some((item) => {
+    if (bundlePath === item.file) {
+      return true;
+    }
+    if ((item.type ?? determineFileType(item.file, item.tags)) !== 'skill') {
+      return false;
+    }
+    const prefix = skillSourcePrefix(item.file);
+    return prefix !== null && bundlePath.startsWith(prefix);
+  });
+  const rest: ExtractedFiles = new Map([...installableFiles]
+    .filter(([bundlePath]) => !covered.has(bundlePath) && !belongsToSkippedItem(bundlePath)));
+  const restPlan = await writer.preflight(target, rest);
+  if (!skipUnsupported && restPlan.skipped.length > 0) {
+    throw new TargetWriteRejectedError(restPlan.skipped);
+  }
+  const skipped = [...itemPlan.skipped, ...restPlan.skipped];
+  if (skipUnsupported && covered.size + restPlan.writable.length === 0) {
+    throw new TargetWriteRejectedError(skipped);
+  }
+  return { installableFiles, items, rest, skipped };
+}
+
+/**
  * Write a validated bundle into a target, placing manifest items by type.
  *
  * For a {@link FileTreeTargetWriter} whose manifest lists file-backed
@@ -201,23 +303,9 @@ export async function writeBundleSafely(
   files: ExtractedFiles,
   manifest: ValidatedManifest
 ): Promise<BundleTargetWrite> {
-  const installableFiles = getInstallableBundleFiles(files, manifest);
-  const items = writer instanceof FileTreeTargetWriter
-    ? manifestPlacementItems(manifest).filter((item) => isInstallableItem(item, installableFiles))
-    : [];
+  const { installableFiles, items, rest } = await preflightBundleWrite(writer, target, files, manifest, false);
   if (!(writer instanceof FileTreeTargetWriter) || items.length === 0) {
-    return { installableFiles, result: await writeTargetSafely(writer, target, installableFiles) };
-  }
-
-  const itemPlan = await writer.preflightManifestItems(target, installableFiles, items);
-  if (itemPlan.skipped.length > 0) {
-    throw new TargetWriteRejectedError(itemPlan.skipped);
-  }
-  const covered = new Set(itemPlan.writable);
-  const rest: ExtractedFiles = new Map([...installableFiles].filter(([bundlePath]) => !covered.has(bundlePath)));
-  const restPlan = await writer.preflight(target, rest);
-  if (restPlan.skipped.length > 0) {
-    throw new TargetWriteRejectedError(restPlan.skipped);
+    return { installableFiles, result: await writeTargetChecked(writer, target, installableFiles) };
   }
 
   const itemResult = await writer.writeManifestItems(target, installableFiles, items);

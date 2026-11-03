@@ -40,6 +40,7 @@ export type {
 } from './target-write';
 
 export {
+  planBundleInstall,
   writeBundleForInstall,
 } from './partial-target-write';
 
