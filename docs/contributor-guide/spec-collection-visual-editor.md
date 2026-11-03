@@ -22,6 +22,15 @@ It delivers:
 
 ## 2. Architecture & Layer Responsibilities
 
+Collection file operations resolve referenced paths against the canonical workspace
+root, including existing ancestors of files that have not been created yet.
+Symlinks that escape the workspace, and dangling symlinks, are rejected for
+scaffolding, primitive editing, and referenced-file opening. Existing links within
+the workspace remain supported. Scaffolding creates files exclusively rather than
+overwriting an existing entry. These checks protect against crafted repository
+paths; they do not provide isolation against a concurrent local process replacing
+ancestor directories during an operation.
+
 ```mermaid
 flowchart TB
   subgraph VSCode["apps/vscode-extension (Delivery Layer)"]

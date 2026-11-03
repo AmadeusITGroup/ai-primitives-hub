@@ -29,6 +29,7 @@ import {
   type CollectionFileProbeResult,
   type CollectionYamlMutation,
   locateCollectionYamlCursor,
+  resolveWorkspacePath,
   type SiblingCollectionSummary,
   summarizeCollectionYamlChanges,
   validateCollectionYaml,
@@ -194,7 +195,7 @@ export class CollectionEditorService {
     return (relPath: string): CollectionFileProbeResult => {
       try {
         const normalized = normalizeRepoRelativePath(relPath);
-        const abs = path.join(workspaceRoot, normalized);
+        const abs = resolveWorkspacePath(workspaceRoot, normalized);
         if (!fs.existsSync(abs)) {
           return { exists: false };
         }
@@ -220,7 +221,7 @@ export class CollectionEditorService {
     if (!workspaceRoot) {
       return [];
     }
-    const dir = path.join(workspaceRoot, collectionsPath);
+    const dir = resolveWorkspacePath(workspaceRoot, collectionsPath);
     const cacheKey = path.resolve(dir);
     const now = Date.now();
     const cached = this.siblingsCacheByDir.get(cacheKey);
@@ -241,9 +242,9 @@ export class CollectionEditorService {
 
       allSiblings = [];
       for (const fileName of entries) {
-        const absPath = path.join(dir, fileName);
-        const relLabel = path.relative(workspaceRoot, absPath).replaceAll('\\', '/');
+        const relLabel = `${collectionsPath}/${fileName}`.replaceAll('\\', '/');
         try {
+          const absPath = resolveWorkspacePath(workspaceRoot, `${collectionsPath}/${fileName}`);
           const parsed = yaml.load(fs.readFileSync(absPath, 'utf8')) as Record<string, unknown> | undefined;
           allSiblings.push({
             file: relLabel,
@@ -260,7 +261,9 @@ export class CollectionEditorService {
     if (!excludeFilePath) {
       return allSiblings;
     }
-    const excludedRel = path.relative(workspaceRoot, excludeFilePath).replaceAll('\\', '/');
+    const excludedRel = (fs.existsSync(excludeFilePath)
+      ? path.relative(fs.realpathSync.native(workspaceRoot), fs.realpathSync.native(excludeFilePath))
+      : path.relative(workspaceRoot, excludeFilePath)).replaceAll('\\', '/');
     return allSiblings.filter((s) => s.file !== excludedRel);
   }
 
@@ -309,7 +312,6 @@ export class CollectionEditorService {
       }
       seen.add(normalized);
       const kind = inferPrimitiveKindFromPath(normalized);
-      const abs = path.join(workspaceRoot, normalized);
       let title = humanizeSlug(
         kind === 'skill' || kind === 'plugin' || kind === 'power'
           ? path.basename(path.dirname(normalized))
@@ -318,6 +320,7 @@ export class CollectionEditorService {
       let description: string | undefined;
 
       try {
+        const abs = resolveWorkspacePath(workspaceRoot, normalized);
         if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
           const text = fs.readFileSync(abs, 'utf8');
           if (normalized.endsWith('.json')) {
@@ -365,24 +368,24 @@ export class CollectionEditorService {
 
       for (const entry of entries) {
         const childAbs = path.join(absDir, entry.name);
-        const rel = path.relative(workspaceRoot, childAbs).replaceAll('\\', '/');
+        const rel = path.relative(fs.realpathSync.native(workspaceRoot), childAbs).replaceAll('\\', '/');
         if (entry.isDirectory()) {
           // If it's a skill directory with SKILL.md, register SKILL.md directly
           const skillMd = path.join(childAbs, 'SKILL.md');
           if (fs.existsSync(skillMd) && fs.statSync(skillMd).isFile()) {
-            addCandidate(path.relative(workspaceRoot, skillMd).replaceAll('\\', '/'));
+            addCandidate(path.relative(fs.realpathSync.native(workspaceRoot), skillMd).replaceAll('\\', '/'));
             continue;
           }
           // If it's a plugin directory with plugin.json, register plugin.json directly
           const pluginJson = path.join(childAbs, 'plugin.json');
           if (fs.existsSync(pluginJson) && fs.statSync(pluginJson).isFile()) {
-            addCandidate(path.relative(workspaceRoot, pluginJson).replaceAll('\\', '/'));
+            addCandidate(path.relative(fs.realpathSync.native(workspaceRoot), pluginJson).replaceAll('\\', '/'));
             continue;
           }
           // If it's a power directory with POWER.md, register POWER.md directly
           const powerMd = path.join(childAbs, 'POWER.md');
           if (fs.existsSync(powerMd) && fs.statSync(powerMd).isFile()) {
-            addCandidate(path.relative(workspaceRoot, powerMd).replaceAll('\\', '/'));
+            addCandidate(path.relative(fs.realpathSync.native(workspaceRoot), powerMd).replaceAll('\\', '/'));
             continue;
           }
           walkDir(childAbs, maxDepth - 1);
@@ -393,7 +396,7 @@ export class CollectionEditorService {
     };
 
     for (const scanRel of PRIMITIVE_SCAN_DIRS) {
-      walkDir(path.join(workspaceRoot, scanRel), 3);
+      walkDir(resolveWorkspacePath(workspaceRoot, scanRel), 3);
     }
 
     const sortedCandidates = candidates.toSorted((a, b) => a.path.localeCompare(b.path));
@@ -512,7 +515,7 @@ export class CollectionEditorService {
     workspaceRoot: string,
     collectionsPath = 'collections'
   ): WorkspaceCollectionsOverview {
-    const collectionsDir = path.join(workspaceRoot, collectionsPath);
+    const collectionsDir = resolveWorkspacePath(workspaceRoot, collectionsPath);
     const workspacePrimitives = this.discoverWorkspacePrimitives(workspaceRoot);
     if (!fs.existsSync(collectionsDir)) {
       return {
@@ -532,8 +535,8 @@ export class CollectionEditorService {
 
     const rawContentsByFile = new Map<string, string>();
     const siblingCollections: SiblingCollectionSummary[] = files.map((fileName) => {
-      const absPath = path.join(collectionsDir, fileName);
-      const relPath = path.relative(workspaceRoot, absPath).replaceAll('\\', '/');
+      const absPath = resolveWorkspacePath(workspaceRoot, `${collectionsPath}/${fileName}`);
+      const relPath = `${collectionsPath}/${fileName}`.replaceAll('\\', '/');
       try {
         const text = fs.readFileSync(absPath, 'utf8');
         rawContentsByFile.set(fileName, text);
@@ -558,8 +561,8 @@ export class CollectionEditorService {
     let totalWarnings = 0;
 
     for (const fileName of files) {
-      const filePath = path.join(collectionsDir, fileName);
-      const relPath = path.relative(workspaceRoot, filePath).replaceAll('\\', '/');
+      const filePath = resolveWorkspacePath(workspaceRoot, `${collectionsPath}/${fileName}`);
+      const relPath = `${collectionsPath}/${fileName}`.replaceAll('\\', '/');
       const content = rawContentsByFile.get(fileName) ?? fs.readFileSync(filePath, 'utf8');
       const inspection = this.inspectDocument(content, {
         filePath,
@@ -653,10 +656,7 @@ export class CollectionEditorService {
   } {
     const id = generateSanitizedId(input.id) || 'my-collection';
     const collectionsPath = input.collectionsPath?.trim() || 'collections';
-    const collectionsDir = path.join(workspaceRoot, collectionsPath);
-    fs.mkdirSync(collectionsDir, { recursive: true });
-
-    const filePath = path.join(collectionsDir, `${id}.collection.yml`);
+    const filePath = resolveWorkspacePath(workspaceRoot, `${collectionsPath}/${id}.collection.yml`);
     if (fs.existsSync(filePath)) {
       throw new Error(`Collection '${id}' already exists at ${filePath}`);
     }
@@ -669,13 +669,13 @@ export class CollectionEditorService {
     const readmeRelPath = `docs/${id}/README.md`;
 
     if (input.createReadme !== false) {
-      const readmeAbs = path.join(workspaceRoot, readmeRelPath);
+      const readmeAbs = resolveWorkspacePath(workspaceRoot, readmeRelPath);
       if (!fs.existsSync(readmeAbs)) {
         fs.mkdirSync(path.dirname(readmeAbs), { recursive: true });
         fs.writeFileSync(
           readmeAbs,
           `# ${name}\n\n${description}\n\n## Included Primitives\n\nAdd prompts, instructions, agents, skills, or plugins using the Visual Collection Editor.\n`,
-          'utf8'
+          { encoding: 'utf8', flag: 'wx' }
         );
       }
     }
@@ -699,10 +699,11 @@ export class CollectionEditorService {
       ''
     ];
     const content = lines.join('\n');
-    fs.writeFileSync(filePath, content, 'utf8');
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, { encoding: 'utf8', flag: 'wx' });
     this.clearWorkspaceCache(workspaceRoot);
 
-    const relPath = path.relative(workspaceRoot, filePath).replaceAll('\\', '/');
+    const relPath = `${collectionsPath}/${id}.collection.yml`.replaceAll('\\', '/');
     const inspection = this.inspectDocument(content, { filePath, workspaceRoot });
     return {
       filePath,
@@ -730,15 +731,19 @@ export class CollectionEditorService {
     content: string;
     inspection: CollectionDocumentInspection;
   } {
-    const absSource = path.isAbsolute(sourceFilePath)
-      ? sourceFilePath
-      : path.join(workspaceRoot, sourceFilePath);
+    const sourceRel = path.isAbsolute(sourceFilePath)
+      ? path.relative(fs.realpathSync.native(workspaceRoot), fs.realpathSync.native(sourceFilePath))
+      : sourceFilePath;
+    const absSource = resolveWorkspacePath(workspaceRoot, sourceRel);
     if (!fs.existsSync(absSource)) {
       throw new Error(`Source collection file not found: ${sourceFilePath}`);
     }
 
     const sanitizedId = generateSanitizedId(newId) || 'duplicated-collection';
-    const targetFilePath = path.join(path.dirname(absSource), `${sanitizedId}.collection.yml`);
+    const targetFilePath = resolveWorkspacePath(
+      workspaceRoot,
+      path.relative(fs.realpathSync.native(workspaceRoot), path.join(path.dirname(absSource), `${sanitizedId}.collection.yml`))
+    );
     if (fs.existsSync(targetFilePath)) {
       throw new Error(`Collection '${sanitizedId}' already exists at ${targetFilePath}`);
     }
@@ -753,9 +758,9 @@ export class CollectionEditorService {
       }
     });
 
-    fs.writeFileSync(targetFilePath, updatedContent, 'utf8');
+    fs.writeFileSync(targetFilePath, updatedContent, { encoding: 'utf8', flag: 'wx' });
     this.clearWorkspaceCache(workspaceRoot);
-    const relPath = path.relative(workspaceRoot, targetFilePath).replaceAll('\\', '/');
+    const relPath = path.relative(fs.realpathSync.native(workspaceRoot), targetFilePath).replaceAll('\\', '/');
     const inspection = this.inspectDocument(updatedContent, {
       filePath: targetFilePath,
       workspaceRoot
@@ -777,13 +782,17 @@ export class CollectionEditorService {
   public deleteCollectionFile(workspaceRoot: string, filePath: string): void {
     const root = path.resolve(workspaceRoot);
     const abs = path.resolve(root, filePath);
-    const rel = path.relative(root, abs);
+    let rel = path.relative(root, abs);
+    if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+      rel = path.relative(fs.realpathSync.native(root), abs);
+    }
     if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
       throw new Error(`Refusing to delete '${filePath}': path is outside the workspace.`);
     }
     if (!/\.collection\.ya?ml$/i.test(abs)) {
       throw new Error(`Refusing to delete '${filePath}': not a .collection.yml or .collection.yaml file.`);
     }
+    resolveWorkspacePath(root, rel);
     if (fs.existsSync(abs)) {
       fs.unlinkSync(abs);
     }
@@ -818,15 +827,14 @@ export class CollectionEditorService {
     const kind = input.kind.trim().toLowerCase();
 
     if (kind === 'readme') {
-      const readmeRelPath = normalizeRepoRelativePath(
-        input.customRelPath?.trim() || `docs/${generateSanitizedId(input.name || 'collection')}/README.md`
-      );
-      const readmeAbsPath = path.join(workspaceRoot, readmeRelPath);
+      const readmePath = input.customRelPath?.trim() || `docs/${generateSanitizedId(input.name || 'collection')}/README.md`;
+      const readmeAbsPath = resolveWorkspacePath(workspaceRoot, readmePath);
+      const readmeRelPath = normalizeRepoRelativePath(readmePath);
       if (!fs.existsSync(readmeAbsPath)) {
         fs.mkdirSync(path.dirname(readmeAbsPath), { recursive: true });
         const body = input.body?.trim()
           || `# ${input.name || 'Collection Documentation'}\n\n${input.description || 'Overview and usage guide for this collection.'}\n`;
-        fs.writeFileSync(readmeAbsPath, body.endsWith('\n') ? body : `${body}\n`, 'utf8');
+        fs.writeFileSync(readmeAbsPath, body.endsWith('\n') ? body : `${body}\n`, { encoding: 'utf8', flag: 'wx' });
       }
       const readmeUpdatedYaml = applyCollectionYamlMutation(collectionContent, {
         kind: 'update-readme',
@@ -848,13 +856,12 @@ export class CollectionEditorService {
 
     const canonicalKind = normalizePrimitiveKind(kind) ?? 'prompt';
     const slug = generateSanitizedId(input.name) || 'example';
-    const relPath = normalizeRepoRelativePath(
-      input.customRelPath?.trim() || defaultPathForPrimitiveKind(canonicalKind, slug)
-    );
-    const absPath = path.join(workspaceRoot, relPath);
+    const primitivePath = input.customRelPath?.trim() || defaultPathForPrimitiveKind(canonicalKind, slug);
+    const absPath = resolveWorkspacePath(workspaceRoot, primitivePath);
+    const relPath = normalizeRepoRelativePath(primitivePath);
 
     if (canonicalKind === 'plugin' && !fs.existsSync(absPath)) {
-      const pluginName = path.basename(path.dirname(relPath));
+      const pluginName = path.basename(path.dirname(absPath));
       const parentDir = path.dirname(path.dirname(absPath));
       fs.mkdirSync(parentDir, { recursive: true });
       const res = await createPlugin({
@@ -874,7 +881,7 @@ export class CollectionEditorService {
             description: input.description || `A ${pluginName} plugin`,
             author: { name: input.author || 'Author' }
           }, null, 2)}\n`,
-          'utf8'
+          { encoding: 'utf8', flag: 'wx' }
         );
       }
     } else if (!fs.existsSync(absPath)) {
@@ -891,7 +898,7 @@ export class CollectionEditorService {
             name: slug,
             description: input.description || `Configuration for ${input.name}`
           };
-        fs.writeFileSync(absPath, `${JSON.stringify(jsonPayload, null, 2)}\n`, 'utf8');
+        fs.writeFileSync(absPath, `${JSON.stringify(jsonPayload, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
       } else {
         const frontmatter: Record<string, unknown> = {
           name: canonicalKind === 'skill' ? slug : input.name,
@@ -903,7 +910,7 @@ export class CollectionEditorService {
         const defaultBody = input.body?.trim()
           || `# ${input.name}\n\n${input.description || `Instructions for ${input.name}.`}\n\n## Guidelines\n\n- Follow project conventions.\n`;
         const fileText = serializePrimitiveFrontmatter(frontmatter, defaultBody, { forceFrontmatter: true });
-        fs.writeFileSync(absPath, fileText, 'utf8');
+        fs.writeFileSync(absPath, fileText, { encoding: 'utf8', flag: 'wx' });
       }
     }
 
@@ -953,7 +960,7 @@ export class CollectionEditorService {
     kind?: string
   ): PrimitiveVisualContent {
     const normalized = normalizeRepoRelativePath(relPath);
-    const absPath = path.join(workspaceRoot, normalized);
+    const absPath = resolveWorkspacePath(workspaceRoot, relPath);
     const effectiveKind = kind ?? inferPrimitiveKindFromPath(normalized);
 
     if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
@@ -1033,7 +1040,7 @@ export class CollectionEditorService {
     update: PrimitiveVisualContentUpdate
   ): PrimitiveVisualContent {
     const normalized = normalizeRepoRelativePath(relPath);
-    const absPath = path.join(workspaceRoot, normalized);
+    const absPath = resolveWorkspacePath(workspaceRoot, relPath);
     fs.mkdirSync(path.dirname(absPath), { recursive: true });
 
     let nextRaw: string;

@@ -7,6 +7,14 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  JSDOM,
+} from 'jsdom';
+import * as sinon from 'sinon';
+import * as vscode from 'vscode';
+import {
+  HubProfileCommands,
+} from '../../src/commands/hub-profile-commands';
+import {
   HubManager,
 } from '../../src/services/hub-manager';
 import {
@@ -145,6 +153,55 @@ suite('HubProfileCommands - Logic Tests', () => {
   });
 
   suite('Profile Detail Access', () => {
+    test('renders imported profile metadata as text with a restrictive CSP', async () => {
+      const payload = '<img src="https://example.invalid/beacon"><script>alert(1)</script><style>body{display:none}</style>';
+      const hub = createSampleHub('html', 1);
+      hub.metadata.name = payload;
+      const profile = hub.profiles[0];
+      profile.name = payload;
+      profile.description = payload;
+      profile.icon = payload;
+      profile.createdAt = payload;
+      profile.updatedAt = payload;
+      profile.bundles[0] = { id: payload, version: payload, source: payload, required: true };
+      await storage.saveHub('html-hub', hub, { type: 'github', location: 'test/html' });
+
+      const sandbox = sinon.createSandbox();
+      const subscriptions: vscode.Disposable[] = [];
+      try {
+        const panel = vscode.window.createWebviewPanel('test', 'test', vscode.ViewColumn.One, {});
+        const createPanel = sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel);
+        sandbox.stub(vscode.window, 'showInformationMessage').resolves();
+        const commands = new HubProfileCommands({
+          globalStorageUri: vscode.Uri.file(tempDir),
+          extensionPath: path.resolve(__dirname, '../../..'),
+          subscriptions
+        } as vscode.ExtensionContext);
+        await commands.viewHubProfile('html-hub', profile.id);
+        assert.ok(createPanel.calledOnce);
+        const options = createPanel.firstCall.args[3];
+        assert.ok(options);
+        assert.strictEqual(options.enableScripts, false);
+        assert.deepStrictEqual(options.localResourceRoots, []);
+        const dom = new JSDOM(panel.webview.html);
+        try {
+          assert.strictEqual(dom.window.document.querySelectorAll('img, script').length, 0);
+          assert.strictEqual(dom.window.document.querySelectorAll('style').length, 1);
+          assert.ok(dom.window.document.querySelector('h1')?.textContent?.includes(payload));
+          assert.ok(dom.window.document.querySelector('td')?.textContent?.includes(payload));
+          const csp = dom.window.document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content');
+          assert.ok(csp?.includes("default-src 'none'"));
+          assert.ok(csp?.includes("style-src 'nonce-"));
+          assert.ok(!csp?.includes('unsafe-inline'));
+        } finally {
+          dom.window.close();
+        }
+      } finally {
+        subscriptions.forEach((disposable) => disposable.dispose());
+        sandbox.restore();
+      }
+    });
+
     test('should retrieve specific profile with all details', async () => {
       await storage.saveHub('detail-hub', createSampleHub('detail', 3), { type: 'github', location: 'test/detail' });
 

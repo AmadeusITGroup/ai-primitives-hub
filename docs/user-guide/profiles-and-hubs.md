@@ -18,6 +18,9 @@ A **Profile** groups bundles from multiple sources. Activate with one click.
 
 Toggle with ⭐ button in Registry Explorer.
 
+Profile details display imported metadata as plain text, not HTML. The details
+panel disables scripts and blocks remote images and other external resources.
+
 ## Hubs
 
 A **Hub** is a centralized repository of versioned profiles and sources. Share across your organization.
