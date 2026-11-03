@@ -11,10 +11,16 @@ import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
+  load,
+} from 'js-yaml';
+import {
   describe,
   expect,
   it,
 } from 'vitest';
+import {
+  ALL_COMMAND_CLASSES,
+} from '../../src/commands/registry';
 import {
   SecurityScanCommand,
 } from '../../src/commands/security-scan';
@@ -23,6 +29,22 @@ import {
 } from '../../src/framework';
 
 describe('security scan command', () => {
+  it('exposes security scan through the production command registry', async () => {
+    const result = await runCommand(['security', 'scan', '--help'], { commandClasses: ALL_COMMAND_CLASSES });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('--fail-on');
+  });
+
+  it.each(['--max-files', '--max-file-bytes', '--max-total-bytes', '--max-depth', '--max-findings'])(
+    'rejects duration suffixes for %s', async (flag) => {
+      const result = await runCommand(['security', 'scan', flag, '2s'], {
+        commandClasses: [SecurityScanCommand],
+        context: { fs: new NodeFileSystem() }
+      });
+      expect(result.exitCode).toBe(64);
+      expect(result.stderr).toContain('positive integers');
+    }
+  );
   it('scans multiple positional files and returns a policy failure for a secret', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
     try {
@@ -167,7 +189,16 @@ describe('security scan command', () => {
     try {
       const target = path.join(directory, 'secret.md');
       await writeFile(target, 'token = sk-proj-abcdefghijklmnopqrstuvwxyz');
-      await writeFile(path.join(directory, '.markdown.ignore'), 'ffffffffffffffffffffffffffffffff\n');
+      const initial = await runCommand(['security', 'scan', target, '-o', 'json'], {
+        commandClasses: [SecurityScanCommand], context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      const envelope = JSON.parse(initial.stdout) as { data: { findings: { fingerprint: string }[] } };
+      await writeFile(path.join(directory, '.markdown.ignore'), `${envelope.data.findings[0].fingerprint}\n`);
+      const local = await runCommand(['security', 'scan', target], {
+        commandClasses: [SecurityScanCommand], context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(local.exitCode).toBe(0);
+      expect(local.stdout).toContain('Suppressed: 1');
       const result = await runCommand(['security', 'scan', '--ci', target], {
         commandClasses: [SecurityScanCommand],
         context: { cwd: directory, fs: new NodeFileSystem() }
@@ -179,6 +210,56 @@ describe('security scan command', () => {
     }
   });
 
+  it.each(['json', 'yaml', 'ndjson'])('emits redacted %s output without weakening the hidden-finding policy', async (format) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
+    try {
+      const target = path.join(directory, 'secret.md');
+      const syntheticSecret = 'sk-proj-abcdefghijklmnopqrstuvwxyz';
+      await writeFile(target, `token = ${syntheticSecret}`);
+      const result = await runCommand([
+        'security', 'scan', target, '--severity', 'LOW', '--fail-on', 'HIGH', '-o', format
+      ], { commandClasses: [SecurityScanCommand], context: { cwd: directory, fs: new NodeFileSystem() } });
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).not.toContain(syntheticSecret);
+      if (format === 'ndjson') {
+        const records = result.stdout.trim().split('\n').map((line) => JSON.parse(line) as { type: string; schemaVersion: number });
+        expect(records.map((entry) => entry.type)).toEqual(['scan.header', 'scan.summary']);
+        expect(records.every((entry) => entry.schemaVersion === 1)).toBe(true);
+        expect(records.at(-1)).toMatchObject({ summary: { active: { total: 0 }, policy: { passed: false, blocking: ['CRITICAL'] } } });
+      } else {
+        const envelope: unknown = format === 'yaml' ? load(result.stdout) : JSON.parse(result.stdout);
+        expect(envelope).toMatchObject({
+          schemaVersion: 1, command: 'security.scan',
+          data: { complete: true, findings: [], summary: { active: { total: 0 }, policy: { passed: false, blocking: ['CRITICAL'] } } }
+        });
+      }
+      const visible = await runCommand(['security', 'scan', target, '-o', format], {
+        commandClasses: [SecurityScanCommand], context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(visible.exitCode).toBe(1);
+      expect(visible.stdout).toContain('SEC-001');
+      expect(visible.stdout).toContain('[REDACTED]');
+      expect(visible.stdout).not.toContain(syntheticSecret);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts timeout units but reports malformed Claude settings as incomplete', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
+    try {
+      const target = path.join(directory, 'settings.json');
+      await writeFile(target, '{invalid');
+      const result = await runCommand(['security', 'scan', target, '--timeout', '2s', '--fail-on', 'none', '-o', 'json'], {
+        commandClasses: [SecurityScanCommand], context: { cwd: directory, fs: new NodeFileSystem() }
+      });
+      expect(result.exitCode).toBe(65);
+      expect(JSON.parse(result.stdout)).toMatchObject({ data: { complete: false, summary: { policy: { passed: false } } } });
+      expect(result.stdout).not.toContain('{invalid');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('resolves input and report paths relative to the command context', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'hub-security-cli-'));
     try {

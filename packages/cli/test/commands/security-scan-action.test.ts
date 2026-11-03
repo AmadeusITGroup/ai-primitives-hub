@@ -27,14 +27,14 @@ const exec = promisify(execFile);
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object';
 
-const selectionScript = async (): Promise<string> => {
+const actionScript = async (name = 'targets'): Promise<string> => {
   const action: unknown = load(await readFile(path.resolve(__dirname, '../../../../github-actions/security-scan/action.yml'), 'utf8'));
   if (!record(action) || !record(action.runs) || !Array.isArray(action.runs.steps)) {
     throw new Error('Invalid security action');
   }
-  const step: unknown = action.runs.steps.find((value: unknown) => record(value) && value.id === 'targets');
+  const step: unknown = action.runs.steps.find((value: unknown) => record(value) && (value.id === name || value.name === name));
   if (!record(step) || typeof step.run !== 'string') {
-    throw new Error('Missing security action target selection');
+    throw new Error(`Missing security action step: ${name}`);
   }
   return step.run;
 };
@@ -53,7 +53,7 @@ describe('security scan action target selection', () => {
   });
 
   const select = async (base: string, head: string): Promise<string[]> => {
-    await exec('bash', ['-c', await selectionScript()], {
+    await exec('bash', ['-c', await actionScript()], {
       cwd: directory,
       env: {
         ...process.env, RUNNER_TEMP: directory, GITHUB_OUTPUT: path.join(directory, 'output'),
@@ -87,5 +87,17 @@ describe('security scan action target selection', () => {
   it('reports a genuinely empty change set successfully', async () => {
     expect(await select('HEAD', 'HEAD')).toEqual([]);
     expect(await readFile(path.join(directory, 'output'), 'utf8')).toContain('has-targets=false');
+  });
+
+  it('warns without failing the scan action when a summary comment is denied', async () => {
+    const { stdout } = await exec('bash', ['-c', `gh() { return 1; }\n${await actionScript('Add pull request summary')}`], {
+      cwd: directory,
+      env: {
+        ...process.env, RUNNER_TEMP: directory, REPORT_PATH: '',
+        PR_NUMBER: '659', REPOSITORY: 'example/repo'
+      }
+    });
+    expect(stdout).toContain('::warning::');
+    expect(stdout).toContain('Unable to post');
   });
 });

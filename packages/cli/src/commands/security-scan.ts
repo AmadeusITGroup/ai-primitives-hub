@@ -244,7 +244,7 @@ const writeReports = async (
   }
 };
 
-const parsePositive = (value: string | undefined, fallback: number): number | undefined => {
+const parsePositive = (value: string | undefined, fallback: number, duration = false): number | undefined => {
   if (value === undefined) {
     return fallback;
   }
@@ -254,6 +254,9 @@ const parsePositive = (value: string | undefined, fallback: number): number | un
   }
   const amount = Number(match[1]);
   const unit = match[2]?.toLowerCase();
+  if (!duration && unit !== undefined) {
+    return undefined;
+  }
   const multiplier = unit === 'm' ? 60_000 : (unit === 's' ? 1000 : 1);
   const parsed = amount * multiplier;
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
@@ -384,10 +387,10 @@ export class SecurityScanCommand extends Command {
       maxTotalBytes: parsePositive(this.maxTotalBytes, SECURITY_DEFAULT_LIMITS.maxTotalBytes),
       maxDepth: parsePositive(this.maxDepth, SECURITY_DEFAULT_LIMITS.maxDepth),
       maxFindings: parsePositive(this.maxFindings, SECURITY_DEFAULT_LIMITS.maxFindings),
-      timeoutMs: parsePositive(this.timeout, SECURITY_DEFAULT_LIMITS.timeoutMs)
+      timeoutMs: parsePositive(this.timeout, SECURITY_DEFAULT_LIMITS.timeoutMs, true)
     };
     if (!validLimits(limits)) {
-      ctx.stderr.write('Security scan limits must be positive integers with optional ms, s, or m suffixes; timeout must not exceed 2147483647ms\n');
+      ctx.stderr.write('Security scan count and byte limits must be positive integers; only timeout accepts ms, s, or m suffixes and must not exceed 2147483647ms\n');
       return 64;
     }
     try {

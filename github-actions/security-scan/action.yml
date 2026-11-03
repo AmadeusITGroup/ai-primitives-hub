@@ -124,4 +124,6 @@ runs:
             echo 'The scanner did not create a report. Check the workflow log for details.'
           fi
         } > "$body"
-        gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body-file "$body"
+        if ! gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body-file "$body"; then
+          echo '::warning::Unable to post the security summary. Review the uploaded report; the scan exit status is unchanged.'
+        fi
