@@ -10,6 +10,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import {
   IsolatedSecurityScanEngine,
@@ -82,9 +83,8 @@ describe('IsolatedSecurityScanEngine', () => {
     const options = { includeLlmControls: false, skipInfoControls: false, maxFindings: 10 };
     try {
       await engine.scanDocument({ ...document, id: 'exit' }, options, cancellation);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const result = await engine.scanDocument(document, options, cancellation);
-      expect(result[0].vulnerableContent).toBe('1');
+      await expect.poll(async () => (await engine.scanDocument(document, options, cancellation))[0].vulnerableContent,
+        { timeout: 2000, interval: 10 }).toBe('1');
     } finally {
       await engine.dispose();
     }
@@ -97,8 +97,9 @@ describe('IsolatedSecurityScanEngine', () => {
     const options = { includeLlmControls: false, skipInfoControls: false, maxFindings: 10 };
     try {
       await engine.scanDocument({ ...document, id: 'error' }, options, cancellation);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      await expect(engine.scanDocument(document, options, cancellation)).rejects.toThrow('idle scan worker failed');
+      await vi.waitFor(async () => {
+        await expect(engine.scanDocument(document, options, cancellation)).rejects.toThrow('synthetic idle failure');
+      }, { timeout: 2000, interval: 10 });
       expect((await engine.scanDocument(document, options, cancellation))[0].vulnerableContent).toBe('1');
     } finally {
       await engine.dispose();
