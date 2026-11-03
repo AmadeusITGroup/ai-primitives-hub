@@ -22,6 +22,7 @@ export class IsolatedSecurityScanEngine implements SecurityScanEngine {
   private worker?: Worker;
   private queue: Promise<void> = Promise.resolve();
   private disposed = false;
+  private idleFailure?: Error;
 
   public constructor(
     private readonly descriptorValue: SecurityEngineDescriptor,
@@ -38,17 +39,35 @@ export class IsolatedSecurityScanEngine implements SecurityScanEngine {
     return this.capabilitiesValue;
   }
 
+  private createWorker(): Worker {
+    const worker = new Worker(this.workerPath);
+    const forget = (error?: Error): void => {
+      if (this.worker === worker) {
+        this.worker = undefined;
+        this.idleFailure = error;
+      }
+    };
+    worker.on('error', (error: Error) => forget(error));
+    worker.on('exit', (code: number) => forget(code === 0 ? undefined : new Error(`Worker exited with code ${String(code)}`)));
+    this.worker = worker;
+    return worker;
+  }
+
   private evaluate(document: SecurityDocument, options: SecurityEngineOptions, cancellation: SecurityCancellation): Promise<readonly SecurityFinding[]> {
     if (this.disposed) {
       return Promise.reject(new Error('Security scan engine is disposed'));
     }
     cancellation.throwIfCancelled();
+    if (this.idleFailure !== undefined) {
+      const error = this.idleFailure;
+      this.idleFailure = undefined;
+      return Promise.reject(new Error(`SECURITY.ENGINE_FAILED: idle scan worker failed: ${error.message}`));
+    }
     if (!existsSync(this.workerPath)) {
       return Promise.reject(new Error('Security scan worker is not packaged'));
     }
     return new Promise((resolve, reject) => {
-      const worker = this.worker ?? new Worker(this.workerPath);
-      this.worker = worker;
+      const worker = this.worker ?? this.createWorker();
       let settled = false;
       const finish = (callback: () => void, failed = false): void => {
         if (settled) {
@@ -62,6 +81,7 @@ export class IsolatedSecurityScanEngine implements SecurityScanEngine {
         worker.removeListener('message', onMessage);
         if (failed) {
           this.worker = undefined;
+          this.idleFailure = undefined;
           void worker.terminate();
         }
         callback();

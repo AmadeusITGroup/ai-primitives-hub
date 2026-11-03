@@ -74,4 +74,34 @@ describe('IsolatedSecurityScanEngine', () => {
     }
     await expect(engine.scanDocument(document, options, cancellation)).rejects.toThrow('disposed');
   });
+
+  it('replaces workers that exit between requests instead of waiting for a misleading timeout', async () => {
+    const base = new RuleBasedSecurityScanEngine();
+    const engine = new IsolatedSecurityScanEngine(base.descriptor, base.capabilities, 250,
+      path.join(__dirname, 'fixtures/stateful-worker.mjs'));
+    const options = { includeLlmControls: false, skipInfoControls: false, maxFindings: 10 };
+    try {
+      await engine.scanDocument({ ...document, id: 'exit' }, options, cancellation);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const result = await engine.scanDocument(document, options, cancellation);
+      expect(result[0].vulnerableContent).toBe('1');
+    } finally {
+      await engine.dispose();
+    }
+  });
+
+  it('surfaces idle worker errors without crashing the host, then allows a retry', async () => {
+    const base = new RuleBasedSecurityScanEngine();
+    const engine = new IsolatedSecurityScanEngine(base.descriptor, base.capabilities, 250,
+      path.join(__dirname, 'fixtures/stateful-worker.mjs'));
+    const options = { includeLlmControls: false, skipInfoControls: false, maxFindings: 10 };
+    try {
+      await engine.scanDocument({ ...document, id: 'error' }, options, cancellation);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await expect(engine.scanDocument(document, options, cancellation)).rejects.toThrow('idle scan worker failed');
+      expect((await engine.scanDocument(document, options, cancellation))[0].vulnerableContent).toBe('1');
+    } finally {
+      await engine.dispose();
+    }
+  });
 });
