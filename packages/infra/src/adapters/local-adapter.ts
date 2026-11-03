@@ -7,14 +7,9 @@
  * in-memory double (`test/helpers/in-memory-filesystem.ts`). `node:path` is
  * used directly: pure path arithmetic has no state to mock.
  *
- * One behavioral difference from `main`: `downloadBundle` builds the ZIP by
- * reading each file through the injected `FileSystem` (text-mode) rather
- * than pointing `archiver` at a real directory on disk. This keeps the
- * whole adapter unit-testable without a real filesystem, at the cost of
- * not yet supporting binary files in a bundle — everything in the
- * `prompt`/`instruction`/`chat-mode`/`agent`/`skill` primitive kinds is
- * text today. Revisit (add a binary-safe `FileSystem.readFileBuffer`) if a
- * real bundle ever needs one.
+ * `downloadBundle` builds the ZIP by reading raw bytes through the injected
+ * `FileSystem` rather than pointing `archiver` at a real directory on disk.
+ * This keeps the adapter testable while preserving binary bundle assets.
  * @module adapters/local-adapter
  */
 import * as path from 'node:path';
@@ -258,8 +253,8 @@ export class LocalAdapter extends BaseSourceAdapter {
     });
 
     for (const relativePath of relativeFilePaths) {
-      const contents = await this.fs.readFile(path.join(bundlePath, relativePath));
-      archive.append(contents, { name: relativePath });
+      const contents = await this.fs.readFileBytes(path.join(bundlePath, relativePath));
+      archive.append(Buffer.from(contents), { name: relativePath });
     }
     await archive.finalize();
 

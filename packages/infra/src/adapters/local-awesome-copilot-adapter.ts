@@ -8,9 +8,8 @@
  * shared `resolveLocalPath`/`isValidLocalUrl` from `./local-path` (see
  * that module's doc for why `LocalAdapter` itself isn't touched here).
  * All disk I/O goes through the injected `FileSystem` port; archive
- * creation uses `archiver`, reading each file as text (matching
- * `LocalAdapter`'s own documented text-only limitation — `FileSystem`
- * has no binary-safe read).
+ * creation uses `archiver`, reading payload files as raw bytes so
+ * binary skill assets are preserved without UTF-8 decoding (#357).
  *
  * Deliberate deviations from `main`:
  * - `getLocalPath` now expands a `~/` prefix. `isValidUrl` already
@@ -328,13 +327,13 @@ export class LocalAwesomeCopilotAdapter extends BaseSourceAdapter {
         const skillDir = path.join(localPath, path.dirname(item.path));
         const skillDirInArchive = path.dirname(item.path);
         for (const relativePath of await this.listFilesRecursively(skillDir)) {
-          const contents = await this.fs.readFile(path.join(skillDir, relativePath));
-          archive.append(contents, { name: `${skillDirInArchive}/${relativePath}` });
+          const contents = await this.fs.readFileBytes(path.join(skillDir, relativePath));
+          archive.append(Buffer.from(contents), { name: `${skillDirInArchive}/${relativePath}` });
         }
       } else {
-        const content = await this.fs.readFile(path.join(localPath, item.path));
+        const content = await this.fs.readFileBytes(path.join(localPath, item.path));
         const filename = path.basename(item.path);
-        archive.append(content, { name: `prompts/${filename}` });
+        archive.append(Buffer.from(content), { name: `prompts/${filename}` });
       }
     }
 

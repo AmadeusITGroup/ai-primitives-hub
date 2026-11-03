@@ -351,12 +351,12 @@ export class LocalApmAdapter extends BaseSourceAdapter {
     const apmDir = path.join(packageDir, '.apm');
     if (await this.fs.exists(apmDir)) {
       for (const relativePath of await this.listFilesRecursively(apmDir)) {
-        archive.append(await this.fs.readFile(path.join(apmDir, relativePath)), { name: `prompts/${relativePath}` });
+        archive.append(Buffer.from(await this.fs.readFileBytes(path.join(apmDir, relativePath))), { name: `prompts/${relativePath}` });
       }
     }
 
     for (const file of await this.findPromptFiles(packageDir, false)) {
-      archive.append(await this.fs.readFile(file), { name: `prompts/${path.basename(file)}` });
+      archive.append(Buffer.from(await this.fs.readFileBytes(file)), { name: `prompts/${path.basename(file)}` });
     }
 
     await archive.finalize();
