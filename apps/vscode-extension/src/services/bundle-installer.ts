@@ -46,6 +46,9 @@ import {
   LockfileFileEntry,
   LockfileSourceEntry,
 } from '../types/lockfile';
+import type {
+  McpServerNaming,
+} from '../types/mcp';
 import {
   Bundle,
   DeploymentManifest,
@@ -509,7 +512,9 @@ export class BundleInstaller {
     installPath: string,
     manifest: DeploymentManifest,
     scope: InstallationScope,
-    commitMode?: RepositoryCommitMode
+    commitMode?: RepositoryCommitMode,
+    // What the server keys are built from: `ai-primitives-hub:<owner>:<repo>:<manifestId>:<server>`.
+    naming: McpServerNaming = {}
   ): Promise<void> {
     if (!manifest.mcpServers || Object.keys(manifest.mcpServers).length === 0) {
       this.logger.debug(`No MCP servers to install for bundle ${bundleId}`);
@@ -536,7 +541,8 @@ export class BundleInstaller {
             commitMode: commitMode ?? 'commit',
             overwrite: false,
             skipOnConflict: false,
-            createBackup: true
+            createBackup: true,
+            ...naming
           },
           manifest.mcpInputs
         );
@@ -561,7 +567,8 @@ export class BundleInstaller {
           scope,
           overwrite: false,
           skipOnConflict: false,
-          createBackup: true
+          createBackup: true,
+          ...naming
         },
         manifest.mcpInputs
       );
@@ -878,7 +885,19 @@ export class BundleInstaller {
       } else {
         // Skills bundles going through repository scope should still skip MCP servers
         if (!isSkillsBundle) {
-          await this.installMcpServers(bundle.id, bundle.version, installDir, manifest, options.scope, options.commitMode);
+          await this.installMcpServers(
+            bundle.id,
+            bundle.version,
+            installDir,
+            manifest,
+            options.scope,
+            options.commitMode,
+            {
+              manifestId: outcome.manifest.id,
+              manifestRepository: typeof outcome.manifest.repository === 'string' ? outcome.manifest.repository : undefined,
+              sourceRepository: bundle.repository
+            }
+          );
           this.logger.debug('MCP servers installation completed');
         }
 

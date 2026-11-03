@@ -17,7 +17,7 @@ graph TD
     A["Bundle Install"]
     B["BundleInstaller.installMcpServers()"]
     C["McpServerManager.installServers() or\ninstallServersToWorkspace()"]
-    D["• Add bundle prefix to name\n(prompt-registry:bundleId:server-name)\n• Substitute variables\n• mergeInputs() — deduplicate by id\n• Write servers + inputs to mcp.json\n• Create tracking metadata"]
+    D["• Name the server\n(ai-primitives-hub:owner:repo:manifestId:server-name)\n• Substitute variables\n• mergeInputs() — deduplicate by id\n• Write servers + inputs to mcp.json\n• Create tracking metadata"]
     E["MCP servers + inputs available to Copilot"]
     
     A --> B
@@ -25,6 +25,19 @@ graph TD
     C --> D
     D --> E
 ```
+
+## Server Names
+
+Each server is written to the host config as `ai-primitives-hub:<owner>:<repo>:<manifest id>:<server name>`, built by `resolveMcpServerKey` in `@ai-primitives-hub/core`. For example, server `gateway` of collection `sample-mcp` published from `https://github.com/acme-org/sample-collections` becomes `ai-primitives-hub:acme-org:sample-collections:sample-mcp:gateway`.
+
+- The name has no version, so it stays the same across bundle updates. Hosts keep per-server settings (trust, enabled tools, `tools:` references in agent files) under this name.
+- The repository makes the name globally unique: collection ids are only checked for duplicates within one repository.
+- The repository comes from the deployment manifest's `repository` field, written by the collection build, so a release gets the same name whichever source it is installed from (hub, GitHub source, mirror, Artifactory). When the manifest has no usable value (empty in older builds, or a local path), the repository of the install source (the bundle's `repository`) is used.
+- The repository is parsed with `parseGitHubOwnerRepo` (core `domain/hub/validate.ts`), so the usual URL forms (HTTPS, `.git`, SSH, `owner/repo`) give the same name. Owner and repository are lowercased.
+- With no GitHub repository at all (local folder sources, other git hosts), the name is `ai-primitives-hub:<manifest id>:<server name>`.
+- The name depends only on the bundle's own manifest and source, never on what else is installed. If the same collection from the same repository is installed twice into one scope (for example from a hub and from a manual source), both produce the same name. The second install reports `Conflicts detected: <name>` and its MCP servers are not written; the rest of the bundle still installs, and the first bundle's server is left untouched. There is no fallback name, because a name chosen by install order would change again when the other bundle is removed.
+- The collection id and the publishing repository together are the public name of a collection's servers: renaming either renames the servers.
+- Servers installed by older versions are named `prompt-registry:<bundle id>:<server name>`. They keep that name until the bundle is updated or uninstalled; uninstall finds them through the tracking metadata, which records the owning bundle id.
 
 ## Server Types
 
