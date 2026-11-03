@@ -228,7 +228,8 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
     return result;
   }
 
-  const produced = new Set(newLocations.map((p) => path.resolve(p)));
+  // The written paths too: a writer without `locate` gives no new locations.
+  const produced = new Set([...written, ...newLocations].map((p) => path.resolve(p)));
 
   const removal = await removeSupersededRecordFiles({
     writerFactory, target, previous, produced, others, fs, preserveModified

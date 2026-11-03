@@ -309,6 +309,29 @@ describe('applyBundleInstall (in-memory)', () => {
     expect(await fs.exists(github('prompts', 'added.prompt.md'))).toBe(false);
   });
 
+  it('never removes a file this install wrote through a writer that cannot locate', async () => {
+    const kiroRepo: Target = { ...vscodeRepo, type: 'kiro' };
+    await install(prompts('a', '1.0.0', ['hello']), { target: kiroRepo });
+    const base = factoryFor(fs);
+    const writerFactory = (target: Target): ReturnType<typeof base> => {
+      if (target.type !== 'vscode') {
+        return base(target);
+      }
+      // A custom writer without `locate` that places files where the kiro writer does.
+      const kiroWriter = base(kiroRepo);
+      return {
+        write: (_t, files) => kiroWriter.write(kiroRepo, files),
+        remove: (_t, filePath, installedPath) => kiroWriter.remove(kiroRepo, filePath, installedPath)
+      };
+    };
+
+    const result = await install(prompts('a', '2.0.0', ['hello']), { writerFactory });
+
+    expect(result.written).toEqual([path.join('/ws', '.kiro', 'steering', 'hello.prompt.md')]);
+    expect(result.superseded).toEqual([]);
+    expect(await fs.exists(path.join('/ws', '.kiro', 'steering', 'hello.prompt.md'))).toBe(true);
+  });
+
   it('writes nothing and records nothing when the target rejects the bundle', async () => {
     const failing = failingPut(store);
     const kiroUser: Target = { name: 'k', type: 'kiro', scope: 'user' };
