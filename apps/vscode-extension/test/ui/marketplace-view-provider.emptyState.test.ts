@@ -17,9 +17,16 @@ import {
   SetupState,
   SetupStateManager,
 } from '../../src/services/setup-state-manager';
+import type {
+  Bundle,
+} from '../../src/types/registry';
 import {
   MarketplaceViewProvider,
 } from '../../src/ui/marketplace-view-provider';
+import {
+  BundleBuilder,
+  createMockInstalledBundle,
+} from '../helpers/bundle-test-helpers';
 import {
   setupRegistryManagerEventMocks,
 } from '../helpers/ui-test-helpers';
@@ -350,7 +357,166 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
     });
   });
 
+  suite('Details panel auto-update messages', () => {
+    const bundle = BundleBuilder.github('test-owner', 'test-repo').withVersion('1.0.0').build();
+
+    setup(() => {
+      mockRegistryManager.getBundleDetails = sandbox.stub<[string], Promise<Bundle>>().resolves(bundle);
+      mockRegistryManager.enableAutoUpdate = sandbox.stub<[string], Promise<void>>().resolves();
+      mockRegistryManager.disableAutoUpdate = sandbox.stub<[string], Promise<void>>().resolves();
+      sandbox.stub(vscode.window, 'createWebviewPanel').returns({
+        viewType: 'bundleDetails',
+        title: 'Bundle details',
+        options: {},
+        viewColumn: vscode.ViewColumn.One,
+        active: true,
+        visible: true,
+        webview: mockWebview,
+        onDidDispose: () => ({ dispose: () => {} }),
+        onDidChangeViewState: () => ({ dispose: () => {} }),
+        reveal: () => {},
+        dispose: () => {}
+      });
+    });
+
+    [true, false].forEach((enabled) => {
+      test(`uses the installed panel identity when setting auto-update to ${enabled}`, async () => {
+        mockRegistryManager.listInstalledBundles.resolves([createMockInstalledBundle(bundle.id, bundle.version)]);
+        await marketplaceProvider.openBundleDetails(bundle.id);
+        const receiveMessage = mockWebview.onDidReceiveMessage.lastCall.args[0];
+        await receiveMessage({ type: 'toggleAutoUpdate', bundleId: 'another-bundle', enabled });
+        assert.deepStrictEqual(
+          enabled ? mockRegistryManager.enableAutoUpdate.args : mockRegistryManager.disableAutoUpdate.args,
+          [[bundle.id]]
+        );
+      });
+    });
+
+    test('rejects auto-update changes from an uninstalled bundle panel', async () => {
+      const showError = sandbox.stub(vscode.window, 'showErrorMessage').resolves();
+      await marketplaceProvider.openBundleDetails(bundle.id);
+      const receiveMessage = mockWebview.onDidReceiveMessage.lastCall.args[0];
+      await receiveMessage({ type: 'toggleAutoUpdate', bundleId: 'another-bundle', enabled: true });
+      assert.ok(mockRegistryManager.enableAutoUpdate.notCalled);
+      assert.ok(mockRegistryManager.disableAutoUpdate.notCalled);
+      assert.ok(showError.calledOnce);
+    });
+
+    ['false', null, undefined, 1, {}].forEach((enabled) => {
+      test(`rejects a non-boolean auto-update value (${JSON.stringify(enabled)})`, async () => {
+        const showError = sandbox.stub(vscode.window, 'showErrorMessage').resolves();
+        mockRegistryManager.listInstalledBundles.resolves([createMockInstalledBundle(bundle.id, bundle.version)]);
+        await marketplaceProvider.openBundleDetails(bundle.id);
+        const receiveMessage = mockWebview.onDidReceiveMessage.lastCall.args[0];
+        await receiveMessage({ type: 'toggleAutoUpdate', bundleId: bundle.id, enabled });
+        assert.ok(mockRegistryManager.enableAutoUpdate.notCalled);
+        assert.ok(mockRegistryManager.disableAutoUpdate.notCalled);
+        assert.ok(showError.calledOnce);
+      });
+    });
+  });
+
   suite('HTML content generation', () => {
+    test('opens declared prompt files from the installed bundle, not a WebView path', async () => {
+      const installPath = path.join(PROJECT_ROOT, 'test-temp-prompt-open');
+      fs.rmSync(installPath, { recursive: true, force: true });
+      fs.mkdirSync(installPath, { recursive: true });
+      fs.writeFileSync(path.join(installPath, 'prompt.md'), 'prompt');
+      const installed = {
+        bundleId: 'safe-bundle',
+        version: '1.0.0',
+        installedAt: new Date().toISOString(),
+        scope: 'user',
+        installPath,
+        manifest: {
+          prompts: [{ id: 'prompt', name: 'Prompt', type: 'prompt', file: 'prompt.md' }]
+        }
+      };
+      mockRegistryManager.listInstalledBundles.resolves([installed] as any);
+      const openTextDocument = sandbox.spy(vscode.workspace, 'openTextDocument');
+      const showTextDocument = sandbox.spy(vscode.window, 'showTextDocument');
+
+      try {
+        marketplaceProvider.resolveWebviewView({
+          webview: mockWebview,
+          onDidChangeVisibility: sandbox.stub().returns({ dispose: () => {} })
+        } as any, {} as any, {} as any);
+        const receiveMessage = mockWebview.onDidReceiveMessage.lastCall.args[0];
+
+        await receiveMessage({
+          type: 'openPromptFile',
+          bundleId: 'safe-bundle',
+          installPath: '/',
+          filePath: 'prompt.md'
+        });
+        const openedUri = openTextDocument.firstCall?.args[0] as vscode.Uri | undefined;
+        assert.strictEqual(openedUri?.fsPath, path.join(installPath, 'prompt.md'));
+        assert.strictEqual(showTextDocument.callCount, 1);
+
+        await receiveMessage({
+          type: 'openPromptFile',
+          bundleId: 'safe-bundle',
+          installPath: '/',
+          filePath: '../../outside.md'
+        });
+        assert.strictEqual(openTextDocument.callCount, 1, 'Traversal paths must not be opened');
+        assert.strictEqual(showTextDocument.callCount, 1);
+      } finally {
+        fs.rmSync(installPath, { recursive: true, force: true });
+      }
+    });
+
+    test('renders attacker-controlled details fields as inert text and attributes', () => {
+      const bundle = {
+        id: `test' + globalThis.injected + '`,
+        name: '<img src=x onerror=alert(1)>',
+        version: '1.0.0',
+        description: '<script nonce="{{nonce}}">alert(1)</script> $\' {{bundleId}}',
+        author: 'author',
+        sourceId: 'source',
+        environments: ['vscode'],
+        tags: ['<svg onload=alert(1)>'],
+        lastUpdated: '2025-01-01T00:00:00Z',
+        size: '1KB',
+        dependencies: [],
+        license: 'MIT',
+        downloadUrl: 'https://example.com/bundle.zip',
+        manifestUrl: 'https://example.com/manifest.json'
+      };
+      const installed = {
+        bundleId: bundle.id,
+        version: bundle.version,
+        installedAt: new Date().toISOString(),
+        scope: 'user',
+        installPath: '/tmp/<img src=x onerror=alert(1)>',
+        manifest: {
+          prompts: [{
+            id: '<div data-action="uninstallBundle">',
+            name: '<script nonce="{{nonce}}">alert(2)</script>',
+            type: 'prompt',
+            file: 'prompt.md" data-action="uninstallBundle'
+          }],
+          mcpServers: {}
+        }
+      };
+
+      const html = (marketplaceProvider as any).getBundleDetailsHtml(
+        mockWebview,
+        bundle,
+        installed,
+        { prompts: 1, instructions: 0, agents: 0, skills: 0, mcpServers: 0 }
+      ) as string;
+
+      assert.strictEqual((html.match(/<script\b/g) || []).length, 1, 'Only the trusted external script should remain');
+      assert.ok(html.includes('&lt;script nonce=&quot;{{nonce}}&quot;&gt;'));
+      assert.ok(html.includes('&lt;svg onload=alert(1)&gt;'));
+      assert.ok(html.includes('data-file-path="prompt.md&quot; data-action=&quot;uninstallBundle"'));
+      assert.ok(!html.includes(`nonce="` + html.match(/nonce-([A-Za-z0-9]+)/)?.[1] + `">alert`),
+        'Untrusted content must not receive the active CSP nonce');
+      assert.ok(!html.includes("bundleId: '"), 'Bundle identifiers must not enter an inline JavaScript string');
+      assert.ok(html.includes('data-bundle-id="test&#039; + globalThis.injected + &#039;"'));
+    });
+
     test('should reference external CSS file in HTML', () => {
       // Requirement 4.3: HTML should load external CSS with marketplace styles
       const html = (marketplaceProvider as any).getHtmlContent(mockWebview);

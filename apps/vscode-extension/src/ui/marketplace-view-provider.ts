@@ -4,6 +4,9 @@
  * Similar to open-vsx.org marketplace experience
  */
 
+import {
+  randomBytes,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import {
@@ -58,6 +61,9 @@ import {
   Logger,
 } from '../utils/logger';
 import {
+  resolveExistingPathInside,
+} from '../utils/path-safety';
+import {
   VersionManager,
 } from '../utils/version-manager';
 
@@ -68,7 +74,6 @@ interface WebviewMessage {
   type: 'ready' | 'refresh' | 'search' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
     | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'contributeCollection' | 'completeSetup' | 'openExternalLink';
   bundleId?: string;
-  installPath?: string;
   filePath?: string;
   version?: string;
   enabled?: boolean;
@@ -211,9 +216,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Escape HTML special characters to prevent XSS
-   * @param text
+   * @param value
    */
-  private escapeHtml(text: string): string {
+  private escapeHtml(value: unknown): string {
+    const text = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+      ? String(value)
+      : '';
     return text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -716,8 +724,12 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         break;
       }
       case 'openPromptFile': {
-        if (message.installPath && message.filePath) {
-          await this.openPromptFileInEditor(message.installPath, message.filePath);
+        if (typeof message.bundleId === 'string' && typeof message.filePath === 'string') {
+          const installed = (await this.registryManager.listInstalledBundles())
+            .find((candidate) => candidate.bundleId === message.bundleId);
+          if (installed) {
+            await this.openPromptFileInEditor(installed, message.filePath);
+          }
         }
         break;
       }
@@ -1023,13 +1035,26 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Open a prompt file in the editor
-   * @param installPath
+   * @param installed
    * @param filePath
    */
-  private async openPromptFileInEditor(installPath: string, filePath: string): Promise<void> {
+  private async openPromptFileInEditor(installed: InstalledBundle, filePath: string): Promise<void> {
     try {
-      const path = await import('node:path');
-      const fullPath = path.join(installPath, filePath);
+      if (
+        typeof filePath !== 'string'
+        || !filePath
+        || !Array.isArray(installed.manifest.prompts)
+        || !installed.manifest.prompts.some((prompt) => prompt.file === filePath)
+      ) {
+        vscode.window.showErrorMessage('Invalid prompt file path');
+        return;
+      }
+
+      const fullPath = await resolveExistingPathInside(installed.installPath, filePath);
+      if (!fullPath || !(await fs.promises.stat(fullPath)).isFile()) {
+        vscode.window.showErrorMessage('Invalid prompt file path');
+        return;
+      }
 
       this.logger.debug(`Opening prompt file: ${fullPath}`);
 
@@ -1292,7 +1317,6 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   ): string {
     const isInstalled = !!installed;
     const installPath = installed?.installPath || 'Not installed';
-    const escapedInstallPath = installPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const nonce = this.getNonce();
     const bundleId = installed?.bundleId || bundle.id;
 
@@ -1308,7 +1332,13 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     );
 
     // Generate CSP
-    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';`;
+    const cspSource = [
+      "default-src 'none'; base-uri 'none'; form-action 'none';",
+      `img-src https: ${webview.cspSource};`,
+      `style-src ${webview.cspSource} 'unsafe-inline';`,
+      `font-src ${webview.cspSource};`,
+      `script-src 'nonce-${nonce}';`
+    ].join(' ');
 
     // Load HTML template
     const htmlPath = vscode.Uri.joinPath(
@@ -1318,7 +1348,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       'bundle-details',
       'bundle-details.html'
     );
-    let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
+    const html = fs.readFileSync(htmlPath.fsPath, 'utf8');
 
     // Generate dynamic sections
     const installedBadge = isInstalled ? '<span class="badge"><i class="fa-icon fa-circle-check"></i> Installed</span>' : '';
@@ -1381,22 +1411,22 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
             </div>
             <div class="info-row">
                 <div class="info-label">Install Path:</div>
-                <div class="info-value"><code>${installPath}</code></div>
+                <div class="info-value"><code>${this.escapeHtml(installPath)}</code></div>
             </div>`
       : '';
 
-    const tagsSection = bundle.tags && bundle.tags.length > 0
+    const tagsSection = Array.isArray(bundle.tags) && bundle.tags.length > 0
       ? `
     <div class="section">
         <h2><i class="fa-icon fa-tags"></i> Tags</h2>
         <div class="tags">
-            ${bundle.tags.map((tag) => `<span class="tag">${tag}</span>`).join('')}
+            ${bundle.tags.map((tag) => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
         </div>
     </div>`
       : '';
 
     const mcpServersSection = this.generateMcpServersSection(installed);
-    const promptsSection = this.generatePromptsSection(installed, escapedInstallPath);
+    const promptsSection = this.generatePromptsSection(installed);
     const contributeSection = contributable
       ? `<div class="section">
            <button type="button" class="primary-button" data-action="contributeCollection" data-bundle-id="${this.escapeHtml(bundle.id)}" data-source-id="${this.escapeHtml(bundle.sourceId || '')}">
@@ -1405,33 +1435,35 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
          </div>`
       : '';
 
-    // Replace all placeholders
-    html = html
-      .replace('{{cspSource}}', cspSource)
-      .replaceAll('{{bundleName}}', this.escapeHtml(bundle.name))
-      .replace('{{cssUri}}', cssUri.toString())
-      .replace('{{iconsUri}}', iconsUri.toString())
-      .replace('{{installedBadge}}', installedBadge)
-      .replaceAll('{{author}}', this.escapeHtml(bundle.author || 'Unknown'))
-      .replace('{{version}}', bundle.version)
-      .replace('{{autoUpdateSection}}', autoUpdateSection)
-      .replace('{{contributeSection}}', contributeSection)
-      .replace('{{description}}', bundle.description || 'No description available')
-      .replace('{{breakdownContent}}', breakdownContent)
-      .replace('{{displayBundleId}}', isInstalled ? installed.bundleId : bundle.id)
-      .replace('{{displayVersion}}', isInstalled ? installed.version : bundle.version)
-      .replace('{{installedInfoRows}}', installedInfoRows)
-      .replace('{{environments}}', (bundle.environments || ['any']).join(', '))
-      .replace('{{tagsSection}}', tagsSection)
-      .replace('{{mcpServersSection}}', mcpServersSection)
-      .replace('{{promptsSection}}', promptsSection)
-      .replace('{{autoUpdateEnabled}}', String(autoUpdateEnabled))
-      .replace('{{bundleId}}', bundleId)
-      .replace('{{detailsSection}}', detailsSection)
-      .replace(/\{\{nonce\}\}/g, nonce)
-      .replace('{{scriptUri}}', scriptUri.toString());
+    const replacements: Record<string, string> = {
+      cspSource: this.escapeHtml(cspSource),
+      nonce,
+      bundleName: this.escapeHtml(bundle.name),
+      cssUri: this.escapeHtml(cssUri.toString()),
+      iconsUri: this.escapeHtml(iconsUri.toString()),
+      scriptUri: this.escapeHtml(scriptUri.toString()),
+      installedBadge,
+      author: this.escapeHtml(bundle.author || 'Unknown'),
+      version: this.escapeHtml(bundle.version),
+      autoUpdateSection,
+      contributeSection,
+      description: this.escapeHtml(bundle.description || 'No description available'),
+      detailsSection,
+      breakdownContent,
+      displayBundleId: this.escapeHtml(isInstalled ? installed.bundleId : bundle.id),
+      displayVersion: this.escapeHtml(isInstalled ? installed.version : bundle.version),
+      installedInfoRows,
+      environments: this.escapeHtml(
+        Array.isArray(bundle.environments) ? bundle.environments.join(', ') : 'any'
+      ),
+      tagsSection,
+      mcpServersSection,
+      promptsSection,
+      autoUpdateEnabled: String(autoUpdateEnabled),
+      bundleId: this.escapeHtml(bundleId)
+    };
 
-    return html;
+    return html.replace(/\{\{(\w+)\}\}/g, (placeholder, key: string) => replacements[key] ?? placeholder);
   }
 
   /**
@@ -1510,19 +1542,18 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   /**
    * Generate prompts section HTML
    * @param installed
-   * @param escapedInstallPath
    */
-  private generatePromptsSection(installed: InstalledBundle | undefined, escapedInstallPath: string): string {
+  private generatePromptsSection(installed: InstalledBundle | undefined): string {
     if (!installed?.manifest?.prompts) {
       return '';
     }
 
     const promptsHtml = installed.manifest.prompts.map((p) => `
-            <div class="info-row prompt-item" data-action="openPromptFile" data-install-path="${escapedInstallPath}" data-file-path="${p.file}" style="cursor: pointer;">
-                <div class="info-label">${p.id}:</div>
+            <div class="info-row prompt-item" data-action="openPromptFile" data-bundle-id="${this.escapeHtml(installed.bundleId)}" data-file-path="${this.escapeHtml(p.file)}" style="cursor: pointer;">
+                <div class="info-label">${this.escapeHtml(p.id)}:</div>
                 <div class="info-value">
-                    ${p.name} 
-                    <em style="color: var(--vscode-descriptionForeground);">(${p.type || 'prompt'})</em>
+                    ${this.escapeHtml(p.name)}
+                    <em style="color: var(--vscode-descriptionForeground);">(${this.escapeHtml(p.type || 'prompt')})</em>
                     <span style="color: var(--vscode-textLink-foreground); margin-left: 8px;">📄 Open</span>
                 </div>
             </div>
@@ -1541,12 +1572,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * Generate a nonce for Content Security Policy
    */
   private getNonce(): string {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return randomBytes(16).toString('hex');
   }
 
   /**
@@ -1572,7 +1598,13 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const nonce = this.getNonce();
 
     // Generate CSP
-    const cspSource = `default-src 'none'; img-src https: ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';`;
+    const cspSource = [
+      "default-src 'none'; base-uri 'none'; form-action 'none';",
+      `img-src https: ${webview.cspSource};`,
+      `style-src ${webview.cspSource} 'unsafe-inline';`,
+      `font-src ${webview.cspSource};`,
+      `script-src 'nonce-${nonce}';`
+    ].join(' ');
 
     // Load HTML template from external file
     const htmlPath = vscode.Uri.joinPath(
@@ -1680,7 +1712,10 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         `📦 ${bundle.name}`,
         vscode.ViewColumn.One,
         {
-          enableScripts: true
+          enableScripts: true,
+          localResourceRoots: [
+            vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')
+          ]
         }
       );
 
@@ -1717,7 +1752,9 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         async (message) => {
           switch (message.type) {
             case 'openPromptFile': {
-              await this.openPromptFileInEditor(message.installPath, message.filePath);
+              if (installed && typeof message.filePath === 'string') {
+                await this.openPromptFileInEditor(installed, message.filePath);
+              }
 
               break;
             }
@@ -1732,12 +1769,16 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
               break;
             }
             case 'toggleAutoUpdate': {
-              await this.handleToggleAutoUpdate(message.bundleId, message.enabled);
-              // Update the panel with new status
-              if (installed) {
-                const newStatus = await this.registryManager.autoUpdateService?.isAutoUpdateEnabled(installed.bundleId) || false;
-                panel.webview.postMessage({ type: 'autoUpdateStatusChanged', enabled: newStatus });
+              if (!installed || typeof message.enabled !== 'boolean') {
+                this.logger.warn('Ignoring invalid auto-update request from bundle details');
+                vscode.window.showErrorMessage('Auto-update requires an installed bundle and a boolean enabled value');
+                break;
               }
+
+              await this.handleToggleAutoUpdate(installed.bundleId, message.enabled);
+              // Update the panel with new status
+              const newStatus = await this.registryManager.autoUpdateService?.isAutoUpdateEnabled(installed.bundleId) || false;
+              panel.webview.postMessage({ type: 'autoUpdateStatusChanged', enabled: newStatus });
 
               break;
             }

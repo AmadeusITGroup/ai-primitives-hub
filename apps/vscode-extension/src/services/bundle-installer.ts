@@ -72,6 +72,9 @@ import {
   Logger,
 } from '../utils/logger';
 import {
+  resolveContainedPath,
+} from '../utils/path-safety';
+import {
   getWorkspaceRoot,
 } from '../utils/scope-selection-ui';
 import {
@@ -344,6 +347,8 @@ export class BundleInstaller {
    * @param _bundleName
    */
   private getInstallDirectory(bundleId: string, scope: InstallationScope, _bundleName?: string): string {
+    let storageRoot: string;
+
     // Repository scope: install in extension global storage (NOT in the workspace)
     // The bundle cache/storage should remain in extension storage.
     // Only the actual content files (prompts, agents, etc.) are synced to .github/ directories
@@ -356,21 +361,18 @@ export class BundleInstaller {
 
       // Use global storage for bundle cache, same as user scope
       // This prevents polluting the repository with internal extension files
-      return path.join(this.context.globalStorageUri.fsPath, 'bundles', bundleId);
-    }
-
-    // Standard bundle installation
-    if (scope === 'user') {
-      // User scope: global storage
-      return path.join(this.context.globalStorageUri.fsPath, 'bundles', bundleId);
+      storageRoot = this.context.globalStorageUri.fsPath;
+    } else if (scope === 'user') {
+      storageRoot = this.context.globalStorageUri.fsPath;
     } else {
-      // Workspace scope: workspace storage
       const workspaceStorage = this.context.storageUri?.fsPath;
       if (!workspaceStorage) {
         throw new Error('Workspace storage not available');
       }
-      return path.join(workspaceStorage, 'bundles', bundleId);
+      storageRoot = workspaceStorage;
     }
+
+    return resolveContainedPath(path.join(storageRoot, 'bundles'), bundleId, 'bundle installation path');
   }
 
   /**
@@ -780,7 +782,7 @@ export class BundleInstaller {
           const copilotScope = options.scope === 'workspace' ? 'workspace' : 'user';
           const skillsBaseDir = this.copilotSync.getCopilotSkillsDirectory(copilotScope);
           await ensureDirectory(skillsBaseDir);
-          installDir = path.join(skillsBaseDir, skillName);
+          installDir = resolveContainedPath(skillsBaseDir, skillName, 'skill installation path');
 
           this.logger.debug(`[BundleInstaller] Skills bundle detected, installing to: ${installDir}`);
 
@@ -808,7 +810,11 @@ export class BundleInstaller {
           }
 
           for (const [entryPath, bytes] of skillEntries) {
-            const outPath = path.join(installDir, entryPath.slice(skillEntryPrefix.length));
+            const outPath = resolveContainedPath(
+              installDir,
+              entryPath.slice(skillEntryPrefix.length),
+              'bundle file path'
+            );
             await ensureDirectory(path.dirname(outPath));
             await writeFile(outPath, Buffer.from(bytes));
             written.push(outPath);
@@ -823,7 +829,7 @@ export class BundleInstaller {
           this.logger.debug(`Installation directory: ${installDir}`);
 
           for (const [entryPath, bytes] of files) {
-            const outPath = path.join(installDir, entryPath);
+            const outPath = resolveContainedPath(installDir, entryPath, 'bundle file path');
             await ensureDirectory(path.dirname(outPath));
             await writeFile(outPath, Buffer.from(bytes));
             written.push(outPath);
@@ -835,7 +841,7 @@ export class BundleInstaller {
       },
       remove: async (_target: Target, filePath: string): Promise<void> => {
         if (installDir.length > 0) {
-          await unlink(path.join(installDir, filePath)).catch(() => undefined);
+          await unlink(resolveContainedPath(installDir, filePath, 'bundle file path')).catch(() => undefined);
         }
       }
     };

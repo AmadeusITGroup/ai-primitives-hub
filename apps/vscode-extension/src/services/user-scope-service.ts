@@ -34,6 +34,7 @@ import {
   determineFileType,
   getSkillName,
   getTargetFileName,
+  normalizePromptId,
 } from '@ai-primitives-hub/core';
 import type {
   CopilotFileType,
@@ -51,6 +52,10 @@ import {
 import {
   Logger,
 } from '../utils/logger';
+import {
+  resolveContainedPath,
+  resolveExistingPathInside,
+} from '../utils/path-safety';
 import {
   checkPathExists,
 } from '../utils/symlink-utils';
@@ -354,10 +359,9 @@ export class UserScopeService implements IScopeService {
         return;
       }
 
-      const skillSourceDir = path.join(bundlePath, path.dirname(skillPath));
-
-      if (!fs.existsSync(skillSourceDir)) {
-        this.logger.warn(`Skill directory not found: ${skillSourceDir}`);
+      const skillSourceDir = await resolveExistingPathInside(bundlePath, path.dirname(skillPath));
+      if (!skillSourceDir || !(await fs.promises.stat(skillSourceDir)).isDirectory()) {
+        this.logger.warn(`Skill directory not found or outside bundle: ${skillPath}`);
         return;
       }
 
@@ -391,9 +395,9 @@ export class UserScopeService implements IScopeService {
     const type: CopilotFileType = promptDef.type ? promptDef.type as CopilotFileType : determineFileType(sourcePath, tags);
 
     // Create target path: promptId.type.md directly in the generic Copilot directory
-    const targetFileName = getTargetFileName(promptDef.id, type);
+    const targetFileName = getTargetFileName(normalizePromptId(promptDef.id), type);
     const targetDir = this.getCopilotPrimitiveDirectory(type);
-    const targetPath = path.join(targetDir, targetFileName);
+    const targetPath = resolveContainedPath(targetDir, targetFileName, 'Copilot target path');
 
     return {
       bundleId,
@@ -499,7 +503,12 @@ export class UserScopeService implements IScopeService {
       const sourcePath = path.join(sourceDir, entry);
       const targetPath = path.join(targetDir, entry);
 
-      const stats = fs.statSync(sourcePath);
+      const stats = await lstat(sourcePath);
+
+      if (stats.isSymbolicLink()) {
+        this.logger.warn(`Skipping symlink in skill directory: ${sourcePath}`);
+        continue;
+      }
 
       if (stats.isDirectory()) {
         await this.copySkillDirectory(sourcePath, targetPath);
@@ -555,9 +564,8 @@ export class UserScopeService implements IScopeService {
       await this.ensureDirectory(promptsDir);
 
       // Read deployment manifest
-      const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
-
-      if (!fs.existsSync(manifestPath)) {
+      const manifestPath = await resolveExistingPathInside(bundlePath, 'deployment-manifest.yml');
+      if (!manifestPath) {
         this.logger.warn(`No manifest found for bundle: ${bundleId}`);
         return;
       }
@@ -578,15 +586,20 @@ export class UserScopeService implements IScopeService {
           continue;
         }
 
-        const sourcePath = path.join(bundlePath, promptDef.file);
-
-        if (!fs.existsSync(sourcePath)) {
-          this.logger.warn(`Prompt file not found: ${sourcePath}`);
+        const sourcePath = await resolveExistingPathInside(bundlePath, promptDef.file);
+        if (!sourcePath || !(await fs.promises.stat(sourcePath)).isFile()) {
+          this.logger.warn(`Prompt file not found or outside bundle: ${promptDef.file}`);
           continue;
         }
 
         // Detect file type and create appropriate filename
-        const copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+        let copilotFile: CopilotFile;
+        try {
+          copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+        } catch (error) {
+          this.logger.warn(`Skipping prompt with invalid target ID: ${promptDef.id} (${error})`);
+          continue;
+        }
         const sourceContent = await readFile(sourcePath, 'utf8');
         const transformedContent = this.transformContent(promptDef.file, sourceContent);
         if (transformedContent !== sourceContent) {
@@ -617,10 +630,15 @@ export class UserScopeService implements IScopeService {
       }
 
       // Read the bundle's manifest to find which files were synced
-      const bundlePath = path.join(this.context.globalStorageUri.fsPath, 'bundles', bundleId);
-      const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
+      const bundlesPath = path.join(this.context.globalStorageUri.fsPath, 'bundles');
+      const bundlePath = await resolveExistingPathInside(bundlesPath, bundleId);
+      if (!bundlePath || !(await fs.promises.stat(bundlePath)).isDirectory()) {
+        this.logger.warn(`No installed bundle found for bundle: ${bundleId}`);
+        return;
+      }
 
-      if (!fs.existsSync(manifestPath)) {
+      const manifestPath = await resolveExistingPathInside(bundlePath, 'deployment-manifest.yml');
+      if (!manifestPath) {
         this.logger.warn(`No manifest found for bundle: ${bundleId}, cannot determine files to remove`);
         return;
       }
@@ -646,8 +664,19 @@ export class UserScopeService implements IScopeService {
           continue;
         }
 
-        const sourcePath = path.join(bundlePath, promptDef.file);
-        const copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+        const sourcePath = await resolveExistingPathInside(bundlePath, promptDef.file);
+        if (!sourcePath || !(await fs.promises.stat(sourcePath)).isFile()) {
+          this.logger.warn(`Skipping invalid prompt source while unsyncing bundle ${bundleId}: ${promptDef.file}`);
+          continue;
+        }
+
+        let copilotFile: CopilotFile;
+        try {
+          copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+        } catch (error) {
+          this.logger.warn(`Skipping prompt with invalid target ID while unsyncing bundle ${bundleId}: ${promptDef.id} (${error})`);
+          continue;
+        }
 
         // Use checkPathExists to detect broken symlinks (fs.existsSync returns false for broken symlinks)
         const existingEntry = await checkPathExists(copilotFile.targetPath);
@@ -753,7 +782,7 @@ export class UserScopeService implements IScopeService {
       const skillsDir = this.getCopilotSkillsDirectory(scope);
       await this.ensureDirectory(skillsDir);
 
-      const targetDir = path.join(skillsDir, skillName);
+      const targetDir = resolveContainedPath(skillsDir, skillName, 'skill target path');
 
       // Remove existing skill if present
       if (fs.existsSync(targetDir)) {
@@ -769,7 +798,7 @@ export class UserScopeService implements IScopeService {
       if (syncToClaude) {
         const claudeSkillsDir = this.getClaudeSkillsDirectory(scope);
         await this.ensureDirectory(claudeSkillsDir);
-        const claudeTargetDir = path.join(claudeSkillsDir, skillName);
+        const claudeTargetDir = resolveContainedPath(claudeSkillsDir, skillName, 'Claude skill target path');
 
         if (fs.existsSync(claudeTargetDir)) {
           await this.removeSkillDirectory(claudeTargetDir);
@@ -795,7 +824,7 @@ export class UserScopeService implements IScopeService {
       this.logger.info(`Removing skill: ${skillName}`);
 
       const skillsDir = this.getCopilotSkillsDirectory(scope);
-      const targetDir = path.join(skillsDir, skillName);
+      const targetDir = resolveContainedPath(skillsDir, skillName, 'skill target path');
 
       if (fs.existsSync(targetDir)) {
         await this.removeSkillDirectory(targetDir);
@@ -804,7 +833,7 @@ export class UserScopeService implements IScopeService {
 
       if (removeFromClaude) {
         const claudeSkillsDir = this.getClaudeSkillsDirectory(scope);
-        const claudeTargetDir = path.join(claudeSkillsDir, skillName);
+        const claudeTargetDir = resolveContainedPath(claudeSkillsDir, skillName, 'Claude skill target path');
 
         if (fs.existsSync(claudeTargetDir)) {
           await this.removeSkillDirectory(claudeTargetDir);

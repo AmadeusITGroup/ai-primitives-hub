@@ -37,6 +37,17 @@ global.__mockShowWarningMessage = global.__mockShowWarningMessage || null;
 global.__mockOpenExternal = global.__mockOpenExternal || null;
 
 const windowState = {
+  createWebviewPanel: () => ({
+    webview: {
+      html: '',
+      asWebviewUri: (uri) => uri,
+      cspSource: "'self'",
+      postMessage: async () => true,
+      onDidReceiveMessage: () => ({ dispose: () => {} })
+    },
+    onDidDispose: () => ({ dispose: () => {} }),
+    dispose: () => {}
+  }),
   showInformationMessage: () => Promise.resolve(),
   showWarningMessage: () => Promise.resolve(),
   showErrorMessage: () => Promise.resolve(),

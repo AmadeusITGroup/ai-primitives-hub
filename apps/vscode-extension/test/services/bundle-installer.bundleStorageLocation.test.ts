@@ -125,6 +125,59 @@ suite('BundleInstaller - Bundle Storage Location', () => {
   });
 
   suite('Repository Scope Bundle Storage', () => {
+    ['github', 'skills'].forEach((sourceType) => {
+      test(`installs ${sourceType} archives containing explicit directory records`, async () => {
+        const zip = new (require('adm-zip'))();
+        zip.addFile('skills/', Buffer.alloc(0));
+        zip.addFile('skills/example/', Buffer.alloc(0));
+        zip.addFile('skills/example/references/', Buffer.alloc(0));
+        zip.addFile('skills/example/SKILL.md', Buffer.from('# Example skill'));
+        zip.addFile('skills/example/references/help.md', Buffer.from('Help'));
+        zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${testBundle.id}
+version: ${testBundle.version}
+name: ${testBundle.name}
+description: Test bundle
+author: test
+prompts: []
+`));
+        assert.ok(zip.getEntries().some((entry: { isDirectory: boolean }) => entry.isDirectory));
+
+        const installed = await installer.installFromBuffer(
+          testBundle,
+          zip.toBuffer(),
+          { scope: 'workspace' },
+          sourceType
+        );
+        const skillPath = sourceType === 'skills' ? installed.installPath : path.join(installed.installPath, 'skills', 'example');
+        assert.strictEqual(fs.readFileSync(path.join(skillPath, 'SKILL.md'), 'utf8'), '# Example skill');
+        assert.strictEqual(fs.readFileSync(path.join(skillPath, 'references', 'help.md'), 'utf8'), 'Help');
+      });
+    });
+
+    test('rejects bundle IDs that escape the storage root', async () => {
+      const bundle: Bundle = { ...testBundle, id: '../../outside-bundle' };
+      const zip = new (require('adm-zip'))();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: ${bundle.id}
+version: ${bundle.version}
+name: ${bundle.name}
+description: Test bundle
+author: test
+prompts: []
+`));
+
+      await assert.rejects(
+        installer.installFromBuffer(bundle, zip.toBuffer(), { scope: 'repository' }, 'github'),
+        /unsafe bundle id|installation path/i
+      );
+      assert.strictEqual(
+        fs.existsSync(path.join(tempDir, 'outside-bundle')),
+        false,
+        'Installation must not write outside bundle storage'
+      );
+    });
+
     test('should NOT create .prompt-registry directory inside the repository workspace', async () => {
       // This test verifies the bug fix: bundle cache should NOT be in the repository
       const options: InstallOptions = {

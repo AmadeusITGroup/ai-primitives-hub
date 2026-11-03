@@ -102,6 +102,131 @@ prompts: []
         assert.ok(error, 'Should throw error for invalid bundle path');
       }
     });
+
+    test('should not sync prompt files outside the bundle', async () => {
+      const bundleId = 'traversal-bundle';
+      const bundlePath = path.join(tempDir, bundleId);
+      const outsidePath = path.join(tempDir, 'outside-prompt.md');
+      fs.mkdirSync(bundlePath, { recursive: true });
+      fs.writeFileSync(outsidePath, 'sensitive content');
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `
+id: ${bundleId}
+version: "1.0.0"
+prompts:
+  - id: outside-prompt
+    name: Outside Prompt
+    file: ../outside-prompt.md
+    type: prompt
+`);
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        !fs.existsSync(path.join(tempDir, '.copilot', 'prompts', 'outside-prompt.prompt.md')),
+        'An outside prompt must not be copied or linked into the Copilot directory'
+      );
+    });
+
+    test('should not sync prompt files through symlinks outside the bundle', async () => {
+      const bundleId = 'symlink-bundle';
+      const bundlePath = path.join(tempDir, bundleId);
+      const outsidePath = path.join(tempDir, 'outside-prompt.md');
+      const promptsPath = path.join(bundlePath, 'prompts');
+      fs.mkdirSync(promptsPath, { recursive: true });
+      fs.writeFileSync(outsidePath, 'sensitive content');
+      fs.symlinkSync(outsidePath, path.join(promptsPath, 'prompt.md'));
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `
+id: ${bundleId}
+version: "1.0.0"
+prompts:
+  - id: symlink-prompt
+    name: Symlink Prompt
+    file: prompts/prompt.md
+    type: prompt
+`);
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        !fs.existsSync(path.join(tempDir, '.copilot', 'prompts', 'symlink-prompt.prompt.md')),
+        'A symlink to an outside prompt must not be synced'
+      );
+    });
+
+    test('should not sync skill directories outside the bundle', async () => {
+      const bundleId = 'outside-skill-bundle';
+      const bundlePath = path.join(tempDir, bundleId);
+      const outsideSkillPath = path.join(tempDir, 'skills', 'outside-skill');
+      fs.mkdirSync(outsideSkillPath, { recursive: true });
+      fs.writeFileSync(path.join(outsideSkillPath, 'SKILL.md'), 'sensitive content');
+      fs.mkdirSync(bundlePath, { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `
+id: ${bundleId}
+version: "1.0.0"
+prompts:
+  - id: outside-skill
+    name: Outside Skill
+    file: ../skills/outside-skill/SKILL.md
+    type: skill
+`);
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        !fs.existsSync(path.join(tempDir, '.copilot', 'skills', 'outside-skill')),
+        'An outside skill directory must not be copied into the Copilot directory'
+      );
+    });
+
+    test('should not copy files referenced through skill symlinks', async () => {
+      const bundleId = 'skill-symlink-bundle';
+      const bundlePath = path.join(tempDir, bundleId);
+      const skillPath = path.join(bundlePath, 'skills', 'safe-skill');
+      const outsidePath = path.join(tempDir, 'outside-skill-secret.txt');
+      fs.mkdirSync(skillPath, { recursive: true });
+      fs.writeFileSync(path.join(skillPath, 'SKILL.md'), 'safe skill');
+      fs.writeFileSync(outsidePath, 'sensitive content');
+      fs.symlinkSync(outsidePath, path.join(skillPath, 'secret.txt'));
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `
+id: ${bundleId}
+version: "1.0.0"
+prompts:
+  - id: safe-skill
+    name: Safe Skill
+    file: skills/safe-skill/SKILL.md
+    type: skill
+`);
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        !fs.existsSync(path.join(tempDir, '.copilot', 'skills', 'safe-skill', 'secret.txt')),
+        'Symlinked files inside a skill must not be copied'
+      );
+    });
+
+    test('should not use prompt IDs to write outside the Copilot directory', async () => {
+      const bundleId = 'outside-target-bundle';
+      const bundlePath = path.join(tempDir, bundleId);
+      fs.mkdirSync(path.join(bundlePath, 'prompts'), { recursive: true });
+      fs.writeFileSync(path.join(bundlePath, 'prompts', 'prompt.md'), 'prompt content');
+      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), `
+id: ${bundleId}
+version: "1.0.0"
+prompts:
+  - id: ../../outside-target
+    name: Outside Target
+    file: prompts/prompt.md
+    type: prompt
+`);
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      assert.ok(
+        !fs.existsSync(path.join(tempDir, 'outside-target.prompt.md')),
+        'An untrusted prompt ID must not escape the Copilot directory'
+      );
+    });
   });
 
   suite('Kiro target installation', () => {
@@ -226,6 +351,31 @@ prompts:
         // Or throw appropriate error
         assert.ok(error, 'Error handling is acceptable');
       }
+    });
+
+    test('should reject bundle IDs that escape global storage', async () => {
+      const promptsDir = path.join(tempDir, '.copilot', 'prompts');
+      const outsideBundlePath = path.join(mockContext.globalStorageUri.fsPath, 'outside-bundle');
+      fs.mkdirSync(promptsDir, { recursive: true });
+      fs.mkdirSync(outsideBundlePath, { recursive: true });
+      fs.writeFileSync(path.join(promptsDir, 'victim.prompt.md'), 'outside content');
+      fs.writeFileSync(path.join(outsideBundlePath, 'source.md'), 'outside content');
+      fs.writeFileSync(path.join(outsideBundlePath, 'deployment-manifest.yml'), `
+id: outside-bundle
+version: "1.0.0"
+prompts:
+  - id: victim
+    name: Victim
+    file: source.md
+    type: prompt
+`);
+
+      await service.unsyncBundle('../outside-bundle');
+
+      assert.ok(
+        fs.existsSync(path.join(promptsDir, 'victim.prompt.md')),
+        'An invalid bundle ID must not permit removal of files outside its bundle directory'
+      );
     });
   });
 
