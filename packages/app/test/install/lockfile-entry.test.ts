@@ -58,12 +58,11 @@ const bundle = (): Map<string, Uint8Array> => new Map([
   ['agents/code-helper.md', text(AGENT)]
 ]);
 
-const install = async (target: Target) => {
+const install = async (target: Target, files = bundle()) => {
   const fs = new InMemoryFileSystem();
   const writer = createTargetWriterFactory({
     fs, env: { HOME: '/home/u' }, projectDir: null, userConfigDir: null, writerOwnsExclusion: false
   })(target);
-  const files = bundle();
   const write = await writeBundleForInstall(writer, target, files, validateManifest(files, {}));
   const installedChecksums = await computeInstalledChecksums({ writer, target, write, fs });
   return { fs, writer, write, installedChecksums };
@@ -93,9 +92,9 @@ describe('buildLockfileBundleEntry', () => {
       installedAt: NOW.toISOString(),
       targetType: 'vscode',
       files: [
+        { path: 'agents/code-helper.md', checksum: sha256(text(AGENT)) },
         { path: 'prompts/hello.prompt.md', checksum: sha256(text('# Hello\n')) },
-        { path: 'prompts/sub/nested.prompt.md', checksum: sha256(text('# Nested\n')), installedPath: 'prompts/nested.prompt.md' },
-        { path: 'agents/code-helper.md', checksum: sha256(text(AGENT)) }
+        { path: 'prompts/sub/nested.prompt.md', checksum: sha256(text('# Nested\n')), installedPath: 'prompts/nested.prompt.md' }
       ]
     });
     expect(entry).not.toHaveProperty('commitMode');
@@ -127,6 +126,25 @@ describe('buildLockfileBundleEntry', () => {
     });
 
     expect(entry).not.toHaveProperty('checksum');
+  });
+
+  it.each([
+    ['vscode repository', { name: 'v', type: 'vscode', scope: 'repository', rootPath: '/ws' } satisfies Target],
+    ['kiro user', { name: 'k', type: 'kiro', scope: 'user' } satisfies Target]
+  ])('records the files in path order whatever the archive order (%s)', async (_label, target) => {
+    const entryOf = async (files: Map<string, Uint8Array>): Promise<string> => {
+      const { write, installedChecksums } = await install(target, files);
+      return JSON.stringify(buildLockfileBundleEntry({
+        version: '1.2.3', sourceId: 'local-sample', sourceType: 'local', targetType: target.type, write, installedChecksums, now: NOW
+      }));
+    };
+
+    const forward = await entryOf(bundle());
+    const reversed = await entryOf(new Map([...bundle()].toReversed()));
+
+    expect(reversed).toBe(forward);
+    const paths = (JSON.parse(forward) as { files: { path: string }[] }).files.map((file) => file.path);
+    expect(paths).toEqual(['agents/code-helper.md', 'prompts/hello.prompt.md', 'prompts/sub/nested.prompt.md']);
   });
 });
 

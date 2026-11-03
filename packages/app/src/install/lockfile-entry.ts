@@ -38,7 +38,24 @@ const writtenFiles = (write: BundleTargetWrite): LockfileFileEntry[] => checksum
 );
 
 /**
+ * Code-unit order of bundle paths, independent of locale.
+ * @param a First file.
+ * @param b Second file.
+ * @returns Negative, zero or positive.
+ */
+const byPath = (a: LockfileFileEntry, b: LockfileFileEntry): number => {
+  if (a.path < b.path) {
+    return -1;
+  }
+  return a.path > b.path ? 1 : 0;
+};
+
+/**
  * Build the lockfile entry of an install.
+ *
+ * Files are listed in bundle-path order (code-unit order), so the entry
+ * does not depend on the order the archive or directory walk produced
+ * them in, and every delivery writes the same bytes for the same install.
  * @param input Entry inputs.
  * @param input.version Installed bundle version.
  * @param input.sourceId Id of the source the bundle came from.
@@ -62,12 +79,14 @@ export function buildLockfileBundleEntry(input: {
   installedChecksums: ReadonlyMap<string, string>;
   now: Date;
 }): LockfileBundleEntry {
-  const files = writtenFiles(input.write).map((file) => {
-    const installedChecksum = input.installedChecksums.get(file.path);
-    return installedChecksum === undefined || installedChecksum === file.checksum
-      ? file
-      : { ...file, installedChecksum };
-  });
+  const files = writtenFiles(input.write)
+    .map((file) => {
+      const installedChecksum = input.installedChecksums.get(file.path);
+      return installedChecksum === undefined || installedChecksum === file.checksum
+        ? file
+        : { ...file, installedChecksum };
+    })
+    .toSorted(byPath);
   return {
     version: input.version,
     sourceId: input.sourceId,

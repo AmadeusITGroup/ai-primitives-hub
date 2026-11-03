@@ -291,7 +291,7 @@ describe('applyBundleUninstall (in-memory)', () => {
 
     const result = await uninstall('a', { writerFactory: () => custom });
 
-    expect(removed).toEqual(['prompts/shared.prompt.md', 'prompts/only-a.prompt.md']);
+    expect(removed).toEqual(['prompts/only-a.prompt.md', 'prompts/shared.prompt.md']);
     expect(result.removed).toEqual(removed);
     expect(result.kept).toEqual([]);
     expect(result.pruned).toEqual([]);

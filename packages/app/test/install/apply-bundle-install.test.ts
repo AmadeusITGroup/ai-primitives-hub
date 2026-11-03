@@ -224,7 +224,7 @@ describe('applyBundleInstall (in-memory)', () => {
 
     const result = await install(prompts('a', '2.0.0', ['kept']));
 
-    expect(result.superseded).toEqual(['prompts/kept.prompt.md', 'prompts/dropped.prompt.md']);
+    expect(result.superseded).toEqual(['prompts/dropped.prompt.md', 'prompts/kept.prompt.md']);
     expect(result.supersededKept).toEqual([]);
     expect(await fs.exists(path.join('/ws', '.kiro', 'steering', 'kept.prompt.md'))).toBe(false);
     expect(await fs.exists(path.join('/ws', '.kiro', 'steering', 'dropped.prompt.md'))).toBe(false);
@@ -243,8 +243,8 @@ describe('applyBundleInstall (in-memory)', () => {
 
     expect(result.superseded).toEqual(['prompts/pristine.prompt.md']);
     expect(result.supersededKept).toEqual([
-      { path: 'prompts/shared.prompt.md', reason: 'shared' },
-      { path: 'prompts/edited.prompt.md', reason: 'modified' }
+      { path: 'prompts/edited.prompt.md', reason: 'modified' },
+      { path: 'prompts/shared.prompt.md', reason: 'shared' }
     ]);
     expect(await fs.exists(steering('shared'))).toBe(true);
     expect(await fs.exists(steering('edited'))).toBe(true);
@@ -265,8 +265,8 @@ describe('applyBundleInstall (in-memory)', () => {
 
     expect(result.superseded).toEqual([]);
     expect(result.supersededKept).toEqual([
-      { path: 'prompts/kept.prompt.md', reason: 'unresolvable' },
-      { path: 'prompts/dropped.prompt.md', reason: 'unresolvable' }
+      { path: 'prompts/dropped.prompt.md', reason: 'unresolvable' },
+      { path: 'prompts/kept.prompt.md', reason: 'unresolvable' }
     ]);
     expect(result.supersededUnresolvable).toBe('no kiro layout on this host');
     expect(await fs.exists(path.join('/ws', '.kiro', 'steering', 'dropped.prompt.md'))).toBe(true);
