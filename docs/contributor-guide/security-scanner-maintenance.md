@@ -176,6 +176,12 @@ value before changing fixtures. Build native filesystem expectations with
 `path.join` and resolve module URLs with `fileURLToPath`. Assert POSIX permission
 bits only on platforms that expose them.
 
+Extension tests use a `vscode` mock whose `Uri.file` keeps `fsPath` verbatim,
+unlike VS Code, which normalizes separators. Production code joins scan roots and
+relative finding paths with the host separator, so build roots with
+`path.resolve` and expected files with `path.join` instead of POSIX literals such
+as `/repo/first.md`.
+
 Keep portable cases running on every OS. Isolate only unsupported filesystem
 cases (such as newline-containing filenames on Windows) in explicitly
 platform-gated tests; do not skip an entire security suite or remove NUL-delimited
