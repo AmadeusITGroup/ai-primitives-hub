@@ -298,6 +298,17 @@ describe('applyBundleInstall (in-memory)', () => {
     expect((await store.get('a'))?.entry.version).toBe('1.0.0');
   });
 
+  it('keeps the previous record and its files when the other records cannot be read', async () => {
+    await install(prompts('a', '1.0.0', ['kept', 'dropped']));
+    const othersFailing: InstallRecordStore = { ...store, others: () => Promise.reject(new Error('lockfile unreadable')) };
+
+    await expect(install(prompts('a', '2.0.0', ['kept', 'added']), { store: othersFailing })).rejects.toThrow('lockfile unreadable');
+
+    expect((await store.get('a'))?.entry.version).toBe('1.0.0');
+    expect(await fs.exists(github('prompts', 'dropped.prompt.md'))).toBe(true);
+    expect(await fs.exists(github('prompts', 'added.prompt.md'))).toBe(false);
+  });
+
   it('writes nothing and records nothing when the target rejects the bundle', async () => {
     const failing = failingPut(store);
     const kiroUser: Target = { name: 'k', type: 'kiro', scope: 'user' };

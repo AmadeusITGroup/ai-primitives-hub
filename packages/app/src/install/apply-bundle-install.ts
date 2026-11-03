@@ -19,6 +19,7 @@ import type {
   ValidatedManifest,
 } from '@ai-primitives-hub/core';
 import type {
+  InstallRecord,
   InstallRecordStore,
 } from '../stores/install-record-store';
 import type {
@@ -134,7 +135,8 @@ const rollbackWritten = async (writer: TargetWriter, target: Target, fs: FileSys
  * 1. read the previous record of `key`;
  * 2. write through `writeBundleForInstall` (a rejection writes nothing and records nothing);
  * 3. `local-only` at repository scope → exclude the written files (recoverable);
- * 4–5. checksum the written files and store the entry;
+ * 4–5. checksum the written files, read the new locations and the other
+ *    records step 7 needs (only with a previous record), and store the entry;
  * 6. on a failure of 4–5, roll back the written files the previous record
  *    doesn't own, remove the exclusion lines this install added, rethrow;
  * 7. previous record, located with the writer of its own target type →
@@ -172,6 +174,8 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
   }
 
   let entry: LockfileBundleEntry;
+  let newLocations: string[] = [];
+  let others: readonly InstallRecord[] = [];
   try {
     const installedChecksums = await computeInstalledChecksums({ writer, target, write, fs });
     entry = buildLockfileBundleEntry({
@@ -184,6 +188,13 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
       installedChecksums,
       now: now()
     });
+    if (previous !== undefined) {
+      // Read before the record is replaced: a failure here leaves the previous record and its files as they were.
+      newLocations = writer.locate === undefined
+        ? []
+        : (await writer.locate(target, recordedFiles(entry.files))).paths.filter((p): p is string => p !== null);
+      others = await store.others(key);
+    }
     await store.put(key, entry, { id: origin.sourceId, descriptor: source }, target.commitMode);
   } catch (err) {
     const ownedRecord = previous === undefined ? undefined : await locateRecord(writerFactory, target, previous);
@@ -217,13 +228,10 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
     return result;
   }
 
-  const newLocations = writer.locate === undefined
-    ? []
-    : (await writer.locate(target, recordedFiles(entry.files))).paths.filter((p): p is string => p !== null);
   const produced = new Set(newLocations.map((p) => path.resolve(p)));
 
   const removal = await removeSupersededRecordFiles({
-    writerFactory, target, previous, produced, others: await store.others(key), fs, preserveModified
+    writerFactory, target, previous, produced, others, fs, preserveModified
   });
   if (removal === null && (previous.entry.targetType ?? target.type) !== target.type) {
     // The new entry replaced a record of another target type whose files
