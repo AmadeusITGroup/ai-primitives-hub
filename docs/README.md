@@ -63,6 +63,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Commands](reference/commands.md)** — VS Code commands
 - **[Settings](reference/settings.md)** — Extension settings
 - **[Security Scanner](reference/security-scanner.md)** — CLI options, reports, and exit codes
+- **[Security Detection Rules](reference/security-rules.md)** — Implemented rule catalogue, applicability, and policy defaults
 - **[Adapter API](reference/adapter-api.md)** — Custom adapters
 - **[Hub Schema](reference/hub-schema.md)** — Hub configuration
 - **[Hub Replication](reference/hub-replication.md)** — Replicating GitHub release bundles to Artifactory

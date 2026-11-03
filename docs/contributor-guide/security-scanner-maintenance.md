@@ -131,6 +131,21 @@ Automatic scans are allowed only for trusted local `file:` workspaces. Maintain:
 
 Settings belong under `promptregistry.security.*`. Do not reintroduce the standalone `md-security-scanner.*` namespace or a Python runtime dependency.
 
+### Deferred operational follow-ups
+
+There is currently no service-wide cap on workers across different documents.
+Per-key supersession and input budgets do not provide such a cap; bursts of
+document opens/saves can create multiple workers. A follow-up should define
+queueing, concurrency and cancellation behavior before engine creation.
+
+Cancellation is polled at operation boundaries. A blocked filesystem operation
+can remain pending until the whole-scan deadline; it does not settle immediately
+when superseded. Prompt cancellation requires a notification-capable port and
+explicit lifetime handling for still-pending operations.
+
+Mocked command-event tests cover filtering, registration and generation guards;
+real VS Code activation/event coverage remains an integration-test follow-up.
+
 ## Verification commands
 
 Run focused tests first, then owning package checks:

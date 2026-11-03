@@ -89,6 +89,14 @@ Scanner coverage lives in `packages/core/test/domain/security/`,
 `packages/infra/test/security/`, `packages/app/test/security/`,
 `packages/cli/test/commands/security-scan.test.ts`, and the extension's scanner
 tests. Run focused package tests with `pnpm -C packages/<package> exec vitest run <test-path>`.
+The isolated-engine and CLI scanner tests use the built worker. On a clean
+checkout, build the shared packages first:
+
+```bash
+pnpm --filter @ai-primitives-hub/core --filter @ai-primitives-hub/infra --filter @ai-primitives-hub/app --filter @ai-primitives-hub/cli build
+pnpm -C packages/infra exec vitest run test/security/isolated-security-scan-engine.test.ts
+```
+
 Use synthetic credentials only, and cover positive cases, near misses,
 redaction, limits, worker isolation, cancellation, and report writes.
 See [Security Scanner Maintenance](./security-scanner-maintenance.md).
