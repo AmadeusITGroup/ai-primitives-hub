@@ -5,18 +5,23 @@
  * repository files from git, records the install, and removes the files
  * the previous install of the same key placed that the new one no longer
  * produces. Recording is part of the install: when the record can't be
- * written, the install's new files are rolled back and the error reaches
- * the caller.
+ * written, the install is rolled back (a file it replaced gets its earlier
+ * bytes back, a file it created is removed) and the error reaches the
+ * caller.
  * @module install/apply-bundle-install
  */
 import * as path from 'node:path';
 import type {
+  ExtractedFile,
   ExtractedFiles,
   FileSystem,
   RepositoryExclusion,
   Target,
   TargetWriter,
   ValidatedManifest,
+} from '@ai-primitives-hub/core';
+import {
+  restoreOrRemove,
 } from '@ai-primitives-hub/core';
 import type {
   InstallRecord,
@@ -105,28 +110,30 @@ const isLocalOnlyRepository = (target: Target): boolean =>
   target.scope === 'repository' && target.commitMode === 'local-only';
 
 /**
- * Best-effort removal of written files after a failed recording.
+ * Best-effort rollback of written files after a failed recording: a file
+ * the write replaced gets its earlier bytes back, any other is removed.
  * @param writer Writer that wrote them.
  * @param target Target.
  * @param fs Filesystem (fallback for a writer without `rollback`).
- * @param paths Absolute paths to remove.
+ * @param paths Absolute paths to roll back.
+ * @param replaced What the write replaced (`TargetWriteResult.replaced`).
  */
-const rollbackWritten = async (writer: TargetWriter, target: Target, fs: FileSystem, paths: readonly string[]): Promise<void> => {
+const rollbackWritten = async (
+  writer: TargetWriter,
+  target: Target,
+  fs: FileSystem,
+  paths: readonly string[],
+  replaced: Readonly<Record<string, ExtractedFile>> | undefined
+): Promise<void> => {
   if (writer.rollback !== undefined) {
     try {
-      await writer.rollback(target, paths);
+      await writer.rollback(target, paths, replaced);
     } catch {
       // Best effort: the recording error is what the caller needs.
     }
     return;
   }
-  for (const p of paths) {
-    try {
-      await fs.remove(p);
-    } catch {
-      // Best effort, as above.
-    }
-  }
+  await restoreOrRemove(fs, paths, replaced);
 };
 
 /**
@@ -137,8 +144,10 @@ const rollbackWritten = async (writer: TargetWriter, target: Target, fs: FileSys
  * 3. `local-only` at repository scope → exclude the written files (recoverable);
  * 4–5. checksum the written files, read the new locations and the other
  *    records step 7 needs (only with a previous record), and store the entry;
- * 6. on a failure of 4–5, roll back the written files the previous record
- *    doesn't own, remove the exclusion lines this install added, rethrow;
+ * 6. on a failure of 4–5, roll back the written files: restore what the
+ *    write replaced, remove the files it created except those the previous
+ *    record owns (a writer that reports nothing replaced keeps them), remove
+ *    the exclusion lines this install added, rethrow;
  * 7. previous record, located with the writer of its own target type →
  *    remove its files the new entry doesn't produce, guarded like
  *    uninstall, prune, and un-exclude them when the previous record was
@@ -201,12 +210,15 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
     const owned = new Set(ownedRecord?.kind === 'located'
       ? ownedRecord.located.paths.filter((p): p is string => p !== null).map((p) => path.resolve(p))
       : []);
-    const rollback = written.filter((p) => !owned.has(path.resolve(p)));
-    await rollbackWritten(writer, target, fs, rollback);
+    const { replaced } = write.result;
+    const isReplaced = (p: string): boolean => replaced !== undefined && Object.hasOwn(replaced, p);
+    const notOwned = written.filter((p) => !owned.has(path.resolve(p)));
+    // An owned file the write replaced gets the previous install's bytes back; one it didn't report is kept.
+    await rollbackWritten(writer, target, fs, written.filter((p) => isReplaced(p) || !owned.has(path.resolve(p))), replaced);
     if (excluded && exclusion !== null) {
       try {
         // The previous record's lines predate this install only when it was local-only.
-        await exclusion.remove(previous?.commitMode === 'local-only' ? rollback : written);
+        await exclusion.remove(previous?.commitMode === 'local-only' ? notOwned : written);
       } catch {
         // Best effort: the recording error is what the caller needs.
       }

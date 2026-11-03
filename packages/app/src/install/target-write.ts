@@ -20,6 +20,7 @@ import {
   determineFileType,
   getFileExtension,
   getInstallableBundleFiles,
+  mergeReplacedFiles,
 } from '@ai-primitives-hub/core';
 import {
   FileTreeTargetWriter,
@@ -63,7 +64,7 @@ export async function writeTargetSafely(
   if (result.skipped.length > 0) {
     if (writer.rollback !== undefined && result.written.length > 0) {
       try {
-        await writer.rollback(target, result.written);
+        await writer.rollback(target, result.written, result.replaced);
       } catch {
         // Preserve the policy failure; rollback is explicitly best effort.
       }
@@ -224,17 +225,19 @@ export async function writeBundleSafely(
   try {
     restResult = await writer.write(target, rest);
   } catch (cause) {
-    await writer.rollback(target, itemResult.written);
+    await writer.rollback(target, itemResult.written, itemResult.replaced);
     throw cause;
   }
+  const replaced = mergeReplacedFiles(itemResult, restResult);
   const result: TargetWriteResult = {
     written: [...itemResult.written, ...restResult.written],
     skipped: [...itemResult.skipped, ...restResult.skipped],
     writtenBundlePaths: [...(itemResult.writtenBundlePaths ?? []), ...(restResult.writtenBundlePaths ?? [])],
-    installedPaths: itemResult.installedPaths ?? {}
+    installedPaths: itemResult.installedPaths ?? {},
+    ...(replaced === undefined ? {} : { replaced })
   };
   if (result.skipped.length > 0) {
-    await writer.rollback(target, result.written);
+    await writer.rollback(target, result.written, result.replaced);
     throw new TargetWriteRejectedError(result.skipped);
   }
   return { installableFiles, result };

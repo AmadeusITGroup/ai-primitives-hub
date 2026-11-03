@@ -31,6 +31,7 @@ export * from './install/kind-route';
 export * from './install/recorded-location';
 export * from './install/integrity';
 export * from './install/file-mode';
+export * from './install/write-snapshot';
 export * from './install/transform';
 export * from './registry/types';
 export * from './registry/guards';

@@ -65,7 +65,7 @@ Each bundle entry lists its files by bundle-relative `path` with `checksum`, the
 
 ### Repository scope and local-only installs
 
-`install <bundle-id>`, `install --from` and `install --source` at repository scope record the bundle in `prompt-registry.lock.json` (`--commit-mode commit`, the default) or `prompt-registry.local.lock.json` (`--commit-mode local-only`). Installing a bundle again in the other commit mode moves its entry to the other lockfile, and a lockfile left without bundles is deleted. If the lockfile cannot be written, the install fails and the new files it wrote are removed again.
+`install <bundle-id>`, `install --from` and `install --source` at repository scope record the bundle in `prompt-registry.lock.json` (`--commit-mode commit`, the default) or `prompt-registry.local.lock.json` (`--commit-mode local-only`). Installing a bundle again in the other commit mode moves its entry to the other lockfile, and a lockfile left without bundles is deleted. If the lockfile cannot be written, the install fails: the files it created are removed again and the files it overwrote get their earlier content back.
 
 A `local-only` install, on every target type, lists the written files and the local lockfile below `# Prompt Registry (local)` in the exclude file git reads for the work tree, with paths relative to the work tree:
 

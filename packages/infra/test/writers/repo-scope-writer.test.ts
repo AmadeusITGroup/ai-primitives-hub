@@ -622,6 +622,25 @@ describe('RepositoryScopeWriterAdapter', () => {
     expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md'))).toBe(true);
   });
 
+  it('reports a file it replaced and restores it on rollback, removing the files it created', async () => {
+    const fs = new InMemoryFileSystem();
+    const adapter = new RepositoryScopeWriterAdapter(new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' }));
+    const prompt = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
+    fs.seed(prompt, 'user work\n');
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(SAMPLE_MANIFEST)],
+      ['prompts/test.md', new TextEncoder().encode('# Test Prompt')],
+      ['agents/test.md', new TextEncoder().encode('# Test Agent')]
+    ]);
+
+    const result = await adapter.write(dummyTarget, files);
+    expect(Object.keys(result.replaced ?? {})).toEqual([prompt]);
+
+    await adapter.rollback(dummyTarget, result.written, result.replaced);
+    expect(await fs.readFile(prompt)).toBe('user work\n');
+    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'agents', 'test.md'))).toBe(false);
+  });
+
   it('removes nothing for a path with no repository route', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });

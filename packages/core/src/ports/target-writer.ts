@@ -13,6 +13,7 @@ import type {
   Target,
 } from '../domain/install/target';
 import type {
+  ExtractedFile,
   ExtractedFiles,
 } from './bundle-extractor';
 
@@ -41,6 +42,14 @@ export interface TargetWriteResult {
    * record it in the lockfile so uninstall can find the file again.
    */
   installedPaths?: Record<string, string>;
+  /**
+   * What each written path held before this write, keyed by the absolute
+   * path as listed in `written`; only paths that already existed appear.
+   *
+   * Optional: set by writers that keep it (see `snapshotBeforeWrite`), so
+   * a rollback can restore what the write replaced instead of deleting it.
+   */
+  replaced?: Record<string, ExtractedFile>;
 }
 
 /**
@@ -81,15 +90,18 @@ export interface TargetWriter {
   write(target: Target, files: ExtractedFiles): Promise<TargetWriteResult>;
 
   /**
-   * Best-effort rollback for paths returned in `TargetWriteResult.written`.
+   * Best-effort rollback for paths returned in `TargetWriteResult.written`:
+   * a path listed in `replaced` gets its earlier bytes back, any other path
+   * is removed.
    *
    * This is optional for compatibility with existing custom writers. Built-in
    * writers implement it so a late skipped result or write-policy failure does
    * not leave files behind without a lockfile entry.
    * @param target Target chosen via `--target <name>`.
    * @param written Absolute paths returned by a prior write.
+   * @param replaced `TargetWriteResult.replaced` of that write.
    */
-  rollback?(target: Target, written: readonly string[]): Promise<void>;
+  rollback?(target: Target, written: readonly string[], replaced?: Readonly<Record<string, ExtractedFile>>): Promise<void>;
 
   /**
    * Locate recorded files without touching the filesystem.

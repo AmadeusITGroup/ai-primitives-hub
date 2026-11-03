@@ -27,13 +27,17 @@ import type {
   TargetWritePlan,
   TargetWriter,
   TargetWriteResult,
+  WriteSnapshots,
 } from '@ai-primitives-hub/core';
 import {
   applyFileMode,
   categoryOf,
   isPrimitiveKind,
   normalizePrimitiveKind,
+  replacedFiles,
   resolveRecordedLocation,
+  restoreOrRemove,
+  snapshotBeforeWrite,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -114,6 +118,8 @@ interface WriteResult {
    * and directory items are renamed by manifest id and sanitised.
    */
   installedPaths: Record<string, string>;
+  /** What each written path held before the write; set only when the write replaced a file. */
+  replaced?: Record<string, ExtractedFile>;
 }
 
 /**
@@ -164,8 +170,10 @@ export class RepositoryScopeWriter {
    * The executable bit the source recorded is then applied (issue #577).
    * @param targetPath Absolute destination path.
    * @param bytes Exact bytes to install.
+   * @param snapshots Snapshots of the current write: what `targetPath` held before.
    */
-  private async writeBytesVerified(targetPath: string, bytes: ExtractedFile): Promise<void> {
+  private async writeBytesVerified(targetPath: string, bytes: ExtractedFile, snapshots: WriteSnapshots): Promise<void> {
+    await snapshotBeforeWrite(this.fs, snapshots, targetPath);
     await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
     await this.fs.writeFileBytes(targetPath, bytes);
     await verifyWrittenBytes(this.fs, targetPath, bytes);
@@ -282,6 +290,7 @@ export class RepositoryScopeWriter {
    * @param written Accumulates written file paths.
    * @param directories Accumulates installed directory paths.
    * @param writtenBundlePaths Accumulates bundle-relative paths written.
+   * @param snapshots Snapshots of the current write.
    */
   private async installDirectoryItem(
     p: { file: string; id?: string },
@@ -289,7 +298,8 @@ export class RepositoryScopeWriter {
     files: ExtractedFiles,
     written: string[],
     directories: string[],
-    writtenBundlePaths: string[]
+    writtenBundlePaths: string[],
+    snapshots: WriteSnapshots
   ): Promise<void> {
     const sourceDirectory = this.extractSourceDirectory(p.file, subdirectory);
     // Match whole path segments: item `foo` must not pick up `foo-bar/` files.
@@ -301,7 +311,7 @@ export class RepositoryScopeWriter {
       if (bundlePath.startsWith(sourcePrefix)) {
         const relativePath = bundlePath.slice(sourcePrefix.length);
         const targetPath = path.join(directory, relativePath);
-        await this.writeBytesVerified(targetPath, bytes);
+        await this.writeBytesVerified(targetPath, bytes, snapshots);
         written.push(targetPath);
         writtenBundlePaths.push(bundlePath);
       }
@@ -316,7 +326,8 @@ export class RepositoryScopeWriter {
     skipped: string[],
     directories: string[],
     writtenBundlePaths: string[],
-    allowedKinds: ReadonlySet<PrimitiveKind> | null
+    allowedKinds: ReadonlySet<PrimitiveKind> | null,
+    snapshots: WriteSnapshots
   ): Promise<void> {
     for (const p of items) {
       const kind = normalizePrimitiveKind(p.type);
@@ -331,13 +342,13 @@ export class RepositoryScopeWriter {
           skipped.push(p.file);
           continue;
         }
-        await this.installDirectoryItem(p, subdirectory, files, written, directories, writtenBundlePaths);
+        await this.installDirectoryItem(p, subdirectory, files, written, directories, writtenBundlePaths, snapshots);
       } else {
         const bytes = files.get(p.file);
         if (bytes) {
           const targetPath = this.getTargetPath({ type: p.type, file: p.file });
           if (targetPath) {
-            await this.writeBytesVerified(targetPath, bytes);
+            await this.writeBytesVerified(targetPath, bytes, snapshots);
             written.push(targetPath);
             writtenBundlePaths.push(p.file);
           } else {
@@ -489,6 +500,7 @@ export class RepositoryScopeWriter {
     const skipped: string[] = [];
     const directories: string[] = [];
     const writtenBundlePaths: string[] = [];
+    const snapshots: WriteSnapshots = new Map();
     const allowed = allowedKinds === undefined ? null : new Set(allowedKinds);
 
     const manifestBytes = files.get('deployment-manifest.yml');
@@ -505,7 +517,8 @@ export class RepositoryScopeWriter {
       skipped,
       directories,
       writtenBundlePaths,
-      allowed
+      allowed,
+      snapshots
     );
 
     // Update git exclude for local-only mode
@@ -513,12 +526,14 @@ export class RepositoryScopeWriter {
       await this.exclusion.add(written);
     }
 
+    const replaced = replacedFiles(snapshots);
     return {
       written,
       skipped,
       skillDirs: directories,
       writtenBundlePaths,
-      installedPaths: this.installedPathsFor(writtenBundlePaths, written)
+      installedPaths: this.installedPathsFor(writtenBundlePaths, written),
+      ...(replaced === undefined ? {} : { replaced })
     };
   }
 
@@ -533,11 +548,14 @@ export class RepositoryScopeWriter {
   }
 
   /**
-   * Remove paths written by a rejected repository installation.
+   * Undo the paths of a rejected repository installation, best effort: a
+   * file the write replaced gets its earlier bytes back, any other path
+   * is removed.
    * @param written Absolute paths returned by `write`.
+   * @param replaced `replaced` returned by that write.
    */
-  public async rollback(written: readonly string[]): Promise<void> {
-    await this.removePaths([...written]);
+  public async rollback(written: readonly string[], replaced?: Readonly<Record<string, ExtractedFile>>): Promise<void> {
+    await restoreOrRemove(this.fs, written, replaced);
     if (this.commitMode === 'local-only') {
       await this.exclusion.remove([...written]);
     }
@@ -670,7 +688,8 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
       written: result.written,
       skipped: result.skipped,
       writtenBundlePaths: result.writtenBundlePaths,
-      installedPaths: result.installedPaths
+      installedPaths: result.installedPaths,
+      ...(result.replaced === undefined ? {} : { replaced: result.replaced })
     };
   }
 
@@ -687,8 +706,8 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
     return this.writer.preflight(files, target.allowedKinds);
   }
 
-  public async rollback(_target: Target, written: readonly string[]): Promise<void> {
-    await this.writer.rollback(written);
+  public async rollback(_target: Target, written: readonly string[], replaced?: Readonly<Record<string, ExtractedFile>>): Promise<void> {
+    await this.writer.rollback(written, replaced);
   }
 
   /**

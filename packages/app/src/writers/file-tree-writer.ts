@@ -36,6 +36,7 @@ import type {
   TargetWritePlan,
   TargetWriter,
   TargetWriteResult,
+  WriteSnapshots,
 } from '@ai-primitives-hub/core';
 import {
   applyFileMode,
@@ -47,8 +48,11 @@ import {
   matchKindRoute,
   normalizePrimitiveKind,
   normalizePromptId,
+  replacedFiles,
   resolveRecordedLocation,
+  restoreOrRemove,
   routeKindOf,
+  snapshotBeforeWrite,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -85,6 +89,11 @@ export interface WriterFs {
    * port). Without it, installed files keep their default mode.
    */
   setExecutable?(p: string, executable: boolean): Promise<void>;
+  /**
+   * Optional: a file's mode, so a rollback can give a file the write
+   * replaced its executable bit back (see core's `FileSystem` port).
+   */
+  stat?(p: string): Promise<{ mode?: number }>;
 }
 
 /**
@@ -259,6 +268,7 @@ export class FileTreeTargetWriter implements TargetWriter {
     const written: string[] = [];
     const writtenBundlePaths: string[] = [];
     const skipped: string[] = [];
+    const snapshots: WriteSnapshots = new Map();
     let pendingWritePath: string | null = null;
 
     try {
@@ -287,6 +297,7 @@ export class FileTreeTargetWriter implements TargetWriter {
         }
 
         const outPath = path.join(baseDir, route.outPrefix, route.tail);
+        await snapshotBeforeWrite(this.opts.fs, snapshots, outPath);
         // Keep the path visible to the catch block before write starts:
         // a filesystem can persist the file and then throw.
         pendingWritePath = outPath;
@@ -299,25 +310,23 @@ export class FileTreeTargetWriter implements TargetWriter {
       const rollbackPaths = pendingWritePath === null
         ? written
         : [...written, pendingWritePath];
-      await this.rollback(target, rollbackPaths);
+      await this.rollback(target, rollbackPaths, replacedFiles(snapshots));
       throw cause;
     }
-    return { written, skipped, writtenBundlePaths };
+    const replaced = replacedFiles(snapshots);
+    return { written, skipped, writtenBundlePaths, ...(replaced === undefined ? {} : { replaced }) };
   }
 
   /**
-   * Remove files written by a failed or rejected installation.
+   * Undo the files of a failed or rejected installation, best effort: a
+   * file the write replaced gets its earlier bytes back, any other file
+   * is removed.
    * @param _target - Target chosen via `--target <name>`.
    * @param written - Absolute paths returned by `write`.
+   * @param replaced - `replaced` returned by that write.
    */
-  public async rollback(_target: Target, written: readonly string[]): Promise<void> {
-    for (const filePath of written) {
-      try {
-        await this.opts.fs.remove(filePath);
-      } catch {
-        // Rollback is best effort; preserve the original install failure.
-      }
-    }
+  public async rollback(_target: Target, written: readonly string[], replaced?: Readonly<Record<string, ExtractedFile>>): Promise<void> {
+    await restoreOrRemove(this.opts.fs, written, replaced);
   }
 
   /**
@@ -417,6 +426,7 @@ export class FileTreeTargetWriter implements TargetWriter {
       writtenBundlePaths.push(bundlePath);
       installedPaths[bundlePath] = toInstalledPath(baseDir, outPath);
     };
+    const snapshots: WriteSnapshots = new Map();
     let pendingWritePath: string | null = null;
 
     const taken = new Set<string>();
@@ -432,6 +442,7 @@ export class FileTreeTargetWriter implements TargetWriter {
         for (const { bundlePath, tail } of placement.sources) {
           const outPath = path.join(baseDir, placement.outDir, tail);
           const bytes = files.get(bundlePath) as ExtractedFile;
+          await snapshotBeforeWrite(this.opts.fs, snapshots, outPath);
           // Keep the path visible to the catch block before write starts:
           // a filesystem can persist the file and then throw.
           pendingWritePath = outPath;
@@ -451,11 +462,12 @@ export class FileTreeTargetWriter implements TargetWriter {
       const rollbackPaths = pendingWritePath === null
         ? written
         : [...written, pendingWritePath];
-      await this.rollback(target, rollbackPaths);
+      await this.rollback(target, rollbackPaths, replacedFiles(snapshots));
       throw cause;
     }
 
-    return { written, skipped, writtenBundlePaths, installedPaths };
+    const replaced = replacedFiles(snapshots);
+    return { written, skipped, writtenBundlePaths, installedPaths, ...(replaced === undefined ? {} : { replaced }) };
   }
 
   /**

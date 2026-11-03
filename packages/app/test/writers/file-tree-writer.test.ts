@@ -202,6 +202,29 @@ describe('FileTreeTargetWriter', () => {
     expect(await fs.exists(localPath('/out', 'prompts', 'second.md'))).toBe(false);
   });
 
+  it('restores a file it replaced when a later write fails, and reports what a write replaced', async () => {
+    const failing = new FailAfterFirstWriteFileSystem();
+    const first = localPath('/out', 'prompts', 'first.md');
+    failing.seed(first, 'user work\n');
+    const files = new Map<string, Uint8Array>([
+      ['prompts/first.md', new TextEncoder().encode('# First')],
+      ['prompts/second.md', new TextEncoder().encode('# Second')]
+    ]);
+
+    await expect(new FileTreeTargetWriter({ fs: failing, env: {} }).write(target, files)).rejects.toThrow('disk full after write');
+    expect(await failing.readFile(first)).toBe('user work\n');
+
+    const fs = new InMemoryFileSystem();
+    fs.seed(first, 'user work\n');
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const result = await writer.write(target, files);
+    expect(Object.keys(result.replaced ?? {})).toEqual([first]);
+
+    await writer.rollback(target, result.written, result.replaced);
+    expect(await fs.readFile(first)).toBe('user work\n');
+    expect(await fs.exists(localPath('/out', 'prompts', 'second.md'))).toBe(false);
+  });
+
   it('routes the legacy chatmodes path alias to the canonical chat-modes route', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });

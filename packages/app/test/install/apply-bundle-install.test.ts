@@ -298,6 +298,41 @@ describe('applyBundleInstall (in-memory)', () => {
     expect((await store.get('a'))?.entry.version).toBe('1.0.0');
   });
 
+  it('keeps a user file at an unrecorded destination when a first record cannot be stored', async () => {
+    fs.seed(github('prompts', 'hello.prompt.md'), 'user work\n');
+
+    await expect(install(prompts('a', '1.0.0', ['hello']), { store: failingPut(store) })).rejects.toThrow('lockfile is read-only');
+
+    expect(await fs.readFileBytes(github('prompts', 'hello.prompt.md'))).toEqual(text('user work\n'));
+  });
+
+  it('restores the previously recorded bytes when a reinstall with changed bytes cannot be stored', async () => {
+    await install(prompts('a', '1.0.0', ['kept']));
+    const before = await fs.readFileBytes(github('prompts', 'kept.prompt.md'));
+    const changed = bundleOf('a', '2.0.0', { 'prompts/kept.prompt.md': '# kept, revised\n' }, [
+      { id: 'kept', file: 'prompts/kept.prompt.md', type: 'prompt' }
+    ]);
+
+    await expect(install(changed, { store: failingPut(store) })).rejects.toThrow('lockfile is read-only');
+
+    expect(await fs.readFileBytes(github('prompts', 'kept.prompt.md'))).toEqual(before);
+  });
+
+  it('restores a file another record holds when a file-tree install cannot be stored', async () => {
+    const kiroUser: Target = { name: 'k', type: 'kiro', scope: 'user' };
+    const userStore = createLockfileRecordStore({ scope: 'user', fs, lockfilePath: '/home/u/lock.json', generatedBy: 'test' });
+    const kiro = { target: kiroUser, store: userStore, exclusion: null };
+    const first = await install(prompts('a', '1.0.0', ['shared']), kiro);
+    const before = await fs.readFileBytes(first.written[0]);
+    const other = bundleOf('b', '1.0.0', { 'prompts/shared.prompt.md': '# shared by b\n' }, [
+      { id: 'shared', file: 'prompts/shared.prompt.md', type: 'prompt' }
+    ]);
+
+    await expect(install(other, { ...kiro, store: failingPut(userStore) })).rejects.toThrow('lockfile is read-only');
+
+    expect(await fs.readFileBytes(first.written[0])).toEqual(before);
+  });
+
   it('keeps the previous record and its files when the other records cannot be read', async () => {
     await install(prompts('a', '1.0.0', ['kept', 'dropped']));
     const othersFailing: InstallRecordStore = { ...store, others: () => Promise.reject(new Error('lockfile unreadable')) };
