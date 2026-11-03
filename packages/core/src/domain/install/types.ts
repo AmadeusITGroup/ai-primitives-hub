@@ -53,4 +53,6 @@ export interface InstalledBundle {
   commitMode?: RepositoryCommitMode;
   /** Set when a lockfile entry exists but its files are missing on disk (repository scope only). */
   filesMissing?: boolean;
+  /** Target type that placed the files (repository scope only); absent in entries written by older tooling. */
+  targetType?: string;
 }

@@ -16,6 +16,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   cleanupOrphanedSource,
+  inspectRecordedFiles,
+  isRecordIncomplete,
+  locateRecord,
   readLockfile,
   remapSourceId,
   removeBundleEntry,
@@ -24,7 +27,14 @@ import {
 } from '@ai-primitives-hub/app';
 import type {
   LockfileFs,
+  RecordedFilesInspection,
 } from '@ai-primitives-hub/app';
+import type {
+  TargetType,
+} from '@ai-primitives-hub/core';
+import {
+  NodeFileSystem,
+} from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
   Lockfile,
@@ -42,11 +52,16 @@ import {
   RepositoryCommitMode,
 } from '../types/registry';
 import {
-  calculateFileChecksum,
-} from '../utils/file-integrity-service';
+  detectHostApp,
+} from '../utils/host-app';
 import {
   Logger,
 } from '../utils/logger';
+import {
+  createExtensionWriterFactory,
+  repositoryExclusion,
+  repositoryTarget,
+} from './app-install-context';
 import {
   SchemaValidator,
 } from './schema-validator';
@@ -164,6 +179,7 @@ export class LockfileManager {
   private internalWriteDepth = 0;
   private lastInternalWrittenContent: string | null = null;
   private lastInternalDeleted = false;
+  private detectedHostType: TargetType | undefined;
 
   // Event emitter for lockfile updates
   private readonly _onLockfileUpdated = new vscode.EventEmitter<Lockfile | null>();
@@ -278,25 +294,6 @@ export class LockfileManager {
   }
 
   /**
-   * Read a specific lockfile based on commit mode.
-   * Routes to the main lockfile for 'commit' mode and local lockfile for 'local-only' mode.
-   * @param commitMode - The commit mode to determine which lockfile to read
-   * @returns The lockfile object or null if it doesn't exist
-   *
-   * Requirements covered:
-   * - 3.1: Read from both Main_Lockfile and Local_Lockfile
-   */
-  private async readLockfileByMode(commitMode: RepositoryCommitMode): Promise<Lockfile | null> {
-    const lockfilePath = this.getLockfilePathForMode(commitMode);
-    try {
-      return await readLockfile(lockfilePath, lockfileFs);
-    } catch (error) {
-      this.logger.error(`Failed to read ${commitMode} lockfile:`, error instanceof Error ? error : undefined);
-      return null;
-    }
-  }
-
-  /**
    * Get the path to a schema file.
    * Resolves from extension installation directory, with fallback to process.cwd() for development.
    * @param schemaFileName - Name of the schema file (e.g., 'lockfile.schema.json')
@@ -404,62 +401,7 @@ export class LockfileManager {
    */
   private async removeLocalLockfileFromGitExclude(): Promise<void> {
     try {
-      const gitDir = path.join(this.repositoryPath, '.git');
-      if (!fs.existsSync(gitDir)) {
-        this.logger.debug('No .git directory found, skipping git exclude removal for local lockfile');
-        return;
-      }
-
-      const excludePath = path.join(gitDir, 'info', 'exclude');
-      if (!fs.existsSync(excludePath)) {
-        this.logger.debug('.git/info/exclude does not exist, nothing to remove');
-        return;
-      }
-
-      const content = await fs.promises.readFile(excludePath, 'utf8');
-
-      // Find the AI Primitives Hub section
-      const sectionHeader = '# Prompt Registry (local)';
-      const sectionIndex = content.indexOf(sectionHeader);
-
-      if (sectionIndex === -1) {
-        this.logger.debug('AI Primitives Hub section not found in git exclude');
-        return;
-      }
-
-      const beforeSection = content.substring(0, sectionIndex);
-      const afterHeaderIndex = sectionIndex + sectionHeader.length;
-      const remainingContent = content.substring(afterHeaderIndex);
-
-      // Find the end of our section (next section header or end of file)
-      const nextSectionMatch = remainingContent.match(/\n#[^\n]+/);
-      let sectionContent: string;
-      let afterSection = '';
-
-      if (nextSectionMatch && nextSectionMatch.index !== undefined) {
-        sectionContent = remainingContent.substring(0, nextSectionMatch.index);
-        afterSection = remainingContent.substring(nextSectionMatch.index);
-      } else {
-        sectionContent = remainingContent;
-      }
-
-      // Parse and filter entries - remove the local lockfile entry
-      const remainingEntries = sectionContent
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0 && line !== LOCAL_LOCKFILE_NAME);
-
-      // Rebuild content
-      const newContent: string = remainingEntries.length === 0
-        ? beforeSection.trimEnd() + afterSection
-        : beforeSection.trimEnd()
-          + (beforeSection.length > 0 ? '\n\n' : '')
-          + sectionHeader + '\n'
-          + remainingEntries.join('\n') + '\n'
-          + afterSection;
-
-      await fs.promises.writeFile(excludePath, newContent.trim() + '\n', 'utf8');
-      this.logger.debug('Removed local lockfile from git exclude');
+      await repositoryExclusion(this.repositoryPath).remove([this.getLocalLockfilePath()]);
     } catch (error) {
       // Log but don't throw - git exclude is optional
       this.logger.warn('Failed to remove local lockfile from git exclude:', error instanceof Error ? error : undefined);
@@ -563,61 +505,16 @@ export class LockfileManager {
 
   /**
    * Ensure the local lockfile is added to git exclude.
-   * Called when the local lockfile is first created.
+   * Called on every local-only write, so a local lockfile an earlier write
+   * left unexcluded gets excluded too.
    *
    * Requirements covered:
    * - 2.1: Add prompt-registry.local.lock.json to .git/info/exclude on creation
    */
   private async ensureLocalLockfileExcluded(): Promise<void> {
     try {
-      const gitDir = path.join(this.repositoryPath, '.git');
-      if (!fs.existsSync(gitDir)) {
-        this.logger.debug('No .git directory found, skipping git exclude for local lockfile');
-        return;
-      }
-
-      const excludePath = path.join(gitDir, 'info', 'exclude');
-      const excludeDir = path.dirname(excludePath);
-
-      // Ensure .git/info directory exists
-      if (!fs.existsSync(excludeDir)) {
-        await fs.promises.mkdir(excludeDir, { recursive: true });
-      }
-
-      // Read existing content
-      let content = '';
-      if (fs.existsSync(excludePath)) {
-        content = await fs.promises.readFile(excludePath, 'utf8');
-      }
-
-      // Check if local lockfile is already excluded
-      if (content.includes(LOCAL_LOCKFILE_NAME)) {
-        this.logger.debug('Local lockfile already in git exclude');
-        return;
-      }
-
-      // Add local lockfile to git exclude under AI Primitives Hub section
-      const sectionHeader = '# Prompt Registry (local)';
-      const sectionIndex = content.indexOf(sectionHeader);
-
-      let newContent: string;
-      if (sectionIndex === -1) {
-        // Create new section
-        const trimmedContent = content.trimEnd();
-        newContent = trimmedContent
-          + (trimmedContent.length > 0 ? '\n\n' : '')
-          + sectionHeader + '\n'
-          + LOCAL_LOCKFILE_NAME + '\n';
-      } else {
-        // Add to existing section
-        const afterHeaderIndex = sectionIndex + sectionHeader.length;
-        const beforeSection = content.substring(0, afterHeaderIndex);
-        const afterSection = content.substring(afterHeaderIndex);
-        newContent = beforeSection + '\n' + LOCAL_LOCKFILE_NAME + afterSection;
-      }
-
-      await fs.promises.writeFile(excludePath, newContent, 'utf8');
-      this.logger.debug('Added local lockfile to git exclude');
+      // The exclusion list skips a line it already has and does nothing outside a git work tree.
+      await repositoryExclusion(this.repositoryPath).add([this.getLocalLockfilePath()]);
     } catch (error) {
       // Log but don't throw - git exclude is optional
       this.logger.warn('Failed to add local lockfile to git exclude:', error instanceof Error ? error : undefined);
@@ -636,41 +533,176 @@ export class LockfileManager {
   }
 
   /**
-   * Check if any files in a bundle entry are missing from the filesystem.
-   * Uses async file access for consistency with async patterns.
-   * Handles I/O errors gracefully by logging a warning and assuming files exist.
-   * @param entry - The lockfile bundle entry to check
+   * Target type of the host editor, detected once: the type that locates
+   * an entry recording no `targetType`.
+   */
+  private hostType(): TargetType {
+    this.detectedHostType ??= detectHostApp();
+    return this.detectedHostType;
+  }
+
+  /**
+   * Compare an entry's files with the disk. The files are located with the
+   * writer of the target type that placed them (`entry.targetType`, else
+   * the host's), so a bundle-relative path the CLI recorded and a legacy
+   * workspace-relative one are both found, and a path outside the target
+   * root counts as missing. Files whose state can't be known are logged.
+   * @param bundleId - Bundle ID, for the log.
+   * @param entry - The lockfile bundle entry.
+   * @param commitMode - Commit mode of the lockfile holding the entry.
+   * @returns The inspection of the entry's files.
+   */
+  private async inspectEntryFiles(
+    bundleId: string,
+    entry: LockfileBundleEntry,
+    commitMode: RepositoryCommitMode
+  ): Promise<RecordedFilesInspection> {
+    const files = entry.files ?? [];
+    const located = await locateRecord(
+      createExtensionWriterFactory(this.repositoryPath),
+      repositoryTarget(this.repositoryPath, commitMode, this.hostType()),
+      { entry: { ...entry, files }, commitMode }
+    );
+    const inspection = await inspectRecordedFiles({ located, files, fs: new NodeFileSystem() });
+    if (inspection.unknown.length > 0) {
+      const reason = located.kind === 'unresolvable'
+        ? located.reason
+        : (located.kind === 'no-locate' ? `the writer of target type "${located.target.type}" cannot locate files` : 'the file could not be read');
+      this.logger.warn(`Cannot check ${inspection.unknown.length} file(s) of ${bundleId} (${reason}); treating them as present: ${inspection.unknown.join(', ')}`);
+    }
+    return inspection;
+  }
+
+  /**
+   * Whether any file of a bundle entry is missing from the filesystem.
+   * A file of unknown state counts as present.
+   * @param bundleId - Bundle ID, for the log.
+   * @param entry - The lockfile bundle entry to check.
+   * @param commitMode - Commit mode of the lockfile holding the entry.
    * @returns true if any file is missing, false otherwise
    *
    * Requirements covered:
-   * - 3.1: Verify that bundle files exist in .github/ directories
+   * - 3.1: Verify that bundle files exist where they were installed
    * - 3.2: Mark bundle with filesMissing flag if files are missing
    */
-  private async checkFilesMissing(entry: LockfileBundleEntry): Promise<boolean> {
+  private async checkFilesMissing(
+    bundleId: string,
+    entry: LockfileBundleEntry,
+    commitMode: RepositoryCommitMode
+  ): Promise<boolean> {
     if (!entry.files || entry.files.length === 0) {
       return false;
     }
+    return isRecordIncomplete(await this.inspectEntryFiles(bundleId, entry, commitMode));
+  }
 
-    for (const file of entry.files) {
-      const filePath = path.join(this.repositoryPath, file.path);
+  /**
+   * Reject an entry with a missing or invalid required field.
+   * @param bundleId - Bundle ID.
+   * @param entry - Entry to write.
+   * @param source - Source descriptor.
+   * @param commitMode - Target lockfile.
+   */
+  private validateEntry(
+    bundleId: string,
+    entry: LockfileBundleEntry,
+    source: LockfileSourceEntry,
+    commitMode: RepositoryCommitMode
+  ): void {
+    if (!bundleId || typeof bundleId !== 'string' || bundleId.trim() === '') {
+      throw new Error('bundleId is required and must be a non-empty string');
+    }
+    if (!entry.version || typeof entry.version !== 'string' || entry.version.trim() === '') {
+      throw new Error('version is required and must be a non-empty string');
+    }
+    if (!entry.sourceId || typeof entry.sourceId !== 'string' || entry.sourceId.trim() === '') {
+      throw new Error('sourceId is required and must be a non-empty string');
+    }
+    if (!entry.sourceType || typeof entry.sourceType !== 'string') {
+      throw new Error('sourceType is required and must be a string');
+    }
+    if (!Array.isArray(entry.files)) {
+      throw new Error('files must be an array');
+    }
+    if (!source || typeof source !== 'object') {
+      throw new Error('source is required and must be an object');
+    }
+    if (!source.type || !source.url) {
+      throw new Error('source must have type and url properties');
+    }
+    if (!commitMode || !['commit', 'local-only'].includes(commitMode)) {
+      throw new Error('commitMode must be either "commit" or "local-only"');
+    }
+  }
 
-      try {
-        await fs.promises.access(filePath, fs.constants.F_OK);
-      } catch (error) {
-        // Check if it's a "file not found" error vs other I/O errors
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          return true;
-        }
-        // Handle other I/O errors gracefully - log warning and assume files exist
-        this.logger.warn(
-          `Failed to check file existence for ${file.path}:`,
-          error instanceof Error ? error : undefined
-        );
-        // Per requirements: assume files exist on I/O error
-      }
+  /**
+   * Validate and write an entry, its source and optional hub/profile.
+   * @param bundleId - Bundle ID.
+   * @param entry - Entry to write.
+   * @param source - Source descriptor of `entry.sourceId`.
+   * @param commitMode - Target lockfile.
+   * @param extras - Hub and profile to record.
+   */
+  private async writeEntry(
+    bundleId: string,
+    entry: LockfileBundleEntry,
+    source: LockfileSourceEntry,
+    commitMode: RepositoryCommitMode,
+    extras: Pick<CreateOrUpdateOptions, 'hub' | 'profile'>
+  ): Promise<void> {
+    this.validateEntry(bundleId, entry, source, commitMode);
+
+    const targetLockfilePath = this.getLockfilePathForMode(commitMode);
+    const lockfile = await this.readLockfileByMode(commitMode) ?? this.createEmptyLockfile();
+
+    // Requirements 1.4, 1.5: commitMode is not included in bundle entries
+    const { commitMode: _implicitInFile, ...cleanEntry } = entry;
+    let updatedLockfile = upsertBundleEntry(lockfile, bundleId, cleanEntry);
+    updatedLockfile = upsertSource(updatedLockfile, entry.sourceId, source);
+
+    if (extras.hub) {
+      updatedLockfile.hubs = { ...updatedLockfile.hubs, [extras.hub.id]: extras.hub.entry };
+    }
+    if (extras.profile) {
+      updatedLockfile.profiles = { ...updatedLockfile.profiles, [extras.profile.id]: extras.profile.entry };
     }
 
-    return false;
+    updatedLockfile.generatedAt = new Date().toISOString();
+    await this.writeAtomicToPath(updatedLockfile, targetLockfilePath);
+
+    // Requirement 2.1: the local lockfile is kept out of git
+    if (commitMode === 'local-only') {
+      await this.ensureLocalLockfileExcluded();
+    }
+
+    this._onLockfileUpdated.fire(updatedLockfile);
+  }
+
+  /**
+   * Missing and modified files of an entry, in its file order.
+   * @param bundleId - Bundle ID, for the log.
+   * @param bundleEntry - The entry.
+   * @param commitMode - Commit mode of the lockfile holding it.
+   * @returns The modified file information.
+   */
+  private async modifiedFilesOf(
+    bundleId: string,
+    bundleEntry: LockfileBundleEntry,
+    commitMode: RepositoryCommitMode
+  ): Promise<ModifiedFileInfo[]> {
+    const inspection = await this.inspectEntryFiles(bundleId, bundleEntry, commitMode);
+    const missing = new Set(inspection.missing);
+    const modified = new Map(inspection.modified.map((m) => [m.path, m.currentChecksum]));
+    const modifiedFiles: ModifiedFileInfo[] = [];
+    for (const fileEntry of bundleEntry.files ?? []) {
+      const originalChecksum = fileEntry.installedChecksum ?? fileEntry.checksum;
+      if (missing.has(fileEntry.path)) {
+        modifiedFiles.push({ path: fileEntry.path, originalChecksum, currentChecksum: '', modificationType: 'missing' });
+      } else if (modified.has(fileEntry.path)) {
+        modifiedFiles.push({ path: fileEntry.path, originalChecksum, currentChecksum: modified.get(fileEntry.path)!, modificationType: 'modified' });
+      }
+    }
+    return modifiedFiles;
   }
 
   /**
@@ -685,6 +717,25 @@ export class LockfileManager {
    */
   public getLocalLockfilePath(): string {
     return path.join(this.repositoryPath, LOCAL_LOCKFILE_NAME);
+  }
+
+  /**
+   * Read a specific lockfile based on commit mode.
+   * Routes to the main lockfile for 'commit' mode and local lockfile for 'local-only' mode.
+   * @param commitMode - The commit mode to determine which lockfile to read
+   * @returns The lockfile object or null if it doesn't exist
+   *
+   * Requirements covered:
+   * - 3.1: Read from both Main_Lockfile and Local_Lockfile
+   */
+  public async readLockfileByMode(commitMode: RepositoryCommitMode): Promise<Lockfile | null> {
+    const lockfilePath = this.getLockfilePathForMode(commitMode);
+    try {
+      return await readLockfile(lockfilePath, lockfileFs);
+    } catch (error) {
+      this.logger.error(`Failed to read ${commitMode} lockfile:`, error instanceof Error ? error : undefined);
+      return null;
+    }
   }
 
   /**
@@ -756,35 +807,9 @@ export class LockfileManager {
    * - 1.2: Write commit bundles to prompt-registry.lock.json
    * - 1.4: Do not include commitMode field in local lockfile entries
    * - 1.5: Do not include commitMode field in main lockfile entries
-   * - 2.1: Add local lockfile to git exclude on first creation
+   * - 2.1: Add local lockfile to git exclude on local-only writes
    */
   public async createOrUpdate(options: CreateOrUpdateOptions): Promise<void> {
-    // Validate required fields
-    if (!options.bundleId || typeof options.bundleId !== 'string' || options.bundleId.trim() === '') {
-      throw new Error('bundleId is required and must be a non-empty string');
-    }
-    if (!options.version || typeof options.version !== 'string' || options.version.trim() === '') {
-      throw new Error('version is required and must be a non-empty string');
-    }
-    if (!options.sourceId || typeof options.sourceId !== 'string' || options.sourceId.trim() === '') {
-      throw new Error('sourceId is required and must be a non-empty string');
-    }
-    if (!options.sourceType || typeof options.sourceType !== 'string') {
-      throw new Error('sourceType is required and must be a string');
-    }
-    if (!Array.isArray(options.files)) {
-      throw new Error('files must be an array');
-    }
-    if (!options.source || typeof options.source !== 'object') {
-      throw new Error('source is required and must be an object');
-    }
-    if (!options.source.type || !options.source.url) {
-      throw new Error('source must have type and url properties');
-    }
-    if (!options.commitMode || !['commit', 'local-only'].includes(options.commitMode)) {
-      throw new Error('commitMode must be either "commit" or "local-only"');
-    }
-
     const {
       bundleId,
       version,
@@ -798,20 +823,6 @@ export class LockfileManager {
       checksum
     } = options;
 
-    // Determine target lockfile path based on commitMode
-    const targetLockfilePath = this.getLockfilePathForMode(commitMode);
-    const isLocalLockfile = commitMode === 'local-only';
-    const localLockfileExistedBefore = isLocalLockfile && fs.existsSync(targetLockfilePath);
-
-    // Read existing lockfile for the target mode or create new one
-    let lockfile = await this.readLockfileByMode(commitMode);
-
-    if (!lockfile) {
-      lockfile = this.createEmptyLockfile();
-    }
-
-    // Update bundle entry WITHOUT commitMode field (implicit based on file location)
-    // Requirements 1.4, 1.5: commitMode is not included in bundle entries
     const bundleEntry: LockfileBundleEntry = {
       version,
       sourceId,
@@ -820,41 +831,64 @@ export class LockfileManager {
       files,
       ...(checksum && { checksum })
     };
-    let updatedLockfile = upsertBundleEntry(lockfile, bundleId, bundleEntry);
+    await this.writeEntry(bundleId, bundleEntry, source, commitMode, { hub, profile });
+  }
 
-    // Update source entry
-    updatedLockfile = upsertSource(updatedLockfile, sourceId, source);
+  /**
+   * Write a bundle entry as given into the lockfile of `commitMode` and
+   * record its source under `entry.sourceId`. The entry keeps its key
+   * order; its deprecated `commitMode` field is dropped (implicit in the
+   * file). Uses the same validation and atomic write as
+   * {@link LockfileManager.createOrUpdate}; a local-only write also adds
+   * the local lockfile to git exclude.
+   * @param bundleId - Bundle ID (the `bundles` key).
+   * @param entry - Lockfile entry to write.
+   * @param source - Source descriptor of `entry.sourceId`.
+   * @param commitMode - Lockfile the entry is written to.
+   * @throws {Error} if required fields are missing or invalid, or the write fails
+   */
+  public async writeBundleEntry(
+    bundleId: string,
+    entry: LockfileBundleEntry,
+    source: LockfileSourceEntry,
+    commitMode: RepositoryCommitMode
+  ): Promise<void> {
+    await this.writeEntry(bundleId, entry, source, commitMode, {});
+  }
 
-    // Update hub entry if provided
-    if (hub) {
-      if (!updatedLockfile.hubs) {
-        updatedLockfile.hubs = {};
+  /**
+   * Remove a bundle from the lockfile of one commit mode only. Deletes the
+   * file when it becomes empty (and, for the local lockfile, its git
+   * exclude line). Does nothing when that file has no such bundle.
+   * @param bundleId - ID of the bundle to remove
+   * @param commitMode - Lockfile to remove it from
+   * @throws {Error} if writing the updated lockfile fails
+   */
+  public async removeFromMode(bundleId: string, commitMode: RepositoryCommitMode): Promise<void> {
+    const lockfile = await this.readLockfileByMode(commitMode);
+    if (lockfile && Object.prototype.hasOwnProperty.call(lockfile.bundles, bundleId)) {
+      await this.removeFromLockfileByMode(bundleId, lockfile, commitMode);
+    }
+  }
+
+  /**
+   * Put the lockfile of one commit mode back to a previous content, or
+   * delete it (and, for the local lockfile, its git exclude line) when it
+   * had none. Used to undo a write that a later step could not complete.
+   * @param commitMode - Lockfile to restore
+   * @param previous - Content to write back, `null` to delete the file
+   * @throws {Error} if writing the lockfile fails
+   */
+  public async restoreLockfileByMode(commitMode: RepositoryCommitMode, previous: Lockfile | null): Promise<void> {
+    if (previous === null) {
+      await this.deleteLockfileAtPath(this.getLockfilePathForMode(commitMode));
+      if (commitMode === 'local-only') {
+        await this.removeLocalLockfileFromGitExclude();
       }
-      updatedLockfile.hubs[hub.id] = hub.entry;
+    } else {
+      await this.writeAtomicToPath(previous, this.getLockfilePathForMode(commitMode));
     }
-
-    // Update profile entry if provided
-    if (profile) {
-      if (!updatedLockfile.profiles) {
-        updatedLockfile.profiles = {};
-      }
-      updatedLockfile.profiles[profile.id] = profile.entry;
-    }
-
-    // Update timestamp
-    updatedLockfile.generatedAt = new Date().toISOString();
-
-    // Write atomically to the target lockfile
-    await this.writeAtomicToPath(updatedLockfile, targetLockfilePath);
-
-    // If this is the first local-only bundle (local lockfile was just created),
-    // add it to git exclude
-    // Requirement 2.1: Add local lockfile to git exclude on creation
-    if (isLocalLockfile && !localLockfileExistedBefore) {
-      await this.ensureLocalLockfileExcluded();
-    }
-
-    this._onLockfileUpdated.fire(updatedLockfile);
+    this._onLockfileUpdated.fire(previous);
   }
 
   /**
@@ -891,59 +925,22 @@ export class LockfileManager {
   }
 
   /**
-   * Detect files that have been modified since installation
-   * Compares current file checksums against stored checksums
+   * Detect files that have been modified since installation.
+   * Reads the entry from the commit lockfile, else the local one, locates
+   * its files where they were installed and compares them with
+   * `installedChecksum ?? checksum`. A file of unknown state is not reported.
    * @param bundleId - ID of the bundle to check
-   * @returns Array of modified file information
+   * @returns Array of modified file information, in the entry's file order
    */
   public async detectModifiedFiles(bundleId: string): Promise<ModifiedFileInfo[]> {
-    const lockfile = await this.read();
-
-    if (!lockfile || !lockfile.bundles[bundleId]) {
-      return [];
-    }
-
-    const bundleEntry = lockfile.bundles[bundleId];
-    const modifiedFiles: ModifiedFileInfo[] = [];
-
-    for (const fileEntry of bundleEntry.files) {
-      const filePath = path.join(this.repositoryPath, fileEntry.path);
-
-      try {
-        if (!fs.existsSync(filePath)) {
-          // File is missing
-          modifiedFiles.push({
-            path: fileEntry.path,
-            originalChecksum: fileEntry.checksum,
-            currentChecksum: '',
-            modificationType: 'missing'
-          });
-          continue;
-        }
-
-        // Calculate current checksum using the utility directly
-        const currentChecksum = await calculateFileChecksum(filePath);
-
-        if (currentChecksum !== fileEntry.checksum) {
-          modifiedFiles.push({
-            path: fileEntry.path,
-            originalChecksum: fileEntry.checksum,
-            currentChecksum,
-            modificationType: 'modified'
-          });
-        }
-      } catch (error) {
-        this.logger.warn(`Failed to check file ${fileEntry.path}:`, error instanceof Error ? error : undefined);
-        modifiedFiles.push({
-          path: fileEntry.path,
-          originalChecksum: fileEntry.checksum,
-          currentChecksum: '',
-          modificationType: 'missing'
-        });
+    for (const mode of ['commit', 'local-only'] as const) {
+      const lockfile = await this.readLockfileByMode(mode);
+      const bundleEntry = lockfile?.bundles[bundleId];
+      if (bundleEntry) {
+        return this.modifiedFilesOf(bundleId, bundleEntry, mode);
       }
     }
-
-    return modifiedFiles;
+    return [];
   }
 
   /**
@@ -981,48 +978,28 @@ export class LockfileManager {
     const bundleEntry = sourceLockfile.bundles[bundleId];
     const sourceEntry = sourceLockfile.sources[bundleEntry.sourceId];
 
-    // Remove from source lockfile first (atomic removal)
-    await this.removeFromLockfileByMode(bundleId, sourceLockfile, currentMode);
-
-    // Add to target lockfile
-    // Read or create target lockfile
-    let targetLockfile = await this.readLockfileByMode(newMode);
-    const targetLockfilePath = this.getLockfilePathForMode(newMode);
-    const isTargetLocalLockfile = newMode === 'local-only';
-    const targetLockfileExistedBefore = fs.existsSync(targetLockfilePath);
-
-    if (!targetLockfile) {
-      targetLockfile = this.createEmptyLockfile();
-    }
-
-    // Add bundle entry to target lockfile (without commitMode field - implicit based on file)
-    // Create a clean copy without commitMode to ensure it's not included
-    const cleanBundleEntry: LockfileBundleEntry = {
-      version: bundleEntry.version,
-      sourceId: bundleEntry.sourceId,
-      sourceType: bundleEntry.sourceType,
-      installedAt: bundleEntry.installedAt,
-      files: bundleEntry.files,
-      ...(bundleEntry.checksum && { checksum: bundleEntry.checksum })
-    };
+    // Every field moves (targetType, installedPath, installedChecksum …);
+    // commitMode is implicit in the target file.
+    const { commitMode: _implicitInFile, ...cleanBundleEntry } = bundleEntry;
+    const targetLockfile = await this.readLockfileByMode(newMode) ?? this.createEmptyLockfile();
     let updatedTargetLockfile = upsertBundleEntry(targetLockfile, bundleId, cleanBundleEntry);
 
     // Copy source entry to target lockfile if not already present
     if (sourceEntry && !updatedTargetLockfile.sources[bundleEntry.sourceId]) {
       updatedTargetLockfile = upsertSource(updatedTargetLockfile, bundleEntry.sourceId, sourceEntry);
     }
-
-    // Update timestamp
     updatedTargetLockfile.generatedAt = new Date().toISOString();
 
-    // Write target lockfile atomically
-    await this.writeAtomicToPath(updatedTargetLockfile, targetLockfilePath);
+    // Written first, removed second: a failed write leaves the entry where it was.
+    await this.writeAtomicToPath(updatedTargetLockfile, this.getLockfilePathForMode(newMode));
 
-    // Handle git exclude for local lockfile
     // Requirement 4.4: Add to git exclude when moving to local-only
-    if (isTargetLocalLockfile && !targetLockfileExistedBefore) {
+    if (newMode === 'local-only') {
       await this.ensureLocalLockfileExcluded();
     }
+
+    // Requirement 4.5: removing the last entry deletes the source file (and its exclusion)
+    await this.removeFromLockfileByMode(bundleId, sourceLockfile, currentMode);
 
     // Emit event with the target lockfile
     this._onLockfileUpdated.fire(updatedTargetLockfile);
@@ -1089,7 +1066,7 @@ export class LockfileManager {
     if (mainLockfile) {
       for (const [bundleId, entry] of Object.entries(mainLockfile.bundles)) {
         seenIds.add(bundleId);
-        const filesMissing = await this.checkFilesMissing(entry);
+        const filesMissing = await this.checkFilesMissing(bundleId, entry, 'commit');
         // Create bundle with commitMode: 'commit' (from main lockfile)
         // TODO: installPath should point to the bundle cache in global storage, not .github
         // The .github directory is where files are synced, not where the bundle is installed.
@@ -1115,7 +1092,7 @@ export class LockfileManager {
           );
           continue;
         }
-        const filesMissing = await this.checkFilesMissing(entry);
+        const filesMissing = await this.checkFilesMissing(bundleId, entry, 'local-only');
         // Create bundle with commitMode: 'local-only' (from local lockfile)
         const installedBundle = createInstalledBundleFromLockfile(bundleId, entry, {
           installPath: path.join(this.repositoryPath, '.github'),
@@ -1187,7 +1164,8 @@ export function createInstalledBundleFromLockfile(
     sourceId: bundleEntry.sourceId,
     sourceType: bundleEntry.sourceType,
     commitMode,
-    filesMissing: options?.filesMissing
+    filesMissing: options?.filesMissing,
+    ...(bundleEntry.targetType === undefined ? {} : { targetType: bundleEntry.targetType })
   };
 }
 

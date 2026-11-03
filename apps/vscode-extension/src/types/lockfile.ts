@@ -7,9 +7,19 @@
  * - Local modification detection via checksums
  */
 
-import {
-  RepositoryCommitMode,
-} from './registry';
+import type {
+  LockfileBundleEntry,
+} from '@ai-primitives-hub/app';
+
+/**
+ * Bundle and file entries are the shared `app` types, so an entry the CLI
+ * wrote (bundle-relative `path`, `installedPath`, `installedChecksum`,
+ * `targetType`) reads and writes back unchanged.
+ */
+export type {
+  LockfileBundleEntry,
+  LockfileFileEntry,
+} from '@ai-primitives-hub/app';
 
 /**
  * Root lockfile structure
@@ -31,42 +41,6 @@ export interface Lockfile {
   hubs?: Record<string, LockfileHubEntry>;
   /** Optional map of profile IDs to their configuration */
   profiles?: Record<string, LockfileProfileEntry>;
-}
-
-/**
- * Bundle entry in the lockfile
- */
-export interface LockfileBundleEntry {
-  /** Semantic version of the installed bundle */
-  version: string;
-  /** ID of the source this bundle was installed from */
-  sourceId: string;
-  /** Type of the source (github, local, etc.) */
-  sourceType: string;
-  /** ISO timestamp when bundle was installed */
-  installedAt: string;
-  /**
-   * Whether files are committed to Git or excluded.
-   * DEPRECATED: This field is now implicit based on which lockfile contains the entry.
-   * - Entries in prompt-registry.lock.json are implicitly 'commit' mode
-   * - Entries in prompt-registry.local.lock.json are implicitly 'local-only' mode
-   * This field may still be present in existing lockfiles for backward compatibility.
-   */
-  commitMode?: RepositoryCommitMode;
-  /** Optional checksum of the bundle archive */
-  checksum?: string;
-  /** List of installed files with their checksums */
-  files: LockfileFileEntry[];
-}
-
-/**
- * File entry within a bundle
- */
-export interface LockfileFileEntry {
-  /** Relative path from repository root */
-  path: string;
-  /** SHA256 checksum of the file contents */
-  checksum: string;
 }
 
 /**

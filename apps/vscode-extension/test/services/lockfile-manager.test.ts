@@ -11,16 +11,20 @@
  */
 
 import * as assert from 'node:assert';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  createInstalledBundleFromLockfile,
   CreateOrUpdateOptions,
   LockfileManager,
 } from '../../src/services/lockfile-manager';
 import {
   Lockfile,
+  LockfileBundleEntry,
 } from '../../src/types/lockfile';
 import {
   calculateFileChecksum,
@@ -28,6 +32,9 @@ import {
 import {
   Logger,
 } from '../../src/utils/logger';
+import {
+  createRepositoryWithWorktree,
+} from '../helpers/git-test-helpers';
 import {
   createMockFileEntry,
   createMockHubEntry,
@@ -2009,6 +2016,240 @@ suite('LockfileManager', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       assert.strictEqual(externalEvents.length, 3, 'Subsequent external delete must fire null');
       assert.strictEqual(externalEvents[2], null);
+    });
+  });
+
+  suite('recorded files located through the shared app rules', () => {
+    const localLockfilePath = () => path.join(tempDir, 'prompt-registry.local.lock.json');
+    const sha256 = (content: string): string => crypto.createHash('sha256').update(content).digest('hex');
+    const writeWorkspaceFile = (relativePath: string, content: string): string => {
+      const absolute = path.join(tempDir, ...relativePath.split('/'));
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, content);
+      return absolute;
+    };
+    const lockfileWith = (bundleId: string, entry: LockfileBundleEntry): Lockfile => ({
+      ...LockfileBuilder.create().withSource(entry.sourceId, entry.sourceType, 'https://github.com/owner/repo').build(),
+      bundles: { [bundleId]: entry }
+    });
+    const writeLocalLockfile = (lockfile: Lockfile): void => {
+      fs.writeFileSync(localLockfilePath(), JSON.stringify(lockfile, null, 2));
+    };
+    const readLocalLockfileFromDisk = (): Lockfile | null =>
+      (fs.existsSync(localLockfilePath()) ? JSON.parse(fs.readFileSync(localLockfilePath(), 'utf8')) : null);
+    /**
+     * A repository entry as the CLI writes it for a vscode target, with its files under `.github/`.
+     * @returns The entry.
+     */
+    const cliVscodeEntry = (): LockfileBundleEntry => {
+      writeWorkspaceFile('.github/plugins/demo-plugin/plugin.json', '{"name":"demo-plugin"}');
+      writeWorkspaceFile('.github/prompts/hello.prompt.md', '# Hello');
+      return {
+        version: '1.0.0',
+        sourceId: 'local-demo',
+        sourceType: 'local',
+        installedAt: '2024-01-01T00:00:00.000Z',
+        targetType: 'vscode',
+        files: [
+          { path: 'plugins/demo-plugin/plugin.json', checksum: sha256('{"name":"demo-plugin"}') },
+          { path: 'prompts/hello.prompt.md', checksum: sha256('# Hello'), installedPath: 'prompts/hello.prompt.md' }
+        ]
+      };
+    };
+    const kiroEntry = (): LockfileBundleEntry => {
+      writeWorkspaceFile('.kiro/steering/hello.prompt.md', '# Hello (kiro)');
+      return {
+        version: '1.0.0',
+        sourceId: 'kiro-source',
+        sourceType: 'github',
+        installedAt: '2024-01-01T00:00:00.000Z',
+        targetType: 'kiro',
+        files: [
+          { path: 'prompts/hello.prompt.md', checksum: sha256('# Hello'), installedChecksum: sha256('# Hello (kiro)'), installedPath: 'steering/hello.prompt.md' }
+        ]
+      };
+    };
+    const filesMissingOf = async (bundleId: string): Promise<boolean | undefined> => {
+      const bundles = await LockfileManager.getInstance(tempDir).getInstalledBundles();
+      return bundles.find((b) => b.bundleId === bundleId)?.filesMissing;
+    };
+
+    test('a CLI-written entry whose files exist under .github/ is not missing files', async () => {
+      writeLockfile(lockfileWith('demo', cliVscodeEntry()));
+
+      assert.strictEqual(await filesMissingOf('demo'), false);
+    });
+
+    test('a CLI-written entry with one deleted file is missing files', async () => {
+      writeLockfile(lockfileWith('demo', cliVscodeEntry()));
+      fs.unlinkSync(path.join(tempDir, '.github', 'prompts', 'hello.prompt.md'));
+
+      assert.strictEqual(await filesMissingOf('demo'), true);
+    });
+
+    test('a legacy workspace-relative entry whose file exists is not missing files', async () => {
+      writeWorkspaceFile('.github/prompts/old-prompt.prompt.md', '# Old');
+      writeLockfile(lockfileWith('legacy', {
+        version: '1.0.0', sourceId: 's', sourceType: 'github', installedAt: '2024-01-01T00:00:00.000Z',
+        files: [{ path: '.github/prompts/old-prompt.prompt.md', checksum: sha256('# Old') }]
+      }));
+
+      assert.strictEqual(await filesMissingOf('legacy'), false);
+    });
+
+    test('an entry recording a path outside the workspace is missing files even when that file exists', async () => {
+      const outside = path.join(tempDir, '..', 'ext', 'global', 'bundles', 'x', 'plugin.json');
+      fs.mkdirSync(path.dirname(outside), { recursive: true });
+      fs.writeFileSync(outside, '{}');
+      try {
+        writeLockfile(lockfileWith('cache-path', {
+          version: '1.0.0', sourceId: 's', sourceType: 'github', installedAt: '2024-01-01T00:00:00.000Z',
+          files: [{ path: '../ext/global/bundles/x/plugin.json', checksum: sha256('{}') }]
+        }));
+
+        assert.strictEqual(await filesMissingOf('cache-path'), true);
+      } finally {
+        fs.rmSync(path.join(tempDir, '..', 'ext'), { recursive: true, force: true });
+      }
+    });
+
+    test('a kiro entry read on a VS Code host locates its files under .kiro/', async () => {
+      writeLockfile(lockfileWith('kiro-bundle', kiroEntry()));
+
+      assert.strictEqual(await filesMissingOf('kiro-bundle'), false);
+    });
+
+    test('detectModifiedFiles compares the located file with installedChecksum', async () => {
+      writeLockfile(lockfileWith('kiro-bundle', kiroEntry()));
+      const manager = LockfileManager.getInstance(tempDir);
+
+      assert.deepStrictEqual(await manager.detectModifiedFiles('kiro-bundle'), []);
+
+      fs.writeFileSync(path.join(tempDir, '.kiro', 'steering', 'hello.prompt.md'), '# Edited');
+      const modified = await manager.detectModifiedFiles('kiro-bundle');
+      assert.deepStrictEqual(modified, [{
+        path: 'prompts/hello.prompt.md',
+        originalChecksum: sha256('# Hello (kiro)'),
+        currentChecksum: sha256('# Edited'),
+        modificationType: 'modified'
+      }]);
+    });
+
+    test('detectModifiedFiles reports files of a local-only entry', async () => {
+      writeLocalLockfile(lockfileWith('demo', cliVscodeEntry()));
+      fs.writeFileSync(path.join(tempDir, '.github', 'prompts', 'hello.prompt.md'), '# Edited');
+      fs.unlinkSync(path.join(tempDir, '.github', 'plugins', 'demo-plugin', 'plugin.json'));
+
+      const modified = await LockfileManager.getInstance(tempDir).detectModifiedFiles('demo');
+
+      assert.deepStrictEqual(modified.map((m) => [m.path, m.modificationType]), [
+        ['plugins/demo-plugin/plugin.json', 'missing'],
+        ['prompts/hello.prompt.md', 'modified']
+      ]);
+    });
+
+    test('updateCommitMode keeps targetType, installedPath and installedChecksum and drops commitMode', async () => {
+      const entry: LockfileBundleEntry = { ...kiroEntry(), commitMode: 'commit' };
+      writeLockfile(lockfileWith('kiro-bundle', entry));
+
+      await LockfileManager.getInstance(tempDir).updateCommitMode('kiro-bundle', 'local-only');
+
+      const moved = readLocalLockfileFromDisk()?.bundles['kiro-bundle'];
+      const { commitMode: _dropped, ...expected } = entry;
+      assert.deepStrictEqual(moved, expected);
+      assert.strictEqual(readLockfileFromDisk(), null, 'the entry leaves the commit lockfile');
+    });
+
+    test('updateCommitMode leaves the entry in the source lockfile when the target write fails', async () => {
+      writeLockfile(lockfileWith('demo', cliVscodeEntry()));
+      const rename = fs.promises.rename.bind(fs.promises);
+      sandbox.stub(fs.promises, 'rename').callsFake(async (from, to) => {
+        if (to === localLockfilePath()) {
+          throw new Error('EACCES: target lockfile not writable');
+        }
+        return rename(from, to);
+      });
+
+      await assert.rejects(
+        LockfileManager.getInstance(tempDir).updateCommitMode('demo', 'local-only'),
+        /target lockfile not writable/
+      );
+
+      assert.ok(readLockfileFromDisk()?.bundles.demo, 'the entry stays in the commit lockfile');
+      assert.strictEqual(readLocalLockfileFromDisk(), null);
+    });
+
+    test('createInstalledBundleFromLockfile copies targetType', () => {
+      const bundle = createInstalledBundleFromLockfile('kiro-bundle', kiroEntry());
+
+      assert.strictEqual(bundle.targetType, 'kiro');
+    });
+
+    test('writeBundleEntry writes the entry as given, without commitMode, and records its source', async () => {
+      const entry: LockfileBundleEntry = {
+        version: '1.0.0',
+        sourceId: 'local-demo',
+        sourceType: 'local',
+        installedAt: '2024-01-01T00:00:00.000Z',
+        targetType: 'vscode',
+        commitMode: 'commit',
+        checksum: 'abc',
+        files: [{ path: 'prompts/hello.prompt.md', checksum: 'def', installedPath: 'prompts/hello.prompt.md' }]
+      };
+
+      await LockfileManager.getInstance(tempDir).writeBundleEntry('demo', entry, { type: 'local', url: 'local:local-demo' }, 'commit');
+
+      const written = readLockfileFromDisk();
+      const { commitMode: _dropped, ...expected } = entry;
+      assert.strictEqual(JSON.stringify(written?.bundles.demo), JSON.stringify(expected));
+      assert.deepStrictEqual(written?.sources['local-demo'], { type: 'local', url: 'local:local-demo' });
+    });
+
+    test('writeBundleEntry rejects an entry without a sourceId before writing', async () => {
+      const entry: LockfileBundleEntry = { ...cliVscodeEntry(), sourceId: '' };
+
+      await assert.rejects(
+        LockfileManager.getInstance(tempDir).writeBundleEntry('demo', entry, { type: 'local', url: 'local:x' }, 'commit'),
+        /sourceId is required/
+      );
+      assert.strictEqual(readLockfileFromDisk(), null);
+    });
+
+    suite('local lockfile exclusion', () => {
+      let baseDir: string;
+
+      setup(() => {
+        baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lockfile-exclude-'));
+      });
+
+      teardown(() => {
+        LockfileManager.resetInstance();
+        fs.rmSync(baseDir, { recursive: true, force: true });
+      });
+
+      test('the first local-only write in a git worktree excludes the local lockfile in the main repository', async () => {
+        const { mainRepo, worktree } = createRepositoryWithWorktree(baseDir);
+
+        await LockfileManager.getInstance(worktree).writeBundleEntry(
+          'demo', { ...cliVscodeEntry(), sourceId: 'local-demo' }, { type: 'local', url: 'local:local-demo' }, 'local-only'
+        );
+
+        const exclude = fs.readFileSync(path.join(mainRepo, '.git', 'info', 'exclude'), 'utf8');
+        assert.ok(exclude.split('\n').includes('prompt-registry.local.lock.json'), exclude);
+        assert.ok(fs.statSync(path.join(worktree, '.git')).isFile(), 'the worktree keeps its .git file');
+      });
+
+      test('a local-only write in a folder that is not a git repository creates no .git', async () => {
+        const workspace = path.join(baseDir, 'plain');
+        fs.mkdirSync(workspace);
+
+        await LockfileManager.getInstance(workspace).writeBundleEntry(
+          'demo', cliVscodeEntry(), { type: 'local', url: 'local:local-demo' }, 'local-only'
+        );
+
+        assert.ok(fs.existsSync(path.join(workspace, 'prompt-registry.local.lock.json')));
+        assert.ok(!fs.existsSync(path.join(workspace, '.git')));
+      });
     });
   });
 });
