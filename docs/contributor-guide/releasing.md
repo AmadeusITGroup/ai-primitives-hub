@@ -173,6 +173,14 @@ and CI run. Before completing the release, manually create a remediation
 backlog issue with the advisory IDs and release context. Track updating,
 replacing, or removing the affected dependency promptly.
 
+## Security Scanner Release Gate
+
+Before releasing scanner changes, verify the rule-pack version/digest and
+document compatibility coverage or deviations, redaction, fail-closed CI
+examples, resource limits, cancellation, and report writes. Smoke-test the
+packaged CLI and VSIX without Python, including the isolated worker.
+Follow [Security Scanner Maintenance](./security-scanner-maintenance.md).
+
 ## Pre-release Testing
 
 Test locally before releasing:

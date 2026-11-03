@@ -9,11 +9,13 @@ module.exports = {
     delete: async () => undefined
   },
   workspace: {
+    isTrusted: true,
     workspaceFolders: undefined,
     textDocuments: [],
     onDidChangeTextDocument: () => ({ dispose: () => {} }),
     onDidOpenTextDocument: () => ({ dispose: () => {} }),
     onDidSaveTextDocument: () => ({ dispose: () => {} }),
+    onDidCloseTextDocument: () => ({ dispose: () => {} }),
     onDidChangeConfiguration: () => ({ dispose: () => {} }),
     openTextDocument: async (uriOrOptions) => ({
       uri: uriOrOptions?.fsPath ? uriOrOptions : { fsPath: '/mock/hub-config.yml', scheme: 'file' },
@@ -120,6 +122,13 @@ module.exports = {
       show: () => undefined,
       dispose: () => undefined
     }),
+    createStatusBarItem: () => ({
+      text: '',
+      tooltip: '',
+      show: () => undefined,
+      hide: () => undefined,
+      dispose: () => undefined
+    }),
     withProgress: async (options, task) => {
       const progress = { report: () => undefined };
       return await task(progress);
@@ -201,6 +210,7 @@ module.exports = {
     Information: 2,
     Hint: 3
   },
+  StatusBarAlignment: { Left: 1, Right: 2 },
   Diagnostic: class {
     constructor(range, message, severity = 0) {
       this.range = range;

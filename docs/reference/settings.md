@@ -28,6 +28,20 @@ This document describes all configuration settings available for the AI Primitiv
 
 > **Note:** Repository-level installation is selected via the installation dialog, not this setting. When installing a bundle, you'll be prompted to choose between Repository (Commit), Repository (Local Only), or User Profile. See [Repository Installation](../user-guide/repository-installation.md) for details.
 
+## Security Scanning Settings
+
+Automatic scanning is enabled only for trusted local workspaces and local
+Markdown documents. See [Security Scanning](../user-guide/security-scanning.md).
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `promptregistry.security.scanOnOpen` | boolean | `true` | Scan Markdown documents when opened. |
+| `promptregistry.security.scanOnSave` | boolean | `true` | Scan Markdown documents after saving. |
+| `promptregistry.security.minimumSeverity` | string | `"INFO"` | Show findings at or above `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`. |
+| `promptregistry.security.includeLlmControls` | boolean | `false` | Enable missing LLM-control and human-approval checks. |
+| `promptregistry.security.showInfoControls` | boolean | `true` | Include informational findings when LLM controls are enabled. |
+| `promptregistry.security.debounceMs` | number | `300` | Coalesce automatic scans; range `100` to `5000` ms. |
+
 ## GitHub Settings
 
 ### `promptregistry.githubToken`

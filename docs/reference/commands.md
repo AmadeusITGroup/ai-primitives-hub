@@ -12,6 +12,21 @@ The command is metadata-only by default: it never downloads archives or publishe
 
 `--cache-dir`, `--workers`, and `--request-budget` control persistent metadata/archive reuse, concurrency, and the GitHub request ceiling. Cache files are atomically written with directory mode 700 and file mode 600. No GitHub fallback client or `gh` CLI is used by production replication.
 
+## Security Scanning
+
+`ai-primitives-hub security scan [PATH...] [--ci] [--fail-on HIGH]`
+
+Scans Markdown artifacts and Claude settings without executing them. Reports
+are opt-in; secret evidence is redacted. See the [scanner reference](./security-scanner.md)
+for options, failure policies, and exit codes.
+
+| Command ID | Command Palette title |
+|---|---|
+| `promptregistry.securityScanFile` | Security Scan Current File |
+| `promptregistry.securityScanWorkspace` | Security Scan Workspace |
+| `promptregistry.securityShowLastReport` | Show Last Security Report |
+| `promptregistry.securityClearDiagnostics` | Clear Security Diagnostics |
+
 ## Bundle Install (CLI)
 
 `ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] --target <target> [--skip-unsupported]`

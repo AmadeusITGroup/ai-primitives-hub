@@ -50,6 +50,9 @@ import {
   ScaffoldCommand,
 } from './commands/scaffold-command';
 import {
+  SecurityScanCommands,
+} from './commands/security-scan-commands';
+import {
   SettingsCommands,
 } from './commands/settings-commands';
 import {
@@ -540,6 +543,7 @@ export class PromptRegistryExtension {
    * Register all extension commands
    */
   private registerCommands(): void {
+    this.disposables.push(new SecurityScanCommands().register());
     // Initialize Command Handlers
     this.profileCommands = new ProfileCommands(this.registryManager);
     this.sourceCommands = new SourceCommands(this.registryManager);

@@ -26,6 +26,7 @@ export * from './update';
 export * from './registry';
 export * from './release';
 export * from './search';
+export * from './security';
 export * from './transform';
 export * from './replicate/replicate';
 
