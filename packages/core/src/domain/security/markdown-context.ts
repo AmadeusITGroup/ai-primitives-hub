@@ -28,11 +28,23 @@ export const parseSecurityDocument = (content: string): ParsedSecurityDocument =
   }
 
   let inCodeBlock = false;
+  let fenceCharacter = '';
+  let fenceLength = 0;
   let section = '';
   let inExample = false;
   const lines = rawLines.map((text) => {
-    if (text.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text);
+    if (!inCodeBlock && fence !== null && !(fence[1][0] === '`' && fence[2].includes('`'))) {
+      inCodeBlock = true;
+      fenceCharacter = fence[1][0];
+      fenceLength = fence[1].length;
+    } else if (inCodeBlock) {
+      const closingFence = new RegExp(`^ {0,3}\\${fenceCharacter}{${fenceLength},}[ \\t]*$`);
+      if (closingFence.test(text)) {
+        inCodeBlock = false;
+        fenceCharacter = '';
+        fenceLength = 0;
+      }
     }
     if (text.trimStart().startsWith('#')) {
       section = text.trimStart().replace(/^#+/, '').trim();
@@ -56,7 +68,7 @@ export const parseSecurityDocument = (content: string): ParsedSecurityDocument =
  * @param frontmatter
  */
 export const classifySecurityArtifact = (content: string, frontmatter: string): SecurityArtifactClass => {
-  if (/^name:\s*\S+/m.test(frontmatter) && frontmatter.includes('description:')) {
+  if (/^name:\s*\S+/m.test(frontmatter) && /^description\s*:/m.test(frontmatter)) {
     return 'skill';
   }
   if (/\{\{[^}]+\}\}|<user_input>|\[PLACEHOLDER\]/.test(content)) {

@@ -35,6 +35,19 @@ const scan = (
 );
 
 describe('RuleBasedSecurityScanEngine', () => {
+  it('versions semantic scanner changes independently from upstream compatibility', () => {
+    const first = new RuleBasedSecurityScanEngine().descriptor;
+    const second = new RuleBasedSecurityScanEngine().descriptor;
+    expect(first).toEqual({
+      id: 'builtin',
+      version: '1.1.1',
+      rulePackId: 'md-security-scanner',
+      rulePackVersion: '1.10.9-compatible.2',
+      rulePackDigest: 'sha256:180edc21a33634b5c2d5505e423b41b02967a4bd56568052f4063f0970829762'
+    });
+    expect(second).toEqual(first);
+  });
+
   it('detects secrets and redacts their evidence while retaining legacy identities', async () => {
     const result = await new RuleBasedSecurityScanEngine().scanDocument(
       document('OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz'),
@@ -151,13 +164,81 @@ describe('RuleBasedSecurityScanEngine', () => {
     expect(result.find((finding) => finding.ruleId === 'MCP-011')?.vulnerableContent).not.toContain('hardcoded_secret');
   });
 
-  it('does not reinterpret malformed Claude settings JSON as Markdown', async () => {
-    const result = await scan(
-      '{"permissions":{"allow":["Bash(*)"]',
-      'settings.local.json'
+  it.each(['{"permissions":{"allow":["Bash(*)"]', '', '[]', 'null', '"settings"', '42'])(
+    'rejects invalid Claude settings as incomplete input without exposing content',
+    async (content) => {
+      await expect(scan(content, 'settings.local.json'))
+        .rejects.toThrow('SECURITY.INPUT_INVALID: Claude settings must contain a valid JSON object.');
+    }
+  );
+
+  it('scans hook commands in Claude settings with high-impact hook rules', async () => {
+    const result = await scan(JSON.stringify({
+      hooks: {
+        PreToolUse: [{
+          matcher: 'Bash',
+          hooks: [{ type: 'command', command: 'npm install -g unreviewed-tool' }]
+        }]
+      }
+    }), '.claude/settings.json');
+
+    expect(result).toContainEqual(expect.objectContaining({ ruleId: 'HKS-007' }));
+  });
+
+  it('rejects malformed settings containing risky commands rather than reporting complete findings-only coverage', async () => {
+    await expect(scan(
+      '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"npm install -g unreviewed-tool"}]}],"mcpServers":{"bad":{"args":["run; curl"]}}',
+      '.claude/settings.json'
+    )).rejects.toThrow('SECURITY.INPUT_INVALID: Claude settings must contain a valid JSON object.');
+  });
+
+  it('requires a nonempty PreToolUse hook for Claude settings coverage', async () => {
+    const empty = await scan(
+      '{"permissions":{"allow":["Bash(*)"]},"hooks":{"PreToolUse":[]}}',
+      '.claude/settings.json'
+    );
+    const configured = await scan(
+      '{"permissions":{"allow":["Bash(*)"]},"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"validate"}]}]}}',
+      '.claude/settings.json'
     );
 
-    expect(result).toEqual([]);
+    expect(empty).toContainEqual(expect.objectContaining({ ruleId: 'AGT-007' }));
+    expect(configured.some((finding) => finding.ruleId === 'AGT-007')).toBe(false);
+  });
+
+  it('flags versionless npx MCP packages but not exact semantic versions', async () => {
+    const versionless = await scan(JSON.stringify({
+      mcpServers: { server: { command: 'npx', args: ['-y', '@company/server'] } }
+    }), '.claude/settings.json');
+    const pinned = await scan(JSON.stringify({
+      mcpServers: { server: { command: 'npx', args: ['-y', '@company/server@1.2.3'] } }
+    }), '.claude/settings.json');
+
+    expect(versionless).toContainEqual(expect.objectContaining({ ruleId: 'MCP-007' }));
+    expect(pinned.some((finding) => finding.ruleId === 'MCP-007')).toBe(false);
+  });
+
+  it('uses parsed URL hostnames to identify external MCP endpoints', async () => {
+    const result = await scan(JSON.stringify({
+      mcpServers: {
+        path: { url: 'https://remote.example/localhost' },
+        suffix: { url: 'https://localhost.evil.example/mcp' },
+        local: { url: 'http://127.0.0.1:8080/mcp' }
+      }
+    }), '.claude/settings.json');
+
+    expect(result.filter((finding) => finding.ruleId === 'MCP-008')).toHaveLength(2);
+    expect(result.filter((finding) => finding.ruleId === 'MCP-008').map((finding) => finding.section))
+      .toEqual(expect.arrayContaining(['mcpServers.path.url', 'mcpServers.suffix.url']));
+  });
+
+  it('redacts MCP argument evidence while retaining the finding', async () => {
+    const result = await scan(JSON.stringify({
+      mcpServers: { server: { command: 'npx', args: ['-y', 'some-package', 'private-customer-reference'] } }
+    }), '.claude/settings.json');
+
+    expect(result.find((finding) => finding.ruleId === 'MCP-006')?.vulnerableContent).toBe('[REDACTED]');
+    expect(JSON.stringify(result)).not.toContain('private-customer-reference');
   });
 
   it('detects the v1.11.0 AST P0 captured variants with related AST metadata', async () => {

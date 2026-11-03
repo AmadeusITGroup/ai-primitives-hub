@@ -113,10 +113,26 @@ describe('runSecurityScan', () => {
   it('assembles findings, coverage, policy, and engine metadata', async () => {
     const result = await runSecurityScan({ input: new StubInput(), engine: new StubEngine(), clock, cancellation, request, limits, failOn: 'HIGH' });
     expect(result.complete).toBe(true);
-    expect(result.findings).toEqual([finding]);
+    expect(result.findings).toEqual([{ ...finding, rootId: document.rootId }]);
     expect(result.summary.active.total).toBe(1);
     expect(result.summary.policy).toEqual({ failOn: 'HIGH', passed: false, blocking: ['CRITICAL'] });
     expect(result.engine.id).toBe('stub');
+  });
+
+  it('attributes rootless engine findings to their scanned document, not every matching basename', async () => {
+    const secondCandidate = { ...candidate, id: '/other/a.md', rootId: '/other', absolutePath: '/other/a.md' };
+    const input: SecurityScanInput = {
+      collect: async () => ({
+        candidates: [candidate, secondCandidate], ignoredFiles: [], skippedFiles: [], errors: [], warnings: [],
+        suppressions: [{ token: 'instance', sourcePath: '/repo/.markdown.ignore', scopeRoot: '/repo', line: 1 }]
+      }),
+      read: async (entry) => ({ document: { ...document, id: entry.id, rootId: entry.rootId } })
+    };
+    const result = await runSecurityScan({
+      input, engine: new StubEngine(), clock, cancellation, request: { ...request, roots: ['/repo', '/other'] }, limits
+    });
+    expect(result.findings).toEqual([{ ...finding, rootId: '/other' }]);
+    expect(result.summary.suppressed.total).toBe(1);
   });
 
   it('suppresses findings before policy evaluation', async () => {
@@ -161,6 +177,31 @@ describe('runSecurityScan', () => {
     }
   });
 
+  it('enforces one aggregate deadline across successive document scans', async () => {
+    let now = 1_700_000_000_000;
+    const entries = ['a.md', 'b.md', 'c.md'].map((name) => ({ ...candidate, id: `/repo/${name}`, absolutePath: `/repo/${name}`, displayPath: name }));
+    const input: SecurityScanInput = {
+      collect: async () => ({ candidates: entries, ignoredFiles: [], skippedFiles: [], errors: [], suppressions: [], warnings: [] }),
+      read: async (entry) => ({ document: { ...document, id: entry.id, displayPath: entry.displayPath } })
+    };
+    const evaluated: string[] = [];
+    const engine: SecurityScanEngine = {
+      ...new StubEngine(),
+      scanDocument: async (entry) => {
+        evaluated.push(entry.displayPath);
+        now += 600;
+        return [];
+      }
+    };
+    const result = await runSecurityScan({
+      input, engine, cancellation, request, limits,
+      clock: { now: () => now, nowIso: () => new Date(now).toISOString() }
+    });
+    expect(evaluated).toEqual(['a.md', 'b.md']);
+    expect(result.complete).toBe(false);
+    expect(result.errors).toContainEqual(expect.objectContaining({ code: 'SECURITY.LIMIT_EXCEEDED' }));
+  });
+
   it('records engine failures as incomplete coverage rather than losing the report', async () => {
     const engine: SecurityScanEngine = {
       ...new StubEngine(),
@@ -189,11 +230,15 @@ describe('runSecurityScan', () => {
         candidates: [candidate, { ...candidate, id: '/repo/b.md', displayPath: 'b.md' }],
         ignoredFiles: [], skippedFiles: [], errors: [], suppressions: [], warnings: []
       }),
-      read: new StubInput().read.bind(new StubInput())
+      read: async (entry) => ({ document: { ...document, id: entry.id, displayPath: entry.displayPath } })
     };
+    const evaluated: string[] = [];
     const engine: SecurityScanEngine = {
       ...new StubEngine(),
-      scanDocument: async () => [finding, { ...finding, ruleId: 'SEC-002' }]
+      scanDocument: async (entry) => {
+        evaluated.push(entry.displayPath);
+        return [{ ...finding, file: entry.displayPath }, { ...finding, file: entry.displayPath, ruleId: 'SEC-002' }];
+      }
     };
     const result = await runSecurityScan({
       input, engine, clock, cancellation, request,
@@ -201,6 +246,8 @@ describe('runSecurityScan', () => {
     });
     expect(result.complete).toBe(false);
     expect(result.findings).toHaveLength(3);
+    expect(evaluated).toEqual(['a.md', 'b.md']);
+    expect(result.findings.filter((item) => item.file === 'b.md')).toHaveLength(1);
     expect(result.errors).toContainEqual(expect.objectContaining({ code: 'SECURITY.LIMIT_EXCEEDED' }));
   });
 

@@ -73,11 +73,17 @@ describe('SecureAtomicSecurityReportStore', () => {
 
   it('creates missing parent directories only when explicitly requested by composition', async () => {
     const destination = join(directory, 'nested', 'report.md');
-    await mkdir(join(directory, 'nested'));
-    await new SecureAtomicSecurityReportStore().write({ destination, contents: 'report', overwrite: 'never' });
+    await expect(new SecureAtomicSecurityReportStore().write({ destination, contents: 'report', overwrite: 'never' })).rejects.toThrow('Report parent');
+    await new SecureAtomicSecurityReportStore(true).write({ destination, contents: 'report', overwrite: 'never' });
     expect(await readFile(destination, 'utf8')).toBe('report');
   });
 
+  it('allows concurrent writers to create the same missing report parent', async () => {
+    const store = new SecureAtomicSecurityReportStore(true);
+    const destinations = [join(directory, 'nested', 'a.md'), join(directory, 'nested', 'b.md')];
+    await Promise.all(destinations.map((destination) => store.write({ destination, contents: 'report', overwrite: 'never' })));
+    expect(await Promise.all(destinations.map((destination) => readFile(destination, 'utf8')))).toEqual(['report', 'report']);
+  });
   it('allows real report parents beneath symlinked ancestors', async () => {
     const realRoot = join(directory, 'real-root');
     const linkedRoot = join(directory, 'linked-root');

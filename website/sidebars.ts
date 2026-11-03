@@ -86,6 +86,7 @@ const sidebars: SidebarsConfig = {
         { type: "doc", id: "reference/commands", label: "Commands" },
         { type: "doc", id: "reference/settings", label: "Settings" },
         { type: "doc", id: "reference/security-scanner", label: "Security Scanner" },
+        { type: "doc", id: "reference/security-rules", label: "Security Detection Rules" },
         { type: "doc", id: "reference/adapter-api", label: "Adapter API" },
         { type: "doc", id: "reference/hub-schema", label: "Hub Schema" },
         { type: "doc", id: "reference/hub-replication", label: "Hub Replication" },

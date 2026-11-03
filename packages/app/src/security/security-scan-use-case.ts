@@ -214,7 +214,8 @@ export const runSecurityScan = async (
         continue;
       }
       scanned.push({ path: candidate.displayPath, rootId: candidate.rootId, bytes: read.document.metadata.bytes });
-      allFindings.push(...findings.slice(0, remainingFindings));
+      const documentRootId = read.document.rootId;
+      allFindings.push(...findings.slice(0, remainingFindings).map((finding) => ({ ...finding, rootId: documentRootId })));
       if (findings.length > remainingFindings) {
         coverageErrors.push({ code: 'SECURITY.LIMIT_EXCEEDED', message: 'Maximum finding count exceeded.' });
         break;

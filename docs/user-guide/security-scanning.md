@@ -80,11 +80,16 @@ These checks assess instructions written in an artifact. They do not enforce run
 Use `.markdown.ignore` for a triaged finding. Put one fingerprint on each line:
 
 ```text
-# Exact occurrence in one file
+# Legacy exact-occurrence token; use the narrowest directory scope
 0123456789abcdef0123456789abcdef # explain the accepted false positive
 ```
 
-A finding's **fingerprint** suppresses one occurrence. Its **canonical fingerprint** suppresses the same rule/content pattern across files. The report provides copyable values.
+A finding's **fingerprint** uses the basename, rule, line and normalized content.
+Identical occurrences in same-basename files can share a token within the
+ignore scope; it is not guaranteed to isolate one file across a tree. Its
+**canonical fingerprint** suppresses the same rule/content pattern more broadly.
+Use the narrowest directory scope and review the suppressed findings.
+The report provides copyable values.
 
 Use `.markdown-file.ignore` to exclude complete files:
 
@@ -166,6 +171,8 @@ that includes `security scan`; releases predating the scanner cannot run this
 action. Set `pull-requests: write` and `comment-on-pr: 'true'` only when the
 workflow should add a pull request comment. The action invokes the released
 CLI with `--ci --ignore-trust none`.
+If comment posting is denied (for example on a fork), the action emits a
+warning without changing the scan's exit status. Use the uploaded report.
 
 ## VS Code
 
@@ -178,7 +185,16 @@ The AI Primitives Hub extension provides:
 
 **Show Last Security Report** opens a detailed report with risks, recommended fixes, and suppression fingerprints. The status bar shows the latest active finding count.
 
+> Screenshot placeholder: the security report beside a Markdown editor,
+> with a redacted finding, Problems diagnostics, and the security status-bar count.
+
 Automatic open and save scans are enabled by default only for trusted local `file:` workspaces. They are disabled for untrusted or virtual workspaces. Automatic scans are debounced, and a newer scan supersedes an older scan for the same file or workspace.
+Already-open Markdown documents are considered when the extension activates.
+Manual current-file scans also accept `.claude/settings.json` and
+`.claude/settings.local.json`; automatic document scans remain Markdown-only.
+Changing `minimumSeverity` immediately re-filters cached diagnostics and the
+report in either direction without rescanning. Newer file and workspace scans
+cannot be overwritten by older results covering the same file.
 
 Configure the extension under `promptregistry.security.*`. See the [Settings Reference](../reference/settings.md). The extension uses the shared scanner and does not require Python.
 
@@ -192,6 +208,7 @@ The scanner does not modify source files automatically. It should be combined wi
 
 - [Command Reference](../reference/commands.md)
 - [Security Scanner Reference](../reference/security-scanner.md)
+- [Detection Rules and Policy](../reference/security-rules.md)
 - [Configuration](configuration.md)
 - [Troubleshooting](troubleshooting.md)
 - [Vulnerability remediation guidance](../reference/security-scanner.md#remediation)

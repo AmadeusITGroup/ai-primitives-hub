@@ -294,6 +294,7 @@ const boundary = /DATA_START|DATA_END|CONTENT_START|CONTENT_END|\[DATA\]|\[INSTR
 const assignment = /[=:]\s*["']([A-Za-z0-9+/=_-]{25,})["']/g;
 // eslint-disable-next-line @stylistic/max-len -- Keep tokens explicit so normal hosts such as example.test are still scanned.
 const safeSecretPlaceholder = /\b(?:YOUR|EXAMPLE|DUMMY|TEST)_[A-Z0-9_-]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_-]*\b|\b(?:CHANGEME|REPLACE_ME|INSERT_HERE|REDACTED)\b|<[^>]*(?:KEY|TOKEN|SECRET|PASSWORD)[^>]*>|\$\{[^}]+\}/i;
+const safeSecretPlaceholders = new RegExp(safeSecretPlaceholder.source, 'gi');
 const documentationOnly = /^(?:readme|changelog|changes|history|contributing|licen[cs]e|authors|notice)(?:\.md)?$/i;
 const entropy = (value: string): number => {
   const frequencies = new Map<string, number>();
@@ -306,11 +307,35 @@ const entropy = (value: string): number => {
   }, 0);
 };
 
+const hasTrustBoundaryForPlaceholder = (text: string, matchIndex: number): boolean => {
+  const boundaries = [...text.matchAll(new RegExp(boundary.source, 'gi'))];
+  const placeholders = [...text.matchAll(new RegExp(placeholder.source, 'gi'))];
+  return boundaries.some((boundaryMatch) => {
+    const boundaryStart = boundaryMatch.index ?? -1;
+    const boundaryEnd = boundaryStart + boundaryMatch[0].length;
+    const distanceTo = (candidate: RegExpMatchArray): number => {
+      const candidateStart = candidate.index ?? -1;
+      const candidateEnd = candidateStart + candidate[0].length;
+      return boundaryEnd <= candidateStart
+        ? candidateStart - boundaryEnd
+        : (boundaryStart >= candidateEnd
+          ? boundaryStart - candidateEnd
+          : 0);
+    };
+    const nearestPlaceholder = placeholders.reduce<RegExpMatchArray | undefined>((nearest, candidate) =>
+      nearest === undefined || distanceTo(candidate) < distanceTo(nearest) ? candidate : nearest, undefined);
+    return nearestPlaceholder !== undefined
+      && distanceTo(nearestPlaceholder) <= 80
+      && nearestPlaceholder.index === matchIndex;
+  });
+};
+
 const containsSecret = (value: string): boolean =>
   Object.values(secretPatterns).some((pattern) => pattern.test(value))
   || [...value.matchAll(assignment)].some((match) => entropy(match[1]) >= 4.5 && !safeSecretPlaceholder.test(match[1]));
 
 const redactSecrets = (value: string): string => containsSecret(value) ? '[REDACTED]' : value;
+const REDACTED_MCP_ARGUMENT_RULES = new Set(['MCP-006', 'MCP-007', 'MCP-010', 'MCP-013']);
 
 const createFinding = (
   document: SecurityDocument,
@@ -336,7 +361,9 @@ const createFinding = (
   file: document.displayPath,
   line,
   section: section === undefined ? undefined : redactSecrets(section),
-  vulnerableContent: rule.category === 'secrets' || rule.id === 'MCP-011' || containsSecret(snippet) ? '[REDACTED]' : snippet.slice(0, 400),
+  vulnerableContent: rule.category === 'secrets' || rule.id === 'MCP-011' || REDACTED_MCP_ARGUMENT_RULES.has(rule.id) || containsSecret(snippet)
+    ? '[REDACTED]'
+    : snippet.slice(0, 400),
   risk: rule.risk,
   recommendedFix: rule.fix,
   owasp: rule.owasp,
@@ -422,17 +449,74 @@ const scanContextualLineRules = (
   return findings;
 };
 
+const hasSanitizerInRehypePipeline = (
+  parsed: ReturnType<typeof parseSecurityDocument>,
+  rawLine: number,
+  rawOffset: number
+): boolean => {
+  const line = parsed.lines[rawLine]?.text ?? '';
+  const beforeRaw = line.slice(0, rawOffset);
+  const afterRaw = line.slice(rawOffset + 'rehype-raw'.length);
+  if (/^\s+(?:with|and)\s+rehype-sanitize/i.test(afterRaw)
+    || (/rehypePlugins?\s*:\s*\[[^\]]*$/i.test(beforeRaw)
+      && /^[^\]]*rehype-sanitize[^\]]*\]/i.test(afterRaw))) {
+    return true;
+  }
+  if (!/\.use\s*\(\s*$/i.test(beforeRaw)) {
+    return false;
+  }
+  const chain = /^\s*\)((?:\s*\.use\s*\([^)]*\))*)(.*)$/i.exec(afterRaw);
+  if (chain === null) {
+    return false;
+  }
+  if (/\.use\s*\(\s*rehype-sanitize\b/i.test(chain[1])) {
+    return true;
+  }
+  if (chain[2].trim() !== '') {
+    return false;
+  }
+  for (let index = rawLine + 1; index < Math.min(parsed.lines.length, rawLine + 8); index += 1) {
+    const candidate = parsed.lines[index].text.trim();
+    if (candidate === '') {
+      continue;
+    }
+    if (!/^\.use\s*\(/i.test(candidate)) {
+      break;
+    }
+    if (/rehype-sanitize/i.test(candidate)) {
+      return true;
+    }
+    if (candidate.includes(';')) {
+      break;
+    }
+  }
+  return false;
+};
+
 const scanContextualDocumentRules = (
   document: SecurityDocument,
   parsed: ReturnType<typeof parseSecurityDocument>
 ): SecurityFinding[] => {
   const findings: SecurityFinding[] = [];
   for (const rule of HIGH_IMPACT_DOCUMENT_RULES) {
-    if (!patternMatches(rule.pattern, document.content)
-      || (rule.excludePattern !== undefined && patternMatches(rule.excludePattern, document.content))) {
+    if (rule.id === 'MD-012') {
+      for (const [rawLineIndex, line] of parsed.lines.entries()) {
+        const rawUses = [...line.text.matchAll(/rehype-raw/gi)];
+        if (rawUses.some((match) => !hasSanitizerInRehypePipeline(parsed, rawLineIndex, match.index))) {
+          findings.push(createFinding(
+            document, contextualPatternRule(rule), rawLineIndex + 1, line.section, line.text.trim(), rule.severity, rule.confidence
+          ));
+        }
+      }
+      continue;
+    }
+    if (!patternMatches(rule.pattern, document.content)) {
       continue;
     }
     const index = parsed.lines.findIndex((line) => patternMatches(rule.pattern, line.text));
+    if (rule.excludePattern !== undefined && patternMatches(rule.excludePattern, document.content)) {
+      continue;
+    }
     findings.push(createFinding(
       document,
       contextualPatternRule(rule),
@@ -561,6 +645,79 @@ const matchToolAllow = (entry: string): PatternRule | undefined => {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const isConfiguredHookAction = (value: unknown): boolean => {
+  if (Array.isArray(value)) {
+    return value.some((entry) => isConfiguredHookAction(entry));
+  }
+  if (!isRecord(value)) {
+    return false;
+  }
+  if ((typeof value.command === 'string' && value.command.trim() !== '')
+    || (typeof value.prompt === 'string' && value.prompt.trim() !== '')) {
+    return true;
+  }
+  return Object.values(value).some((entry) => isRecord(entry) || Array.isArray(entry) ? isConfiguredHookAction(entry) : false);
+};
+
+const extractHookCommands = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => extractHookCommands(entry));
+  }
+  if (!isRecord(value)) {
+    return [];
+  }
+  const command = typeof value.command === 'string' ? [value.command] : [];
+  return [...command, ...Object.values(value).flatMap((entry) => extractHookCommands(entry))];
+};
+
+const isExactPackageVersion = (packageSpec: string): boolean => {
+  const versionSeparator = packageSpec.lastIndexOf('@');
+  const packageNameEnd = packageSpec.startsWith('@') ? packageSpec.indexOf('/') : 0;
+  return versionSeparator > packageNameEnd
+    && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(packageSpec.slice(versionSeparator + 1));
+};
+
+const npxPackageArguments = (args: string[]): string[] => {
+  const packages: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--package' || arg === '-p') {
+      if (args[index + 1] !== undefined) {
+        packages.push(args[index + 1]);
+        index += 1;
+      }
+    } else if (arg.startsWith('--package=')) {
+      packages.push(arg.slice('--package='.length));
+    } else if (!arg.startsWith('-') && packages.length === 0) {
+      packages.push(arg);
+    }
+  }
+  return packages;
+};
+
+const hasUnpinnedNpxPackage = (command: string, args: string[]): boolean => {
+  const executable = command.replaceAll('\\', '/').split('/').at(-1)?.toLowerCase();
+  return executable === 'npx'
+    && npxPackageArguments(args).some((packageSpec) => !isExactPackageVersion(packageSpec));
+};
+
+const isLocalMcpUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return true;
+    }
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+    return hostname === 'localhost'
+      || hostname.endsWith('.localhost')
+      || hostname === '::1'
+      || hostname === '0.0.0.0'
+      || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+  } catch {
+    return false;
+  }
+};
+
 const scanClaudeSettings = (
   document: SecurityDocument,
   options: SecurityEngineOptions,
@@ -571,10 +728,10 @@ const scanClaudeSettings = (
   try {
     parsed = JSON.parse(document.content);
   } catch {
-    return findings.slice(0, options.maxFindings);
+    throw new Error('SECURITY.INPUT_INVALID: Claude settings must contain a valid JSON object.');
   }
   if (!isRecord(parsed)) {
-    return findings.slice(0, options.maxFindings);
+    throw new Error('SECURITY.INPUT_INVALID: Claude settings must contain a valid JSON object.');
   }
 
   cancellation.throwIfCancelled();
@@ -593,10 +750,35 @@ const scanClaudeSettings = (
     findings.push(createFinding(document, rule, undefined, 'permissions.deny', '"deny": []  (empty or missing)'));
   }
   const hooks = isRecord(parsed.hooks) ? parsed.hooks : {};
-  if (allow.length > 0 && !Object.keys(hooks).some((key) => key.toLowerCase() === 'pretooluse')) {
+  const preToolUse = Object.entries(hooks).find(([key]) => key.toLowerCase() === 'pretooluse')?.[1];
+  if (allow.length > 0 && !isConfiguredHookAction(preToolUse)) {
     const rule = withDetails('AGT-007', 'No PreToolUse Security Hook in Claude Code Settings', 'MEDIUM', 'excessive_agency', AST.AST03,
       'Tool calls execute without a runtime policy gate.', 'Add a PreToolUse hook that validates tool calls before execution.', 'AST03:2026');
     findings.push(createFinding(document, rule, undefined, 'hooks', '"hooks": {}  (PreToolUse not configured)'));
+  }
+  const hookCommandRules = [
+    ...hookRules,
+    ...HIGH_IMPACT_LINE_RULES
+      .filter((rule) => rule.category === 'hook_injection')
+      .map((rule) => contextualPatternRule(rule))
+  ];
+  for (const command of extractHookCommands(hooks)) {
+    cancellation.throwIfCancelled();
+    const line = lineFor(document.content, command);
+    for (const rule of hookCommandRules) {
+      if (patternMatches(rule.pattern, command)) {
+        const contextualRule = HIGH_IMPACT_LINE_RULES.find((candidate) => candidate.id === rule.id);
+        findings.push(createFinding(
+          document,
+          rule,
+          line,
+          'hooks',
+          command,
+          rule.severity,
+          contextualRule?.confidence ?? 'HIGH'
+        ));
+      }
+    }
   }
 
   if (parsed.enableAllProjectMcpServers === true) {
@@ -620,13 +802,14 @@ const scanClaudeSettings = (
           'Silent package installation increases supply-chain risk.', 'Remove -y/--yes and pin an exact reviewed version.', 'AST02:2026');
         findings.push(createFinding(document, rule, line, section, `"args": ${JSON.stringify(args)}`));
       }
-      if (args.some((arg) => /@(?:latest|next|canary|beta|alpha)\b/i.test(arg))) {
+      const command = typeof value.command === 'string' ? value.command : '';
+      if (hasUnpinnedNpxPackage(command, args)) {
         const rule = withDetails('MCP-007', `MCP Server '${serverName}' Without Version Pin`, 'MEDIUM', 'mcp_injection', OWASP_WEB,
           'A floating package tag can load a future compromised release.', 'Pin an exact semantic version and verify its integrity.', 'AST02:2026');
         findings.push(createFinding(document, rule, line, section, `"args": ${JSON.stringify(args)}`));
       }
       const url = typeof value.url === 'string' ? value.url : (typeof value.endpoint === 'string' ? value.endpoint : '');
-      if (/^https?:\/\//i.test(url) && !/(?:localhost|127\.0\.0\.1|::1|0\.0\.0\.0)/i.test(url)) {
+      if (/^https?:\/\//i.test(url) && !isLocalMcpUrl(url)) {
         const rule = withDetails('MCP-008', `MCP Server '${serverName}' Uses External URL Transport`, 'HIGH', 'mcp_injection', OWASP_WEB,
           'A remote MCP server controls tool descriptions across a network trust boundary.', 'Prefer local stdio transport or authenticate and pin the remote endpoint.');
         findings.push(createFinding(document, rule, line, `${section}.url`, `"url": "${url}"`));
@@ -732,8 +915,11 @@ const activeDefenseRules: PatternRule[] = [
     ].join(''), 'i')
   }
 ];
+// Bump these revisions when evaluator/parser behavior changes outside the rule data.
+const ENGINE_VERSION = '1.1.1';
+const RULE_PACK_VERSION = '1.10.9-compatible.2';
 const packDigest = `sha256:${createHash('sha256')
-  .update([
+  .update(JSON.stringify([
     ...allRules,
     ...astRules,
     ...toolAllowRules,
@@ -741,10 +927,10 @@ const packDigest = `sha256:${createHash('sha256')
     ...HIGH_IMPACT_LINE_RULES,
     ...HIGH_IMPACT_DOCUMENT_RULES,
     ...INFORMATIONAL_CONTROL_RULES
-  ]
-    .map((rule) => `${rule.id}:${rule.variantId ?? ''}:${rule.title}:${rule.pattern.source}`)
-    .join('\n'))
-  .update('claude-settings-structural-v1')
+  ], (_key: string, value: unknown) => value instanceof RegExp
+    ? { source: value.source, flags: value.flags }
+    : value))
+  .update(`${ENGINE_VERSION}:${RULE_PACK_VERSION}`)
   .digest('hex')}`;
 
 const scanText = (document: SecurityDocument, options: SecurityEngineOptions, cancellation: SecurityCancellation, markdown: boolean): SecurityFinding[] => {
@@ -757,6 +943,8 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
     if (line.text.length > 1_048_576) {
       continue;
     }
+    let secretScanText = line.text.replace(safeSecretPlaceholders, (match) => '$'.repeat(match.length))
+      .replace(/\bAKIAIOSFODNN7EXAMPLE\b/g, '$'.repeat(20));
     for (const rule of markdown ? allRules : [...secretRules, ...hookRules]) {
       const agentConfig = parsed.artifactClass === 'skill' || parsed.artifactClass === 'agent_config';
       if (rule.id === 'AGT-003' && !options.includeLlmControls) {
@@ -768,17 +956,11 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
       if (rule.id === 'AGT-006' || rule.id === 'AGT-007') {
         continue;
       }
-      if (rule.category === 'secrets' && safeSecretPlaceholder.test(line.text)) {
-        continue;
-      }
-      if (rule.id === 'SEC-003' && /AKIAIOSFODNN7EXAMPLE/.test(line.text)) {
-        continue;
-      }
-      if (rule.pattern.test(line.text)) {
+      if (patternMatches(rule.pattern, rule.category === 'secrets' ? secretScanText : line.text)) {
         const severity = line.inExample && rule.category === 'secrets' ? 'MEDIUM' : (line.inExample && rule.category === 'prompt_injection' ? 'INFO' : rule.severity);
         findings.push(createFinding(document, rule, index + 1, line.section, line.text.trim(), severity, line.inExample ? 'MEDIUM' : 'HIGH'));
         if (rule.category === 'secrets') {
-          break;
+          secretScanText = secretScanText.replace(new RegExp(rule.pattern.source, `${rule.pattern.flags}g`), (match) => '$'.repeat(match.length));
         }
       }
     }
@@ -827,10 +1009,14 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
       }
     }
   }
-  if (markdown && placeholder.test(document.content) && !boundary.test(document.content)) {
-    const line = parsed.lines.findIndex((item) => placeholder.test(item.text));
+  if (markdown) {
     const rule = makeRule('INJ-002', 'Missing Trust Boundary — User Input in Instruction Block', 'HIGH', placeholder, 'prompt_injection', LLM01);
-    findings.push(createFinding(document, rule, line === -1 ? undefined : line + 1, undefined, 'User-input variable found without a trust boundary.'));
+    for (const [index, line] of parsed.lines.entries()) {
+      const placeholders = [...line.text.matchAll(new RegExp(placeholder.source, 'gi'))];
+      if (placeholders.some((match) => !hasTrustBoundaryForPlaceholder(line.text, match.index))) {
+        findings.push(createFinding(document, rule, index + 1, undefined, 'User-input variable found without a trust boundary.'));
+      }
+    }
   }
   if (markdown) {
     const rule = makeRule('INJ-003', 'Invisible / Zero-Width Characters Detected', 'HIGH', invisible, 'prompt_injection', LLM01);
@@ -917,7 +1103,7 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
 };
 
 export class RuleBasedSecurityScanEngine implements SecurityScanEngine {
-  public readonly descriptor: SecurityEngineDescriptor = { id: 'builtin', version: '1.0.0', rulePackId: 'md-security-scanner', rulePackVersion: '1.10.9-compatible', rulePackDigest: packDigest };
+  public readonly descriptor: SecurityEngineDescriptor = { id: 'builtin', version: ENGINE_VERSION, rulePackId: 'md-security-scanner', rulePackVersion: RULE_PACK_VERSION, rulePackDigest: packDigest };
   public readonly capabilities: SecurityEngineCapabilities = { contentTypes: ['text/markdown', 'application/json'], locations: 'line', supportsFileMode: false, supportsCancellation: true };
   public scanDocument(document: SecurityDocument, options: SecurityEngineOptions, cancellation: SecurityCancellation): Promise<readonly SecurityFinding[]> {
     return Promise.resolve().then(() => isClaudeSettings(document.displayPath)

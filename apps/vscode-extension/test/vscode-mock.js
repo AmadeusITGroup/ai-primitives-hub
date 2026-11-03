@@ -101,6 +101,14 @@ module.exports = {
     createTextEditorDecorationType: () => ({ key: 'mock-decoration', dispose: () => {} }),
     registerCustomEditorProvider: () => ({ dispose: () => {} }),
     createTreeView: () => ({ dispose: () => {} }),
+    createWebviewPanel: (viewType, title, viewColumn, options) => ({
+      viewType, title, viewColumn, options, active: true, visible: true,
+      webview: { html: '', options: {}, onDidReceiveMessage: () => ({ dispose: () => {} }) },
+      onDidDispose: () => ({ dispose: () => {} }),
+      onDidChangeViewState: () => ({ dispose: () => {} }),
+      reveal: () => undefined,
+      dispose: () => undefined
+    }),
     createQuickPick: () => {
       const quickPick = {
         items: [],

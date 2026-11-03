@@ -36,6 +36,31 @@ describe('security foundation', () => {
     expect(parsed.lines[4].inExample).toBe(true);
   });
 
+  it('recognizes tilde fences and only closes with a matching fence run', () => {
+    const parsed = parseSecurityDocument([
+      '~~~js',
+      'inside tilde fence',
+      '```',
+      'still inside tilde fence',
+      '~~~~',
+      'outside fence',
+      '````js',
+      'inside long backtick fence',
+      '```',
+      'still inside long backtick fence',
+      '````'
+    ].join('\n'));
+
+    expect(parsed.lines.map((line) => line.inCodeBlock)).toEqual([
+      true, true, true, true, false, false, true, true, true, true, false
+    ]);
+  });
+
+  it('requires an exact description field for skill classification', () => {
+    expect(parseSecurityDocument('---\nname: sample\nnotdescription: text\n---\nBody').artifactClass)
+      .toBe('general_md');
+  });
+
   it('parses suppression declarations and strips comments', () => {
     expect(parseSuppressionFile('# comment\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # rationale\n\ninvalid token\n', '/repo/.markdown.ignore'))
       .toEqual({
@@ -65,11 +90,11 @@ describe('security foundation', () => {
     });
     const declarations: SuppressionDeclaration[] = [
       { token: 'canonical', sourcePath: '/repo/.markdown.ignore', scopeRoot: '/repo', line: 1 },
-      { token: 'other', sourcePath: '/repo/skills/.markdown.ignore', scopeRoot: '/repo/skills', line: 2 }
+      { token: 'canonical', sourcePath: '/repo/skills/.markdown.ignore', scopeRoot: '/repo/skills', line: 2 }
     ];
     const result = applySuppressions([finding('instance', 'canonical'), finding('active', 'different')], declarations, '/repo');
     expect(result.active).toHaveLength(1);
-    expect(result.suppressed).toEqual([{ finding: expect.objectContaining({ fingerprint: 'instance' }), declaration: declarations[0], kind: 'canonical' }]);
+    expect(result.suppressed).toEqual([{ finding: expect.objectContaining({ fingerprint: 'instance' }), declaration: declarations[1], kind: 'canonical' }]);
   });
 
   it('evaluates failure policy independently from display filtering', () => {

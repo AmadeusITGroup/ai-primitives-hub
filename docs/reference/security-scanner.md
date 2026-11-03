@@ -43,6 +43,11 @@ With no path, the command scans the current working directory. The native engine
 | `--quiet` | Keep text output to the scan summary without per-finding details. |
 | `-o, --output <FORMAT>` | `text`, `json`, `yaml`, or `ndjson`. |
 
+Count and byte limits accept positive integers only; duration suffixes apply
+only to `--timeout`. Explicit `--ext` or `--exclude` values replace their
+default lists. Repeat the default excludes when adding others. An explicit
+`--severity` list takes precedence over `--minimum-severity`.
+
 ## Exit codes
 
 The failure policy and display filter are separate. `--severity` and `--minimum-severity` do not weaken `--fail-on`.
@@ -64,6 +69,22 @@ The failure policy and display filter are separate. `--severity` and `--minimum-
 - `ndjson`: `scan.header`, `scan.finding`, coverage-error, and `scan.summary` records;
 - Markdown reports: review-ready findings with detected content, OWASP mappings, remediation, and copyable exact/canonical suppression suggestions.
 
+For example:
+
+```bash
+ai-primitives-hub security scan . --ci -o text
+ai-primitives-hub security scan . --ci -o json
+ai-primitives-hub security scan . --ci -o yaml
+ai-primitives-hub security scan . --ci -o ndjson
+```
+
+JSON/YAML use an envelope with `schemaVersion`, `command`, `data`, and `meta`;
+`data` contains the scan result, including `engine`, `options`, `coverage`,
+`findings`, `errors`, and `summary.policy`. NDJSON starts with `scan.header`,
+then emits finding/coverage-error records and ends with `scan.summary`.
+Every record has `schemaVersion: 1` and the scan ID. A filtered report can have
+zero displayed findings while `summary.policy.passed` is false.
+
 Finding fields include the rule ID, variant/title, severity, confidence, category, relative location, remediation, mapping, related AST evidence when applicable, and legacy exact/canonical fingerprints. Secret evidence is `[REDACTED]` unless a future explicitly reviewed evidence mode permits otherwise.
 
 ## Rule families
@@ -84,7 +105,11 @@ The compatibility profile follows the behavior of **MD Security Scanner `1.10.9`
 | `CFG-*` | Agent configuration file safety |
 | `CTL-*` | Missing prompt-level controls and active defenses |
 
-Rule IDs are versioned content identifiers, not a promise that every numbered value in a family exists. The rule-pack manifest is the source of truth.
+Rule IDs are versioned content identifiers, not a promise that every numbered value in a family exists.
+See the [complete detection catalogue](security-rules.md) for implemented IDs,
+base severities, context guards and configurable policy defaults. Native rule
+definitions and structural evaluators are the source of truth; there is no
+separate public per-rule manifest.
 
 ## Ignore files
 
@@ -92,12 +117,21 @@ Rule IDs are versioned content identifiers, not a promise that every numbered va
 
 Use `--ignore-trust none` for security gates over attacker-controlled changes. Use `baseline` only with files selected by the calling system from a trusted source.
 
+Legacy exact fingerprints use the file basename, rule, line and normalized
+content, not the full relative path. Identical occurrences in same-basename
+files can therefore share a token within an ignore scope. Canonical tokens are
+broader still. Use the narrowest ignore-file directory scope and review every
+suppressed finding; "exact" does not guarantee a unique file across a tree.
+
 ## Safety limits
 
 The default engine limits input to 10,000 files, 1 MiB per file, 100 MiB total, depth 64, 5,000 findings, 64 KiB/1,024 lines per ignore file, 10 MiB per report, and 60 seconds per scan. Symbolic links and special files are not followed. Limit or read failures produce an incomplete result rather than a clean result.
 
 `--max-files` bounds traversal: it counts discovered regular files, including
 nonmatching extensions and ignored documentation, not just scanned Markdown.
+Overlapping or repeated roots count each discovered path only once. The first
+root that encounters a file determines its report location and suppression scope.
+Exclusions apply to explicitly named inputs as well as directory traversal.
 Raise it explicitly for large repositories rather than removing the traversal
 bound.
 

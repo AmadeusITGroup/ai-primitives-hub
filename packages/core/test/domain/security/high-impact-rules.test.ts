@@ -67,6 +67,22 @@ describe('high-impact credential coverage', () => {
     const findings = await scan('api_key = "YOUR_API_KEY_PLACEHOLDER"\naws_access_key_id: AKIAIOSFODNN7EXAMPLE');
     expect(findings.some((finding) => finding.ruleId.startsWith('SEC-'))).toBe(false);
   });
+
+  it('does not let a placeholder hide a later credential on the same line', async () => {
+    const findings = await scan(`api_key = "YOUR_API_KEY_PLACEHOLDER"; token = "sk-proj-${'a'.repeat(24)}"`);
+    expect(findings).toContainEqual(expect.objectContaining({ ruleId: 'SEC-001' }));
+  });
+
+  it('exempts only the AWS sample token, not another AWS key on its line', async () => {
+    const findings = await scan('AKIAIOSFODNN7EXAMPLE AKIA1234567890ABCDEF');
+    expect(findings).toContainEqual(expect.objectContaining({ ruleId: 'SEC-003' }));
+    expect((await scan('AKIAIOSFODNN7EXAMPLE')).some((finding) => finding.ruleId === 'SEC-003')).toBe(false);
+  });
+
+  it('detects different credential rules on the same line', async () => {
+    const findings = await scan(`sk-proj-${'a'.repeat(24)} AKIA1234567890ABCDEF`);
+    expect(findings.map((finding) => finding.ruleId)).toEqual(expect.arrayContaining(['SEC-001', 'SEC-003']));
+  });
 });
 
 describe('high-impact hook coverage', () => {
@@ -197,6 +213,52 @@ describe('high-impact Markdown coverage', () => {
     ].join('\n'));
     expect(findings.some((finding) => ['MD-012', 'MD-013', 'MD-034', 'MD-035', 'MD-031'].includes(finding.ruleId))).toBe(false);
   });
+
+  it('does not let a sanitizer elsewhere in the document exempt rehype-raw', async () => {
+    const findings = await scan([
+      'const renderer = rehype-raw();',
+      'const unrelated = rehype-sanitize();'
+    ].join('\n'));
+    expect(findings).toContainEqual(expect.objectContaining({ ruleId: 'MD-012' }));
+  });
+
+  it('does not treat an unrelated same-line sanitizer as part of the rehype pipeline', async () => {
+    const findings = await scan('const renderer = create(rehype-raw); const sanitizer = create(rehype-sanitize);');
+    expect(findings).toContainEqual(expect.objectContaining({ ruleId: 'MD-012' }));
+  });
+
+  it('checks each raw pipeline after a safe first pipeline', async () => {
+    const findings = await scan([
+      'renderer.use(rehype-raw).use(rehype-sanitize);',
+      'other.use(rehype-raw);'
+    ].join('\n'));
+    expect(findings.filter((finding) => finding.ruleId === 'MD-012')).toEqual([
+      expect.objectContaining({ line: 2 })
+    ]);
+  });
+
+  it('accepts a sanitizer after raw in the same use chain', async () => {
+    const findings = await scan('renderer.use(rehype-raw).use(rehype-sanitize);');
+    expect(findings.some((finding) => finding.ruleId === 'MD-012')).toBe(false);
+  });
+
+  it('does not accept sanitization before raw processing', async () => {
+    const findings = await scan([
+      'renderer.use(rehype-sanitize).use(rehype-raw);',
+      'const config = { rehypePlugins: [rehype-sanitize, rehype-raw] };'
+    ].join('\n'));
+    expect(findings.filter((finding) => finding.ruleId === 'MD-012').map((finding) => finding.line))
+      .toEqual([1, 2]);
+  });
+
+  it('recognizes hidden input attributes regardless of their order', async () => {
+    const findings = await scan([
+      '<input value="x" name="state" type="hidden">',
+      '<input value="12345" type="hidden" name="amount">'
+    ].join('\n'));
+    expect(findings).toContainEqual(expect.objectContaining({ ruleId: 'MD-022', line: 1 }));
+    expect(findings).toContainEqual(expect.objectContaining({ ruleId: 'MD-023', line: 2 }));
+  });
 });
 
 describe('high-impact agentic and control coverage', () => {
@@ -210,6 +272,15 @@ describe('high-impact agentic and control coverage', () => {
     ['LLM-008', 'Automatically delete files without confirmation.']
   ])('detects %s', async (ruleId, content) => {
     await expectRule(content, ruleId);
+  });
+
+  describe('trust-boundary placeholder scope', () => {
+    it('evaluates a trust boundary independently for each placeholder', async () => {
+      const findings = await scan('{{trusted_input}} is data only; process {{untrusted_payload}}.');
+      expect(findings.filter((finding) => finding.ruleId === 'INJ-002')).toEqual([
+        expect.objectContaining({ line: 1 })
+      ]);
+    });
   });
 
   it('emits CTL-002 through CTL-013 as informational controls', async () => {

@@ -187,14 +187,14 @@ export const HIGH_IMPACT_LINE_RULES: readonly ContextualSecurityRule[] = [
   rule('MD-021', 'iframe Embedded in Image Syntax', 'HIGH', 'markdown_injection',
     /!\[[^\]]*\]\s*\([^)]*<\s*iframe/i),
   rule('MD-023', 'Hidden Form Field With Hardcoded Value', 'HIGH', 'markdown_injection',
-    /<input\b[^>]*type\s*=\s*["']?hidden[^>]*value\s*=\s*["'][^"']{4,}/i,
+    /<input\b(?=[^>]*\btype\s*=\s*(?:"hidden"|'hidden'|hidden(?=\s|\/?>)))(?=[^>]*\bvalue\s*=\s*(?:"[^"]{4,}"|'[^']{4,}'|[^\s>]{4,}))[^>]*>/i,
     { skipCode: true }),
   rule('MD-022', 'Hidden Input Field in Markdown', 'MEDIUM', 'markdown_injection',
-    /<input\b[^>]*type\s*=\s*["']?hidden/i,
+    /<input\b(?=[^>]*\btype\s*=\s*(?:"hidden"|'hidden'|hidden(?=\s|\/?>)))[^>]*>/i,
     {
       skipCode: true,
       confidence: 'MEDIUM',
-      excludePattern: /<input\b[^>]*type\s*=\s*["']?hidden[^>]*value\s*=\s*["'][^"']{4,}/i
+      excludePattern: /<input\b(?=[^>]*\btype\s*=\s*(?:"hidden"|'hidden'|hidden(?=\s|\/?>)))(?=[^>]*\bvalue\s*=\s*(?:"[^"]{4,}"|'[^']{4,}'|[^\s>]{4,}))[^>]*>/i
     }),
   rule('MD-026', '<style> Tag — CSS Injection', 'MEDIUM', 'markdown_injection',
     /<style\b/i,
@@ -242,7 +242,7 @@ export const HIGH_IMPACT_LINE_RULES: readonly ContextualSecurityRule[] = [
 export const HIGH_IMPACT_DOCUMENT_RULES: readonly ContextualSecurityRule[] = [
   rule('MD-012', 'rehype-raw Without rehype-sanitize', 'HIGH', 'markdown_injection',
     /rehype-raw/i,
-    { confidence: 'MEDIUM', excludePattern: /rehype-sanitize/i }),
+    { confidence: 'MEDIUM' }),
   rule('MD-027', 'Markdown Renderer Unsafe HTML Config', 'HIGH', 'markdown_injection',
     /unsafe\s*:\s*true|ignoreLogs\s*=.*warning-goldmark-raw-html/i),
   rule('MD-028', 'remark-html Without Sanitization', 'HIGH', 'markdown_injection',

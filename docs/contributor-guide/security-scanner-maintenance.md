@@ -85,6 +85,7 @@ Security scanning operates on untrusted repositories:
 - establish canonical root containment before reading;
 - enforce per-file and aggregate byte limits;
 - bound ignore-file size, line count, and pattern count;
+- use bounded wildcard matching, not backtracking regular expressions over repository-controlled ignore patterns;
 - do not read or write through symlinks;
 - use atomic owner-only report writes;
 - keep absolute paths out of default reports and logs;
@@ -130,6 +131,21 @@ Automatic scans are allowed only for trusted local `file:` workspaces. Maintain:
 
 Settings belong under `promptregistry.security.*`. Do not reintroduce the standalone `md-security-scanner.*` namespace or a Python runtime dependency.
 
+### Deferred operational follow-ups
+
+There is currently no service-wide cap on workers across different documents.
+Per-key supersession and input budgets do not provide such a cap; bursts of
+document opens/saves can create multiple workers. A follow-up should define
+queueing, concurrency and cancellation behavior before engine creation.
+
+Cancellation is polled at operation boundaries. A blocked filesystem operation
+can remain pending until the whole-scan deadline; it does not settle immediately
+when superseded. Prompt cancellation requires a notification-capable port and
+explicit lifetime handling for still-pending operations.
+
+Mocked command-event tests cover filtering, registration and generation guards;
+real VS Code activation/event coverage remains an integration-test follow-up.
+
 ## Verification commands
 
 Run focused tests first, then owning package checks:
@@ -152,6 +168,29 @@ pnpm -C website run build
 ```
 
 Follow repository guidance: use `lint:fix`; do not run the corresponding non-fixing lint command afterward.
+
+### Cross-platform regressions
+
+When CI fails on Windows, inspect the failing test and transformed production
+value before changing fixtures. Build native filesystem expectations with
+`path.join` and resolve module URLs with `fileURLToPath`. Assert POSIX permission
+bits only on platforms that expose them.
+
+Extension tests use a `vscode` mock whose `Uri.file` keeps `fsPath` verbatim,
+unlike VS Code, which normalizes separators. Production code joins scan roots and
+relative finding paths with the host separator, so build roots with
+`path.resolve` and expected files with `path.join` instead of POSIX literals such
+as `/repo/first.md`.
+
+Keep portable cases running on every OS. Isolate only unsupported filesystem
+cases (such as newline-containing filenames on Windows) in explicitly
+platform-gated tests; do not skip an entire security suite or remove NUL-delimited
+path handling from production. A passing Linux run does not establish Windows
+compatibility: the Windows CI job must still pass.
+
+Security fixture contents intentionally include unsafe patterns. Review the
+scanner's observable detection, coverage and redaction behavior, not the fixture
+payload as if it were production instructions.
 
 ## Review checklist
 
