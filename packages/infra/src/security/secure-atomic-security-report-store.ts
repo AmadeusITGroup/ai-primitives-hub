@@ -23,7 +23,13 @@ const ensureRealDirectory = async (directory: string, createMissing: boolean): P
   let stat = await lstat(resolved).catch(() => undefined);
   if (stat === undefined && createMissing) {
     await ensureRealDirectory(path.dirname(resolved), true);
-    await mkdir(resolved, { mode: 0o700 });
+    try {
+      await mkdir(resolved, { mode: 0o700 });
+    } catch (error) {
+      if (error === null || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST') {
+        throw error;
+      }
+    }
     stat = await lstat(resolved);
   }
   if (stat === undefined || stat.isSymbolicLink() || !stat.isDirectory()) {
