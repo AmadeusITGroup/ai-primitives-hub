@@ -83,6 +83,16 @@ pnpm run test:coverage:unit    # c8 html output in coverage/
 
 Coverage reports are written to the `coverage/` directory.
 
+## Security Scanner Testing
+
+Scanner coverage lives in `packages/core/test/domain/security/`,
+`packages/infra/test/security/`, `packages/app/test/security/`,
+`packages/cli/test/commands/security-scan.test.ts`, and the extension's scanner
+tests. Run focused package tests with `pnpm -C packages/<package> exec vitest run <test-path>`.
+Use synthetic credentials only, and cover positive cases, near misses,
+redaction, limits, worker isolation, cancellation, and report writes.
+See [Security Scanner Maintenance](./security-scanner-maintenance.md).
+
 ## What These Suites Do Not Cover
 
 Everything above is automated. The paths a person still has to walk by hand — installing the published extension on a clean machine, authenticating against real GitHub, confirming Copilot and Kiro actually recognize what was installed, publishing a collection through a real runner, upgrading from the previous major — are covered manually.

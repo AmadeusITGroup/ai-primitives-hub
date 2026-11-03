@@ -130,6 +130,9 @@ import {
   PromptCreateCommand,
 } from './prompt-create';
 import {
+  SecurityScanCommand,
+} from './security-scan';
+import {
   SkillCreateCommand,
 } from './skill-create';
 import {
@@ -224,6 +227,7 @@ export const ALL_COMMAND_CLASSES: CommandClass[] = [
   CollectionAffectedCommand,
   CollectionCreateCommand,
   PromptCreateCommand,
+  SecurityScanCommand,
   InstructionCreateCommand,
   AgentCreateCommand,
   SkillCreateCommand,
