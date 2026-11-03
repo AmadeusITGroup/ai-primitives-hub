@@ -1,4 +1,7 @@
 import {
+  constants,
+} from 'node:fs';
+import {
   lstat,
   open,
   readdir,
@@ -99,10 +102,23 @@ const hasRepositoryMarker = async (marker: string): Promise<boolean> => {
 };
 
 const readBounded = async (file: string, limit: number): Promise<Uint8Array> => {
-  const handle = await open(file, 'r');
+  const before = await lstat(file);
+  if (!before.isFile() || before.isSymbolicLink()) {
+    throw new Error('Input is not a regular file.');
+  }
+  // eslint-disable-next-line no-bitwise -- Filesystem open flags are a bitmask.
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error('Input changed while opening.');
+    }
     const buffer = Buffer.alloc(limit + 1);
     const result = await handle.read(buffer, 0, buffer.length, 0);
+    const after = await lstat(file);
+    if (!after.isFile() || after.isSymbolicLink() || after.dev !== opened.dev || after.ino !== opened.ino) {
+      throw new Error('Input changed while reading.');
+    }
     return new Uint8Array(buffer.subarray(0, result.bytesRead));
   } finally {
     await handle.close();
@@ -179,6 +195,21 @@ const extensionAllowed = (file: string, extensions: readonly string[]): boolean 
 
 const rootId = (root: string): string => path.resolve(root);
 
+const regularParents = async (file: string, root: string): Promise<boolean> => {
+  let parent = path.dirname(file);
+  while (isWithin(parent, root)) {
+    const stat = await lstat(parent).catch(() => undefined);
+    if (stat === undefined || !stat.isDirectory() || stat.isSymbolicLink()) {
+      return false;
+    }
+    if (parent === root) {
+      return true;
+    }
+    parent = path.dirname(parent);
+  }
+  return false;
+};
+
 export class NodeSecurityScanInput implements SecurityScanInput {
   public async collect(request: SecurityInputRequest, limits: SecurityResourceLimits, cancellation: SecurityCancellation): Promise<SecurityInputCollection> {
     const candidates: SecurityInputCandidate[] = [];
@@ -189,6 +220,7 @@ export class NodeSecurityScanInput implements SecurityScanInput {
     const warnings: { code: 'SECURITY.INVALID_SUPPRESSION'; sourcePath: string; line: number; message: string }[] = [];
     let totalFiles = 0;
     let fileLimitExceeded = false;
+    const seenFiles = new Set<string>();
 
     for (const rawRoot of request.roots) {
       if (fileLimitExceeded) {
@@ -209,6 +241,13 @@ export class NodeSecurityScanInput implements SecurityScanInput {
       }
       if (!rootStat.isFile() && !rootStat.isDirectory()) {
         skippedFiles.push({ path: rawRoot, reason: 'special-file' });
+        continue;
+      }
+      if (isExcluded(absoluteRoot, request.excludes)) {
+        skippedFiles.push({ path: absoluteRoot, reason: 'excluded' });
+        continue;
+      }
+      if (rootStat.isFile() && seenFiles.has(absoluteRoot)) {
         continue;
       }
       const rootReal = await realpath(absoluteRoot);
@@ -239,6 +278,7 @@ export class NodeSecurityScanInput implements SecurityScanInput {
           break;
         }
         totalFiles++;
+        seenFiles.add(absoluteRoot);
         const inheritedIgnore = inheritedPatterns.find((entry) => matchesFilePattern(absoluteRoot, entry.scopeRoot, entry.pattern));
         if (inheritedIgnore !== undefined) {
           ignoredFiles.push({ path: absoluteRoot, reason: 'file-ignore', source: inheritedIgnore.source });
@@ -257,7 +297,7 @@ export class NodeSecurityScanInput implements SecurityScanInput {
           continue;
         }
         const localPatterns = [...current.filePatterns];
-        if (request.ignoreTrust === 'repository') {
+        if (request.ignoreTrust === 'repository' && current.depth > 0) {
           const localIgnorePath = path.join(current.absolutePath, '.markdown-file.ignore');
           const localIgnoreText = await readIgnore(localIgnorePath, limits, errors);
           if (localIgnoreText !== undefined) {
@@ -306,12 +346,16 @@ export class NodeSecurityScanInput implements SecurityScanInput {
             skippedFiles.push({ path: candidatePath, reason: 'special-file' });
             continue;
           }
+          if (seenFiles.has(candidatePath)) {
+            continue;
+          }
           if (totalFiles >= limits.maxFiles) {
             errors.push({ code: 'SECURITY.LIMIT_EXCEEDED', message: 'Maximum file count exceeded.' });
             fileLimitExceeded = true;
             break;
           }
           totalFiles++;
+          seenFiles.add(candidatePath);
           const fileIgnore = localPatterns.find((pattern) => matchesFilePattern(candidatePath, pattern.scopeRoot, pattern.pattern));
           if (fileIgnore !== undefined) {
             ignoredFiles.push({ path: candidatePath, reason: 'file-ignore', source: fileIgnore.source });
@@ -345,6 +389,9 @@ export class NodeSecurityScanInput implements SecurityScanInput {
 
   public async read(candidate: SecurityInputCandidate, limits: SecurityResourceLimits, cancellation: SecurityCancellation): Promise<SecurityInputReadResult> {
     cancellation.throwIfCancelled();
+    if (!await regularParents(candidate.absolutePath, candidate.rootId)) {
+      return { error: { code: 'SECURITY.INPUT_CHANGED', message: `Input parent changed: ${candidate.displayPath}` } };
+    }
     const stat = await lstat(candidate.absolutePath).catch(() => undefined);
     if (stat === undefined || !stat.isFile() || stat.isSymbolicLink()) {
       return { error: { code: 'SECURITY.INPUT_CHANGED', message: `Input changed or is no longer a regular file: ${candidate.displayPath}` } };
@@ -354,6 +401,9 @@ export class NodeSecurityScanInput implements SecurityScanInput {
     }
     try {
       const bytes = await readBounded(candidate.absolutePath, limits.maxFileBytes);
+      if (!await regularParents(candidate.absolutePath, candidate.rootId)) {
+        return { error: { code: 'SECURITY.INPUT_CHANGED', message: `Input parent changed: ${candidate.displayPath}` } };
+      }
       if (bytes.byteLength > limits.maxFileBytes) {
         return { error: { code: 'SECURITY.LIMIT_EXCEEDED', message: `Input exceeds the file limit: ${candidate.displayPath}` } };
       }

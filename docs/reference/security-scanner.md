@@ -98,6 +98,9 @@ The default engine limits input to 10,000 files, 1 MiB per file, 100 MiB total, 
 
 `--max-files` bounds traversal: it counts discovered regular files, including
 nonmatching extensions and ignored documentation, not just scanned Markdown.
+Overlapping or repeated roots count each discovered path only once. The first
+root that encounters a file determines its report location and suppression scope.
+Exclusions apply to explicitly named inputs as well as directory traversal.
 Raise it explicitly for large repositories rather than removing the traversal
 bound.
 

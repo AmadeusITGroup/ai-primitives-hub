@@ -1,6 +1,7 @@
 import {
   chmod,
   mkdir,
+  rename,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -73,6 +74,48 @@ describe('NodeSecurityScanInput', () => {
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0].rootId).toBe(directory);
     expect(result.candidates[0].displayPath).toBe('direct.md');
+  });
+
+  it('counts overlapping and repeated roots only once against the file budget', async () => {
+    const file = join(directory, 'a.md');
+    await writeFile(file, '# file');
+    const result = await new NodeSecurityScanInput().collect(
+      { ...request(directory), roots: [directory, file, directory], ignoreTrust: 'none' },
+      { ...SECURITY_DEFAULT_LIMITS, maxFiles: 1 }, cancellation
+    );
+    expect(result.candidates.map((candidate) => candidate.absolutePath)).toEqual([file]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('applies exclusions to explicitly named files', async () => {
+    const file = join(directory, 'excluded.md');
+    await writeFile(file, '# file');
+    const result = await new NodeSecurityScanInput().collect(
+      { ...request(file), excludes: ['excluded.md'] }, SECURITY_DEFAULT_LIMITS, cancellation
+    );
+    expect(result.candidates).toEqual([]);
+    expect(result.skippedFiles).toContainEqual({ path: file, reason: 'excluded' });
+  });
+
+  it('reads root suppressions and malformed-entry warnings only once', async () => {
+    await writeFile(join(directory, 'a.md'), '# file');
+    await writeFile(join(directory, '.markdown.ignore'), `${'a'.repeat(32)}\nnot-a-fingerprint\n`);
+    const result = await new NodeSecurityScanInput().collect(request(directory), SECURITY_DEFAULT_LIMITS, cancellation);
+    expect(result.suppressions).toHaveLength(1);
+    expect(result.warnings).toHaveLength(1);
+  });
+
+  it('rejects a candidate moved behind a symlinked parent before reading', async () => {
+    const nested = join(directory, 'nested');
+    await mkdir(nested);
+    await writeFile(join(nested, 'a.md'), '# file');
+    const input = new NodeSecurityScanInput();
+    const result = await input.collect(request(directory), SECURITY_DEFAULT_LIMITS, cancellation);
+    await rename(nested, join(directory, 'moved'));
+    await symlink(join(directory, 'moved'), nested, 'junction');
+    const read = await input.read(result.candidates[0], SECURITY_DEFAULT_LIMITS, cancellation);
+    expect(read.document).toBeUndefined();
+    expect(read.error?.code).toBe('SECURITY.INPUT_CHANGED');
   });
 
   it('collects directly passed Claude settings and preserves file mode metadata', async () => {
