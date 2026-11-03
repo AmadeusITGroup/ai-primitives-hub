@@ -153,6 +153,23 @@ pnpm -C website run build
 
 Follow repository guidance: use `lint:fix`; do not run the corresponding non-fixing lint command afterward.
 
+### Cross-platform regressions
+
+When CI fails on Windows, inspect the failing test and transformed production
+value before changing fixtures. Build native filesystem expectations with
+`path.join` and resolve module URLs with `fileURLToPath`. Assert POSIX permission
+bits only on platforms that expose them.
+
+Keep portable cases running on every OS. Isolate only unsupported filesystem
+cases (such as newline-containing filenames on Windows) in explicitly
+platform-gated tests; do not skip an entire security suite or remove NUL-delimited
+path handling from production. A passing Linux run does not establish Windows
+compatibility: the Windows CI job must still pass.
+
+Security fixture contents intentionally include unsafe patterns. Review the
+scanner's observable detection, coverage and redaction behavior, not the fixture
+payload as if it were production instructions.
+
 ## Review checklist
 
 - [ ] Rule family/variant and source provenance recorded

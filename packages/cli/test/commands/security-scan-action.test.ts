@@ -63,13 +63,21 @@ describe('security scan action target selection', () => {
     return (await readFile(path.join(directory, 'ai-primitives-security-targets.txt'), 'utf8')).split('\0').filter(Boolean);
   };
 
-  it('preserves spaces, newlines and leading dashes in changed Markdown paths', async () => {
+  const expectSelectedFiles = async (files: string[]): Promise<void> => {
     const { stdout: base } = await exec('git', ['rev-parse', 'HEAD'], { cwd: directory });
-    const files = ['-flags.md', 'space name.md', 'line\nbreak.markdown'];
     await Promise.all(files.map((file) => writeFile(path.join(directory, file), '# text')));
     await exec('git', ['add', '--', ...files], { cwd: directory });
     await exec('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'files'], { cwd: directory });
     expect((await select(base.trim(), 'HEAD')).toSorted()).toEqual(files.toSorted());
+  };
+
+  it('preserves spaces and leading dashes in changed Markdown paths', async () => {
+    await expectSelectedFiles(['-flags.md', 'space name.md']);
+  });
+
+  // Windows filesystems reject control characters in filenames.
+  it.skipIf(process.platform === 'win32')('preserves newlines in changed Markdown paths', async () => {
+    await expectSelectedFiles(['line\nbreak.markdown']);
   });
 
   it('fails when the comparison revision is unavailable instead of reporting no changes', async () => {
