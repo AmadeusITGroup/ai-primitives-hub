@@ -463,7 +463,7 @@ prompts:
         'skill name should be extracted correctly from the path');
       assert.strictEqual(
         sourceDir,
-        fs.realpathSync(path.join(skillBundlePath, '.github', 'skills', 'nevio-deployment-automation')),
+        await fs.promises.realpath(path.join(skillBundlePath, '.github', 'skills', 'nevio-deployment-automation')),
         'sourceDir should point to the actual skill location in the bundle, not a hardcoded skills/ prefix');
     });
 
@@ -501,7 +501,7 @@ prompts:
         assert.strictEqual(skillName, 'pr-review', 'skill name should be correct');
         assert.strictEqual(
           sourceDir,
-          fs.realpathSync(path.join(standardBundlePath, 'skills', 'pr-review')),
+          await fs.promises.realpath(path.join(standardBundlePath, 'skills', 'pr-review')),
           'sourceDir should point to skills/pr-review in the bundle');
       } finally {
         fs.rmSync(standardBundlePath, { recursive: true, force: true });
