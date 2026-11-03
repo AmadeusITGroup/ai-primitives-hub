@@ -19,6 +19,7 @@ import {
   FileTreeTargetWriter,
   KIND_TO_ROUTE_KEY,
   resolveLayout,
+  switchRecordedCommitMode,
 } from '@ai-primitives-hub/app';
 import type {
   ManifestPlacementItem,
@@ -57,8 +58,16 @@ import {
   resolveExistingPathInside,
 } from '../utils/path-safety';
 import {
+  createExtensionWriterFactory,
+  repositoryExclusion,
+  repositoryTarget,
+} from './app-install-context';
+import {
   LockfileManager,
 } from './lockfile-manager';
+import {
+  LockfileManagerRecordStore,
+} from './lockfile-record-store';
 import {
   IScopeService,
   SyncBundleOptions,
@@ -961,78 +970,47 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Switch the commit mode for a bundle
+   * Switch the commit mode of a repository bundle: move its lockfile entry
+   * to the other lockfile, then add its recorded files to (local-only) or
+   * remove them from (commit) git exclude. A failed lockfile move is
+   * thrown; exclusion problems are logged.
    * @param bundleId - Bundle identifier
    * @param newMode - New commit mode
+   * @throws {Error} if the lockfile entry cannot be moved
    */
   public async switchCommitMode(bundleId: string, newMode: RepositoryCommitMode): Promise<void> {
-    try {
-      this.logger.debug(`[RepositoryScopeService] Switching commit mode for ${bundleId} to ${newMode}`);
+    this.logger.debug(`[RepositoryScopeService] Switching commit mode for ${bundleId} to ${newMode}`);
 
-      // Get installed bundle info from lockfile (repository scope bundles are tracked via lockfile)
-      // Use getInstalledBundles() to search both main and local lockfiles
-      const lockfileManager = LockfileManager.getInstance(this.workspaceRoot);
-      const installedBundles = await lockfileManager.getInstalledBundles();
-      const bundle = installedBundles.find((b) => b.bundleId === bundleId);
-
-      if (!bundle) {
-        this.logger.warn(`[RepositoryScopeService] Bundle ${bundleId} not found in any lockfile`);
-        return;
-      }
-
-      const currentMode = bundle.commitMode ?? 'commit';
-      if (currentMode === newMode) {
-        this.logger.debug(`[RepositoryScopeService] Bundle ${bundleId} already in ${newMode} mode`);
-        return;
-      }
-
-      // Find installed files in the host-appropriate managed directories.
-      // The lockfile files point to the bundle cache, not the installed
-      // location, so we scan the host-aware destination dirs (e.g. .github/*
-      // for VS Code, .kiro/* for Kiro) for files that belong to this bundle.
-      const filePaths: string[] = [];
-
-      // Managed primitive kinds; deduped because several kinds may resolve to
-      // the same directory on some hosts (e.g. prompt + instructions ->
-      // .kiro/steering/ on Kiro).
-      const managedKinds: CopilotFileType[] = ['prompt', 'instructions', 'agent', 'skill'];
-      const scannedDirs = new Set<string>();
-
-      for (const kind of managedKinds) {
-        const relativeDir = this.getTargetDirectory(kind).replace(/[/\\]+$/, '');
-        if (scannedDirs.has(relativeDir)) {
-          continue;
-        }
-        scannedDirs.add(relativeDir);
-
-        const absoluteDir = path.join(this.workspaceRoot, relativeDir);
-        if (!fs.existsSync(absoluteDir)) {
-          continue;
-        }
-
-        // Top-level entries: files for prompt/instructions/agent, skill
-        // directories for the skill kind. Both are valid git-exclude targets.
-        const entries = await readdir(absoluteDir);
-        for (const entry of entries) {
-          filePaths.push(path.join(relativeDir, entry));
-        }
-      }
-
-      // Check for the VS Code-specific copilot-instructions.md convention file
-      // (harmless no-op on non-VS-Code hosts, where it will not exist).
-      const copilotInstructionsPath = path.join(this.workspaceRoot, '.github', 'copilot-instructions.md');
-      if (fs.existsSync(copilotInstructionsPath)) {
-        filePaths.push('.github/copilot-instructions.md');
-      }
-
-      this.logger.debug(`[RepositoryScopeService] Found ${filePaths.length} files to update git exclude for`);
-
-      // Update git exclude based on new mode
-      await (newMode === 'local-only' ? this.addToGitExclude(filePaths) : this.removeFromGitExclude(filePaths));
-
-      this.logger.info(`[RepositoryScopeService] ✅ Switched ${bundleId} to ${newMode} mode`);
-    } catch (error) {
-      this.logger.error(`[RepositoryScopeService] Failed to switch commit mode for ${bundleId}`, error as Error);
+    const lockfileManager = LockfileManager.getInstance(this.workspaceRoot);
+    const record = await new LockfileManagerRecordStore(lockfileManager).get(bundleId);
+    if (!record) {
+      this.logger.warn(`[RepositoryScopeService] Bundle ${bundleId} not found in any lockfile`);
+      return;
     }
+    if (record.commitMode === newMode) {
+      this.logger.warn(`[RepositoryScopeService] Bundle ${bundleId} already in ${newMode} mode`);
+      return;
+    }
+
+    await lockfileManager.updateCommitMode(bundleId, newMode);
+
+    const result = await switchRecordedCommitMode({
+      writerFactory: createExtensionWriterFactory(this.workspaceRoot),
+      target: repositoryTarget(this.workspaceRoot, newMode, this.targetType),
+      record,
+      exclusion: repositoryExclusion(this.workspaceRoot),
+      newMode
+    });
+    if (result.unresolvable !== undefined) {
+      this.logger.warn(`[RepositoryScopeService] Git exclude not updated for ${bundleId}: ${result.unresolvable}`);
+    }
+    if (result.exclusionSkipped) {
+      this.logger.warn(`[RepositoryScopeService] No git repository at ${this.workspaceRoot}; the files of ${bundleId} are not ${newMode === 'local-only' ? 'excluded from' : 'restored to'} git`);
+    }
+    for (const message of result.exclusionErrors) {
+      this.logger.warn(`[RepositoryScopeService] Failed to update git exclude for ${bundleId}: ${message}`);
+    }
+
+    this.logger.info(`[RepositoryScopeService] ✅ Switched ${bundleId} to ${newMode} mode`);
   }
 }

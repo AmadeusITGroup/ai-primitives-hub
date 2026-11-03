@@ -566,57 +566,98 @@ suite('RepositoryScopeService', () => {
   });
 
   suite('switchCommitMode', () => {
-    test('should add paths to git exclude when switching from commit to local-only', async () => {
+    const sha256 = (content: string): string => crypto.createHash('sha256').update(content).digest('hex');
+    const writeWorkspaceFile = (relativePath: string, content: string): void => {
+      const absolute = path.join(workspaceRoot, ...relativePath.split('/'));
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, content);
+    };
+    /**
+     * Seed a repository entry as the CLI writes it for a vscode target, with its files under `.github/`.
+     * @param commitMode - Lockfile the entry is written to.
+     * @returns The entry.
+     */
+    const seedCliEntry = (commitMode: RepositoryCommitMode) => {
+      writeWorkspaceFile('.github/plugins/demo-plugin/plugin.json', '{"name":"demo-plugin"}');
+      writeWorkspaceFile('.github/skills/helper/SKILL.md', '# Helper');
+      writeWorkspaceFile('.github/prompts/hello.prompt.md', '# Hello');
+      const entry = {
+        version: '1.0.0',
+        sourceId: 'local-demo',
+        sourceType: 'local',
+        installedAt: '2024-01-01T00:00:00.000Z',
+        targetType: 'vscode',
+        files: [
+          { path: 'plugins/demo-plugin/plugin.json', checksum: sha256('{"name":"demo-plugin"}') },
+          { path: 'prompts/hello.prompt.md', checksum: sha256('# Hello'), installedPath: 'prompts/hello.prompt.md' },
+          { path: 'skills/helper/SKILL.md', checksum: sha256('# Helper') }
+        ]
+      };
+      const lockfileName = commitMode === 'local-only' ? 'prompt-registry.local.lock.json' : 'prompt-registry.lock.json';
+      fs.writeFileSync(path.join(workspaceRoot, lockfileName), JSON.stringify({
+        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
+        version: '2.0.0',
+        generatedAt: new Date().toISOString(),
+        generatedBy: 'ai-primitives-hub-cli@test',
+        bundles: { 'demo-plugin': entry },
+        sources: { 'local-demo': { type: 'local', url: 'local:local-demo' } }
+      }, null, 2));
+      return entry;
+    };
+    const readLockfileBundle = (name: string) => {
+      const file = path.join(workspaceRoot, name);
+      return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).bundles['demo-plugin'] : undefined;
+    };
+    const excludedLines = (): string[] => {
+      const lines = (readGitExclude() ?? '').split('\n');
+      const header = lines.indexOf('# Prompt Registry (local)');
+      return header === -1 ? [] : lines.slice(header + 1).filter((line) => line.trim().length > 0).toSorted();
+    };
+
+    test('switching to local-only moves the entry and excludes exactly its recorded files and the local lockfile', async () => {
       createGitDirectory();
+      const entry = seedCliEntry('commit');
+      writeWorkspaceFile('.github/prompts/unrelated.prompt.md', '# Not from this bundle');
+      writeWorkspaceFile('.github/copilot-instructions.md', '# Repository instructions');
 
-      // Setup: create synced files
-      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
-      fs.mkdirSync(promptsDir, { recursive: true });
-      fs.writeFileSync(path.join(promptsDir, 'test.prompt.md'), '# Test');
+      await service.switchCommitMode('demo-plugin', 'local-only');
 
-      const bundleId = 'test-bundle';
-      createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
+      assert.deepStrictEqual(readLockfileBundle('prompt-registry.local.lock.json'), entry, 'the entry moves with targetType intact');
+      assert.strictEqual(readLockfileBundle('prompt-registry.lock.json'), undefined);
+      assert.deepStrictEqual(excludedLines(), [
+        '.github/plugins/demo-plugin/plugin.json',
+        '.github/prompts/hello.prompt.md',
+        '.github/skills/helper/SKILL.md',
+        'prompt-registry.local.lock.json'
       ]);
-
-      // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'commit');
-
-      await service.switchCommitMode(bundleId, 'local-only');
-
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes('.github/prompts/test.prompt.md'),
-        'Git exclude should contain file path after switching to local-only'
-      );
     });
 
-    test('should remove paths from git exclude when switching from local-only to commit', async () => {
+    test('switching back to commit removes the recorded files and a legacy skill directory line from git exclude', async () => {
       createGitDirectory();
-      const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-      fs.writeFileSync(excludePath, '# Prompt Registry (local)\n.github/prompts/test.prompt.md\n');
+      const entry = seedCliEntry('local-only');
+      fs.writeFileSync(path.join(workspaceRoot, '.git', 'info', 'exclude'), [
+        '# Prompt Registry (local)',
+        '.github/plugins/demo-plugin/plugin.json',
+        '.github/prompts/hello.prompt.md',
+        '.github/skills/helper',
+        'prompt-registry.local.lock.json',
+        ''
+      ].join('\n'));
 
-      // Setup: create synced files
-      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
-      fs.mkdirSync(promptsDir, { recursive: true });
-      fs.writeFileSync(path.join(promptsDir, 'test.prompt.md'), '# Test');
+      await service.switchCommitMode('demo-plugin', 'commit');
 
-      const bundleId = 'test-bundle';
-      createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
+      assert.deepStrictEqual(readLockfileBundle('prompt-registry.lock.json'), entry, 'the entry moves with targetType intact');
+      assert.ok(!fs.existsSync(path.join(workspaceRoot, 'prompt-registry.local.lock.json')));
+      assert.deepStrictEqual(excludedLines(), []);
+    });
 
-      // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'local-only');
+    test('switching a bundle that is not installed changes nothing', async () => {
+      createGitDirectory();
 
-      await service.switchCommitMode(bundleId, 'commit');
+      await service.switchCommitMode('absent', 'local-only');
 
-      const excludeContent = readGitExclude();
-      assert.ok(
-        !excludeContent!.includes('.github/prompts/test.prompt.md'),
-        'Git exclude should not contain file path after switching to commit'
-      );
+      assert.strictEqual(readGitExclude(), null);
+      assert.ok(!fs.existsSync(path.join(workspaceRoot, 'prompt-registry.local.lock.json')));
     });
   });
 
@@ -1378,32 +1419,6 @@ prompts:
           `${targetType} + ${type} should resolve to ${expected}`
         );
       }
-    });
-
-    test('switchCommitMode scans host-aware dirs (.kiro) on a Kiro host', async () => {
-      createGitDirectory();
-      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
-      const bundleId = 'kiro-switch-bundle';
-
-      // Simulate a Kiro install: a prompt already synced under .kiro/steering/.
-      const steeringDir = path.join(workspaceRoot, '.kiro', 'steering');
-      fs.mkdirSync(steeringDir, { recursive: true });
-      fs.writeFileSync(path.join(steeringDir, 'test.prompt.md'), '# Prompt');
-
-      createLockfile(bundleId, 'commit');
-
-      await kiroService.switchCommitMode(bundleId, 'local-only');
-
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes('.kiro/steering/test.prompt.md'),
-        'switchCommitMode should add the host-aware .kiro path to git exclude'
-      );
-      assert.ok(
-        !excludeContent.includes('.github/'),
-        'switchCommitMode should not reference .github on a Kiro host'
-      );
     });
 
     test('tracked git-exclude paths equal the host-aware written paths', async () => {
