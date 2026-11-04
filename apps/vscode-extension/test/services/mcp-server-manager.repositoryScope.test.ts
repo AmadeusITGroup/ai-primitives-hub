@@ -125,6 +125,97 @@ suite('McpServerManager Repository Scope Test Suite', () => {
       assert.ok(config.servers, 'servers object should exist');
     });
 
+    const sampleRepo = 'https://github.com/acme-org/sample-collections';
+    const sampleKey = 'ai-primitives-hub:acme-org:sample-collections:sample-mcp:gateway';
+
+    test('names servers after repository, collection and server, and keeps the name across a bundle update', async () => {
+      const manifest: McpServersManifest = { gateway: { type: 'http', url: 'https://example.invalid/mcp' } };
+      const naming = { manifestId: 'sample-mcp', manifestRepository: sampleRepo };
+
+      const v1 = await manager.installServersToWorkspace(
+        'acme-org-sample-collections-sample-mcp-1.0.0', '1.0.0', testWorkspaceRoot, manifest,
+        { commitMode: 'commit', ...naming }
+      );
+      assert.deepStrictEqual(v1.installedServers, [sampleKey]);
+
+      // An update uninstalls the old version, then installs the new one.
+      await manager.uninstallServersFromWorkspace('acme-org-sample-collections-sample-mcp-1.0.0', testWorkspaceRoot);
+      const v2 = await manager.installServersToWorkspace(
+        'acme-org-sample-collections-sample-mcp-1.1.0', '1.1.0', testWorkspaceRoot, manifest,
+        { commitMode: 'commit', ...naming }
+      );
+
+      assert.deepStrictEqual(v2.installedServers, [sampleKey]);
+      const config = await readMcpConfig();
+      assert.deepStrictEqual(Object.keys(config!.servers), [sampleKey]);
+      const tracking = await readTrackingMetadata();
+      assert.strictEqual(tracking!.managedServers[sampleKey].bundleId, 'acme-org-sample-collections-sample-mcp-1.1.0');
+    });
+
+    test('replaces the server of an older version installed on top of, without an uninstall first', async () => {
+      const manifest: McpServersManifest = { gateway: { type: 'http', url: 'https://example.invalid/mcp' } };
+      const naming = { manifestId: 'sample-mcp', manifestRepository: sampleRepo };
+      await manager.installServersToWorkspace(
+        'acme-org-sample-collections-sample-mcp-1.0.0', '1.0.0', testWorkspaceRoot, manifest, { commitMode: 'commit', ...naming }
+      );
+
+      const v2 = await manager.installServersToWorkspace(
+        'acme-org-sample-collections-sample-mcp-1.1.0', '1.1.0', testWorkspaceRoot, manifest, { commitMode: 'commit', ...naming }
+      );
+
+      assert.strictEqual(v2.success, true);
+      const config = await readMcpConfig();
+      assert.deepStrictEqual(Object.keys(config!.servers), [sampleKey]);
+      const tracking = await readTrackingMetadata();
+      assert.strictEqual(tracking!.managedServers[sampleKey].bundleId, 'acme-org-sample-collections-sample-mcp-1.1.0');
+    });
+
+    test('installs the same collection id from two repositories side by side', async () => {
+      await manager.installServersToWorkspace(
+        'acme-org-sample-collections-sample-mcp-1.0.0', '1.0.0', testWorkspaceRoot,
+        { gateway: { type: 'http', url: 'https://example.invalid/mcp' } },
+        { commitMode: 'commit', manifestId: 'sample-mcp', manifestRepository: sampleRepo }
+      );
+
+      const other = await manager.installServersToWorkspace(
+        'other-org-sample-hub-sample-mcp-2.0.0', '2.0.0', testWorkspaceRoot,
+        { gateway: { type: 'http', url: 'https://other.invalid/mcp' } },
+        { commitMode: 'commit', manifestId: 'sample-mcp', manifestRepository: 'https://github.com/other-org/sample-hub' }
+      );
+
+      assert.strictEqual(other.success, true);
+      assert.deepStrictEqual(other.installedServers, ['ai-primitives-hub:other-org:sample-hub:sample-mcp:gateway']);
+      const config = await readMcpConfig();
+      assert.deepStrictEqual(Object.keys(config!.servers).toSorted(), [
+        sampleKey,
+        'ai-primitives-hub:other-org:sample-hub:sample-mcp:gateway'
+      ].toSorted());
+    });
+
+    test('rejects a second install of the same collection from the same repository instead of renaming its server', async () => {
+      await manager.installServersToWorkspace(
+        'acme-org-sample-collections-sample-mcp-1.0.0', '1.0.0', testWorkspaceRoot,
+        { gateway: { type: 'http', url: 'https://example.invalid/mcp' } },
+        { commitMode: 'commit', manifestId: 'sample-mcp', manifestRepository: sampleRepo }
+      );
+
+      // Same release added through a manual source: different bundle id, same manifest repository.
+      const other = await manager.installServersToWorkspace(
+        'sample-mcp', '1.0.0', testWorkspaceRoot,
+        { gateway: { type: 'http', url: 'https://other.invalid/mcp' } },
+        { commitMode: 'commit', manifestId: 'sample-mcp', manifestRepository: sampleRepo, sourceRepository: 'https://github.com/mirror-org/mirror' }
+      );
+
+      assert.strictEqual(other.success, false);
+      assert.deepStrictEqual(other.errors, [`Conflicts detected: ${sampleKey}`]);
+      const config = await readMcpConfig();
+      assert.deepStrictEqual(config!.servers, {
+        [sampleKey]: { type: 'http', url: 'https://example.invalid/mcp' }
+      });
+      const tracking = await readTrackingMetadata();
+      assert.strictEqual(tracking!.managedServers[sampleKey].bundleId, 'acme-org-sample-collections-sample-mcp-1.0.0');
+    });
+
     test('should merge MCP servers into existing .vscode/mcp.json', async () => {
       // Arrange - create existing config with a server
       const existingConfig: McpConfiguration = {
@@ -245,7 +336,7 @@ suite('McpServerManager Repository Scope Test Suite', () => {
       // Arrange - create existing config with conflicting server name
       const existingConfig: McpConfiguration = {
         servers: {
-          'prompt-registry:test-bundle:my-server': {
+          'ai-primitives-hub:test-bundle:my-server': {
             command: 'python',
             args: ['old.py']
           }
@@ -278,7 +369,7 @@ suite('McpServerManager Repository Scope Test Suite', () => {
       // Arrange
       const existingConfig: McpConfiguration = {
         servers: {
-          'prompt-registry:test-bundle:my-server': {
+          'ai-primitives-hub:test-bundle:my-server': {
             command: 'python',
             args: ['old.py']
           }
@@ -307,7 +398,7 @@ suite('McpServerManager Repository Scope Test Suite', () => {
 
       const config = await readMcpConfig();
       assert.ok(config);
-      const serverConfig = config.servers['prompt-registry:test-bundle:my-server'];
+      const serverConfig = config.servers['ai-primitives-hub:test-bundle:my-server'];
       assert.ok(serverConfig);
       assert.ok(!serverConfig.type || serverConfig.type === 'stdio', 'should be stdio server');
       assert.strictEqual((serverConfig as any).command, 'node', 'server should be overwritten');

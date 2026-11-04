@@ -682,4 +682,53 @@ prompts: []
       }
     });
   });
+
+  suite('MCP server names', () => {
+    const mcpBundle: Bundle = {
+      ...testBundle,
+      id: 'mirror-org-mirror-sample-mcp-1.0.0',
+      version: '1.0.0',
+      repository: 'https://github.com/mirror-org/mirror'
+    };
+    const options: InstallOptions = { scope: 'repository', commitMode: 'commit' };
+
+    const bundleZip = (repositoryLine: string): Buffer => {
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      zip.addFile('deployment-manifest.yml', Buffer.from(`
+id: sample-mcp
+version: 1.0.0
+name: Sample MCP
+description: Test
+author: test
+${repositoryLine}
+prompts: []
+mcpServers:
+  gateway:
+    type: http
+    url: https://example.invalid/mcp
+`));
+      return zip.toBuffer();
+    };
+
+    const writtenServerNames = (): string[] => {
+      const config = JSON.parse(fs.readFileSync(path.join(tempDir, '.vscode', 'mcp.json'), 'utf8')) as { servers: Record<string, unknown> };
+      return Object.keys(config.servers);
+    };
+
+    test('names servers after the repository in the deployment manifest, not the source they came from', async () => {
+      await installer.installFromBuffer(
+        mcpBundle, bundleZip('repository: https://github.com/acme-org/sample-collections'), options, 'github'
+      );
+
+      assert.deepStrictEqual(writtenServerNames(), ['ai-primitives-hub:acme-org:sample-collections:sample-mcp:gateway']);
+    });
+
+    test('uses the source repository when the deployment manifest has none', async () => {
+      await installer.installFromBuffer(mcpBundle, bundleZip("repository: ''"), options, 'github');
+
+      assert.deepStrictEqual(writtenServerNames(), ['ai-primitives-hub:mirror-org:mirror:sample-mcp:gateway']);
+    });
+  });
 });
