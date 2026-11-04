@@ -125,6 +125,22 @@ describe('CollectionEditorService', () => {
     expect(fs.existsSync(created.filePath)).toBe(true);
   });
 
+  it.skipIf(process.platform === 'win32')('does not report a symlinked in-workspace collection as a duplicate of itself', () => {
+    fs.mkdirSync(path.join(tmpDir, 'shared'));
+    fs.mkdirSync(path.join(tmpDir, 'collections'));
+    const content = 'id: linked\nname: Linked\ndescription: Linked collection\nversion: 1.0.0\nitems: []\n';
+    fs.writeFileSync(path.join(tmpDir, 'shared', 'linked.yml'), content);
+    const linkPath = path.join(tmpDir, 'collections', 'linked.collection.yml');
+    fs.symlinkSync('../shared/linked.yml', linkPath);
+    const duplicateCodes = (diagnostics: { code: string }[]) =>
+      diagnostics.map((d) => d.code).filter((code) => code.startsWith('COLLECTION_DUPLICATE_'));
+
+    const [summary] = service.detectWorkspaceCollections(tmpDir).collections;
+    expect(duplicateCodes(summary.inspection.diagnostics)).toEqual([]);
+    const inspection = service.inspectDocument(content, { filePath: linkPath, workspaceRoot: tmpDir });
+    expect(duplicateCodes(inspection.diagnostics)).toEqual([]);
+  });
+
   it('scaffolds a plugin through an in-workspace directory link at its actual destination', async () => {
     const target = path.join(tmpDir, 'plugins', 'real-plugin');
     fs.mkdirSync(target, { recursive: true });

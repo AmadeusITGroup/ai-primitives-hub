@@ -261,10 +261,23 @@ export class CollectionEditorService {
     if (!excludeFilePath) {
       return allSiblings;
     }
-    const excludedRel = (fs.existsSync(excludeFilePath)
-      ? path.relative(fs.realpathSync.native(workspaceRoot), fs.realpathSync.native(excludeFilePath))
-      : path.relative(workspaceRoot, excludeFilePath)).replaceAll('\\', '/');
+    const excludedRel = this.toWorkspaceRelativeLabel(workspaceRoot, excludeFilePath);
     return allSiblings.filter((s) => s.file !== excludedRel);
+  }
+
+  /**
+   * Workspace-relative, forward-slash label for a file. The root and parent
+   * directory are compared by realpath so OS path aliases (macOS `/var` →
+   * `/private/var`, Windows 8.3 short names) still yield `collections/<file>`;
+   * the file name itself is kept, so a symlinked collection keeps its own label.
+   * @param workspaceRoot Workspace root directory.
+   * @param filePath File path inside the workspace.
+   */
+  private toWorkspaceRelativeLabel(workspaceRoot: string, filePath: string): string {
+    const parent = path.dirname(filePath);
+    return (fs.existsSync(parent)
+      ? path.relative(fs.realpathSync.native(workspaceRoot), path.join(fs.realpathSync.native(parent), path.basename(filePath)))
+      : path.relative(workspaceRoot, filePath)).replaceAll('\\', '/');
   }
 
   /**
@@ -429,7 +442,7 @@ export class CollectionEditorService {
     const workspaceRoot = options?.workspaceRoot
       ?? (options?.filePath ? path.resolve(path.dirname(options.filePath), '..') : undefined);
     const fileLabel = (options?.filePath && workspaceRoot)
-      ? path.relative(workspaceRoot, options.filePath).replaceAll('\\', '/')
+      ? this.toWorkspaceRelativeLabel(workspaceRoot, options.filePath)
       : (options?.filePath ? path.basename(options.filePath) : 'collection.yml');
 
     const checkFile = this.buildFileProbe(workspaceRoot);
@@ -561,9 +574,11 @@ export class CollectionEditorService {
     let totalWarnings = 0;
 
     for (const fileName of files) {
-      const filePath = resolveWorkspacePath(workspaceRoot, `${collectionsPath}/${fileName}`);
+      // Logical path (not the symlink target) so it matches the sibling labels.
+      const filePath = path.join(collectionsDir, fileName);
       const relPath = `${collectionsPath}/${fileName}`.replaceAll('\\', '/');
-      const content = rawContentsByFile.get(fileName) ?? fs.readFileSync(filePath, 'utf8');
+      const content = rawContentsByFile.get(fileName)
+        ?? fs.readFileSync(resolveWorkspacePath(workspaceRoot, relPath), 'utf8');
       const inspection = this.inspectDocument(content, {
         filePath,
         workspaceRoot,
