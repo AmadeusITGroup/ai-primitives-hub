@@ -115,6 +115,28 @@ For CLI changes, update:
 
 CI gates must use `--ci` and `--ignore-trust none`, unless a protected baseline is intentionally supplied. Never turn repository pull-request input into a shell command string. Keep `contents: read` as the default workflow permission.
 
+### Standalone binary packaging
+
+The scanner evaluates documents in an interruptible worker. Node-based installs
+load the compiled worker from `infra/dist/security/`. Single-executable (SEA)
+builds bundle that worker separately and embed it as the `security-scan-worker`
+asset; no worker sidecar is required. Keep the asset name in the worker adapter,
+CLI bundler, and SEA configuration aligned.
+
+After building the shared packages, validate the actual standalone executable:
+
+```bash
+pnpm -C packages -r build
+pnpm -C packages/cli run test:sea
+```
+
+This builds the host-platform executable, copies and renames it into a temporary
+directory without sidecars, and checks clean and secret-containing files,
+complete coverage, exit codes, and secret redaction. Checking `--help` alone
+does not exercise worker packaging.
+
+The existing CI validation matrix runs this check on Linux, macOS, and Windows.
+
 ## VS Code changes
 
 Read `apps/vscode-extension/AGENTS.md`, `src/services/AGENTS.md`, and `test/AGENTS.md` first.

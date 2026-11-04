@@ -38,6 +38,18 @@ const ternlightWasmPlugin = {
   }
 };
 
+// Workers are separate entry points; bundling the CLI does not follow Worker paths.
+await esbuild.build({
+  entryPoints: ['../infra/src/security/isolated-security-scan-worker.ts'],
+  bundle: true,
+  platform: 'node',
+  target: 'node24',
+  outfile: 'dist/security-scan-worker.js',
+  format: 'cjs',
+  minify: true,
+  absWorkingDir: __dirname
+});
+
 await esbuild.build({
   entryPoints: ['src/sea-entry.ts'],
   bundle: true,

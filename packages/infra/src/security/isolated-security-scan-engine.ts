@@ -3,6 +3,10 @@ import {
 } from 'node:fs';
 import * as path from 'node:path';
 import {
+  getAsset,
+  isSea,
+} from 'node:sea';
+import {
   Worker,
 } from 'node:worker_threads';
 import type {
@@ -28,7 +32,7 @@ export class IsolatedSecurityScanEngine implements SecurityScanEngine {
     private readonly descriptorValue: SecurityEngineDescriptor,
     private readonly capabilitiesValue: SecurityEngineCapabilities,
     private readonly timeoutMs = 2000,
-    private readonly workerPath = path.join(__dirname, 'isolated-security-scan-worker.js')
+    private readonly workerPath: string | undefined = isSea() ? undefined : path.join(__dirname, 'isolated-security-scan-worker.js')
   ) {}
 
   public get descriptor(): SecurityEngineDescriptor {
@@ -40,7 +44,9 @@ export class IsolatedSecurityScanEngine implements SecurityScanEngine {
   }
 
   private createWorker(): Worker {
-    const worker = new Worker(this.workerPath);
+    const worker = this.workerPath === undefined
+      ? new Worker(getAsset('security-scan-worker', 'utf8'), { eval: true, execArgv: [] })
+      : new Worker(this.workerPath);
     const forget = (error?: Error): void => {
       if (this.worker === worker) {
         this.worker = undefined;
@@ -63,7 +69,7 @@ export class IsolatedSecurityScanEngine implements SecurityScanEngine {
       this.idleFailure = undefined;
       return Promise.reject(new Error(`SECURITY.ENGINE_FAILED: idle scan worker failed: ${error.message}`));
     }
-    if (!existsSync(this.workerPath)) {
+    if (this.workerPath !== undefined && !existsSync(this.workerPath)) {
       return Promise.reject(new Error('Security scan worker is not packaged'));
     }
     return new Promise((resolve, reject) => {
