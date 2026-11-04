@@ -303,4 +303,19 @@ describe('removeSupersededFiles', () => {
     expect(removed).toEqual([]);
     expect(await fs.exists(github('prompts', 'dropped.prompt.md'))).toBe(true);
   });
+
+  it('removes nothing for a file a custom locate gives no location', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed(github('prompts', 'dropped.prompt.md'), '# Dropped');
+    const writer: TargetWriter = {
+      write: () => Promise.resolve({ written: [], skipped: [] }),
+      locate: () => Promise.resolve({ root: github(), paths: [] }),
+      remove: (_target, filePath) => fs.remove(github(filePath))
+    };
+
+    const removed = await removeSupersededFiles(writer, vscodeRepo, [{ path: 'prompts/dropped.prompt.md' }], []);
+
+    expect(removed).toEqual([]);
+    expect(await fs.exists(github('prompts', 'dropped.prompt.md'))).toBe(true);
+  });
 });

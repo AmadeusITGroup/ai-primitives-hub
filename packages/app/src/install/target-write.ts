@@ -286,7 +286,8 @@ export async function removeSupersededFiles(
   const oldLocations = (await writer.locate(target, previous)).paths.map((location) => normalised(location));
   const removed: string[] = [];
   for (const [index, file] of previous.entries()) {
-    const location = oldLocations[index];
+    // `undefined`: a custom `locate` returned fewer locations than files.
+    const location = oldLocations.at(index) ?? null;
     if (location === null || produced.has(location)) {
       continue;
     }
