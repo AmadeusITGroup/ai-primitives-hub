@@ -92,7 +92,10 @@ Beyond placement and clean uninstall, the run checks that a rejected install lis
 Use `--policy <path>`, `--report-path <path>`, `--markdown-path <path>` and
 `-o text|json|yaml|ndjson` for configuration and reports. `--check-releases
 --repository owner/repo` enables publication verification (COL002); `--check-sources
-[--config hub-config.yml]` enables cross-source ID uniqueness (COL004).
+[--config hub-config.yml] --repository owner/repo` verifies ownership against the
+central `collection-index.yml` beside that hub config (COL004), without scanning
+other sources. Both files must come from the same trusted registry revision.
+Missing or malformed registry data fails the check; there is no remote-scan fallback.
 `--base-ref <commit> --head-ref <commit>` enables PR scope and requires the head
 checked out and full history. Default and explicit policies come from the merge
 base; missing explicit policies and outside-repository paths fail CFG001.

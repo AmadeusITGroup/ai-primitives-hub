@@ -1,6 +1,7 @@
 /** Governance boundary adapters. */
 export * from './ajv-schema-validator';
 export * from './failure-reasons';
+export * from './file-collection-index';
 export * from './git-hub-scope';
 export * from './governance-config';
 export * from './github-release-lookup';

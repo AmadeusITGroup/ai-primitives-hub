@@ -127,12 +127,79 @@ profiles: []
     expect(http.fetch).not.toHaveBeenCalled();
   });
 
-  it('identifies raw collection IDs shared across two Hub release sources', async () => {
+  it('checks ownership against the central index without contacting other sources', async () => {
     await writeHub();
-    const result = await run(['collection', 'validate', '--check-sources', '-o', 'json'], httpFixture());
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared:\n    sourceId: first\n');
+    const http = httpFixture();
+    const result = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/second', '-o', 'json'], http);
     expect(result).toMatchObject({ exitCode: 1, data: { subject: 'collection', mode: 'sources', verdict: 'fail' } });
-    expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining('first, second') }));
+    expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining("registered to source 'first'") }));
     expect(result.data.findings.some((finding: { ruleId: string }) => finding.ruleId === 'COL002')).toBe(false);
+    expect(http.fetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts same-source updates with thousands of registered collections and no HTTP', async () => {
+    await writeHub();
+    const entries = Array.from({ length: 10_000 }, (_, i) => `  tools-${i}:\n    sourceId: second`).join('\n');
+    await writeFile(path.join(root, 'collection-index.yml'), `schemaVersion: 1\ncollections:\n  shared:\n    sourceId: first\n${entries}\n`);
+    const http = httpFixture();
+    const result = await run(['collection', 'validate', '--check-sources', '--repository', 'https://github.com/OWNER/FIRST.git', '-o', 'json'], http);
+    expect(result).toMatchObject({ exitCode: 0, data: { verdict: 'pass' } });
+    expect(http.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing index', undefined],
+    ['duplicate key', 'schemaVersion: 1\ncollections:\n  shared: {sourceId: first}\n  shared: {sourceId: second}\n'],
+    ['unsupported schema', 'schemaVersion: "1"\ncollections: {}\n'],
+    ['unknown owner', 'schemaVersion: 1\ncollections:\n  shared: {sourceId: unknown}\n'],
+    ['invalid ID', 'schemaVersion: 1\ncollections:\n  Bad_ID: {sourceId: first}\n'],
+    ['invalid entry', 'schemaVersion: 1\ncollections:\n  shared: {sourceId: first, unexpected: true}\n']
+  ])('fails closed for %s without scanning sources', async (_label, content) => {
+    await writeHub();
+    if (content !== undefined) {
+      await writeFile(path.join(root, 'collection-index.yml'), content);
+    }
+    const http = httpFixture();
+    const result = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/first', '-o', 'json'], http);
+    expect(result).toMatchObject({ exitCode: 1, data: { verdict: 'fail' } });
+    expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: false }));
+    expect(http.fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects unregistered IDs and requires an unambiguous repository source', async () => {
+    await writeHub();
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
+    const http = httpFixture();
+    const unregistered = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/first', '-o', 'json'], http);
+    expect(unregistered.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining('not registered') }));
+    const unknown = await run(['collection', 'validate', '--check-sources', '-o', 'json'], http);
+    expect(unknown.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: false, message: expect.stringContaining('source identity') }));
+    expect(http.fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps reservations for disabled sources', async () => {
+    await writeHub();
+    const fs = new NodeFileSystem();
+    const hubPath = path.join(root, 'hub-config.yml');
+    await writeFile(hubPath, (await fs.readFile(hubPath)).replace('enabled: true', 'enabled: false'));
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: first}\n');
+    const http = httpFixture();
+    const result = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/second', '-o', 'json'], http);
+    expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining("registered to source 'first'") }));
+    expect(http.fetch).not.toHaveBeenCalled();
+  });
+
+  it('fails unverified when repository ownership is ambiguous', async () => {
+    await writeHub();
+    const fs = new NodeFileSystem();
+    const hubPath = path.join(root, 'hub-config.yml');
+    await writeFile(hubPath, (await fs.readFile(hubPath)).replace('https://github.com/owner/second', 'https://github.com/owner/first'));
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: first}\n');
+    const http = httpFixture();
+    const result = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/first', '-o', 'json'], http);
+    expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: false, message: expect.stringContaining('source identity') }));
+    expect(http.fetch).not.toHaveBeenCalled();
   });
 
   it('does not contact sources in default Hub governance', async () => {

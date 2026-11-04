@@ -18,7 +18,7 @@ are evaluated before any policy applies and cannot be configured.
 | COL001 | collection | error | yes | yes | no | Collection IDs and names are unique within the repository |
 | COL002 | collection | error | yes | yes | yes | Collection has a published release |
 | COL003 | collection | error | no | yes | no | Collection author is non-empty |
-| COL004 | collection | error | no | yes | yes | Collection ID is unique across enabled Hub sources |
+| COL004 | collection | error | no | yes | no | Collection ID is registered to its source in the central collection index |
 | COL005 | collection | error | yes | yes | no | Collection structure and referenced files are valid |
 | COL006 | collection | warning | no | yes | no | Collection validation advisories |
 | HUB001 | hub | error | yes | yes | no | Hub syntax, schema, references and source policies |

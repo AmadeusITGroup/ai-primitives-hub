@@ -30,6 +30,9 @@ import {
 import {
   runGovernance,
 } from '../../src/governance/run-governance';
+import {
+  createHubGovernanceSourceChecks,
+} from '../../src/governance/source-checks';
 
 describe('governance source checks through the public app entry point', () => {
   let root: string;
@@ -167,6 +170,55 @@ describe('governance source checks through the public app entry point', () => {
     expect(report).toMatchObject({ mode: 'sources', verdict: 'fail' });
     expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004' }));
     expect(read).toHaveBeenCalledOnce();
+  });
+  it('uses the central index through the existing SDK factory without remote scans', async () => {
+    await writeFile(path.join(root, 'hub-config.yml'), 'sources:\n  - id: tools\n    type: github\n    url: https://github.com/owner/tools\n    enabled: true\nprofiles: []\n');
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
+    const fs = new NodeFileSystem();
+    const read = vi.spyOn(fs, 'readFile');
+    const fetch = vi.fn().mockRejectedValue(new Error('Unexpected HTTP request'));
+    const exec = vi.fn().mockRejectedValue(new Error('Unexpected subprocess'));
+    const checks = createHubGovernanceSourceChecks(fs, path.join(root, 'hub-config.yml'), {
+      fs, clock: { now: () => 0, nowIso: () => '1970-01-01T00:00:00.000Z' }, httpClient: { fetch }, processRunner: { exec }, fallbackTokenProviders: []
+    });
+    const inventory = await checks.collectionIndex.read();
+    expect(inventory.registry?.owners.get('test')).toBe('tools');
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it('checks renamed IDs against a separately pinned registry and skips deleted collections in PR scope', async () => {
+    const trusted = await mkdtemp(path.join(os.tmpdir(), 'trusted-collection-registry-'));
+    try {
+      await writeFile(path.join(trusted, 'hub-config.yml'), 'sources:\n  - id: tools\n    type: github\n    url: https://github.com/owner/tools\n    enabled: true\nprofiles: []\n');
+      await writeFile(path.join(trusted, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+      git('init', '--quiet');
+      git('config', 'user.name', 'Index Test');
+      git('config', 'user.email', 'index@example.invalid');
+      git('add', '-A');
+      git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base');
+      const base = git('rev-parse', 'HEAD');
+      await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: renamed\nname: Test\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+      git('add', '-A');
+      git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Rename');
+      const head = git('rev-parse', 'HEAD');
+      const request = {
+        repoRoot: root, subject: 'collection' as const, checkSources: true, repository: 'owner/tools',
+        config: path.join(trusted, 'hub-config.yml'), processRunner: new NodeArgvProcessRunner()
+      };
+      const renamed = await runGovernance(new NodeFileSystem(), { ...request, baseRef: base, headRef: head });
+      expect(renamed.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining("'renamed' is not registered") }));
+      await rm(path.join(root, 'collections/test.collection.yml'));
+      git('add', '-A');
+      git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Delete');
+      const deleted = await runGovernance(new NodeFileSystem(), { ...request, baseRef: head, headRef: git('rev-parse', 'HEAD') });
+      expect(deleted.verdict).toBe('pass');
+      expect(deleted.findings).toEqual([]);
+    } finally {
+      await rm(trusted, { recursive: true, force: true });
+    }
   });
   it('does not perform collection inventory or publication checks in hub validation', async () => {
     await writeFile(path.join(root, 'hub-config.yml'), [

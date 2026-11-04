@@ -92,6 +92,7 @@ describe('collection validation of hub sources changed by a PR', () => {
 
   it('downloads each added or modified github source and validates its collections', async () => {
     const base = await commit(hubConfig([source('kept'), source('changed')]));
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  good: {sourceId: kept}\n  fine: {sourceId: changed}\n');
     const head = await commit(hubConfig([
       source('kept'),
       source('changed', ['    metadata:', '      description: Updated']),
@@ -100,6 +101,9 @@ describe('collection validation of hub sources changed by a PR', () => {
       source('awesome').replace('type: github', 'type: awesome-copilot'),
       source('missing')
     ]));
+    // Neither uncommitted config nor index changes may alter the committed PR evidence.
+    await writeFile(path.join(root, 'hub-config.yml'), hubConfig([source('untrusted')]));
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  good: {sourceId: added}\n  fine: {sourceId: changed}\n');
     const sourceAdapterDeps = deps({
       '/repos/owner/added/zipball': zipball('added', {
         'collections/good.collection.yml': 'id: good\nname: Good\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
@@ -113,15 +117,13 @@ describe('collection validation of hub sources changed by a PR', () => {
     });
     const report = await runGovernance(fs, {
       subject: 'collection', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), hubSources: createHubSourceAccess(sourceAdapterDeps),
-      checkSources: true, collectionIndex: { read: async () => ({ collections: [
-        { id: 'good', sourceId: 'added' }, { id: 'good', sourceId: 'kept' },
-        { id: 'baseline-only', sourceId: 'kept' }, { id: 'baseline-only', sourceId: 'unrelated' }
-      ], unverifiedSources: [] }) }
+      checkSources: true
     });
 
     expect(sourceAdapterDeps.requests.toSorted()).toEqual(['/repos/owner/added/zipball', '/repos/owner/changed/zipball', '/repos/owner/missing/zipball']);
     expect(report.verdict).toBe('fail');
     expect(report.findings.filter((finding) => finding.ruleId === 'COL004')).toEqual([
+      expect.objectContaining({ verified: true, message: expect.stringContaining("'bad' is not registered") }),
       expect.objectContaining({ verified: true, message: expect.stringContaining('good') })
     ]);
     expect(report.prScope?.sources).toEqual(['added', 'changed', 'missing']);
@@ -152,6 +154,53 @@ describe('collection validation of hub sources changed by a PR', () => {
     expect(report.findings).toContainEqual(expect.objectContaining({
       ruleId: 'COL002', verified: true, file: 'added/collections/good.collection.yml', subject: { kind: 'collection', id: 'good', source: 'added' }
     }));
+  });
+
+  it('checks profile-only changes against registered owners without downloading source catalogs', async () => {
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: kept}\n');
+    const config = hubConfig([source('kept'), source('second')]);
+    const base = await commit(config);
+    const head = await commit(config.replace('profiles: []', 'profiles:\n  - id: tools\n    bundles:\n      - id: owner-second-shared\n        source: second\n        version: 1.0.0'));
+    const sourceAdapterDeps = deps({});
+    const report = await runGovernance(fs, {
+      subject: 'collection', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(),
+      hubSources: createHubSourceAccess(sourceAdapterDeps), checkSources: true
+    });
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      ruleId: 'COL004', verified: true, message: "Collection ID 'shared' is registered to source 'kept', not 'second'."
+    }));
+    expect(sourceAdapterDeps.requests).toEqual([]);
+  });
+
+  it('rechecks profile owners when only the registry changes', async () => {
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: kept}\n');
+    const config = hubConfig([source('kept'), source('second')]).replace('profiles: []',
+      'profiles:\n  - id: tools\n    bundles:\n      - id: owner-kept-shared\n        source: kept\n        version: 1.0.0');
+    const base = await commit(config);
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: second}\n');
+    const head = await commit(config);
+    const report = await runGovernance(fs, {
+      subject: 'collection', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), checkSources: true
+    });
+    expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining("registered to source 'second'") }));
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['malformed', 'schemaVersion: "1"\ncollections: {}\n'],
+    ['duplicate keys', 'schemaVersion: 1\ncollections:\n  tools: {sourceId: kept}\n  tools: {sourceId: kept}\n']
+  ])('does not hide %s committed index evidence or replace it with working-tree data', async (_label, content) => {
+    const config = hubConfig([source('kept')]);
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
+    const base = await commit(config);
+    await (content === undefined ? rm(path.join(root, 'collection-index.yml')) : writeFile(path.join(root, 'collection-index.yml'), content));
+    const head = await commit(config);
+    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
+    const report = await runGovernance(fs, {
+      subject: 'collection', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), checkSources: true
+    });
+    expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: false }));
+    expect(report.verdict).toBe('fail');
   });
 
   it('reads explicit collection policies from the merge base instead of a relaxed head policy', async () => {
