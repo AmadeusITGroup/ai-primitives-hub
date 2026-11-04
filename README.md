@@ -9,12 +9,13 @@
 Discover, govern, install, and share **prompts, instructions, agents, skills, MCP servers, plugins, and more** across every IDE, agent, and CLI — from a single source of truth.
 
 [![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=AmadeusITGroup.prompt-registry)
+[![Open VSX Marketplace](https://img.shields.io/badge/Open%20VSX-Marketplace-C160EF?logo=eclipseide&logoColor=white)](https://open-vsx.org/extension/AmadeusITGroup/prompt-registry)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=github)](https://amadeusitgroup.github.io/ai-primitives-hub/)
 [![Version](https://img.shields.io/github/v/release/AmadeusITGroup/ai-primitives-hub)](https://github.com/AmadeusITGroup/ai-primitives-hub/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 <br/>
 [![VS Code installs](https://badgen.net/vs-marketplace/i/AmadeusITGroup.prompt-registry?icon=visualstudio&label=VS%20Code%20installs&color=007ACC)](https://marketplace.visualstudio.com/items?itemName=AmadeusITGroup.prompt-registry)
-[![Open VSX downloads](https://img.shields.io/open-vsx/dt/AmadeusITGroup/prompt-registry?logo=eclipseide&label=Open%20VSX%20downloads&color=C160EF)](https://open-vsx.org/extension/AmadeusITGroup/prompt-registry)
+[![Open VSX installs](https://img.shields.io/open-vsx/dt/AmadeusITGroup/prompt-registry?logo=eclipseide&label=Open%20VSX%20installs&color=C160EF)](https://open-vsx.org/extension/AmadeusITGroup/prompt-registry)
 [![npm installs](https://img.shields.io/npm/d18m/@ai-primitives-hub/cli?logo=npm&label=npm%20installs)](https://www.npmjs.com/package/@ai-primitives-hub/cli)
 [![npm monthly](https://img.shields.io/npm/dm/@ai-primitives-hub/cli?logo=npm&label=npm%20monthly)](https://www.npmjs.com/package/@ai-primitives-hub/cli)
 
@@ -25,7 +26,6 @@ Discover, govern, install, and share **prompts, instructions, agents, skills, MC
 [![GitHub Copilot CLI](https://img.shields.io/badge/Copilot%20CLI-000000?style=for-the-badge&logo=githubcopilot&logoColor=white)](#-works-with-your-tools)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-D97757?style=for-the-badge&logo=claude&logoColor=white)](#-works-with-your-tools)
 [![Cursor](https://img.shields.io/badge/Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](#-works-with-your-tools)
-[![Windsurf](https://img.shields.io/badge/Windsurf-0B100F?style=for-the-badge&logo=windsurf&logoColor=white)](#-works-with-your-tools)
 <br/>
 [![Kiro](https://img.shields.io/badge/Kiro-7B3FE4?style=for-the-badge)](#-works-with-your-tools)
 [![Kiro CLI](https://img.shields.io/badge/Kiro%20CLI-7B3FE4?style=for-the-badge)](#-works-with-your-tools)
@@ -90,13 +90,13 @@ See [Creating a Hub](./docs/author-guide/creating-a-hub.md) and [Profiles and Hu
 
 ## 🧩 Works With Your Tools
 
-- **Tools** — IDEs: VS Code, VS Code Insiders, Kiro, Windsurf, Cursor, and Devin. CLI agents: GitHub Copilot CLI, Claude Code, Kiro CLI, OpenCode, and Devin CLI. The VS Code extension runs in VS Code, VS Code Insiders, Kiro, and Windsurf; the CLI installs into all of them (`ai-primitives-hub target types`).
-- **Primitives** — prompts, instructions, chat modes, agents, skills, MCP servers, hooks, and plugins are portable across targets, with a few gaps: Kiro has no hook or plugin route (Kiro CLI does), and Windsurf has no repository-scope MCP config. Tool-specific kinds (Kiro steering and specs, Claude Code commands and output styles, Cursor rules, OpenCode tools, Devin knowledge and playbooks, Kiro and Devin powers) install only where the tool supports them. By default an install is all-or-nothing and fails on unsupported items; `install --skip-unsupported` installs the supported items and lists the skipped ones (`profile activate` and `update` stay all-or-nothing).
+- **Tools** — IDEs: VS Code, VS Code Insiders, Kiro, Cursor, and Devin. CLI agents: GitHub Copilot CLI, Claude Code, Kiro CLI, OpenCode, and Devin CLI. The VS Code extension runs in VS Code, VS Code Insiders, and Kiro; the CLI installs into all of them (`ai-primitives-hub target types`).
+- **Primitives** — prompts, instructions, chat modes, agents, skills, MCP servers, hooks, and plugins are portable across targets, with one gap: Kiro has no hook or plugin route (Kiro CLI does). Tool-specific kinds (Kiro steering and specs, Claude Code commands and output styles, Cursor rules, OpenCode tools, Devin knowledge and playbooks, Kiro and Devin powers) install only where the tool supports them. By default an install is all-or-nothing and fails on unsupported items; `install --skip-unsupported` installs the supported items and lists the skipped ones (`profile activate` and `update` stay all-or-nothing).
 - **Sources** — GitHub releases, Awesome Copilot collections, skills repositories, APM packages, Azure DevOps, and JFrog Artifactory, plus local folders for bundles, collections, skills, and APM packages. See [Sources](./docs/user-guide/sources.md).
 
 ## 🚀 Quick Start
 
-**🖥️ In VS Code (and Kiro, Windsurf):**
+**🖥️ In VS Code (and Kiro):**
 Search **"AI Primitives Hub"** in the Extensions panel and install it. On first launch, pick your organization's hub. Its sources sync and its first profile activates. Then browse the marketplace view and click **Install** on any bundle. To build from source, see [`apps/vscode-extension/README.md`](./apps/vscode-extension/README.md).
 
 ![AI Primitives Hub in VS Code](./docs/assets/ai-primitives-hub.png)
