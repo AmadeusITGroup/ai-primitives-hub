@@ -6,7 +6,7 @@
 
 ### The collaboration and governance platform for your AI primitives across teams and organizations.
 
-Discover, govern, install, and share **prompts, instructions, agents, skills, MCP servers, plugins, and more** across every IDE, agent, and CLI — from a single source of truth.
+Discover, govern, install, and share **prompts, instructions, agents, skills, MCP servers configuration, plugins, and more** across every IDE, agent, and CLI — from a single source of truth.
 
 [![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=AmadeusITGroup.prompt-registry)
 [![Open VSX Marketplace](https://img.shields.io/badge/Open%20VSX-Marketplace-C160EF?logo=eclipseide&logoColor=white)](https://open-vsx.org/extension/AmadeusITGroup/prompt-registry)
