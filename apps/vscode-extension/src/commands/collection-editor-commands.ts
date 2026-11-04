@@ -27,6 +27,7 @@ import {
   NodeFileSystem,
   NodeHttpClient,
   NodeProcessExecutor,
+  resolveWorkspacePath,
   SystemClock,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
@@ -933,7 +934,14 @@ export class CollectionEditorCommands {
       return;
     }
 
-    const absPath = path.join(workspaceRoot, relPath);
+    let absPath: string;
+    try {
+      absPath = resolveWorkspacePath(workspaceRoot, relPath);
+    } catch (error) {
+      this.logger.error('Failed to resolve referenced collection file', error as Error);
+      await vscode.window.showErrorMessage(`Cannot open referenced collection file: ${(error as Error).message}`);
+      return;
+    }
     if (!fs.existsSync(absPath)) {
       await vscode.window.showWarningMessage(`Referenced file does not exist yet: ${relPath}`);
       return;

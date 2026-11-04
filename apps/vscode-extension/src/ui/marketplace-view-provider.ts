@@ -55,6 +55,9 @@ import {
   extractBundleSources,
 } from '../utils/filter-utils';
 import {
+  escapeHtml,
+} from '../utils/html';
+import {
   LeadingTrailingThrottle,
 } from '../utils/leading-trailing-throttle';
 import {
@@ -219,15 +222,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * @param value
    */
   private escapeHtml(value: unknown): string {
-    const text = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-      ? String(value)
-      : '';
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+    return escapeHtml(value);
   }
 
   /**

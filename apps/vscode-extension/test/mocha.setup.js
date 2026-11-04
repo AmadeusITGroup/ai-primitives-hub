@@ -360,7 +360,7 @@ const vscode = {
     getSession: async () => undefined,
     onDidChangeSessions: () => ({ dispose: () => {} })
   },
-  Uri: {
+  Uri: Object.assign(class Uri {}, {
     file: (path) => ({
       fsPath: path,
       scheme: 'file',
@@ -389,7 +389,7 @@ const vscode = {
         path: value,
         toString: () => value
     })
-  },
+  }),
   EventEmitter: class EventEmitter {
     constructor() {
       this.listeners = [];
