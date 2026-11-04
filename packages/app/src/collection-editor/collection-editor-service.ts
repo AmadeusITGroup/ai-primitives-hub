@@ -261,10 +261,21 @@ export class CollectionEditorService {
     if (!excludeFilePath) {
       return allSiblings;
     }
-    const excludedRel = (fs.existsSync(excludeFilePath)
-      ? path.relative(fs.realpathSync.native(workspaceRoot), fs.realpathSync.native(excludeFilePath))
-      : path.relative(workspaceRoot, excludeFilePath)).replaceAll('\\', '/');
+    const excludedRel = this.toWorkspaceRelativeLabel(workspaceRoot, excludeFilePath);
     return allSiblings.filter((s) => s.file !== excludedRel);
+  }
+
+  /**
+   * Workspace-relative, forward-slash label for a file. Existing files are
+   * compared by realpath so OS path aliases (macOS `/var` → `/private/var`,
+   * Windows 8.3 short names) still yield `collections/<file>`.
+   * @param workspaceRoot Workspace root directory.
+   * @param filePath File path inside the workspace.
+   */
+  private toWorkspaceRelativeLabel(workspaceRoot: string, filePath: string): string {
+    return (fs.existsSync(filePath)
+      ? path.relative(fs.realpathSync.native(workspaceRoot), fs.realpathSync.native(filePath))
+      : path.relative(workspaceRoot, filePath)).replaceAll('\\', '/');
   }
 
   /**
@@ -429,7 +440,7 @@ export class CollectionEditorService {
     const workspaceRoot = options?.workspaceRoot
       ?? (options?.filePath ? path.resolve(path.dirname(options.filePath), '..') : undefined);
     const fileLabel = (options?.filePath && workspaceRoot)
-      ? path.relative(workspaceRoot, options.filePath).replaceAll('\\', '/')
+      ? this.toWorkspaceRelativeLabel(workspaceRoot, options.filePath)
       : (options?.filePath ? path.basename(options.filePath) : 'collection.yml');
 
     const checkFile = this.buildFileProbe(workspaceRoot);
