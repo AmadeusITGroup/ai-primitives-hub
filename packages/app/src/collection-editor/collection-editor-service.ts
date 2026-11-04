@@ -266,15 +266,17 @@ export class CollectionEditorService {
   }
 
   /**
-   * Workspace-relative, forward-slash label for a file. Existing files are
-   * compared by realpath so OS path aliases (macOS `/var` → `/private/var`,
-   * Windows 8.3 short names) still yield `collections/<file>`.
+   * Workspace-relative, forward-slash label for a file. The root and parent
+   * directory are compared by realpath so OS path aliases (macOS `/var` →
+   * `/private/var`, Windows 8.3 short names) still yield `collections/<file>`;
+   * the file name itself is kept, so a symlinked collection keeps its own label.
    * @param workspaceRoot Workspace root directory.
    * @param filePath File path inside the workspace.
    */
   private toWorkspaceRelativeLabel(workspaceRoot: string, filePath: string): string {
-    return (fs.existsSync(filePath)
-      ? path.relative(fs.realpathSync.native(workspaceRoot), fs.realpathSync.native(filePath))
+    const parent = path.dirname(filePath);
+    return (fs.existsSync(parent)
+      ? path.relative(fs.realpathSync.native(workspaceRoot), path.join(fs.realpathSync.native(parent), path.basename(filePath)))
       : path.relative(workspaceRoot, filePath)).replaceAll('\\', '/');
   }
 
@@ -572,9 +574,11 @@ export class CollectionEditorService {
     let totalWarnings = 0;
 
     for (const fileName of files) {
-      const filePath = resolveWorkspacePath(workspaceRoot, `${collectionsPath}/${fileName}`);
+      // Logical path (not the symlink target) so it matches the sibling labels.
+      const filePath = path.join(collectionsDir, fileName);
       const relPath = `${collectionsPath}/${fileName}`.replaceAll('\\', '/');
-      const content = rawContentsByFile.get(fileName) ?? fs.readFileSync(filePath, 'utf8');
+      const content = rawContentsByFile.get(fileName)
+        ?? fs.readFileSync(resolveWorkspacePath(workspaceRoot, relPath), 'utf8');
       const inspection = this.inspectDocument(content, {
         filePath,
         workspaceRoot,
