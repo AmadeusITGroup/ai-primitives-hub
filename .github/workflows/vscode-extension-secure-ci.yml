@@ -206,6 +206,9 @@ jobs:
       - name: Run packages unit tests
         run: pnpm --filter "@ai-primitives-hub/*" test
 
+      - name: Verify standalone CLI scanner packaging
+        run: pnpm -C packages/cli run test:sea
+
       - name: Install VS Code dependencies (Linux)
         if: runner.os == 'Linux'
         shell: bash
