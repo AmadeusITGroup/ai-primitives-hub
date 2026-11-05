@@ -32,6 +32,7 @@ const sidebars: SidebarsConfig = {
         { type: "doc", id: "author-guide/agentic-primitives-guide", label: "Agentic Primitives" },
         { type: "doc", id: "author-guide/adding-profile-source-to-hub", label: "Adding Sources to Hubs" },
         { type: "doc", id: "author-guide/validation", label: "Validation" },
+        { type: "doc", id: "author-guide/primitives-review", label: "Reviewing Primitives" },
         { type: "doc", id: "author-guide/publishing", label: "Publishing" },
       ],
     },

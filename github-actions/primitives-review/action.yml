@@ -1,0 +1,233 @@
+name: AI Primitives Hub primitives review
+description: >-
+  Review AI primitives (prompts, instructions, agents, skills) under a path against a quality
+  rubric built from the AI Primitives Hub author guides and security rules, using Gemma 4 on the
+  runner. Produces per-primitive scores, grades, verified risk indications and suggestions.
+
+inputs:
+  path:
+    description: Space- or newline-separated files or directories to review.
+    required: false
+    default: .
+  rubric-file:
+    description: Custom rubric JSON (same shape as rubric.json in this action). Defaults to the bundled rubric.
+    required: false
+    default: ''
+  model:
+    description: Ollama model tag.
+    required: false
+    default: gemma4:e2b
+  cli-version:
+    description: >-
+      Exact @ai-primitives-hub/cli version that includes `security scan`. When set, static scanner
+      findings are shown and cap the matching rubric scores. Empty skips the static scan.
+    required: false
+    default: ''
+  include-llm-controls:
+    description: Pass --include-llm-controls to the static scanner ('true' or 'false').
+    required: false
+    default: 'false'
+  scanner-command:
+    description: >-
+      Advanced: command that runs the AI Primitives Hub CLI, for repositories that build it
+      themselves (for example `node packages/cli/bin/ai-primitives-hub.js`). Overrides cli-version.
+      Split on spaces and run from the workspace; never evaluated by a shell.
+    required: false
+    default: ''
+  fail-below:
+    description: Fail when any primitive's grade is below this letter (A-E). Empty keeps the review advisory.
+    required: false
+    default: ''
+  max-files:
+    description: Maximum number of primitives to review.
+    required: false
+    default: '20'
+  max-file-bytes:
+    description: Bytes of each primitive sent to the model; longer files are truncated and flagged.
+    required: false
+    default: '12000'
+  num-ctx:
+    description: Model context window in tokens.
+    required: false
+    default: '16384'
+  max-tokens:
+    description: Maximum tokens per review answer.
+    required: false
+    default: '2048'
+  request-timeout:
+    description: Seconds to wait for each review answer.
+    required: false
+    default: '600'
+  report-dir:
+    description: Where report.json and report.md are written. Defaults to $RUNNER_TEMP/primitives-review.
+    required: false
+    default: ''
+  step-summary:
+    description: Append the report to the job summary ('true' or 'false').
+    required: false
+    default: 'true'
+  upload-artifact:
+    description: Upload the report as the primitives-review artifact ('true' or 'false').
+    required: false
+    default: 'true'
+  ollama-version:
+    description: Pinned Ollama release installed when the runner has none.
+    required: false
+    default: v0.40.13
+  ollama-host:
+    description: host:port for the Ollama server. Keep it on loopback.
+    required: false
+    default: 127.0.0.1:11434
+  cache:
+    description: Cache the Ollama runtime and model ('true' or 'false').
+    required: false
+    default: 'true'
+
+outputs:
+  reviewed:
+    description: Number of primitives reviewed.
+    value: ${{ steps.report.outputs.reviewed }}
+  average-score:
+    description: Average score (0-100) across reviewed primitives.
+    value: ${{ steps.report.outputs.average-score }}
+  lowest-grade:
+    description: Lowest grade (A best, E worst).
+    value: ${{ steps.report.outputs.lowest-grade }}
+  report-json:
+    description: Path of the JSON report.
+    value: ${{ steps.report.outputs.report-json }}
+  report-markdown:
+    description: Path of the Markdown report.
+    value: ${{ steps.report.outputs.report-markdown }}
+
+runs:
+  using: composite
+  steps:
+    - name: Find primitives
+      id: discover
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_MAX_FILES: ${{ inputs.max-files }}
+        INPUT_RUBRIC_FILE: ${{ inputs.rubric-file }}
+        INPUT_REPORT_DIR: ${{ inputs.report-dir }}
+      run: |
+        set -euo pipefail
+        work="$RUNNER_TEMP/primitives-review-work"
+        mkdir -p "$work"
+        OUT_FILE="$work/primitives.jsonl" bash "$GITHUB_ACTION_PATH/scripts/discover.sh"
+        rubric="${INPUT_RUBRIC_FILE:-$GITHUB_ACTION_PATH/rubric.json}"
+        [[ "$rubric" == /* ]] || rubric="$GITHUB_WORKSPACE/$rubric"
+        jq -e '.criteria | length > 0' "$rubric" >/dev/null || { echo "::error::Invalid rubric file: $rubric"; exit 1; }
+        {
+          echo "work=$work"
+          echo "rubric=$rubric"
+          echo "report-dir=${INPUT_REPORT_DIR:-$RUNNER_TEMP/primitives-review}"
+          echo "count=$(wc -l < "$work/primitives.jsonl" | tr -d ' ')"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Static scan
+      if: steps.discover.outputs.count != '0'
+      shell: bash
+      env:
+        PRIMITIVES_FILE: ${{ steps.discover.outputs.work }}/primitives.jsonl
+        OUT_FILE: ${{ steps.discover.outputs.work }}/findings.jsonl
+        INPUT_CLI_VERSION: ${{ inputs.cli-version }}
+        INPUT_INCLUDE_LLM_CONTROLS: ${{ inputs.include-llm-controls }}
+        SCANNER_CMD: ${{ inputs.scanner-command }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/static-scan.sh"
+
+    - name: Resolve Ollama
+      id: resolve
+      if: steps.discover.outputs.count != '0'
+      shell: bash
+      env:
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_OLLAMA_VERSION: ${{ inputs.ollama-version }}
+        INPUT_OLLAMA_HOST: ${{ inputs.ollama-host }}
+      run: bash "$GITHUB_ACTION_PATH/../gemma4/scripts/resolve.sh"
+
+    - name: Restore Ollama runtime
+      id: runtime-cache
+      if: steps.discover.outputs.count != '0' && inputs.cache == 'true' && steps.resolve.outputs.install == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.install-dir }}
+        key: ${{ steps.resolve.outputs.runtime-cache-key }}
+
+    - name: Restore model
+      id: model-cache
+      if: steps.discover.outputs.count != '0' && inputs.cache == 'true' && steps.resolve.outputs.server-running == 'false'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.models-dir }}
+        key: ${{ steps.resolve.outputs.model-cache-key }}
+
+    - name: Start Ollama and pull model
+      if: steps.discover.outputs.count != '0'
+      shell: bash
+      env:
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_OLLAMA_VERSION: ${{ inputs.ollama-version }}
+        INPUT_KEEP_ALIVE: 30m
+        RESOLVED_OS: ${{ steps.resolve.outputs.os }}
+        RESOLVED_ARCH: ${{ steps.resolve.outputs.arch }}
+        RESOLVED_HOST: ${{ steps.resolve.outputs.host }}
+        RESOLVED_BASE_URL: ${{ steps.resolve.outputs.base-url }}
+        RESOLVED_INSTALL: ${{ steps.resolve.outputs.install }}
+        RESOLVED_INSTALL_DIR: ${{ steps.resolve.outputs.install-dir }}
+        RESOLVED_MODELS_DIR: ${{ steps.resolve.outputs.models-dir }}
+        RESOLVED_SERVER_RUNNING: ${{ steps.resolve.outputs.server-running }}
+      run: bash "$GITHUB_ACTION_PATH/../gemma4/scripts/setup.sh"
+
+    - name: Save Ollama runtime
+      if: steps.discover.outputs.count != '0' && inputs.cache == 'true' && steps.resolve.outputs.install == 'true' && steps.runtime-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.install-dir }}
+        key: ${{ steps.resolve.outputs.runtime-cache-key }}
+
+    - name: Save model
+      if: steps.discover.outputs.count != '0' && inputs.cache == 'true' && steps.resolve.outputs.server-running == 'false' && steps.model-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.models-dir }}
+        key: ${{ steps.resolve.outputs.model-cache-key }}
+
+    - name: Review primitives
+      if: steps.discover.outputs.count != '0'
+      shell: bash
+      env:
+        PRIMITIVES_FILE: ${{ steps.discover.outputs.work }}/primitives.jsonl
+        FINDINGS_FILE: ${{ steps.discover.outputs.work }}/findings.jsonl
+        RUBRIC_FILE: ${{ steps.discover.outputs.rubric }}
+        OUT_FILE: ${{ steps.discover.outputs.work }}/results.jsonl
+        BASE_URL: ${{ steps.resolve.outputs.base-url }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_NUM_CTX: ${{ inputs.num-ctx }}
+        INPUT_MAX_TOKENS: ${{ inputs.max-tokens }}
+        INPUT_MAX_FILE_BYTES: ${{ inputs.max-file-bytes }}
+        INPUT_REQUEST_TIMEOUT: ${{ inputs.request-timeout }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/review.sh"
+
+    - name: Write report
+      id: report
+      shell: bash
+      env:
+        RESULTS_FILE: ${{ steps.discover.outputs.work }}/results.jsonl
+        RUBRIC_FILE: ${{ steps.discover.outputs.rubric }}
+        REPORT_DIR: ${{ steps.discover.outputs.report-dir }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_FAIL_BELOW: ${{ inputs.fail-below }}
+        INPUT_STEP_SUMMARY: ${{ inputs.step-summary }}
+      run: |
+        touch "$RESULTS_FILE"
+        bash "$GITHUB_ACTION_PATH/scripts/report.sh"
+
+    - name: Upload report
+      if: always() && inputs.upload-artifact == 'true' && steps.report.outputs.report-json != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: primitives-review
+        path: ${{ steps.discover.outputs.report-dir }}
+        if-no-files-found: warn

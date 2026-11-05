@@ -1,0 +1,92 @@
+name: Primitives Review CI
+
+# Runs github-actions/primitives-review end to end with gemma4:e2b and the static scanner built
+# from this checkout. On pull requests and pushes it reviews the test fixtures and checks the
+# grades; from the Actions tab it reviews any path in this repository.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'github-actions/primitives-review/**'
+      - 'github-actions/gemma4/scripts/**'
+      - '.github/workflows/primitives-review-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'github-actions/primitives-review/**'
+      - 'github-actions/gemma4/scripts/**'
+      - '.github/workflows/primitives-review-ci.yml'
+  workflow_dispatch:
+    inputs:
+      path:
+        description: Files or directories to review (space-separated)
+        required: true
+        default: github-actions/primitives-review/test/fixtures
+      fail-below:
+        description: Fail when a primitive grades below this letter (A-E); empty is advisory
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  FIXTURES: github-actions/primitives-review/test/fixtures
+
+jobs:
+  review:
+    name: Review primitives (gemma4:e2b)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
+
+      - name: Build the scanner CLI
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          pnpm --filter "@ai-primitives-hub/cli..." run build
+
+      - name: Review primitives
+        id: review
+        uses: ./github-actions/primitives-review
+        with:
+          path: ${{ inputs.path || env.FIXTURES }}
+          fail-below: ${{ inputs.fail-below }}
+          scanner-command: node packages/cli/bin/ai-primitives-hub.js
+
+      - name: Check fixture grades
+        if: inputs.path == '' || inputs.path == env.FIXTURES
+        env:
+          REPORT: ${{ steps.review.outputs.report-json }}
+        run: |
+          set -euo pipefail
+          jq -e '.reviewed == 3' "$REPORT" >/dev/null || { echo "::error::Expected 3 reviewed fixtures"; exit 1; }
+          grade() { jq -r --arg p "$1" '.primitives[] | select(.path | endswith($p)) | .grade' "$REPORT"; }
+          score() { jq -r --arg p "$1" '.primitives[] | select(.path | endswith($p)) | .score // -1' "$REPORT"; }
+          skill="skills/deploy-helper/SKILL.md"
+          prompt="prompts/unit-tests.prompt.md"
+          echo "skill: $(grade "$skill") ($(score "$skill")); prompt: $(grade "$prompt") ($(score "$prompt"))"
+          [[ "$(grade "$skill")" =~ ^[DE]$ ]] || { echo "::error::Unsafe skill should grade D or E"; exit 1; }
+          jq -e --arg p "$skill" '.primitives[] | select(.path | endswith($p)) | .static_findings | map(.severity) | index("CRITICAL")' "$REPORT" >/dev/null \
+            || { echo "::error::Static scanner should report a CRITICAL finding for the unsafe skill"; exit 1; }
+          jq -e --arg p "$skill" '.primitives[] | select(.path | endswith($p)) | .criteria[] | select(.id == "R7") | .score == 1' "$REPORT" >/dev/null \
+            || { echo "::error::R7 should be capped at 1 by the CRITICAL injection finding"; exit 1; }
+          (( $(score "$prompt") > $(score "$skill") )) || { echo "::error::The well-formed prompt should outscore the unsafe skill"; exit 1; }

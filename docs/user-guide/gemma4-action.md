@@ -137,5 +137,6 @@ The review job has a read-only token and no secrets, so it runs safely on fork p
 
 ## See also
 
+- [Reviewing Primitives with Gemma 4](../author-guide/primitives-review.md)
 - [Security Scanning](security-scanning.md)
 - [Troubleshooting](troubleshooting.md)

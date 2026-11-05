@@ -1,0 +1,119 @@
+{
+  "version": "1",
+  "description": "Quality rubric for AI primitives. Criteria come from the AI Primitives Hub author guides and the security scanner's rule catalogue; each criterion lists its sources.",
+  "scale": {
+    "min": 1,
+    "max": 5,
+    "anchors": {
+      "5": "Exemplary: fully meets the criterion; nothing to improve.",
+      "4": "Good: meets the criterion with minor gaps.",
+      "3": "Adequate: partly meets it; clear improvements needed.",
+      "2": "Weak: important gaps or a real risk.",
+      "1": "Failing: missing, or contradicts the criterion."
+    }
+  },
+  "grades": [
+    { "grade": "A", "min": 85 },
+    { "grade": "B", "min": 70 },
+    { "grade": "C", "min": 55 },
+    { "grade": "D", "min": 40 },
+    { "grade": "E", "min": 0 }
+  ],
+  "static_caps": { "CRITICAL": 1, "HIGH": 2, "MEDIUM": 3 },
+  "criteria": [
+    {
+      "id": "R1",
+      "name": "Purpose and scope",
+      "weight": 2,
+      "applies_to": ["prompt", "instruction", "agent", "skill"],
+      "look_for": "States one clear purpose and when to use it. A skill or prompt focuses on a single capability (single responsibility). The role and scope are explicit, and the content stays within what the description promises.",
+      "sources": [
+        "docs/author-guide/agentic-primitives-guide.md#primitive-types-comparison",
+        "docs/author-guide/creating-skills.md#best-practices (Single Responsibility)",
+        "docs/reference/security-rules.md#opt-in-prompt-controls (CTL-005 scope/role constraint)"
+      ],
+      "rules": ["CTL-005"]
+    },
+    {
+      "id": "R2",
+      "name": "Structure and metadata",
+      "weight": 1,
+      "applies_to": ["prompt", "instruction", "agent", "skill"],
+      "look_for": "Follows the structure for its type: a title and headed sections; agents have Expertise, Behavior and Limitations; skills have YAML frontmatter with name and description (and ideally metadata.version, license, author). File and skill names are descriptive and kebab-case (task-name.prompt.md, role-name.agent.md, capability-name/SKILL.md).",
+      "sources": [
+        "docs/author-guide/agentic-primitives-guide.md#detailed-guide",
+        "docs/author-guide/agentic-primitives-guide.md#2-naming-conventions",
+        "docs/author-guide/creating-skills.md#required-frontmatter-fields",
+        "docs/reference/security-rules.md#skills-and-other-agentic-patterns (SKL-004, SKL-007)"
+      ],
+      "rules": ["SKL-004", "SKL-007"]
+    },
+    {
+      "id": "R3",
+      "name": "Clarity of instructions",
+      "weight": 2,
+      "applies_to": ["prompt", "instruction", "agent", "skill"],
+      "look_for": "Instructions are concrete, actionable and unambiguous, with no contradictions. The primitive never tries to override other instructions or hide what it does (no directive-precedence or stealth directives).",
+      "sources": [
+        "docs/author-guide/agentic-primitives-guide.md#3-content-quality",
+        "docs/reference/security-rules.md#agent-permissions-and-mcp (AGT-008, AGT-009)"
+      ],
+      "rules": ["AGT-008", "AGT-009", "INJ-007"]
+    },
+    {
+      "id": "R4",
+      "name": "Examples, edge cases and limitations",
+      "weight": 1,
+      "applies_to": ["prompt", "instruction", "agent", "skill"],
+      "look_for": "Provides clear examples or usage steps, covers edge cases, and documents limitations (what it will not do, when not to use it).",
+      "sources": [
+        "docs/author-guide/agentic-primitives-guide.md#3-content-quality",
+        "docs/author-guide/creating-skills.md#best-practices (Clear Documentation)"
+      ],
+      "rules": []
+    },
+    {
+      "id": "R5",
+      "name": "Least privilege and tools",
+      "weight": 2,
+      "applies_to": ["agent", "skill", "prompt"],
+      "look_for": "Requests only the tools it needs (allowed-tools is a short explicit list, never a wildcard). No blanket permissions, permission-bypass flags, high-privilege MCP servers, unpinned or auto-approved MCP packages, or unrestricted root/home paths.",
+      "sources": [
+        "docs/author-guide/creating-skills.md#allowed-tools",
+        "docs/author-guide/creating-skills.md#best-practices (Tool Minimization)",
+        "docs/reference/security-rules.md#agent-permissions-and-mcp (AGT-*, MCP-*)",
+        "docs/reference/security-rules.md#skills-and-other-agentic-patterns (SKL-003, SKL-010)"
+      ],
+      "rules": ["AGT-*", "MCP-*", "SKL-003", "SKL-010", "CFG-001"]
+    },
+    {
+      "id": "R6",
+      "name": "Safe execution and human control",
+      "weight": 2,
+      "applies_to": ["prompt", "instruction", "agent", "skill"],
+      "look_for": "Destructive or irreversible actions require explicit human confirmation. No remote scripts piped to a shell, persistence, unbounded autonomous loops or delegation, unexpected code execution, unsafe deserialization, or host network exposure.",
+      "sources": [
+        "docs/reference/security-rules.md#hooks-and-host-commands (HKS-*)",
+        "docs/reference/security-rules.md#agent-permissions-and-mcp (AGT-003)",
+        "docs/reference/security-rules.md#skills-and-other-agentic-patterns (SKL-001, SKL-005, SKL-006, LLM-004, LLM-005, LLM-008, ASI-*)"
+      ],
+      "rules": ["HKS-*", "ASI-*", "AGT-003", "SKL-001", "SKL-002", "SKL-005", "SKL-006", "LLM-004", "LLM-005", "LLM-008", "MCP-012"]
+    },
+    {
+      "id": "R7",
+      "name": "Untrusted input and data protection",
+      "weight": 2,
+      "applies_to": ["prompt", "instruction", "agent", "skill"],
+      "look_for": "Treats user input, files and tool output as untrusted data with a stated trust boundary. Contains no prompt-injection text, hidden or encoded content, unsafe HTML, secrets or credentials, or instructions to send data elsewhere. Model output is not executed or rendered unsanitized.",
+      "sources": [
+        "docs/reference/security-rules.md#prompt-injection (INJ-*)",
+        "docs/reference/security-rules.md#secrets-and-credential-exposure (SEC-*)",
+        "docs/reference/security-rules.md#markdown-html-and-rendering (MD-*)",
+        "docs/reference/security-rules.md#opt-in-prompt-controls (CTL-011, CTL-014, CTL-015)"
+      ],
+      "rules": ["INJ-*", "SEC-*", "MD-*", "LLM-002", "SKL-008", "CTL-011", "CTL-014", "CTL-015"]
+    }
+  ],
+  "risk_families": ["SEC", "INJ", "MD", "LLM", "AGT", "ASI", "MCP", "SKL", "HKS", "CFG", "CTL"],
+  "severities": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+}

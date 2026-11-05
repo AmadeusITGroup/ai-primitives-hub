@@ -1,0 +1,63 @@
+# Copy to .github/workflows/primitives-review.yml in a hub or primitive source repository.
+# Reviews AI primitives against the quality rubric with Gemma 4 on the runner.
+# - Pull requests: reviews the primitives changed in the PR.
+# - Actions tab: reviews any path you enter.
+name: Primitives review (Gemma 4)
+
+on:
+  pull_request:
+    paths:
+      - '**/*.prompt.md'
+      - '**/*.instructions.md'
+      - '**/*.agent.md'
+      - '**/*.chatmode.md'
+      - '**/SKILL.md'
+      - '**/AGENTS.md'
+  workflow_dispatch:
+    inputs:
+      path:
+        description: Files or directories to review (space-separated)
+        required: true
+        default: .
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select primitives
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_PATH: ${{ inputs.path }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            paths="$(git diff --name-only --diff-filter=AM "$BASE_SHA" "$HEAD_SHA" | tr '\n' ' ')"
+          else
+            paths="$INPUT_PATH"
+          fi
+          echo "paths=${paths:-.}" >> "$GITHUB_OUTPUT"
+
+      - name: Review primitives
+        id: review
+        uses: AmadeusITGroup/ai-primitives-hub/github-actions/primitives-review@<commit-sha> # full 40-character SHA
+        with:
+          path: ${{ steps.select.outputs.paths }}
+          # cli-version: '<version with security scan>'  # adds static scanner findings and caps
+          # fail-below: C                                 # make the review a gate
+
+      - name: Show result
+        env:
+          AVERAGE: ${{ steps.review.outputs.average-score }}
+          LOWEST: ${{ steps.review.outputs.lowest-grade }}
+        run: echo "Average ${AVERAGE:-n/a}/100, lowest grade ${LOWEST:-n/a}. Full report in the job summary."
