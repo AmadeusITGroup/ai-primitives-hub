@@ -1,0 +1,21 @@
+{
+  "title": "AI Primitives Hub governance configuration (hub-governance.yml)",
+  "description": "Optional consumer configuration. Rule ids and floor rules are checked semantically (CFG002-CFG003).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rules": {
+      "type": "object",
+      "description": "Per-rule overrides keyed by rule id, for example COL003.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "severity": { "enum": ["error", "warning"] },
+          "reason": { "type": "string", "description": "Shown next to the suppression in every report." }
+        }
+      }
+    }
+  }
+}
