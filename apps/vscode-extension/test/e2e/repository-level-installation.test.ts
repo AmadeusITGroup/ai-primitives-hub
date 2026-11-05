@@ -270,7 +270,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(fs.existsSync(promptsDir), '.github/prompts directory should exist');
 
       // Verify prompt file was installed with correct content
-      const promptFile = path.join(promptsDir, 'test-prompt.prompt.md');
+      const promptFile = path.join(promptsDir, 'test.prompt.md');
       assert.ok(fs.existsSync(promptFile), 'Prompt file should exist in .github/prompts');
       const content = fs.readFileSync(promptFile, 'utf8');
       assert.ok(content.includes(TEST_CONTENT.BASIC_INSTALL), 'Prompt file should contain expected content');
@@ -562,7 +562,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // Verify prompt path is excluded
       assert.ok(
-        isPathExcluded('.github/prompts') || isPathExcluded('test-prompt.prompt.md'),
+        isPathExcluded('.github/prompts') || isPathExcluded('test.prompt.md'),
         'Installed prompt paths should be in .git/info/exclude'
       );
     });
@@ -866,7 +866,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // Verify files were installed
       const promptsDir = path.join(workspaceRoot, GITHUB_PROMPTS_DIR);
-      const promptFile = path.join(promptsDir, 'test-prompt.prompt.md');
+      const promptFile = path.join(promptsDir, 'test.prompt.md');
       assert.ok(fs.existsSync(promptFile), 'Prompt file should exist after installation');
 
       // Verify bundle is in lockfile (repository scope uses lockfile, not storage)
@@ -1006,7 +1006,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       // The section should be empty or removed after uninstalling the last local-only bundle
       // Check that the prompt file path is no longer excluded
       assert.ok(
-        !excludeAfter.includes('test-prompt.prompt.md'),
+        !excludeAfter.includes('test.prompt.md'),
         'Prompt file should no longer be in .git/info/exclude after uninstall'
       );
     });
@@ -1099,7 +1099,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const excludePath = path.join(workspaceRoot, '.git/info/exclude');
       const excludeContent = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, 'utf8') : '';
       assert.ok(
-        !excludeContent.includes('test-prompt.prompt.md'),
+        !excludeContent.includes('test.prompt.md'),
         'Commit mode should NOT add files to .git/info/exclude'
       );
     });
@@ -1171,7 +1171,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const excludePath = path.join(workspaceRoot, '.git/info/exclude');
       const excludeBefore = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, 'utf8') : '';
       assert.ok(
-        !excludeBefore.includes('test-prompt.prompt.md'),
+        !excludeBefore.includes('test.prompt.md'),
         '.git/info/exclude should NOT have prompt file in commit mode'
       );
 
@@ -1281,9 +1281,9 @@ suite('E2E: Repository-Level Installation Tests', () => {
       // Verify .git/info/exclude entries were removed
       const excludeAfter = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, 'utf8') : '';
 
-      // The path in .git/info/exclude is the full relative path like .github/prompts/test-prompt.prompt.md
+      // The path in .git/info/exclude is the full relative path like .github/prompts/test.prompt.md
       assert.ok(
-        !excludeAfter.includes('.github/prompts/test-prompt.prompt.md'),
+        !excludeAfter.includes('.github/prompts/test.prompt.md'),
         'Prompt file path should NOT be in .git/info/exclude after switching to commit mode'
       );
     });
@@ -1325,7 +1325,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
       const bundleId = Object.keys(lockfile.bundles)[0];
-      const promptFilePath = path.join(workspaceRoot, GITHUB_PROMPTS_DIR, 'test-prompt.prompt.md');
+      const promptFilePath = path.join(workspaceRoot, GITHUB_PROMPTS_DIR, 'test.prompt.md');
 
       return { bundleId, promptFilePath };
     };
@@ -1354,7 +1354,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       // Should detect the modification
       assert.ok(modifiedFiles.length > 0, 'Should detect at least one modified file');
       assert.ok(
-        modifiedFiles.some((f) => f.path.includes('test-prompt.prompt.md')),
+        modifiedFiles.some((f) => f.path.includes('test.prompt.md')),
         'Should detect modification in prompt file'
       );
     });
@@ -1517,7 +1517,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
         'Dialog message should mention modifications'
       );
       assert.ok(
-        dialogMessage.includes('test-prompt.prompt.md') || dialogMessage.includes('.github/prompts'),
+        dialogMessage.includes('test.prompt.md') || dialogMessage.includes('.github/prompts'),
         'Dialog message should list the modified file'
       );
     });

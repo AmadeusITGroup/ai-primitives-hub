@@ -52,8 +52,9 @@ export interface CliBuiltPluginBundle {
 /** Bundle, plugin and collection id of every fixture. */
 export const DEMO_PLUGIN_ID = 'demo-plugin';
 const PLUGIN_DIR = `plugins/${DEMO_PLUGIN_ID}`;
-const EXECUTABLE_ATTR = 0o10_0755 * 0x1_00_00;
-const REGULAR_ATTR = 0o10_0644 * 0x1_00_00;
+// adm-zip's addFile takes the permission bits and adds the regular-file type itself.
+const EXECUTABLE_ATTR = 0o755;
+const REGULAR_ATTR = 0o644;
 
 /**
  * Plugin files below the plugin directory, the run script excluded.

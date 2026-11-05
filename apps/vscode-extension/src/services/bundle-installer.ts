@@ -12,6 +12,7 @@
 
 import {
   createHash,
+  randomBytes,
 } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -21,6 +22,7 @@ import {
 import {
   InstallPipeline,
   InstallPipelineError,
+  TargetWriteRejectedError,
 } from '@ai-primitives-hub/app';
 import type {
   BundleDownloader,
@@ -42,10 +44,6 @@ import * as vscode from 'vscode';
 import {
   RegistryStorage,
 } from '../storage/registry-storage';
-import {
-  LockfileFileEntry,
-  LockfileSourceEntry,
-} from '../types/lockfile';
 import type {
   McpServerNaming,
 } from '../types/mcp';
@@ -58,14 +56,9 @@ import {
   RepositoryCommitMode,
 } from '../types/registry';
 import {
-  CopilotFileType,
-  determineFileType,
   getSkillName,
-  getTargetFileName,
-  normalizePromptId,
 } from '../utils/copilot-file-type-utils';
 import {
-  calculateFileChecksum,
   ensureDirectory,
 } from '../utils/file-integrity-service';
 import {
@@ -84,9 +77,6 @@ import {
   checkPathExists,
 } from '../utils/symlink-utils';
 import {
-  LockfileManager,
-} from './lockfile-manager';
-import {
   McpServerManager,
 } from './mcp-server-manager';
 import {
@@ -94,6 +84,7 @@ import {
 } from './repository-scope-service';
 import {
   IScopeService,
+  SyncBundleOptions,
 } from './scope-service';
 import {
   ScopeServiceFactory,
@@ -105,11 +96,34 @@ import {
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 const readdir = promisify(fs.readdir);
-const stat = promisify(fs.stat);
 const lstat = promisify(fs.lstat);
 const unlink = promisify(fs.unlink);
 const rmdir = promisify(fs.rmdir);
 const symlink = promisify(fs.symlink);
+
+const RENAME_RETRIES = 3;
+const RENAME_BACKOFF_MS = 100;
+
+/**
+ * Rename, retried on the transient `EPERM` / `EBUSY` Windows reports while
+ * a scanner or indexer holds a file of the directory.
+ * @param from - Current path.
+ * @param to - New path.
+ */
+const renameWithRetry = async (from: string, to: string): Promise<void> => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.promises.rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= RENAME_RETRIES || (code !== 'EPERM' && code !== 'EBUSY')) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, RENAME_BACKOFF_MS * (attempt + 1)));
+    }
+  }
+};
 
 /**
  * Bundle Installer
@@ -149,195 +163,6 @@ export class BundleInstaller {
       return ScopeServiceFactory.create(scope, this.context, workspaceRoot, this.storage, this.targetType);
     }
     return ScopeServiceFactory.create(scope, this.context);
-  }
-
-  /**
-   * Collect file entries with checksums for lockfile
-   * @param installDir
-   * @param workspaceRoot
-   */
-  private async collectFileEntries(installDir: string, workspaceRoot: string): Promise<LockfileFileEntry[]> {
-    const entries: LockfileFileEntry[] = [];
-
-    const collectFromDir = async (dir: string): Promise<void> => {
-      if (!fs.existsSync(dir)) {
-        return;
-      }
-
-      const files = await readdir(dir);
-      for (const file of files) {
-        const filePath = path.join(dir, file);
-        const stats = await stat(filePath);
-
-        if (stats.isDirectory()) {
-          await collectFromDir(filePath);
-        } else {
-          const relativePath = path.relative(workspaceRoot, filePath);
-          const checksum = await calculateFileChecksum(filePath);
-          entries.push({ path: relativePath, checksum });
-        }
-      }
-    };
-
-    await collectFromDir(installDir);
-    return entries;
-  }
-
-  /**
-   * Update lockfile when installing a bundle at repository scope
-   * @param bundle
-   * @param installed
-   * @param options
-   * @param sourceType
-   */
-  private async updateLockfileOnInstall(
-    bundle: Bundle,
-    installed: InstalledBundle,
-    options: InstallOptions,
-    sourceType?: string
-  ): Promise<void> {
-    const workspaceRoot = getWorkspaceRoot();
-    if (!workspaceRoot) {
-      this.logger.warn('Cannot update lockfile: no workspace root');
-      return;
-    }
-
-    try {
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-
-      // For repository scope, collect files from .github/ directories (where they are synced)
-      // not from the bundle cache directory
-      const files = await this.collectRepositoryFileEntries(workspaceRoot, installed.installPath);
-
-      // Create source entry
-      const source: LockfileSourceEntry = {
-        type: sourceType || installed.sourceType || 'unknown',
-        url: bundle.downloadUrl || bundle.manifestUrl || ''
-      };
-
-      await lockfileManager.createOrUpdate({
-        bundleId: bundle.id,
-        version: bundle.version,
-        sourceId: bundle.sourceId,
-        sourceType: sourceType || installed.sourceType || 'unknown',
-        commitMode: options.commitMode ?? 'commit',
-        files,
-        source
-      });
-
-      this.logger.debug(`Updated lockfile for bundle ${bundle.id}`);
-    } catch (error) {
-      this.logger.error('Failed to update lockfile on install', error as Error);
-      // Don't fail the installation if lockfile update fails
-    }
-  }
-
-  /**
-   * Collect file entries from .github/ directories for repository scope lockfile
-   * This collects the actual synced files, not the bundle cache files
-   * @param workspaceRoot
-   * @param bundlePath
-   */
-  private async collectRepositoryFileEntries(workspaceRoot: string, bundlePath: string): Promise<LockfileFileEntry[]> {
-    const entries: LockfileFileEntry[] = [];
-
-    // Read the deployment manifest to know which files were installed
-    const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
-    if (!fs.existsSync(manifestPath)) {
-      this.logger.warn('No deployment manifest found, falling back to bundle cache files');
-      return this.collectFileEntries(bundlePath, workspaceRoot);
-    }
-
-    try {
-      const manifestContent = await readFile(manifestPath, 'utf8');
-      const manifest = yaml.load(manifestContent) as DeploymentManifest;
-
-      if (!manifest.prompts || manifest.prompts.length === 0) {
-        return entries;
-      }
-
-      // Resolve host-aware destinations via the repository scope service —
-      // the same service (and layout resolution) that wrote the files — so the
-      // lockfile is collected from the actual install location.
-      const repoService = new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
-
-      // Collect files from the host-appropriate directories based on manifest
-      for (const promptDef of manifest.prompts) {
-        const promptId = normalizePromptId(promptDef.id);
-        const fileType = (promptDef.type as CopilotFileType) || determineFileType(promptDef.file, promptDef.tags);
-        const targetDir = repoService.getTargetDirectory(fileType);
-
-        if (fileType === 'skill') {
-          // For skills, collect all files in the skill directory
-          const skillDir = path.join(workspaceRoot, targetDir, promptId);
-          if (fs.existsSync(skillDir)) {
-            await this.collectFromDirectory(skillDir, workspaceRoot, entries);
-          }
-        } else {
-          // For other file types, collect the single file
-          const targetFileName = getTargetFileName(promptId, fileType);
-          const targetPath = path.join(workspaceRoot, targetDir, targetFileName);
-
-          if (fs.existsSync(targetPath)) {
-            const relativePath = path.relative(workspaceRoot, targetPath);
-            const checksum = await calculateFileChecksum(targetPath);
-            entries.push({ path: relativePath, checksum });
-          }
-        }
-      }
-
-      return entries;
-    } catch (error) {
-      this.logger.warn('Failed to parse manifest, falling back to bundle cache files', error);
-      return this.collectFileEntries(bundlePath, workspaceRoot);
-    }
-  }
-
-  /**
-   * Recursively collect files from a directory
-   * @param dir
-   * @param workspaceRoot
-   * @param entries
-   */
-  private async collectFromDirectory(dir: string, workspaceRoot: string, entries: LockfileFileEntry[]): Promise<void> {
-    if (!fs.existsSync(dir)) {
-      return;
-    }
-
-    const files = await readdir(dir);
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      const stats = await stat(filePath);
-
-      if (stats.isDirectory()) {
-        await this.collectFromDirectory(filePath, workspaceRoot, entries);
-      } else {
-        const relativePath = path.relative(workspaceRoot, filePath);
-        const checksum = await calculateFileChecksum(filePath);
-        entries.push({ path: relativePath, checksum });
-      }
-    }
-  }
-
-  /**
-   * Update lockfile when uninstalling a bundle at repository scope
-   * @param bundleId
-   */
-  private async updateLockfileOnUninstall(bundleId: string): Promise<void> {
-    const workspaceRoot = getWorkspaceRoot();
-    if (!workspaceRoot) {
-      this.logger.warn('Cannot update lockfile: no workspace root');
-      return;
-    }
-
-    try {
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      await lockfileManager.remove(bundleId);
-      this.logger.debug(`Removed bundle ${bundleId} from lockfile`);
-    } catch (error) {
-      this.logger.error('Failed to update lockfile on uninstall', error as Error);
-      // Don't fail the uninstallation if lockfile update fails
-    }
   }
 
   // ===== Helper Methods =====
@@ -653,32 +478,32 @@ export class BundleInstaller {
   }
 
   /**
-   * Create a RepositoryScopeService for the current workspace
-   * Used by BundleScopeCommands for scope migration
-   * @returns RepositoryScopeService or undefined if no workspace is open
+   * Install a bundle from a Buffer.
+   *
+   * Repository scope: the bundle cache is written to a staging directory,
+   * the shared install writes the workspace files and the lockfile entry,
+   * then the staging directory replaces the cache and the MCP servers are
+   * installed. A failure before the swap removes only the staging
+   * directory, so a rejected install has no side effect. User and
+   * workspace scope keep their order: cache in place, MCP, sync.
+   * @param bundle - Bundle to install.
+   * @param bundleBuffer - Archive bytes.
+   * @param options - Install options.
+   * @param sourceType - Source type of the bundle.
+   * @param beforeRepositorySync - Repository scope only: runs after the
+   *   staging and before the shared install (an update's preflight and
+   *   uninstall of the installed version).
+   * @returns The installation record.
    */
-  public createRepositoryScopeService(): RepositoryScopeService | undefined {
-    const workspaceRoot = getWorkspaceRoot();
-    if (!workspaceRoot) {
-      return undefined;
-    }
-    return new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
-  }
-
-  /**
-   * Install a bundle from a Buffer (for adapters that create bundles on-the-fly)
-   * @param bundle
-   * @param bundleBuffer
-   * @param options
-   * @param sourceType
-   */
-  public async installFromBuffer(
+  private async installBuffer(
     bundle: Bundle,
     bundleBuffer: Buffer,
     options: InstallOptions,
-    sourceType?: string
+    sourceType?: string,
+    beforeRepositorySync?: (scopeService: IScopeService, syncOptions: SyncBundleOptions) => Promise<void>
   ): Promise<InstalledBundle> {
     this.logger.info(`Installing bundle from buffer: ${bundle.name} v${bundle.version}`);
+    const isRepositoryScope = options.scope === 'repository';
 
     // Check if this is a skills bundle (Anthropic-style skills source)
     const isSkillsBundle = sourceType === 'skills' || sourceType === 'local-skills';
@@ -696,8 +521,8 @@ export class BundleInstaller {
       bundleVersion: bundle.version
     };
     const target: Target = {
-      name: 'vscode',
-      type: 'vscode',
+      name: this.targetType,
+      type: this.targetType,
       scope: options.scope,
       commitMode: options.commitMode
     };
@@ -727,10 +552,12 @@ export class BundleInstaller {
     };
 
     const zipExtractor = new ZipBundleExtractor();
+    let extractedFiles: ExtractedFiles | undefined;
     const extractor: BundleExtractor = {
       extract: async (bytes: Uint8Array): Promise<ExtractedFiles> => {
         const files = await zipExtractor.extract(bytes);
         if (files.has('deployment-manifest.yml')) {
+          extractedFiles = files;
           return files;
         }
 
@@ -765,11 +592,14 @@ export class BundleInstaller {
         };
         const augmented = new Map(files);
         augmented.set('deployment-manifest.yml', new TextEncoder().encode(yaml.dump(fallbackManifest)));
+        extractedFiles = augmented;
         return augmented;
       }
     };
 
     let installDir = '';
+    // Directory the cache writer writes to: the staging directory at repository scope.
+    let cacheWriteDir = '';
 
     const writer: TargetWriter = {
       write: async (_target: Target, files: ExtractedFiles): Promise<TargetWriteResult> => {
@@ -790,6 +620,7 @@ export class BundleInstaller {
           const skillsBaseDir = this.copilotSync.getCopilotSkillsDirectory(copilotScope);
           await ensureDirectory(skillsBaseDir);
           installDir = resolveContainedPath(skillsBaseDir, skillName, 'skill installation path');
+          cacheWriteDir = installDir;
 
           this.logger.debug(`[BundleInstaller] Skills bundle detected, installing to: ${installDir}`);
 
@@ -832,11 +663,12 @@ export class BundleInstaller {
             this.logger.info(`[BundleInstaller] Installing repository scope bundle to global storage: bundles/${bundle.id}`);
           }
           installDir = this.getInstallDirectory(bundle.id, options.scope, bundle.name);
-          await ensureDirectory(installDir);
+          cacheWriteDir = isRepositoryScope ? await this.stageBundleCache(installDir) : installDir;
+          await ensureDirectory(cacheWriteDir);
           this.logger.debug(`Installation directory: ${installDir}`);
 
           for (const [entryPath, bytes] of files) {
-            const outPath = resolveContainedPath(installDir, entryPath, 'bundle file path');
+            const outPath = resolveContainedPath(cacheWriteDir, entryPath, 'bundle file path');
             await ensureDirectory(path.dirname(outPath));
             await writeFile(outPath, Buffer.from(bytes));
             written.push(outPath);
@@ -847,8 +679,8 @@ export class BundleInstaller {
         return { written, skipped: [] };
       },
       remove: async (_target: Target, filePath: string): Promise<void> => {
-        if (installDir.length > 0) {
-          await unlink(resolveContainedPath(installDir, filePath, 'bundle file path')).catch(() => undefined);
+        if (cacheWriteDir.length > 0) {
+          await unlink(resolveContainedPath(cacheWriteDir, filePath, 'bundle file path')).catch(() => undefined);
         }
       }
     };
@@ -861,6 +693,7 @@ export class BundleInstaller {
       skipManifestIdValidation: sourceType === 'artifactory'
     });
 
+    let cacheCommitted = !isRepositoryScope;
     try {
       const outcome = await pipeline.run(spec, target);
       const manifest = outcome.manifest as unknown as DeploymentManifest;
@@ -876,14 +709,42 @@ export class BundleInstaller {
         manifest: manifest,
         sourceId: bundle.sourceId,
         sourceType: sourceType,
-        commitMode: options.scope === 'repository' ? (options.commitMode ?? 'commit') : undefined
+        commitMode: isRepositoryScope ? (options.commitMode ?? 'commit') : undefined
+      };
+      const mcpNaming: McpServerNaming = {
+        manifestId: outcome.manifest.id,
+        manifestRepository: typeof outcome.manifest.repository === 'string' ? outcome.manifest.repository : undefined,
+        sourceRepository: bundle.repository
       };
 
-      // Step 9: Install MCP servers if defined (skip for skills bundles)
-      if (installSkillsToCopilotDir) {
-        this.logger.debug('Skills bundle - skipping MCP servers and Copilot sync (already installed to ~/.copilot/skills/)');
-      } else {
-        // Skills bundles going through repository scope should still skip MCP servers
+      if (isRepositoryScope) {
+        if (extractedFiles === undefined) {
+          throw new Error(`Bundle ${bundle.id} was not extracted`);
+        }
+        const resolvedSourceType = sourceType ?? 'unknown';
+        const scopeService = this.getScopeService(options.scope);
+        const syncOptions: SyncBundleOptions = {
+          commitMode: options.commitMode,
+          install: {
+            files: extractedFiles,
+            manifest: outcome.manifest,
+            origin: { sourceId: bundle.sourceId, sourceType: resolvedSourceType, checksum: outcome.sha256 },
+            source: {
+              type: resolvedSourceType,
+              url: bundle.downloadUrl || bundle.manifestUrl || `${resolvedSourceType}:${bundle.sourceId}`
+            }
+          }
+        };
+        if (beforeRepositorySync !== undefined) {
+          await beforeRepositorySync(scopeService, syncOptions);
+        }
+        await scopeService.syncBundle(bundle.id, installDir, syncOptions);
+        this.logger.debug('Synced to repository scope');
+
+        await this.commitBundleCache(cacheWriteDir, installDir, bundle.name);
+        cacheCommitted = true;
+
+        // Skills bundles skip MCP servers
         if (!isSkillsBundle) {
           await this.installMcpServers(
             bundle.id,
@@ -892,38 +753,141 @@ export class BundleInstaller {
             manifest,
             options.scope,
             options.commitMode,
-            {
-              manifestId: outcome.manifest.id,
-              manifestRepository: typeof outcome.manifest.repository === 'string' ? outcome.manifest.repository : undefined,
-              sourceRepository: bundle.repository
-            }
+            mcpNaming
+          );
+          this.logger.debug('MCP servers installation completed');
+        }
+      } else if (installSkillsToCopilotDir) {
+        this.logger.debug('Skills bundle - skipping MCP servers and Copilot sync (already installed to ~/.copilot/skills/)');
+      } else {
+        // Step 9: Install MCP servers if defined (skip for skills bundles)
+        if (!isSkillsBundle) {
+          await this.installMcpServers(
+            bundle.id,
+            bundle.version,
+            installDir,
+            manifest,
+            options.scope,
+            options.commitMode,
+            mcpNaming
           );
           this.logger.debug('MCP servers installation completed');
         }
 
-        // Step 10: Sync to appropriate scope directory (skills for repository scope must run through this)
+        // Step 10: Sync to appropriate scope directory
         const scopeService = this.getScopeService(options.scope);
-        // Pass commitMode explicitly to syncBundle to avoid timing issues:
-        // The installation record hasn't been saved to RegistryStorage yet at this point,
-        // so RepositoryScopeService can't look up commitMode from storage.
         await scopeService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
         this.logger.debug(`Synced to ${options.scope} scope`);
-
-        // Step 11: Update lockfile for repository scope
-        if (options.scope === 'repository') {
-          await this.updateLockfileOnInstall(bundle, installed, options, sourceType);
-        }
       }
 
       this.logger.info(`Bundle installed successfully from buffer: ${bundle.name}`);
       return installed;
     } catch (error) {
+      if (!cacheCommitted && cacheWriteDir.length > 0) {
+        await fs.promises.rm(cacheWriteDir, { recursive: true, force: true }).catch((rmError: unknown) => {
+          this.logger.debug(`Could not remove staging directory ${cacheWriteDir}: ${String(rmError)}`);
+        });
+      }
       this.logger.error('Bundle installation from buffer failed', error as Error);
+      if (error instanceof TargetWriteRejectedError) {
+        throw Object.assign(
+          new Error(`Cannot install "${bundle.name}" on ${this.targetType} (repository scope): ${error.message}`),
+          { code: error.code, unsupported: error.skipped }
+        );
+      }
       if (error instanceof InstallPipelineError) {
         throw new Error(error.message.replace(/^(resolve|download|extract|validate|write) failed: /, ''));
       }
       throw error;
     }
+  }
+
+  /**
+   * Repository-scope staging directory for the bundle cache: a fresh
+   * `<installDir>.staging-<hex>` sibling. Leftover staging and old
+   * directories of earlier interrupted installs are removed first (best
+   * effort).
+   * @param installDir - Bundle cache directory.
+   * @returns The staging directory path.
+   */
+  private async stageBundleCache(installDir: string): Promise<string> {
+    const parent = path.dirname(installDir);
+    const base = path.basename(installDir);
+    const leftovers = fs.existsSync(parent)
+      ? (await readdir(parent)).filter((name) => name.startsWith(`${base}.staging-`) || name.startsWith(`${base}.old-`))
+      : [];
+    for (const leftover of leftovers) {
+      await fs.promises.rm(path.join(parent, leftover), { recursive: true, force: true }).catch((error: unknown) => {
+        this.logger.debug(`Could not remove leftover cache directory ${leftover}: ${String(error)}`);
+      });
+    }
+    return `${installDir}.staging-${randomBytes(4).toString('hex')}`;
+  }
+
+  /**
+   * Swap the staged cache in: the current cache moves aside, the staging
+   * directory takes its place, the old one is removed. On failure the old
+   * cache is restored and the staging directory removed.
+   * @param stagingDir - Staging directory.
+   * @param installDir - Bundle cache directory.
+   * @param bundleName - Bundle name for the error message.
+   * @throws {Error} when the cache cannot be swapped.
+   */
+  private async commitBundleCache(stagingDir: string, installDir: string, bundleName: string): Promise<void> {
+    const oldDir = fs.existsSync(installDir) ? `${installDir}.old-${randomBytes(4).toString('hex')}` : undefined;
+    try {
+      if (oldDir !== undefined) {
+        await renameWithRetry(installDir, oldDir);
+      }
+      try {
+        await renameWithRetry(stagingDir, installDir);
+      } catch (error) {
+        if (oldDir !== undefined) {
+          await renameWithRetry(oldDir, installDir).catch((restoreError: unknown) => {
+            this.logger.warn(`Could not restore the bundle cache ${installDir}: ${String(restoreError)}`);
+          });
+        }
+        throw error;
+      }
+    } catch (error) {
+      await fs.promises.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Installed "${bundleName}" but could not update its cache (${message}); reinstall the bundle`);
+    }
+    if (oldDir !== undefined) {
+      await fs.promises.rm(oldDir, { recursive: true, force: true }).catch((error: unknown) => {
+        this.logger.warn(`Could not remove the previous bundle cache ${oldDir}: ${String(error)}`);
+      });
+    }
+  }
+
+  /**
+   * Create a RepositoryScopeService for the current workspace
+   * Used by BundleScopeCommands for scope migration
+   * @returns RepositoryScopeService or undefined if no workspace is open
+   */
+  public createRepositoryScopeService(): RepositoryScopeService | undefined {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    return new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
+  }
+
+  /**
+   * Install a bundle from a Buffer (for adapters that create bundles on-the-fly)
+   * @param bundle
+   * @param bundleBuffer
+   * @param options
+   * @param sourceType
+   */
+  public async installFromBuffer(
+    bundle: Bundle,
+    bundleBuffer: Buffer,
+    options: InstallOptions,
+    sourceType?: string
+  ): Promise<InstalledBundle> {
+    return this.installBuffer(bundle, bundleBuffer, options, sourceType);
   }
 
   /**
@@ -939,14 +903,10 @@ export class BundleInstaller {
       this.logger.debug('MCP servers uninstalled');
 
       // Unsync from appropriate scope directory
+      // At repository scope the shared uninstall also removes the lockfile entry.
       const scopeService = this.getScopeService(installed.scope);
-      await scopeService.unsyncBundle(installed.bundleId);
+      await scopeService.unsyncBundle(installed.bundleId, { scope: installed.scope });
       this.logger.debug(`Removed from ${installed.scope} scope`);
-
-      // Remove from lockfile for repository scope
-      if (installed.scope === 'repository') {
-        await this.updateLockfileOnUninstall(installed.bundleId);
-      }
 
       // Remove installation directory (bundle cache)
       // For repository scope, the installPath may point to .github which is NOT the bundle cache.
@@ -995,10 +955,27 @@ export class BundleInstaller {
     this.logger.info(`Updating bundle: ${installed.bundleId} to v${bundle.version}`);
 
     try {
+      const resolvedSourceType = sourceType ?? installed.sourceType;
+
+      if (installed.scope === 'repository') {
+        // Check the new version against the host before removing the
+        // installed one, so a rejected update changes nothing.
+        const updated = await this.installBuffer(
+          bundle,
+          bundleBuffer,
+          { scope: installed.scope, version: bundle.version, commitMode: installed.commitMode },
+          resolvedSourceType,
+          async (scopeService, syncOptions) => {
+            await scopeService.preflightBundle?.(bundle.id, syncOptions);
+            await this.uninstall(installed);
+          }
+        );
+        this.logger.info('Bundle updated successfully');
+        return updated;
+      }
+
       // Uninstall old version
       await this.uninstall(installed);
-
-      const resolvedSourceType = sourceType ?? installed.sourceType;
 
       // Install new version using the unified architecture
       const newInstalled = await this.installFromBuffer(

@@ -4,6 +4,7 @@
 
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import os from 'node:os';
 import * as path from 'node:path';
 import AdmZip from 'adm-zip';
 import * as sinon from 'sinon';
@@ -321,6 +322,48 @@ suite('BundleInstaller', () => {
 
       // Should not throw even if path doesn't exist
       await installer.uninstallSkillSymlink(mockInstalled);
+    });
+  });
+
+  suite('installFromBuffer - user scope', () => {
+    const promptZip = (version: string, prompts: Record<string, string>): Buffer => {
+      const zip = new AdmZip();
+      const items = Object.keys(prompts)
+        .map((id) => `  - id: ${id}\n    name: ${id}\n    file: prompts/${id}.prompt.md\n    type: prompt`)
+        .join('\n');
+      zip.addFile('deployment-manifest.yml', Buffer.from(`id: ${mockBundle.id}\nversion: ${version}\nname: ${mockBundle.name}\nprompts:\n${items}\n`));
+      for (const [id, content] of Object.entries(prompts)) {
+        zip.addFile(`prompts/${id}.prompt.md`, Buffer.from(content));
+      }
+      return zip.toBuffer();
+    };
+    const stagingSiblings = (): string[] => {
+      const bundles = path.join(tempDir, 'global', 'bundles');
+      return fs.existsSync(bundles) ? fs.readdirSync(bundles).filter((name) => name.startsWith(`${mockBundle.id}.`)) : [];
+    };
+
+    test('installs and reinstalls through the user prompts directory without a staging directory', async () => {
+      const home = path.join(tempDir, 'home');
+      fs.mkdirSync(home, { recursive: true });
+      sinon.stub(os, 'homedir').returns(home);
+      const userInstaller = new BundleInstaller(mockContext, 'vscode');
+      const promptsDir = path.join(home, '.copilot', 'prompts');
+
+      await userInstaller.installFromBuffer(mockBundle, promptZip('1.0.0', { hello: 'Say hello v1\n' }), { scope: 'user' }, 'github');
+
+      assert.strictEqual(fs.readFileSync(path.join(promptsDir, 'hello.prompt.md'), 'utf8'), 'Say hello v1\n');
+      assert.deepStrictEqual(stagingSiblings(), []);
+
+      await userInstaller.installFromBuffer(
+        { ...mockBundle, version: '2.0.0' },
+        promptZip('2.0.0', { hello: 'Say hello v2\n', bye: 'Say goodbye\n' }),
+        { scope: 'user', force: true },
+        'github'
+      );
+
+      assert.strictEqual(fs.readFileSync(path.join(promptsDir, 'hello.prompt.md'), 'utf8'), 'Say hello v2\n');
+      assert.strictEqual(fs.readFileSync(path.join(promptsDir, 'bye.prompt.md'), 'utf8'), 'Say goodbye\n');
+      assert.deepStrictEqual(stagingSiblings(), []);
     });
   });
 

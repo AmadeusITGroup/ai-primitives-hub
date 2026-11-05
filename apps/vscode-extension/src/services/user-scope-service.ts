@@ -62,6 +62,7 @@ import {
 import {
   IScopeService,
   SyncBundleOptions,
+  UnsyncBundleOptions,
 } from './scope-service';
 
 const readFile = promisify(fs.readFile);
@@ -553,7 +554,7 @@ export class UserScopeService implements IScopeService {
    * @param bundlePath - The path to the installed bundle directory
    * @param _options - Ignored for user scope (commitMode only applies to repository scope)
    */
-  public async syncBundle(bundleId: string, bundlePath: string, _options?: SyncBundleOptions): Promise<void> {
+  public async syncBundle(bundleId: string, bundlePath: string, _options?: SyncBundleOptions): Promise<undefined> {
     try {
       this.logger.debug(`Syncing bundle: ${bundleId}`);
 
@@ -619,8 +620,9 @@ export class UserScopeService implements IScopeService {
    * Implements IScopeService.unsyncBundle
    * Since we use a flat structure, we need to read the bundle's manifest to know which files to remove
    * @param bundleId
+   * @param _options - Ignored for user scope
    */
-  public async unsyncBundle(bundleId: string): Promise<void> {
+  public async unsyncBundle(bundleId: string, _options?: UnsyncBundleOptions): Promise<undefined> {
     try {
       this.logger.debug(`Removing Copilot files for bundle: ${bundleId}`);
 
