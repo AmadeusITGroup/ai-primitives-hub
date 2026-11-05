@@ -11,11 +11,12 @@ A **Profile** groups bundles from multiple sources. Activate with one click.
 - **Activate**: Right-click profile → Activate Profile
 - **Deactivate**: Right-click active profile → Deactivate Profile
 
-If a bundle the profile marks `required: true` cannot be installed, activation
-fails: the error is shown, the bundles the activation installed are removed,
-and the profile is not left active. The previously active profile stays
+If a bundle that a hub profile marks `required: true` cannot be installed,
+activation fails: the error is shown, the bundles the activation installed are
+removed, and the profile is not left active. The previously active profile stays
 deactivated. A bundle marked `required: false` that fails to install is logged
-and skipped.
+and skipped. Local profiles (the ones you create yourself) do not check
+`required` yet: a bundle that fails to install is logged and skipped.
 
 ### Views
 

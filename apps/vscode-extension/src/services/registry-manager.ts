@@ -1486,9 +1486,9 @@ export class RegistryManager {
    * Install multiple bundles in parallel. A failed install is logged and
    * does not stop the batch.
    * @param bundles
-   * @returns The bundles installed afterwards, with their version: newly
-   * installed ones, plus ones whose install failed but that are already
-   * installed in the requested scope (e.g. same version present).
+   * @returns The bundles installed afterwards, by requested id, with their
+   * version: newly installed ones, plus ones whose install failed but that
+   * are already installed in the requested scope (e.g. same version present).
    */
   public async installBundles(bundles: { bundleId: string; options: InstallOptions }[]): Promise<ProfileBundleSyncResult> {
     const installed: InstalledBundle[] = [];
@@ -1513,12 +1513,14 @@ export class RegistryManager {
         }
       }));
 
-      for (const result of results) {
+      results.forEach((result, index) => {
         if (result) {
           installed.push(result);
-          synced.push({ bundleId: result.bundleId, version: result.version });
+          // Report the requested id: the installed record may carry the
+          // resolved (e.g. versioned) id instead of the one the caller asked for.
+          synced.push({ bundleId: chunk[index].bundleId, version: result.version });
         }
-      }
+      });
     }
 
     if (installed.length > 0) {

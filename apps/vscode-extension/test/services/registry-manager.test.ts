@@ -295,7 +295,7 @@ suite('RegistryManager - Event Emission Behavior', () => {
     listener.dispose();
   });
 
-  test('installBundles reports the bundles that are installed afterwards, including ones already installed', async () => {
+  test('installBundles reports the bundles that are installed afterwards, by requested id, including ones already installed', async () => {
     const testSource = {
       id: 'test-source',
       name: 'Test Source',
@@ -319,41 +319,52 @@ suite('RegistryManager - Event Emission Behavior', () => {
       rating: 0,
       environments: []
     });
-    const installedRecord = (bundleId: string) => ({
+    const installedRecord = (bundleId: string, scope: string) => ({
       bundleId,
       version: '1.0.0',
       sourceId: 'test-source',
       sourceType: 'local',
       installedAt: new Date().toISOString(),
-      scope: 'user'
+      scope
     });
+    // Bundles resolvable from the source cache; `missing-bundle` and `user-only-bundle` are not.
+    const resolvable: Record<string, ReturnType<typeof makeBundle>> = {
+      'new-bundle': makeBundle('new-bundle'),
+      'present-bundle': makeBundle('present-bundle'),
+      // Requested by its versionless id, resolved to a versioned id.
+      'versioned-bundle': makeBundle('versioned-bundle-1.0.0')
+    };
+    // Already installed: `present-bundle` (same version, so its install throws
+    // "already installed") and `user-only-bundle`, in user scope only.
+    const alreadyInstalled = new Set(['present-bundle@user', 'user-only-bundle@user']);
 
     mockStorage.getSources.resolves([testSource]);
+    mockStorage.getCachedSourceBundles.resolves([]);
     mockStorage.recordInstallation.resolves();
-    // `present-bundle` is already installed at the same version, so its install throws "already installed".
-    mockStorage.getInstalledBundle.callsFake(async (id: string) =>
-      (id === 'present-bundle' ? installedRecord(id) as InstalledBundle : undefined));
+    mockStorage.getCachedBundleMetadata.callsFake(async (id: string) => resolvable[id] as unknown as Bundle);
+    mockStorage.getInstalledBundle.callsFake(async (id: string, scope: string) =>
+      (alreadyInstalled.has(`${id}@${scope}`) ? installedRecord(id, scope) as InstalledBundle : undefined));
     sandbox.stub(InfraAdapterFactory, 'createRegistryAdapter').returns({
       downloadBundle: sandbox.stub().resolves(Buffer.from('test'))
     } as any);
-    sandbox.stub((manager as any).installer, 'installFromBuffer').callsFake(async (bundle: any) => installedRecord(bundle.id));
-    sandbox.stub(manager as any, 'getBundleDetails').callsFake(async (id: unknown) => {
-      if (id === 'missing-bundle') {
-        throw new Error('Bundle not found: missing-bundle');
-      }
-      return makeBundle(id as string);
-    });
+    sandbox.stub((manager as any).installer, 'installFromBuffer')
+      .callsFake(async (bundle: any, _buffer: any, options: any) => installedRecord(bundle.id, options.scope));
 
-    const result = await manager.installBundles(['new-bundle', 'present-bundle', 'missing-bundle'].map((bundleId) => ({
-      bundleId,
-      options: { scope: 'user' as const }
-    })));
+    const result = await manager.installBundles([
+      { bundleId: 'new-bundle', options: { scope: 'user' } },
+      { bundleId: 'present-bundle', options: { scope: 'user' } },
+      { bundleId: 'versioned-bundle', options: { scope: 'user' } },
+      { bundleId: 'missing-bundle', options: { scope: 'user' } },
+      // Fails in workspace scope; being installed in user scope does not count.
+      { bundleId: 'user-only-bundle', options: { scope: 'workspace' } }
+    ]);
 
     assert.deepStrictEqual(
       [...result.synced].toSorted((a, b) => a.bundleId.localeCompare(b.bundleId)),
       [
         { bundleId: 'new-bundle', version: '1.0.0' },
-        { bundleId: 'present-bundle', version: '1.0.0' }
+        { bundleId: 'present-bundle', version: '1.0.0' },
+        { bundleId: 'versioned-bundle', version: '1.0.0' }
       ]
     );
   });

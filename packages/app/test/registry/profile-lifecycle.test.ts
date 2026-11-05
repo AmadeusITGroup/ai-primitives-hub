@@ -387,6 +387,35 @@ describe('profile-lifecycle', () => {
       expect(config.profiles[0].active).toBe(false);
     });
 
+    it('rolls back only the bundles the sync reported as installed', async () => {
+      store = makeStore({
+        'test-hub': {
+          config: makeConfig([makeProfile({
+            bundles: [
+              { id: 'bundle-1', version: '1.0.0', source: 'test-source', required: true },
+              { id: 'bundle-2', version: '1.0.0', source: 'test-source', required: true }
+            ]
+          })]),
+          reference: REF
+        }
+      });
+      const profileSync = makeProfileSync();
+      (profileSync.installBundles as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        synced: [{ bundleId: 'bundle-1', version: '1.0.0' }]
+      });
+      // A sync that removes the bundles listed in the activation state (as the CLI's does).
+      let stateSeenByRollback: ProfileActivationState | null = null;
+      (profileSync.deactivateProfile as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+        stateSeenByRollback = await activationStore.get('test-hub', 'profile-1');
+      });
+      deps = { store, activationStore, profileSync };
+
+      const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
+
+      expect(result.success).toBe(false);
+      expect(stateSeenByRollback).toMatchObject({ syncedBundles: ['bundle-1'] });
+    });
+
     it('fails when profileSync.installBundles throws and the profile has a required bundle', async () => {
       const profileSync = makeProfileSync();
       (profileSync.installBundles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
@@ -455,6 +484,12 @@ describe('profile-lifecycle', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('disk full');
+      // The failed activation is rolled back, not left active.
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- vitest mock method reference, not a real unbound this call
+      expect(profileSync.deactivateProfile).toHaveBeenCalledWith('profile-1');
+      expect(await activationStore.get('test-hub', 'profile-1')).toBeNull();
+      const { config } = await store.load('test-hub');
+      expect(config.profiles[0].active).toBe(false);
     });
 
     it('emits diagnostic log events', async () => {

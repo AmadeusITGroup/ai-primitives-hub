@@ -14,9 +14,9 @@ const bundle = (id: string, required: boolean): HubProfileBundle => ({ id, versi
 
 describe('findMissingRequiredBundles', () => {
   it('returns required bundles that were not installed, in profile order', () => {
-    const bundles = [bundle('b', true), bundle('a', true), bundle('c', true)];
+    const bundles = [bundle('c', true), bundle('a', true), bundle('b', true)];
 
-    expect(findMissingRequiredBundles(bundles, ['a'])).toEqual(['b', 'c']);
+    expect(findMissingRequiredBundles(bundles, ['a'])).toEqual(['c', 'b']);
   });
 
   it('ignores optional bundles that were not installed', () => {

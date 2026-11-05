@@ -356,6 +356,18 @@ profiles:
         version: latest
         source: sample-collections
         required: true
+  - id: partial-required
+    name: Partially installable
+    description: One required bundle installs, the other does not
+    bundles:
+      - id: acme-org-sample-skills-sample-skills
+        version: latest
+        source: sample-collections
+        required: true
+      - id: acme-org-sample-skills-other-bundle
+        version: latest
+        source: sample-collections
+        required: true
 `);
     expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
     expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'sample-hub', '-o', 'json'])).exitCode).toBe(0);
@@ -394,6 +406,20 @@ profiles:
     expect((JSON.parse(failed.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).toBe(false);
     const shown = await run(['profile', 'show', 'organization-sample-developer', '-o', 'json']);
     expect((JSON.parse(shown.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).toBe(false);
+  });
+
+  it('removes the bundles a failed activation installed when another required bundle is missing', async () => {
+    const result = await run(['profile', 'activate', 'partial-required', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+    expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
+    // The bundle that did install is rolled back: its files and lockfile entry are gone.
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+    const lock = await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8').catch(() => '{"bundles":{}}');
+    expect(Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
+    const current = await run(['profile', 'current', '-o', 'json']);
+    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
   });
 
   it('replays the activated profile\'s lockfile into a clean target', async () => {

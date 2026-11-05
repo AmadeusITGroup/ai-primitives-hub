@@ -293,29 +293,24 @@ suite('Hub Profile Activation Commands - Integration', () => {
       sandbox.restore();
     });
 
-    test('shows the activation error instead of a success message when activation fails', async () => {
+    test('shows the activation error instead of a success message when a required bundle is not installed', async () => {
       const showError = sandbox.stub(vscode.window, 'showErrorMessage');
       const showInfo = sandbox.stub(vscode.window, 'showInformationMessage');
-      const fakeHubManager = {
-        storage: { getActiveHubId: async () => 'test-hub' },
-        getActiveHub: async () => ({ config: createTestHub() }),
-        listProfilesFromHub: async () => createTestHub().profiles,
-        getActiveProfile: async () => null,
-        activateProfile: async () => ({
-          success: false,
-          hubId: 'test-hub',
-          profileId: 'profile-1',
-          resolvedBundles: [],
-          error: 'Required bundles were not installed: bundle-1.',
-          missingRequiredBundles: ['bundle-1']
-        })
-      } as unknown as HubManager;
+      await storage.saveHub('test-hub', createTestHub(), { type: 'github', location: 'test/repo' });
+      await storage.setActiveHubId('test-hub');
+      // The registry is HubManager's install boundary: it installs nothing here.
+      const registry = {
+        installBundles: sandbox.stub().resolves({ synced: [] }),
+        deactivateProfile: sandbox.stub().resolves()
+      } as unknown as ConstructorParameters<typeof HubManager>[4];
+      const managerWithRegistry = new HubManager(storage, {} as any, process.cwd(), undefined, registry);
 
-      await activateHubProfile(fakeHubManager, { data: { hubId: 'test-hub', profileId: 'profile-1' } });
+      await activateHubProfile(managerWithRegistry, { data: { hubId: 'test-hub', profileId: 'profile-1' } });
 
       assert.ok(showError.calledOnce, 'an error notification is shown');
       assert.ok(String(showError.firstCall.args[0]).includes('Required bundles were not installed: bundle-1.'));
       assert.ok(!showInfo.getCalls().some((c) => String(c.args[0]).startsWith('Activated profile')));
+      assert.strictEqual(await managerWithRegistry.getActiveProfile('test-hub'), null);
     });
   });
 });

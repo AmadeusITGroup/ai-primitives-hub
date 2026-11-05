@@ -350,9 +350,15 @@ export async function activateProfile(
       const installedIds = syncResult
         ? syncResult.synced.map((s) => s.bundleId)
         : (installFailed ? [] : resolvedBundles.map((rb) => rb.bundle.id));
+      // The sync reported what it actually installed: record only that.
+      const installedState: ProfileActivationState | undefined = syncResult && {
+        ...activationState,
+        syncedBundles: syncResult.synced.map((s) => s.bundleId),
+        syncedBundleVersions: Object.fromEntries(syncResult.synced.map((s) => [s.bundleId, s.version]))
+      };
       const missingRequiredBundles = findMissingRequiredBundles(resolvedBundles.map((rb) => rb.bundle), installedIds);
       if (missingRequiredBundles.length > 0) {
-        await rollbackActivation(deps, hubId, profileId, onLog);
+        await rollbackActivation(deps, hubId, profileId, installedState, onLog);
         const error = `Required bundles were not installed: ${missingRequiredBundles.join(', ')}. `
           + `Profile "${profileId}" was not activated. Check each bundle's install error in the logs `
           + '(source configured, reachable, and authenticated), then activate the profile again.';
@@ -366,13 +372,13 @@ export async function activateProfile(
           missingRequiredBundles
         };
       }
-      if (syncResult) {
-        // The sync reported what it actually installed: record only that.
-        await deps.activationStore.save(hubId, profileId, {
-          ...activationState,
-          syncedBundles: syncResult.synced.map((s) => s.bundleId),
-          syncedBundleVersions: Object.fromEntries(syncResult.synced.map((s) => [s.bundleId, s.version]))
-        });
+      if (installedState) {
+        try {
+          await deps.activationStore.save(hubId, profileId, installedState);
+        } catch (error) {
+          await rollbackActivation(deps, hubId, profileId, undefined, onLog);
+          throw error;
+        }
       }
     } else if (options.installBundles && !deps.profileSync) {
       log(onLog, 'warn', 'Bundle installation requested but registry sync not available');
@@ -403,14 +409,24 @@ export async function activateProfile(
  * @param deps Store/registry-sync dependencies.
  * @param hubId Hub identifier.
  * @param profileId Profile identifier.
+ * @param installedState Activation state listing only the bundles this attempt installed, when the sync reported them.
+ * Saved first, so a sync that removes the bundles listed in the state leaves bundles it did not install alone.
  * @param onLog Optional sink for diagnostic log events.
  */
 async function rollbackActivation(
   deps: ProfileLifecycleDeps,
   hubId: string,
   profileId: string,
+  installedState: ProfileActivationState | undefined,
   onLog: OnLogEvent | undefined
 ): Promise<void> {
+  if (installedState) {
+    try {
+      await deps.activationStore.save(hubId, profileId, installedState);
+    } catch (error) {
+      log(onLog, 'error', `Failed to record the installed bundles of profile ${profileId} before rolling back`, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
   try {
     await deps.profileSync?.deactivateProfile(profileId);
   } catch (error) {
