@@ -13,6 +13,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Profiles and Hubs](user-guide/profiles-and-hubs.md)** — Profile and Hub management
 - **[Configuration](user-guide/configuration.md)** — Extension settings and telemetry
 - **[Security Scanning](user-guide/security-scanning.md)** — Markdown findings, suppressions, and CI gates
+- **[Gemma 4 in GitHub Actions](user-guide/gemma4-action.md)** — Run Gemma 4 on the runner from your own workflows
 - **[Troubleshooting](user-guide/troubleshooting.md)** — Common issues
 
 ---

@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
         { type: "doc", id: "user-guide/profiles-and-hubs", label: "Profiles and Hubs" },
         { type: "doc", id: "user-guide/configuration", label: "Configuration" },
         { type: "doc", id: "user-guide/security-scanning", label: "Security Scanning" },
+        { type: "doc", id: "user-guide/gemma4-action", label: "Gemma 4 in GitHub Actions" },
         { type: "doc", id: "user-guide/troubleshooting", label: "Troubleshooting" },
       ],
     },

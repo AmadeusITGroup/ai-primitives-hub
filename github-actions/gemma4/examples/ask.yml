@@ -1,0 +1,36 @@
+# Copy to .github/workflows/ask-gemma.yml in your repository.
+# Run it from the Actions tab: ask gemma4 a question; the answer lands in the job summary.
+name: Ask Gemma 4
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: What to ask
+        required: true
+      model:
+        description: Model tag
+        default: 'gemma4:e2b'
+        type: choice
+        options:
+          - 'gemma4:e2b'
+          - 'gemma4:e4b'
+      think:
+        description: 'Let the model think first (slower, better on hard questions)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Ask
+        uses: AmadeusITGroup/ai-primitives-hub/github-actions/gemma4@<commit-sha> # full 40-character SHA
+        with:
+          model: ${{ inputs.model }}
+          prompt: ${{ inputs.prompt }}
+          think: ${{ inputs.think }}

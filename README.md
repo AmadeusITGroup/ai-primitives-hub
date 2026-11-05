@@ -160,7 +160,7 @@ flowchart LR
 ```
 
 - **Composition root:** the CLI and the extension wire `infra` adapters into `app` at startup and hold no business rules. The extension is moving its remaining services onto `app` ([ADR-0001](./docs/contributor-guide/architecture/adr/0001-ports-and-adapters-for-cli-and-extension.md)).
-- **Other folders:** `lib/` (legacy collection scripts), `github-actions/validate-collections/` (CI validation action), `docs/` and `website/` (documentation and Docusaurus site).
+- **Other folders:** `lib/` (legacy collection scripts), `github-actions/validate-collections/` (CI validation action), `github-actions/gemma4/` (runs Gemma 4 on the runner with Ollama), `docs/` and `website/` (documentation and Docusaurus site).
 
 Learn more: [Clean architecture](./docs/contributor-guide/architecture/library-centric-architecture/clean-architecture.md) · [C4 diagrams](./docs/contributor-guide/architecture/library-centric-architecture/system-context.md) · [Codemap](./docs/contributor-guide/architecture/library-centric-architecture/codemap.md) · [ADRs](./docs/contributor-guide/architecture/adr/adr-index.md) · [Contributor architecture guide](./docs/contributor-guide/architecture.md)
 
@@ -172,6 +172,7 @@ Learn more: [Clean architecture](./docs/contributor-guide/architecture/library-c
 - [Architecture](./docs/contributor-guide/architecture.md)
 - [Reference](./docs/reference/commands.md)
 - [Security Scanning](./docs/user-guide/security-scanning.md)
+- [Gemma 4 in GitHub Actions](./docs/user-guide/gemma4-action.md)
 
 See the full index: [`docs/README.md`](./docs/README.md).
 
