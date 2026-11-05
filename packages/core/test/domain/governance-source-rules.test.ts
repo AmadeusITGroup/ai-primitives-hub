@@ -46,4 +46,25 @@ describe('source governance rules', () => {
     expect(report).toMatchObject({ verdict: 'pass' });
     expect(report.suppressions[0].reason).toBe('Migration');
   });
+
+  it('uses the registered source rather than names or runtime bundle identity for ownership', () => {
+    const inventory = { collections: [], registry: { owners: new Map([['tools', 'one']]), sources: new Map([['one', 'owner/one'], ['two', 'owner/two']]) }, unverifiedSources: [] };
+    expect(hubCollectionFindings(inventory, [{ id: 'tools', name: 'Updated name', sourceId: 'one' }])).toEqual([]);
+    expect(hubCollectionFindings(inventory, [{ id: 'tools', sourceId: 'two' }])).toEqual([
+      expect.objectContaining({ ruleId: 'COL004', verified: true, problem: 'Collection ID belongs to another source' })
+    ]);
+    expect(hubCollectionFindings(inventory, [{ id: 'new-tools', sourceId: 'one' }])).toEqual([
+      expect.objectContaining({ ruleId: 'COL004', verified: true, problem: 'Collection ID is not registered' })
+    ]);
+    expect(hubCollectionFindings(inventory, [{ id: 'tools', sourceId: '' }])).toEqual([
+      expect.objectContaining({ ruleId: 'COL004', verified: false, problem: 'Collection source identity is unverified' })
+    ]);
+  });
+
+  it('does not discard incomplete index evidence when no candidates are selected', () => {
+    const findings = hubCollectionFindings({ collections: [], registry: { owners: new Map(), sources: new Map() },
+      unverifiedSources: [{ sourceId: 'collection-index.yml', message: 'Unavailable' }] });
+    expect(findings).toEqual([expect.objectContaining({ ruleId: 'COL004', verified: false })]);
+    expect(evaluateGovernance('collection', findings).verdict).toBe('fail');
+  });
 });

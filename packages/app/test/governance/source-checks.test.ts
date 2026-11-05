@@ -4,6 +4,7 @@ import {
 import {
   mkdir,
   mkdtemp,
+  realpath,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -22,6 +23,7 @@ import {
   vi,
 } from 'vitest';
 import {
+  loadScopedGovernanceConfig,
   withDisplayPaths,
 } from '../../src/governance/load-config';
 import {
@@ -30,9 +32,15 @@ import {
 import {
   runGovernance,
 } from '../../src/governance/run-governance';
+import {
+  createHubGovernanceSourceChecks,
+} from '../../src/governance/source-checks';
 
 describe('governance source checks through the public app entry point', () => {
   let root: string;
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+    cwd: root, encoding: 'utf8', env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')))
+  }).trim();
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'governance-sources-'));
     await mkdir(path.join(root, 'collections'));
@@ -46,6 +54,30 @@ describe('governance source checks through the public app entry point', () => {
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   });
+  it('fails closed when the default merge-base policy cannot be read', async () => {
+    const execFile = vi.fn().mockRejectedValue(new Error('Git timed out'));
+    const config = await loadScopedGovernanceConfig(new NodeFileSystem(), {
+      repoRoot: root, processRunner: { execFile }
+    }, 'a'.repeat(40));
+    expect(config.findings).toContainEqual(expect.objectContaining({ ruleId: 'CFG001', severity: 'error' }));
+  });
+
+  it('isolates temporary Git repositories from inherited Git locations and signing settings', async () => {
+    const originalEnv = process.env;
+    try {
+      process.env = { ...originalEnv, GIT_DIR: path.join(root, 'wrong.git'), GIT_WORK_TREE: path.join(root, 'wrong'),
+        GIT_INDEX_FILE: path.join(root, 'wrong-index'), GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'commit.gpgsign', GIT_CONFIG_VALUE_0: 'true' };
+      git('init', '--quiet');
+      git('config', 'user.name', 'Isolation Test');
+      git('config', 'user.email', 'isolation@example.invalid');
+      git('config', 'commit.gpgsign', 'true');
+      git('add', '-A');
+      git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Isolated');
+      expect(await realpath(git('rev-parse', '--show-toplevel'))).toBe(await realpath(root));
+    } finally {
+      process.env = originalEnv;
+    }
+  });
   it('normalizes Windows relative finding paths without changing pathless findings', () => {
     expect(withDisplayPaths([
       { ruleId: 'COL005', severity: 'error', file: 'collections\\bad.collection.yml', message: 'Invalid collection' },
@@ -56,7 +88,6 @@ describe('governance source checks through the public app entry point', () => {
     ]);
   });
   it('retains touched collection findings and normalized release and scope paths in a real Git run', async () => {
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
     git('init', '--quiet');
     git('config', 'user.name', 'Path Test');
     git('config', 'user.email', 'paths@example.invalid');
@@ -100,7 +131,6 @@ describe('governance source checks through the public app entry point', () => {
     expect(duplicate.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL001', file: 'collections/z-duplicate.collection.yml' }));
   });
   it('retains COL005 for a deleted skill entry while tracking remaining skill files in PR scope', async () => {
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
     const skillPath = 'skills/example/SKILL.md';
     const scriptPath = 'skills/example/scripts/run.js';
     await mkdir(path.join(root, 'skills/example/scripts'), { recursive: true });
@@ -167,6 +197,56 @@ describe('governance source checks through the public app entry point', () => {
     expect(report).toMatchObject({ mode: 'sources', verdict: 'fail' });
     expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004' }));
     expect(read).toHaveBeenCalledOnce();
+  });
+  it('uses the central index through the existing SDK factory without remote scans', async () => {
+    await writeFile(path.join(root, 'hub-config.yml'), 'sources:\n  - id: tools\n    type: github\n    url: https://github.com/owner/tools\n    enabled: true\nprofiles: []\n');
+    await mkdir(path.join(root, '.config/sources'), { recursive: true });
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
+    const fs = new NodeFileSystem();
+    const read = vi.spyOn(fs, 'readFile');
+    const fetch = vi.fn().mockRejectedValue(new Error('Unexpected HTTP request'));
+    const exec = vi.fn().mockRejectedValue(new Error('Unexpected subprocess'));
+    const checks = createHubGovernanceSourceChecks(fs, path.join(root, 'hub-config.yml'), {
+      fs, clock: { now: () => 0, nowIso: () => '1970-01-01T00:00:00.000Z' }, httpClient: { fetch }, processRunner: { exec }, fallbackTokenProviders: []
+    });
+    const inventory = await checks.collectionIndex.read();
+    expect(inventory.registry?.owners.get('test')).toBe('tools');
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it('checks renamed IDs against a separately pinned registry and skips deleted collections in PR scope', async () => {
+    const trusted = await mkdtemp(path.join(os.tmpdir(), 'trusted-collection-registry-'));
+    try {
+      await writeFile(path.join(trusted, 'hub-config.yml'), 'sources:\n  - id: tools\n    type: github\n    url: https://github.com/owner/tools\n    enabled: true\nprofiles: []\n');
+      await mkdir(path.join(trusted, '.config/sources'), { recursive: true });
+      await writeFile(path.join(trusted, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
+      git('init', '--quiet');
+      git('config', 'user.name', 'Index Test');
+      git('config', 'user.email', 'index@example.invalid');
+      git('add', '-A');
+      git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base');
+      const base = git('rev-parse', 'HEAD');
+      await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: renamed\nname: Test\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+      git('add', '-A');
+      git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Rename');
+      const head = git('rev-parse', 'HEAD');
+      const request = {
+        repoRoot: root, subject: 'collection' as const, checkSources: true, repository: 'owner/tools',
+        config: path.join(trusted, 'hub-config.yml'), processRunner: new NodeArgvProcessRunner()
+      };
+      const renamed = await runGovernance(new NodeFileSystem(), { ...request, baseRef: base, headRef: head });
+      expect(renamed.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining("'renamed' is not registered") }));
+      await rm(path.join(root, 'collections/test.collection.yml'));
+      git('add', '-A');
+      git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Delete');
+      const deleted = await runGovernance(new NodeFileSystem(), { ...request, baseRef: head, headRef: git('rev-parse', 'HEAD') });
+      expect(deleted.verdict).toBe('pass');
+      expect(deleted.findings).toEqual([]);
+    } finally {
+      await rm(trusted, { recursive: true, force: true });
+    }
   });
   it('does not perform collection inventory or publication checks in hub validation', async () => {
     await writeFile(path.join(root, 'hub-config.yml'), [

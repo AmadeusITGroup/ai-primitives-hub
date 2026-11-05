@@ -6,18 +6,16 @@ import type {
   ReleaseLookup,
 } from '@ai-primitives-hub/core';
 import {
-  canonicalHubCollectionId,
-} from '@ai-primitives-hub/core';
-import {
   downloadGitHubRepository,
+  FileCollectionIndex,
   GitHubReleaseLookup,
-  HubSourceCollectionIndex,
+  hubScopeFileSystem,
+  type HubSourceCollectionIndex,
   type HubSourceCollectionIndexOptions,
   parseGitHubRepositoryTarget,
   parseHubConfigYaml,
 } from '@ai-primitives-hub/infra';
 import {
-  createSourceAdapter,
   createSourceGitHubApi,
   type SourceAdapterFactoryDeps,
 } from '../registry/create-source-adapter';
@@ -57,17 +55,17 @@ export function createCollectionReleaseLookup(repository: string, deps: SourceAd
 }
 
 /**
- * Compose strict source inventories and release evidence for one Hub config.
+ * Compose authoritative registrations and release evidence for one Hub config.
  * @param fs
  * @param configPath
  * @param deps
- * @param onProgress
- * @param indexOptions Which sources to read in full, concurrency and the overall time limit.
+ * @param _onProgress Legacy inventory progress callback; local registration reads do not emit source progress.
+ * @param _indexOptions Legacy remote inventory options; central registry reads do not scan sources.
  */
 export function createHubGovernanceSourceChecks(
   fs: FileSystem, configPath: string, deps: SourceAdapterFactoryDeps,
-  onProgress?: ConstructorParameters<typeof HubSourceCollectionIndex>[3],
-  indexOptions?: HubSourceCollectionIndexOptions
+  _onProgress?: ConstructorParameters<typeof HubSourceCollectionIndex>[3],
+  _indexOptions?: HubSourceCollectionIndexOptions
 ): { collectionIndex: HubCollectionIndex; releaseLookup: ReleaseLookup } {
   let sources: RegistrySource[] = [];
   const releases = new GitHubReleaseLookup((repository) => {
@@ -90,9 +88,7 @@ export function createHubGovernanceSourceChecks(
     releaseLookup: releases,
     collectionIndex: {
       read: async () => {
-        const config = parseHubConfigYaml(await fs.readFile(configPath)) as {
-          sources: Record<string, unknown>[]; profiles?: { bundles?: { id: string; source: string }[] }[];
-        };
+        const config = parseHubConfigYaml(await fs.readFile(configPath)) as { sources: Record<string, unknown>[] };
         sources = config.sources.map((entry) => {
           const source = toRegistrySource(entry);
           if (!source) {
@@ -100,23 +96,8 @@ export function createHubGovernanceSourceChecks(
           }
           return source;
         });
-        const inventory = await new HubSourceCollectionIndex(sources, (source) => createSourceAdapter(source, deps), releases, onProgress, indexOptions).read();
-        // Only github sources publish releases; awesome-copilot serves collections straight from the repository.
-        const releaseSourceIds = new Set(sources.filter((source) => source.type === 'github').map((source) => source.id));
-        const candidates = new Map(inventory.collections.filter((collection) => releaseSourceIds.has(collection.sourceId))
-          .map((collection) => [`${collection.sourceId}\u0000${collection.id}`, collection]));
-        for (const profile of config.profiles ?? []) {
-          for (const reference of profile.bundles ?? []) {
-            const source = sources.find((candidate) => candidate.id === reference.source && candidate.enabled);
-            if (source?.type !== 'github') {
-              continue;
-            }
-            const target = parseGitHubRepositoryTarget(source.url);
-            const id = canonicalHubCollectionId(reference.id, `${target.owner}/${target.repository}`);
-            candidates.set(`${source.id}\u0000${id}`, { id, sourceId: source.id, repository: source.url, file: configPath });
-          }
-        }
-        return { ...inventory, releaseCandidates: [...candidates.values()] };
+        // Reuse the exact parsed config for auth routing and ownership; read the sibling index once.
+        return new FileCollectionIndex(hubScopeFileSystem(fs, configPath, config), configPath).read();
       }
     }
   };

@@ -66,6 +66,6 @@ describe('provider-owned governance Markdown report', () => {
 
     const collection = renderGovernanceMarkdown(evaluateGovernance('collection', []));
     expect(collection).toContain('| COL002 | Collection has a published release | ⏭️ Not run (offline; use --check-releases) |');
-    expect(collection).toContain('| COL004 | Collection ID is unique across enabled Hub sources | ⏭️ Not run (offline; use --check-sources) |');
+    expect(collection).toContain('| COL004 | Collection ID is registered to its source in the central collection index | ✅ Pass |');
   });
 });

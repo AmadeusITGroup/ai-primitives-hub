@@ -1,4 +1,5 @@
 import type {
+  GovernanceCollection,
   HubCollectionInventory,
 } from '../../ports';
 import {
@@ -26,16 +27,14 @@ export function hubScopeInventoryDocument(head: HubScopeDocument, scope: HubScop
 }
 
 /**
- * Keep competing owners as context only for IDs selected for publication.
+ * Canonical identities for selected profile references, shared by live and central inventories.
  * @param head
- * @param scope
- * @param inventory
+ * @param references
  */
-export function scopedHubInventory(head: HubScopeDocument, scope: HubScope, inventory: HubCollectionInventory): HubCollectionInventory {
-  const changed = new Set([...scope.sources.added, ...scope.sources.modified,
-    ...scope.reasons.filter((r) => r.entity === 'source' && r.reason === 'explicit selection').map((r) => r.id)]);
-  const references = scope.references.map((ref) => {
-    const source = head.sources.find((s) => s.id === ref.source);
+export function hubCollectionReferences(head: HubScopeDocument, references: HubScope['references']): GovernanceCollection[] {
+  const sources = new Map(head.sources.map((source) => [source.id, source]));
+  return references.map((ref) => {
+    const source = sources.get(ref.source);
     let id = ref.id;
     if (source?.type === 'github') {
       const repository = typeof source.url === 'string' ? source.url : `https://github.com/${typeof source.repository === 'string' ? source.repository : ''}`;
@@ -44,6 +43,18 @@ export function scopedHubInventory(head: HubScopeDocument, scope: HubScope, inve
     }
     return { sourceId: ref.source, id };
   });
+}
+
+/**
+ * Keep competing owners as context only for IDs selected for publication.
+ * @param head
+ * @param scope
+ * @param inventory
+ */
+export function scopedHubInventory(head: HubScopeDocument, scope: HubScope, inventory: HubCollectionInventory): HubCollectionInventory {
+  const changed = new Set([...scope.sources.added, ...scope.sources.modified,
+    ...scope.reasons.filter((r) => r.entity === 'source' && r.reason === 'explicit selection').map((r) => r.id)]);
+  const references = hubCollectionReferences(head, scope.references);
   const candidates = (inventory.releaseCandidates ?? inventory.collections).filter((c) =>
     head.sources.some((source) => source.id === c.sourceId && source.enabled === true)
     && (changed.has(c.sourceId) || references.some((r) => r.sourceId === c.sourceId && r.id === c.id)));

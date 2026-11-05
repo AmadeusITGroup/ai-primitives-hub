@@ -59,10 +59,54 @@ generic incomplete-data notices and source-contact notes are omitted.
 `--check-releases --repository owner/repo` enables COL002 and checks published
 non-draft, non-prerelease releases with a standalone deployment manifest and ZIP or
 TAR.GZ asset. `--check-sources [--config hub-config.yml]` enables COL004, comparing
-canonical collection IDs across enabled GitHub and Awesome Copilot sources.
-Versions within one source do not collide. Unreadable evidence is an unverified
-error, never an empty inventory. Unrequested network rules are shown as **Not run**.
+candidate collection IDs with the authoritative `.config/sources/collection-index.yml`,
+relative to the directory containing the selected hub config. COL004 does not scan
+other sources or contact their APIs.
+Supply `--repository owner/repo` to identify the candidate's source; it must match
+exactly one enabled source URL in that config. Same-source updates pass; another
+source's registered ID or an unregistered ID fails. An unresolved source identity,
+missing index, invalid schema, duplicate YAML keys, or unknown source reference
+is an unverified error, never an empty registry or a fallback to remote scanning.
+Unrequested checks are shown as **Not run**.
 Hub validation does not run collection rules.
+
+#### Central collection registry
+
+Maintain the hub config and its index in the same config registry repository.
+Place the index at `.config/sources/collection-index.yml` relative to the directory
+containing the selected hub config:
+
+```yaml
+# .config/sources/collection-index.yml
+schemaVersion: 1
+collections:
+  python-tools:
+    sourceId: developer-tools
+  snow-explorer:
+    sourceId: servicenow-tools
+```
+
+`schemaVersion` is the number `1`, not a string. `collections` is a mapping
+keyed by canonical collection ID, not a list or runtime bundle ID. Each value
+contains only `sourceId`, referencing a source declared in the selected hub config.
+Use `collections: {}` for an empty registry. Keep keys alphabetically ordered for
+reviewable diffs; lookup speed does not depend on file ordering.
+
+The index is parsed once per run into an in-memory map: loading is O(n), with
+average O(1) ownership lookups for each candidate. One file supports thousands
+of registrations without fetching thousands of source catalogs. Disabled sources
+retain their ID reservations; deleting a collection does not automatically release
+its ID. Deregistration and ownership transfers require explicit registry review.
+
+For source-repository PRs, CI must check out the **trusted config registry at a
+pinned commit**, outside the PR checkout, and pass its hub config with `--config`.
+Do not let the source PR supply or rewrite its own authoritative registry.
+For config-registry PRs, an in-repository config and its index at
+`.config/sources/collection-index.yml` relative to the config's directory are read
+from the exact `--head-ref`, ignoring uncommitted changes. Protect those registry
+changes with review and validate against the latest base before merging (or use
+a merge queue); parallel registrations can otherwise race. Periodic reconciliation
+with source repositories can detect drift, but is separate from this fast gate.
 
 ### PR validation
 
@@ -70,7 +114,11 @@ Add `--base-ref <commit> --head-ref <commit>` to validate collections whose mani
 README or referenced item changed. Full Git history and the PR head checkout are
 required. Both default and explicit policies are read from the merge base;
 missing explicit policies or paths outside the repository fail with CFG001.
-Uniqueness still uses every collection as context. Enabled GitHub sources
+Git failures while reading the base policy also fail with CFG001; only an absent
+default policy uses the default rules. Absolute in-repository and `./` hub config
+paths are normalized before matching PR changes.
+Repository-local uniqueness (COL001) still uses every collection as context.
+COL004 checks the selected candidates against the full central registry. Enabled GitHub sources
 added or modified in the hub config are downloaded from their configured branch;
 their collections are validated, with source-qualified paths in the report. Source
 download failures block validation. `--check-releases` checks their publication.
@@ -79,7 +127,9 @@ Collection finding paths and PR scope paths use forward slashes on every platfor
 including Windows, so changed-file filtering and reports use the same paths.
 Deleted referenced files also select their collections for validation. Skills track
 both the declared entry file and files within their directory, so deleting the
-entry file still reports COL005 even when supporting files remain.
+entry file still reports COL005 even when supporting files remain. Changes are
+matched against the declared skill directory boundary, so deleted supporting
+files also select their collection even though they are no longer on disk.
 
 ### Primitive validation
 

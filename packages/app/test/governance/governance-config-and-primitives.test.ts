@@ -105,7 +105,7 @@ describe('report', () => {
     }
     expect(markdown).toMatch(/\| COL002 \| [^|]+ \| ⏭️ Not run/);
     expect(markdown).toContain('## ✅ Collection validation passed');
-    expect(markdown).toContain('<details><summary>All checks: 4 passed, 0 failed, 2 not run</summary>');
+    expect(markdown).toContain('<details><summary>All checks: 5 passed, 0 failed, 1 not run</summary>');
   });
 
   it('lists each problem once with what it affects, and every check in the details', () => {

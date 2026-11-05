@@ -25,8 +25,8 @@ export const COLLECTION_RULES: readonly GovernanceRule[] = [
     defaultSeverity: 'error', disableable: false, configurable: true, needsNetwork: true },
   { id: 'COL003', subjects: ['collection'], description: 'Collection author is non-empty',
     defaultSeverity: 'error', disableable: true, configurable: true, needsNetwork: false },
-  { id: 'COL004', subjects: ['collection'], description: 'Collection ID is unique across enabled Hub sources',
-    defaultSeverity: 'error', disableable: true, configurable: true, needsNetwork: true },
+  { id: 'COL004', subjects: ['collection'], description: 'Collection ID is registered to its source in the central collection index',
+    defaultSeverity: 'error', disableable: true, configurable: true, needsNetwork: false },
   { id: 'COL005', subjects: ['collection'], description: 'Collection structure and referenced files are valid',
     defaultSeverity: 'error', disableable: false, configurable: true, needsNetwork: false },
   { id: 'COL006', subjects: ['collection'], description: 'Collection validation advisories',
@@ -116,8 +116,37 @@ export function releaseFindings(collection: GovernanceCollection, result: Releas
 /**
  * Detect collisions across source identities (COL004) and report incomplete inventories.
  * @param inventory Canonical hub-wide collection inventory.
+ * @param candidates
  */
-export function hubCollectionFindings(inventory: HubCollectionInventory): GovernanceFinding[] {
+export function hubCollectionFindings(inventory: HubCollectionInventory, candidates: readonly GovernanceCollection[] = []): GovernanceFinding[] {
+  const unverified = inventory.unverifiedSources.map(({ sourceId, message, hint }): GovernanceFinding => ({
+    ruleId: 'COL004', severity: 'error', verified: false, file: sourceId, subject: { kind: 'source', id: sourceId }, problem: message,
+    message: `Could not read the collection IDs of source '${sourceId}', so hub-wide uniqueness cannot be confirmed. Why: ${message}`,
+    hint: hint ?? 'Fix access to this source and retry.'
+  }));
+  const registry = inventory.registry;
+  if (registry) {
+    return [...unverified, ...candidates.flatMap((collection): GovernanceFinding[] => {
+      const owner = registry.owners.get(collection.id);
+      const identified = registry.sources.has(collection.sourceId);
+      if (identified && owner === collection.sourceId) {
+        return [];
+      }
+      return [{ ruleId: 'COL004', severity: 'error', verified: identified, file: collection.file,
+        subject: { kind: 'collection', id: collection.id, source: collection.sourceId },
+        problem: identified ? (owner === undefined ? 'Collection ID is not registered' : 'Collection ID belongs to another source') : 'Collection source identity is unverified',
+        message: identified
+          ? (owner === undefined
+            ? `Collection ID '${collection.id}' is not registered in collection-index.yml.`
+            : `Collection ID '${collection.id}' is registered to source '${owner}', not '${collection.sourceId}'.`)
+          : `Could not establish the source identity for collection '${collection.id}'.`,
+        hint: identified
+          ? (owner === undefined
+            ? 'Register this collection ID and sourceId in the central collection-index.yml before publishing.'
+            : 'Choose a different collection ID; ownership transfers require an explicit registry review.')
+          : 'Supply --repository <owner/repo> matching exactly one enabled source in the trusted hub config.' }];
+    })];
+  }
   const owners = new Map<string, Set<string>>();
   for (const collection of inventory.collections) {
     const sources = owners.get(collection.id) ?? new Set<string>();
@@ -134,10 +163,6 @@ export function hubCollectionFindings(inventory: HubCollectionInventory): Govern
         hint: 'Rename the collection in one of the sources so every collection ID in the hub is unique.' });
     }
   }
-  findings.push(...inventory.unverifiedSources.map(({ sourceId, message, hint }): GovernanceFinding => ({
-    ruleId: 'COL004', severity: 'error', verified: false, file: sourceId, subject: { kind: 'source', id: sourceId }, problem: message,
-    message: `Could not read the collection IDs of source '${sourceId}', so hub-wide uniqueness cannot be confirmed. Why: ${message}`,
-    hint: hint ?? 'Fix access to this source and retry.'
-  })));
+  findings.push(...unverified);
   return findings;
 }

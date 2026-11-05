@@ -3,6 +3,10 @@
  * its README, or any item it references.
  * @module app/collection/affected-collections
  */
+import * as path from 'node:path';
+import {
+  normalizeRepoRelativePath,
+} from '@ai-primitives-hub/core';
 import {
   listCollectionFiles,
   readCollection,
@@ -34,9 +38,14 @@ export function affectedCollections(repoRoot: string, changedPaths: readonly str
     const collection = readCollection(repoRoot, file);
     const readmePath = resolveCollectionReadmePath(collection);
     const itemPaths = new Set(resolveCollectionItemPaths(repoRoot, collection).map((p) => normalize(p)));
+    // Git includes deleted files that the current on-disk skill expansion cannot see.
+    const skillDirectories = (Array.isArray(collection.items) ? collection.items : [])
+      .filter((item) => item?.kind === 'skill' && item.path)
+      .map((item) => path.posix.dirname(normalizeRepoRelativePath(item.path)))
+      .map((dir) => dir === '.' ? '' : `${dir}/`);
     if (changedSet.has(normalize(file))
       || (readmePath !== null && changedSet.has(normalize(readmePath)))
-      || changed.some((p) => itemPaths.has(p))) {
+      || changed.some((p) => itemPaths.has(p) || skillDirectories.some((dir) => p.startsWith(dir)))) {
       affected.push({ id: collection.id, file });
     }
   }

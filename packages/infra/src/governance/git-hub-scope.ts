@@ -115,13 +115,11 @@ export async function readGitBlob(runner: ArgvProcessRunner, repoRoot: string, c
     throw new Error('readGitBlob requires an exact commit and a safe repository-relative path.');
   }
   const git = async (...args: string[]) => (await runner.execFile('git', ['--no-replace-objects', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: repoRoot, timeoutMs: 30_000 })).stdout;
-  let type: string;
-  try {
-    type = (await git('cat-file', '-t', `${commit}:${file}`)).trim();
-  } catch {
+  const entry = await git('ls-tree', '-z', commit, '--', `:(literal)${file}`);
+  if (!/^\d{6} blob /.test(entry)) {
     return undefined;
   }
-  return type === 'blob' ? git('cat-file', 'blob', `${commit}:${file}`) : undefined;
+  return git('cat-file', 'blob', `${commit}:${file}`);
 }
 
 export interface GitChangedFiles { baseRef: string; headRef: string; mergeBase: string; files: string[] }

@@ -16,7 +16,6 @@
 import * as path from 'node:path';
 import {
   createCollectionReleaseLookup,
-  createHubGovernanceSourceChecks,
   createHubSourceAccess,
   generateMarkdown,
   listCollectionFiles,
@@ -130,13 +129,13 @@ export class CollectionValidateCommand extends Command {
         --policy <path>            Apply governance policy (enables governance)
         --report-path <path>       Write Markdown report (enables governance)
         --check-releases           Verify published releases (enables governance/network)
-        --check-sources            Verify collection IDs across enabled hub sources (COL004)
-        --repository <owner/repo>  Repository for release verification
+        --check-sources            Verify ownership in the central collection-index.yml (COL004; no source scanning)
+        --repository <owner/repo>  Repository for release checks and index source identity
         --collection-file <path>    Collection file path (can be repeated)
         --root <dir>                Repository root to validate (default: current directory)
         --base-ref <commit>         PR mode: exact base commit (with --head-ref; enables governance)
         --head-ref <commit>         PR mode: exact head commit; only collections the PR touched are validated
-        --config <path>             PR mode: hub config whose added or modified github sources are downloaded and validated (default: hub-config.yml)
+        --config <path>             Trusted hub config; index at .config/sources/collection-index.yml relative to its directory (default: hub-config.yml)
         --verbose                   Print each ok file in text mode
     `
   });
@@ -169,14 +168,10 @@ export class CollectionValidateCommand extends Command {
         ? createCollectionReleaseLookup(this.repository, sourceDeps)
         : undefined;
       const prMode = this.baseRef !== undefined || this.headRef !== undefined;
-      const repoRoot = this.root === undefined ? ctx.cwd() : path.resolve(ctx.cwd(), this.root);
-      const collectionIndex = this.checkSources
-        ? createHubGovernanceSourceChecks(ctx.fs, path.resolve(repoRoot, this.config ?? 'hub-config.yml'), sourceDeps).collectionIndex
-        : undefined;
       return executeValidationGovernance(ctx, {
         subject: 'collection', collectionFiles: this.collectionFile, checkReleases: this.checkReleases, repository: this.repository, releaseLookup,
         config: this.config, hubSources: prMode ? createHubSourceAccess(sourceDeps) : undefined,
-        checkSources: this.checkSources, collectionIndex
+        checkSources: this.checkSources
       },
       { ...this, additionalReportPaths: this.markdownPath === undefined ? [] : [this.markdownPath] }, fmt);
     }

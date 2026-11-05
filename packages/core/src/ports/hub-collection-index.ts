@@ -8,6 +8,12 @@ import type {
 
 export interface HubCollectionInventory {
   collections: GovernanceCollection[];
+  /** Authoritative registrations, loaded once; disabled sources retain their reservations. */
+  registry?: {
+    owners: ReadonlyMap<string, string>;
+    /** Enabled source IDs and repository URLs, for resolving the candidate repository. */
+    sources: ReadonlyMap<string, string>;
+  };
   /** Discovered collections plus Hub profile references awaiting publication. */
   releaseCandidates?: GovernanceCollection[];
   /** Sources whose collections could not be read: why, and how to fix it. */
