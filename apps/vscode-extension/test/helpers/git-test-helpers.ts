@@ -9,7 +9,25 @@
 import {
   execFileSync,
 } from 'node:child_process';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+/**
+ * Create `<workspace>/.git` with `HEAD`, `objects`, `refs` and `info`,
+ * without running git. Git reads a `.git` directory only when it holds
+ * `HEAD`, `objects` and `refs`, and the exclusion adapter applies the same
+ * rule, so an empty `.git` is not a repository.
+ * @param workspace - Work tree root.
+ * @returns The `.git/info` directory.
+ */
+export const makeGitDir = (workspace: string): string => {
+  const gitDir = path.join(workspace, '.git');
+  for (const dir of ['objects', 'refs', 'info']) {
+    fs.mkdirSync(path.join(gitDir, dir), { recursive: true });
+  }
+  fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+  return path.join(gitDir, 'info');
+};
 
 /**
  * Copy an environment without any `GIT_*` variable.

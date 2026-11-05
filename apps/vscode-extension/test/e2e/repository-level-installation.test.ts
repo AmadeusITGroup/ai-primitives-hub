@@ -46,6 +46,9 @@ import {
   generateTestId,
 } from '../helpers/e2e-test-helpers';
 import {
+  makeGitDir,
+} from '../helpers/git-test-helpers';
+import {
   cleanupReleaseMocks,
   computeBundleId,
   createMockGitHubSource,
@@ -238,7 +241,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
     testContext = await createE2ETestContext();
     workspaceRoot = path.join(testContext.tempStoragePath, 'test-workspace');
     fs.mkdirSync(workspaceRoot, { recursive: true });
-    fs.mkdirSync(path.join(workspaceRoot, '.git', 'info'), { recursive: true });
+    makeGitDir(workspaceRoot);
 
     clearAdapterAuth();
 

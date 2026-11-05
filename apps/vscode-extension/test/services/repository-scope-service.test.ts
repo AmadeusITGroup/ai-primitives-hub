@@ -42,6 +42,7 @@ import {
 } from '../../src/utils/logger';
 import {
   createRepositoryWithWorktree,
+  makeGitDir,
 } from '../helpers/git-test-helpers';
 import {
   DEMO_PLUGIN_ID,
@@ -157,8 +158,7 @@ suite('RepositoryScopeService', () => {
    * Create .git directory structure
    */
   const createGitDirectory = () => {
-    const gitInfoDir = path.join(workspaceRoot, '.git', 'info');
-    fs.mkdirSync(gitInfoDir, { recursive: true });
+    makeGitDir(workspaceRoot);
   };
 
   const isExecutable = (file: string): boolean => (fs.statSync(file).mode & 0o100) !== 0; // eslint-disable-line no-bitwise -- owner execute bit

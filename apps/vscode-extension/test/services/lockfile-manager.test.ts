@@ -34,6 +34,7 @@ import {
 } from '../../src/utils/logger';
 import {
   createRepositoryWithWorktree,
+  makeGitDir,
 } from '../helpers/git-test-helpers';
 import {
   createMockFileEntry,
@@ -526,8 +527,7 @@ suite('LockfileManager', () => {
         const manager = LockfileManager.getInstance(tempDir);
 
         // Create .git/info directory
-        const gitInfoDir = path.join(tempDir, '.git', 'info');
-        fs.mkdirSync(gitInfoDir, { recursive: true });
+        const gitInfoDir = makeGitDir(tempDir);
 
         // Create local-only bundle
         const options = createTestOptions('local-bundle');
@@ -578,8 +578,7 @@ suite('LockfileManager', () => {
         const manager = LockfileManager.getInstance(tempDir);
 
         // Create .git/info directory
-        const gitInfoDir = path.join(tempDir, '.git', 'info');
-        fs.mkdirSync(gitInfoDir, { recursive: true });
+        const gitInfoDir = makeGitDir(tempDir);
 
         // Create first local-only bundle
         const options1 = createTestOptions('local-bundle-1');
@@ -750,8 +749,7 @@ suite('LockfileManager', () => {
         writeLocalLockfile(localLockfile);
 
         // Create .git/info directory with local lockfile entry
-        const gitInfoDir = path.join(tempDir, '.git', 'info');
-        fs.mkdirSync(gitInfoDir, { recursive: true });
+        const gitInfoDir = makeGitDir(tempDir);
         const excludePath = path.join(gitInfoDir, 'exclude');
         fs.writeFileSync(excludePath, '# Prompt Registry (local)\nprompt-registry.local.lock.json\n');
 
@@ -975,8 +973,7 @@ suite('LockfileManager', () => {
       writeLockfile(lockfile);
 
       // Create .git/info directory
-      const gitInfoDir = path.join(tempDir, '.git', 'info');
-      fs.mkdirSync(gitInfoDir, { recursive: true });
+      const gitInfoDir = makeGitDir(tempDir);
 
       const manager = LockfileManager.getInstance(tempDir);
       await manager.updateCommitMode('bundle-0', 'local-only');
@@ -998,8 +995,7 @@ suite('LockfileManager', () => {
       writeLocalLockfile(lockfile);
 
       // Create .git/info directory with local lockfile entry
-      const gitInfoDir = path.join(tempDir, '.git', 'info');
-      fs.mkdirSync(gitInfoDir, { recursive: true });
+      const gitInfoDir = makeGitDir(tempDir);
       const excludePath = path.join(gitInfoDir, 'exclude');
       fs.writeFileSync(excludePath, '# Prompt Registry (local)\nprompt-registry.local.lock.json\n');
 
