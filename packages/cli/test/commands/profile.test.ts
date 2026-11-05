@@ -374,7 +374,7 @@ profiles:
       .resolves.toContain('Hello Prompt');
   });
 
-  it('switching profiles deactivates the previous one and records only installed bundles', async () => {
+  it('switching to a profile whose required bundle fails to install reports it and leaves no profile active', async () => {
     const first = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
     expect(first.exitCode, first.stdout).toBe(0);
     const firstState = (JSON.parse(first.stdout) as JsonEnvelope<{ state: ProfileActivationState }>).data.state;
@@ -383,14 +383,15 @@ profiles:
 
     const second = await run(['profile', 'activate', 'wrong-bundle', '--target', 'copilot', '-o', 'json']);
     expect(second.exitCode).toBe(1);
-    const secondState = (JSON.parse(second.stdout) as JsonEnvelope<{ state: ProfileActivationState }>).data.state;
-    expect(secondState.syncedBundles).toEqual([]);
+    expect(second.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+    expect(second.stdout).toContain('acme-org-sample-skills-other-bundle');
 
-    // The previous profile's files are gone and the new one is current.
+    // The previous profile was deactivated, and the failed one is not left active.
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
     const current = await run(['profile', 'current', '-o', 'json']);
-    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active)
-      .toEqual({ hubId: 'sample-hub', profileId: 'wrong-bundle' });
+    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+    const failed = await run(['profile', 'show', 'wrong-bundle', '-o', 'json']);
+    expect((JSON.parse(failed.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).toBe(false);
     const shown = await run(['profile', 'show', 'organization-sample-developer', '-o', 'json']);
     expect((JSON.parse(shown.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).toBe(false);
   });

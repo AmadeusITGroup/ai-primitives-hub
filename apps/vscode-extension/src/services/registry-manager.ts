@@ -37,6 +37,7 @@ import type {
 import type {
   BundleProvider,
   PrimitiveIndexKey,
+  ProfileBundleSyncResult,
 } from '@ai-primitives-hub/core';
 import {
   BlobCache,
@@ -1482,11 +1483,16 @@ export class RegistryManager {
   }
 
   /**
-   * Install multiple bundles in parallel
+   * Install multiple bundles in parallel. A failed install is logged and
+   * does not stop the batch.
    * @param bundles
+   * @returns The bundles installed afterwards, with their version: newly
+   * installed ones, plus ones whose install failed but that are already
+   * installed in the requested scope (e.g. same version present).
    */
-  public async installBundles(bundles: { bundleId: string; options: InstallOptions }[]): Promise<void> {
+  public async installBundles(bundles: { bundleId: string; options: InstallOptions }[]): Promise<ProfileBundleSyncResult> {
     const installed: InstalledBundle[] = [];
+    const synced: ProfileBundleSyncResult['synced'] = [];
     const CONCURRENCY_LIMIT = CONCURRENCY_CONSTANTS.REGISTRY_BATCH_LIMIT;
 
     this.logger.info(`Batch installing ${bundles.length} bundles...`);
@@ -1499,6 +1505,10 @@ export class RegistryManager {
           return await this.installBundle(b.bundleId, b.options, true);
         } catch (error) {
           this.logger.error(`Failed to install bundle ${b.bundleId}`, error as Error);
+          const existing = await this.storage.getInstalledBundle(b.bundleId, b.options.scope).catch(() => undefined);
+          if (existing) {
+            synced.push({ bundleId: b.bundleId, version: existing.version });
+          }
           return null;
         }
       }));
@@ -1506,6 +1516,7 @@ export class RegistryManager {
       for (const result of results) {
         if (result) {
           installed.push(result);
+          synced.push({ bundleId: result.bundleId, version: result.version });
         }
       }
     }
@@ -1514,6 +1525,7 @@ export class RegistryManager {
       this._onBundlesInstalled.fire(installed);
       this.logger.info(`Batch installation complete: ${installed.length}/${bundles.length} bundles installed`);
     }
+    return { synced };
   }
 
   /**

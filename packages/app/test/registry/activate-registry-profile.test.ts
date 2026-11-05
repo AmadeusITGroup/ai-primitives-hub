@@ -192,6 +192,25 @@ describe('activateRegistryProfile', () => {
       expect(updateProfileCalled).toBe(false);
     });
 
+    it('throws the hub activation error when hub.activateProfile reports a failure', async () => {
+      const hubProfile = makeHubProfile({ id: 'hub-profile', hubId: 'hub-1' });
+      const ports = makePorts({
+        hub: makeHubSync({
+          listActiveHubProfiles: async () => [hubProfile],
+          activateProfile: async (hubId, profileId) => ({
+            success: false,
+            hubId,
+            profileId,
+            resolvedBundles: [],
+            error: 'Required bundles were not installed: bundle-1.',
+            missingRequiredBundles: ['bundle-1']
+          })
+        })
+      });
+
+      await expect(activateRegistryProfile(ports, 'hub-profile')).rejects.toThrow('Required bundles were not installed: bundle-1.');
+    });
+
     it('deactivates other active hub profiles first, skipping the target', async () => {
       const deactivated: string[] = [];
       const ports = makePorts({

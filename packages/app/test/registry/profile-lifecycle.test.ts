@@ -308,7 +308,7 @@ describe('profile-lifecycle', () => {
           config: makeConfig([makeProfile({
             bundles: [
               { id: 'bundle-1', version: 'latest', source: 'test-source', required: true },
-              { id: 'bundle-2', version: '2.0.0', source: 'test-source', required: true }
+              { id: 'bundle-2', version: '2.0.0', source: 'test-source', required: false }
             ]
           })]),
           reference: REF
@@ -339,13 +339,105 @@ describe('profile-lifecycle', () => {
       expect(state?.syncedBundleVersions).toEqual({ 'bundle-1': '1.0.0' });
     });
 
-    it('succeeds even if profileSync.installBundles throws', async () => {
+    it('succeeds if profileSync.installBundles throws and the profile has no required bundles', async () => {
+      store = makeStore({
+        'test-hub': {
+          config: makeConfig([makeProfile({
+            bundles: [{ id: 'bundle-1', version: '1.0.0', source: 'test-source', required: false }]
+          })]),
+          reference: REF
+        }
+      });
       const profileSync = makeProfileSync();
       (profileSync.installBundles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
       deps = { store, activationStore, profileSync };
 
       const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
       expect(result.success).toBe(true);
+    });
+
+    it('fails and rolls back when a required bundle is not installed', async () => {
+      store = makeStore({
+        'test-hub': {
+          config: makeConfig([makeProfile({
+            bundles: [
+              { id: 'bundle-1', version: '1.0.0', source: 'test-source', required: true },
+              { id: 'bundle-2', version: '1.0.0', source: 'test-source', required: true },
+              { id: 'bundle-3', version: '1.0.0', source: 'test-source', required: false }
+            ]
+          })]),
+          reference: REF
+        }
+      });
+      const profileSync = makeProfileSync();
+      (profileSync.installBundles as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        synced: [{ bundleId: 'bundle-1', version: '1.0.0' }]
+      });
+      deps = { store, activationStore, profileSync };
+
+      const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
+
+      expect(result.success).toBe(false);
+      expect(result.missingRequiredBundles).toEqual(['bundle-2']);
+      expect(result.error).toContain('bundle-2');
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- vitest mock method reference, not a real unbound this call
+      expect(profileSync.deactivateProfile).toHaveBeenCalledWith('profile-1');
+      expect(await activationStore.get('test-hub', 'profile-1')).toBeNull();
+      const { config } = await store.load('test-hub');
+      expect(config.profiles[0].active).toBe(false);
+    });
+
+    it('fails when profileSync.installBundles throws and the profile has a required bundle', async () => {
+      const profileSync = makeProfileSync();
+      (profileSync.installBundles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
+      deps = { store, activationStore, profileSync };
+
+      const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
+
+      expect(result.success).toBe(false);
+      expect(result.missingRequiredBundles).toEqual(['bundle-1']);
+      expect(await activationStore.get('test-hub', 'profile-1')).toBeNull();
+    });
+
+    it('still reports the missing required bundles when the rollback fails', async () => {
+      const profileSync = makeProfileSync();
+      (profileSync.installBundles as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ synced: [] });
+      (profileSync.deactivateProfile as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('uninstall failed'));
+      deps = { store, activationStore, profileSync };
+
+      const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
+
+      expect(result.success).toBe(false);
+      expect(result.missingRequiredBundles).toEqual(['bundle-1']);
+      expect(await activationStore.get('test-hub', 'profile-1')).toBeNull();
+      const { config } = await store.load('test-hub');
+      expect(config.profiles[0].active).toBe(false);
+    });
+
+    it('succeeds when only optional bundles are not installed', async () => {
+      store = makeStore({
+        'test-hub': {
+          config: makeConfig([makeProfile({
+            bundles: [
+              { id: 'bundle-1', version: '1.0.0', source: 'test-source', required: true },
+              { id: 'bundle-2', version: '1.0.0', source: 'test-source', required: false }
+            ]
+          })]),
+          reference: REF
+        }
+      });
+      const profileSync = makeProfileSync();
+      (profileSync.installBundles as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        synced: [{ bundleId: 'bundle-1', version: '1.0.0' }]
+      });
+      deps = { store, activationStore, profileSync };
+
+      const result = await activateProfile(deps, 'test-hub', 'profile-1', { installBundles: true });
+
+      expect(result.success).toBe(true);
+      expect(result.missingRequiredBundles).toBeUndefined();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- vitest mock method reference, not a real unbound this call
+      expect(profileSync.deactivateProfile).not.toHaveBeenCalled();
     });
 
     it('fails when the installed outcome cannot be saved', async () => {

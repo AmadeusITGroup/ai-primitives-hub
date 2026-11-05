@@ -244,7 +244,10 @@ export async function activateRegistryProfile(
     const hubProfile = hubProfiles.find((p) => p.id === validatedProfileId);
     if (hubProfile) {
       log(onLog, 'info', `Profile ${validatedProfileId} is from hub, delegating to HubManager`);
-      await ports.hub.activateProfile(hubProfile.hubId, validatedProfileId, { installBundles: true });
+      const activation = await ports.hub.activateProfile(hubProfile.hubId, validatedProfileId, { installBundles: true });
+      if (activation && !activation.success) {
+        throw new Error(activation.error ?? `Failed to activate hub profile ${validatedProfileId}`);
+      }
       return { hubActivation: { hubProfile } };
     }
   }

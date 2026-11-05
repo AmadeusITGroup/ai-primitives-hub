@@ -6,6 +6,11 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as sinon from 'sinon';
+import * as vscode from 'vscode';
+import {
+  activateHubProfile,
+} from '../../src/commands/hub-profile-activation-commands';
 import {
   HubManager,
 } from '../../src/services/hub-manager';
@@ -273,6 +278,44 @@ suite('Hub Profile Activation Commands - Integration', () => {
       active = await hubManager.getActiveProfile('test-hub');
       assert.ok(active);
       assert.deepStrictEqual(active.syncedBundles, ['bundle-2']);
+    });
+  });
+
+  suite('Activate Command Outcome', () => {
+    let sandbox: sinon.SinonSandbox;
+
+    setup(() => {
+      sandbox = sinon.createSandbox();
+      sandbox.stub(vscode.commands, 'executeCommand').resolves();
+    });
+
+    teardown(() => {
+      sandbox.restore();
+    });
+
+    test('shows the activation error instead of a success message when activation fails', async () => {
+      const showError = sandbox.stub(vscode.window, 'showErrorMessage');
+      const showInfo = sandbox.stub(vscode.window, 'showInformationMessage');
+      const fakeHubManager = {
+        storage: { getActiveHubId: async () => 'test-hub' },
+        getActiveHub: async () => ({ config: createTestHub() }),
+        listProfilesFromHub: async () => createTestHub().profiles,
+        getActiveProfile: async () => null,
+        activateProfile: async () => ({
+          success: false,
+          hubId: 'test-hub',
+          profileId: 'profile-1',
+          resolvedBundles: [],
+          error: 'Required bundles were not installed: bundle-1.',
+          missingRequiredBundles: ['bundle-1']
+        })
+      } as unknown as HubManager;
+
+      await activateHubProfile(fakeHubManager, { data: { hubId: 'test-hub', profileId: 'profile-1' } });
+
+      assert.ok(showError.calledOnce, 'an error notification is shown');
+      assert.ok(String(showError.firstCall.args[0]).includes('Required bundles were not installed: bundle-1.'));
+      assert.ok(!showInfo.getCalls().some((c) => String(c.args[0]).startsWith('Activated profile')));
     });
   });
 });

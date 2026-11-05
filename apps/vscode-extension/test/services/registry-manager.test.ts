@@ -295,6 +295,69 @@ suite('RegistryManager - Event Emission Behavior', () => {
     listener.dispose();
   });
 
+  test('installBundles reports the bundles that are installed afterwards, including ones already installed', async () => {
+    const testSource = {
+      id: 'test-source',
+      name: 'Test Source',
+      type: 'local' as const,
+      url: 'file:///test',
+      enabled: true,
+      priority: 0
+    };
+    const makeBundle = (id: string) => ({
+      id,
+      name: id,
+      version: '1.0.0',
+      description: 'Test',
+      author: 'Test',
+      tags: [],
+      sourceId: 'test-source',
+      downloadUrl: 'http://example.com/bundle.zip',
+      manifestUrl: 'http://example.com/manifest.json',
+      lastUpdated: new Date().toISOString(),
+      downloads: 0,
+      rating: 0,
+      environments: []
+    });
+    const installedRecord = (bundleId: string) => ({
+      bundleId,
+      version: '1.0.0',
+      sourceId: 'test-source',
+      sourceType: 'local',
+      installedAt: new Date().toISOString(),
+      scope: 'user'
+    });
+
+    mockStorage.getSources.resolves([testSource]);
+    mockStorage.recordInstallation.resolves();
+    // `present-bundle` is already installed at the same version, so its install throws "already installed".
+    mockStorage.getInstalledBundle.callsFake(async (id: string) =>
+      (id === 'present-bundle' ? installedRecord(id) as InstalledBundle : undefined));
+    sandbox.stub(InfraAdapterFactory, 'createRegistryAdapter').returns({
+      downloadBundle: sandbox.stub().resolves(Buffer.from('test'))
+    } as any);
+    sandbox.stub((manager as any).installer, 'installFromBuffer').callsFake(async (bundle: any) => installedRecord(bundle.id));
+    sandbox.stub(manager as any, 'getBundleDetails').callsFake(async (id: unknown) => {
+      if (id === 'missing-bundle') {
+        throw new Error('Bundle not found: missing-bundle');
+      }
+      return makeBundle(id as string);
+    });
+
+    const result = await manager.installBundles(['new-bundle', 'present-bundle', 'missing-bundle'].map((bundleId) => ({
+      bundleId,
+      options: { scope: 'user' as const }
+    })));
+
+    assert.deepStrictEqual(
+      [...result.synced].toSorted((a, b) => a.bundleId.localeCompare(b.bundleId)),
+      [
+        { bundleId: 'new-bundle', version: '1.0.0' },
+        { bundleId: 'present-bundle', version: '1.0.0' }
+      ]
+    );
+  });
+
   test('should fire onBundleUninstalled event when bundle is uninstalled', async () => {
     // Requirement 6.2: Fire onBundleUninstalled event
     let eventFired = false;

@@ -150,7 +150,10 @@ development. A Hub sync alone does not update an already installed collection.
 
 Use `required: true` for collections that define the profile's expected base
 environment. Use optional entries for additions users may choose not to
-install.
+install. If a required collection cannot be installed (for example, its source
+is unreachable or not authenticated), activating the profile fails and the
+profile is not left active. An optional collection that fails to install is
+reported and skipped.
 
 For maintenance of an existing Hub, see
 [Adding Profiles and Sources to Existing Hubs](./adding-profile-source-to-hub.md).
