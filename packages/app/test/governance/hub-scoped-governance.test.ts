@@ -37,6 +37,12 @@ describe('scoped Hub governance app', () => {
     await rm(root, { recursive: true, force: true });
   });
   const runner = (base: unknown, head: unknown, baseGovernance?: string) => ({ execFile: vi.fn((_file: string, args: readonly string[]) => {
+    if (args.includes('ls-tree')) {
+      const commit = args[args.indexOf('ls-tree') + 2];
+      const file = args.at(-1)?.replace(':(literal)', '');
+      const present = baseGovernance !== undefined && commit?.startsWith('c') && ['hub-governance.yml', 'policy.yml'].includes(file ?? '');
+      return Promise.resolve({ stdout: present ? `100644 blob ${'d'.repeat(40)}\t${file}\0` : '', stderr: '' });
+    }
     if (args.at(-1)?.endsWith(':hub-governance.yml') || args.at(-1)?.endsWith(':policy.yml')) {
       // Only the merge base ('c…') may carry the governance configuration in these tests.
       if (baseGovernance === undefined || !args.at(-1)?.startsWith('c')) {

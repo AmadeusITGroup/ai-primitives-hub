@@ -4,6 +4,7 @@ import {
 import {
   mkdir,
   mkdtemp,
+  realpath,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -22,6 +23,7 @@ import {
   vi,
 } from 'vitest';
 import {
+  loadScopedGovernanceConfig,
   withDisplayPaths,
 } from '../../src/governance/load-config';
 import {
@@ -36,6 +38,9 @@ import {
 
 describe('governance source checks through the public app entry point', () => {
   let root: string;
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+    cwd: root, encoding: 'utf8', env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')))
+  }).trim();
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'governance-sources-'));
     await mkdir(path.join(root, 'collections'));
@@ -49,6 +54,30 @@ describe('governance source checks through the public app entry point', () => {
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   });
+  it('fails closed when the default merge-base policy cannot be read', async () => {
+    const execFile = vi.fn().mockRejectedValue(new Error('Git timed out'));
+    const config = await loadScopedGovernanceConfig(new NodeFileSystem(), {
+      repoRoot: root, processRunner: { execFile }
+    }, 'a'.repeat(40));
+    expect(config.findings).toContainEqual(expect.objectContaining({ ruleId: 'CFG001', severity: 'error' }));
+  });
+
+  it('isolates temporary Git repositories from inherited Git locations and signing settings', async () => {
+    const originalEnv = process.env;
+    try {
+      process.env = { ...originalEnv, GIT_DIR: path.join(root, 'wrong.git'), GIT_WORK_TREE: path.join(root, 'wrong'),
+        GIT_INDEX_FILE: path.join(root, 'wrong-index'), GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'commit.gpgsign', GIT_CONFIG_VALUE_0: 'true' };
+      git('init', '--quiet');
+      git('config', 'user.name', 'Isolation Test');
+      git('config', 'user.email', 'isolation@example.invalid');
+      git('config', 'commit.gpgsign', 'true');
+      git('add', '-A');
+      git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Isolated');
+      expect(await realpath(git('rev-parse', '--show-toplevel'))).toBe(await realpath(root));
+    } finally {
+      process.env = originalEnv;
+    }
+  });
   it('normalizes Windows relative finding paths without changing pathless findings', () => {
     expect(withDisplayPaths([
       { ruleId: 'COL005', severity: 'error', file: 'collections\\bad.collection.yml', message: 'Invalid collection' },
@@ -59,7 +88,6 @@ describe('governance source checks through the public app entry point', () => {
     ]);
   });
   it('retains touched collection findings and normalized release and scope paths in a real Git run', async () => {
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
     git('init', '--quiet');
     git('config', 'user.name', 'Path Test');
     git('config', 'user.email', 'paths@example.invalid');
@@ -103,7 +131,6 @@ describe('governance source checks through the public app entry point', () => {
     expect(duplicate.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL001', file: 'collections/z-duplicate.collection.yml' }));
   });
   it('retains COL005 for a deleted skill entry while tracking remaining skill files in PR scope', async () => {
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
     const skillPath = 'skills/example/SKILL.md';
     const scriptPath = 'skills/example/scripts/run.js';
     await mkdir(path.join(root, 'skills/example/scripts'), { recursive: true });
@@ -195,7 +222,6 @@ describe('governance source checks through the public app entry point', () => {
       await writeFile(path.join(trusted, 'hub-config.yml'), 'sources:\n  - id: tools\n    type: github\n    url: https://github.com/owner/tools\n    enabled: true\nprofiles: []\n');
       await mkdir(path.join(trusted, '.config/sources'), { recursive: true });
       await writeFile(path.join(trusted, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
-      const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
       git('init', '--quiet');
       git('config', 'user.name', 'Index Test');
       git('config', 'user.email', 'index@example.invalid');

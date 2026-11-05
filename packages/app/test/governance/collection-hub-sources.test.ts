@@ -34,6 +34,9 @@ import {
 import {
   createHubSourceAccess,
 } from '../../src/governance/source-checks';
+import {
+  changedGitHubSources,
+} from '../../src/governance/validate-collection-governance';
 import type {
   SourceAdapterFactoryDeps,
 } from '../../src/registry/create-source-adapter';
@@ -50,9 +53,11 @@ const text = (value: string) => new TextEncoder().encode(value);
 describe('collection validation of hub sources changed by a PR', () => {
   let root: string;
   const fs = new NodeFileSystem();
-  const git = (...args: string[]): string => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
-  const commit = async (config: string): Promise<string> => {
-    await writeFile(path.join(root, 'hub-config.yml'), config);
+  const git = (...args: string[]): string => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+    cwd: root, encoding: 'utf8', env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')))
+  }).trim();
+  const commit = async (config: string, file = 'hub-config.yml'): Promise<string> => {
+    await writeFile(path.join(root, file), config);
     git('add', '-A');
     git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'change');
     return git('rev-parse', 'HEAD');
@@ -90,6 +95,59 @@ describe('collection validation of hub sources changed by a PR', () => {
   });
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
+  });
+
+  it.each(['absolute', 'dot-relative'])('validates changed sources with an %s in-repository config path', async (style) => {
+    const file = 'hub/hub-config.yml';
+    await mkdir(path.join(root, 'hub'), { recursive: true });
+    const base = await commit(hubConfig([source('kept')]), file);
+    const head = await commit(hubConfig([source('kept'), source('added')]), file);
+    const sourceAdapterDeps = deps({
+      '/repos/owner/added/zipball': zipball('added', {
+        'collections/good.collection.yml': 'id: good\nname: Good\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
+        'a.prompt.md': 'A'
+      })
+    });
+    const report = await runGovernance(fs, {
+      subject: 'collection', repoRoot: root, config: style === 'absolute' ? path.join(root, file) : `./${file}`,
+      baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), hubSources: createHubSourceAccess(sourceAdapterDeps)
+    });
+
+    expect(report.verdict).toBe('pass');
+    expect(report.prScope?.sources).toEqual(['added']);
+    expect(sourceAdapterDeps.requests).toEqual(['/repos/owner/added/zipball']);
+  });
+
+  it.each(['absolute', 'dot-relative'])('rechecks index-only edits with an %s in-repository config path', async (style) => {
+    const file = 'hub/hub-config.yml';
+    const index = path.join(root, 'hub/.config/sources/collection-index.yml');
+    await mkdir(path.dirname(index), { recursive: true });
+    await writeFile(index, 'schemaVersion: 1\ncollections:\n  shared: {sourceId: kept}\n');
+    const config = hubConfig([source('kept'), source('second')]).replace('profiles: []',
+      'profiles:\n  - id: tools\n    bundles:\n      - id: owner-kept-shared\n        source: kept\n        version: 1.0.0');
+    const base = await commit(config, file);
+    await writeFile(index, 'schemaVersion: 1\ncollections:\n  shared: {sourceId: second}\n');
+    const head = await commit(config, file);
+    const report = await runGovernance(fs, {
+      subject: 'collection', repoRoot: root, config: style === 'absolute' ? path.join(root, file) : `./${file}`,
+      baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), checkSources: true
+    });
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      ruleId: 'COL004', verified: true, file,
+      message: expect.stringContaining("registered to source 'second'")
+    }));
+  });
+
+  it.each(['absolute', 'relative'])('does not read hub history for an %s external trusted config', async (style) => {
+    const config = style === 'absolute' ? path.resolve(root, '../trusted/hub-config.yml') : '../trusted/hub-config.yml';
+    const processRunner = { execFile: vi.fn().mockRejectedValue(new Error('External history must not be read')) };
+    const ref = 'a'.repeat(40);
+
+    await expect(changedGitHubSources({ repoRoot: root, config, checkSources: true, processRunner }, {
+      files: [config], baseRef: ref, headRef: ref, mergeBase: ref
+    })).resolves.toEqual([]);
+    expect(processRunner.execFile).not.toHaveBeenCalled();
   });
 
   it('downloads each added or modified github source and validates its collections', async () => {

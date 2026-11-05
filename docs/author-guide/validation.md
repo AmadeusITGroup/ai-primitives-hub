@@ -107,6 +107,9 @@ Add `--base-ref <commit> --head-ref <commit>` to validate collections whose mani
 README or referenced item changed. Full Git history and the PR head checkout are
 required. Both default and explicit policies are read from the merge base;
 missing explicit policies or paths outside the repository fail with CFG001.
+Git failures while reading the base policy also fail with CFG001; only an absent
+default policy uses the default rules. Absolute in-repository and `./` hub config
+paths are normalized before matching PR changes.
 Repository-local uniqueness (COL001) still uses every collection as context.
 COL004 checks the selected candidates against the full central registry. Enabled GitHub sources
 added or modified in the hub config are downloaded from their configured branch;
@@ -117,7 +120,9 @@ Collection finding paths and PR scope paths use forward slashes on every platfor
 including Windows, so changed-file filtering and reports use the same paths.
 Deleted referenced files also select their collections for validation. Skills track
 both the declared entry file and files within their directory, so deleting the
-entry file still reports COL005 even when supporting files remain.
+entry file still reports COL005 even when supporting files remain. Changes are
+matched against the declared skill directory boundary, so deleted supporting
+files also select their collection even though they are no longer on disk.
 
 ### Governance configuration (`hub-governance.yml`)
 

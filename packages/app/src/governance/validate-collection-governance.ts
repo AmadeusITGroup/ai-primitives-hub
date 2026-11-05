@@ -156,7 +156,13 @@ async function repositoryFindings(fs: FileSystem, repoRoot: string, options: Rep
  * @param changes
  */
 async function changedHubCollections(request: CollectionGovernanceRequest, changes: GitChangedFiles): Promise<{ sources: HubEntity[]; references: GovernanceCollection[] }> {
-  const config = request.config ?? 'hub-config.yml';
+  const configPath = path.resolve(request.repoRoot, request.config ?? 'hub-config.yml');
+  const relative = path.relative(request.repoRoot, configPath);
+  // External trusted configs are not part of this repository's PR history.
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return { sources: [], references: [] };
+  }
+  const config = relative.replaceAll('\\', '/');
   const indexChanged = request.checkSources === true && changes.files.includes(path.posix.join(path.posix.dirname(config), '.config', 'sources', 'collection-index.yml'));
   if ((!changes.files.includes(config) && !indexChanged) || request.processRunner === undefined) {
     return { sources: [], references: [] };
