@@ -39,6 +39,7 @@ describe('COL002 and COL004 through existing commands', () => {
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'source-check-commands-'));
     await mkdir(path.join(root, 'collections'));
+    await mkdir(path.join(root, '.config/sources'), { recursive: true });
     await writeFile(path.join(root, 'test.prompt.md'), 'Test prompt');
     await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: shared\nname: Shared\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
   });
@@ -129,7 +130,7 @@ profiles: []
 
   it('checks ownership against the central index without contacting other sources', async () => {
     await writeHub();
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared:\n    sourceId: first\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared:\n    sourceId: first\n');
     const http = httpFixture();
     const result = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/second', '-o', 'json'], http);
     expect(result).toMatchObject({ exitCode: 1, data: { subject: 'collection', mode: 'sources', verdict: 'fail' } });
@@ -141,7 +142,7 @@ profiles: []
   it('accepts same-source updates with thousands of registered collections and no HTTP', async () => {
     await writeHub();
     const entries = Array.from({ length: 10_000 }, (_, i) => `  tools-${i}:\n    sourceId: second`).join('\n');
-    await writeFile(path.join(root, 'collection-index.yml'), `schemaVersion: 1\ncollections:\n  shared:\n    sourceId: first\n${entries}\n`);
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), `schemaVersion: 1\ncollections:\n  shared:\n    sourceId: first\n${entries}\n`);
     const http = httpFixture();
     const result = await run(['collection', 'validate', '--check-sources', '--repository', 'https://github.com/OWNER/FIRST.git', '-o', 'json'], http);
     expect(result).toMatchObject({ exitCode: 0, data: { verdict: 'pass' } });
@@ -158,7 +159,7 @@ profiles: []
   ])('fails closed for %s without scanning sources', async (_label, content) => {
     await writeHub();
     if (content !== undefined) {
-      await writeFile(path.join(root, 'collection-index.yml'), content);
+      await writeFile(path.join(root, '.config/sources/collection-index.yml'), content);
     }
     const http = httpFixture();
     const result = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/first', '-o', 'json'], http);
@@ -169,7 +170,7 @@ profiles: []
 
   it('rejects unregistered IDs and requires an unambiguous repository source', async () => {
     await writeHub();
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
     const http = httpFixture();
     const unregistered = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/first', '-o', 'json'], http);
     expect(unregistered.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining('not registered') }));
@@ -183,7 +184,7 @@ profiles: []
     const fs = new NodeFileSystem();
     const hubPath = path.join(root, 'hub-config.yml');
     await writeFile(hubPath, (await fs.readFile(hubPath)).replace('enabled: true', 'enabled: false'));
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: first}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: first}\n');
     const http = httpFixture();
     const result = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/second', '-o', 'json'], http);
     expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: true, message: expect.stringContaining("registered to source 'first'") }));
@@ -195,7 +196,7 @@ profiles: []
     const fs = new NodeFileSystem();
     const hubPath = path.join(root, 'hub-config.yml');
     await writeFile(hubPath, (await fs.readFile(hubPath)).replace('https://github.com/owner/second', 'https://github.com/owner/first'));
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: first}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: first}\n');
     const http = httpFixture();
     const result = await run(['collection', 'validate', '--check-sources', '--repository', 'owner/first', '-o', 'json'], http);
     expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL004', verified: false, message: expect.stringContaining('source identity') }));

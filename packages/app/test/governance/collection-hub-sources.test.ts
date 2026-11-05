@@ -2,6 +2,7 @@ import {
   execFileSync,
 } from 'node:child_process';
 import {
+  mkdir,
   mkdtemp,
   rm,
   writeFile,
@@ -82,6 +83,7 @@ describe('collection validation of hub sources changed by a PR', () => {
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'collection-hub-sources-'));
+    await mkdir(path.join(root, '.config/sources'), { recursive: true });
     git('init', '--quiet');
     git('config', 'user.name', 'PR Test');
     git('config', 'user.email', 'pr@example.invalid');
@@ -92,7 +94,7 @@ describe('collection validation of hub sources changed by a PR', () => {
 
   it('downloads each added or modified github source and validates its collections', async () => {
     const base = await commit(hubConfig([source('kept'), source('changed')]));
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  good: {sourceId: kept}\n  fine: {sourceId: changed}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  good: {sourceId: kept}\n  fine: {sourceId: changed}\n');
     const head = await commit(hubConfig([
       source('kept'),
       source('changed', ['    metadata:', '      description: Updated']),
@@ -103,7 +105,7 @@ describe('collection validation of hub sources changed by a PR', () => {
     ]));
     // Neither uncommitted config nor index changes may alter the committed PR evidence.
     await writeFile(path.join(root, 'hub-config.yml'), hubConfig([source('untrusted')]));
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  good: {sourceId: added}\n  fine: {sourceId: changed}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  good: {sourceId: added}\n  fine: {sourceId: changed}\n');
     const sourceAdapterDeps = deps({
       '/repos/owner/added/zipball': zipball('added', {
         'collections/good.collection.yml': 'id: good\nname: Good\nauthor: Team\nitems:\n  - path: a.prompt.md\n    kind: prompt\n',
@@ -157,7 +159,7 @@ describe('collection validation of hub sources changed by a PR', () => {
   });
 
   it('checks profile-only changes against registered owners without downloading source catalogs', async () => {
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: kept}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: kept}\n');
     const config = hubConfig([source('kept'), source('second')]);
     const base = await commit(config);
     const head = await commit(config.replace('profiles: []', 'profiles:\n  - id: tools\n    bundles:\n      - id: owner-second-shared\n        source: second\n        version: 1.0.0'));
@@ -173,11 +175,11 @@ describe('collection validation of hub sources changed by a PR', () => {
   });
 
   it('rechecks profile owners when only the registry changes', async () => {
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: kept}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: kept}\n');
     const config = hubConfig([source('kept'), source('second')]).replace('profiles: []',
       'profiles:\n  - id: tools\n    bundles:\n      - id: owner-kept-shared\n        source: kept\n        version: 1.0.0');
     const base = await commit(config);
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: second}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  shared: {sourceId: second}\n');
     const head = await commit(config);
     const report = await runGovernance(fs, {
       subject: 'collection', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), checkSources: true
@@ -191,11 +193,11 @@ describe('collection validation of hub sources changed by a PR', () => {
     ['duplicate keys', 'schemaVersion: 1\ncollections:\n  tools: {sourceId: kept}\n  tools: {sourceId: kept}\n']
   ])('does not hide %s committed index evidence or replace it with working-tree data', async (_label, content) => {
     const config = hubConfig([source('kept')]);
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
     const base = await commit(config);
-    await (content === undefined ? rm(path.join(root, 'collection-index.yml')) : writeFile(path.join(root, 'collection-index.yml'), content));
+    await (content === undefined ? rm(path.join(root, '.config/sources/collection-index.yml')) : writeFile(path.join(root, '.config/sources/collection-index.yml'), content));
     const head = await commit(config);
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections: {}\n');
     const report = await runGovernance(fs, {
       subject: 'collection', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(), checkSources: true
     });

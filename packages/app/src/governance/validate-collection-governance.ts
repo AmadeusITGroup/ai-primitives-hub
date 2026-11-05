@@ -69,7 +69,7 @@ export interface CollectionGovernanceRequest extends PrScopeRequest {
   policy?: string;
   collectionFiles?: string[];
   checkReleases?: boolean;
-  /** Verify collection ownership against collection-index.yml beside the hub config (COL004). */
+  /** Verify collection ownership against .config/sources/collection-index.yml relative to the hub config directory (COL004). */
   checkSources?: boolean;
   collectionIndex?: HubCollectionIndex;
   repository?: string;
@@ -157,7 +157,7 @@ async function repositoryFindings(fs: FileSystem, repoRoot: string, options: Rep
  */
 async function changedHubCollections(request: CollectionGovernanceRequest, changes: GitChangedFiles): Promise<{ sources: HubEntity[]; references: GovernanceCollection[] }> {
   const config = request.config ?? 'hub-config.yml';
-  const indexChanged = request.checkSources === true && changes.files.includes(path.posix.join(path.posix.dirname(config), 'collection-index.yml'));
+  const indexChanged = request.checkSources === true && changes.files.includes(path.posix.join(path.posix.dirname(config), '.config', 'sources', 'collection-index.yml'));
   if ((!changes.files.includes(config) && !indexChanged) || request.processRunner === undefined) {
     return { sources: [], references: [] };
   }
@@ -278,7 +278,7 @@ export async function validateCollectionGovernance(fs: FileSystem, request: Coll
       } catch (error) {
         inventory = { collections: [], unverifiedSources: [{ sourceId: 'collection-index.yml',
           message: error instanceof Error ? error.message : 'Central collection index is unavailable.',
-          hint: 'Provide a valid collection-index.yml alongside the trusted hub config. No remote inventory fallback is performed.' }] };
+          hint: 'Provide a valid .config/sources/collection-index.yml relative to the trusted hub config directory. No remote inventory fallback is performed.' }] };
       }
     }
     const candidates: GovernanceCollection[] = [];

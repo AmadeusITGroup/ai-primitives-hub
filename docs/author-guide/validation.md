@@ -52,8 +52,9 @@ fails the command; warnings alone pass. Reports have no scores.
 `--check-releases --repository owner/repo` enables COL002 and checks published
 non-draft, non-prerelease releases with a standalone deployment manifest and ZIP or
 TAR.GZ asset. `--check-sources [--config hub-config.yml]` enables COL004, comparing
-candidate collection IDs with the authoritative `collection-index.yml` alongside
-the selected hub config. COL004 does not scan other sources or contact their APIs.
+candidate collection IDs with the authoritative `.config/sources/collection-index.yml`,
+relative to the directory containing the selected hub config. COL004 does not scan
+other sources or contact their APIs.
 Supply `--repository owner/repo` to identify the candidate's source; it must match
 exactly one enabled source URL in that config. Same-source updates pass; another
 source's registered ID or an unregistered ID fails. An unresolved source identity,
@@ -64,10 +65,12 @@ Hub validation does not run collection rules.
 
 #### Central collection registry
 
-Maintain these files together in the config registry repository:
+Maintain the hub config and its index in the same config registry repository.
+Place the index at `.config/sources/collection-index.yml` relative to the directory
+containing the selected hub config:
 
 ```yaml
-# collection-index.yml
+# .config/sources/collection-index.yml
 schemaVersion: 1
 collections:
   python-tools:
@@ -78,7 +81,7 @@ collections:
 
 `schemaVersion` is the number `1`, not a string. `collections` is a mapping
 keyed by canonical collection ID, not a list or runtime bundle ID. Each value
-contains only `sourceId`, referencing a source declared in the adjacent hub config.
+contains only `sourceId`, referencing a source declared in the selected hub config.
 Use `collections: {}` for an empty registry. Keep keys alphabetically ordered for
 reviewable diffs; lookup speed does not depend on file ordering.
 
@@ -91,7 +94,8 @@ its ID. Deregistration and ownership transfers require explicit registry review.
 For source-repository PRs, CI must check out the **trusted config registry at a
 pinned commit**, outside the PR checkout, and pass its hub config with `--config`.
 Do not let the source PR supply or rewrite its own authoritative registry.
-For config-registry PRs, an in-repository config and its sibling index are read
+For config-registry PRs, an in-repository config and its index at
+`.config/sources/collection-index.yml` relative to the config's directory are read
 from the exact `--head-ref`, ignoring uncommitted changes. Protect those registry
 changes with review and validate against the latest base before merging (or use
 a merge queue); parallel registrations can otherwise race. Periodic reconciliation

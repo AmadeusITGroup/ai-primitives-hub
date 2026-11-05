@@ -135,7 +135,7 @@ export class CollectionValidateCommand extends Command {
         --root <dir>                Repository root to validate (default: current directory)
         --base-ref <commit>         PR mode: exact base commit (with --head-ref; enables governance)
         --head-ref <commit>         PR mode: exact head commit; only collections the PR touched are validated
-        --config <path>             Trusted hub config; collection-index.yml must be alongside it (default: hub-config.yml)
+        --config <path>             Trusted hub config; index at .config/sources/collection-index.yml relative to its directory (default: hub-config.yml)
         --verbose                   Print each ok file in text mode
     `
   });

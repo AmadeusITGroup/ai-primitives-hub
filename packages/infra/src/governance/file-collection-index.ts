@@ -44,9 +44,10 @@ export class FileCollectionIndex implements HubCollectionIndex {
     try {
       hub = parseHubScopeDocument(await this.readFile(this.configPath));
       // js-yaml's default mode rejects duplicate mapping keys; do not enable json mode.
-      document = parseHubConfigYaml(await this.readFile(path.join(path.dirname(this.configPath), 'collection-index.yml')));
+      document = parseHubConfigYaml(await this.readFile(path.join(path.dirname(this.configPath), '.config', 'sources', 'collection-index.yml')));
     } catch {
-      throw new Error('Cannot read hub config and collection-index.yml. Supply both at the same trusted revision and fix invalid YAML or duplicate keys; no source-scan fallback is allowed.');
+      throw new Error('Cannot read hub config and .config/sources/collection-index.yml relative to its directory. '
+        + 'Supply both at the same trusted revision and fix invalid YAML or duplicate keys; no source-scan fallback is allowed.');
     }
     if (!isRecord(document) || document.schemaVersion !== 1 || !isRecord(document.collections)
       || Object.keys(document).some((key) => !['schemaVersion', 'collections'].includes(key))) {

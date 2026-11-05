@@ -173,7 +173,8 @@ describe('governance source checks through the public app entry point', () => {
   });
   it('uses the central index through the existing SDK factory without remote scans', async () => {
     await writeFile(path.join(root, 'hub-config.yml'), 'sources:\n  - id: tools\n    type: github\n    url: https://github.com/owner/tools\n    enabled: true\nprofiles: []\n');
-    await writeFile(path.join(root, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
+    await mkdir(path.join(root, '.config/sources'), { recursive: true });
+    await writeFile(path.join(root, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
     const fs = new NodeFileSystem();
     const read = vi.spyOn(fs, 'readFile');
     const fetch = vi.fn().mockRejectedValue(new Error('Unexpected HTTP request'));
@@ -192,7 +193,8 @@ describe('governance source checks through the public app entry point', () => {
     const trusted = await mkdtemp(path.join(os.tmpdir(), 'trusted-collection-registry-'));
     try {
       await writeFile(path.join(trusted, 'hub-config.yml'), 'sources:\n  - id: tools\n    type: github\n    url: https://github.com/owner/tools\n    enabled: true\nprofiles: []\n');
-      await writeFile(path.join(trusted, 'collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
+      await mkdir(path.join(trusted, '.config/sources'), { recursive: true });
+      await writeFile(path.join(trusted, '.config/sources/collection-index.yml'), 'schemaVersion: 1\ncollections:\n  test: {sourceId: tools}\n');
       const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
       git('init', '--quiet');
       git('config', 'user.name', 'Index Test');
