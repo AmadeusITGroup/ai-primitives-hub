@@ -101,6 +101,15 @@ At least one of `prompt` or `prompt-file` is required to generate an answer. Wit
 2. It pulls the model. The model cache key includes the registry manifest digest, so a re-published tag refreshes the cache.
 3. It sends one chat request and writes the answer to the outputs, the answer file, and the job summary.
 
+## PR review in this repository
+
+This repository runs the action on its own pull requests with `.github/workflows/gemma4-pr-review.yml`. The workflow sends the prompt from the `fill-pr-template.kiro.hook` Kiro hook, the pull request template, and the diff to `gemma4:e2b`. It then posts one comment, updated on every push, containing:
+
+- **Risks**: a table of rule-based signals, such as changed workflows, write permissions, secrets, risky shell patterns, dependency changes, code without tests, and large or truncated diffs.
+- **Draft PR description**: the filled template, ready to copy. Check every box yourself before relying on it.
+
+The review job has a read-only token and no secrets, so it runs safely on fork pull requests. A separate `workflow_run` job, `gemma4-pr-review-comment.yml`, posts the comment without checking out pull request code.
+
 ## Runners and performance
 
 - `ubuntu-latest` runs `gemma4:e2b` on CPU. The first run downloads about 4.6 GB; later runs restore it from the cache. Keep `max-tokens` modest and leave `think` off unless the task needs it.
