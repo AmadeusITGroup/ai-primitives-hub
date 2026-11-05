@@ -41,6 +41,7 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  restoreOrRemove,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -650,7 +651,16 @@ async function applyUpdate(
   const writer = writerFactory(target);
   const write = await writeBundleSafely(writer, target, files, manifest);
 
-  const installedChecksums = await computeInstalledChecksums({ writer, target, write, fs: ctx.fs });
+  let installedChecksums: Map<string, string>;
+  try {
+    installedChecksums = await computeInstalledChecksums({ writer, target, write, fs: ctx.fs });
+  } catch (err) {
+    // Nothing records the new version: the files it replaced get their earlier bytes back, the others are removed.
+    // Not through `writer.rollback`: the repository writer would also drop the exclude lines of the files the
+    // previous local-only version still owns. A line the write added for a file it created stays.
+    await restoreOrRemove(ctx.fs, write.result.written, write.result.replaced);
+    throw err;
+  }
   const entry = buildLockfileBundleEntry({
     version: manifest.version,
     sourceId: candidate.entry.sourceId,

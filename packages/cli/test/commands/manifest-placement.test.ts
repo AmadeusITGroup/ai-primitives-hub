@@ -461,6 +461,79 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     expect(envelope.warnings).toEqual(['sample-prompts: could not update the git exclude file: EACCES: permission denied']);
   });
 
+  it('update restores the files it wrote when their checksums cannot be read', async () => {
+    const { steering } = await seedLocalOnlyKiroPrompts();
+    const renamed = path.join(steering, 'x.prompt.md');
+    // The writer reads each file back once to verify it; the next read is the checksum's.
+    class UnreadableNewFile extends NodeFileSystem {
+      private reads = 0;
+      public override readFileBytes(filePath: string): Promise<Uint8Array> {
+        if (filePath === renamed && ++this.reads > 1) {
+          return Promise.reject(new Error('EIO: i/o error'));
+        }
+        return super.readFileBytes(filePath);
+      }
+    }
+
+    const updated = await run(['update', '--target', 'kiro-repo', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json'], new UnreadableNewFile());
+
+    expect(updated.exitCode, updated.stdout).toBe(1);
+    expect(updated.stdout).toContain('EIO: i/o error');
+    await expect(readFile(renamed, 'utf8')).rejects.toThrow();
+    expect(await readFile(path.join(steering, 'keep.prompt.md'), 'utf8')).toBe('# Keep v1\n');
+    expect(await readFile(path.join(steering, 'x.md'), 'utf8')).toBe('# X v1\n');
+  });
+
+  it('update keeps the exclude lines of the files it restores on a VS Code repository target', async () => {
+    expect((await run([
+      'target', 'add', 'vscode-repo', '--type', 'vscode', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
+    ])).exitCode).toBe(0);
+    const prompts = path.join(workspace, '.github', 'prompts');
+    await mkdir(prompts, { recursive: true });
+    await writeFile(path.join(prompts, 'x.md'), '# X v1\n');
+    await writeFile(path.join(prompts, 'keep.prompt.md'), '# Keep v1\n');
+    const exclude = path.join(workspace, '.git', 'info', 'exclude');
+    await makeGitDir(workspace);
+    await mkdir(path.dirname(exclude));
+    await writeFile(exclude, [
+      '# Prompt Registry (local)', '.github/prompts/x.md', '.github/prompts/keep.prompt.md', 'prompt-registry.local.lock.json'
+    ].join('\n'));
+    let lock = upsertBundleEntry(emptyLockfile('test'), 'sample-prompts', {
+      version: '1.0.0',
+      sourceId: 'sample-prompts-source',
+      sourceType: 'github',
+      installedAt: '2026-01-01T00:00:00Z',
+      targetType: 'vscode',
+      files: [
+        { path: 'prompts/x.md', checksum: 'a'.repeat(64) },
+        { path: 'prompts/keep.prompt.md', checksum: 'b'.repeat(64) }
+      ]
+    });
+    lock = upsertSource(lock, 'sample-prompts-source', { type: 'github', url: 'https://github.com/acme-org/sample-prompts' });
+    await writeLockfile(path.join(workspace, 'prompt-registry.local.lock.json'), lock, new NodeFileSystem());
+    const replaced = path.join(prompts, 'x.md');
+    // x.md is read for the snapshot before the write and to verify it after; the third read is the checksum's.
+    class UnreadableAfterWrite extends NodeFileSystem {
+      private reads = 0;
+      public override readFileBytes(filePath: string): Promise<Uint8Array> {
+        if (filePath === replaced && ++this.reads > 2) {
+          return Promise.reject(new Error('EIO: i/o error'));
+        }
+        return super.readFileBytes(filePath);
+      }
+    }
+
+    const updated = await run(['update', '--target', 'vscode-repo', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json'], new UnreadableAfterWrite());
+
+    expect(updated.exitCode, updated.stdout).toBe(1);
+    expect(updated.stdout).toContain('EIO: i/o error');
+    expect(await readFile(path.join(prompts, 'keep.prompt.md'), 'utf8')).toBe('# Keep v1\n');
+    expect(await readFile(replaced, 'utf8')).toBe('# X v1\n');
+    const lines = (await readFile(exclude, 'utf8')).split('\n');
+    expect(lines).toContain('.github/prompts/keep.prompt.md');
+    expect(lines).toContain('.github/prompts/x.md');
+  });
+
   it('re-install removes a path-routed file the new version places under a new name', async () => {
     await seedPathRoutedPrompts();
     const promptsDir = path.join(workspace, 'prompt-bundle');
