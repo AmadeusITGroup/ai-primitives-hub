@@ -1,0 +1,228 @@
+# Security Scanner Maintenance
+
+This guide is for contributors changing rules, parsing, input discovery, reports, or delivery adapters.
+
+## Source of truth
+
+The behavioral baseline for this work is **MD Security Scanner `1.10.9`**, an
+internal Amadeus tool that is not publicly disclosed. It is used only by
+authorized maintainers as a private reference. It is not a dependency of this
+repository, its source is not redistributed here, and public documentation must
+not contain internal URLs or references to unavailable source locations.
+
+The production rule pack must record in the project’s approved provenance record:
+
+- internal baseline version and authorized provenance reference;
+- imported rule-pack version and digest;
+- rule IDs and variants actually present;
+- material modifications;
+- differential-test results;
+- remediation and taxonomy references.
+
+Do not use README rule counts as an inventory. Rule IDs such as `INJ-001` can represent multiple variants, and some numbered IDs are intentionally absent.
+
+## Change a rule safely
+
+1. Add a focused failing test in `packages/core/test/domain/security/`.
+2. Identify whether the rule is a pure domain rule or an infrastructure concern.
+3. Implement the smallest change in the security domain; do not add detection logic to CLI or extension services.
+4. Add a positive case, a near-miss negative case, and an example/code-block context case where relevant.
+5. Add a synthetic fake credential only; never use a live secret.
+6. Check severity, confidence, location, fingerprint input, remediation, and OWASP/CWE mapping.
+7. Test long nonmatching input and repetitive delimiters for regex denial-of-service behavior.
+8. Run the frozen differential corpus and record every intentional difference.
+9. Update the rule-pack digest/version and relevant user/reference documentation.
+
+## Layer rules
+
+```mermaid
+flowchart LR
+    CORE["core: models, ports, pure rules"] --> APP["app: orchestration"]
+    INFRA["infra: filesystem, worker, report adapters"] --> APP
+    CLI["cli: parsing/presentation"] --> APP
+    EXT["extension: VS Code delivery"] --> APP
+```
+
+- `core` must not import `vscode`, direct filesystem APIs, network clients, or shell execution.
+- `infra` owns local traversal, file metadata, no-follow checks, worker execution, and report persistence.
+- `app` owns one shared use case and does not define rule meaning.
+- CLI and extension format and present shared results; they do not fork behavior.
+
+## Installation pipeline integration
+
+The scanner is valuable even when a source is not explicitly governed by the
+project. Users can add custom sources, and bundle content may contain prompts,
+skills, hooks, agent instructions, or MCP configuration that has not passed the
+project’s authoring review.
+
+The intended future integration point is after download/extraction and manifest
+integrity validation, but before target files, MCP configuration, lockfiles, or
+installation state are written:
+
+```mermaid
+flowchart LR
+    RESOLVE["Resolve custom source"] --> DOWNLOAD["Download"]
+    DOWNLOAD --> EXTRACT["Extract"]
+    EXTRACT --> VALIDATE["Validate manifest/integrity"]
+    VALIDATE --> SCAN["Run bounded security scan"]
+    SCAN -->|allowed by policy| WRITE["Write installation side effects"]
+    SCAN -->|blocked or incomplete| STOP["Stop; write no target/MCP state"]
+```
+
+This is an intended extension of `InstallPipeline`, not a claim that the
+current installation implementation has already enabled the gate. The eventual
+stage should consume extracted bytes through an input adapter rather than
+re-reading an attacker-controlled path, and should support explicit report-only,
+warning, and blocking policies. Any blocking default requires a migration and
+UX decision because it can affect existing custom sources.
+
+## Safe filesystem changes
+
+Security scanning operates on untrusted repositories:
+
+- use `lstat`, not `stat`, when deciding whether to traverse;
+- reject symbolic links and special files unless a reviewed capability says otherwise;
+- establish canonical root containment before reading;
+- enforce per-file and aggregate byte limits;
+- bound ignore-file size, line count, and pattern count;
+- use bounded wildcard matching, not backtracking regular expressions over repository-controlled ignore patterns;
+- do not read or write through symlinks;
+- use atomic owner-only report writes;
+- keep absolute paths out of default reports and logs;
+- record incomplete coverage rather than treating unreadable files as clean.
+
+## Report and privacy rules
+
+Default reports must not contain captured secret characters, lengths, prefixes, or suffixes. Use `[REDACTED]` for secret/credential evidence. Error and log messages must not include source excerpts.
+
+When adding fields:
+
+- keep JSON/YAML machine fields stable and versioned;
+- escape Markdown and terminal control characters;
+- avoid artifact-controlled links in webviews;
+- update the JSON/NDJSON contract tests;
+- consider whether the field could disclose repository paths or credentials.
+
+## CLI and CI changes
+
+For CLI changes, update:
+
+- `packages/cli/src/commands/security-scan.ts`;
+- command tests and output contracts;
+- `docs/reference/commands.md`;
+- `docs/reference/security-scanner.md`;
+- GitHub Actions usage examples.
+
+CI gates must use `--ci` and `--ignore-trust none`, unless a protected baseline is intentionally supplied. Never turn repository pull-request input into a shell command string. Keep `contents: read` as the default workflow permission.
+
+### Standalone binary packaging
+
+The scanner evaluates documents in an interruptible worker. Node-based installs
+load the compiled worker from `infra/dist/security/`. Single-executable (SEA)
+builds bundle that worker separately and embed it as the `security-scan-worker`
+asset; no worker sidecar is required. Keep the asset name in the worker adapter,
+CLI bundler, and SEA configuration aligned.
+
+After building the shared packages, validate the actual standalone executable:
+
+```bash
+pnpm -C packages -r build
+pnpm -C packages/cli run test:sea
+```
+
+This builds the host-platform executable, copies and renames it into a temporary
+directory without sidecars, and checks clean and secret-containing files,
+complete coverage, exit codes, and secret redaction. Checking `--help` alone
+does not exercise worker packaging.
+
+The existing CI validation matrix runs this check on Linux, macOS, and Windows.
+
+## VS Code changes
+
+Read `apps/vscode-extension/AGENTS.md`, `src/services/AGENTS.md`, and `test/AGENTS.md` first.
+
+Automatic scans are allowed only for trusted local `file:` workspaces. Maintain:
+
+- save debounce;
+- one active scan per document/workspace key;
+- cancellation of superseded work;
+- latest-generation/document-version protection;
+- stale diagnostic cleanup;
+- no raw evidence in notifications, logs, or webviews;
+- strict webview CSP and escaped values.
+
+Settings belong under `promptregistry.security.*`. Do not reintroduce the standalone `md-security-scanner.*` namespace or a Python runtime dependency.
+
+### Deferred operational follow-ups
+
+There is currently no service-wide cap on workers across different documents.
+Per-key supersession and input budgets do not provide such a cap; bursts of
+document opens/saves can create multiple workers. A follow-up should define
+queueing, concurrency and cancellation behavior before engine creation.
+
+Cancellation is polled at operation boundaries. A blocked filesystem operation
+can remain pending until the whole-scan deadline; it does not settle immediately
+when superseded. Prompt cancellation requires a notification-capable port and
+explicit lifetime handling for still-pending operations.
+
+Mocked command-event tests cover filtering, registration and generation guards;
+real VS Code activation/event coverage remains an integration-test follow-up.
+
+## Verification commands
+
+Run focused tests first, then owning package checks:
+
+```bash
+pnpm -C packages/core test
+pnpm -C packages/infra test
+pnpm -C packages/app test
+pnpm -C packages/cli test
+pnpm -C packages/core build
+pnpm -C packages/infra build
+pnpm -C packages/app build
+pnpm -C packages/cli build
+pnpm -C packages -r lint:fix
+pnpm -C apps/vscode-extension run compile
+pnpm -C apps/vscode-extension run compile-tests
+LOG_LEVEL=ERROR pnpm -C apps/vscode-extension run test:unit
+pnpm -C apps/vscode-extension run package:vsix
+pnpm -C website run build
+```
+
+Follow repository guidance: use `lint:fix`; do not run the corresponding non-fixing lint command afterward.
+
+### Cross-platform regressions
+
+When CI fails on Windows, inspect the failing test and transformed production
+value before changing fixtures. Build native filesystem expectations with
+`path.join` and resolve module URLs with `fileURLToPath`. Assert POSIX permission
+bits only on platforms that expose them.
+
+Extension tests use a `vscode` mock whose `Uri.file` keeps `fsPath` verbatim,
+unlike VS Code, which normalizes separators. Production code joins scan roots and
+relative finding paths with the host separator, so build roots with
+`path.resolve` and expected files with `path.join` instead of POSIX literals such
+as `/repo/first.md`.
+
+Keep portable cases running on every OS. Isolate only unsupported filesystem
+cases (such as newline-containing filenames on Windows) in explicitly
+platform-gated tests; do not skip an entire security suite or remove NUL-delimited
+path handling from production. A passing Linux run does not establish Windows
+compatibility: the Windows CI job must still pass.
+
+Security fixture contents intentionally include unsafe patterns. Review the
+scanner's observable detection, coverage and redaction behavior, not the fixture
+payload as if it were production instructions.
+
+## Review checklist
+
+- [ ] Rule family/variant and source provenance recorded
+- [ ] Positive, negative, context, and adversarial tests added
+- [ ] Legacy fingerprints unchanged or deviation documented
+- [ ] Secret evidence redacted in every output sink
+- [ ] No symlink/path escape or unbounded input behavior
+- [ ] Ignore trust and CI behavior reviewed
+- [ ] CLI and extension use app, with no duplicated rule logic
+- [ ] Output/report schema and docs updated
+- [ ] Mermaid diagrams updated for architecture/flow changes
+- [ ] Core, infra, app, CLI, extension, and docs validation completed

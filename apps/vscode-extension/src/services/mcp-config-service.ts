@@ -10,6 +10,7 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   collectInputReferences,
+  resolveMcpServerKey,
   rewriteEnvPlaceholders,
 } from '@ai-primitives-hub/core';
 import * as fs from 'fs-extra';
@@ -20,6 +21,7 @@ import {
   McpRemoteServerConfig,
   McpServerConfig,
   McpServerDefinition,
+  McpServerNaming,
   McpStdioServerConfig,
   McpTrackingMetadata,
   McpVariableContext,
@@ -223,8 +225,15 @@ export class McpConfigService {
     }
   }
 
-  public generatePrefixedServerName(bundleId: string, serverName: string): string {
-    return `prompt-registry:${bundleId}:${serverName}`;
+  /**
+   * Key under which a bundle's server is written to the host's MCP config.
+   * Delegates to `resolveMcpServerKey` in `@ai-primitives-hub/core`.
+   * @param bundleId - Full bundle id (recorded in tracking metadata).
+   * @param serverName - Server name from the bundle manifest.
+   * @param naming - Manifest id and repositories the key is built from.
+   */
+  public generatePrefixedServerName(bundleId: string, serverName: string, naming: McpServerNaming = {}): string {
+    return resolveMcpServerKey({ ...naming, bundleId, serverName });
   }
 
   public substituteVariables(value: string | undefined, context: McpVariableContext): string | undefined {

@@ -1,4 +1,7 @@
 import * as path from 'node:path';
+import {
+  isSameBundleIdentity,
+} from '@ai-primitives-hub/core';
 import * as fs from 'fs-extra';
 import {
   McpConfiguration,
@@ -444,6 +447,35 @@ export class McpServerManager {
     }
   }
 
+  /**
+   * Remove servers of earlier versions of the same bundle, so installing a
+   * newer version on top of an older one (without an uninstall) replaces them.
+   *
+   * Keep until at least the next major release; remove once MCP install moves
+   * to `app` (#648) or install-on-top uninstalls the previous version.
+   * @param config - Host MCP config read for this install.
+   * @param tracking - Tracking metadata read for this install; updated in place.
+   * @param bundleId - Bundle being installed.
+   * @returns The config without the superseded servers.
+   */
+  private removeSupersededServers(
+    config: McpConfiguration,
+    tracking: McpTrackingMetadata,
+    bundleId: string
+  ): McpConfiguration {
+    const servers = { ...config.servers };
+    let removed = false;
+    for (const [serverName, metadata] of Object.entries(tracking.managedServers)) {
+      // 'github' strips the trailing version from both ids, so any version of this bundle matches.
+      if (isSameBundleIdentity(metadata.bundleId, 'github', bundleId, 'github')) {
+        delete servers[serverName];
+        delete tracking.managedServers[serverName];
+        removed = true;
+      }
+    }
+    return removed ? this.configService.removeOrphanedInputs({ ...config, servers }) : config;
+  }
+
   public async installServers(
     bundleId: string,
     bundleVersion: string,
@@ -469,8 +501,10 @@ export class McpServerManager {
 
       this.logger.info(`Installing ${Object.keys(serversManifest).length} MCP servers for bundle ${bundleId}`);
 
-      const existingConfig = await this.configService.readMcpConfig(options.scope);
       const tracking = await this.configService.readTrackingMetadata(options.scope);
+      const existingConfig = this.removeSupersededServers(
+        await this.configService.readMcpConfig(options.scope), tracking, bundleId
+      );
 
       const serversToInstall: Record<string, any> = {};
       const location = McpConfigLocator.getMcpConfigLocation(
@@ -478,7 +512,7 @@ export class McpServerManager {
       );
 
       for (const [serverName, definition] of Object.entries(serversManifest)) {
-        const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName);
+        const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName, options);
 
         const serverConfig = this.configService.processServerDefinition(
           serverName,
@@ -625,15 +659,17 @@ export class McpServerManager {
 
       this.logger.info(`Installing ${Object.keys(serversManifest).length} MCP servers for bundle ${bundleId} to workspace`);
 
-      const existingConfig = await this.readWorkspaceMcpConfig(workspaceRoot);
       const tracking = await this.readWorkspaceTrackingMetadata(workspaceRoot);
+      const existingConfig = this.removeSupersededServers(
+        await this.readWorkspaceMcpConfig(workspaceRoot), tracking, bundleId
+      );
 
       const serversToInstall: Record<string, any> = {};
       const conflicts: string[] = [];
       const workspaceLocation = this.getWorkspaceMcpLocation(workspaceRoot);
 
       for (const [serverName, definition] of Object.entries(serversManifest)) {
-        const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName);
+        const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName, options);
 
         // Check for conflicts
         if (existingConfig.servers[prefixedName]) {

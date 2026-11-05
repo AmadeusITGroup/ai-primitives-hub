@@ -218,6 +218,51 @@ suite('RepositoryScopeService', () => {
   });
 
   suite('syncBundle - File Placement', () => {
+    test('does not copy files referenced outside the installed bundle', async () => {
+      const bundleId = 'path-traversal-bundle';
+      const bundlePath = path.join(tempDir, 'bundles', bundleId);
+      const outsideFile = path.join(tempDir, 'outside-secret.md');
+      fs.mkdirSync(bundlePath, { recursive: true });
+      fs.writeFileSync(outsideFile, 'secret host content');
+      fs.writeFileSync(
+        path.join(bundlePath, 'deployment-manifest.yml'),
+        `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n  - id: copied-secret\n    name: Copied Secret\n    file: ../../outside-secret.md\n    type: prompt\n`
+      );
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      const targetFile = path.join(workspaceRoot, '.github', 'prompts', 'copied-secret.prompt.md');
+      assert.strictEqual(
+        fs.existsSync(targetFile),
+        false,
+        'A manifest path outside the bundle must not be copied into the repository'
+      );
+    });
+
+    test('does not follow bundle-file symlinks outside the installed bundle', async () => {
+      const bundleId = 'symlink-traversal-bundle';
+      const bundlePath = path.join(tempDir, 'bundles', bundleId);
+      const outsideFile = path.join(tempDir, 'outside-secret.md');
+      fs.mkdirSync(bundlePath, { recursive: true });
+      fs.writeFileSync(outsideFile, 'secret host content');
+      fs.symlinkSync(outsideFile, path.join(bundlePath, 'linked-secret.md'));
+      fs.writeFileSync(
+        path.join(bundlePath, 'deployment-manifest.yml'),
+        `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n  - id: copied-secret\n    name: Copied Secret\n    file: linked-secret.md\n    type: prompt\n`
+      );
+      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+
+      await service.syncBundle(bundleId, bundlePath);
+
+      const targetFile = path.join(workspaceRoot, '.github', 'prompts', 'copied-secret.prompt.md');
+      assert.strictEqual(
+        fs.existsSync(targetFile),
+        false,
+        'A bundle symlink resolving outside the bundle must not be copied'
+      );
+    });
+
     test('should place prompt files in .github/prompts/', async () => {
       const bundleId = 'test-bundle';
       const bundlePath = createMockBundle(bundleId, [

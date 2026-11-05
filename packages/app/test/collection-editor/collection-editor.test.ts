@@ -44,6 +44,136 @@ describe('CollectionEditorService', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it.skipIf(process.platform === 'win32').each(['readme', 'prompt', 'plugin'])(
+    'rejects dangling %s scaffold targets without creating outside files',
+    async (kind) => {
+      const workspace = path.join(tmpDir, 'workspace');
+      const outside = path.join(tmpDir, 'outside.md');
+      fs.mkdirSync(workspace);
+      fs.symlinkSync(outside, path.join(workspace, 'target.md'));
+
+      await expect(service.scaffoldPrimitiveForCollection(workspace, 'items: []\n', {
+        kind,
+        name: 'Example',
+        customRelPath: 'target.md',
+        body: 'untrusted content'
+      })).rejects.toThrow(/symlink|workspace/i);
+      expect(fs.existsSync(outside)).toBe(false);
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')('rejects primitive reads and writes through outside symlinks', () => {
+    const workspace = path.join(tmpDir, 'workspace');
+    const outside = path.join(tmpDir, 'outside.md');
+    fs.mkdirSync(workspace);
+    fs.writeFileSync(outside, 'private content');
+    fs.symlinkSync(outside, path.join(workspace, 'linked.md'));
+
+    expect(() => service.readPrimitiveContent(workspace, 'linked.md')).toThrow(/workspace/i);
+    expect(() => service.writePrimitiveContent(workspace, 'linked.md', {
+      rawContent: 'replacement'
+    })).toThrow(/workspace/i);
+    expect(fs.readFileSync(outside, 'utf8')).toBe('private content');
+  });
+
+  it('rejects scaffolding through an outside directory link, including missing descendants', async () => {
+    const workspace = path.join(tmpDir, 'workspace');
+    const outside = path.join(tmpDir, 'outside');
+    fs.mkdirSync(workspace);
+    fs.mkdirSync(outside);
+    fs.symlinkSync(outside, path.join(workspace, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
+
+    await expect(service.scaffoldPrimitiveForCollection(workspace, 'items: []\n', {
+      kind: 'readme',
+      name: 'Example',
+      customRelPath: 'docs/missing/README.md'
+    })).rejects.toThrow(/workspace/i);
+    expect(fs.readdirSync(outside)).toEqual([]);
+    expect(() => service.createCollectionFile(workspace, {
+      id: 'example',
+      collectionsPath: 'docs/collections',
+      createReadme: false
+    })).toThrow(/workspace/i);
+    expect(fs.readdirSync(outside)).toEqual([]);
+  });
+
+  it.skipIf(process.platform === 'win32')('rejects collection creation and duplication through dangling target links', () => {
+    fs.mkdirSync(path.join(tmpDir, 'collections'));
+    const outside = path.join(tmpDir, 'outside.yml');
+    fs.symlinkSync(outside, path.join(tmpDir, 'collections', 'target.collection.yml'));
+    expect(() => service.createCollectionFile(tmpDir, {
+      id: 'target', createReadme: false
+    })).toThrow(/symlink/i);
+    const original = service.createCollectionFile(tmpDir, {
+      id: 'original', createReadme: false
+    });
+    expect(() => service.duplicateCollectionFile(tmpDir, original.filePath, 'target')).toThrow(/symlink/i);
+    expect(fs.existsSync(outside)).toBe(false);
+  });
+
+  it('creates, duplicates and deletes collections when the workspace root is a directory alias', () => {
+    const workspace = path.join(tmpDir, 'workspace');
+    const alias = path.join(tmpDir, 'alias');
+    fs.mkdirSync(workspace);
+    fs.symlinkSync(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const created = service.createCollectionFile(alias, { id: 'original', createReadme: false });
+    expect(created.inspection.valid).toBe(true);
+    const duplicate = service.duplicateCollectionFile(alias, created.filePath, 'copy');
+    expect(duplicate.inspection.valid).toBe(true);
+    service.deleteCollectionFile(alias, duplicate.filePath);
+    expect(fs.existsSync(duplicate.filePath)).toBe(false);
+    expect(fs.existsSync(created.filePath)).toBe(true);
+  });
+
+  it.skipIf(process.platform === 'win32')('does not report a symlinked in-workspace collection as a duplicate of itself', () => {
+    fs.mkdirSync(path.join(tmpDir, 'shared'));
+    fs.mkdirSync(path.join(tmpDir, 'collections'));
+    const content = 'id: linked\nname: Linked\ndescription: Linked collection\nversion: 1.0.0\nitems: []\n';
+    fs.writeFileSync(path.join(tmpDir, 'shared', 'linked.yml'), content);
+    const linkPath = path.join(tmpDir, 'collections', 'linked.collection.yml');
+    fs.symlinkSync('../shared/linked.yml', linkPath);
+    const duplicateCodes = (diagnostics: { code: string }[]) =>
+      diagnostics.map((d) => d.code).filter((code) => code.startsWith('COLLECTION_DUPLICATE_'));
+
+    const [summary] = service.detectWorkspaceCollections(tmpDir).collections;
+    expect(duplicateCodes(summary.inspection.diagnostics)).toEqual([]);
+    const inspection = service.inspectDocument(content, { filePath: linkPath, workspaceRoot: tmpDir });
+    expect(duplicateCodes(inspection.diagnostics)).toEqual([]);
+  });
+
+  it('scaffolds a plugin through an in-workspace directory link at its actual destination', async () => {
+    const target = path.join(tmpDir, 'plugins', 'real-plugin');
+    fs.mkdirSync(target, { recursive: true });
+    fs.symlinkSync(target, path.join(tmpDir, 'alias'), process.platform === 'win32' ? 'junction' : 'dir');
+    await service.scaffoldPrimitiveForCollection(tmpDir, 'items: []\n', {
+      kind: 'plugin', name: 'Example', customRelPath: 'alias/plugin.json'
+    });
+    const manifest: unknown = JSON.parse(fs.readFileSync(path.join(target, 'plugin.json'), 'utf8'));
+    expect(manifest).toMatchObject({ name: 'real-plugin' });
+    expect(fs.readdirSync(path.join(tmpDir, 'plugins'))).toEqual(['real-plugin']);
+  });
+
+  it.skipIf(process.platform === 'win32')('keeps in-workspace links usable without exposing outside probe content', () => {
+    const workspace = path.join(tmpDir, 'workspace');
+    fs.mkdirSync(workspace);
+    fs.writeFileSync(path.join(workspace, 'real.md'), '# Original');
+    fs.symlinkSync('real.md', path.join(workspace, 'linked.md'));
+    expect(service.readPrimitiveContent(workspace, 'linked.md').rawContent).toBe('# Original');
+    service.writePrimitiveContent(workspace, 'linked.md', { rawContent: '# Updated' });
+    expect(fs.readFileSync(path.join(workspace, 'real.md'), 'utf8')).toBe('# Updated');
+
+    fs.mkdirSync(path.join(workspace, 'prompts'));
+    const outside = path.join(tmpDir, 'outside.md');
+    fs.writeFileSync(outside, '---\nname: PRIVATE TITLE\ndescription: PRIVATE DESCRIPTION\n---\nprivate body');
+    fs.symlinkSync(outside, path.join(workspace, 'prompts', 'outside.prompt.md'));
+    const inspection = service.inspectDocument(
+      'id: example\nname: Example\nversion: 1.0.0\nitems:\n  - path: prompts/outside.prompt.md\n    kind: prompt\n',
+      { workspaceRoot: workspace }
+    );
+    expect(inspection.itemStatuses[0].exists).toBe(false);
+    expect(JSON.stringify(inspection)).not.toContain('PRIVATE');
+  });
+
   it('creates, duplicates, inspects, scaffolds primitives, and edits primitive frontmatter + content', async () => {
     // 1. Create a new collection visually
     const created = service.createCollectionFile(tmpDir, {

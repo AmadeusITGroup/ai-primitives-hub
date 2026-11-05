@@ -41,20 +41,23 @@ export const parseFindingsDocument = (document: unknown): ParsedFindings => {
   let skipped = 0;
   for (const entry of entries as unknown[]) {
     const severity: QualitySeverity | undefined = isRecord(entry) ? oneOf(QUALITY_SEVERITIES, entry.severity) : undefined;
-    if (!isRecord(entry) || typeof entry.ruleId !== 'string' || entry.ruleId === '' || typeof entry.file !== 'string' || entry.file === '' || severity === undefined) {
+    // The security scan report writes snake_case names; other scanners use camelCase.
+    const ruleId = isRecord(entry) ? entry.ruleId ?? entry.rule_id : undefined;
+    const recommendedFix = isRecord(entry) ? entry.recommendedFix ?? entry.recommended_fix : undefined;
+    if (!isRecord(entry) || typeof ruleId !== 'string' || ruleId === '' || typeof entry.file !== 'string' || entry.file === '' || severity === undefined) {
       skipped += 1;
       continue;
     }
     // A finding without a confidence counts in full: assuming it is doubtful would hide it.
     const confidence: QualityConfidence = oneOf(QUALITY_CONFIDENCES, entry.confidence) ?? 'HIGH';
     findings.push({
-      ruleId: entry.ruleId,
-      title: typeof entry.title === 'string' && entry.title !== '' ? entry.title : entry.ruleId,
+      ruleId,
+      title: typeof entry.title === 'string' && entry.title !== '' ? entry.title : ruleId,
       severity,
       confidence,
       file: entry.file,
       ...(typeof entry.line === 'number' && Number.isFinite(entry.line) ? { line: entry.line } : {}),
-      ...(typeof entry.recommendedFix === 'string' && entry.recommendedFix !== '' ? { recommendedFix: entry.recommendedFix } : {})
+      ...(typeof recommendedFix === 'string' && recommendedFix !== '' ? { recommendedFix } : {})
     });
   }
   return { findings, skipped };

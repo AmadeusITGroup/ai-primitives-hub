@@ -23,6 +23,13 @@ describe('parseFindingsDocument', () => {
     expect(findings).toEqual([{ ruleId: 'MD-002', title: 'MD-002', severity: 'LOW', confidence: 'HIGH', file: 'b.md' }]);
   });
 
+  it('reads the snake_case names of the security scan report', () => {
+    const { findings } = parseFindingsDocument({
+      findings: [{ rule_id: 'HKS-001', title: 'Remote Shell Pipe', severity: 'CRITICAL', confidence: 'HIGH', file: 'a.md', line: 3, recommended_fix: 'Pin it' }]
+    });
+    expect(findings).toEqual([{ ruleId: 'HKS-001', title: 'Remote Shell Pipe', severity: 'CRITICAL', confidence: 'HIGH', file: 'a.md', line: 3, recommendedFix: 'Pin it' }]);
+  });
+
   it('skips and counts entries that cannot be rated', () => {
     const result = parseFindingsDocument([entry, null, 'text', { ...entry, ruleId: '' }, { ...entry, file: '' }, { ...entry, severity: 'SEVERE' }]);
     expect(result.findings).toHaveLength(1);

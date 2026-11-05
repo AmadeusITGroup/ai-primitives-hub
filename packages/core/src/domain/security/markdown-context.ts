@@ -1,31 +1,19 @@
 /**
- * Markdown parsing context: per line, fenced code-block membership, example-section membership and the
- * current heading; also the frontmatter and the artifact class of the document.
- * @module domain/scanner/markdown-context
+ * Markdown parsing context shared by security rules.
+ * @module domain/security/markdown-context
  */
-
 import type {
-  ArtifactClass,
+  ParsedSecurityDocument,
+  SecurityArtifactClass,
 } from './types';
-
-export interface ParsedLine {
-  text: string;
-  section: string;
-  inExample: boolean;
-  inCodeBlock: boolean;
-}
-
-export interface ParsedDocument {
-  content: string;
-  frontmatter: string;
-  bodyStart: number;
-  lines: ParsedLine[];
-  artifactClass: ArtifactClass;
-}
 
 const EXAMPLE_SECTION = /example|attack|demo|test|vulnerable|bad[ -]?practice|do[ -]?not[ -]?use|❌/i;
 
-export const parseSecurityDocument = (content: string): ParsedDocument => {
+/**
+ * Parse frontmatter, code-block, section, and artifact classification context.
+ * @param content
+ */
+export const parseSecurityDocument = (content: string): ParsedSecurityDocument => {
   const rawLines = content.split(/\r\n|\n|\r/);
   let frontmatter = '';
   let bodyStart = 0;
@@ -40,11 +28,23 @@ export const parseSecurityDocument = (content: string): ParsedDocument => {
   }
 
   let inCodeBlock = false;
+  let fenceCharacter = '';
+  let fenceLength = 0;
   let section = '';
   let inExample = false;
-  const lines: ParsedLine[] = rawLines.map((text) => {
-    if (text.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
+  const lines = rawLines.map((text) => {
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text);
+    if (!inCodeBlock && fence !== null && !(fence[1][0] === '`' && fence[2].includes('`'))) {
+      inCodeBlock = true;
+      fenceCharacter = fence[1][0];
+      fenceLength = fence[1].length;
+    } else if (inCodeBlock) {
+      const closingFence = new RegExp(`^ {0,3}\\${fenceCharacter}{${fenceLength},}[ \\t]*$`);
+      if (closingFence.test(text)) {
+        inCodeBlock = false;
+        fenceCharacter = '';
+        fenceLength = 0;
+      }
     }
     if (text.trimStart().startsWith('#')) {
       section = text.trimStart().replace(/^#+/, '').trim();
@@ -62,8 +62,13 @@ export const parseSecurityDocument = (content: string): ParsedDocument => {
   };
 };
 
-export const classifySecurityArtifact = (content: string, frontmatter: string): ArtifactClass => {
-  if (/^name:\s*\S+/m.test(frontmatter) && frontmatter.includes('description:')) {
+/**
+ * Classify an artifact using the reference scanner's precedence rules.
+ * @param content
+ * @param frontmatter
+ */
+export const classifySecurityArtifact = (content: string, frontmatter: string): SecurityArtifactClass => {
+  if (/^name:\s*\S+/m.test(frontmatter) && /^description\s*:/m.test(frontmatter)) {
     return 'skill';
   }
   if (/\{\{[^}]+\}\}|<user_input>|\[PLACEHOLDER\]/.test(content)) {

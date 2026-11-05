@@ -157,22 +157,22 @@ suite('McpConfigService - Duplicate Server Lifecycle', () => {
       // Setup: 3 bundles with same server, bundle-a is active
       let config: McpConfiguration = {
         servers: {
-          'prompt-registry:bundle-a:shared': { ...sharedServer },
-          'prompt-registry:bundle-b:shared': { ...sharedServer, disabled: true, description: 'Duplicate of prompt-registry:bundle-a:shared' },
-          'prompt-registry:bundle-c:shared': { ...sharedServer, disabled: true, description: 'Duplicate of prompt-registry:bundle-a:shared' }
+          'ai-primitives-hub:bundle-a:shared': { ...sharedServer },
+          'ai-primitives-hub:bundle-b:shared': { ...sharedServer, disabled: true, description: 'Duplicate of ai-primitives-hub:bundle-a:shared' },
+          'ai-primitives-hub:bundle-c:shared': { ...sharedServer, disabled: true, description: 'Duplicate of ai-primitives-hub:bundle-a:shared' }
         }
       };
       let tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:shared': {
+          'ai-primitives-hub:bundle-a:shared': {
             bundleId: 'bundle-a', bundleVersion: '1.0.0', originalName: 'shared',
             originalConfig: sharedServer, installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-b:shared': {
+          'ai-primitives-hub:bundle-b:shared': {
             bundleId: 'bundle-b', bundleVersion: '1.0.0', originalName: 'shared',
             originalConfig: sharedServer, installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-c:shared': {
+          'ai-primitives-hub:bundle-c:shared': {
             bundleId: 'bundle-c', bundleVersion: '1.0.0', originalName: 'shared',
             originalConfig: sharedServer, installedAt: new Date().toISOString(), scope: 'user'
           }

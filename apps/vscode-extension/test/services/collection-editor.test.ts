@@ -17,6 +17,9 @@ import {
   CollectionYamlIntelligence,
 } from '../../src/services/collection-yaml-intelligence';
 import {
+  RegistryManager,
+} from '../../src/services/registry-manager';
+import {
   CollectionCustomEditorProvider,
 } from '../../src/ui/collection-custom-editor';
 import {
@@ -491,5 +494,98 @@ suite('Collection Visual Editor, Tree View, YAML Intelligence & Artifactory Guar
 
     intelligence.dispose();
     treeProvider.dispose();
+  });
+
+  test('collection webview rejects scaffold, load and save messages through outside directory links', async () => {
+    const workspace = path.join(tmpDir, 'workspace');
+    const outside = path.join(tmpDir, 'outside');
+    fs.mkdirSync(path.join(workspace, 'collections'), { recursive: true });
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, 'private.md'), 'PRIVATE CONTENT');
+    fs.symlinkSync(outside, path.join(workspace, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
+
+    const editorService = new CollectionEditorService();
+    const intelligence = new CollectionYamlIntelligence(editorService);
+    const treeProvider = new CollectionTreeProvider(editorService);
+    const subscriptions: vscode.Disposable[] = [];
+    const provider = new CollectionCustomEditorProvider({
+      globalStorageUri: vscode.Uri.file(workspace),
+      extensionUri: vscode.Uri.file(path.resolve(__dirname, '../../..')),
+      subscriptions
+    } as vscode.ExtensionContext, editorService, intelligence, treeProvider);
+    const content = 'id: example\nname: Example\nversion: 1.0.0\nitems: []\n';
+    const document = createMockDocument(content, path.join(workspace, 'collections', 'example.collection.yml'));
+    const panel = vscode.window.createWebviewPanel('test', 'test', vscode.ViewColumn.One, {});
+    let receiveMessage: ((msg: Record<string, unknown>) => unknown) | undefined;
+    sandbox.stub(panel.webview, 'onDidReceiveMessage').callsFake((listener) => {
+      receiveMessage = listener;
+      return { dispose: () => undefined };
+    });
+    const postMessage = sandbox.spy(panel.webview, 'postMessage');
+    const showError = sandbox.stub(vscode.window, 'showErrorMessage').resolves();
+    const applyEdit = sandbox.stub(vscode.workspace, 'applyEdit').resolves(true);
+    try {
+      provider.resolveCustomTextEditor(document, panel);
+      assert.ok(receiveMessage);
+      await receiveMessage({
+        type: 'scaffoldPrimitive',
+        input: { kind: 'readme', name: 'Example', customRelPath: 'docs/new/README.md' }
+      });
+      await receiveMessage({ type: 'loadPrimitiveContent', relPath: 'docs/private.md' });
+      await receiveMessage({
+        type: 'savePrimitiveContent', relPath: 'docs/private.md', update: { rawContent: 'replacement' }
+      });
+      assert.strictEqual(showError.callCount, 3, 'Every rejected operation should surface an error');
+      assert.strictEqual(applyEdit.callCount, 0, 'Rejected scaffolding must not update the manifest');
+      assert.strictEqual(fs.existsSync(path.join(outside, 'new')), false);
+      assert.strictEqual(fs.readFileSync(path.join(outside, 'private.md'), 'utf8'), 'PRIVATE CONTENT');
+      assert.ok(!JSON.stringify(postMessage.args).includes('PRIVATE CONTENT'));
+      const loaded = postMessage.args.filter(([msg]) => msg.type === 'primitiveContentLoaded');
+      assert.strictEqual(loaded.length, 1, 'Only the failed load should send an empty editor state');
+      assert.strictEqual(loaded[0][0].content.exists, false);
+      assert.strictEqual(loaded[0][0].content.rawContent, '');
+    } finally {
+      panel.dispose();
+      subscriptions.forEach((disposable) => disposable.dispose());
+      intelligence.dispose();
+      treeProvider.dispose();
+    }
+  });
+
+  test('opening collection references rejects traversal and outside directory links but permits local files', async () => {
+    const workspace = path.join(tmpDir, 'workspace');
+    const outside = path.join(tmpDir, 'outside');
+    fs.mkdirSync(workspace);
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, 'private.md'), 'private');
+    fs.writeFileSync(path.join(workspace, 'local.md'), 'local');
+    fs.symlinkSync(outside, path.join(workspace, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value(undefined);
+    const editorService = new CollectionEditorService();
+    const intelligence = new CollectionYamlIntelligence(editorService);
+    const treeProvider = new CollectionTreeProvider(editorService);
+    const subscriptions: vscode.Disposable[] = [];
+    const commands = new CollectionEditorCommands({
+      globalStorageUri: vscode.Uri.file(workspace), subscriptions
+    } as vscode.ExtensionContext, sandbox.createStubInstance(RegistryManager), editorService, treeProvider, intelligence);
+    const open = sandbox.stub(vscode.workspace, 'openTextDocument').resolves(createMockDocument('local'));
+    sandbox.stub(vscode.window, 'showTextDocument').resolves();
+    const error = sandbox.stub(vscode.window, 'showErrorMessage').resolves();
+    const uri = vscode.Uri.file(path.join(workspace, 'collections', 'example.collection.yml'));
+    try {
+      await commands.openCollectionItemFile(uri, '../outside/private.md');
+      await commands.openCollectionItemFile(uri, 'linked/private.md');
+      assert.strictEqual(error.callCount, 2);
+      assert.strictEqual(open.callCount, 0);
+      await commands.openCollectionItemFile(uri, 'local.md');
+      assert.strictEqual(open.callCount, 1);
+      const opened: unknown = open.firstCall.args[0];
+      assert.ok(opened && typeof opened === 'object' && 'fsPath' in opened);
+      assert.strictEqual(opened.fsPath, await fs.promises.realpath(path.join(workspace, 'local.md')));
+    } finally {
+      subscriptions.forEach((disposable) => disposable.dispose());
+      intelligence.dispose();
+      treeProvider.dispose();
+    }
   });
 });

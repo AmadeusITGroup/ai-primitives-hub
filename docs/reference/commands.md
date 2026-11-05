@@ -12,6 +12,21 @@ The command is metadata-only by default: it never downloads archives or publishe
 
 `--cache-dir`, `--workers`, and `--request-budget` control persistent metadata/archive reuse, concurrency, and the GitHub request ceiling. Cache files are atomically written with directory mode 700 and file mode 600. No GitHub fallback client or `gh` CLI is used by production replication.
 
+## Security Scanning
+
+`ai-primitives-hub security scan [PATH...] [--ci] [--fail-on HIGH]`
+
+Scans Markdown artifacts and Claude settings without executing them. Reports
+are opt-in; secret evidence is redacted. See the [scanner reference](./security-scanner.md)
+for options, failure policies, and exit codes.
+
+| Command ID | Command Palette title |
+|---|---|
+| `promptregistry.securityScanFile` | Security Scan Current File |
+| `promptregistry.securityScanWorkspace` | Security Scan Workspace |
+| `promptregistry.securityShowLastReport` | Show Last Security Report |
+| `promptregistry.securityClearDiagnostics` | Clear Security Diagnostics |
+
 ## Bundle Install (CLI)
 
 `ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] --target <target> [--skip-unsupported]`
@@ -56,15 +71,15 @@ See [Plugin Items](../author-guide/collection-schema.md#plugin-items) for the pl
 
 `ai-primitives-hub security rate [path] [--findings <report.json>] [--fail-on <level>] [--report-json <file>] [--report-markdown <file>] [--overwrite] [-o <format>]`
 
-Scans a source checkout and rates its collections (or skills). Without `--findings` the checkout is scanned with the built-in scanner; with `--findings` the findings of another scanner are rated instead.
+Rates the collections (or skills) of a source checkout from a security scan: each bundle and the source get a 0-100 score, a risk band and a pass/fail gate. Without `--findings` the checkout is scanned with the [security scanner](./security-scanner.md), with the same rules as `security scan`; with `--findings` the findings of a scan report are rated instead.
 
-- **Built-in scanner.** A deterministic, offline scanner for Markdown and text files: no model, no network. It applies the rule families `SEC` (secrets), `INJ` (prompt injection), `MD` (Markdown and HTML injection), `HKS` (hooks and shell), `AGT`, `MCP`, `SKL`, `LLM` and `ASI` (agent, MCP, skill and supply-chain risks). Rules honour their context: most do not fire inside fenced code blocks, inline code spans or example/attack sections, some fire only near a security-sensitive word, and secret placeholders such as `YOUR_API_KEY` are ignored. In an example section secrets drop to `MEDIUM` and prompt-injection findings to `INFO`; in documentation-only files (`README`, `CHANGELOG`, `CONTRIBUTING`, `LICENSE`, ...) every finding is `INFO`. Files that are not Markdown get only the secret and hook rules. Secret values are redacted and never appear in a report. Not run: the absence-based `CTL-*` controls and structured `settings.json` checks. `node_modules`, `.git`, `dist`, `build`, `out`, `vendor`, `.venv`, `coverage`, binary files, symlinks, files over 5 MiB and the paths listed in a `.scanignore` at the root (one path per line, `#` for comments) are skipped.
-- **Findings input.** `--findings` is a JSON object with a `findings` array, or a bare array. Each finding needs `ruleId`, `file` and `severity` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW` or `INFO`); `confidence` (default `HIGH`), `title`, `line` and `recommendedFix` are optional. Entries that lack a required field are skipped and counted in the output. Absolute `file` paths inside the checkout are made relative to it. A file that is not valid JSON, or has no findings array, exits 65.
+- **Scan.** The checkout is scanned recursively for `.md` and `.markdown` files, documentation files included (they cost fewer points, see Score). Repository suppressions (`.markdown.ignore`) are ignored, so a rated repository cannot tune its own rating. An incomplete scan (for example an unreadable file) is reported and exits 65.
+- **Findings input.** `--findings` is the `--report-json` of `security scan`, or any JSON object with a `findings` array, or a bare array. Each finding needs `ruleId` (or `rule_id`), `file` and `severity` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW` or `INFO`); `confidence` (default `HIGH`), `title`, `line` and `recommendedFix` (or `recommended_fix`) are optional. Entries that lack a required field are skipped and counted in the output. Absolute `file` paths inside the checkout are made relative to it. A file that is not valid JSON, or has no findings array, exits 65.
 - **Bundles.** With `collections/*.collection.yml`, each collection is one bundle made of its collection file, its items (a `skill` item brings its whole folder) and its readme. Otherwise each `skills/<name>/SKILL.md` folder is a bundle. With neither, the whole repository is rated as one unit. `--collections-path` and `--skills-path` change the folders; paths that leave the checkout and symlinks are ignored with a warning.
-- **Score.** Each finding costs points: severity (`CRITICAL` 40, `HIGH` 20, `MEDIUM` 8, `LOW` 3, `INFO` 0) times confidence (`HIGH` 1, `MEDIUM` 0.5, `LOW` 0.25) times the file context (primitive files 1, documentation 0.25, vendored code 0.1). Repeats of the same rule in the same bundle count 1, 0.5, then 0.25. A bundle scores `round(100 * exp(-penalty / 40))`. The source score is the average of its bundles.
+- **Score.** Each finding costs points: severity (`CRITICAL` 40, `HIGH` 20, `MEDIUM` 8, `LOW` 3, `INFO` 0) times confidence (`HIGH` 1, `MEDIUM` 0.5, `LOW` 0.25) times the file context (primitive files 1, documentation 0.25, vendored code 0.1). The rules `INJ-002`, `HKS-008` and `MD-001`, which often match documentation, count 0.25. Repeats of the same rule in the same bundle count 1, 0.5, then 0.25. A bundle scores `round(100 * exp(-penalty / 40))`. The source score is the average of its bundles.
 - **Risk.** `low` from 90, `medium` from 70, `high` from 40, otherwise `critical`.
-- **Gate.** `--fail-on` (default `CRITICAL`; `none` disables) fails when any bundle scores below `CRITICAL` 40, `HIGH` 70, `MEDIUM` 90 or `LOW` 100. The exit code is 1 when the gate fails, 0 when it passes, 64 for invalid options and 74 for a failed write.
-- **Reports.** `--report-json` writes `quality-report.json` (schema `quality-report.schema.json`, `schemaVersion` 1) and `--report-markdown` a summary suited to a job summary or pull-request comment. Existing files are not replaced unless `--overwrite` is set. `--repository`, `--tag` and `--commit` default to `GITHUB_REPOSITORY`, `GITHUB_REF_NAME` and `GITHUB_SHA`; `--scanner-name` records which scanner produced the findings (default `ai-primitives-hub`, or `unspecified` with `--findings`). `-o json|yaml|ndjson` prints the report in the standard envelope.
+- **Gate.** `--fail-on` (default `CRITICAL`; `none` disables) fails when any bundle scores below `CRITICAL` 40, `HIGH` 70, `MEDIUM` 90 or `LOW` 100. The exit code is 1 when the gate fails, 0 when it passes, 64 for invalid options, 65 for an incomplete scan or unreadable findings, and 74 for a failed write.
+- **Reports.** `--report-json` writes `quality-report.json` (schema `quality-report.schema.json`, `schemaVersion` 1) and `--report-markdown` a summary suited to a job summary or pull-request comment. Existing files are not replaced unless `--overwrite` is set. `--repository`, `--tag` and `--commit` default to `GITHUB_REPOSITORY`, `GITHUB_REF_NAME` and `GITHUB_SHA`; `--scanner-name` records which scanner produced the findings (default `ai-primitives-hub-security`, or `unspecified` with `--findings`). `-o json|yaml|ndjson` prints the report in the standard envelope.
 ## Doctor Diagnostics (CLI)
 
 `ai-primitives-hub doctor diagnostics [--primitives [--kinds <csv>] [--targets <csv>] [--scopes <csv>]] [--retain-workspace] [-v] [-o <format>]`

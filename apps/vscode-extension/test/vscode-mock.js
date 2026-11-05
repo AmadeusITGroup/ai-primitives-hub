@@ -9,11 +9,13 @@ module.exports = {
     delete: async () => undefined
   },
   workspace: {
+    isTrusted: true,
     workspaceFolders: undefined,
     textDocuments: [],
     onDidChangeTextDocument: () => ({ dispose: () => {} }),
     onDidOpenTextDocument: () => ({ dispose: () => {} }),
     onDidSaveTextDocument: () => ({ dispose: () => {} }),
+    onDidCloseTextDocument: () => ({ dispose: () => {} }),
     onDidChangeConfiguration: () => ({ dispose: () => {} }),
     openTextDocument: async (uriOrOptions) => ({
       uri: uriOrOptions?.fsPath ? uriOrOptions : { fsPath: '/mock/hub-config.yml', scheme: 'file' },
@@ -99,6 +101,14 @@ module.exports = {
     createTextEditorDecorationType: () => ({ key: 'mock-decoration', dispose: () => {} }),
     registerCustomEditorProvider: () => ({ dispose: () => {} }),
     createTreeView: () => ({ dispose: () => {} }),
+    createWebviewPanel: (viewType, title, viewColumn, options) => ({
+      viewType, title, viewColumn, options, active: true, visible: true,
+      webview: { html: '', options: {}, onDidReceiveMessage: () => ({ dispose: () => {} }) },
+      onDidDispose: () => ({ dispose: () => {} }),
+      onDidChangeViewState: () => ({ dispose: () => {} }),
+      reveal: () => undefined,
+      dispose: () => undefined
+    }),
     createQuickPick: () => {
       const quickPick = {
         items: [],
@@ -118,6 +128,13 @@ module.exports = {
     createOutputChannel: (name) => ({
       appendLine: () => undefined,
       show: () => undefined,
+      dispose: () => undefined
+    }),
+    createStatusBarItem: () => ({
+      text: '',
+      tooltip: '',
+      show: () => undefined,
+      hide: () => undefined,
       dispose: () => undefined
     }),
     withProgress: async (options, task) => {
@@ -201,6 +218,7 @@ module.exports = {
     Information: 2,
     Hint: 3
   },
+  StatusBarAlignment: { Left: 1, Right: 2 },
   Diagnostic: class {
     constructor(range, message, severity = 0) {
       this.range = range;

@@ -12,6 +12,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Sources](user-guide/sources.md)** — Managing bundle sources
 - **[Profiles and Hubs](user-guide/profiles-and-hubs.md)** — Profile and Hub management
 - **[Configuration](user-guide/configuration.md)** — Extension settings and telemetry
+- **[Security Scanning](user-guide/security-scanning.md)** — Markdown findings, suppressions, and CI gates
 - **[Troubleshooting](user-guide/troubleshooting.md)** — Common issues
 
 ---
@@ -41,6 +42,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
   - [MCP Integration](contributor-guide/architecture/mcp-integration.md)
   - [Scaffolding](contributor-guide/architecture/scaffolding.md)
   - [Validation](contributor-guide/architecture/validation.md)
+  - [Security Scanner](contributor-guide/architecture/security-scanner.md)
   - [Architecture decisions](contributor-guide/architecture/adr/adr-index.md)
 - **[Core Flows](contributor-guide/core-flows.md)** — Key system flows
 - **[Testing](contributor-guide/testing.md)** — Testing strategy
@@ -49,6 +51,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Coding Standards](contributor-guide/coding-standards.md)** — Style guide
 - **[Visual Collection Editor Specification](contributor-guide/spec-collection-visual-editor.md)** — Visual collection authoring & GitHub PR workflow
 - **[Releasing](contributor-guide/releasing.md)** — Release process
+- **[Security Scanner Maintenance](contributor-guide/security-scanner-maintenance.md)** — Rule-pack maintenance and validation
 - **[Golden Path Test Cases](contributor-guide/testing/golden-path.md)** — The three mandatory manual scenarios, and the release gate
 - **[Full Test Plan](contributor-guide/testing/test-plan.md)** — All 19 plans, for area-by-area manual coverage
 - **[Testing User-Scoped Customization Discovery in WSL](contributor-guide/testing/wsl-user-scope-customization-discovery.md)** — WSL path analysis and cross-harness test matrix
@@ -59,6 +62,8 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 
 - **[Commands](reference/commands.md)** — VS Code commands
 - **[Settings](reference/settings.md)** — Extension settings
+- **[Security Scanner](reference/security-scanner.md)** — CLI options, reports, and exit codes
+- **[Security Detection Rules](reference/security-rules.md)** — Implemented rule catalogue, applicability, and policy defaults
 - **[Adapter API](reference/adapter-api.md)** — Custom adapters
 - **[Hub Schema](reference/hub-schema.md)** — Hub configuration
 - **[Hub Replication](reference/hub-replication.md)** — Replicating GitHub release bundles to Artifactory

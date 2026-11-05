@@ -4,3 +4,4 @@
  */
 export * from './env-placeholders';
 export * from './inputs';
+export * from './server-key';
