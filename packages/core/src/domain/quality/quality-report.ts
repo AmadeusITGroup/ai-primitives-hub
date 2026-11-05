@@ -5,6 +5,7 @@
  * The JSON shape is `quality-report.schema.json` (schemaVersion 1).
  * @module domain/quality/quality-report
  */
+import * as path from 'node:path';
 import {
   recommendedFixFor,
 } from './remediation';
@@ -68,7 +69,7 @@ export interface QualitySourceBlock extends QualityBlock {
 export interface QualityReport {
   schemaVersion: 1;
   generatedAt: string;
-  scanner: { name: string; version?: string };
+  scanner: { name: string };
   source: { repository: string; tag: string; commit: string; mode: QualityReportMode };
   repo: QualitySourceBlock;
   bundles: QualityBundle[];
@@ -100,7 +101,7 @@ const round1 = (value: number): number => Math.round(value * 10) / 10;
  * Normalise a path for matching: forward slashes, no leading `./`.
  * @param file - Path as reported by the scanner or a collection
  */
-export const normalizeReportPath = (file: string): string => file.replaceAll('\\', '/').replace(/^\.\//, '');
+export const normalizeReportPath = (file: string): string => path.posix.normalize(file.replaceAll('\\', '/'));
 
 /**
  * Rate a list of findings.
@@ -173,7 +174,7 @@ export interface BuildQualityReportInput {
   mode: QualityReportMode;
   failOn: QualityFailOn;
   generatedAt: string;
-  scanner: { name: string; version?: string };
+  scanner: { name: string };
   source: { repository: string; tag: string; commit: string };
   weights?: ScoringWeights;
   maxFindings?: number;

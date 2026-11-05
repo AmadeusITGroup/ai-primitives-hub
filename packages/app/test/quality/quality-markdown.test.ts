@@ -72,3 +72,12 @@ describe('quality markdown', () => {
     expect(renderQualityMarkdown(report([bundle('a', 100, 'low')], true))).toContain('exp(−penalty / 40)');
   });
 });
+
+describe('quality markdown escaping', () => {
+  it('keeps a bundle id with a pipe or markup from breaking the table or the summary', () => {
+    const text = renderQualityMarkdown(report([bundle('a|b', 20, 'critical', [entry('X-1', 20)]), bundle('<img src=x>', 20, 'critical', [entry('X-2', 20)])], false));
+    expect(text).toContain(String.raw`a\|b`);
+    expect(text).not.toContain('<code><img');
+    expect(text).toContain('&lt;img src=x&gt;');
+  });
+});

@@ -38,12 +38,24 @@ export interface QualityRatingResult {
   warnings: readonly string[];
 }
 
+const isOutside = (relative: string): boolean => relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+
 const relativeToRoot = (root: string, file: string): string => {
   if (!path.isAbsolute(file)) {
     return file;
   }
   const relative = path.relative(path.resolve(root), file);
-  return relative.startsWith('..') || path.isAbsolute(relative) ? file : relative;
+  return isOutside(relative) ? file : relative;
+};
+
+/**
+ * True when a finding path resolves outside the checkout.
+ * @param root
+ * @param file
+ */
+const isOutsideRoot = (root: string, file: string): boolean => {
+  const base = path.resolve(root);
+  return isOutside(path.relative(base, path.resolve(base, file)));
 };
 
 /**
@@ -64,7 +76,9 @@ export const runQualityRating = (options: {
     collectionsPath: request.collectionsPath,
     skillsPath: request.skillsPath
   });
-  const findings = options.findings.map((item) => ({ ...item, file: relativeToRoot(request.root, item.file) }));
+  const findings = options.findings
+    .filter((item) => !isOutsideRoot(request.root, item.file))
+    .map((item) => ({ ...item, file: relativeToRoot(request.root, item.file) }));
   const report = buildQualityReport({
     findings,
     bundles: discovered.bundles,

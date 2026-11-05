@@ -36,6 +36,8 @@ const scoreCell = (score: number | null): string => (score === null ? '—' : `\
 
 const escapeCell = (text: string): string => text.replaceAll('|', String.raw`\|`).replaceAll(/\r?\n/g, ' ').trim();
 
+const escapeHtml = (text: string): string => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
 const riskCounts = (bundles: readonly QualityBundle[]): string => {
   const counts = new Map<QualityRisk, number>();
   for (const bundle of bundles) {
@@ -56,7 +58,7 @@ const details = (summary: string, body: readonly string[]): string[] =>
 const findingsTable = (findings: QualityBundle['findings'], limit = 5): string[] => {
   const lines = ['| Cost | Rule | Where | How to fix |', '|---:|---|---|---|'];
   for (const item of findings.slice(0, limit)) {
-    lines.push(`| -${String(item.points)} | \`${item.ruleId}\` ${escapeCell(item.title)} | \`${escapeCell(item.file)}:${String(item.line)}\` | ${escapeCell(item.fix)} |`);
+    lines.push(`| -${String(item.points)} | \`${escapeCell(item.ruleId)}\` ${escapeCell(item.title)} | \`${escapeCell(item.file)}:${String(item.line)}\` | ${escapeCell(item.fix)} |`);
   }
   if (findings.length > limit) {
     lines.push(`| | _${String(findings.length - limit)} more in the JSON report_ | | |`);
@@ -70,7 +72,7 @@ const bundlesTable = (bundles: readonly QualityBundle[], failOn: QualityFailOn):
   for (const bundle of ordered) {
     const top = bundle.findings.at(0)?.title ?? '-';
     lines.push(
-      `| ${gateFailed(bundle.score, failOn) ? FAIL : OK} | \`${bundle.id}\` ${bundle.version} | ${scoreCell(bundle.score)} `
+      `| ${gateFailed(bundle.score, failOn) ? FAIL : OK} | \`${escapeCell(bundle.id)}\` ${escapeCell(bundle.version)} | ${scoreCell(bundle.score)} `
       + `| ${riskBadge(bundle.risk)} | ${severityCounts(bundle.counts)} | ${escapeCell(top)} |`
     );
   }
@@ -87,7 +89,7 @@ const bundleSections = (bundles: readonly QualityBundle[], failOn: QualityFailOn
   if (shown.length > 0) {
     lines.push(failing.length > 0 ? `#### Needs attention (${String(failing.length)} below the gate limit)` : '#### Lowest scoring bundles', '');
     for (const bundle of shown.filter((item) => item.findings.length > 0)) {
-      lines.push(...details(`<b><code>${bundle.id}</code></b> &nbsp; ${String(bundle.score)}/100 &nbsp; ${riskBadge(bundle.risk)}`, findingsTable(bundle.findings)));
+      lines.push(...details(`<b><code>${escapeHtml(bundle.id)}</code></b> &nbsp; ${String(bundle.score)}/100 &nbsp; ${riskBadge(bundle.risk)}`, findingsTable(bundle.findings)));
     }
     if (failing.length > shown.length) {
       lines.push(`_${String(failing.length - shown.length)} more below the limit are in the full table._`, '');

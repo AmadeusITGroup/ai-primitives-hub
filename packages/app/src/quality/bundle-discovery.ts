@@ -53,8 +53,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const toPosix = (value: string): string => value.split(path.sep).join('/');
 
+const isOutside = (relative: string): boolean => relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+
 /**
- * Resolve a repository-relative path inside `root`, or undefined when it escapes or is invalid.
+ * Resolve a repository-relative path inside `root`, or undefined when it escapes (also through a
+ * symlinked folder) or is invalid. A path that does not exist yet is returned as is.
  * @param root - Repository root
  * @param relative - Path from a collection or option
  */
@@ -66,7 +69,15 @@ const resolveInside = (root: string, relative: unknown): string | undefined => {
     const normalized = normalizeRepoRelativePath(relative);
     const absolute = path.resolve(root, normalized);
     const inside = path.relative(path.resolve(root), absolute);
-    return inside === '' || inside.startsWith('..') || path.isAbsolute(inside) ? undefined : normalized;
+    if (inside === '' || isOutside(inside)) {
+      return undefined;
+    }
+    try {
+      const real = path.relative(fs.realpathSync(root), fs.realpathSync(absolute));
+      return isOutside(real) ? undefined : normalized;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ENOENT' ? normalized : undefined;
+    }
   } catch {
     return undefined;
   }
@@ -113,6 +124,7 @@ const discoverCollections = (root: string, collectionsPath: string): { bundles: 
   const bundles: BundleFiles[] = [];
   const warnings: string[] = [];
   if (folder === undefined) {
+    warnings.push(`${collectionsPath}: collections path is outside the repository or invalid`);
     return { bundles, warnings };
   }
   for (const entry of listDirectory(path.join(root, folder))) {
@@ -144,9 +156,9 @@ const discoverCollections = (root: string, collectionsPath: string): { bundles: 
         warnings.push(`${collectionFile}: item not found or outside the repository: ${String(reference.path)}`);
         continue;
       }
-      // A skill item brings its folder, but never the whole repository for a root-level SKILL.md.
+      // A skill or plugin item brings its folder, but never the whole repository for a root-level file.
       const skillFolder = path.posix.dirname(relative);
-      if (reference.kind === 'skill' && skillFolder !== '.') {
+      if ((reference.kind === 'skill' || reference.kind === 'plugin') && skillFolder !== '.') {
         for (const file of regularFilesUnder(root, skillFolder)) {
           files.add(file);
         }
@@ -190,10 +202,10 @@ const contentHash = (root: string, files: readonly string[]): string => {
   return `hash:${digest.digest('hex').slice(0, 12)}`;
 };
 
-const discoverSkills = (root: string, skillsPath: string, repository: string): BundleFiles[] => {
+const discoverSkills = (root: string, skillsPath: string, repository: string): { bundles: BundleFiles[]; warnings: string[] } => {
   const folder = resolveInside(root, skillsPath);
   if (folder === undefined) {
-    return [];
+    return { bundles: [], warnings: [`${skillsPath}: skills path is outside the repository or invalid`] };
   }
   const [owner = '', repo = ''] = repository.split('/');
   const bundles: BundleFiles[] = [];
@@ -209,7 +221,7 @@ const discoverSkills = (root: string, skillsPath: string, repository: string): B
       metadata: { author: owner === '' ? null : owner, kind: { skill: 1 }, labels: [] }
     });
   }
-  return bundles;
+  return { bundles, warnings: [] };
 };
 
 /**
@@ -223,7 +235,8 @@ export const discoverBundles = (root: string, options: BundleDiscoveryOptions): 
     return { mode: 'collections', bundles: collections.bundles, warnings: collections.warnings };
   }
   const skills = discoverSkills(root, options.skillsPath ?? 'skills', options.repository);
-  return skills.length > 0
-    ? { mode: 'skills', bundles: skills, warnings: collections.warnings }
-    : { mode: 'repository', bundles: [], warnings: collections.warnings };
+  const warnings = [...collections.warnings, ...skills.warnings];
+  return skills.bundles.length > 0
+    ? { mode: 'skills', bundles: skills.bundles, warnings }
+    : { mode: 'repository', bundles: [], warnings };
 };

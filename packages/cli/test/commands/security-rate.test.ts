@@ -148,4 +148,47 @@ describe('security rate command', () => {
     await writeFile(findings, '{"unrelated": true}');
     expect((await rate(['--findings', findings])).exitCode).toBe(65);
   });
+
+  it('writes neither report when one destination already exists', async () => {
+    const json = path.join(directory, 'out', 'r.json');
+    const markdown = path.join(directory, 'out', 'r.md');
+    await mkdir(path.join(directory, 'out'));
+    await writeFile(markdown, 'old');
+    const result = await rate(['--findings', findings, '--report-json', json, '--report-markdown', markdown]);
+    expect(result.exitCode).toBe(74);
+    await expect(readFile(json, 'utf8')).rejects.toThrow();
+    expect(await readFile(markdown, 'utf8')).toBe('old');
+  });
+
+  it('rejects the same file for both reports', async () => {
+    const same = path.join(directory, 'report.out');
+    const result = await rate(['--findings', findings, '--report-json', same, '--report-markdown', same, '--overwrite']);
+    expect(result.exitCode).toBe(64);
+    expect(result.stderr).toContain('must name different files');
+  });
+
+  it('rejects a PATH that is not an existing directory', async () => {
+    const result = await runCommand(['security', 'rate', path.join(directory, 'missing'), '--findings', findings], {
+      commandClasses: [SecurityRateCommand],
+      context: { cwd: directory, fs: new NodeFileSystem(), env: {} }
+    });
+    expect(result.exitCode).toBe(64);
+    expect(result.stderr).toContain('not an existing directory');
+  });
+
+  it('rejects a findings file in which no entry is usable', async () => {
+    await writeFile(findings, JSON.stringify([{ ruleId: 'X-1' }, { title: 'no rule' }]));
+    const result = await rate(['--findings', findings]);
+    expect(result.exitCode).toBe(65);
+    expect(result.stderr).toContain('No usable findings');
+  });
+
+  it('records the tag only for runs on a tag', async () => {
+    const tagOf = async (env: Record<string, string>): Promise<string> => {
+      const result = await rate(['--findings', findings, '-o', 'json', '--fail-on', 'none'], env);
+      return (JSON.parse(result.stdout) as { data: { report: { source: { tag: string } } } }).data.report.source.tag;
+    };
+    expect(await tagOf({ GITHUB_REF_NAME: 'main', GITHUB_REF_TYPE: 'branch' })).toBe('');
+    expect(await tagOf({ GITHUB_REF_NAME: 'v1.0.0', GITHUB_REF_TYPE: 'tag' })).toBe('v1.0.0');
+  });
 });

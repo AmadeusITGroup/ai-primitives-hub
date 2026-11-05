@@ -56,7 +56,7 @@ export const parseFindingsDocument = (document: unknown): ParsedFindings => {
       severity,
       confidence,
       file: entry.file,
-      ...(typeof entry.line === 'number' && Number.isFinite(entry.line) ? { line: entry.line } : {}),
+      ...(typeof entry.line === 'number' && Number.isInteger(entry.line) ? { line: entry.line } : {}),
       ...(typeof recommendedFix === 'string' && recommendedFix !== '' ? { recommendedFix } : {})
     });
   }

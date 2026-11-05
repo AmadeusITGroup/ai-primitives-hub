@@ -132,7 +132,9 @@ export const scoreFindings = (
   const order = findings.map((_, index) => index).toSorted((a, b) =>
     compare(findings[a].file, findings[b].file)
     || compare(findings[a].line ?? 0, findings[b].line ?? 0)
-    || compare(findings[a].ruleId, findings[b].ruleId));
+    || compare(findings[a].ruleId, findings[b].ruleId)
+    || compare(weights.severityPoints[findings[b].severity], weights.severityPoints[findings[a].severity])
+    || compare(weights.confidenceFactor[findings[b].confidence] ?? 1, weights.confidenceFactor[findings[a].confidence] ?? 1));
   const lastRepeat = weights.repeatFactor.length - 1;
   for (const index of order) {
     const item = findings[index];
@@ -142,7 +144,7 @@ export const scoreFindings = (
     points[index] = weights.severityPoints[item.severity]
       * (weights.confidenceFactor[item.confidence] ?? 1)
       * weights.contextFactor[classifyPath(item.file, weights)]
-      * (weights.ruleFactor[item.ruleId] ?? 1)
+      * (Object.hasOwn(weights.ruleFactor, item.ruleId) ? weights.ruleFactor[item.ruleId] : 1)
       * weights.repeatFactor[Math.min(occurrence, lastRepeat)];
   }
   const penalty = points.reduce((sum, value) => sum + value, 0);

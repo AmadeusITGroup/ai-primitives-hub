@@ -87,3 +87,28 @@ describe('runQualityRating', () => {
     expect(report.bundles).toEqual([]);
   });
 });
+
+describe('runQualityRating findings outside the checkout', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aph-rating-outside-'));
+    fs.writeFileSync(path.join(root, 'README.md'), 'x');
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('does not count them against the whole repository', () => {
+    const outside = [finding('../other/SKILL.md', 'HKS-001', 'CRITICAL'), finding(path.join(path.dirname(root), 'x', 'SKILL.md'), 'HKS-001', 'CRITICAL')];
+    const { report } = runQualityRating({
+      findings: [...outside, finding('..config/SKILL.md', 'MD-002', 'LOW')],
+      generatedAt,
+      request: { root, repository: 'o/r', failOn: 'CRITICAL', scannerName: 'test-scanner' }
+    });
+    expect(report.source.mode).toBe('repository');
+    expect(report.repo.counts.CRITICAL).toBe(0);
+    expect(report.repo.counts.LOW).toBe(1);
+  });
+});

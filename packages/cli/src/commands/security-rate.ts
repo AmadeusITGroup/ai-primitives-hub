@@ -122,7 +122,7 @@ export class SecurityRateCommand extends Command {
         --findings <file>          Rate the findings of this scan report instead of scanning
         --fail-on <level>          none, CRITICAL, HIGH, MEDIUM or LOW (default: CRITICAL)
         --repository <owner/repo>  Recorded in the report (default: GITHUB_REPOSITORY, else local/<dir>)
-        --tag <tag>                Release tag (default: GITHUB_REF_NAME)
+        --tag <tag>                Release tag (default: GITHUB_REF_NAME when GITHUB_REF_TYPE is tag)
         --commit <sha>             Commit (default: GITHUB_SHA)
         --collections-path <dir>   Collections folder (default: collections)
         --skills-path <dir>        Skills folder (default: skills)
@@ -170,11 +170,29 @@ export class SecurityRateCommand extends Command {
     }
     const failOn = (level === 'NONE' ? 'none' : level) as QualityFailOn;
     const root = path.resolve(ctx.cwd(), this.rest[0] ?? '.');
+    const isDirectory = await ctx.fs.stat(root).then((stat) => stat.isDirectory, () => false);
+    if (!isDirectory) {
+      ctx.stderr.write(`PATH is not an existing directory: ${root}\n`);
+      return EXIT_USAGE;
+    }
+    const destinations = [this.reportJson, this.reportMarkdown].filter((destination): destination is string => destination !== undefined);
+    if (new Set(destinations.map((destination) => path.resolve(ctx.cwd(), destination))).size < destinations.length) {
+      ctx.stderr.write('--report-json and --report-markdown must name different files\n');
+      return EXIT_USAGE;
+    }
+    if (!this.overwrite) {
+      for (const destination of destinations) {
+        if (await ctx.fs.exists(path.resolve(ctx.cwd(), destination))) {
+          ctx.stderr.write(`${destination} already exists; pass --overwrite to replace it\n`);
+          return EXIT_IO;
+        }
+      }
+    }
 
     const request = {
       root,
       repository: this.repository ?? ctx.env.GITHUB_REPOSITORY ?? `local/${path.basename(root)}`,
-      tag: this.tag ?? ctx.env.GITHUB_REF_NAME,
+      tag: this.tag ?? (ctx.env.GITHUB_REF_TYPE === 'tag' ? ctx.env.GITHUB_REF_NAME : undefined),
       commit: this.commit ?? ctx.env.GITHUB_SHA,
       failOn,
       collectionsPath: this.collectionsPath,
@@ -206,6 +224,10 @@ export class SecurityRateCommand extends Command {
           return EXIT_BAD_INPUT;
         }
         skipped = parsed.skipped;
+        if (parsed.findings.length === 0 && parsed.skipped > 0) {
+          ctx.stderr.write(`No usable findings in ${this.findings}: ${String(parsed.skipped)} entries lack a rule id, file or severity\n`);
+          return EXIT_BAD_INPUT;
+        }
         result = runQualityRating({
           findings: parsed.findings,
           generatedAt: ctx.clock.nowIso(),

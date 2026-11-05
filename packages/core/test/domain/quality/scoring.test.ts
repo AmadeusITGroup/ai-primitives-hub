@@ -142,3 +142,17 @@ describe('quality scoring', () => {
     expect(DEFAULT_SCORING_WEIGHTS.riskBands).toEqual({ low: 90, medium: 70, high: 40 });
   });
 });
+
+describe('quality scoring edge cases', () => {
+  it('scores a rule id that names an Object member at full weight', () => {
+    const [value] = points(finding({ ruleId: 'toString', severity: 'CRITICAL' }));
+    expect(value).toBe(40);
+  });
+
+  it('does not depend on the input order of findings that share rule, file and line', () => {
+    const critical = finding({ severity: 'CRITICAL' });
+    const medium = finding({ severity: 'MEDIUM' });
+    const total = (...items: ScoredInput[]): number => scoreFindings(items).penalty;
+    expect(total(critical, medium)).toBe(total(medium, critical));
+  });
+});

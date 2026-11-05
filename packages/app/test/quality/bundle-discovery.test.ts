@@ -120,3 +120,41 @@ describe('discoverBundles', () => {
     expect(bundle?.files.toSorted()).toEqual(['SKILL.md', 'collections/root.collection.yml']);
   });
 });
+
+describe('discoverBundles path checks', () => {
+  let base: string;
+  let root: string;
+
+  beforeEach(() => {
+    base = fs.mkdtempSync(path.join(os.tmpdir(), 'aph-bundles-paths-'));
+    root = path.join(base, 'repo');
+    fs.mkdirSync(root);
+  });
+
+  afterEach(() => {
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+
+  it('warns when the collections path leaves the checkout', () => {
+    const result = discoverBundles(root, { repository: 'o/r', collectionsPath: '../elsewhere' });
+    expect(result.warnings.join('\n')).toContain('collections path is outside the repository');
+  });
+
+  it('brings the whole folder of a plugin item', () => {
+    write(root, 'collections/p.collection.yml', 'id: p\nversion: 1.0.0\nitems:\n  - path: plugins/p/plugin.json\n    kind: plugin\n');
+    write(root, 'plugins/p/plugin.json');
+    write(root, 'plugins/p/lib/helper.md');
+    const [bundle] = discoverBundles(root, { repository: 'o/r' }).bundles;
+    expect(bundle.files).toEqual(['collections/p.collection.yml', 'plugins/p/lib/helper.md', 'plugins/p/plugin.json']);
+  });
+
+  it('ignores a reference that goes through a symlinked folder to the outside', () => {
+    write(base, 'outside/SKILL.md', 'secret');
+    write(root, 'skills/.keep');
+    fs.symlinkSync(path.join(base, 'outside'), path.join(root, 'skills', 'link'), 'junction');
+    write(root, 'collections/s.collection.yml', 'id: s\nversion: 1.0.0\nitems:\n  - path: skills/link/SKILL.md\n    kind: skill\n');
+    const result = discoverBundles(root, { repository: 'o/r' });
+    expect(result.bundles[0].files).toEqual(['collections/s.collection.yml']);
+    expect(result.warnings.join('\n')).toContain('skills/link/SKILL.md');
+  });
+});

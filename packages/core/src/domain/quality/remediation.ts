@@ -50,4 +50,5 @@ const BY_PREFIX: readonly (readonly [string, string])[] = [
  * @param ruleId - Scanner rule id, e.g. `HKS-001`
  */
 export const recommendedFixFor = (ruleId: string): string =>
-  BY_RULE[ruleId] ?? BY_PREFIX.find(([prefix]) => ruleId.startsWith(prefix))?.[1] ?? GENERIC;
+  (Object.hasOwn(BY_RULE, ruleId) ? BY_RULE[ruleId] : undefined)
+  ?? BY_PREFIX.find(([prefix]) => ruleId.startsWith(prefix))?.[1] ?? GENERIC;

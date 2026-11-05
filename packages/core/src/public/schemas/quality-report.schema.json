@@ -21,7 +21,7 @@
       "required": ["repository", "tag", "commit"],
       "properties": {
         "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
-        "tag": { "type": "string", "description": "Release tag; empty for pull-request and push runs." },
+        "tag": { "type": "string", "description": "Release tag; empty unless the run is for a tag." },
         "commit": { "type": "string" },
         "mode": {
           "type": "string",
@@ -40,7 +40,7 @@
             "basis": {
               "type": "string",
               "enum": ["bundles-average", "repository"],
-              "description": "bundles-average: average of the bundle scores (worst risk). repository: no bundles found, whole checkout scanned."
+              "description": "bundles-average: average of the bundle scores; risk is the band of that average, not the worst bundle's risk. repository: no bundles found, whole checkout scanned."
             }
           }
         }
@@ -60,7 +60,7 @@
       "additionalProperties": false,
       "required": ["failOn", "passed"],
       "properties": {
-        "failOn": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "NONE"] },
+        "failOn": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"] },
         "passed": { "type": "boolean" }
       }
     }

@@ -6,6 +6,7 @@ import {
 import {
   aggregateQualityBlocks,
   buildQualityReport,
+  normalizeReportPath,
   type QualityFinding,
   rateFindings,
 } from '../../../src/domain/quality';
@@ -33,7 +34,7 @@ const build = (findings: QualityFinding[], failOn: 'none' | 'CRITICAL' | 'HIGH' 
   mode: 'collections',
   failOn,
   generatedAt,
-  scanner: { name: 'test-scanner', version: '1.0.0' },
+  scanner: { name: 'test-scanner' },
   source: { repository: 'o/r', tag: '', commit: 'abc' }
 });
 
@@ -136,5 +137,12 @@ describe('quality report', () => {
     it('is stable for identical input', () => {
       expect(JSON.stringify(build(findings))).toBe(JSON.stringify(build(findings)));
     });
+  });
+});
+
+describe('normalizeReportPath', () => {
+  it('resolves dot segments and separators', () => {
+    expect(normalizeReportPath('skills/a/../a/SKILL.md')).toBe('skills/a/SKILL.md');
+    expect(normalizeReportPath('.\\skills\\a\\SKILL.md')).toBe('skills/a/SKILL.md');
   });
 });
