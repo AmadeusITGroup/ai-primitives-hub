@@ -111,6 +111,32 @@ describe('GitInfoExclude', () => {
     expect(await readExclude(fs)).toBe(HEADER);
   });
 
+  it('escapes gitignore pattern characters so each line matches only its own path', async () => {
+    const { fs, exclusion } = setup();
+    const names = [path.join('.kiro', 'steering', '[draft].md'), 'a*b.md', 'q?.md', '!bang.md', '#hash.md', 'trail  ', ' lead.md'];
+    await exclusion.add(names.map((name) => path.join(WORKSPACE_ROOT, name)));
+    // Git keeps leading spaces; only trailing ones need a backslash.
+    expect((await readExclude(fs))?.split('\n')).toEqual([
+      HEADER,
+      String.raw`.kiro/steering/\[draft\].md`,
+      String.raw`a\*b.md`,
+      String.raw`q\?.md`,
+      String.raw`\!bang.md`,
+      String.raw`\#hash.md`,
+      String.raw`trail\ \ `,
+      ' lead.md'
+    ]);
+  });
+
+  it('removes the escaped line and a line written for the same path before escaping', async () => {
+    const draft = path.join(WORKSPACE_ROOT, '.kiro', 'steering', '[draft].md');
+    const { fs, exclusion } = setup(`${HEADER}\n.kiro/steering/[draft].md\n.github/prompts/x.prompt.md`);
+    await exclusion.add([draft]);
+    expect(await readExclude(fs)).toBe(`${HEADER}\n${String.raw`.kiro/steering/\[draft\].md`}\n.kiro/steering/[draft].md\n.github/prompts/x.prompt.md`);
+    await exclusion.remove([draft]);
+    expect(await readExclude(fs)).toBe(`${HEADER}\n.github/prompts/x.prompt.md`);
+  });
+
   it('leaves a missing file or a file without the header untouched on remove', async () => {
     const missing = setup();
     await missing.exclusion.remove(PATHS);

@@ -19,8 +19,47 @@ import type {
  */
 const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
 
-const toGitIgnorePath = (workspaceRoot: string, filePath: string): string =>
-  path.relative(workspaceRoot, filePath).replaceAll('\\', '/');
+/**
+ * A path relative to the work tree, `/`-separated.
+ * @param workspaceRoot Work tree root.
+ * @param filePath Absolute path below it.
+ * @returns The relative path; a `\` inside a POSIX file name is kept.
+ */
+const workTreeRelative = (workspaceRoot: string, filePath: string): string =>
+  path.relative(workspaceRoot, filePath).split(path.sep).join('/');
+
+/** Characters a gitignore pattern reads as glob syntax or as an escape. */
+const GLOB_CHARACTERS = /[\\*?[\]]/g;
+
+/**
+ * The exclude line that matches exactly one path: glob characters, a
+ * leading `!` or `#` and trailing spaces are escaped with `\`. Git keeps
+ * leading spaces as they are. A path with a `/` before its last segment
+ * (every installed file) is matched from the work tree root.
+ * @param workspaceRoot Work tree root.
+ * @param filePath Absolute path below it.
+ * @returns The exclude line.
+ */
+const toGitIgnorePattern = (workspaceRoot: string, filePath: string): string =>
+  workTreeRelative(workspaceRoot, filePath)
+    .replaceAll(GLOB_CHARACTERS, String.raw`\$&`)
+    .replace(/^[!#]/, String.raw`\$&`)
+    .replace(/ +$/, (spaces) => String.raw`\ `.repeat(spaces.length));
+
+/**
+ * The lines {@link GitInfoExclude.remove} removes for one path: its
+ * pattern and, when it differs, the unescaped line earlier versions wrote.
+ * A path with a `\` in a file name gets no unescaped line: earlier versions
+ * turned that `\` into `/`, so their line may name another path.
+ * @param workspaceRoot Work tree root.
+ * @param filePath Absolute path below it.
+ * @returns The lines to remove.
+ */
+const linesFor = (workspaceRoot: string, filePath: string): string[] => {
+  const pattern = toGitIgnorePattern(workspaceRoot, filePath);
+  const unescaped = workTreeRelative(workspaceRoot, filePath);
+  return unescaped === pattern || unescaped.includes('\\') ? [pattern] : [pattern, unescaped];
+};
 
 /**
  * Options for GitInfoExclude.
@@ -129,8 +168,8 @@ export class GitInfoExclude implements RepositoryExclusion {
   }
 
   /**
-   * Add paths to the section, creating the file and the header when the
-   * file is absent. Does nothing outside a git work tree. Read and write
+   * Add paths to the section as escaped patterns, creating the file and
+   * the header when the file is absent. Does nothing outside a git work tree. Read and write
    * errors on an existing file reject; the file is never replaced.
    * @param paths Absolute paths below the workspace root.
    */
@@ -143,7 +182,7 @@ export class GitInfoExclude implements RepositoryExclusion {
       await this.fs.mkdir(path.dirname(excludePath), { recursive: true });
       const created = [GIT_EXCLUDE_SECTION_HEADER];
       for (const p of paths) {
-        created.push(toGitIgnorePath(this.workspaceRoot, p));
+        created.push(toGitIgnorePattern(this.workspaceRoot, p));
       }
       await this.fs.writeFile(excludePath, created.join('\n'));
       return;
@@ -160,7 +199,7 @@ export class GitInfoExclude implements RepositoryExclusion {
 
     // Add paths to section
     for (const p of paths) {
-      const relativePath = toGitIgnorePath(this.workspaceRoot, p);
+      const relativePath = toGitIgnorePattern(this.workspaceRoot, p);
       if (!lines.includes(relativePath)) {
         lines.splice(sectionIndex + 1, 0, relativePath);
       }
@@ -170,7 +209,8 @@ export class GitInfoExclude implements RepositoryExclusion {
   }
 
   /**
-   * Remove paths from the section. Does nothing outside a git work tree or
+   * Remove paths from the section, with the unescaped lines earlier
+   * versions wrote for them. Does nothing outside a git work tree or
    * when the file or the header is absent; other read and write errors
    * reject.
    * @param paths Absolute paths below the workspace root.
@@ -188,7 +228,7 @@ export class GitInfoExclude implements RepositoryExclusion {
     }
 
     // Remove paths from section
-    const toRemove = new Set(paths.map((p) => toGitIgnorePath(this.workspaceRoot, p)));
+    const toRemove = new Set(paths.flatMap((p) => linesFor(this.workspaceRoot, p)));
     const filtered = lines.filter((l, i) => {
       if (i <= sectionIndex) {
         return true;
