@@ -230,4 +230,24 @@ describe('collection-yaml-document and validate-collection-yaml', () => {
     expect(fixed).toContain('kind: agent');
     expect(fixed).toContain('kind: plugin');
   });
+
+  it('accepts collections with more than 50 items (no schema item cap)', () => {
+    const largeYaml = [
+      'id: large-collection',
+      'name: Large Collection',
+      'description: A collection with many items',
+      'items:',
+      ...Array.from({ length: 120 }, (_, i) => [
+        `  - path: prompts/item-${i}.prompt.md`,
+        '    kind: prompt'
+      ]).flat()
+    ].join('\n');
+
+    const result = validateCollectionYaml(largeYaml, {
+      fileLabel: 'collections/large.collection.yml'
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.valid).toBe(true);
+  });
 });

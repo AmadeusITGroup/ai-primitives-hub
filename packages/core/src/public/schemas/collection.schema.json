@@ -42,7 +42,6 @@
       "type": "array",
       "description": "List of resources in this collection",
       "minItems": 0,
-      "maxItems": 50,
       "items": {
         "type": "object",
         "required": [
