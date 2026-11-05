@@ -72,15 +72,13 @@ flowchart TD
     Q --> R{Scope?}
     
     R -->|User| S[Copy to user installation directory]
-    R -->|Repository| T[Copy to .github/ directories]
+    R -->|Repository| T[Stage bundle cache]
     
     S --> U[Sync to Copilot directory]
-    T --> V[Update Lockfile]
-    V --> W{Commit Mode?}
-    W -->|local-only| X[Add to .git/info/exclude]
-    W -->|commit| Y[Skip git exclude]
-    X --> AA[Record installation + cleanup]
-    Y --> AA
+    T --> V[applyBundleInstall: write, exclude, record]
+    V --> W[Swap staged cache in]
+    W --> X[Install MCP servers]
+    X --> AA[Record installation]
     U --> AA
 ```
 
@@ -99,9 +97,9 @@ Bundle files are copied to the target byte-for-byte and verified after every wri
 
 - **Binary-safe writes** — writers use the `FileSystem` port's `readFileBytes`/`writeFileBytes` for all payloads. Text payloads (strict UTF-8) may additionally pass through a target-specific `ResourceTransformer`; binary payloads (images, archives, office documents) are never decoded as text — a lossy UTF-8 round-trip replaces invalid sequences with U+FFFD and corrupts them.
 - **Post-write verification** — after each write, the installed file is re-read and compared against the bytes the writer intended to write (`verifyWrittenBytes` in `core`'s `domain/install/integrity`). A mismatch throws `FileIntegrityError` (`BUNDLE.INTEGRITY_MISMATCH`) instead of leaving a silently corrupted artifact.
-- **Executable bits** (issue #577) — extractors tag each file's bytes with the permission bits its source recorded, using `withFileMode` (`ExtractedFile.mode`, `rwxrwxrwx` only): `ZipBundleExtractor` from the zip entry's Unix mode, `readLocalBundle` from `FileSystem.stat`. Map copies keep the mode; a byte copy drops it, which means "default mode". Both writers (`FileTreeTargetWriter`, `RepositoryScopeWriter`) call `applyFileMode` (`core`'s `domain/install/file-mode`) after each verified write; it calls the optional `FileSystem.setExecutable`. `NodeFileSystem.setExecutable` adds execute where read is granted (or clears every execute bit for a non-executable entry), never adds write or special bits, and does nothing on Windows. It is best effort: a `chmod` rejected with `EPERM`, `ENOTSUP`, `EOPNOTSUPP` or `EINVAL` (vfat/exFAT mounts, files owned by another user) leaves the mode unchanged instead of failing the install; other errors still propagate. Archives that resolvers synthesize with `buildZip` (`skills`, `awesome-copilot`) record `0644` for every entry. Filesystems without `setExecutable` (in-memory test doubles, the VS Code extension's writer filesystem) keep today's behaviour. The lockfile records no mode.
+- **Executable bits** (issue #577) — extractors tag each file's bytes with the permission bits its source recorded, using `withFileMode` (`ExtractedFile.mode`, `rwxrwxrwx` only): `ZipBundleExtractor` from the zip entry's Unix mode, `readLocalBundle` from `FileSystem.stat`. Map copies keep the mode; a byte copy drops it, which means "default mode". Both writers (`FileTreeTargetWriter`, `RepositoryScopeWriter`) call `applyFileMode` (`core`'s `domain/install/file-mode`) after each verified write; it calls the optional `FileSystem.setExecutable`. `NodeFileSystem.setExecutable` adds execute where read is granted (or clears every execute bit for a non-executable entry), never adds write or special bits, and does nothing on Windows. It is best effort: a `chmod` rejected with `EPERM`, `ENOTSUP`, `EOPNOTSUPP` or `EINVAL` (vfat/exFAT mounts, files owned by another user) leaves the mode unchanged instead of failing the install; other errors still propagate. Archives that resolvers synthesize with `buildZip` (`skills`, `awesome-copilot`) record `0644` for every entry. Filesystems without `setExecutable` (in-memory test doubles) keep today's behaviour; the extension's repository scope writes through `NodeFileSystem`, so plugin scripts keep their execute bit there as with the CLI. The lockfile records no mode.
 - **Upstream layers already verified** — zip entry CRC-32 is checked during extraction, and governed (`formatVersion: 1`) deployment manifests carry per-file `size` + `sha256` validated against the extracted bytes.
-- **Lockfile checksums** — `checksum` (`checksumFiles`) hashes the extracted (archive) bytes, not the optionally transformed on-disk result. Entries built by `buildLockfileBundleEntry` (CLI `install`, `update` and `profile activate`) also record `installedChecksum`, the hash of the bytes on disk, for each file whose on-disk bytes differ (see [Shared install and uninstall](#shared-install-and-uninstall-in-app)). The extension's `LockfileManager` does not record it yet.
+- **Lockfile checksums** — `checksum` (`checksumFiles`) hashes the extracted (archive) bytes, not the optionally transformed on-disk result. Entries built by `buildLockfileBundleEntry` (CLI `install`, `update` and `profile activate`) also record `installedChecksum`, the hash of the bytes on disk, for each file whose on-disk bytes differ (see [Shared install and uninstall](#shared-install-and-uninstall-in-app)). The extension's repository-scope installs go through the same use case and record it too.
 
 ## Scope Selection
 
@@ -184,7 +182,7 @@ This file is local to the user's machine and not committed to Git.
 
 ## Shared Install and Uninstall in `app`
 
-The CLI installs and uninstalls bundles through one path in `@ai-primitives-hub/app` (`packages/app/src/install/`). The VS Code extension still uses its own services; moving it onto this path is tracked in [#551](https://github.com/AmadeusITGroup/ai-primitives-hub/issues/551).
+The CLI and the VS Code extension's repository scope install and uninstall bundles through one path in `@ai-primitives-hub/app` (`packages/app/src/install/`), so both place the same files and write the same lockfile entry (see [Extension Repository Scope](#extension-repository-scope)). The extension's user and workspace scopes still use their own services.
 
 | Module | Role |
 |--------|------|
@@ -212,13 +210,53 @@ A lockfile entry is user-editable, so a recorded path is never joined onto the w
 
 ### Exclusion Ownership
 
-The use cases, not the writers, update the exclusion list for `local-only` installs at repository scope, on every target type. The CLI builds its repository writers with `writerOwnsExclusion: false` (`NO_EXCLUSION` in `RepositoryScopeWriter`) and passes a `GitInfoExclude` to the use cases; the record store adds and removes the local lockfile line.
+The use cases, not the writers, update the exclusion list for `local-only` installs at repository scope, on every target type. The CLI and the extension (`createExtensionWriterFactory` in `apps/vscode-extension/src/services/app-install-context.ts`) build their repository writers with `writerOwnsExclusion: false` (`NO_EXCLUSION` in `RepositoryScopeWriter`) and pass a `GitInfoExclude` to the use cases; the record store adds and removes the local lockfile line (`LockfileManager` in the extension).
 
 `GitInfoExclude` resolves the exclude file from `<workspace>/.git` on each call: a directory with `HEAD`, `objects` and `refs` (the entries Git requires of a repository directory) means `.git/info/exclude`; a file with a `gitdir:` line (linked worktree, submodule) means `<commondir or gitdir>/info/exclude`, so a worktree writes the main repository's file and a submodule `.git/modules/<name>/info/exclude`. Lines stay relative to the work tree, escaped so that each matches only its own path: `*`, `?`, `[`, `]` and `\`, a leading `!` or `#`, and trailing spaces get a `\` (`.kiro/steering/\[draft\].md`). `remove` also drops the unescaped line earlier versions wrote for the same path. Without a usable `.git` (none, a directory missing one of those entries, or a `gitdir:` link to a directory that no longer exists, as after a pruned worktree), `isAvailable()` is `false`: the use cases report `exclusionSkipped` and no `.git` is created. Exclusion failures are reported in `exclusionErrors` and never fail the install or uninstall.
 
 ### Install Steps
 
 `applyBundleInstall` reads the previous record, writes the bundle (`writeBundleForInstall`, all-or-nothing unless `skipUnsupported`), excludes the written files when `local-only`, computes `installedChecksum`s and stores the entry. A failure while recording rolls the write back and removes the exclusion lines it added, then rethrows: the built-in writers report the bytes each destination held before the write (`TargetWriteResult.replaced`, taken with core's `snapshotBeforeWrite`), so a file the write overwrote gets those bytes back and a file it created is removed; with a writer that reports nothing replaced, files the previous record owns are kept. Afterwards it locates the previous record with the writer of its own `targetType`, removes that record's files the new entry does not produce (guarded as above), prunes, and un-excludes them; switching from `local-only` to `commit` un-excludes the new locations. A store keeps one record per bundle id, so a reinstall through another target type replaces the record and removes the previous type's files the same way. When a previous record of another type can't be located, its files stay and are reported in `supersededKept` as `unresolvable`, with the reason in `supersededUnresolvable`.
+
+### Extension Repository Scope
+
+At repository scope the extension's `RepositoryScopeService` is a thin delegator (`apps/vscode-extension/src/services/`):
+
+| Method | Delegates to | Wiring |
+|--------|--------------|--------|
+| `syncBundle(bundleId, path, { commitMode, install })` | `applyBundleInstall` | `preserveModified: true`; throws when `install` (the extracted files, manifest, origin and source) is missing |
+| `preflightBundle` | `planBundleInstall` | Same target and files, writes nothing |
+| `unsyncBundle` | `applyBundleUninstall` | `preserveModified: true`; errors are rethrown |
+| `switchCommitMode` | `LockfileManager.updateCommitMode`, then `switchRecordedCommitMode` | Moves the entry, then adds or removes the recorded locations in the exclude file |
+
+Every call gets `createExtensionWriterFactory(workspaceRoot)` (project `ai-primitives-hub-layouts.yml` read, user layouts file not read), the host target from `repositoryTarget(workspaceRoot, commitMode, detectHostApp())`, a `LockfileManagerRecordStore` over `LockfileManager.getInstance(workspaceRoot)`, a `GitInfoExclude` and `NodeFileSystem`. The extension does not pass `skipUnsupported`, so content the host cannot install raises `TargetWriteRejectedError`; `BundleInstaller` rethrows it as `Cannot install "<name>" on <targetType> (repository scope): <message>` with `code` `BUNDLE.UNSUPPORTED_CONTENT` and the rejected bundle paths in `unsupported`. `exclusionSkipped` is logged once as `No git repository at <workspace>; local-only files are not excluded from git`.
+
+`BundleInstaller.installFromBuffer` keeps the bundle cache (`bundles/<id>` under the extension's global storage) consistent with the repository files by staging it:
+
+```mermaid
+sequenceDiagram
+    participant BI as BundleInstaller
+    participant Cache as Bundle cache
+    participant RSS as RepositoryScopeService
+    participant App as applyBundleInstall
+    participant MCP as McpServerManager
+    BI->>Cache: write extracted files to bundles/<id>.staging-<hex>
+    BI->>RSS: syncBundle(id, installDir, { commitMode, install })
+    RSS->>App: write, exclude, record (LockfileManagerRecordStore)
+    App-->>RSS: result or error
+    alt install failed or rejected
+        BI->>Cache: remove the staging directory only
+    else installed
+        BI->>Cache: rename bundles/<id> aside, staging into place, remove the old one
+        BI->>MCP: install the manifest's MCP servers
+    end
+```
+
+The swap retries a rename up to three times on `EPERM`/`EBUSY` (back-off of 100 ms times the attempt number) and restores the old cache when it fails, throwing `Installed "<name>" but could not update its cache (<message>); reinstall the bundle`. Leftover `.staging-*` and `.old-*` directories of an interrupted install are removed before the next one.
+
+`BundleInstaller.update` at repository scope stages the new version, calls `preflightBundle`, and only then uninstalls the installed version through the shared uninstall and runs `syncBundle`, so a version the host cannot install leaves the installed one untouched. A failure after the preflight (for example a lockfile write) has already removed the old version; the new files are rolled back. `uninstall` passes `{ scope }` to `unsyncBundle`; the record store removes the lockfile entry.
+
+User and workspace scope keep their order: cache write, MCP servers, then `UserScopeService.syncBundle`, which returns `undefined`.
 
 ## Lockfile Management
 
@@ -263,7 +301,8 @@ This prevents inconsistencies when lockfile or bundle files are manually deleted
 
 When listing repository bundles, the extension validates that bundle files exist:
 
-- If files are missing, the bundle is marked with `filesMissing: true`
+- Each entry is located with the writer of its `targetType` (`locateRecord`) and compared with the disk by `inspectRecordedFiles`, the same rules the uninstall uses; `detectModifiedFiles` reads the same inspection
+- If files are missing, the bundle is marked with `filesMissing: true`; an entry whose recorded path resolves outside the target root (the `../` bundle-cache paths earlier versions recorded for plugins) counts as missing
 - The UI shows a warning indicator for bundles with missing files
 - Use the "Clean Up Stale Repository Bundles" command to remove stale entries
 
@@ -408,7 +447,7 @@ flowchart TD
     K --> J
 ```
 
-All bundle metadata (version, sourceId, files, etc.) is preserved during the move.
+All bundle metadata (version, sourceId, files, etc.) is preserved during the move. `RepositoryScopeService.switchCommitMode` moves the entry with `LockfileManager.updateCommitMode`, then `switchRecordedCommitMode` (`app`) locates the recorded files with the writer of the entry's `targetType` and adds them to or removes them from the exclude file; only the recorded files are touched.
 
 ### Backward Compatibility and Migration
 
@@ -506,7 +545,8 @@ prompts:
 |-----------|----------------|
 | `ScopeServiceFactory` | Returns appropriate scope service based on `InstallationScope` |
 | `UserScopeService` | Handles user-level file placement and Copilot sync |
-| `RepositoryScopeService` | Handles repository-level file placement and git exclude |
+| `RepositoryScopeService` | Delegates repository-scope install, uninstall, preflight and commit-mode switches to the `app` use cases |
+| `LockfileManagerRecordStore` | `InstallRecordStore` over the extension's two repository lockfiles |
 | `LockfileManager` | Manages lockfile CRUD operations |
 | `ScopeConflictResolver` | Detects and handles scope conflicts |
 | `RepositoryActivationService` | Handles lockfile detection on workspace open |

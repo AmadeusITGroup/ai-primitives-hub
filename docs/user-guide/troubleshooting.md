@@ -26,6 +26,11 @@ View logs: `View → Output → AI Primitives Hub`
 - Check logs for `[ERROR]` messages
 - **Primitive type on a target (CLI)**: Run `ai-primitives-hub doctor diagnostics --primitives --kinds <kind> --targets <target>` to check whether that primitive type installs on that target type. It runs in a throwaway workspace and reports each case as `pass`, `known-gap` or `fail`. See the [Command Reference](../reference/commands.md#doctor-diagnostics-cli).
 - **Install fails with `BUNDLE.UNSUPPORTED_CONTENT` (CLI)**: The target cannot hold part of the bundle, so nothing was installed. Rerun the install with `--skip-unsupported` to install the items the target supports; the skipped ones are listed in the output. See the [Command Reference](../reference/commands.md#bundle-install-cli).
+- **`Cannot install "<bundle name>" on <target> (repository scope): target cannot install bundle content: <files>` (extension)**: The editor cannot hold the listed files of the bundle, so nothing was installed and an installed version was left as it was. Install the bundle in an editor that supports that content, or from the CLI with `--skip-unsupported` to install the rest. See [Bundles the Editor Cannot Install](./repository-installation.md#bundles-the-editor-cannot-install).
+
+### Repository Bundle Shows Files Missing After Upgrading
+
+A ⚠ next to a repository-scope bundle means files its lockfile entry lists are not where they should be. An Agent Plugin bundle installed by an earlier extension version shows it even though nothing was deleted: reinstall the bundle to place the plugin in `.github/plugins/<plugin-name>/`. For files you deleted yourself, reinstall the bundle or run `AI Primitives Hub: Clean Up Stale Repository Bundles`. See the [Migration Guide](../migration-guide.md#repository-scope-shared-install).
 
 ### Authentication Fails (404/401)
 

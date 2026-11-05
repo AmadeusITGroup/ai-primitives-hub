@@ -37,9 +37,12 @@ your-repo/
 │   │   └── my-agent.agent.md
 │   ├── instructions/
 │   │   └── my-instructions.instructions.md
-│   └── skills/
-│       └── my-skill/
-│           └── skill.md
+│   ├── skills/
+│   │   └── my-skill/
+│   │       └── skill.md
+│   └── plugins/
+│       └── my-plugin/
+│           └── ...
 └── prompt-registry.lock.json
 ```
 
@@ -80,15 +83,35 @@ prompt-registry.local.lock.json
 - Override team configurations locally
 - Installing local-only bundles never modifies the shared `prompt-registry.lock.json`
 
-### Local-Only from the CLI
+### Where Local-Only Files Are Excluded
 
-`ai-primitives-hub install … --commit-mode local-only` on a repository-scope target excludes the installed files and `prompt-registry.local.lock.json` from Git on every target type (Kiro, Claude Code, Cursor and the others, not only VS Code and Copilot CLI):
+A local-only install, from the extension or with `ai-primitives-hub install … --commit-mode local-only`, excludes each installed file and `prompt-registry.local.lock.json` from Git in every editor and on every target type (Kiro, Claude Code, Cursor and the others, not only VS Code and Copilot CLI):
 
 - **Git worktrees and submodules** — the entries go to the exclude file Git actually reads: the main repository's `.git/info/exclude` for a linked worktree, `.git/modules/<name>/info/exclude` for a submodule.
-- **Folders that are not Git repositories** — the install still succeeds, with the warning `<folder> is not a git repository; local-only files are not excluded from git`. No `.git` folder is created.
-- **Uninstall** — `ai-primitives-hub uninstall` removes the files, the folders they leave empty and their exclude entries, including the local lockfile's entry once that lockfile is deleted. A file another installed bundle also lists is kept until the last of them is uninstalled.
+- **Folders that are not Git repositories** — the install still succeeds and no `.git` folder is created. The CLI prints the warning `<folder> is not a git repository; local-only files are not excluded from git`; the extension logs `No git repository at <folder>; local-only files are not excluded from git` in the **AI Primitives Hub** output channel.
+- **Uninstall** — uninstalling removes the files, the folders they leave empty and their exclude entries, including the local lockfile's entry once that lockfile is deleted. A file another installed bundle also lists is kept until the last of them is uninstalled. The extension also keeps a file you modified after installing it.
 
 See [Command Reference](../reference/commands.md#bundle-uninstall-cli) for the full CLI behaviour.
+
+## Same Result as the CLI
+
+The extension and the `ai-primitives-hub` CLI install a bundle at repository scope the same way: the same files in the same places, and the same lockfile entry. Either one can uninstall a bundle the other installed.
+
+- **Prompt files** keep the name they have in the bundle: `prompts/hello.prompt.md` is installed as `.github/prompts/hello.prompt.md` and used as `/hello`.
+- **Agent Plugins** are copied as a whole folder to `.github/plugins/<name>/`, and their scripts stay executable.
+- **Other editors** (Kiro, Windsurf, Claude Code and the others) get the files in their own folders, adapted the way the CLI adapts them, so an adapted file is not reported as modified locally.
+
+Prompts remain supported, but prefer agents, instructions or skills when one of them fits what the bundle provides.
+
+### Bundles the Editor Cannot Install
+
+A bundle is installed completely or not at all. When part of it cannot be installed in the current editor, the install stops before any file is written and shows:
+
+```
+Installation failed: Cannot install "<bundle name>" on <target> (repository scope): target cannot install bundle content: <files>
+```
+
+`<target>` is the editor's target type (for example `vscode` or `kiro`) and `<files>` lists the bundle files it cannot hold. Nothing is added to the lockfile and no MCP server is configured. On a reinstall or an update, the version already installed is kept as it was.
 
 ## The Lockfile
 
@@ -113,7 +136,7 @@ Bundles are automatically stored in the appropriate lockfile based on their comm
 - **Commit mode** bundles go in `prompt-registry.lock.json` (shared with team)
 - **Local-only** bundles go in `prompt-registry.local.lock.json` (personal, never committed)
 
-The local lockfile is automatically added to `.git/info/exclude` when created, ensuring your personal bundle installations never accidentally get committed.
+The local lockfile is automatically added to the exclude file Git reads (`.git/info/exclude` in a plain repository, the one described in [Where Local-Only Files Are Excluded](#where-local-only-files-are-excluded) for worktrees and submodules) when created, ensuring your personal bundle installations never accidentally get committed.
 
 ### Lockfile Structure
 
@@ -129,9 +152,10 @@ The local lockfile is automatically added to `.git/info/exclude` when created, e
       "sourceId": "my-source",
       "sourceType": "github",
       "installedAt": "2026-01-14T10:30:00.000Z",
+      "targetType": "vscode",
       "files": [
         {
-          "path": ".github/prompts/my-prompt.prompt.md",
+          "path": "prompts/my-prompt.prompt.md",
           "checksum": "abc123..."
         }
       ]
@@ -153,7 +177,9 @@ The local lockfile is automatically added to `.git/info/exclude` when created, e
 
 The local lockfile (`prompt-registry.local.lock.json`) is automatically excluded from Git and should not be committed.
 
-Entries written by the `ai-primitives-hub` CLI carry a few more fields:
+File paths are recorded as they are in the bundle (`prompts/my-prompt.prompt.md`); the installed location follows from the target type. Entries that earlier extension versions wrote with workspace paths (`.github/prompts/my-prompt.prompt.md`) are still read and uninstalled.
+
+Entries written by the extension and the `ai-primitives-hub` CLI also carry these fields:
 
 | Field | Meaning |
 |-------|---------|
@@ -222,6 +248,7 @@ If you've modified bundle files locally, you'll see a warning before updating wi
 | Instructions (`.instructions.md`) | `.github/instructions/` |
 | Agents (`.agent.md`) | `.github/agents/` |
 | Skills | `.github/skills/<skill-name>/` |
+| Agent Plugins | `.github/plugins/<plugin-name>/` |
 | MCP Servers | `.vscode/mcp.json` |
 
 ## Troubleshooting
@@ -254,9 +281,15 @@ If multiple team members install bundles simultaneously, merge the lockfile chan
 
 When you clone a repository with a lockfile, the extension prompts you to install missing bundles. If you dismissed the prompt, you can manually install bundles from the lockfile.
 
+### Installation rejected for unsupported content
+
+See [Bundles the Editor Cannot Install](#bundles-the-editor-cannot-install) and [Troubleshooting](./troubleshooting.md#installation-fails).
+
 ### Stale lockfile entries
 
 If you manually delete bundle files but the lockfile still references them, the extension shows a warning indicator on those bundles. Use the "Clean Up Stale Repository Bundles" command (from the Command Palette) to remove these stale entries from the lockfile.
+
+An Agent Plugin bundle installed at repository scope by an earlier extension version can show the same warning although you deleted nothing: reinstall it to record its files under `.github/plugins/<plugin-name>/`.
 
 ### Local modifications warning
 
