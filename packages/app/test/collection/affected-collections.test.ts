@@ -15,7 +15,7 @@ import {
 describe('affectedCollections', () => {
   let root: string;
   const file = 'collections/example.collection.yml';
-  const selected = [{ id: 'example', file }];
+  const selected = [{ id: 'example', file: path.join('collections', 'example.collection.yml') }];
   const writeCollection = (skillPath = 'skills/example/SKILL.md') => {
     fs.writeFileSync(path.join(root, file), `id: example
 name: Example
