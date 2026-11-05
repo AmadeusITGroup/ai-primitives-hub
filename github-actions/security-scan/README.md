@@ -8,7 +8,7 @@ permissions:
   pull-requests: write # Only required when comment-on-pr is true
 
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     with:
       fetch-depth: 0
   - uses: AmadeusITGroup/ai-primitives-hub/github-actions/security-scan@<commit-sha>
