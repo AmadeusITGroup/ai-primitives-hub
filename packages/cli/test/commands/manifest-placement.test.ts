@@ -407,6 +407,60 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     expect(lines).toContain('.kiro/steering/keep.prompt.md');
   });
 
+  /**
+   * A Kiro repository target with version 1.0.0 of `sample-prompts`
+   * recorded and installed (`x.md`, `keep.prompt.md`), local-only, in a
+   * git workspace whose exclude file lists both files.
+   * @returns The steering directory and the exclude file.
+   */
+  const seedLocalOnlyKiroPrompts = async (): Promise<{ steering: string; exclude: string }> => {
+    expect((await run([
+      'target', 'add', 'kiro-repo', '--type', 'kiro', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
+    ])).exitCode).toBe(0);
+    const steering = path.join(workspace, '.kiro', 'steering');
+    await mkdir(steering, { recursive: true });
+    await writeFile(path.join(steering, 'x.md'), '# X v1\n');
+    await writeFile(path.join(steering, 'keep.prompt.md'), '# Keep v1\n');
+    const exclude = path.join(workspace, '.git', 'info', 'exclude');
+    await makeGitDir(workspace);
+    await mkdir(path.dirname(exclude));
+    await writeFile(exclude, [
+      '# Prompt Registry (local)', '.kiro/steering/x.md', '.kiro/steering/keep.prompt.md', 'prompt-registry.local.lock.json'
+    ].join('\n'));
+    let lock = upsertBundleEntry(emptyLockfile('test'), 'sample-prompts', {
+      version: '1.0.0',
+      sourceId: 'sample-prompts-source',
+      sourceType: 'github',
+      installedAt: '2026-01-01T00:00:00Z',
+      targetType: 'kiro',
+      files: [
+        { path: 'prompts/x.md', checksum: 'a'.repeat(64) },
+        { path: 'prompts/keep.prompt.md', checksum: 'b'.repeat(64) }
+      ]
+    });
+    lock = upsertSource(lock, 'sample-prompts-source', { type: 'github', url: 'https://github.com/acme-org/sample-prompts' });
+    await writeLockfile(path.join(workspace, 'prompt-registry.local.lock.json'), lock, new NodeFileSystem());
+    return { steering, exclude };
+  };
+
+  it('update reports an exclude file it cannot update as a warning, with exit code 0', async () => {
+    const { exclude } = await seedLocalOnlyKiroPrompts();
+    class ReadOnlyExclude extends NodeFileSystem {
+      public override writeFile(filePath: string, contents: string): Promise<void> {
+        return filePath === exclude ? Promise.reject(new Error('EACCES: permission denied')) : super.writeFile(filePath, contents);
+      }
+    }
+
+    const updated = await run(['update', '--target', 'kiro-repo', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json'], new ReadOnlyExclude());
+
+    expect(updated.exitCode, updated.stdout).toBe(0);
+    const envelope = JSON.parse(updated.stdout) as JsonEnvelope<{ updated: number; failures: string[] }> & { warnings: string[] };
+    expect(envelope.status).toBe('warning');
+    expect(envelope.data.updated).toBe(1);
+    expect(envelope.data.failures).toEqual([]);
+    expect(envelope.warnings).toEqual(['sample-prompts: could not update the git exclude file: EACCES: permission denied']);
+  });
+
   it('re-install removes a path-routed file the new version places under a new name', async () => {
     await seedPathRoutedPrompts();
     const promptsDir = path.join(workspace, 'prompt-bundle');

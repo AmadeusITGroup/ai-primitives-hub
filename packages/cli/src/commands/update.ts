@@ -275,13 +275,14 @@ export class UpdateCommand extends BaseUpdateCommand {
         return renderNoUpdates(ctx, fmt, bundleIds.length, skipped.length, discoveryFailures);
       }
 
-      const { updatedCount, updateResults, failures: updateFailures } = await applyUpdates(toInstall, target, scope, commitMode, lockPath, ctx, http, tokens);
+      const { updatedCount, updateResults, failures: updateFailures, warnings: updateWarnings } = await applyUpdates(toInstall, target, scope, commitMode, lockPath, ctx, http, tokens);
       const failures = [...discoveryFailures, ...updateFailures];
+      const warnings = [...failures, ...updateWarnings];
 
       formatOutput({
-        ctx, command: 'update', output: fmt, status: failures.length > 0 ? 'warning' : 'ok',
+        ctx, command: 'update', output: fmt, status: warnings.length > 0 ? 'warning' : 'ok',
         data: { lockfile: lockPath, target: target.name, checked: bundleIds.length, updated: updatedCount, skipped: skipped.length, updates: updateResults, failures },
-        warnings: failures,
+        warnings,
         textRenderer: failures.length > 0
           ? (data) => {
             const lines = data.updates.length > 0
@@ -544,14 +545,17 @@ async function applyUpdates(
   ctx: Context,
   http: HttpClient,
   tokens: TokenProvider
-): Promise<{ updatedCount: number; updateResults: UpdateEntry[]; failures: string[] }> {
+): Promise<{ updatedCount: number; updateResults: UpdateEntry[]; failures: string[]; warnings: string[] }> {
   let updatedCount = 0;
   const updateResults: UpdateEntry[] = [];
   const failures: string[] = [];
+  const warnings: string[] = [];
 
   for (const candidate of toInstall) {
     try {
-      await applyUpdate(candidate, target, scope, commitMode, lockPath, ctx, http, tokens);
+      const { exclusionErrors } = await applyUpdate(candidate, target, scope, commitMode, lockPath, ctx, http, tokens);
+      // Like install and uninstall: a warning, never a failure, so the exit code stays 0.
+      warnings.push(...exclusionErrors.map((message) => `${candidate.bundleId}: could not update the git exclude file: ${message}`));
       updateResults.push({ bundleId: candidate.bundleId, from: candidate.from, to: candidate.to });
       updatedCount++;
     } catch (err) {
@@ -560,7 +564,7 @@ async function applyUpdates(
     }
   }
 
-  return { updatedCount, updateResults, failures };
+  return { updatedCount, updateResults, failures, warnings };
 }
 
 async function syncActiveHub(ctx: Context): Promise<void> {
@@ -626,7 +630,7 @@ async function applyUpdate(
   ctx: Context,
   http: HttpClient,
   tokens: TokenProvider
-): Promise<void> {
+): Promise<{ exclusionErrors: string[] }> {
   const downloader = candidate.source.type === 'artifactory' && candidate.artifactoryClient !== undefined
     ? new ArtifactoryBundleDownloader(candidate.artifactoryClient)
     : new HttpsBundleDownloader(
@@ -660,13 +664,14 @@ async function applyUpdate(
 
   const lock = await readLockfile(lockPath, ctx.fs);
   if (lock === null) {
-    return;
+    return { exclusionErrors: [] };
   }
   const lockKey = isArtifactory ? candidate.installable.ref.bundleId : manifest.id;
   const previousEntry = Object.prototype.hasOwnProperty.call(lock.bundles, lockKey) ? lock.bundles[lockKey] : undefined;
   let nextLock = upsertBundleEntry(lock, lockKey, entry);
   nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
   await writeLockfile(lockPath, nextLock, ctx.fs);
+  const exclusionErrors: string[] = [];
   if (previousEntry !== undefined) {
     const recordMode = scope === 'repository' ? { commitMode } : {};
     const next = await locateRecord(writerFactory, target, { entry, ...recordMode });
@@ -685,12 +690,13 @@ async function applyUpdate(
     });
     if (removal !== null && scope === 'repository') {
       // Best effort, like install: the lines of removed local-only files leave the exclude file.
-      await unexcludePaths({
+      const outcome = await unexcludePaths({
         exclusion: new GitInfoExclude({ fs: ctx.fs, workspaceRoot: target.rootPath ?? ctx.cwd() }),
         target: { ...target, scope: 'repository' },
         commitMode,
         paths: [...removal.removedLocations, ...removal.pruned]
       });
+      exclusionErrors.push(...outcome.exclusionErrors);
     }
   }
 
@@ -705,4 +711,5 @@ async function applyUpdate(
     bundles[idx] = bundleState;
   }
   await stateStore.save({ targetName: target.name, lastInstalledBundles: bundles, lastUsedAt: new Date().toISOString() });
+  return { exclusionErrors };
 }
