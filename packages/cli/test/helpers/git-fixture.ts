@@ -13,6 +13,11 @@
 import {
   execFileSync,
 } from 'node:child_process';
+import {
+  mkdir,
+  writeFile,
+} from 'node:fs/promises';
+import * as path from 'node:path';
 
 /**
  * Copy an environment without any `GIT_*` variable.
@@ -34,4 +39,17 @@ export const runGit = (cwd: string, args: readonly string[]): void => {
     env: gitFixtureEnv(),
     stdio: 'ignore'
   });
+};
+
+/**
+ * Create `<workspace>/.git` with the `HEAD`, `objects` and `refs` git
+ * requires of a repository directory, without spawning git (so the
+ * exclude file stays absent until an install creates it).
+ * @param workspace - Work tree root.
+ */
+export const makeGitDir = async (workspace: string): Promise<void> => {
+  const gitDir = path.join(workspace, '.git');
+  await mkdir(path.join(gitDir, 'objects'), { recursive: true });
+  await mkdir(path.join(gitDir, 'refs'), { recursive: true });
+  await writeFile(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
 };

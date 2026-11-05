@@ -54,6 +54,9 @@ import {
   type LockfileBundleEntry,
 } from '../../src/stores/json-lockfile-store';
 import {
+  makeGitDir,
+} from '../helpers/git-dir';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 
@@ -457,7 +460,7 @@ describe('applyBundleUninstall (on disk)', () => {
   });
 
   it('un-excludes removed files, pruned directories and a legacy skill directory line for local-only', async () => {
-    mkdirSync(path.join(ws, '.git'), { recursive: true });
+    makeGitDir(ws);
     const exclusion = new GitInfoExclude({ fs: nodeFs, workspaceRoot: ws });
     const target: Target = { name: 'v', type: 'vscode', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
     const store = repoStore(exclusion);
@@ -482,7 +485,7 @@ describe('applyBundleUninstall (on disk)', () => {
   });
 
   it('leaves no managed exclude line after a kiro local-only install and uninstall', async () => {
-    mkdirSync(path.join(ws, '.git'), { recursive: true });
+    makeGitDir(ws);
     const exclusion = new GitInfoExclude({ fs: nodeFs, workspaceRoot: ws });
     const target: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
     const store = repoStore(exclusion);

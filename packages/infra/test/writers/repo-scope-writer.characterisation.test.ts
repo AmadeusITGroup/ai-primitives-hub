@@ -23,6 +23,9 @@ import {
   RepositoryScopeWriterAdapter,
 } from '../../src/writers/repo-scope-writer';
 import {
+  seedGitDir,
+} from '../helpers/git-dir';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 
@@ -241,8 +244,8 @@ const EXCLUDE_EXPECTED: Record<string, (string | null)[]> = {
 describe('characterisation: .git/info/exclude bytes in local-only mode', () => {
   const capture = async (run: (fs: InMemoryFileSystem, steps: (string | null)[]) => Promise<void>, seed?: string) => {
     const fs = new InMemoryFileSystem();
-    // The workspace is a git repository: a file below `.git` makes it a directory.
-    fs.seed(`${WORKSPACE_ROOT}/.git/HEAD`, 'ref: refs/heads/main\n');
+    // The workspace is a git repository.
+    seedGitDir(fs, `${WORKSPACE_ROOT}/.git`);
     if (seed !== undefined) {
       fs.seed(EXCLUDE_PATH, seed);
     }

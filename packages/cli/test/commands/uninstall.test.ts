@@ -44,6 +44,9 @@ import {
   createGovernedReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
+import {
+  makeGitDir,
+} from '../helpers/git-fixture';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -367,7 +370,7 @@ describe('uninstall command', () => {
     });
 
     it('removes every managed exclude line on a kiro local-only uninstall', async () => {
-      await mkdir(path.join(workspace, '.git'));
+      await makeGitDir(workspace);
       await addRepositoryTarget('repo', 'kiro');
       await install(bundleDir, 'repo', ['--commit-mode', 'local-only']);
       const excludeFile = path.join(workspace, '.git', 'info', 'exclude');
@@ -381,7 +384,7 @@ describe('uninstall command', () => {
     });
 
     it('reports the local lockfile for a local-only entry', async () => {
-      await mkdir(path.join(workspace, '.git'));
+      await makeGitDir(workspace);
       await addRepositoryTarget('repo', 'vscode');
       await install(bundleDir, 'repo', ['--commit-mode', 'local-only']);
 

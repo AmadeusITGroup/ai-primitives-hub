@@ -71,6 +71,7 @@ import {
   writeReleaseArchive,
 } from '../fixtures/release-archives';
 import {
+  makeGitDir,
   runGit,
 } from '../helpers/git-fixture';
 
@@ -1019,7 +1020,7 @@ agents:
     ]);
 
     it.each(TARGET_TYPES)('local-only on a %s repository target excludes the written files and the local lockfile', async (type) => {
-      await mkdir(path.join(workspace, '.git'));
+      await makeGitDir(workspace);
       await addRepositoryTarget('repo', type);
 
       const result = await installRepository('repo', ['--commit-mode', 'local-only']);
@@ -1036,7 +1037,7 @@ agents:
     });
 
     it('local-only excludes a local lockfile an earlier install left out of the exclude file', async () => {
-      await mkdir(path.join(workspace, '.git'));
+      await makeGitDir(workspace);
       await addRepositoryTarget('repo', 'vscode');
       expect((await installRepository('repo', ['--commit-mode', 'local-only'])).exitCode).toBe(0);
       await writeFile(path.join(workspace, '.git', 'info', 'exclude'), '# existing\n');
@@ -1092,7 +1093,7 @@ agents:
     });
 
     it('moves the entry to the local lockfile on a reinstall with --commit-mode local-only', async () => {
-      await mkdir(path.join(workspace, '.git'));
+      await makeGitDir(workspace);
       await addRepositoryTarget('repo', 'vscode');
       expect((await installRepository('repo')).exitCode).toBe(0);
       expect(Object.keys((await readLock(commitLock())).bundles)).toEqual(['local-foo']);
@@ -1170,7 +1171,7 @@ agents:
     });
 
     it('a reinstall through another target type removes the previous target\'s files and exclude lines', async () => {
-      await mkdir(path.join(workspace, '.git'));
+      await makeGitDir(workspace);
       await addRepositoryTarget('kiro-repo', 'kiro');
       await addRepositoryTarget('vscode-repo', 'vscode');
       const first = await installRepository('kiro-repo', ['--commit-mode', 'local-only']);
@@ -1210,7 +1211,8 @@ agents:
     });
 
     posixNonRoot('an exclude file that cannot be written is a warning, not an install error', async () => {
-      await mkdir(path.join(workspace, '.git', 'info'), { recursive: true });
+      await makeGitDir(workspace);
+      await mkdir(path.join(workspace, '.git', 'info'));
       await writeFile(path.join(workspace, '.git', 'info', 'exclude'), '# existing\n');
       await chmod(path.join(workspace, '.git', 'info', 'exclude'), 0o444);
       await addRepositoryTarget('repo', 'kiro');

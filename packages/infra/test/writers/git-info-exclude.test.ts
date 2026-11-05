@@ -33,6 +33,9 @@ import {
   RepositoryScopeWriter,
 } from '../../src/writers/repo-scope-writer';
 import {
+  seedGitDir,
+} from '../helpers/git-dir';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 import {
@@ -51,10 +54,11 @@ const PATHS = [
 const readExclude = async (fs: InMemoryFileSystem): Promise<string | null> =>
   (await fs.exists(EXCLUDE_PATH)) ? fs.readFile(EXCLUDE_PATH) : null;
 
+const GIT_DIR = '/workspace/.git';
+
 const setup = (seed?: string): { fs: InMemoryFileSystem; exclusion: GitInfoExclude } => {
   const fs = new InMemoryFileSystem();
-  // A file below `.git` makes it a directory in the in-memory filesystem.
-  fs.seed('/workspace/.git/HEAD', 'ref: refs/heads/main\n');
+  seedGitDir(fs, GIT_DIR);
   if (seed !== undefined) {
     fs.seed(EXCLUDE_PATH, seed);
   }
@@ -138,6 +142,8 @@ describe('GitInfoExclude exclude file resolution', () => {
   it('uses the exclude file of a plain repository', async () => {
     const workspace = path.join(tmp, 'repo');
     write(path.join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    mkdirSync(path.join(workspace, '.git', 'objects'));
+    mkdirSync(path.join(workspace, '.git', 'refs'));
     const exclusion = new GitInfoExclude({ fs: new NodeFileSystem(), workspaceRoot: workspace });
 
     expect(await exclusion.isAvailable()).toBe(true);
@@ -196,6 +202,17 @@ describe('GitInfoExclude exclude file resolution', () => {
     expect(existsSync(path.join(workspace, '.git'))).toBe(false);
   });
 
+  it('is unavailable and writes nothing when .git is a directory without HEAD, objects or refs', async () => {
+    const workspace = path.join(tmp, 'empty-git');
+    mkdirSync(path.join(workspace, '.git'), { recursive: true });
+    const exclusion = new GitInfoExclude({ fs: new NodeFileSystem(), workspaceRoot: workspace });
+
+    expect(await exclusion.isAvailable()).toBe(false);
+    await exclusion.add([path.join(workspace, '.github', 'prompts', 'x.prompt.md')]);
+
+    expect(existsSync(path.join(workspace, '.git', 'info'))).toBe(false);
+  });
+
   it('is unavailable when .git is a file without a gitdir line', async () => {
     const workspace = path.join(tmp, 'odd');
     write(path.join(workspace, '.git'), 'not a git link\n');
@@ -245,7 +262,7 @@ describe('GitInfoExclude I/O failures on an existing exclude file', () => {
 
   const setupFailing = (): { fs: FailingWriteFileSystem; exclusion: GitInfoExclude } => {
     const fs = new FailingWriteFileSystem();
-    fs.seed('/workspace/.git/HEAD', 'ref: refs/heads/main\n');
+    seedGitDir(fs, GIT_DIR);
     fs.seed(EXCLUDE_PATH, existing);
     return { fs, exclusion: new GitInfoExclude({ fs, workspaceRoot: WORKSPACE_ROOT }) };
   };
@@ -269,7 +286,7 @@ describe('GitInfoExclude I/O failures on an existing exclude file', () => {
       }
     }
     const fs = new FailingReadFileSystem();
-    fs.seed('/workspace/.git/HEAD', 'ref: refs/heads/main\n');
+    seedGitDir(fs, GIT_DIR);
     fs.seed(EXCLUDE_PATH, existing);
     const exclusion = new GitInfoExclude({ fs, workspaceRoot: WORKSPACE_ROOT });
 

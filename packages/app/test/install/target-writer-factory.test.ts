@@ -21,6 +21,9 @@ import {
   FileTreeTargetWriter,
 } from '../../src/writers/file-tree-writer';
 import {
+  seedGitDir,
+} from '../helpers/git-dir';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 
@@ -100,7 +103,7 @@ describe('createTargetWriterFactory', () => {
     { writerOwnsExclusion: true, excluded: true }
   ])('with writerOwnsExclusion $writerOwnsExclusion a vscode local-only write excluded: $excluded', async ({ writerOwnsExclusion, excluded }) => {
     const fs = new InMemoryFileSystem();
-    fs.seed('/ws/.git/HEAD', 'ref: refs/heads/main\n');
+    seedGitDir(fs, path.join('/ws', '.git'));
     const target: Target = { name: 'v', type: 'vscode', scope: 'repository', rootPath: '/ws', commitMode: 'local-only' };
 
     const files = new Map([

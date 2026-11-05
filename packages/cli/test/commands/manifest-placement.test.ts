@@ -63,6 +63,9 @@ import {
   createTestContext,
   runCli,
 } from '../../src/framework';
+import {
+  makeGitDir,
+} from '../helpers/git-fixture';
 
 const MANIFEST = `id: sample-skills
 version: 1.8.1
@@ -376,7 +379,8 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     await writeFile(path.join(steering, 'x.md'), '# X v1\n');
     await writeFile(path.join(steering, 'keep.prompt.md'), '# Keep v1\n');
     const exclude = path.join(workspace, '.git', 'info', 'exclude');
-    await mkdir(path.dirname(exclude), { recursive: true });
+    await makeGitDir(workspace);
+    await mkdir(path.dirname(exclude));
     await writeFile(exclude, [
       '# Prompt Registry (local)', '.kiro/steering/x.md', '.kiro/steering/keep.prompt.md', 'prompt-registry.local.lock.json'
     ].join('\n'));

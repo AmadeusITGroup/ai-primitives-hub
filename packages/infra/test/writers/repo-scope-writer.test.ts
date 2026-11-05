@@ -35,6 +35,9 @@ import {
   RepositoryScopeWriterAdapter,
 } from '../../src/writers/repo-scope-writer';
 import {
+  seedGitDir,
+} from '../helpers/git-dir';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 import {
@@ -64,13 +67,10 @@ skills:
     file: skills/test-skill/skill.json
     type: skill`;
 
-/**
- * In-memory filesystem whose workspace is a git repository: a file below
- * `.git` makes `.git` a directory.
- */
+/** In-memory filesystem whose workspace is a git repository. */
 const gitWorkspaceFs = (): InMemoryFileSystem => {
   const fs = new InMemoryFileSystem();
-  fs.seed(path.join(WORKSPACE_ROOT, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+  seedGitDir(fs, path.join(WORKSPACE_ROOT, '.git'));
   return fs;
 };
 

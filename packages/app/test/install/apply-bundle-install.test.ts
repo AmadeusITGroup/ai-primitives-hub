@@ -52,6 +52,9 @@ import {
   type LockfileBundleEntry,
 } from '../../src/stores/json-lockfile-store';
 import {
+  makeGitDir,
+} from '../helpers/git-dir';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 
@@ -451,7 +454,7 @@ describe('applyBundleInstall (on disk, git exclusion)', () => {
   const excludeLines = (file = path.join(ws, '.git', 'info', 'exclude')): string[] => readFileSync(file, 'utf8').split('\n');
 
   it('excludes kiro local-only files and the local lockfile, and a commit reinstall removes the file lines', async () => {
-    mkdirSync(path.join(ws, '.git'), { recursive: true });
+    makeGitDir(ws);
     const local: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
 
     await install(local, prompts('a', '1.0.0', ['hello', 'other']));
@@ -471,7 +474,7 @@ describe('applyBundleInstall (on disk, git exclusion)', () => {
   });
 
   it('removes the files and exclusion lines of a local-only install placed through another target type', async () => {
-    mkdirSync(path.join(ws, '.git'), { recursive: true });
+    makeGitDir(ws);
     const kiro: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
     await install(kiro, prompts('a', '1.0.0', ['hello']));
 
@@ -490,7 +493,7 @@ describe('applyBundleInstall (on disk, git exclusion)', () => {
   });
 
   it('removes the exclusion lines it added when the record cannot be stored', async () => {
-    mkdirSync(path.join(ws, '.git'), { recursive: true });
+    makeGitDir(ws);
     const local: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
     const store = failingPut(createLockfileRecordStore({ scope: 'repository', fs: nodeFs, rootPath: ws, generatedBy: 'test', exclusion: NO_GIT }));
 
@@ -501,7 +504,7 @@ describe('applyBundleInstall (on disk, git exclusion)', () => {
   });
 
   it('removes the lines of a committed previous install\'s files when a local-only reinstall cannot be stored', async () => {
-    mkdirSync(path.join(ws, '.git'), { recursive: true });
+    makeGitDir(ws);
     const committed: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'commit' };
     await install(committed, prompts('a', '1.0.0', ['hello']));
     const store = failingPut(createLockfileRecordStore({ scope: 'repository', fs: nodeFs, rootPath: ws, generatedBy: 'test', exclusion: NO_GIT }));
@@ -512,7 +515,7 @@ describe('applyBundleInstall (on disk, git exclusion)', () => {
   });
 
   it('keeps the lines of a local-only previous install\'s files when a reinstall cannot be stored', async () => {
-    mkdirSync(path.join(ws, '.git'), { recursive: true });
+    makeGitDir(ws);
     const local: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
     await install(local, prompts('a', '1.0.0', ['hello']));
     const store = failingPut(createLockfileRecordStore({ scope: 'repository', fs: nodeFs, rootPath: ws, generatedBy: 'test', exclusion: NO_GIT }));

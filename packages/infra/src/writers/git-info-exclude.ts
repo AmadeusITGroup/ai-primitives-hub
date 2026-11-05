@@ -43,7 +43,8 @@ const GITDIR_LINE = /^gitdir:\s*(.+?)\s*$/;
  * `# Prompt Registry (local)` header of the repository's exclude file.
  *
  * The exclude file is resolved on each call from `<workspaceRoot>/.git`:
- * a directory means `.git/info/exclude`; a file `gitdir: <dir>` (linked
+ * a directory with `HEAD`, `objects` and `refs` means `.git/info/exclude`;
+ * a file `gitdir: <dir>` (linked
  * worktree, submodule) means `<commondir or dir>/info/exclude`. Anything
  * else is not a git work tree: the adapter is unavailable and never
  * creates a `.git`. Paths stay relative to the workspace root in every
@@ -63,9 +64,25 @@ export class GitInfoExclude implements RepositoryExclusion {
   }
 
   /**
+   * Whether a `.git` directory holds a repository: git reads it only when
+   * it has `HEAD`, `objects` and `refs`.
+   * @param gitDir Absolute `.git` directory.
+   * @returns True when all three exist.
+   */
+  private async holdsRepository(gitDir: string): Promise<boolean> {
+    for (const entry of ['HEAD', 'objects', 'refs']) {
+      if (!(await this.fs.exists(path.join(gitDir, entry)))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Locate the exclude file git reads for this work tree.
    * @returns Absolute exclude file path, or `null` when the workspace is
-   *   not a git work tree (no `.git`, unreadable, no `gitdir:` line, or a
+   *   not a git work tree (no `.git`, unreadable, a `.git` directory
+   *   without `HEAD`, `objects` or `refs`, no `gitdir:` line, or a
    *   `gitdir:` or `commondir` link to a missing directory).
    */
   private async resolveExcludeFile(): Promise<string | null> {
@@ -73,7 +90,7 @@ export class GitInfoExclude implements RepositoryExclusion {
     try {
       const stat = await this.fs.stat(dotGit);
       if (stat.isDirectory) {
-        return path.join(dotGit, 'info', 'exclude');
+        return (await this.holdsRepository(dotGit)) ? path.join(dotGit, 'info', 'exclude') : null;
       }
       if (!stat.isFile) {
         return null;
