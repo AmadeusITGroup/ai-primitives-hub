@@ -10,7 +10,11 @@ The collection schema accepts 17 primitive kinds
 `instruction`, `chat-mode`, `agent`, `skill`, `plugin`, `hook`, `mcp-server`,
 `steering`, `spec`, `command`, `rule`, `output-style`, `tool`, `power`,
 `knowledge`, `playbook`. How each kind is packaged and installed is encoded
-per kind, in several places that disagree:
+per kind, in several places that disagree. The list below describes the
+code before M1. M1 has since landed (#594): the planner's directory and id
+rules and the repository-scope writer's directory installer now come from
+`categoryOf` (`packages/core/src/domain/install/category.ts`), with
+today's mapping, so `power` is still `file`.
 
 - Packaging treats only `skill` and `plugin` as directory units (a
   `skill`/`plugin` kind check in
@@ -126,7 +130,7 @@ Follow-up work is named by the step labels of the
    |---|---|---|---|---|---|
    | `file` | one file | as today: the manifest item id for the five `CopilotFileType`s (file renamed `{id}.{ext}`), else the file name | route the file through the layout's `kindRoutes` and write it | remove the recorded file (the lockfile's `installedPath` when the file was renamed) | byte re-read (`verifyWrittenBytes`) |
    | `directory` | the item's directory, `dirname(item.path)`, with every file below it | the directory name | route the whole tree under one destination directory | remove exactly the recorded destination directory | byte re-read of every file |
-   | `config` | entries merged into a target config file | prefixed entry name, recorded at install | read, merge, write the target file; foreign entries are preserved | remove only the entries this install recorded; keep the file | each recorded entry is present with the written value |
+   | `config` | entries merged into a target config file | prefixed entry name, recorded at install | read, merge, write the target file; foreign entries are preserved | remove only the entries this install recorded; keep the file | each recorded entry is present (presence only, see below) |
 
    All three share preflight (route or config present for the target and
    scope, no conflicting destination), rollback on failure, and the existing
@@ -145,7 +149,10 @@ Follow-up work is named by the step labels of the
    `packages/core/src/public/schemas/lockfile.schema.json`. It is written
    only when an entry owns config entries, so lockfiles of bundles without
    MCP stay byte-identical, and the lockfile name and shape stay as ADR-0004
-   requires. `bundleEntry` is `additionalProperties: false`; the extension's
+   requires. `configEntries` records no value, so `config` verify checks
+   only that each recorded entry is present. An entry whose value was
+   edited after install still verifies; this is an accepted limitation.
+   `bundleEntry` is `additionalProperties: false`; the extension's
    `LockfileManager.validate()` checks against that schema but has no
    production caller at `4d3b0ed`, so released extensions are not affected.
    Until the VS Code MCP step, an extension rewrite of the same entry may drop the
@@ -640,10 +647,14 @@ copilot-cli, now placed through the `agents/` route.
 reads them; their row shows the layouts after #598.
 A cell without "→" is today's status and does not change. A cell with a
 change this ADR decides reads "today → after the step", for example
-`❌ today → ✅ M4`. No `config` cell is written before M4, so every MCP cell
-is ❌ today, and `✅ M4` there is subject to M4's re-check described below
-the table. At repository scope after M7, a plugin with a stdio MCP server
-is ✅ only in `local-only` commit mode on targets with a repository-scope
+`❌ today → ✅ M4`. The table describes the CLI and `packages/`. The
+extension's `McpServerManager` already writes collection `mcpServers` at
+user and repository scope into the MCP config of the editor that hosts it
+(Context). It stays in place until the VS Code MCP step, where it delegates
+to `installMcpServers` and the `config` strategy (decision 11). The CLI
+writes no MCP config before M4, so every MCP cell is ❌ today, and
+`✅ M4` there is subject to M4's re-check described below the table. At
+repository scope after M7, a plugin with a stdio MCP server is ✅ only in `local-only` commit mode on targets with a repository-scope
 MCP config (not windsurf) that git does not already track, and ❌ in
 `commit` mode (O10, decision 5).
 
@@ -683,7 +694,8 @@ already moved both to the documented `mcp_config.json` files
 set to unsupported in layout data, never written to a guessed path. The
 same rule applies to the opencode dialect if the generic dialect model
 cannot express it. Nothing regresses, because no `config` kind installs
-anywhere before M4.
+through the CLI before M4, and the extension's MCP writer is unchanged
+until the VS Code MCP step.
 
 ### Per-target plugin semantics
 
@@ -747,9 +759,10 @@ baseline everywhere.
   convention for spec folders is agreed, because applying the directory rule
   to a flat `specs/foo.md` would capture all of `specs/`.
 - **O15 (open) — shared MCP config file and harness MCP state.** Two topics
-  that no migration step owns yet. First, mixed commit modes in one
-  repository MCP config file (decision 5, known gap): whether to detect
-  them, and how.
+  that no migration step owns yet. First, one repository MCP config file
+  shared by several installs (decision 5, known gap): mixed commit modes,
+  and the CLI and the extension writing the same owned names with
+  different `PLUGIN_DATA` (Consequences); whether to detect them, and how.
   Second, MCP enable and disable, for every MCP entry APH writes, including
   collection `mcpServers`: per target, where the harness keeps that state
   outside the MCP config file (UNVERIFIED for every target), and whether a
@@ -802,12 +815,17 @@ research questions; the step that depends on each re-checks it.
   installed by the CLI and by the extension gets different data directories,
   and so does a plugin installed for two targets.
   Its MCP entries have the same names but different `PLUGIN_DATA` values.
+  After the VS Code projection step, the CLI and the extension can both
+  install the same repository-scope plugin into one MCP config file. Which
+  delivery owns those entries is not decided here; it is a known gap of
+  the shared MCP config file (O15).
 - **Negative:** in `commit` mode, a repository-scope plugin with a stdio MCP
   server is unsupported (O10); it installs only in `local-only` mode, and
   only when git does not already track the target MCP config file.
-  Repository-scope powers on Kiro become unsupported. Both installed before,
-  as copies the harness did not read. Collection `mcpServers` and
-  `mcp-server` items are not affected. Mixing commit modes in one MCP
+  Repository-scope powers on Kiro become unsupported. Both install today,
+  but the harness reads neither: the plugin is an inert copy under
+  `plugins/`, and the power a single file in `.kiro/powers/`. Collection
+  `mcpServers` and `mcp-server` items are not affected. Mixing commit modes in one MCP
   config file stays a known gap, as today: entries a `commit`-mode install
   writes into a file excluded by a `local-only` install are never seen by
   git (O15).
@@ -829,7 +847,7 @@ start. O\* ids refer to the open questions above.
 | order | step | content | depends on | value |
 |---|---|---|---|---|
 | 0 | **this ADR** (#549) `docs(adr)` | this ADR and its index row | — | an agreed contract |
-| 1 | **M1** (#552) `refactor(core,app,infra)`: install categories, no install behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; `KIND_TO_ROUTE_KEY` and `placeManifestItem`'s skill/file split (#526) expressed through the category, so manifest placement and path routing share one rule; the kind/route mismatch warning (decision 3) in `collection validate`, and in `doctor diagnostics --primitives` once #548 lands; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | this ADR | later PRs change one place; adding a kind becomes a table row |
+| 1 | **M1** (#552, landed in #594) `refactor(core,app,infra)`: install categories, no install behaviour change | `InstallCategory`, the kind → category table with today's mapping (`power` still `file`), `categoryOf`; `routeKindOf` and `ROUTE_PREFIX_KINDS` moved to `core`; `KIND_TO_ROUTE_KEY` and `placeManifestItem`'s skill/file split (#526) expressed through the category, so manifest placement and path routing share one rule; the kind/route mismatch warning (decision 3) in `collection validate`, and in `doctor diagnostics --primitives` once #548 lands; the planner's directory rule and id rule from the category; `RepositoryScopeWriter`'s skill/plugin branches collapsed into one directory installer and its `.git/info/exclude` logic extracted behind the exclusion port; characterisation tests first | this ADR | later PRs change one place; adding a kind becomes a table row |
 | 2 | **M2** `feat(core,infra)`: kiro routes and power as a directory unit | `power` → `directory` in the table; kiro `hooks/` and `plugins/` routes; kiro and kiro-cli repository `powers/` route removed; Devin `powers/` re-checked | M1 | hooks install on kiro; powers archive completely with unique ids |
 | 3 | **M3** `fix`: file modes on install | modes applied in the shared file write, so every category gets them | #547; M1 preferred | installed scripts are executable |
 | 4 | **M4** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form, the sanitised form with per-segment encoding, and the sanitised fallback for a segment with `:`; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | M1 | collection MCP servers reach the target |
@@ -850,9 +868,8 @@ neither, such as the extension after #551, keeps today's behaviour.
 Unaffected by this ADR: plugin validation in `bundle build` (#545), the
 `plugin create` scaffold (#546), executable bits in archives (#547),
 `doctor diagnostics --primitives` and its later cases (#548), and
-`install --skip-unsupported` (#550). A separate fix for the repository-scope
-prefix mismatch is subsumed by M1's directory strategy unless it lands
-first as a quick fix.
+`install --skip-unsupported` (#550). M1 (#594) also fixed the
+repository-scope prefix mismatch, so no separate fix is needed.
 
 ## Related decisions
 
