@@ -524,6 +524,31 @@ describe('applyBundleInstall (on disk, git exclusion)', () => {
     expect(excludeLines()).not.toContain('.kiro/steering/added.prompt.md');
   });
 
+  it('keeps the line of a file another local-only record holds when a new install cannot be stored', async () => {
+    makeGitDir(ws);
+    const local: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
+    await install(local, prompts('b', '1.0.0', ['shared']));
+    const store = failingPut(createLockfileRecordStore({ scope: 'repository', fs: nodeFs, rootPath: ws, generatedBy: 'test', exclusion: NO_GIT }));
+
+    await expect(install(local, prompts('a', '1.0.0', ['shared', 'own']), { store })).rejects.toThrow('lockfile is read-only');
+
+    expect(excludeLines()).toContain('.kiro/steering/shared.prompt.md');
+    expect(excludeLines()).not.toContain('.kiro/steering/own.prompt.md');
+  });
+
+  it('keeps the line of a file another local-only record holds when a reinstall moves to commit', async () => {
+    makeGitDir(ws);
+    const local: Target = { name: 'k', type: 'kiro', scope: 'repository', rootPath: ws, commitMode: 'local-only' };
+    await install(local, prompts('a', '1.0.0', ['shared', 'own']));
+    await install(local, prompts('b', '1.0.0', ['shared']));
+
+    const result = await install({ ...local, commitMode: 'commit' }, prompts('a', '1.0.0', ['shared', 'own']));
+
+    expect(result.exclusionErrors).toEqual([]);
+    expect(excludeLines()).toContain('.kiro/steering/shared.prompt.md');
+    expect(excludeLines()).not.toContain('.kiro/steering/own.prompt.md');
+  });
+
   it('writes the lines into the common exclude file of a linked worktree', async () => {
     const main = path.join(tmp, 'main');
     const gitDir = path.join(main, '.git', 'worktrees', 'ws');

@@ -45,6 +45,7 @@ import {
 import {
   locateRecord,
   recordedFiles,
+  recordLocations,
   removeSupersededRecordFiles,
 } from './recorded-files';
 
@@ -110,6 +111,21 @@ const isLocalOnlyRepository = (target: Target): boolean =>
   target.scope === 'repository' && target.commitMode === 'local-only';
 
 /**
+ * Locations whose exclusion lines other records own: those of the
+ * `local-only` records among `records`.
+ * @param writerFactory Writer factory.
+ * @param target Caller's target.
+ * @param records Other records.
+ * @returns Set of `path.resolve`d locations.
+ */
+const localOnlyLocations = (
+  writerFactory: (target: Target) => TargetWriter,
+  target: Target,
+  records: readonly InstallRecord[]
+): Promise<Set<string>> =>
+  recordLocations(writerFactory, target, records.filter((record) => record.commitMode === 'local-only'));
+
+/**
  * Best-effort rollback of written files after a failed recording: a file
  * the write replaced gets its earlier bytes back, any other is removed.
  * @param writer Writer that wrote them.
@@ -147,13 +163,15 @@ const rollbackWritten = async (
  * 6. on a failure of 4–5, roll back the written files: restore what the
  *    write replaced, remove the files it created except those the previous
  *    record owns (a writer that reports nothing replaced keeps them), remove
- *    the exclusion lines this install added, rethrow;
+ *    the exclusion lines this install added that no other `local-only`
+ *    record holds, rethrow;
  * 7. previous record, located with the writer of its own target type →
  *    remove its files the new entry doesn't produce, guarded like
  *    uninstall, prune, and un-exclude them when the previous record was
  *    `local-only`; a previous record of another target type that can't be
  *    located → keep its files and report them as `unresolvable`;
- * 8. previous `local-only`, new `commit` → un-exclude the new locations.
+ * 8. previous `local-only`, new `commit` → un-exclude the new locations
+ *    no other `local-only` record holds.
  * @param input Install inputs.
  * @returns The outcome.
  */
@@ -217,8 +235,15 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
     await rollbackWritten(writer, target, fs, written.filter((p) => isReplaced(p) || !owned.has(path.resolve(p))), replaced);
     if (excluded && exclusion !== null) {
       try {
-        // The previous record's lines predate this install only when it was local-only.
-        await exclusion.remove(previous?.commitMode === 'local-only' ? notOwned : written);
+        // The previous record's lines predate this install only when it was
+        // local-only; another local-only record's lines are its own. Other
+        // records that can't be read hold none.
+        const held = await store.others(key).then(
+          (records) => localOnlyLocations(writerFactory, target, records),
+          () => new Set<string>()
+        );
+        const added = (previous?.commitMode === 'local-only' ? notOwned : written).filter((p) => !held.has(path.resolve(p)));
+        await exclusion.remove(added);
       } catch {
         // Best effort: the recording error is what the caller needs.
       }
@@ -266,8 +291,12 @@ export async function applyBundleInstall(input: ApplyBundleInstallInput): Promis
     result.exclusionErrors.push(...outcome.exclusionErrors);
   }
 
-  if ((target.commitMode ?? 'commit') === 'commit') {
-    const outcome = await unexcludePaths({ exclusion, target, commitMode: previous.commitMode, paths: newLocations });
+  if ((target.commitMode ?? 'commit') === 'commit' && previous.commitMode === 'local-only') {
+    // Another local-only record that holds a location keeps its line.
+    const held = await localOnlyLocations(writerFactory, target, others);
+    const outcome = await unexcludePaths({
+      exclusion, target, commitMode: previous.commitMode, paths: newLocations.filter((p) => !held.has(path.resolve(p)))
+    });
     result.exclusionSkipped ||= outcome.exclusionSkipped;
     result.exclusionErrors.push(...outcome.exclusionErrors);
   }
