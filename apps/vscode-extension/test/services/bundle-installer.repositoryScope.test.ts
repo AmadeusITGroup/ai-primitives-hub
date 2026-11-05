@@ -245,6 +245,24 @@ suite('BundleInstaller - Repository Scope', () => {
     assert.strictEqual(readLockfile()?.bundles[DEMO_PLUGIN_ID].version, '2.0.0');
   });
 
+  test('an install removes stale cache leftovers and keeps the staging directory of an install still running', async () => {
+    const installer = new BundleInstaller(context, 'vscode');
+    const stale = path.join(bundlesDir(), `${DEMO_PLUGIN_ID}.staging-0000dead`);
+    const staleOld = path.join(bundlesDir(), `${DEMO_PLUGIN_ID}.old-0000dead`);
+    const running = path.join(bundlesDir(), `${DEMO_PLUGIN_ID}.staging-0000beef`);
+    for (const dir of [stale, staleOld, running]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'deployment-manifest.yml'), 'id: demo-plugin\n');
+    }
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(stale, twoHoursAgo, twoHoursAgo);
+    fs.utimesSync(staleOld, twoHoursAgo, twoHoursAgo);
+
+    await installer.installFromBuffer(bundleOf(), zipOf('prompt'), repository(), 'local');
+
+    assert.deepStrictEqual(cacheSiblings(), [path.basename(running)]);
+  });
+
   test('records a non-empty source URL when the bundle has no download or manifest URL', async () => {
     const installer = new BundleInstaller(context, 'vscode');
 

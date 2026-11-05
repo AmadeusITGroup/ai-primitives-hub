@@ -252,7 +252,7 @@ sequenceDiagram
     end
 ```
 
-The swap retries a rename up to three times on `EPERM`/`EBUSY` (back-off of 100 ms times the attempt number) and restores the old cache when it fails, throwing `Installed "<name>" but could not update its cache (<message>); reinstall the bundle`. Leftover `.staging-*` and `.old-*` directories of an interrupted install are removed before the next one.
+The swap retries a rename up to three times on `EPERM`/`EBUSY` (back-off of 100 ms times the attempt number) and restores the old cache when it fails, throwing `Installed "<name>" but could not update its cache (<message>); reinstall the bundle`. Leftover `.staging-*` and `.old-*` directories of an interrupted install are removed before the next one once they are more than an hour old; a younger one may belong to an install of the same bundle still running in another window, since every window shares the bundle cache.
 
 `BundleInstaller.update` at repository scope stages the new version, calls `preflightBundle`, and only then uninstalls the installed version through the shared uninstall and runs `syncBundle`, so a version the host cannot install leaves the installed one untouched. A failure after the preflight (for example a lockfile write) has already removed the old version; the new files are rolled back. `uninstall` passes `{ scope }` to `unsyncBundle`; the record store removes the lockfile entry.
 

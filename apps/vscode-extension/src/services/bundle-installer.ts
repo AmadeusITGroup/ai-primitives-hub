@@ -103,6 +103,9 @@ const symlink = promisify(fs.symlink);
 
 const RENAME_RETRIES = 3;
 const RENAME_BACKOFF_MS = 100;
+// Cache staging and old directories younger than this may belong to an
+// install still running in another window (globalStorage is shared).
+const CACHE_LEFTOVER_STALE_MS = 60 * 60 * 1000;
 
 /**
  * Rename, retried on the transient `EPERM` / `EBUSY` Windows reports while
@@ -806,7 +809,8 @@ export class BundleInstaller {
    * Repository-scope staging directory for the bundle cache: a fresh
    * `<installDir>.staging-<hex>` sibling. Leftover staging and old
    * directories of earlier interrupted installs are removed first (best
-   * effort).
+   * effort) once they are older than an hour; a younger one may belong to
+   * an install of the same bundle still running in another window.
    * @param installDir - Bundle cache directory.
    * @returns The staging directory path.
    */
@@ -817,7 +821,12 @@ export class BundleInstaller {
       ? (await readdir(parent)).filter((name) => name.startsWith(`${base}.staging-`) || name.startsWith(`${base}.old-`))
       : [];
     for (const leftover of leftovers) {
-      await fs.promises.rm(path.join(parent, leftover), { recursive: true, force: true }).catch((error: unknown) => {
+      const leftoverPath = path.join(parent, leftover);
+      const stats = await lstat(leftoverPath).catch(() => undefined);
+      if (stats === undefined || Date.now() - stats.mtimeMs < CACHE_LEFTOVER_STALE_MS) {
+        continue;
+      }
+      await fs.promises.rm(leftoverPath, { recursive: true, force: true }).catch((error: unknown) => {
         this.logger.debug(`Could not remove leftover cache directory ${leftover}: ${String(error)}`);
       });
     }
