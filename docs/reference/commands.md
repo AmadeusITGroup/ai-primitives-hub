@@ -26,6 +26,21 @@ The command is metadata-only by default: it never downloads archives or publishe
 
 `--cache-dir`, `--workers`, and `--request-budget` control persistent metadata/archive reuse, concurrency, and the GitHub request ceiling. Cache files are atomically written with directory mode 700 and file mode 600. No GitHub fallback client or `gh` CLI is used by production replication.
 
+## Security Scanning
+
+`ai-primitives-hub security scan [PATH...] [--ci] [--fail-on HIGH]`
+
+Scans Markdown artifacts and Claude settings without executing them. Reports
+are opt-in; secret evidence is redacted. See the [scanner reference](./security-scanner.md)
+for options, failure policies, and exit codes.
+
+| Command ID | Command Palette title |
+|---|---|
+| `promptregistry.securityScanFile` | Security Scan Current File |
+| `promptregistry.securityScanWorkspace` | Security Scan Workspace |
+| `promptregistry.securityShowLastReport` | Show Last Security Report |
+| `promptregistry.securityClearDiagnostics` | Clear Security Diagnostics |
+
 ## Bundle Install (CLI)
 
 `ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] --target <target> [--skip-unsupported]`
@@ -34,6 +49,7 @@ The command is metadata-only by default: it never downloads archives or publishe
 - `--source <value>` is looked up first as a source id (or name) in the active hub, then as a hub id (the hub's profiles name the source that carries the bundle), and only then used as a GitHub `owner/repo`. When none matches, the command fails with `BUNDLE.NOT_FOUND` and names the three lookups it tried. When none matches and the active hub (or the hub named by `--source`) exists but its configuration cannot be loaded, the command fails with `HUB.LOAD_FAILED`, naming the hub and the load error.
 - GitHub bundle ids may use the hub form `{owner}-{repo}-{manifestId}`, with or without a `-{version}` / `-v{version}` suffix. The repo prefix is compared case-insensitively; in this form the bundle name and any pinned version must match the manifest exactly. For compatibility, the earlier rule still applies too: an id equal to the manifest `id`, or ending in `-{manifestId}-{version}` / `-{manifestId}-v{version}` after any prefix, is accepted, so this check does not by itself confirm which repository a bundle came from. `profile activate` and `install --lockfile` (for GitHub lockfile sources) apply the same rule.
 - An install is all-or-nothing by default: when the target cannot hold part of the bundle, it fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing. `--skip-unsupported` installs the items the target supports and lists each skipped item with its reason, in text output under `Skipped:` and in `-o json` as `data.skipped[]` (`path`, `code`, `reason`). The result has status `warning` and exits 0. When the target supports none of the bundle, the install still fails with `BUNDLE.UNSUPPORTED_CONTENT`. Skipped items are not recorded in the lockfile, so `uninstall` removes only what was installed. The flag works with `<bundle-id>`, `--from` and `--source <hub-id> --interactive`. It is refused with `--lockfile` (`USAGE.INVALID_FLAG`), because replay installs every recorded bundle in full, and has no effect with `--dry-run`. `profile activate` and `update` stay all-or-nothing: to pick up a new version of a partially installed bundle, run `install` again with `--skip-unsupported`.
+- `profile activate` fails with `HUB.REQUIRED_BUNDLE_MISSING` when a bundle the profile marks `required: true` is installed on none of the targets. The error names each such bundle with its install error, the activation is rolled back, and no profile is left active (the previously active profile stays deactivated). A failed bundle marked `required: false`, or a required bundle that failed on only some targets, is listed under `Failures:` and the command exits 1 with the profile active.
 
 ### Where files land
 

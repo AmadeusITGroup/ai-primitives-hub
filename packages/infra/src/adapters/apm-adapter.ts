@@ -553,20 +553,20 @@ export class ApmAdapter extends BaseSourceAdapter {
     const apmDir = path.join(installDir, '.apm');
     if (await this.fs.exists(apmDir)) {
       for (const relativePath of await this.listFilesRecursively(apmDir)) {
-        const contents = await this.fs.readFile(path.join(apmDir, relativePath));
-        archive.append(contents, { name: `prompts/${relativePath}` });
+        const contents = await this.fs.readFileBytes(path.join(apmDir, relativePath));
+        archive.append(Buffer.from(contents), { name: `prompts/${relativePath}` });
       }
     }
 
     const modulesDir = path.join(installDir, 'apm_modules');
     if (await this.fs.exists(modulesDir)) {
       for (const file of await this.findPromptFiles(modulesDir)) {
-        archive.append(await this.fs.readFile(file), { name: `prompts/${path.basename(file)}` });
+        archive.append(Buffer.from(await this.fs.readFileBytes(file)), { name: `prompts/${path.basename(file)}` });
       }
     }
 
     for (const file of await this.findPromptFiles(installDir, false)) {
-      archive.append(await this.fs.readFile(file), { name: `prompts/${path.basename(file)}` });
+      archive.append(Buffer.from(await this.fs.readFileBytes(file)), { name: `prompts/${path.basename(file)}` });
     }
 
     await archive.finalize();

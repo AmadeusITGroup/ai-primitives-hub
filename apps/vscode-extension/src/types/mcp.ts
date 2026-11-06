@@ -5,6 +5,7 @@
 // McpServersKey is defined in @ai-primitives-hub/core alongside McpLayoutConfig.
 import type {
   McpEnvPlaceholderStyle,
+  McpServerKeyRequest,
 } from '@ai-primitives-hub/core';
 
 export type { McpServersKey } from '@ai-primitives-hub/core';
@@ -176,7 +177,10 @@ export interface McpUninstallResult {
   errors?: string[];
 }
 
-export interface McpInstallOptions {
+/** What a server key is built from besides the bundle id and server name (see `resolveMcpServerKey`). */
+export type McpServerNaming = Omit<McpServerKeyRequest, 'bundleId' | 'serverName'>;
+
+export interface McpInstallOptions extends McpServerNaming {
   scope: 'user' | 'workspace';
   overwrite?: boolean;
   skipOnConflict?: boolean;
@@ -186,7 +190,7 @@ export interface McpInstallOptions {
 /**
  * Options for installing MCP servers to a workspace (repository scope)
  */
-export interface McpWorkspaceInstallOptions {
+export interface McpWorkspaceInstallOptions extends McpServerNaming {
   commitMode: 'commit' | 'local-only';
   overwrite?: boolean;
   skipOnConflict?: boolean;

@@ -102,10 +102,15 @@ export async function activateHubProfile(hubManager: HubManager, item?: any): Pr
     }
 
     // Activate the profile
-    await hubManager.activateProfile(selectedProfile.hubId, selectedProfile.profileId, { installBundles: true });
+    const result = await hubManager.activateProfile(selectedProfile.hubId, selectedProfile.profileId, { installBundles: true });
 
     // Refresh tree view
     await vscode.commands.executeCommand('promptRegistry.refresh');
+
+    if (!result.success) {
+      vscode.window.showErrorMessage(`Failed to activate profile: ${result.error ?? 'activation failed'}`);
+      return;
+    }
 
     vscode.window.showInformationMessage(`Activated profile: ${selectedProfile.profileId}`);
   } catch (error) {

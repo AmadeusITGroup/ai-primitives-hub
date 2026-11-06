@@ -6,6 +6,11 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as sinon from 'sinon';
+import * as vscode from 'vscode';
+import {
+  activateHubProfile,
+} from '../../src/commands/hub-profile-activation-commands';
 import {
   HubManager,
 } from '../../src/services/hub-manager';
@@ -273,6 +278,39 @@ suite('Hub Profile Activation Commands - Integration', () => {
       active = await hubManager.getActiveProfile('test-hub');
       assert.ok(active);
       assert.deepStrictEqual(active.syncedBundles, ['bundle-2']);
+    });
+  });
+
+  suite('Activate Command Outcome', () => {
+    let sandbox: sinon.SinonSandbox;
+
+    setup(() => {
+      sandbox = sinon.createSandbox();
+      sandbox.stub(vscode.commands, 'executeCommand').resolves();
+    });
+
+    teardown(() => {
+      sandbox.restore();
+    });
+
+    test('shows the activation error instead of a success message when a required bundle is not installed', async () => {
+      const showError = sandbox.stub(vscode.window, 'showErrorMessage');
+      const showInfo = sandbox.stub(vscode.window, 'showInformationMessage');
+      await storage.saveHub('test-hub', createTestHub(), { type: 'github', location: 'test/repo' });
+      await storage.setActiveHubId('test-hub');
+      // The registry is HubManager's install boundary: it installs nothing here.
+      const registry = {
+        installBundles: sandbox.stub().resolves({ synced: [] }),
+        deactivateProfile: sandbox.stub().resolves()
+      } as unknown as ConstructorParameters<typeof HubManager>[4];
+      const managerWithRegistry = new HubManager(storage, {} as any, process.cwd(), undefined, registry);
+
+      await activateHubProfile(managerWithRegistry, { data: { hubId: 'test-hub', profileId: 'profile-1' } });
+
+      assert.ok(showError.calledOnce, 'an error notification is shown');
+      assert.ok(String(showError.firstCall.args[0]).includes('Required bundles were not installed: bundle-1.'));
+      assert.ok(!showInfo.getCalls().some((c) => String(c.args[0]).startsWith('Activated profile')));
+      assert.strictEqual(await managerWithRegistry.getActiveProfile('test-hub'), null);
     });
   });
 });

@@ -10,6 +10,9 @@ import {
   LocalAdapter,
 } from '../../src/adapters/local-adapter';
 import {
+  ZipBundleExtractor,
+} from '../../src/extractors/zip-bundle-extractor';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 
@@ -148,6 +151,19 @@ describe('LocalAdapter', () => {
     // ZIP local-file-header magic number: "PK\x03\x04".
     expect(zip.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4B, 0x03, 0x04]));
     expect(zip.length).toBeGreaterThan(0);
+  });
+
+  it('preserves nested binary assets when packaging a local bundle', async () => {
+    const fs = new InMemoryFileSystem();
+    const binary = Buffer.from([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x80]);
+    fs.seed('/registry/my-bundle/deployment-manifest.yml', MANIFEST_YAML);
+    fs.seed('/registry/my-bundle/skills/demo/dist/example.whl', binary);
+    const adapter = new LocalAdapter(makeSource(), fs);
+    const [bundle] = await adapter.fetchBundles();
+
+    const files = await new ZipBundleExtractor().extract(await adapter.downloadBundle(bundle));
+
+    expect(Buffer.from(files.get('skills/demo/dist/example.whl')!)).toEqual(binary);
   });
 
   it('downloadBundle() rejects when the bundle directory no longer exists', async () => {

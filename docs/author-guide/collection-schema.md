@@ -14,7 +14,7 @@ tags:                               # Optional. For discoverability
   - python
   - testing
 
-items:                              # Required. List of resources (max 50)
+items:                              # Required. List of resources
   - path: prompts/write-tests.prompt.md   # Required. Relative path to file
     kind: prompt                          # Required. See "Item Kinds" below (e.g., prompt, instruction, chat-mode, agent, skill, plugin)
     title: Test Writer                    # Optional. Display title

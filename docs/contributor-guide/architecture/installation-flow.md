@@ -84,6 +84,15 @@ flowchart TD
     U --> AA
 ```
 
+## Planned Security Gate for Custom Sources
+
+The scanner is currently an explicit CLI and extension workflow, not an
+automatic installation gate. A future policy-controlled gate must scan
+extracted bytes after manifest/integrity validation and before writing target
+files, MCP configuration, lockfiles, or installation records. It must reuse the
+shared scanner contract and explicitly distinguish report-only, warning, and
+blocking policies. See [Security Scanner Architecture](./security-scanner.md).
+
 ## Binary Safety and Integrity Verification
 
 Bundle files are copied to the target byte-for-byte and verified after every write:

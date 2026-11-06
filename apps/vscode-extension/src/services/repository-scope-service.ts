@@ -54,6 +54,9 @@ import {
   Logger,
 } from '../utils/logger';
 import {
+  resolveExistingPathInside,
+} from '../utils/path-safety';
+import {
   LockfileManager,
 } from './lockfile-manager';
 import {
@@ -281,9 +284,9 @@ export class RepositoryScopeService implements IScopeService {
       return;
     }
 
-    const sourceDir = path.join(bundlePath, path.dirname(skillFile));
-    if (!fs.existsSync(sourceDir)) {
-      this.logger.warn(`[RepositoryScopeService] Skill directory not found: ${sourceDir}`);
+    const sourceDir = await resolveExistingPathInside(bundlePath, path.dirname(skillFile), true);
+    if (!sourceDir || !fs.existsSync(sourceDir)) {
+      this.logger.warn(`[RepositoryScopeService] Skill directory is missing or outside the bundle: ${skillFile}`);
       return;
     }
     if (!fs.statSync(sourceDir).isDirectory()) {
@@ -330,13 +333,12 @@ export class RepositoryScopeService implements IScopeService {
     tracker: InstallationTracker
   ): Promise<void> {
     this.logger.debug(`[RepositoryScopeService] installFileAndTrack: bundlePath=${bundlePath}, file=${promptDef.file}, promptId=${promptId}`);
-    const sourcePath = path.join(bundlePath, promptDef.file);
-    this.logger.debug(`[RepositoryScopeService] Source path: ${sourcePath}`);
-    this.logger.debug(`[RepositoryScopeService] Source exists: ${fs.existsSync(sourcePath)}`);
-    if (!fs.existsSync(sourcePath)) {
-      this.logger.warn(`[RepositoryScopeService] Source file not found: ${sourcePath}`);
+    const sourcePath = await resolveExistingPathInside(bundlePath, promptDef.file);
+    if (!sourcePath || !fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
+      this.logger.warn(`[RepositoryScopeService] Source file is missing or outside the bundle: ${promptDef.file}`);
       return;
     }
+    this.logger.debug(`[RepositoryScopeService] Source path: ${sourcePath}`);
 
     const fileType = promptDef.type as CopilotFileType || determineFileType(promptDef.file, promptDef.tags);
     const files = new Map<string, Uint8Array>([[promptDef.file, await readFile(sourcePath)]]);

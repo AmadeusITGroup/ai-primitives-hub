@@ -34,3 +34,6 @@ export * from './primitive-diagnostics-driver';
 export * from './hub-contribution';
 export * from './collection-contribution';
 export * from './repository-exclusion';
+export * from './security-scan-engine';
+export * from './security-scan-input';
+export * from './security-report-store';

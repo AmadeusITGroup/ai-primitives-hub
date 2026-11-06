@@ -104,7 +104,7 @@ The extension provides JSON Schema validation for all major configuration file t
 - `id` — Unique identifier (lowercase letters, numbers, hyphens only)
 - `name` — Human-readable collection name (1-100 characters)
 - `description` — Detailed purpose description (1-500 characters)
-- `items` — Array of collection resources (0-50 items)
+- `items` — Array of collection resources (no upper limit)
 
 **Optional fields:**
 - `version` — Semantic version string

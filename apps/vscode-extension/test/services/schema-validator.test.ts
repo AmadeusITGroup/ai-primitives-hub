@@ -242,6 +242,28 @@ suite('SchemaValidator', () => {
       assert.strictEqual(result.valid, false);
       assert.ok(result.errors.some((e) => e.includes('maximum') || e.includes('500')));
     });
+
+    test('should accept collections with more than 50 items', async function () {
+      if (!fs.existsSync(testCollectionSchemaPath)) {
+        this.skip();
+        return;
+      }
+
+      const largeCollection = {
+        id: 'large-collection',
+        name: 'Large Collection',
+        description: 'A collection with many items',
+        items: Array.from({ length: 120 }, (_, i) => ({
+          path: `prompts/item-${i}.prompt.md`,
+          kind: 'prompt'
+        }))
+      };
+
+      const result = await validator.validateCollection(largeCollection);
+
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.errors.length, 0);
+    });
   });
 
   test('should validate collection with valid MCP configuration', async function () {
