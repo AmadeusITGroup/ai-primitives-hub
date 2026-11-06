@@ -2,6 +2,9 @@ import type {
   RegistrySource,
 } from '@ai-primitives-hub/core';
 import {
+  countManifestItemsByKind,
+} from '@ai-primitives-hub/core';
+import {
   describe,
   expect,
   it,
@@ -84,6 +87,27 @@ describe('LocalAdapter', () => {
     expect(bundles[0].lastUpdated).toBe(new Date(1_700_000_000_000).toISOString());
   });
 
+  it('attaches manifest items so a plugin declared only in items[] counts once', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed('/registry/my-bundle/deployment-manifest.yml', [
+      'formatVersion: 1',
+      MANIFEST_YAML,
+      'items:',
+      '  - { id: demo, kind: plugin, path: plugins/demo/plugin.json }',
+      'prompts:',
+      '  - { id: demo, file: plugins/demo/plugin.json, type: plugin }'
+    ].join('\n'));
+    const bundles = await new LocalAdapter(makeSource(), fs).fetchBundles();
+    expect(bundles[0]).toMatchObject({ formatVersion: 1, items: [{ id: 'demo', kind: 'plugin', path: 'plugins/demo/plugin.json' }] });
+    expect(countManifestItemsByKind(bundles[0])).toEqual({ plugin: 1 });
+  });
+  it('does not attach items when the manifest declares none', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed('/registry/my-bundle/deployment-manifest.yml', MANIFEST_YAML);
+    const bundles = await new LocalAdapter(makeSource(), fs).fetchBundles();
+    expect(bundles[0]).not.toHaveProperty('items');
+    expect(bundles[0]).not.toHaveProperty('formatVersion');
+  });
   it('skips a bundle directory with a malformed manifest instead of failing the whole fetch', async () => {
     const fs = new InMemoryFileSystem();
     fs.seed('/registry/good/deployment-manifest.yml', MANIFEST_YAML);

@@ -46,6 +46,10 @@ interface LocalManifest {
     optional: boolean;
   }[];
   license?: string;
+  /** Read only for the Marketplace webview's content-breakdown UI, like `GitHubAdapter`'s. */
+  formatVersion?: unknown;
+  /** Read only for the Marketplace webview's content-breakdown UI, like `GitHubAdapter`'s. */
+  items?: unknown[];
 }
 
 const MANIFEST_FILE_NAME = 'deployment-manifest.yml';
@@ -196,7 +200,7 @@ export class LocalAdapter extends BaseSourceAdapter {
         const size = await this.calculateDirectorySize(bundleDir);
         const declaredSize = manifest.size;
 
-        bundles.push({
+        const bundle: Bundle = {
           id: manifest.id,
           name: manifest.name,
           version: manifest.version,
@@ -211,7 +215,17 @@ export class LocalAdapter extends BaseSourceAdapter {
           license: manifest.license ?? 'Unknown',
           downloadUrl: toFileUrl(bundleDir),
           manifestUrl: toFileUrl(manifestPath)
-        });
+        };
+        // Attach the manifest's items for the Marketplace webview's
+        // content-breakdown UI - the same ad hoc cast `GitHubAdapter` uses;
+        // `formatVersion` marks any legacy lists as projections of them.
+        if (Array.isArray(manifest.items)) {
+          (bundle as Bundle & { items?: unknown }).items = manifest.items;
+          if (manifest.formatVersion !== undefined) {
+            (bundle as Bundle & { formatVersion?: unknown }).formatVersion = manifest.formatVersion;
+          }
+        }
+        bundles.push(bundle);
       } catch {
         // Skip bundles with an unreadable/malformed manifest; other bundles
         // in the same source should still load.
