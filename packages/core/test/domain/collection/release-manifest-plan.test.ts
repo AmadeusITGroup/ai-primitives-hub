@@ -126,7 +126,7 @@ describe('APM release layout', () => {
     expect(applyReleaseLayout(plan)).toEqual({ plan, warnings: [] });
   });
 
-  it.each(['', '.github/', '.apm/'])('rewires %s primitives once and retains skill resources and source metadata', async (prefix) => {
+  it.each(['', '.github/', '.apm/'])('mirrors %s primitives while retaining Hub paths and metadata', async (prefix) => {
     const sources = createSources();
     const rootFiles = [...sources.committed];
     for (const [file, content] of rootFiles) {
@@ -142,26 +142,32 @@ describe('APM release layout', () => {
     const original = serializeReleaseManifest(plan.manifest);
     const transformed = applyReleaseLayout(plan, 'apm').plan;
 
-    expect(transformed.entries.map((entry) => entry.path)).toEqual([
-      '.apm/LICENSE',
-      '.apm/README.md',
-      '.apm/metadata/source/collections/example.collection.yml',
+    expect(transformed.entries.map((entry) => entry.path)).toEqual([...new Set([
+      ...plan.entries.map((entry) => entry.path),
       '.apm/prompts/hello.prompt.md',
       '.apm/skills/example/SKILL.md',
       '.apm/skills/example/references/reference.md',
       'apm.yml'
-    ]);
+    ])].toSorted());
     for (const entry of plan.entries) {
-      const newPath = `.apm/${entry.path.replace(/^(?:\.github|\.apm)\//, '')}`;
-      expect(transformed.entries.find((candidate) => candidate.path === newPath))
+      expect(transformed.entries.find((candidate) => candidate.path === entry.path))
         .toMatchObject({ bytes: entry.bytes, mode: entry.mode, role: entry.role });
+      if (entry.role === 'installable') {
+        const mirrorPath = `.apm/${entry.path.replace(/^(?:\.github|\.apm)\//, '')}`;
+        expect(transformed.entries.find((candidate) => candidate.path === mirrorPath))
+          .toMatchObject({ bytes: entry.bytes, mode: entry.mode, role: entry.role });
+      }
     }
+    expect(transformed.manifest.items).toEqual(plan.manifest.items);
+    expect(transformed.manifest.prompts).toEqual(plan.manifest.prompts);
+    expect(transformed.manifest.provenance).toEqual(plan.manifest.provenance);
+    expect(transformed.manifest.readme).toBe(plan.manifest.readme);
     expect(serializeReleaseManifest(plan.manifest)).toBe(original);
     expect(serializeReleaseManifest(applyReleaseLayout(plan, 'apm').plan.manifest))
       .toBe(serializeReleaseManifest(transformed.manifest));
   });
 
-  it('rewires legacy manifests without inventing governed source evidence', async () => {
+  it('preserves legacy manifest paths without inventing governed source evidence', async () => {
     const plan = await createLegacyReleaseManifestPlan(governedOptions, createSources());
     const transformed = applyReleaseLayout(plan, 'apm').plan;
 
@@ -170,10 +176,21 @@ describe('APM release layout', () => {
     expect(transformed.manifest.readme).toBe('README.md');
     expect(transformed.manifest).toMatchObject({
       prompts: [
-        { file: '.apm/prompts/hello.prompt.md' },
-        { file: '.apm/skills/example/SKILL.md' }
+        { file: 'prompts/hello.prompt.md' },
+        { file: 'skills/example/SKILL.md' }
       ]
     });
+  });
+
+  it('accepts canonical governed items without an optional prompts projection', async () => {
+    const plan = await createReleaseManifestPlan(governedOptions, createSources());
+    delete plan.manifest.prompts;
+
+    const transformed = applyReleaseLayout(plan, 'apm').plan;
+
+    expect(transformed.manifest).not.toHaveProperty('prompts');
+    expect(transformed.manifest.items).toEqual(plan.manifest.items);
+    expect(transformed.entries.some((entry) => entry.path === '.apm/skills/example/SKILL.md')).toBe(true);
   });
 
   it('rejects relocation collisions instead of overwriting one payload', async () => {
@@ -224,7 +241,7 @@ describe('APM release layout', () => {
 
     expect(formatted.warnings).toEqual([expect.stringContaining(`.apm/${itemPath}`)]);
     expect(formatted.plan.manifest).toMatchObject({
-      items: [{ path: `.apm/${itemPath}` }]
+      items: [{ path: itemPath }]
     });
   });
 });

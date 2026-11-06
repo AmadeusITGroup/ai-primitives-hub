@@ -318,7 +318,11 @@ describe('ApmTransitionArchivePreparer', () => {
     await expect(preparer.prepare(candidate, archive)).rejects.toThrow(/deployment-manifest\.yml/);
   });
 
-  it.each(['invalid', ['.apm/instructions/sample.instructions.md', 123]].map((includes) => ({ includes })))('rejects APM-ready archives with invalid includes $includes', async ({ includes }) => {
+  it.each([
+    'invalid',
+    ['.apm/instructions/sample.instructions.md', 123],
+    ['.apm/instructions/missing.instructions.md']
+  ].map((includes) => ({ includes })))('rejects APM-ready archives with invalid includes $includes', async ({ includes }) => {
     const archive = buildZip([
       ...rootFiles,
       { path: 'apm.yml', bytes: new TextEncoder().encode(serializeReleaseManifest({
@@ -331,6 +335,24 @@ describe('ApmTransitionArchivePreparer', () => {
     ]);
 
     await expect(preparer.prepare(candidate, archive)).rejects.toThrow(/apm\.yml includes/);
+  });
+
+  it.each([
+    ['.apm/instructions/sample.instructions.md'],
+    ['.apm/instructions']
+  ].map((includes) => ({ includes })))('preserves APM-ready archives with existing explicit includes $includes', async ({ includes }) => {
+    const archive = buildZip([
+      ...rootFiles,
+      { path: 'apm.yml', bytes: new TextEncoder().encode(serializeReleaseManifest({
+        name: manifest.id,
+        version: manifest.version,
+        dependencies: { apm: [], mcp: [] },
+        includes
+      })) },
+      { path: '.apm/instructions/sample.instructions.md', bytes: rootFiles[1].bytes }
+    ]);
+
+    expect((await preparer.prepare(candidate, archive)).bytes).toEqual(archive);
   });
 
   it('embeds a valid standalone deployment manifest when translating a legacy archive', async () => {

@@ -657,7 +657,7 @@ items:
       const files = await new ZipBundleExtractor().extract(await readFile(envelope.data.zipAsset));
       expect(new TextDecoder().decode(files.get('.apm/prompts/team/review.prompt.md'))).toBe('# Review\n');
       expect(validateManifest(files, {}).items).toEqual([
-        expect.objectContaining({ path: '.apm/prompts/team/review.prompt.md' })
+        expect.objectContaining({ path: 'prompts/team/review.prompt.md' })
       ]);
     });
 
@@ -669,7 +669,7 @@ items:
       expect(existsSync(path.join(workspace, 'dist'))).toBe(false);
     });
 
-    it('builds a reproducible single-copy APM layout without modifying the source collection', async () => {
+    it('builds a reproducible dual-layout archive without modifying the source collection', async () => {
       const sourcePath = path.join(workspace, 'collections', 'foo.collection.yml');
       const source = await readFile(sourcePath);
       const argv = [
@@ -685,18 +685,19 @@ items:
       const manifest = validateManifest(files, { expectedId: 'foo', expectedVersion: '1.0.0' });
       const apmManifest = yaml.load(new TextDecoder().decode(files.get('apm.yml')));
       expect([...files.keys()].toSorted()).toEqual([
-        '.apm/LICENSE',
-        '.apm/metadata/source/collections/foo.collection.yml',
         '.apm/prompts/hello.prompt.md',
+        'LICENSE',
         'apm.yml',
-        'deployment-manifest.yml'
+        'deployment-manifest.yml',
+        'metadata/source/collections/foo.collection.yml',
+        'prompts/hello.prompt.md'
       ]);
       expect(manifest).toMatchObject({
-        items: [{ path: '.apm/prompts/hello.prompt.md', kind: 'prompt' }],
-        prompts: [{ file: '.apm/prompts/hello.prompt.md', type: 'prompt' }],
+        items: [{ path: 'prompts/hello.prompt.md', kind: 'prompt' }],
+        prompts: [{ file: 'prompts/hello.prompt.md', type: 'prompt' }],
         provenance: {
-          sourceSnapshotPath: '.apm/metadata/source/collections/foo.collection.yml',
-          licensePath: '.apm/LICENSE'
+          sourceSnapshotPath: 'metadata/source/collections/foo.collection.yml',
+          licensePath: 'LICENSE'
         },
         files: expect.arrayContaining([expect.objectContaining({ path: 'apm.yml', role: 'metadata' })])
       });
@@ -716,10 +717,11 @@ items:
       });
       expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([
         'deployment-manifest.yml',
-        '.apm/prompts/hello.prompt.md'
+        'prompts/hello.prompt.md'
       ]);
       expect(await readFile(sourcePath)).toEqual(source);
-      expect(Buffer.from(files.get('.apm/metadata/source/collections/foo.collection.yml')!)).toEqual(source);
+      expect(Buffer.from(files.get('metadata/source/collections/foo.collection.yml')!)).toEqual(source);
+      expect(Buffer.from(files.get('.apm/prompts/hello.prompt.md')!)).toEqual(Buffer.from(files.get('prompts/hello.prompt.md')!));
       expect(await readFile(envelope.data.apmManifestAsset)).toEqual(Buffer.from(files.get('apm.yml')!));
       expect((await run(argv)).exitCode).toBe(0);
       expect(await readFile(envelope.data.zipAsset)).toEqual(archive);

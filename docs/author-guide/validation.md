@@ -77,7 +77,7 @@ Fixes you have not committed are not seen. Commit `plugin.json` and rebuild, or 
 
 ## Experimental APH/APM Bundle Layout
 
-The CLI can build a single-copy dual-manifest ZIP without editing the collection:
+The CLI can build a dual-layout, dual-manifest ZIP without editing the collection:
 
 ```bash
 ai-primitives-hub bundle build \
@@ -90,27 +90,34 @@ revision; the existing missing-license fallback still uses the working tree and
 reports its warning. `bundle manifest` alone retains its existing layout; use the
 manifests emitted by `bundle build --layout apm` with the corresponding ZIP.
 
-The APM layout contains two root manifests and one `.apm/` container:
+The APM layout retains the original Hub paths, adds native primitive mirrors,
+and contains two root manifests:
 
 ```text
 deployment-manifest.yml
 apm.yml
+agents/
+instructions/
+prompts/
+skills/
+LICENSE
+README.md
+metadata/source/
 .apm/
   agents/
   instructions/
   prompts/
   skills/
-  LICENSE
-  README.md
-  metadata/source/
 ```
 
 Only files the original release plan carries are included. License, README and
 source evidence above apply to governed builds; legacy builds do not invent that
-evidence. Payload bytes, executable modes and skill directory resources are
-preserved. Existing `.github/` and `.apm/` prefixes are normalized, not nested;
-collisions stop the build. Governed item/projection paths, README/provenance
-references and the complete SHA-256 inventory match the new archive. A legacy
+evidence. Original payload bytes, paths, executable modes and skill directory
+resources are preserved. Only installable content is mirrored; metadata and
+ignored evidence remain at their original paths. Existing `.github/` and `.apm/`
+prefixes are normalized for mirrors, not nested; collisions stop the build.
+Hub item/projection paths and README/provenance references remain unchanged,
+while the complete SHA-256 inventory includes the mirrors. A legacy
 README supplied only as an external release asset retains that external reference.
 
 APM `name` uses the collection ID, not its display name. Version, description,
@@ -121,12 +128,18 @@ details, environments, provenance and inventory. Its inventory excludes
 manifest inventories that file as metadata with its actual size and digest.
 Dependency/MCP declarations remain in APH metadata and are not fabricated as
 APM dependencies; the build warns when native translation is unavailable.
-More complete metadata increases archive size even without duplicate payloads.
+Mirrored primitive payloads increase archive size. Hub installation honors the
+manifest-selected representation (including skill resources), deduplicates
+unselected mirrors, and keeps APM-only content.
 
 APH requires a companion root `apm.yml` to be valid YAML with the same package
 name/collection ID and version. Its optional `includes` field accepts `auto`,
 a list of strings, or an omitted/null value, matching APM 0.35.0; other values
-are rejected. Governed archives must inventory it as `metadata`;
+are rejected. Explicit selections must reference an archive file or a directory
+containing archive files; directories match whole path segments, not similarly
+named siblings. Like APM, relative `./` prefixes, directory trailing slashes
+and portable backslash separators are supported; absolute paths and parent
+traversal are rejected. Governed archives must inventory it as `metadata`;
 unlisted, tampered or installable-role companions are rejected. It is not
 passed to target writers, while unexpected nested files remain subject to normal
 unsupported-content checks.

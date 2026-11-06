@@ -29,7 +29,11 @@ import {
   isSourceAwareManifestIdMatch,
 } from '../bundle/id';
 import {
+  categoryOf,
+} from '../install/category';
+import {
   isPrimitiveKind,
+  normalizePrimitiveKind,
 } from '../primitive/types';
 import {
   RELEASE_DEPLOYMENT_MANIFEST_FORMAT_VERSION,
@@ -223,32 +227,57 @@ export const getInstallableBundleFiles = (
   files: ExtractedFiles,
   manifest: ValidatedManifest
 ): ExtractedFiles => {
-  if (!isReleaseDeploymentManifest(manifest)) {
-    const isDuplicateApmMirror = (filePath: string): boolean => {
-      const apmRelativePath = filePath.startsWith('.apm/') ? filePath.slice('.apm/'.length) : undefined;
-      return apmRelativePath !== undefined && files.has(apmRelativePath);
-    };
-    if (!files.has(APM_MANIFEST_FILENAME) && ![...files.keys()].some((filePath) => isDuplicateApmMirror(filePath))) {
-      return files;
+  const governed = isReleaseDeploymentManifest(manifest);
+  const allowedPaths = governed
+    ? new Set<string>([
+      MANIFEST_FILENAME,
+      ...manifest.files
+        .filter((file) => file.role === 'installable')
+        .map((file) => file.path)
+    ])
+    : undefined;
+  const candidates = new Map([...files].filter(([filePath]) =>
+    filePath !== APM_MANIFEST_FILENAME && (allowedPaths === undefined || allowedPaths.has(filePath))));
+  const declaredPaths = new Set<string>();
+  const declaredDirectories = new Set<string>();
+  const itemLists: unknown[] = governed
+    ? [manifest.items]
+    : [manifest.prompts, manifest.agents, manifest.instructions, manifest.skills, manifest.hooks, manifest.plugins];
+  for (const list of itemLists) {
+    if (!Array.isArray(list)) {
+      continue;
     }
-    // Keep APM-only paths, but install only the generic root copy of mirrors.
-    return new Map([...files].filter(([filePath]) =>
-      filePath !== APM_MANIFEST_FILENAME && !isDuplicateApmMirror(filePath)));
-  }
-
-  const allowedPaths = new Set<string>([
-    MANIFEST_FILENAME,
-    ...manifest.files
-      .filter((file) => file.role === 'installable')
-      .map((file) => file.path)
-  ]);
-  const installableFiles = new Map<string, Uint8Array>();
-  for (const [filePath, content] of files) {
-    if (allowedPaths.has(filePath)) {
-      installableFiles.set(filePath, content);
+    for (const item of list as unknown[]) {
+      if (!isRecord(item)) {
+        continue;
+      }
+      const filePath = item.path ?? item.file;
+      if (typeof filePath !== 'string') {
+        continue;
+      }
+      declaredPaths.add(filePath);
+      const kind = normalizePrimitiveKind(item.kind ?? item.type);
+      const directoryEnd = filePath.lastIndexOf('/') + 1;
+      if (kind !== null && categoryOf(kind) === 'directory' && directoryEnd > 0) {
+        declaredDirectories.add(filePath.slice(0, directoryEnd));
+      }
     }
   }
-  return installableFiles;
+  const selected = (filePath: string): boolean => declaredPaths.has(filePath)
+    || [...declaredDirectories].some((directory) => filePath.startsWith(directory));
+  const duplicate = (filePath: string): boolean => {
+    if (filePath === MANIFEST_FILENAME) {
+      return false;
+    }
+    if (filePath.startsWith('.apm/')) {
+      const relative = filePath.slice('.apm/'.length);
+      return (candidates.has(relative) || candidates.has(`.github/${relative}`)) && !selected(filePath);
+    }
+    const mirrorPath = `.apm/${filePath.replace(/^\.github\//, '')}`;
+    return candidates.has(mirrorPath) && selected(mirrorPath) && !selected(filePath);
+  };
+  const installableFiles = new Map([...candidates].filter(([filePath]) => !duplicate(filePath)));
+  return !governed && installableFiles.size === files.size ? files : installableFiles;
 };
 
 const RELEASE_FILE_ROLES: ReadonlySet<ReleaseManifestFileRole> = new Set([
@@ -280,12 +309,29 @@ const validateCompanionApmManifest = (files: ExtractedFiles, id: string, version
     );
   }
   const includes = manifest.includes;
-  if (includes !== undefined && includes !== null && includes !== 'auto'
-    && !(Array.isArray(includes) && includes.every((path: unknown) => typeof path === 'string'))) {
+  if (includes === undefined || includes === null || includes === 'auto') {
+    return;
+  }
+  if (!Array.isArray(includes) || !includes.every((path: unknown): path is string => typeof path === 'string')) {
     throw new ManifestValidationError(
       `${APM_MANIFEST_FILENAME} includes must be "auto" or a list of strings when present`,
       'BUNDLE.MANIFEST_INVALID'
     );
+  }
+  for (const [index, selection] of includes.entries()) {
+    const field = `${APM_MANIFEST_FILENAME} includes[${index}]`;
+    const relative = selection.replaceAll('\\', '/');
+    if (relative.startsWith('/') || /^[a-z]:\//i.test(relative)) {
+      throw invalidManifest(`${field} must be a bundle-relative path`);
+    }
+    const selectedPath = relative.split('/').filter((part) => part !== '' && part !== '.').join('/');
+    if (selectedPath !== '') {
+      readCanonicalBundlePath(selectedPath, field);
+    }
+    const directoryPrefix = selectedPath === '' ? '' : `${selectedPath}/`;
+    if (!files.has(selectedPath) && ![...files.keys()].some((filePath) => filePath.startsWith(directoryPrefix))) {
+      throw invalidManifest(`${field} references missing archive file or directory "${selection}"`);
+    }
   }
 };
 

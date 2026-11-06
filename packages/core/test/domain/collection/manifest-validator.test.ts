@@ -164,11 +164,31 @@ describe('validateManifest', () => {
     ]);
   });
 
-  it.each([undefined, null, 'auto', ['.apm/instructions/rules.instructions.md']].map((includes) => ({ includes })))('accepts supported APM includes value $includes', ({ includes }) => {
+  it.each([undefined, null, 'auto', [], ['.apm/instructions/rules.instructions.md']].map((includes) => ({ includes })))('accepts supported APM includes value $includes', ({ includes }) => {
     const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
     files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes })));
+    files.set('.apm/instructions/rules.instructions.md', bytes('# Rules'));
 
     expect(validateManifest(files, {}).id).toBe('example');
+  });
+
+  it.each(['.apm/skills/sample', '.apm/skills/sample/', './.apm/skills/sample', '.apm\\skills\\sample'])('accepts existing APM include directory %s', (selection) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes: [selection] })));
+    files.set('.apm/skills/sample/SKILL.md', bytes('# Skill'));
+
+    expect(validateManifest(files, {}).id).toBe('example');
+  });
+
+  it.each(['.apm/instructions/missing.instructions.md', '.apm/skills/sample', '../.apm/skills/sample-other'])('rejects APM include selections without matching archive content: %s', (selection) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes: [selection] })));
+    files.set('.apm/skills/sample-other/SKILL.md', bytes('# Sibling skill'));
+
+    expect(() => validateManifest(files, {})).toThrowError(expect.objectContaining({
+      code: 'BUNDLE.MANIFEST_INVALID',
+      message: expect.stringContaining('apm.yml includes[0]')
+    }));
   });
 
   it.each(['invalid', 123, true, {}, ['.apm/instructions/rules.instructions.md', 123]].map((includes) => ({ includes })))('rejects unsupported APM includes value $includes', ({ includes }) => {
@@ -194,6 +214,24 @@ describe('validateManifest', () => {
       'agents/shared.agent.md',
       '.apm/agents/apm-only.agent.md'
     ]);
+  });
+
+  it('retains explicitly selected APM skill files and resources when root copies exist', () => {
+    const files = filesWith(dumpYaml({
+      id: 'example',
+      version: '1.0.0',
+      name: 'Example',
+      skills: [{ id: 'sample', file: '.apm/skills/sample/SKILL.md', type: 'skill' }]
+    }));
+    files.set('skills/sample/SKILL.md', bytes('Root skill'));
+    files.set('.apm/skills/sample/SKILL.md', bytes('Selected skill'));
+    files.set('skills/sample/references/rules.md', bytes('Root rules'));
+    files.set('.apm/skills/sample/references/rules.md', bytes('Selected rules'));
+
+    const installable = getInstallableBundleFiles(files, validateManifest(files, {}));
+
+    expect(installable.get('.apm/skills/sample/SKILL.md')).toEqual(bytes('Selected skill'));
+    expect(installable.get('.apm/skills/sample/references/rules.md')).toEqual(bytes('Selected rules'));
   });
 
   it('does not silently drop a legacy primitive that claims the companion metadata path', () => {

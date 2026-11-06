@@ -79,7 +79,7 @@ const isNativeApmDiscoveryPathForRelative = (kind: string | null, relative: stri
 export const isNativeApmDiscoveryPath = (kind: string | null, filePath: string): boolean =>
   isNativeApmDiscoveryPathForRelative(kind, nativeRelativePath(filePath));
 
-const rewireItems = (items: unknown, pathField: 'path' | 'file', warnings: string[]): Record<string, unknown>[] => {
+const validateApmItems = (items: unknown, pathField: 'path' | 'file', warnings: string[]): Record<string, unknown>[] => {
   if (!Array.isArray(items)) {
     throw unsupported('APM layout requires a file-backed primitive list');
   }
@@ -98,7 +98,7 @@ const rewireItems = (items: unknown, pathField: 'path' | 'file', warnings: strin
       warnings.push(`Native APM discovery is not qualified for "${apmPath(sourcePath)}". `
         + 'APH preserves manifest-driven installation; consider a flat native path if APM consumption is required.');
     }
-    return { ...item, [pathField]: apmPath(sourcePath) };
+    return item;
   });
 };
 
@@ -170,11 +170,14 @@ export function applyReleaseLayout(
       + 'but are not translated into native APM dependencies.');
   }
   const governed = original.formatVersion === 1;
-  const items = rewireItems(governed ? original.items : original.prompts, governed ? 'path' : 'file', warnings);
+  const items = validateApmItems(governed ? original.items : original.prompts, governed ? 'path' : 'file', warnings);
   if (items.length === 0) {
     throw unsupported('APM layout requires at least one supported primitive');
   }
-  const entries = plan.entries.map((entry) => ({ ...entry, path: apmPath(entry.path) }));
+  if (governed && original.prompts !== undefined) {
+    validateApmItems(original.prompts, 'file', warnings);
+  }
+  const entries = plan.entries.map((entry) => ({ ...entry }));
   const paths = new Set<string>();
   for (const entry of entries) {
     if (paths.has(entry.path)) {
@@ -182,22 +185,24 @@ export function applyReleaseLayout(
     }
     paths.add(entry.path);
   }
-  const manifest: Record<string, unknown> = {
-    ...original,
-    ...(governed ? { items, prompts: rewireItems(original.prompts, 'file', warnings) } : { prompts: items })
-  };
-  if (typeof original.readme === 'string' && paths.has(apmPath(original.readme))) {
-    manifest.readme = apmPath(original.readme);
-  }
-  if (record(original.provenance)) {
-    const provenance = { ...original.provenance };
-    for (const field of ['sourceSnapshotPath', 'licensePath']) {
-      if (typeof provenance[field] === 'string') {
-        provenance[field] = apmPath(provenance[field]);
-      }
+  for (const entry of plan.entries) {
+    if (entry.role !== 'installable') {
+      continue;
     }
-    manifest.provenance = provenance;
+    const mirrorPath = apmPath(entry.path);
+    if (mirrorPath === entry.path) {
+      continue;
+    }
+    if (paths.has(mirrorPath)) {
+      throw unsupported(`APM layout creates duplicate archive path "${mirrorPath}"`);
+    }
+    paths.add(mirrorPath);
+    entries.push({ ...entry, path: mirrorPath });
   }
+  if (paths.has(APM_MANIFEST_FILENAME)) {
+    throw unsupported(`APM layout creates duplicate archive path "${APM_MANIFEST_FILENAME}"`);
+  }
+  const manifest: Record<string, unknown> = { ...original };
   if (governed) {
     manifest.files = inventory(entries);
   }
