@@ -37,6 +37,7 @@ import {
 import {
   createInProcessPrimitiveDriver,
   parseRejectedPaths,
+  parseSkippedContent,
 } from '../../src/doctor/primitive-driver';
 import {
   Command,
@@ -65,6 +66,37 @@ class GarbledValidateCommand extends Command {
     this.commandContext.ctx.stdout.write('not an envelope\n');
     this.commandContext.ctx.stderr.write('x'.repeat(600));
     return Promise.resolve(2);
+  }
+}
+
+/** Flags of every `install` dispatched to {@link RecordingInstallCommand}. */
+const installFlags: string[][] = [];
+
+/** An `install` stand-in that records its flags and reports a partial install. */
+class RecordingInstallCommand extends Command {
+  public static readonly paths = [['install']];
+  public commandContext!: { ctx: Context };
+  public output = Option.String('-o,--output');
+  public from = Option.String('--from');
+  public target = Option.String('--target');
+  public skipUnsupported = Option.Boolean('--skip-unsupported', false);
+  public bundle = Option.String({ required: false });
+
+  public execute(): Promise<number> {
+    installFlags.push(this.skipUnsupported ? ['--skip-unsupported'] : []);
+    this.commandContext.ctx.stdout.write(`${JSON.stringify({
+      status: 'warning',
+      data: {
+        skipped: [
+          { path: 'steering/a.md', code: 'BUNDLE.UNSUPPORTED_CONTENT', reason: 'target "tgt" (vscode) cannot install this content' },
+          { path: 'broken.md', code: 7 }
+        ],
+        lockfile: '/abs/lock.json'
+      },
+      warnings: ['skipped steering/a.md: target "tgt" (vscode) cannot install this content'],
+      errors: []
+    })}\n`);
+    return Promise.resolve(0);
   }
 }
 
@@ -118,6 +150,21 @@ describe('createInProcessPrimitiveDriver', () => {
     expect(result).toEqual({ exitCode: 2, warnings: [], errorMessages: ['x'.repeat(500)] });
   }, 60_000);
 
+  it('passes --skip-unsupported only when requested and surfaces the skipped content and the lockfile', async () => {
+    installFlags.length = 0;
+    const driver = createInProcessPrimitiveDriver({ ctx: ctx(), commandClasses: [RecordingInstallCommand] });
+
+    const partial = await driver.install(sandbox, { bundleId: 'b', from: '/from', target: 'tgt', skipUnsupported: true });
+    await driver.install(sandbox, { bundleId: 'b', from: '/from', target: 'tgt' });
+
+    expect(installFlags).toEqual([['--skip-unsupported'], []]);
+    expect(partial.exitCode).toBe(0);
+    expect(partial.skipped).toEqual([
+      { path: 'steering/a.md', code: 'BUNDLE.UNSUPPORTED_CONTENT', reason: 'target "tgt" (vscode) cannot install this content' }
+    ]);
+    expect(partial.data?.lockfile).toBe('/abs/lock.json');
+  }, 60_000);
+
   it('commits the listed fixture files as executable (100755) and every other file as 100644', async () => {
     await mkdir(path.join(sandbox.cwd, 'scripts'), { recursive: true });
     await writeFile(path.join(sandbox.cwd, 'scripts', 'run.sh'), '#!/bin/sh\n');
@@ -163,6 +210,32 @@ describe('createInProcessPrimitiveDriver', () => {
       expect((await stat(envRoot.path)).isDirectory(), envRoot.label).toBe(true);
     }
   }, 60_000);
+});
+
+describe('parseSkippedContent', () => {
+  it('reads the content a partial install skipped', () => {
+    expect(parseSkippedContent({ skipped: [{ path: 'a.md', code: 'BUNDLE.UNSUPPORTED_CONTENT', reason: 'no route' }] }))
+      .toEqual([{ path: 'a.md', code: 'BUNDLE.UNSUPPORTED_CONTENT', reason: 'no route' }]);
+    expect(parseSkippedContent({ skipped: [] })).toEqual([]);
+  });
+
+  it('drops malformed entries', () => {
+    expect(parseSkippedContent({
+      skipped: [
+        'a.md',
+        null,
+        { path: 'b.md', code: 'BUNDLE.UNSUPPORTED_CONTENT' },
+        { path: 'c.md', code: 1, reason: 'x' },
+        { path: 'd.md', code: 'BUNDLE.UNSUPPORTED_CONTENT', reason: '' }
+      ]
+    })).toEqual([{ path: 'd.md', code: 'BUNDLE.UNSUPPORTED_CONTENT', reason: '' }]);
+  });
+
+  it('is undefined when the data lists no skipped content', () => {
+    expect(parseSkippedContent(undefined)).toBeUndefined();
+    expect(parseSkippedContent({ written: [] })).toBeUndefined();
+    expect(parseSkippedContent({ skipped: 'a.md' })).toBeUndefined();
+  });
 });
 
 describe('parseRejectedPaths', () => {
