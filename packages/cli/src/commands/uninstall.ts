@@ -412,6 +412,70 @@ async function findAllBundleEntries(
 }
 
 /**
+ * Print the dry run of a one-bundle uninstall: the files that would go.
+ * The old lockfile path and the install record path print the same thing.
+ * @param ctx CLI context.
+ * @param fmt Output format.
+ * @param target Target the bundle is uninstalled from.
+ * @param bundleId Bundle id.
+ * @param files Paths that would be removed.
+ * @returns Exit code.
+ */
+function renderBundleDryRun(ctx: Context, fmt: OutputFormat, target: Target, bundleId: string, files: readonly string[]): number {
+  formatOutput({
+    ctx,
+    command: 'uninstall',
+    output: fmt,
+    status: 'ok',
+    data: { dryRun: true, target: target.name, bundle: bundleId, files: [...files] },
+    textRenderer: (d) => `[dry-run] Would uninstall bundle "${d.bundle}" from target "${d.target}":\n`
+      + `  Files: ${d.files.join(', ')}\n`
+      + 'Run without --dry-run to apply.\n'
+  });
+  return 0;
+}
+
+/** What a one-bundle uninstall removed, for {@link renderBundleUninstalled}. */
+interface BundleUninstalled {
+  bundleId: string;
+  /** Paths removed. */
+  removed: readonly string[];
+  /** Lockfile or install record updated. */
+  lockfile: string;
+  /** Non-fatal problems to report; none for the old lockfile path. */
+  warnings?: readonly string[];
+}
+
+/**
+ * Print the outcome of a one-bundle uninstall. The old lockfile path and the
+ * install record path print the same thing.
+ * @param ctx CLI context.
+ * @param fmt Output format.
+ * @param target Target the bundle was uninstalled from.
+ * @param outcome Bundle, removed files, updated file and warnings.
+ * @returns Exit code.
+ */
+function renderBundleUninstalled(ctx: Context, fmt: OutputFormat, target: Target, outcome: BundleUninstalled): number {
+  formatOutput({
+    ctx,
+    command: 'uninstall',
+    output: fmt,
+    status: 'ok',
+    data: {
+      target: target.name,
+      bundle: outcome.bundleId,
+      removed: [...outcome.removed],
+      lockfile: outcome.lockfile
+    },
+    warnings: outcome.warnings !== undefined && outcome.warnings.length > 0 ? [...outcome.warnings] : undefined,
+    textRenderer: (d) => `Uninstalled ${d.bundle} from target "${d.target}" `
+      + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'} removed). `
+      + `Updated ${d.lockfile}.\n`
+  });
+  return 0;
+}
+
+/**
  * Perform uninstall by bundle ID.
  * @param opts Uninstall options.
  * @param target Target configuration.
@@ -456,22 +520,7 @@ async function performBundleUninstall(
 
   // Dry-run: show what would be removed without deleting
   if (opts.dryRun === true) {
-    formatOutput({
-      ctx,
-      command: 'uninstall',
-      output: fmt,
-      status: 'ok',
-      data: {
-        dryRun: true,
-        target: target.name,
-        bundle: bundleId,
-        files: entry.files.map((f) => f.path)
-      },
-      textRenderer: (d) => `[dry-run] Would uninstall bundle "${d.bundle}" from target "${d.target}":\n`
-        + `  Files: ${d.files.join(', ')}\n`
-        + 'Run without --dry-run to apply.\n'
-    });
-    return 0;
+    return renderBundleDryRun(ctx, fmt, target, bundleId, entry.files.map((f) => f.path));
   }
 
   const writerFactory = createWriterFactory(ctx, opts);
@@ -495,22 +544,7 @@ async function performBundleUninstall(
   // Update target state
   await updateTargetState(ctx, target.name, bundleId);
 
-  formatOutput({
-    ctx,
-    command: 'uninstall',
-    output: fmt,
-    status: 'ok',
-    data: {
-      target: target.name,
-      bundle: bundleId,
-      removed: result.removed,
-      lockfile: lockPath
-    },
-    textRenderer: (d) => `Uninstalled ${d.bundle} from target "${d.target}" `
-      + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'} removed). `
-      + `Updated ${d.lockfile}.\n`
-  });
-  return 0;
+  return renderBundleUninstalled(ctx, fmt, target, { bundleId, removed: result.removed, lockfile: lockPath });
 }
 
 /** Arguments every uninstall mode shares. */
@@ -538,39 +572,18 @@ async function performRecordBundleUninstall(
 ): Promise<number> {
   const { opts, target, ctx, fmt } = run;
   if (opts.dryRun === true) {
-    formatOutput({
-      ctx,
-      command: 'uninstall',
-      output: fmt,
-      status: 'ok',
-      data: { dryRun: true, target: target.name, bundle: bundleId, files: recordedFiles },
-      textRenderer: (d) => `[dry-run] Would uninstall bundle "${d.bundle}" from target "${d.target}":\n`
-        + `  Files: ${d.files.join(', ')}\n`
-        + 'Run without --dry-run to apply.\n'
-    });
-    return 0;
+    return renderBundleDryRun(ctx, fmt, target, bundleId, recordedFiles);
   }
 
   const recorded = await recordRepositoryUninstall(prepared, bundleId);
   await updateTargetState(ctx, target.name, bundleId);
 
-  formatOutput({
-    ctx,
-    command: 'uninstall',
-    output: fmt,
-    status: 'ok',
-    data: {
-      target: target.name,
-      bundle: bundleId,
-      removed: recorded.removed,
-      lockfile: recorded.lockfile
-    },
-    warnings: recorded.warnings.length > 0 ? recorded.warnings : undefined,
-    textRenderer: (d) => `Uninstalled ${d.bundle} from target "${d.target}" `
-      + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'} removed). `
-      + `Updated ${d.lockfile}.\n`
+  return renderBundleUninstalled(ctx, fmt, target, {
+    bundleId,
+    removed: recorded.removed,
+    lockfile: recorded.lockfile,
+    warnings: recorded.warnings
   });
-  return 0;
 }
 
 /**
