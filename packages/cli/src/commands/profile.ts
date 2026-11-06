@@ -423,7 +423,7 @@ async function activateBundleForTarget(
       return { ok: false, reason: 'failed to fetch bundle files' };
     }
     const manifest = validateManifest(files, {
-      // Artifactory package IDs and Hub profile bundle IDs are different namespaces.
+      // Artifactory identity is already bound to the resolved index entry during fetch.
       expectedId: src.type === 'artifactory' ? undefined : bundleRef.id,
       expectedVersion: bundleRef.version === 'latest' ? undefined : bundleRef.version,
       // Hub profiles name GitHub bundles `{owner}-{repo}-{manifestId}`.

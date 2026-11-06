@@ -124,6 +124,15 @@ unset ARTIFACTORY_PUBLISHER_TOKEN
 
 Do not place credentials in command arguments, URLs, cache keys, generated YAML/JSON, logs, or lockfiles.
 
+CLI installation, profile activation and lockfile replay bind the archive's
+deployment identity and version to the resolved index entry, not just its ZIP
+checksum. Repository-qualified IDs use the index's GitHub `canonicalSource`
+(or `repository` when the canonical source is absent); the repository namespace
+is never guessed from hyphenated IDs. Versionless qualified IDs without that
+metadata fail identity validation rather than accepting an unrelated package.
+Persisted sources retain the index filename, authentication mode and credential
+reference so a fresh CLI invocation can replay them without GitHub credentials.
+
 ## Failure and review gates
 
 Before publication, review the dry-run output, unresolved references, expected archive count/bytes, GitHub request budget, target prefix, publisher permissions, and target consumer credential reference. A failed run must not publish a new index or hub config advertising unverified objects.

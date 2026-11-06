@@ -1233,11 +1233,13 @@ async function performRemoteInstall(
     const dl = await downloader.download(installable);
     const files = await extractor.extract(dl.bytes);
     // A plain `owner/repo` source and a GitHub source resolved from
-    // `--source` check the id source-aware; other hub-driven installs keep
-    // accepting the manifest id as-is.
-    const sourceRepoSlug = opts.sourceConfig === undefined ? repoSlug : opts.sourceRepoSlug;
+    // `--source` check the id source-aware. Artifactory uses the resolved
+    // index entry and its published repository namespace.
+    const sourceRepoSlug = installable.sourceRepoSlug ?? (opts.sourceConfig === undefined ? repoSlug : opts.sourceRepoSlug);
     const manifest = validateManifest(files, {
-      expectedId: opts.sourceConfig === undefined || opts.sourceRepoSlug !== undefined ? spec.bundleId : undefined,
+      expectedId: isArtifactory
+        ? installable.ref.bundleId
+        : (opts.sourceConfig === undefined || opts.sourceRepoSlug !== undefined ? spec.bundleId : undefined),
       sourceRepoSlug,
       expectedVersion: isArtifactory ? installable.ref.bundleVersion : (spec.bundleVersion === 'latest' ? undefined : spec.bundleVersion)
     });
@@ -1724,7 +1726,13 @@ export async function fetchFilesForSource(
     if (entry.checksum !== undefined && dl.sha256 !== entry.checksum) {
       return null;
     }
-    return new Map(await new ZipBundleExtractor().extract(dl.bytes));
+    const files = new Map(await new ZipBundleExtractor().extract(dl.bytes));
+    validateManifest(files, {
+      expectedId: installable.ref.bundleId,
+      expectedVersion: installable.ref.bundleVersion,
+      sourceRepoSlug: installable.sourceRepoSlug
+    });
+    return files;
   }
   if (src.type === 'github' || src.type === 'skills' || src.type === 'awesome-copilot') {
     // Check if this is an awesome-copilot source (detected by sourceId prefix)

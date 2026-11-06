@@ -25,6 +25,7 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  readLockfile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import type {
@@ -541,6 +542,7 @@ describe('profile activate with an authenticated Artifactory hub source', () => 
       tags: [],
       lastUpdated: '2026-01-01T00:00:00Z',
       dependencies: [],
+      canonicalSource: 'https://github.com/example/repo',
       license: 'Apache-2.0',
       manifest: {
         path: 'bundles/artifactory-bundle/1.0.0/deployment-manifest.yml',
@@ -556,6 +558,8 @@ describe('profile activate with an authenticated Artifactory hub source', () => 
       }
     }]
   };
+  let servedZip = bundleZip;
+  let servedIndex = index;
 
   const requests: HttpRequest[] = [];
   const http: HttpClient = {
@@ -567,13 +571,13 @@ describe('profile activate with an authenticated Artifactory hub source', () => 
       if (request.url === `${sourceRoot}/index-v1.json`) {
         return Promise.resolve({
           statusCode: 200,
-          body: new TextEncoder().encode(JSON.stringify(index)),
+          body: new TextEncoder().encode(JSON.stringify(servedIndex)),
           finalUrl: request.url,
           headers: {}
         });
       }
       if (request.url === `${sourceRoot}/${archivePath}`) {
-        return Promise.resolve({ statusCode: 200, body: bundleZip, finalUrl: request.url, headers: {} });
+        return Promise.resolve({ statusCode: 200, body: servedZip, finalUrl: request.url, headers: {} });
       }
       return Promise.reject(new Error(`Unexpected request: ${request.url}`));
     }
@@ -608,6 +612,8 @@ describe('profile activate with an authenticated Artifactory hub source', () => 
     targetDir = path.join(workspace, 'target');
     await mkdir(targetDir, { recursive: true });
     requests.length = 0;
+    servedZip = bundleZip;
+    servedIndex = structuredClone(index);
     const hubConfigFile = path.join(workspace, 'hub-config.yml');
     await writeFile(hubConfigFile, `version: 1.0.0
 metadata:
@@ -654,5 +660,47 @@ profiles:
     expect(requests.every((request) => request.headers?.Authorization === 'Bearer test-artifactory-token')).toBe(true);
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
+
+    const lockfilePath = resolveUserConfigPaths({
+      HOME: workspace,
+      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+      XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+    }).userLockfile;
+    const persisted = await readLockfile(lockfilePath, new NodeFileSystem());
+    expect(persisted?.sources.replicated).toEqual({
+      type: 'artifactory',
+      url: sourceRoot,
+      indexFile: 'index-v1.json',
+      authMode: 'bearer',
+      credentialRef: 'ARTIFACTORY_READER_TOKEN'
+    });
+    const replayDir = path.join(workspace, 'replay-target');
+    await mkdir(replayDir);
+    expect((await run(['target', 'add', 'replay', '--type', 'copilot-cli', '--path', replayDir, '-o', 'json'])).exitCode).toBe(0);
+    requests.length = 0;
+    const replay = await run(['install', '--lockfile', lockfilePath, '--target', 'replay', '-o', 'json']);
+
+    expect(replay.exitCode, replay.stdout).toBe(0);
+    expect(requests.map((request) => request.url)).toEqual([`${sourceRoot}/index-v1.json`, `${sourceRoot}/${archivePath}`]);
+    expect(requests.every((request) => request.headers?.Authorization === 'Bearer test-artifactory-token')).toBe(true);
+    await expect(readFile(path.join(replayDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+  });
+
+  it.each(['profile', 'install'])('rejects a valid-checksum archive for another package through %s', async (entryPoint) => {
+    const wrongFiles = createLegacyReleaseArchive({ id: 'unrelated-bundle', version: '1.0.0' });
+    servedZip = buildZip([...wrongFiles].map(([filePath, bytes]) => ({ path: filePath, bytes })));
+    servedIndex.bundles[0].archive = {
+      ...servedIndex.bundles[0].archive,
+      size: servedZip.byteLength,
+      sha256: createHash('sha256').update(servedZip).digest('hex')
+    };
+
+    const result = await run(entryPoint === 'profile'
+      ? ['profile', 'activate', 'artifactory-profile', '--target', 'copilot', '-o', 'json']
+      : ['install', bundleId, '--source', 'replicated', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).not.toBe(0);
+    expect(result.stdout).toContain('does not match expected');
+    await expect(stat(path.join(targetDir, 'prompts', 'hello.prompt.md'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
