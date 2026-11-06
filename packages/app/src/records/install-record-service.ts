@@ -27,6 +27,7 @@ import {
   recordError,
   type RecordFs,
   type RecordLocation,
+  relativeInside,
   type SourceRecord,
   type SourceType,
   TARGET_TYPES,
@@ -171,9 +172,6 @@ const MERGED_MCP_CONFIG_PATHS = mergedMcpConfigPaths();
 export const isMergedMcpConfigPath = (relative: string, workspacePrefix = ''): boolean =>
   MERGED_MCP_CONFIG_PATHS.some((mcpPath) => relative === (workspacePrefix === '' ? mcpPath : `${workspacePrefix}/${mcpPath}`));
 
-const isOutside = (relative: string): boolean =>
-  relative === '' || path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`);
-
 const createBundle = (): BundleRecord => {
   const bundle = Object.create(null) as BundleRecord;
   bundle.tools = Object.create(null) as BundleRecord['tools'];
@@ -259,16 +257,16 @@ export class InstallRecordService {
    */
   private async toRelative(root: string, written: string): Promise<string> {
     const absolute = path.resolve(root, written);
-    const direct = path.relative(root, absolute);
-    if (!isOutside(direct)) {
-      return direct.split(path.sep).join('/');
+    const direct = relativeInside(root, absolute);
+    if (direct !== undefined) {
+      return direct;
     }
     try {
       const realRoot = await this.fs.realpath(root);
       const realParent = await this.fs.realpath(path.dirname(absolute));
-      const real = path.relative(realRoot, path.join(realParent, path.basename(absolute)));
-      if (!isOutside(real)) {
-        return real.split(path.sep).join('/');
+      const real = relativeInside(realRoot, path.join(realParent, path.basename(absolute)));
+      if (real !== undefined) {
+        return real;
       }
     } catch {
       // Reported below as outside the root.

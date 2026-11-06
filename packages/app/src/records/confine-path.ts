@@ -18,6 +18,7 @@ import {
   findRecordedPathProblem,
   recordError,
   type RecordFs,
+  relativeInside,
 } from '@ai-primitives-hub/core';
 
 /** Outcome of the delete-time check for one recorded path. */
@@ -28,20 +29,6 @@ export type DeleteTarget =
   | { status: 'missing' }
   /** Refused; the caller warns with `reason` and leaves the path alone. */
   | { status: 'skip'; reason: string };
-
-/**
- * Path of `candidate` relative to `realRoot`, with forward slashes, or
- * `undefined` when it is the root itself or not under it.
- * @param realRoot - Realpath of the root.
- * @param candidate - Absolute path built from realpath'd folders.
- */
-const relativeInside = (realRoot: string, candidate: string): string | undefined => {
-  const relative = path.relative(realRoot, candidate);
-  if (relative === '' || path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
-    return undefined;
-  }
-  return relative.split(path.sep).join('/');
-};
 
 const realRootOf = async (fs: RecordFs, root: string, file: string | undefined): Promise<string> => {
   try {

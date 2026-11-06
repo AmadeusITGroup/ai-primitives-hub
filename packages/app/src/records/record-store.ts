@@ -38,6 +38,7 @@ import {
   type RecordFs,
   type RecordLevel,
   type RecordLocation,
+  relativeInside,
   type UnvalidatedRecord,
 } from '@ai-primitives-hub/core';
 import {
@@ -91,11 +92,6 @@ export interface RecordStoreOptions {
 
 const LARGE_RECORD_HINT = 'The record is larger than 10 MB. Fix or remove the file, then run the command again.';
 
-const isInside = (realRoot: string, candidate: string): boolean => {
-  const relative = path.relative(realRoot, candidate);
-  return relative !== '' && !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`);
-};
-
 /**
  * Build an empty record for a level.
  * @param level - Record level.
@@ -136,8 +132,7 @@ export class RecordStore {
    * @param location - Record location.
    */
   private labelOf(location: RecordLocation): string {
-    const relative = path.relative(location.root, location.path);
-    return relative === '' || relative.startsWith('..') ? location.path : relative.split(path.sep).join('/');
+    return relativeInside(location.root, location.path) ?? location.path;
   }
 
   /**
@@ -178,7 +173,7 @@ export class RecordStore {
     } catch (error) {
       throw recordError('RECORD.MALFORMED', { file, detail: 'symlink does not resolve', cause: error });
     }
-    if (!isInside(realRoot, target)) {
+    if (relativeInside(realRoot, target) === undefined) {
       throw recordError('RECORD.MALFORMED', { file, detail: 'symlink target is outside the root' });
     }
     return target;

@@ -5,8 +5,12 @@
  * on every path read from a record and again on the realpath'd path relative
  * to the root (Layer B, `confinePath` in `app`). Both `/` and `\` count as
  * separators, so a path is judged the same way on every OS.
+ *
+ * {@link relativeInside} is the one "is this path below the root" check every
+ * record reader and writer uses on absolute paths.
  * @module domain/install/record-path
  */
+import * as path from 'node:path';
 import {
   recordError,
 } from './record-errors';
@@ -82,4 +86,32 @@ export const checkRecordedPath = (recordedPath: string, file?: string): string =
     });
   }
   return recordedPath.split(SEPARATORS).join('/');
+};
+
+/** Options of {@link relativeInside}. */
+export interface RelativeInsideOptions {
+  /** Count the root itself as inside; it then gives `''`. Defaults to `false`. */
+  allowRoot?: boolean;
+}
+
+/**
+ * Path of `candidate` relative to `root`, with forward slashes, when it sits
+ * below `root` (NFR4.1). Path segments are compared, never a string prefix:
+ * `..`, anything starting with `../` and a result on another drive are outside,
+ * while a name such as `..notes` below the root is inside.
+ * @param root - Absolute folder.
+ * @param candidate - Absolute path.
+ * @param options - Whether the root itself counts as inside.
+ * @returns The relative path, or `undefined` for anything outside the root,
+ * and for the root itself unless `allowRoot` is set.
+ */
+export const relativeInside = (root: string, candidate: string, options: RelativeInsideOptions = {}): string | undefined => {
+  const relative = path.relative(root, candidate);
+  if (relative === '') {
+    return options.allowRoot === true ? '' : undefined;
+  }
+  if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
+    return undefined;
+  }
+  return relative.split(path.sep).join('/');
 };
