@@ -46,6 +46,7 @@ import type {
   HttpClient,
   HubSourceSpec,
   RegistrySource,
+  RepositoryExclusion,
   Target,
   TokenProvider,
 } from '@ai-primitives-hub/core';
@@ -682,11 +683,15 @@ async function lookupHubSource(
  * - repository scope → RepositoryScopeWriter
  * @param ctx CLI context.
  * @param opts Install options.
+ * @param exclusion Where a `local-only` repository install lists its files;
+ * the prepared record's exclusion, so they share the record's `info/exclude`.
+ * Defaults to the writer's `<workspace>/.git/info/exclude`.
  * @returns Writer factory function.
  */
 export const createWriterFactory = (
   ctx: Context,
-  opts: InstallOptions
+  opts: InstallOptions,
+  exclusion?: RepositoryExclusion
 ): (target: Target) => TargetWriter => {
   // Create transformer registry and hierarchical layout loader once per command.
   const transformerRegistry = TransformerRegistry.withBuiltIns();
@@ -710,7 +715,8 @@ export const createWriterFactory = (
       const writer = new RepositoryScopeWriter({
         fs: ctx.fs,
         workspaceRoot,
-        commitMode
+        commitMode,
+        exclusion
       });
       return new RepositoryScopeWriterAdapter(writer);
     }
@@ -1014,7 +1020,7 @@ async function performLocalInstall(
     const prepared = effectiveTarget.scope === 'repository'
       ? await prepareRepositoryRecord(ctx, effectiveTarget)
       : undefined;
-    const writerFactory = createWriterFactory(ctx, opts);
+    const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
@@ -1304,7 +1310,7 @@ async function performRemoteInstall(
     const prepared = effectiveTarget.scope === 'repository'
       ? await prepareRepositoryRecord(ctx, effectiveTarget)
       : undefined;
-    const writerFactory = createWriterFactory(ctx, opts);
+    const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }

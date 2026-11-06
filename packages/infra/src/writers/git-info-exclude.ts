@@ -3,18 +3,17 @@
  *
  * `RepositoryExclusion` adapter that keeps the paths of a `local-only`
  * repository installation in a dedicated section of `.git/info/exclude`.
+ * The text change is `addExcludeEntries` / `removeExcludeEntries` from core,
+ * the same functions the install record store uses for its own entry.
  * @module writers/git-info-exclude
  */
 import * as path from 'node:path';
-import type {
-  FileSystem,
-  RepositoryExclusion,
+import {
+  addExcludeEntries,
+  type FileSystem,
+  removeExcludeEntries,
+  type RepositoryExclusion,
 } from '@ai-primitives-hub/core';
-
-/**
- * Section header for AI Primitives Hub entries in .git/info/exclude
- */
-const GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
 
 const toGitIgnorePath = (workspaceRoot: string, filePath: string): string =>
   path.relative(workspaceRoot, filePath).replaceAll('\\', '/');
@@ -25,25 +24,35 @@ const toGitIgnorePath = (workspaceRoot: string, filePath: string): string =>
 export interface GitInfoExcludeOptions {
   /** Filesystem abstraction. */
   fs: FileSystem;
-  /** Workspace root (repository root). */
+  /** Workspace root (repository root); listed paths are relative to it. */
   workspaceRoot: string;
+  /**
+   * Absolute path of the `info/exclude` file to edit. Defaults to
+   * `<workspaceRoot>/.git/info/exclude`. Pass the file app's
+   * `resolveExcludeFile` found (it follows `gitdir:` and `commondir`), so a
+   * worktree's entries land in the same file as the install record's entry.
+   */
+  excludePath?: string;
 }
 
 /**
  * Lists excluded paths, relative to the workspace root, below the
- * `# Prompt Registry (local)` header of `<workspaceRoot>/.git/info/exclude`.
+ * `# Prompt Registry (local)` header of the exclude file
+ * (`<workspaceRoot>/.git/info/exclude` unless another file is given).
  */
 export class GitInfoExclude implements RepositoryExclusion {
   private readonly fs: FileSystem;
   private readonly workspaceRoot: string;
+  private readonly excludePath: string;
 
   /**
    * Construct a GitInfoExclude.
-   * @param opts Filesystem and workspace root.
+   * @param opts Filesystem, workspace root and optional exclude file.
    */
   public constructor(opts: GitInfoExcludeOptions) {
     this.fs = opts.fs;
     this.workspaceRoot = opts.workspaceRoot;
+    this.excludePath = opts.excludePath ?? path.join(opts.workspaceRoot, '.git', 'info', 'exclude');
   }
 
   /**
@@ -51,40 +60,13 @@ export class GitInfoExclude implements RepositoryExclusion {
    * @param paths Absolute paths below the workspace root.
    */
   public async add(paths: readonly string[]): Promise<void> {
-    const excludePath = path.join(this.workspaceRoot, '.git', 'info', 'exclude');
-    try {
-      const existing = await this.fs.readFile(excludePath);
-      const lines = existing.split('\n');
-
-      // Find or create section
-      let sectionIndex = lines.indexOf(GIT_EXCLUDE_SECTION_HEADER);
-      if (sectionIndex === -1) {
-        sectionIndex = lines.length;
-        lines.push(GIT_EXCLUDE_SECTION_HEADER);
-      }
-
-      // Add paths to section
-      for (const p of paths) {
-        const relativePath = toGitIgnorePath(this.workspaceRoot, p);
-        if (!lines.includes(relativePath)) {
-          lines.splice(sectionIndex + 1, 0, relativePath);
-        }
-      }
-
-      await this.fs.writeFile(excludePath, lines.join('\n'));
-    } catch {
-      // Create .git/info directory if it doesn't exist
-      const infoDir = path.join(this.workspaceRoot, '.git', 'info');
-      await this.fs.mkdir(infoDir, { recursive: true });
-
-      const lines = [GIT_EXCLUDE_SECTION_HEADER];
-      for (const p of paths) {
-        const relativePath = toGitIgnorePath(this.workspaceRoot, p);
-        lines.push(relativePath);
-      }
-
-      await this.fs.writeFile(excludePath, lines.join('\n'));
+    const existing = (await this.fs.exists(this.excludePath)) ? await this.fs.readFile(this.excludePath) : '';
+    const updated = addExcludeEntries(existing, paths.map((p) => toGitIgnorePath(this.workspaceRoot, p)));
+    if (updated === undefined) {
+      return;
     }
+    await this.fs.mkdir(path.dirname(this.excludePath), { recursive: true });
+    await this.fs.writeFile(this.excludePath, updated);
   }
 
   /**
@@ -93,26 +75,12 @@ export class GitInfoExclude implements RepositoryExclusion {
    * @param paths Absolute paths below the workspace root.
    */
   public async remove(paths: readonly string[]): Promise<void> {
-    const excludePath = path.join(this.workspaceRoot, '.git', 'info', 'exclude');
     try {
-      const existing = await this.fs.readFile(excludePath);
-      const lines = existing.split('\n');
-
-      const sectionIndex = lines.indexOf(GIT_EXCLUDE_SECTION_HEADER);
-      if (sectionIndex === -1) {
-        return; // No section, nothing to remove
+      const existing = await this.fs.readFile(this.excludePath);
+      const updated = removeExcludeEntries(existing, paths.map((p) => toGitIgnorePath(this.workspaceRoot, p)));
+      if (updated !== undefined) {
+        await this.fs.writeFile(this.excludePath, updated);
       }
-
-      // Remove paths from section
-      const toRemove = new Set(paths.map((p) => toGitIgnorePath(this.workspaceRoot, p)));
-      const filtered = lines.filter((l, i) => {
-        if (i <= sectionIndex) {
-          return true;
-        } // Keep header and before
-        return !toRemove.has(l);
-      });
-
-      await this.fs.writeFile(excludePath, filtered.join('\n'));
     } catch {
       // File doesn't exist, nothing to remove
     }

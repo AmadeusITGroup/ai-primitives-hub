@@ -1155,6 +1155,26 @@ agents:
       await expect(readFile(vscodePrompt(), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
+    it('lists the local-only record and its installed files in one info/exclude in a git worktree', async () => {
+      // A worktree: `.git` is a file pointing at a git dir whose `commondir` holds `info/exclude`.
+      const commonDir = path.join(workspace, 'main.git');
+      const worktreeGitDir = path.join(commonDir, 'worktrees', 'wt');
+      await mkdir(worktreeGitDir, { recursive: true });
+      await writeFile(path.join(worktreeGitDir, 'commondir'), '../..\n');
+      await rm(path.join(workspace, '.git'), { recursive: true });
+      await writeFile(path.join(workspace, '.git'), `gitdir: ${worktreeGitDir}\n`);
+
+      const result = await run([
+        'install', 'local-foo', '--from', bundleDir, '--target', 'repo-vscode', '--commit-mode', 'local-only', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const lines = (await readFile(path.join(commonDir, 'info', 'exclude'), 'utf8')).split('\n');
+      expect(lines).toContain('# Prompt Registry (local)');
+      expect(lines).toContain('ai-primitives-hub.local.lock.json');
+      expect(lines).toContain('.github/prompts/hello.prompt.md');
+    });
+
     it('keeps user-scope installs on the existing user lockfile', async () => {
       const result = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
 

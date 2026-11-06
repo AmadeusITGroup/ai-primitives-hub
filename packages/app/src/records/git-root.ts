@@ -11,8 +11,10 @@
  * @module records/git-root
  */
 import * as path from 'node:path';
-import type {
-  RecordFs,
+import {
+  addExcludeEntries,
+  type RecordFs,
+  removeExcludeEntries,
 } from '@ai-primitives-hub/core';
 import {
   findAncestorFile,
@@ -20,9 +22,6 @@ import {
 import {
   writeFileAtomically,
 } from './atomic-write';
-
-/** Section header written above the hub's `info/exclude` entries. */
-export const EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
 
 /** Largest `.git` file, `commondir` file or `info/exclude` file read, in bytes. */
 const SMALL_FILE_MAX_BYTES = 1024 * 1024;
@@ -123,14 +122,24 @@ export const resolveExcludeDir = async (fs: RecordFs, root: string): Promise<{ d
   return { dir: path.resolve(gitDir, commondir) };
 };
 
-const hasEntry = (text: string, name: string): boolean =>
-  text.split(/\r?\n/).some((line) => {
-    const entry = line.trim();
-    return entry === name || entry === `/${name}`;
-  });
+/**
+ * The `info/exclude` file for a repository root (NFR4.6): `info/exclude` in
+ * the folder {@link resolveExcludeDir} trusts. Every writer of the hub's
+ * section uses this file, so a worktree's entries all land in the common git
+ * directory.
+ * @param fs - Filesystem port.
+ * @param root - Repository root holding `.git`.
+ * @returns The absolute file path (it may not exist yet), or a warning when no git directory can be trusted.
+ */
+export const resolveExcludeFile = async (fs: RecordFs, root: string): Promise<{ file: string } | { warning: string }> => {
+  const resolved = await resolveExcludeDir(fs, root);
+  return 'warning' in resolved ? resolved : { file: path.join(resolved.dir, 'info', 'exclude') };
+};
 
 /**
- * Add `name` to the repository's `info/exclude` under {@link EXCLUDE_SECTION_HEADER}, once (BR2.3).
+ * Add `name` to the repository's `info/exclude` under
+ * `GIT_EXCLUDE_SECTION_HEADER`, once (BR2.3). The text change is
+ * `addExcludeEntries` from core, shared with the repository-scope writer.
  *
  * Failures never throw: the record is still written and the caller logs the warning.
  * @param fs - Filesystem port.
@@ -141,31 +150,21 @@ const hasEntry = (text: string, name: string): boolean =>
 export const ensureExcluded = async (fs: RecordFs, root: string, name: string): Promise<ExcludeResult> => {
   let excludePath: string | undefined;
   try {
-    const resolved = await resolveExcludeDir(fs, root);
+    const resolved = await resolveExcludeFile(fs, root);
     if ('warning' in resolved) {
       return { status: 'skipped', warning: `${name} was not added to info/exclude: ${resolved.warning}` };
     }
-    const infoDir = path.join(resolved.dir, 'info');
-    excludePath = path.join(infoDir, 'exclude');
+    excludePath = resolved.file;
     const existing = (await fs.exists(excludePath)) ? await readSmallText(fs, excludePath) : '';
     if (existing === undefined) {
       return { status: 'skipped', excludePath, warning: `${name} was not added to ${excludePath}: the file is too large` };
     }
-    if (hasEntry(existing, name)) {
+    const updated = addExcludeEntries(existing, [name]);
+    if (updated === undefined) {
       return { status: 'present', excludePath };
     }
-    await fs.mkdir(infoDir, { recursive: true });
-    const lines = existing.split('\n');
-    const headerIndex = lines.findIndex((line) => line.replace(/\r$/, '').trim() === EXCLUDE_SECTION_HEADER);
-    if (headerIndex === -1) {
-      const separator = existing === '' || existing.endsWith('\n') ? '' : '\n';
-      await fs.appendFile(excludePath, `${separator}${EXCLUDE_SECTION_HEADER}\n${name}\n`);
-      return { status: 'added', excludePath };
-    }
-    // Insert right below the existing header, so the file keeps one section
-    // shared with the repository-scope writer and the extension.
-    lines.splice(headerIndex + 1, 0, name);
-    await writeFileAtomically(fs, excludePath, lines.join('\n'));
+    await fs.mkdir(path.dirname(excludePath), { recursive: true });
+    await writeFileAtomically(fs, excludePath, updated);
     return { status: 'added', excludePath };
   } catch (error) {
     return {
@@ -189,10 +188,10 @@ export interface RemoveExcludedResult {
 /**
  * Remove `name` from the repository's `info/exclude`, the reverse of {@link ensureExcluded} (BR2.3).
  *
- * Only lines that are exactly `name` or `/name` go; the
- * {@link EXCLUDE_SECTION_HEADER} line (even when its section is now empty)
- * and every other line stay as they are. Failures never throw: the caller
- * logs the warning.
+ * The text change is `removeExcludeEntries` from core: only lines below
+ * `GIT_EXCLUDE_SECTION_HEADER` that are `name` or `/name` go; the header
+ * (even when its section is now empty) and every other line stay as they
+ * are. Failures never throw: the caller logs the warning.
  * @param fs - Filesystem port.
  * @param root - Repository root holding `.git`.
  * @param name - File name to remove, relative to the root.
@@ -201,11 +200,11 @@ export interface RemoveExcludedResult {
 export const removeExcluded = async (fs: RecordFs, root: string, name: string): Promise<RemoveExcludedResult> => {
   let excludePath: string | undefined;
   try {
-    const resolved = await resolveExcludeDir(fs, root);
+    const resolved = await resolveExcludeFile(fs, root);
     if ('warning' in resolved) {
       return { status: 'skipped', warning: `${name} was not removed from info/exclude: ${resolved.warning}` };
     }
-    excludePath = path.join(resolved.dir, 'info', 'exclude');
+    excludePath = resolved.file;
     if (!(await fs.exists(excludePath))) {
       return { status: 'absent', excludePath };
     }
@@ -213,15 +212,11 @@ export const removeExcluded = async (fs: RecordFs, root: string, name: string): 
     if (existing === undefined) {
       return { status: 'skipped', excludePath, warning: `${name} was not removed from ${excludePath}: the file is too large` };
     }
-    const lines = existing.split('\n');
-    const kept = lines.filter((line) => {
-      const entry = line.trim();
-      return entry !== name && entry !== `/${name}`;
-    });
-    if (kept.length === lines.length) {
+    const updated = removeExcludeEntries(existing, [name]);
+    if (updated === undefined) {
       return { status: 'absent', excludePath };
     }
-    await writeFileAtomically(fs, excludePath, kept.join('\n'));
+    await writeFileAtomically(fs, excludePath, updated);
     return { status: 'removed', excludePath };
   } catch (error) {
     return {
