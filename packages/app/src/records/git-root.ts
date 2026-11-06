@@ -14,6 +14,9 @@ import * as path from 'node:path';
 import type {
   RecordFs,
 } from '@ai-primitives-hub/core';
+import {
+  writeFileAtomically,
+} from './atomic-write';
 
 /** Section header written above the hub's `info/exclude` entries. */
 export const EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
@@ -168,14 +171,7 @@ export const ensureExcluded = async (fs: RecordFs, root: string, name: string): 
     // Insert right below the existing header, so the file keeps one section
     // shared with the repository-scope writer and the extension.
     lines.splice(headerIndex + 1, 0, name);
-    const temp = `${excludePath}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(temp, lines.join('\n'));
-    try {
-      await fs.rename(temp, excludePath);
-    } catch (error) {
-      await fs.unlink(temp).catch(() => undefined);
-      throw error;
-    }
+    await writeFileAtomically(fs, excludePath, lines.join('\n'));
     return { status: 'added', excludePath };
   } catch (error) {
     return {
@@ -231,14 +227,7 @@ export const removeExcluded = async (fs: RecordFs, root: string, name: string): 
     if (kept.length === lines.length) {
       return { status: 'absent', excludePath };
     }
-    const temp = `${excludePath}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(temp, kept.join('\n'));
-    try {
-      await fs.rename(temp, excludePath);
-    } catch (error) {
-      await fs.unlink(temp).catch(() => undefined);
-      throw error;
-    }
+    await writeFileAtomically(fs, excludePath, kept.join('\n'));
     return { status: 'removed', excludePath };
   } catch (error) {
     return {

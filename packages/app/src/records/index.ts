@@ -3,6 +3,7 @@
  * canonical serialization, and the record store.
  * @module records
  */
+export * from './atomic-write';
 export * from './confine-path';
 export * from './git-root';
 export * from './install-record-service';
