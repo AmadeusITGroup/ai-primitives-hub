@@ -10,7 +10,7 @@
  * `vscode.ExtensionContext`. Repository-level install records live at the
  * git root and are not storage paths; the extension's own per-profile
  * bundle-record folders are declared by the extension
- * (`ExtensionStoragePaths`), not here (ADR-0009).
+ * (`ExtensionStoragePaths`), not here (ADR-0011).
  *
  * Two implementations: the VS Code extension's own adapter, backed by
  * `context.globalStorageUri`/`context.globalState` (kept exactly as-is
