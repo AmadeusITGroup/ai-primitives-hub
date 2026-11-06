@@ -7,6 +7,7 @@
  */
 import * as path from 'node:path';
 import {
+  DEFAULT_LOCAL_HUB_ID,
   type RecordFs,
   type RegistrySource,
   relativeInside,
@@ -71,6 +72,37 @@ const confineLocalFolder = async (fs: RecordFs, root: string, recordedPath: stri
  */
 export const isLocalSourceInsideRoot = async (fs: RecordFs, root: string, localPath: string): Promise<boolean> =>
   (await confineLocalFolder(fs, root, localPath)) !== undefined;
+
+/**
+ * Configured sources in the trust gate's lookup order, one per id: the active
+ * hub's, then detached sources, then (with `includeOtherHubs`) any other.
+ * @param sources - Configured sources, each with its `hubId`.
+ * @param activeHubId - Active hub id, or `null`.
+ * @param options - Lookup options.
+ * @param options.includeOtherHubs - Keep other hubs' sources, last.
+ */
+export const orderConfiguredSources = (
+  sources: readonly RegistrySource[],
+  activeHubId: string | null,
+  options: { includeOtherHubs?: boolean } = {}
+): RegistrySource[] => {
+  const tier = (source: RegistrySource): number => {
+    if (activeHubId !== null && source.hubId === activeHubId) {
+      return 0;
+    }
+    return source.hubId === DEFAULT_LOCAL_HUB_ID ? 1 : 2;
+  };
+  const byId = new Map<string, RegistrySource>();
+  const ranked = sources.map((source, index) => ({ source, index, rank: tier(source) }))
+    .filter(({ rank }) => rank < 2 || options.includeOtherHubs === true)
+    .toSorted((left, right) => left.rank - right.rank || left.index - right.index);
+  for (const { source } of ranked) {
+    if (!byId.has(source.id)) {
+      byId.set(source.id, source);
+    }
+  }
+  return [...byId.values()];
+};
 
 /**
  * Decide which source an entry is replayed or updated from.
