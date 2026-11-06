@@ -23,6 +23,7 @@ import {
 } from '@ai-primitives-hub/app';
 import {
   type BundleRecord,
+  describeRecordError,
   isRecordError,
   RECORD_FILE_NAMES,
   type RecordFs,
@@ -229,11 +230,9 @@ export class InstallRecordListing {
   }
 
   private async errorProblem(location: RecordLocation, error: RegistryError): Promise<ListingProblem> {
-    const name = path.basename(location.path);
-    const detail = typeof error.context?.detail === 'string' ? ` Reason: ${error.context.detail}.` : '';
     return {
       key: `${error.code}\u0000${location.path}\u0000${await this.contentHash(location.path)}`,
-      message: `${error.code}: ${error.message} File: ${name}.${detail} ${error.hint ?? ''}`.trim()
+      message: `${error.code}: ${describeRecordError(error, path.basename(location.path))} ${error.hint ?? ''}`.trim()
     };
   }
 

@@ -1,7 +1,8 @@
 /**
  * Contract tests for the 3.0.0 install record format (C1): the parse and
- * version gate (`parseRecord`), the recorded-path check (`checkRecordedPath`)
- * and the path-inside check (`relativeInside`).
+ * version gate (`parseRecord`), the recorded-path check (`checkRecordedPath`),
+ * the path-inside check (`relativeInside`) and the record error text
+ * (`describeRecordError`).
  */
 import * as path from 'node:path';
 import {
@@ -10,7 +11,9 @@ import {
   it,
 } from 'vitest';
 import {
+  describeRecordError,
   isRecordError,
+  recordError,
 } from '../../../src/domain/install/record-errors';
 import {
   parseRecord,
@@ -138,5 +141,19 @@ describe('relativeInside', () => {
   it('counts the root itself as inside with allowRoot', () => {
     expect(relativeInside(root, root, { allowRoot: true })).toBe('');
     expect(relativeInside(root, path.dirname(root), { allowRoot: true })).toBeUndefined();
+  });
+});
+
+describe('describeRecordError', () => {
+  const message = 'The install record is malformed and was left unchanged.';
+
+  it.each([
+    [{ file: FILE, detail: 'not valid JSON' }, undefined, `${message} File: ${FILE}. Reason: not valid JSON.`],
+    [{ file: FILE }, undefined, `${message} File: ${FILE}.`],
+    [{ detail: 'not valid JSON' }, undefined, `${message} Reason: not valid JSON.`],
+    [{}, undefined, message],
+    [{ file: 'sub/a.json', detail: 'x' }, FILE, `${message} File: ${FILE}. Reason: x.`]
+  ])('describes %o (label %s)', (details, label, expected) => {
+    expect(describeRecordError(recordError('RECORD.MALFORMED', details), label)).toBe(expected);
   });
 });
