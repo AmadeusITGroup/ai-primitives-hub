@@ -23,6 +23,9 @@ import {
   RepositoryScopeWriterAdapter,
 } from '../../src/writers/repo-scope-writer';
 import {
+  seedGitDir,
+} from '../helpers/git-dir';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 
@@ -177,7 +180,9 @@ describe('characterisation: RepositoryScopeWriter output per manifest', () => {
         const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
         const files = bundle(manifest, KIND_FILES);
         const preflight = await writer.preflight(files, allowedKinds);
-        const result = await writer.write(files, allowedKinds);
+        // `installedPaths` is pinned by repo-scope-writer.test.ts; the
+        // snapshots keep today's placement only.
+        const { installedPaths: _installedPaths, ...result } = await writer.write(files, allowedKinds);
         const write = {
           ...result,
           written: result.written.map((filePath) => toPosix(filePath)),
@@ -239,6 +244,8 @@ const EXCLUDE_EXPECTED: Record<string, (string | null)[]> = {
 describe('characterisation: .git/info/exclude bytes in local-only mode', () => {
   const capture = async (run: (fs: InMemoryFileSystem, steps: (string | null)[]) => Promise<void>, seed?: string) => {
     const fs = new InMemoryFileSystem();
+    // The workspace is a git repository.
+    seedGitDir(fs, `${WORKSPACE_ROOT}/.git`);
     if (seed !== undefined) {
       fs.seed(EXCLUDE_PATH, seed);
     }
@@ -332,7 +339,13 @@ items:
 
     expect(await writer.preflight(files)).toEqual({ writable: [], skipped: ['plugins/bar/plugin.json'] });
     const result = await writer.write(files);
-    expect(result).toEqual({ written: [], skipped: ['plugins/bar/plugin.json'], skillDirs: [], writtenBundlePaths: [] });
+    expect(result).toEqual({
+      written: [],
+      skipped: ['plugins/bar/plugin.json'],
+      skillDirs: [],
+      writtenBundlePaths: [],
+      installedPaths: {}
+    });
     expect(await listFiles(fs, WORKSPACE_ROOT)).toEqual({});
   });
 });

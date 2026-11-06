@@ -40,7 +40,7 @@ The AI Primitives Hub packages follow Clean Architecture principles. The package
 
 ### Infrastructure Layer (`@ai-primitives-hub/infra`)
 
-- Implements ports as adapters: `NodeHttpClient`, `GitHubApiClient`, `FileTreeTargetWriter`, `AdmZipBundleExtractor`, `LocalAdapter`, `GitHubAdapter`, `AwesomeCopilotAdapter`, `ApmAdapter`, `SkillsAdapter`, `GitInfoExclude`
+- Implements ports as adapters: `NodeHttpClient`, `GitHubApiClient`, `RepositoryScopeWriterAdapter`, `AdmZipBundleExtractor`, `LocalAdapter`, `GitHubAdapter`, `AwesomeCopilotAdapter`, `ApmAdapter`, `SkillsAdapter`, `GitInfoExclude`
 - Provides concrete implementations for external systems: GitHub API, file system, HTTP, ZIP extraction, per-target content writers
 - Depends only on `@ai-primitives-hub/core` (the port interfaces)
 - Can be swapped without affecting domain logic
@@ -48,6 +48,7 @@ The AI Primitives Hub packages follow Clean Architecture principles. The package
 ### Application Layer (`@ai-primitives-hub/app`)
 
 - Orchestrates use cases: profile activation, bundle installation, registry management, discovery/search, multi-target transforms
+- Owns the shared install and uninstall use cases (`applyBundleInstall`, `applyBundleUninstall`) and writer selection (`createTargetWriterFactory`), so delivery layers place, record and remove files the same way (the CLI today; the extension moves onto them with [#551](https://github.com/AmadeusITGroup/ai-primitives-hub/issues/551)); the layout-driven `FileTreeTargetWriter` lives here too
 - Coordinates domain objects and infrastructure adapters
 - Contains no business rules — only orchestration
 - Depends on core (domain) and infra (adapters)
@@ -56,7 +57,7 @@ The AI Primitives Hub packages follow Clean Architecture principles. The package
 ### CLI Layer (`@ai-primitives-hub/cli`)
 
 - Thin adapter that translates `ai-primitives-hub` CLI commands into application use cases
-- Handles I/O, user interaction, and presentation using the Clipanion framework
+- Handles I/O, user interaction, and presentation using the Clipanion framework; for install and uninstall it resolves the effective target, parses flags and renders the outcome and warnings
 - Depends on app, core, and infra but domain remains isolated
 - Can be replaced with a web UI or a future dedicated SDK without changing core
 

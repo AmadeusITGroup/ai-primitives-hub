@@ -28,12 +28,15 @@ import type {
   ExtractedFiles,
   LayoutConfigLoader,
   PrimitiveKind,
+  RecordedFile,
+  RecordedLocations,
   ResourceTransformer,
   Target,
   TargetLayout,
   TargetWritePlan,
   TargetWriter,
   TargetWriteResult,
+  WriteSnapshots,
 } from '@ai-primitives-hub/core';
 import {
   applyFileMode,
@@ -45,7 +48,11 @@ import {
   matchKindRoute,
   normalizePrimitiveKind,
   normalizePromptId,
+  replacedFiles,
+  resolveRecordedLocation,
+  restoreOrRemove,
   routeKindOf,
+  snapshotBeforeWrite,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -82,6 +89,11 @@ export interface WriterFs {
    * port). Without it, installed files keep their default mode.
    */
   setExecutable?(p: string, executable: boolean): Promise<void>;
+  /**
+   * Optional: a file's mode, so a rollback can give a file the write
+   * replaced its executable bit back (see core's `FileSystem` port).
+   */
+  stat?(p: string): Promise<{ mode?: number }>;
 }
 
 /**
@@ -256,6 +268,7 @@ export class FileTreeTargetWriter implements TargetWriter {
     const written: string[] = [];
     const writtenBundlePaths: string[] = [];
     const skipped: string[] = [];
+    const snapshots: WriteSnapshots = new Map();
     let pendingWritePath: string | null = null;
 
     try {
@@ -284,6 +297,7 @@ export class FileTreeTargetWriter implements TargetWriter {
         }
 
         const outPath = path.join(baseDir, route.outPrefix, route.tail);
+        await snapshotBeforeWrite(this.opts.fs, snapshots, outPath);
         // Keep the path visible to the catch block before write starts:
         // a filesystem can persist the file and then throw.
         pendingWritePath = outPath;
@@ -296,25 +310,23 @@ export class FileTreeTargetWriter implements TargetWriter {
       const rollbackPaths = pendingWritePath === null
         ? written
         : [...written, pendingWritePath];
-      await this.rollback(target, rollbackPaths);
+      await this.rollback(target, rollbackPaths, replacedFiles(snapshots));
       throw cause;
     }
-    return { written, skipped, writtenBundlePaths };
+    const replaced = replacedFiles(snapshots);
+    return { written, skipped, writtenBundlePaths, ...(replaced === undefined ? {} : { replaced }) };
   }
 
   /**
-   * Remove files written by a failed or rejected installation.
+   * Undo the files of a failed or rejected installation, best effort: a
+   * file the write replaced gets its earlier bytes back, any other file
+   * is removed.
    * @param _target - Target chosen via `--target <name>`.
    * @param written - Absolute paths returned by `write`.
+   * @param replaced - `replaced` returned by that write.
    */
-  public async rollback(_target: Target, written: readonly string[]): Promise<void> {
-    for (const filePath of written) {
-      try {
-        await this.opts.fs.remove(filePath);
-      } catch {
-        // Rollback is best effort; preserve the original install failure.
-      }
-    }
+  public async rollback(_target: Target, written: readonly string[], replaced?: Readonly<Record<string, ExtractedFile>>): Promise<void> {
+    await restoreOrRemove(this.opts.fs, written, replaced);
   }
 
   /**
@@ -414,6 +426,7 @@ export class FileTreeTargetWriter implements TargetWriter {
       writtenBundlePaths.push(bundlePath);
       installedPaths[bundlePath] = toInstalledPath(baseDir, outPath);
     };
+    const snapshots: WriteSnapshots = new Map();
     let pendingWritePath: string | null = null;
 
     const taken = new Set<string>();
@@ -429,6 +442,7 @@ export class FileTreeTargetWriter implements TargetWriter {
         for (const { bundlePath, tail } of placement.sources) {
           const outPath = path.join(baseDir, placement.outDir, tail);
           const bytes = files.get(bundlePath) as ExtractedFile;
+          await snapshotBeforeWrite(this.opts.fs, snapshots, outPath);
           // Keep the path visible to the catch block before write starts:
           // a filesystem can persist the file and then throw.
           pendingWritePath = outPath;
@@ -448,11 +462,12 @@ export class FileTreeTargetWriter implements TargetWriter {
       const rollbackPaths = pendingWritePath === null
         ? written
         : [...written, pendingWritePath];
-      await this.rollback(target, rollbackPaths);
+      await this.rollback(target, rollbackPaths, replacedFiles(snapshots));
       throw cause;
     }
 
-    return { written, skipped, writtenBundlePaths, installedPaths };
+    const replaced = replacedFiles(snapshots);
+    return { written, skipped, writtenBundlePaths, installedPaths, ...(replaced === undefined ? {} : { replaced }) };
   }
 
   /**
@@ -497,53 +512,62 @@ export class FileTreeTargetWriter implements TargetWriter {
   }
 
   /**
-   * Compute, without touching the filesystem, where each recorded file
-   * lives relative to the target's base directory: its `installedPath`
-   * when present, otherwise the path-routed destination of `path` — the
-   * same location {@link remove} would delete.
+   * Locate recorded files below the target's base directory, without
+   * touching the filesystem, through core's `resolveRecordedLocation`:
+   * the recorded `installedPath`, otherwise the layout route of `path`,
+   * otherwise (repository scope) a legacy workspace-relative entry below
+   * the base directory. These are exactly the paths {@link write} and
+   * {@link writeManifestItems} wrote, and the ones {@link remove} deletes.
    * @param target - Target chosen via `--target <name>`.
    * @param files - Recorded files (lockfile `path` + optional `installedPath`).
-   * @returns One `/`-separated base-relative location per file, or `null`
-   *   for a path-routed file the layout does not route.
+   * @returns The normalised base directory (the form {@link write} uses,
+   *   so it shares one form with the located and written paths) and one
+   *   absolute location per file, or `null` when the file has none inside it.
    */
-  public async installedLocations(
-    target: Target,
-    files: readonly { path: string; installedPath?: string }[]
-  ): Promise<(string | null)[]> {
+  public async locate(target: Target, files: readonly RecordedFile[]): Promise<RecordedLocations> {
     const layout = await this.resolveLayout(target);
-    return files.map((file) => {
-      if (file.installedPath !== undefined) {
-        return path.posix.normalize(file.installedPath.replaceAll('\\', '/'));
-      }
-      const route = matchKindRoute(file.path, layout.kindRoutes);
-      return route === null
-        ? null
-        : path.posix.normalize(path.posix.join(route.outPrefix.replaceAll('\\', '/'), route.tail));
-    });
+    const root = path.normalize(expandPath(layout.baseDir, this.opts.env));
+    const workspaceRoot = target.scope === 'repository' ? target.rootPath ?? null : null;
+    return {
+      root,
+      paths: files.map((file) => resolveRecordedLocation({ root, routes: layout.kindRoutes, workspaceRoot, file }))
+    };
   }
 
   /**
-   * Remove a file from the target.
+   * Where each recorded file lives relative to the target's base
+   * directory — the location {@link locate} gives, `/`-separated.
+   * @param target - Target chosen via `--target <name>`.
+   * @param files - Recorded files (lockfile `path` + optional `installedPath`).
+   * @returns One base-relative location per file, or `null` when the file
+   *   has no location inside the base directory.
+   */
+  public async installedLocations(
+    target: Target,
+    files: readonly RecordedFile[]
+  ): Promise<(string | null)[]> {
+    const { root, paths } = await this.locate(target, files);
+    return paths.map((location) => location === null ? null : toInstalledPath(root, location));
+  }
+
+  /**
+   * Remove a recorded file from the target: the location {@link locate}
+   * gives for it. A file with no location inside the base directory (an
+   * escaping `installedPath`, an unrouted `path`) removes nothing.
    * @param target - Target chosen via `--target <name>`.
    * @param filePath - Relative file path to remove (from bundle root).
    * @param installedPath - Output path relative to the target's base
    *   directory, as recorded from `installedPaths` by a manifest-driven
    *   install. When given, it is removed instead of the path recomputed
-   *   from `filePath`; a path that leaves the base directory is refused.
+   *   from `filePath`.
    */
   public async remove(target: Target, filePath: string, installedPath?: string): Promise<void> {
-    const layout = await this.resolveLayout(target);
-    const baseDir = expandPath(layout.baseDir, this.opts.env);
-    if (installedPath !== undefined) {
-      await this.opts.fs.remove(resolveInstalledPath(baseDir, installedPath));
+    const file: RecordedFile = installedPath === undefined ? { path: filePath } : { path: filePath, installedPath };
+    const [location] = (await this.locate(target, [file])).paths;
+    if (location === null) {
       return;
     }
-    const route = matchKindRoute(filePath, layout.kindRoutes);
-    if (route === null) {
-      return; // Unrouted file, nothing to do
-    }
-    const outPath = path.join(baseDir, route.outPrefix, route.tail);
-    await this.opts.fs.remove(outPath);
+    await this.opts.fs.remove(location);
   }
 }
 
@@ -692,30 +716,6 @@ const claimDestinations = (placement: ManifestItemPlacement, taken: Set<string>)
  */
 const toInstalledPath = (baseDir: string, outPath: string): string =>
   path.relative(baseDir, outPath).split(path.sep).join('/');
-
-/**
- * Resolve a recorded base-relative output path, refusing anything that
- * would leave the base directory (the lockfile is user-editable).
- * @param baseDir - Expanded layout base directory.
- * @param installedPath - Recorded base-relative path.
- * @returns Absolute output path.
- * @throws {Error} When the path is absolute or escapes `baseDir`.
- */
-const resolveInstalledPath = (baseDir: string, installedPath: string): string => {
-  // Build the path exactly as the write did (`path.join(baseDir, …)`), so it
-  // names the same file. `path.resolve` is used only for the escape check: on
-  // Windows it adds a drive letter to a drive-less base like `\home\u`.
-  const outPath = path.join(baseDir, installedPath);
-  const relative = path.relative(path.resolve(baseDir), path.resolve(outPath));
-  if (path.isAbsolute(installedPath)
-    || relative.length === 0
-    || relative === '..'
-    || relative.startsWith(`..${path.sep}`)
-    || path.isAbsolute(relative)) {
-    throw new Error(`installed path "${installedPath}" is outside the target directory`);
-  }
-  return outPath;
-};
 
 const copilotTypeToPrimitiveKind = (type: CopilotFileType): PrimitiveKind =>
   type === 'instructions' ? 'instruction' : (type === 'chatmode' ? 'chat-mode' : type);

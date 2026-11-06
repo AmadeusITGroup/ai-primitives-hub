@@ -17,6 +17,7 @@ import type {
 import {
   determineFileType,
   getInstallableBundleFiles,
+  mergeReplacedFiles,
 } from '@ai-primitives-hub/core';
 import {
   FileTreeTargetWriter,
@@ -195,15 +196,17 @@ async function writeItemsSkipping(
   try {
     restResult = await writer.write(target, rest);
   } catch (cause) {
-    await writer.rollback(target, itemResult.written);
+    await writer.rollback(target, itemResult.written, itemResult.replaced);
     throw cause;
   }
+  const replaced = mergeReplacedFiles(itemResult, restResult);
   return {
     result: {
       written: [...itemResult.written, ...restResult.written],
       skipped: [...itemResult.skipped, ...restResult.skipped],
       writtenBundlePaths: [...(itemResult.writtenBundlePaths ?? []), ...(restResult.writtenBundlePaths ?? [])],
-      installedPaths: itemResult.installedPaths ?? {}
+      installedPaths: itemResult.installedPaths ?? {},
+      ...(replaced === undefined ? {} : { replaced })
     },
     skippedPaths: [...itemPlan.skipped, ...restPlan.skipped, ...itemResult.skipped, ...restResult.skipped]
   };

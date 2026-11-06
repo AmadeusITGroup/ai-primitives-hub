@@ -31,6 +31,9 @@ import type {
   Target,
 } from '@ai-primitives-hub/core';
 import {
+  TARGET_TYPES,
+} from '@ai-primitives-hub/core';
+import {
   buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -67,6 +70,10 @@ import {
   createLegacyReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
+import {
+  makeGitDir,
+  runGit,
+} from '../helpers/git-fixture';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -275,6 +282,8 @@ describe('install command (local --from mode)', () => {
     const nextLock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as Lockfile;
     expect(Object.keys(nextLock.bundles)).toEqual([fixture.catalogId]);
     expect(nextLock.bundles[fixture.catalogId].version).toBe('2.0.0');
+    expect(nextLock.bundles[fixture.catalogId].targetType).toBe('copilot-cli');
+    expect(nextLock.bundles[fixture.catalogId]).not.toHaveProperty('commitMode');
     const replayUpdated = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
     expect(replayUpdated.exitCode).toBe(0);
   });
@@ -704,6 +713,40 @@ agents:
     ).rejects.toThrow();
   });
 
+  it.each(['vscode', 'vscode-insiders', 'copilot-cli'])('removes a prompt the new version dropped on a %s repository reinstall', async (type) => {
+    const manifest = (version: string, prompts: string[]): string => [
+      'id: local-foo',
+      `version: ${version}`,
+      'name: Local Bundle',
+      'prompts:',
+      ...prompts.flatMap((id) => [`  - id: ${id}`, `    file: prompts/${id}.prompt.md`, '    type: prompt'])
+    ].join('\n');
+    const writeVersion = async (version: string, prompts: string[]): Promise<void> => {
+      await rm(bundleDir, { recursive: true, force: true });
+      await writeReleaseArchive(bundleDir, new Map([
+        ['deployment-manifest.yml', new TextEncoder().encode(manifest(version, prompts))],
+        ...prompts.map((id): [string, Uint8Array] => [`prompts/${id}.prompt.md`, new TextEncoder().encode(`# ${id}\n`)])
+      ]));
+    };
+    const addTarget = await run([
+      'target', 'add', 'repository-vscode', '--type', type, '--scope', 'repository',
+      '--workspace-root', workspace, '-o', 'json'
+    ]);
+    expect(addTarget.exitCode).toBe(0);
+    const install = (): ReturnType<typeof run> => run([
+      'install', 'local-foo', '--from', bundleDir, '--target', 'repository-vscode', '--scope', 'repository', '-o', 'json'
+    ]);
+
+    await writeVersion('1.0.0', ['kept', 'dropped']);
+    expect((await install()).exitCode).toBe(0);
+    await writeVersion('2.0.0', ['kept']);
+    const reinstall = await install();
+
+    expect(reinstall.exitCode, reinstall.stdout).toBe(0);
+    await expect(readFile(path.join(workspace, '.github', 'prompts', 'kept.prompt.md'), 'utf8')).resolves.toContain('kept');
+    await expect(readFile(path.join(workspace, '.github', 'prompts', 'dropped.prompt.md'), 'utf8')).rejects.toThrow();
+  });
+
   it('uses the repository-scope writer for remote installs', async () => {
     const zipBytes = buildZip([
       {
@@ -932,6 +975,257 @@ agents:
     await expect(
       readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('preflighted bundle');
+  });
+
+  describe('install records, exclusion and rollback', () => {
+    const posixNonRoot = it.skipIf(process.platform === 'win32' || process.getuid?.() === 0);
+    const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+    const toPosix = (p: string): string => p.split(path.sep).join('/');
+    const commitLock = (): string => path.join(workspace, 'prompt-registry.lock.json');
+    const localLock = (): string => path.join(workspace, 'prompt-registry.local.lock.json');
+    const readLock = async (file: string): Promise<Lockfile> => JSON.parse(await readFile(file, 'utf8')) as Lockfile;
+    const excludeLines = async (root = workspace): Promise<string[]> =>
+      (await readFile(path.join(root, '.git', 'info', 'exclude'), 'utf8')).split('\n');
+
+    /**
+     * Write a local bundle directory with an `items:` manifest.
+     * @param dir Bundle directory.
+     * @param id Bundle id.
+     * @param items Manifest items (path, kind, optional id).
+     * @param files Bundle files.
+     */
+    const writeBundle = async (
+      dir: string,
+      id: string,
+      items: { path: string; kind: string; id?: string }[],
+      files: Record<string, string>
+    ): Promise<void> => {
+      await rm(dir, { recursive: true, force: true });
+      const manifest = [
+        `id: ${id}`, 'version: 1.0.0', `name: ${id}`, 'items:',
+        ...items.flatMap((item) => [
+          `  - path: ${item.path}`, `    kind: ${item.kind}`, ...(item.id === undefined ? [] : [`    id: ${item.id}`])
+        ])
+      ].join('\n');
+      for (const [file, content] of Object.entries({ 'deployment-manifest.yml': `${manifest}\n`, ...files })) {
+        await mkdir(path.dirname(path.join(dir, file)), { recursive: true });
+        await writeFile(path.join(dir, file), content);
+      }
+    };
+    const addRepositoryTarget = async (name: string, type: string): Promise<void> => {
+      expect((await run(['target', 'add', name, '--type', type, '--scope', 'repository', '-o', 'json'])).exitCode).toBe(0);
+    };
+    const installRepository = (target: string, extra: string[] = [], from = bundleDir): ReturnType<typeof run> => run([
+      'install', '--from', from, '--target', target, '--scope', 'repository', ...extra, '-o', 'json'
+    ]);
+
+    it.each(TARGET_TYPES)('local-only on a %s repository target excludes the written files and the local lockfile', async (type) => {
+      await makeGitDir(workspace);
+      await addRepositoryTarget('repo', type);
+
+      const result = await installRepository('repo', ['--commit-mode', 'local-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const envelope = parseJson<{ written: string[] }>(result.stdout);
+      expect(envelope.status).toBe('ok');
+      expect(envelope.data.written.length).toBeGreaterThan(0);
+      const lines = await excludeLines();
+      for (const written of envelope.data.written) {
+        expect(lines).toContain(toPosix(path.relative(workspace, written)));
+      }
+      expect(lines).toContain('prompt-registry.local.lock.json');
+    });
+
+    it('local-only excludes a local lockfile an earlier install left out of the exclude file', async () => {
+      await makeGitDir(workspace);
+      await addRepositoryTarget('repo', 'vscode');
+      expect((await installRepository('repo', ['--commit-mode', 'local-only'])).exitCode).toBe(0);
+      await writeFile(path.join(workspace, '.git', 'info', 'exclude'), '# existing\n');
+
+      const result = await installRepository('repo', ['--commit-mode', 'local-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await excludeLines()).toContain('prompt-registry.local.lock.json');
+    });
+
+    it('records targetType, no commitMode and installedPath where placement differs from the route', async () => {
+      await writeBundle(bundleDir, 'placements', [
+        { path: 'prompts/top.prompt.md', kind: 'prompt' },
+        { path: 'prompts/sub/a.prompt.md', kind: 'prompt' },
+        { path: 'prompts/x.agent.md', kind: 'agent' },
+        { path: 'plugins/src-dir/plugin.json', kind: 'plugin', id: 'demo' }
+      ], {
+        'prompts/top.prompt.md': '# Top\n',
+        'prompts/sub/a.prompt.md': '# A\n',
+        'prompts/x.agent.md': '# X\n',
+        'plugins/src-dir/plugin.json': '{}\n',
+        'plugins/src-dir/scripts/run.sh': 'echo\n'
+      });
+      await addRepositoryTarget('repo', 'vscode');
+
+      const result = await installRepository('repo');
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const entry = (await readLock(commitLock())).bundles.placements;
+      expect(entry.targetType).toBe('vscode');
+      expect(entry).not.toHaveProperty('commitMode');
+      expect(Object.fromEntries(entry.files.map((file) => [file.path, file.installedPath]))).toEqual({
+        'prompts/top.prompt.md': undefined,
+        'prompts/sub/a.prompt.md': 'prompts/a.prompt.md',
+        'prompts/x.agent.md': 'agents/x.agent.md',
+        'plugins/src-dir/plugin.json': 'plugins/demo/plugin.json',
+        'plugins/src-dir/scripts/run.sh': 'plugins/demo/scripts/run.sh'
+      });
+    });
+
+    posixNonRoot('rolls back the new files when the lockfile cannot be written', async () => {
+      const otherDir = path.join(workspace, 'other-bundle');
+      await writeBundle(otherDir, 'other', [{ path: 'prompts/other.prompt.md', kind: 'prompt' }], { 'prompts/other.prompt.md': '# Other\n' });
+      await addRepositoryTarget('repo', 'vscode');
+      expect((await installRepository('repo', [], otherDir)).exitCode).toBe(0);
+      await chmod(commitLock(), 0o444);
+
+      const result = await installRepository('repo');
+
+      expect(result.exitCode).toBe(1);
+      await expect(stat(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'))).rejects.toThrow();
+      await expect(readFile(path.join(workspace, '.github', 'prompts', 'other.prompt.md'), 'utf8')).resolves.toContain('Other');
+    });
+
+    it('moves the entry to the local lockfile on a reinstall with --commit-mode local-only', async () => {
+      await makeGitDir(workspace);
+      await addRepositoryTarget('repo', 'vscode');
+      expect((await installRepository('repo')).exitCode).toBe(0);
+      expect(Object.keys((await readLock(commitLock())).bundles)).toEqual(['local-foo']);
+
+      const result = await installRepository('repo', ['--commit-mode', 'local-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(localLock());
+      expect(Object.keys((await readLock(localLock())).bundles)).toEqual(['local-foo']);
+      await expect(stat(commitLock())).rejects.toThrow();
+    });
+
+    it.each(['kiro', 'windsurf', 'claude-code'])('records installedChecksum for the files a %s target transforms', async (type) => {
+      await writeBundle(bundleDir, 'transformed', [
+        { path: 'agents/helper.agent.md', kind: 'agent' },
+        { path: 'prompts/rule.prompt.md', kind: 'prompt' }
+      ], {
+        'agents/helper.agent.md': '---\ntitle: Helper\n---\n# Helper\n',
+        'prompts/rule.prompt.md': '---\ntitle: Rule\n---\n# Rule\n'
+      });
+      await addRepositoryTarget('repo', type);
+
+      const result = await installRepository('repo');
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const written = parseJson<{ written: string[] }>(result.stdout).data.written;
+      const onDisk = new Set(await Promise.all(written.map(async (file) => sha256(await readFile(file)))));
+      const files = (await readLock(commitLock())).bundles.transformed.files;
+      const transformed = files.filter((file) => file.installedChecksum !== undefined);
+      expect(transformed.length).toBeGreaterThan(0);
+      for (const file of transformed) {
+        expect(file.installedChecksum).not.toBe(file.checksum);
+        expect(onDisk).toContain(file.installedChecksum);
+      }
+    });
+
+    it('local-only in a linked git worktree writes the main repository exclude file', async () => {
+      const main = path.join(workspace, 'main');
+      const worktree = path.join(workspace, 'wt');
+      await mkdir(main);
+      runGit(main, ['init', '-q']);
+      runGit(main, ['commit', '-q', '--allow-empty', '-m', 'init']);
+      runGit(main, ['worktree', 'add', '-q', worktree]);
+      const runIn = (argv: string[]): ReturnType<typeof run> => runCommand(argv, {
+        commandClasses: COMMAND_CLASSES,
+        context: {
+          cwd: worktree,
+          fs: new NodeFileSystem(),
+          env: { HOME: workspace, USERPROFILE: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'), XDG_CACHE_HOME: path.join(workspace, 'xdg-cache') }
+        }
+      });
+      expect((await runIn(['target', 'add', 'repo', '--type', 'vscode', '--scope', 'repository', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runIn(['install', '--from', bundleDir, '--target', 'repo', '--commit-mode', 'local-only', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson(result.stdout).status).toBe('ok');
+      const lines = await excludeLines(main);
+      expect(lines).toContain('.github/prompts/hello.prompt.md');
+      expect(lines).toContain('prompt-registry.local.lock.json');
+      await expect(stat(path.join(worktree, '.git', 'info'))).rejects.toThrow();
+    });
+
+    it('local-only in a folder that is not a git repository warns and creates no .git', async () => {
+      await addRepositoryTarget('repo', 'vscode');
+
+      const result = await installRepository('repo', ['--commit-mode', 'local-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const envelope = JSON.parse(result.stdout) as JsonEnvelope<{ written: string[] }> & { warnings?: string[] };
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toEqual([`${workspace} is not a git repository; local-only files are not excluded from git`]);
+      await expect(stat(path.join(workspace, '.git'))).rejects.toThrow();
+      await expect(readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    });
+
+    it('a reinstall through another target type removes the previous target\'s files and exclude lines', async () => {
+      await makeGitDir(workspace);
+      await addRepositoryTarget('kiro-repo', 'kiro');
+      await addRepositoryTarget('vscode-repo', 'vscode');
+      const first = await installRepository('kiro-repo', ['--commit-mode', 'local-only']);
+      expect(first.exitCode, first.stdout).toBe(0);
+      const kiroFiles = parseJson<{ written: string[] }>(first.stdout).data.written;
+
+      const result = await installRepository('vscode-repo', ['--commit-mode', 'local-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson(result.stdout).status).toBe('ok');
+      const lines = await excludeLines();
+      for (const file of kiroFiles) {
+        await expect(stat(file)).rejects.toThrow();
+        expect(lines).not.toContain(toPosix(path.relative(workspace, file)));
+      }
+      expect(lines).toContain('.github/prompts/hello.prompt.md');
+      expect((await readLock(localLock())).bundles['local-foo'].targetType).toBe('vscode');
+    });
+
+    it('warns about each previous file it keeps because the previous target type cannot be located', async () => {
+      await addRepositoryTarget('kiro-repo', 'kiro');
+      await addRepositoryTarget('vscode-repo', 'vscode');
+      expect((await installRepository('kiro-repo')).exitCode).toBe(0);
+      const lock = await readLock(commitLock());
+      lock.bundles['local-foo'].targetType = 'emacs';
+      await writeFile(commitLock(), JSON.stringify(lock));
+
+      const result = await installRepository('vscode-repo');
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const envelope = JSON.parse(result.stdout) as JsonEnvelope<unknown> & { warnings?: string[] };
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toEqual([
+        'kept superseded file prompts/hello.prompt.md: could not locate the previous install\'s files (unknown target type "emacs")'
+      ]);
+      await expect(readFile(path.join(workspace, '.kiro', 'steering', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    });
+
+    posixNonRoot('an exclude file that cannot be written is a warning, not an install error', async () => {
+      await makeGitDir(workspace);
+      await mkdir(path.join(workspace, '.git', 'info'));
+      await writeFile(path.join(workspace, '.git', 'info', 'exclude'), '# existing\n');
+      await chmod(path.join(workspace, '.git', 'info', 'exclude'), 0o444);
+      await addRepositoryTarget('repo', 'kiro');
+
+      const result = await installRepository('repo', ['--commit-mode', 'local-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const envelope = JSON.parse(result.stdout) as JsonEnvelope<unknown> & { warnings?: string[] };
+      expect(envelope.status).toBe('warning');
+      expect(envelope.warnings).toEqual([expect.stringMatching(/^could not update the git exclude file: /)]);
+      expect(await readFile(path.join(workspace, '.git', 'info', 'exclude'), 'utf8')).toBe('# existing\n');
+      expect(Object.keys((await readLock(localLock())).bundles)).toEqual(['local-foo']);
+    });
   });
 
   describe('executable bits (#577)', () => {

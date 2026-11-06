@@ -43,6 +43,49 @@ export {
   writeBundleForInstall,
 } from './partial-target-write';
 
+export {
+  createTargetWriterFactory,
+} from './target-writer-factory';
+
+export {
+  buildLockfileBundleEntry,
+  computeInstalledChecksums,
+} from './lockfile-entry';
+
+export {
+  locateRecord,
+  removeSupersededRecordFiles,
+} from './recorded-files';
+
+export type {
+  GuardedRemoval,
+  LocatedRecord,
+  SupersededRemoval,
+} from './recorded-files';
+
+export {
+  applyBundleInstall,
+} from './apply-bundle-install';
+
+export type {
+  ApplyBundleInstallInput,
+  ApplyBundleInstallResult,
+} from './apply-bundle-install';
+
+export {
+  applyBundleUninstall,
+  unexcludePaths,
+} from './apply-bundle-uninstall';
+
+export type {
+  ApplyBundleUninstallInput,
+  ApplyBundleUninstallResult,
+} from './apply-bundle-uninstall';
+
+export type {
+  TargetWriterFactoryOptions,
+} from './target-writer-factory';
+
 export type {
   BundleInstallWrite,
   SkippedBundleContent,
@@ -57,6 +100,7 @@ export type {
 
 export {
   UninstallPipeline,
+  uninstallResultOf,
 } from './uninstall-pipeline';
 
 export type {

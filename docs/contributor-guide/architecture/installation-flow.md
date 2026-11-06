@@ -101,7 +101,7 @@ Bundle files are copied to the target byte-for-byte and verified after every wri
 - **Post-write verification** — after each write, the installed file is re-read and compared against the bytes the writer intended to write (`verifyWrittenBytes` in `core`'s `domain/install/integrity`). A mismatch throws `FileIntegrityError` (`BUNDLE.INTEGRITY_MISMATCH`) instead of leaving a silently corrupted artifact.
 - **Executable bits** (issue #577) — extractors tag each file's bytes with the permission bits its source recorded, using `withFileMode` (`ExtractedFile.mode`, `rwxrwxrwx` only): `ZipBundleExtractor` from the zip entry's Unix mode, `readLocalBundle` from `FileSystem.stat`. Map copies keep the mode; a byte copy drops it, which means "default mode". Both writers (`FileTreeTargetWriter`, `RepositoryScopeWriter`) call `applyFileMode` (`core`'s `domain/install/file-mode`) after each verified write; it calls the optional `FileSystem.setExecutable`. `NodeFileSystem.setExecutable` adds execute where read is granted (or clears every execute bit for a non-executable entry), never adds write or special bits, and does nothing on Windows. It is best effort: a `chmod` rejected with `EPERM`, `ENOTSUP`, `EOPNOTSUPP` or `EINVAL` (vfat/exFAT mounts, files owned by another user) leaves the mode unchanged instead of failing the install; other errors still propagate. Archives that resolvers synthesize with `buildZip` (`skills`, `awesome-copilot`) record `0644` for every entry. Filesystems without `setExecutable` (in-memory test doubles, the VS Code extension's writer filesystem) keep today's behaviour. The lockfile records no mode.
 - **Upstream layers already verified** — zip entry CRC-32 is checked during extraction, and governed (`formatVersion: 1`) deployment manifests carry per-file `size` + `sha256` validated against the extracted bytes.
-- **Lockfile checksums** — `checksumFiles` hashes the extracted (archive) bytes, not the optionally transformed on-disk result. For untransformed files those values match; for transformed files a later user-modification check that compares on-disk hashes to the lockfile will currently report a mismatch. Recording a separate `installedChecksum` in `LockfileFileEntry` is a follow-up (issue #357 Stage 2) and is not part of this binary-safety change.
+- **Lockfile checksums** — `checksum` (`checksumFiles`) hashes the extracted (archive) bytes, not the optionally transformed on-disk result. Entries built by `buildLockfileBundleEntry` (CLI `install`, `update` and `profile activate`) also record `installedChecksum`, the hash of the bytes on disk, for each file whose on-disk bytes differ (see [Shared install and uninstall](#shared-install-and-uninstall-in-app)). The extension's `LockfileManager` does not record it yet.
 
 ## Scope Selection
 
@@ -169,7 +169,7 @@ Files are placed in `.github/` subdirectories based on type:
 
 ### Git Exclude Management
 
-For local-only mode, paths are added to `.git/info/exclude`. The repository-scope writer manages this section through the `RepositoryExclusion` port; `GitInfoExclude` in `@ai-primitives-hub/infra` is the Git implementation.
+For local-only mode, paths are added to the git exclude file through the `RepositoryExclusion` port; `GitInfoExclude` in `@ai-primitives-hub/infra` is the Git implementation. The shared install and uninstall use cases in `app` own these updates for every repository target type (see [below](#exclusion-ownership)); `RepositoryScopeWriter` still updates the file itself for the callers that have not moved yet (`install --lockfile` replay, `update`, `profile activate`).
 
 ```
 # Prompt Registry (local)
@@ -178,9 +178,47 @@ For local-only mode, paths are added to `.git/info/exclude`. The repository-scop
 prompt-registry.local.lock.json
 ```
 
-The local lockfile (`prompt-registry.local.lock.json`) is automatically added to `.git/info/exclude` when created and removed when deleted.
+The local lockfile (`prompt-registry.local.lock.json`) is listed in the same exclude file and removed from it when the lockfile is deleted: `.git/info/exclude` in a plain repository, otherwise the exclude file `GitInfoExclude` resolves from the gitdir (the main repository's for a linked worktree, `.git/modules/<name>/info/exclude` for a submodule; see [Exclusion Ownership](#exclusion-ownership)). The CLI adds it on every local-only install, so a local lockfile an earlier version left out of the exclude file is added too.
 
 This file is local to the user's machine and not committed to Git.
+
+## Shared Install and Uninstall in `app`
+
+The CLI installs and uninstalls bundles through one path in `@ai-primitives-hub/app` (`packages/app/src/install/`). The VS Code extension still uses its own services; moving it onto this path is tracked in [#551](https://github.com/AmadeusITGroup/ai-primitives-hub/issues/551).
+
+| Module | Role |
+|--------|------|
+| `target-writer-factory.ts` | `createTargetWriterFactory` picks the writer for a target: `RepositoryScopeWriterAdapter` for `vscode`, `vscode-insiders` and `copilot-cli` at repository scope, `FileTreeTargetWriter` otherwise |
+| `lockfile-entry.ts` | `buildLockfileBundleEntry` and `computeInstalledChecksums`: the one entry shape every write site records |
+| `../stores/install-record-store.ts` | `createLockfileRecordStore`: install records over the two repository lockfiles or the user lockfile |
+| `recorded-files.ts` | `locateRecord`, `removeGuarded`, `pruneEmptyParents`: where a record's files are and their guarded removal |
+| `apply-bundle-install.ts` | `applyBundleInstall`: write, exclude, record, remove superseded files |
+| `apply-bundle-uninstall.ts` | `applyBundleUninstall`: guarded removal, pruning, un-exclusion, record removal |
+
+`install <bundle-id>`, `install --from` and `install --source` call `applyBundleInstall`; `uninstall` calls `applyBundleUninstall` through `UninstallPipeline` at repository scope and directly at user scope. `update` and `profile activate` build their entries with `buildLockfileBundleEntry` and their writers with the same factory.
+
+### Recorded Locations and Containment
+
+A lockfile entry is user-editable, so a recorded path is never joined onto the workspace as-is. Each writer implements `TargetWriter.locate`, which maps recorded files to absolute locations with `resolveRecordedLocation` (`core`'s `domain/install/recorded-location.ts`):
+
+1. a recorded `installedPath` resolves below the writer's root;
+2. otherwise the layout route matching the bundle path places the file;
+3. otherwise, at repository scope, a legacy workspace-relative entry (`.github/prompts/x.prompt.md`) is accepted when it starts with the host's dot directory and lies below the root (`@migration-cleanup(lockfile-workspace-paths)`);
+4. otherwise the file has no location (`null`).
+
+`resolveContained` refuses empty, `.`, absolute, drive, UNC and `..`-escaping paths. A record is located with the writer of its `targetType` (the caller's type when absent); an unknown type, or a writer that throws, makes the record unresolvable and nothing is removed. For a record of another type, the writer gets the caller's name, scope and root, but not its `path` or `allowedKinds`: those belong to the caller's type. The entry records no target `path`, so a record placed through a target with a custom `path` is located, through a target of another type, at its type's default base directory.
+
+`removeGuarded` then checks each location by real path through the optional `FileSystem.realpath` (`NodeFileSystem` uses `fs.realpath.native`): the file's parent directory must resolve to the root's real path or below it, so a symlinked directory below the root that points outside is refused. Without `realpath` (in-memory test doubles) the check is lexical only. A location another record holds is kept (`shared`); a missing file is reported as `missing`; with `preserveModified`, a file whose bytes no longer match `installedChecksum ?? checksum` is kept (`modified`; the CLI passes `false`). `pruneEmptyParents` then removes the ancestors of removed files that are left empty, deepest first, strictly below the root's real path. Superseded files on reinstall and on `update` go through the same guard (`removeSupersededRecordFiles`).
+
+### Exclusion Ownership
+
+The use cases, not the writers, update the exclusion list for `local-only` installs at repository scope, on every target type. The CLI builds its repository writers with `writerOwnsExclusion: false` (`NO_EXCLUSION` in `RepositoryScopeWriter`) and passes a `GitInfoExclude` to the use cases; the record store adds and removes the local lockfile line.
+
+`GitInfoExclude` resolves the exclude file from `<workspace>/.git` on each call: a directory with `HEAD`, `objects` and `refs` (the entries Git requires of a repository directory) means `.git/info/exclude`; a file with a `gitdir:` line (linked worktree, submodule) means `<commondir or gitdir>/info/exclude`, so a worktree writes the main repository's file and a submodule `.git/modules/<name>/info/exclude`. Lines stay relative to the work tree, escaped so that each matches only its own path: `*`, `?`, `[`, `]` and `\`, a leading `!` or `#`, and trailing spaces get a `\` (`.kiro/steering/\[draft\].md`). `remove` also drops the unescaped line earlier versions wrote for the same path. Without a usable `.git` (none, a directory missing one of those entries, or a `gitdir:` link to a directory that no longer exists, as after a pruned worktree), `isAvailable()` is `false`: the use cases report `exclusionSkipped` and no `.git` is created. Exclusion failures are reported in `exclusionErrors` and never fail the install or uninstall.
+
+### Install Steps
+
+`applyBundleInstall` reads the previous record, writes the bundle (`writeBundleForInstall`, all-or-nothing unless `skipUnsupported`), excludes the written files when `local-only`, computes `installedChecksum`s and stores the entry. A failure while recording rolls the write back and removes the exclusion lines it added, then rethrows: the built-in writers report the bytes each destination held before the write (`TargetWriteResult.replaced`, taken with core's `snapshotBeforeWrite`), so a file the write overwrote gets those bytes back and a file it created is removed; with a writer that reports nothing replaced, files the previous record owns are kept. Afterwards it locates the previous record with the writer of its own `targetType`, removes that record's files the new entry does not produce (guarded as above), prunes, and un-excludes them; switching from `local-only` to `commit` un-excludes the new locations. A store keeps one record per bundle id, so a reinstall through another target type replaces the record and removes the previous type's files the same way. When a previous record of another type can't be located, its files stay and are reported in `supersededKept` as `unresolvable`, with the reason in `supersededUnresolvable`.
 
 ## Lockfile Management
 
@@ -254,7 +292,17 @@ Lockfile writes use a temp file + rename pattern to prevent corruption:
 
 ### Lockfile Schema
 
-Both lockfiles use the same schema structure. The `commitMode` field is deprecated—commit mode is now implicit based on file location:
+Both lockfiles, and the CLI's user lockfile, use the same schema (`packages/core/src/public/schemas/lockfile.schema.json`). The `commitMode` field is deprecated and read-only: commit mode is implicit based on file location, and no writer includes it in new entries.
+
+Bundle entry fields beyond the example below, written by `buildLockfileBundleEntry`:
+
+| Field | Where | Meaning |
+|-------|-------|---------|
+| `targetType` | bundle entry | Target type that placed the files; used to locate them on uninstall and reinstall |
+| `installedPath` | file entry | Location relative to the target's base directory, only when it differs from the route |
+| `installedChecksum` | file entry | SHA-256 of the bytes on disk, only when they differ from `checksum` (the target transformed the file) |
+
+A file entry's `path` is bundle-relative; entries written by earlier extension versions may be workspace-relative (`.github/prompts/…`) and are still read.
 
 ```json
 {
@@ -268,8 +316,9 @@ Both lockfiles use the same schema structure. The `commitMode` field is deprecat
       "sourceId": "github-a1b2c3d4e5f6",
       "sourceType": "github",
       "installedAt": "...",
+      "targetType": "vscode",
       "files": [
-        { "path": ".github/prompts/...", "checksum": "sha256..." }
+        { "path": "prompts/...", "checksum": "sha256..." }
       ]
     }
   },

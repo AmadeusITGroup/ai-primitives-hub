@@ -6,9 +6,14 @@
  * @module ports/target-writer
  */
 import type {
+  RecordedFile,
+  RecordedLocations,
+} from '../domain/install/recorded-location';
+import type {
   Target,
 } from '../domain/install/target';
 import type {
+  ExtractedFile,
   ExtractedFiles,
 } from './bundle-extractor';
 
@@ -37,6 +42,14 @@ export interface TargetWriteResult {
    * record it in the lockfile so uninstall can find the file again.
    */
   installedPaths?: Record<string, string>;
+  /**
+   * What each written path held before this write, keyed by the absolute
+   * path as listed in `written`; only paths that already existed appear.
+   *
+   * Optional: set by writers that keep it (see `snapshotBeforeWrite`), so
+   * a rollback can restore what the write replaced instead of deleting it.
+   */
+  replaced?: Record<string, ExtractedFile>;
 }
 
 /**
@@ -77,18 +90,42 @@ export interface TargetWriter {
   write(target: Target, files: ExtractedFiles): Promise<TargetWriteResult>;
 
   /**
-   * Best-effort rollback for paths returned in `TargetWriteResult.written`.
+   * Best-effort rollback for paths returned in `TargetWriteResult.written`:
+   * a path listed in `replaced` gets its earlier bytes back, any other path
+   * is removed.
    *
    * This is optional for compatibility with existing custom writers. Built-in
    * writers implement it so a late skipped result or write-policy failure does
    * not leave files behind without a lockfile entry.
    * @param target Target chosen via `--target <name>`.
    * @param written Absolute paths returned by a prior write.
+   * @param replaced `TargetWriteResult.replaced` of that write.
    */
-  rollback?(target: Target, written: readonly string[]): Promise<void>;
+  rollback?(target: Target, written: readonly string[], replaced?: Readonly<Record<string, ExtractedFile>>): Promise<void>;
+
+  /**
+   * Locate recorded files without touching the filesystem.
+   *
+   * Invariant shared by `locate`, `write` and `remove`: for a file recorded
+   * from a `write` (bundle path plus its `installedPaths` entry), `locate`
+   * returns the path `write` wrote, and `remove` deletes exactly that path.
+   * Locations follow `resolveRecordedLocation`, so a recorded path that
+   * would leave the target root has no location (`null`).
+   *
+   * Optional for compatibility with custom writers; callers that need
+   * locations (shared-file guards, superseded removal) treat a writer
+   * without it as unable to locate.
+   * @param target Target chosen via `--target <name>`.
+   * @param files Recorded files, as stored in a lockfile entry.
+   * @returns The target root and one location per file, in input order.
+   */
+  locate?(target: Target, files: readonly RecordedFile[]): Promise<RecordedLocations>;
 
   /**
    * Remove a single file from the target.
+   *
+   * A file with no location inside the target root (see `locate`) is a
+   * no-op: nothing is deleted.
    * @param target Target chosen via `--target <name>`.
    * @param filePath Relative file path to remove.
    * @param installedPath Optional output path relative to the target's

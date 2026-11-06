@@ -131,6 +131,11 @@
           "type": "string",
           "description": "Optional checksum of the bundle archive"
         },
+        "targetType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Target type that placed the files"
+        },
         "files": {
           "type": "array",
           "description": "List of installed files with their checksums",
@@ -151,17 +156,22 @@
       "properties": {
         "path": {
           "type": "string",
-          "description": "Relative path from repository root",
+          "description": "Bundle-relative path; entries written by earlier extension versions may be workspace-relative",
           "minLength": 1,
           "examples": [
-            ".github/prompts/my-prompt.prompt.md",
-            ".github/agents/my-agent.agent.md"
+            "prompts/my-prompt.prompt.md",
+            "agents/my-agent.agent.md"
           ]
         },
         "checksum": {
           "type": "string",
           "description": "SHA256 checksum of the file contents",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "installedChecksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA256 of the bytes written to disk, when they differ from checksum"
         },
         "installedPath": {
           "type": "string",

@@ -121,6 +121,16 @@ export type Target =
   | DevinTarget
   | DevinCliTarget;
 
+/**
+ * Whether a value names a known target type, e.g. a `targetType` read
+ * from a user-editable lockfile.
+ * @param value - Candidate value.
+ * @returns true iff `value` is one of {@link TARGET_TYPES}.
+ */
+export function isTargetType(value: unknown): value is TargetType {
+  return typeof value === 'string' && (TARGET_TYPES as readonly string[]).includes(value);
+}
+
 const INSTALLATION_SCOPES: readonly string[] = ['user', 'workspace', 'repository'];
 const COMMIT_MODES: readonly string[] = ['commit', 'local-only'];
 

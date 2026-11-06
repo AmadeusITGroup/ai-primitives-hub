@@ -35,6 +35,9 @@ import {
   RepositoryScopeWriterAdapter,
 } from '../../src/writers/repo-scope-writer';
 import {
+  seedGitDir,
+} from '../helpers/git-dir';
+import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
 import {
@@ -63,6 +66,13 @@ skills:
   - id: test-skill
     file: skills/test-skill/skill.json
     type: skill`;
+
+/** In-memory filesystem whose workspace is a git repository. */
+const gitWorkspaceFs = (): InMemoryFileSystem => {
+  const fs = new InMemoryFileSystem();
+  seedGitDir(fs, path.join(WORKSPACE_ROOT, '.git'));
+  return fs;
+};
 
 describe('RepositoryScopeWriter', () => {
   it('writes prompts to .github/prompts/', async () => {
@@ -264,7 +274,7 @@ prompts:
   });
 
   it('adds files to .git/info/exclude in local-only mode', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const files = new Map<string, Uint8Array>([
@@ -294,16 +304,20 @@ prompts:
     expect(await fs.exists(excludePath)).toBe(false);
   });
 
-  it('removes a single file', async () => {
+  it('removes a single file through its repository route', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
-    const testFile = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md');
-    fs.seed(testFile, '# Test');
+    const routed = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
+    const unrouted = path.join(WORKSPACE_ROOT, '.github', 'copilot', 'prompts', 'test.md');
+    fs.seed(routed, '# Test');
+    fs.seed(unrouted, '# Test');
 
+    await writer.removeFile('prompts/test.md');
     await writer.removeFile('copilot/prompts/test.md');
 
-    expect(await fs.exists(testFile)).toBe(false);
+    expect(await fs.exists(routed)).toBe(false);
+    expect(await fs.exists(unrouted)).toBe(true);
   });
 
   it('removes a bundle-relative prompt path from the repository output route', async () => {
@@ -386,7 +400,7 @@ prompts:
   });
 
   it('removes from .git/info/exclude in local-only mode', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');
@@ -404,7 +418,7 @@ prompts:
   });
 
   it('switches commit mode from commit to local-only', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
 
     const paths = [path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md')];
@@ -416,7 +430,7 @@ prompts:
   });
 
   it('switches commit mode from local-only to commit', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const paths = [path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md')];
@@ -473,7 +487,7 @@ skills:
   });
 
   it('handles removal when git/info/exclude does not exist', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const manifest = {
@@ -486,7 +500,7 @@ skills:
   });
 
   it('handles removal when git/info/exclude has no Prompt Registry section', async () => {
-    const fs = new InMemoryFileSystem();
+    const fs = gitWorkspaceFs();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
 
     const excludePath = path.join(WORKSPACE_ROOT, '.git', 'info', 'exclude');
@@ -608,7 +622,26 @@ describe('RepositoryScopeWriterAdapter', () => {
     expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md'))).toBe(true);
   });
 
-  it('delegates remove to RepositoryScopeWriter.removeFile', async () => {
+  it('reports a file it replaced and restores it on rollback, removing the files it created', async () => {
+    const fs = new InMemoryFileSystem();
+    const adapter = new RepositoryScopeWriterAdapter(new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' }));
+    const prompt = path.join(WORKSPACE_ROOT, '.github', 'prompts', 'test.md');
+    fs.seed(prompt, 'user work\n');
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(SAMPLE_MANIFEST)],
+      ['prompts/test.md', new TextEncoder().encode('# Test Prompt')],
+      ['agents/test.md', new TextEncoder().encode('# Test Agent')]
+    ]);
+
+    const result = await adapter.write(dummyTarget, files);
+    expect(Object.keys(result.replaced ?? {})).toEqual([prompt]);
+
+    await adapter.rollback(dummyTarget, result.written, result.replaced);
+    expect(await fs.readFile(prompt)).toBe('user work\n');
+    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'agents', 'test.md'))).toBe(false);
+  });
+
+  it('removes nothing for a path with no repository route', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
     const adapter = new RepositoryScopeWriterAdapter(writer);
@@ -618,7 +651,7 @@ describe('RepositoryScopeWriterAdapter', () => {
 
     await adapter.remove(dummyTarget, 'copilot/prompts/test.md');
 
-    expect(await fs.exists(testFile)).toBe(false);
+    expect(await fs.exists(testFile)).toBe(true);
   });
 
   it('translates bundle-relative paths during pipeline removal', async () => {
@@ -640,6 +673,145 @@ describe('RepositoryScopeWriterAdapter', () => {
     const adapter = new RepositoryScopeWriterAdapter(writer);
 
     await expect(adapter.remove(dummyTarget, 'copilot/prompts/nonexistent.md')).resolves.not.toThrow();
+  });
+});
+
+describe('RepositoryScopeWriter recorded placements', () => {
+  const target = { name: 't', type: 'vscode', scope: 'repository', rootPath: WORKSPACE_ROOT } as unknown as Target;
+  const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+  const github = (...segments: string[]): string => path.join(WORKSPACE_ROOT, '.github', ...segments);
+
+  const governed = (items: string): Map<string, Uint8Array> => new Map([
+    ['deployment-manifest.yml', encode(`formatVersion: 1\nid: placements\nversion: 1.0.0\nname: Placements\nitems:\n${items}`)]
+  ]);
+
+  const CASES: {
+    name: string;
+    files: Map<string, Uint8Array>;
+    expected: Record<string, { written: string; installedPath?: string }>;
+  }[] = [
+    {
+      name: 'a nested prompt is flattened',
+      files: new Map([...governed('  - { path: prompts/sub/a.prompt.md, kind: prompt }\n'),
+        ['prompts/sub/a.prompt.md', encode('# A\n')]]),
+      expected: { 'prompts/sub/a.prompt.md': { written: github('prompts', 'a.prompt.md'), installedPath: 'prompts/a.prompt.md' } }
+    },
+    {
+      name: 'an agent below prompts/ goes to agents/',
+      files: new Map([...governed('  - { path: prompts/x.agent.md, kind: agent }\n'),
+        ['prompts/x.agent.md', encode('# X\n')]]),
+      expected: { 'prompts/x.agent.md': { written: github('agents', 'x.agent.md'), installedPath: 'agents/x.agent.md' } }
+    },
+    {
+      name: 'a plugin whose id differs from its directory',
+      files: new Map([...governed('  - { path: plugins/src-dir/plugin.json, kind: plugin, id: demo }\n'),
+        ['plugins/src-dir/plugin.json', encode('{}\n')],
+        ['plugins/src-dir/scripts/run.sh', encode('echo\n')]]),
+      expected: {
+        'plugins/src-dir/plugin.json': { written: github('plugins', 'demo', 'plugin.json'), installedPath: 'plugins/demo/plugin.json' },
+        'plugins/src-dir/scripts/run.sh': {
+          written: github('plugins', 'demo', 'scripts', 'run.sh'),
+          installedPath: 'plugins/demo/scripts/run.sh'
+        }
+      }
+    },
+    {
+      name: 'a plugin directory with a sanitised id',
+      files: new Map([...governed('  - { path: plugins/My_Plugin/plugin.json, kind: plugin }\n'),
+        ['plugins/My_Plugin/plugin.json', encode('{}\n')]]),
+      expected: {
+        'plugins/My_Plugin/plugin.json': { written: github('plugins', 'my-plugin', 'plugin.json'), installedPath: 'plugins/my-plugin/plugin.json' }
+      }
+    },
+    {
+      name: 'a top-level prompt',
+      files: new Map([...governed('  - { path: prompts/a.prompt.md, kind: prompt }\n'),
+        ['prompts/a.prompt.md', encode('# A\n')]]),
+      expected: { 'prompts/a.prompt.md': { written: github('prompts', 'a.prompt.md') } }
+    },
+    {
+      name: 'a skill whose id equals its directory',
+      files: new Map([...governed('  - { path: skills/demo/SKILL.md, kind: skill, id: demo }\n'),
+        ['skills/demo/SKILL.md', encode('# Demo\n')]]),
+      expected: { 'skills/demo/SKILL.md': { written: github('skills', 'demo', 'SKILL.md') } }
+    }
+  ];
+
+  it.each(CASES)('records, locates and removes $name', async ({ files, expected }) => {
+    const fs = new InMemoryFileSystem();
+    const adapter = new RepositoryScopeWriterAdapter(
+      new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' })
+    );
+
+    const result = await adapter.write(target, files);
+
+    const bundlePaths = result.writtenBundlePaths ?? [];
+    expect(bundlePaths.toSorted()).toEqual(Object.keys(expected).toSorted());
+    const expectedInstalledPaths = Object.fromEntries(Object.entries(expected)
+      .filter(([, value]) => value.installedPath !== undefined)
+      .map(([bundlePath, value]) => [bundlePath, value.installedPath]));
+    expect(result.installedPaths ?? {}).toEqual(expectedInstalledPaths);
+
+    const recorded = bundlePaths.map((bundlePath) => ({
+      path: bundlePath,
+      ...(result.installedPaths?.[bundlePath] === undefined ? {} : { installedPath: result.installedPaths[bundlePath] })
+    }));
+    const located = await adapter.locate(target, recorded);
+    expect(located.root).toBe(github());
+    expect(located.paths).toEqual(bundlePaths.map((bundlePath) => expected[bundlePath].written));
+    expect(located.paths).toEqual(result.written);
+
+    for (const file of recorded) {
+      await adapter.remove(target, file.path, file.installedPath);
+    }
+    for (const written of result.written) {
+      expect(await fs.exists(written)).toBe(false);
+    }
+  });
+
+  it('never removes a recorded path outside .github or with no route', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const outside = path.resolve(WORKSPACE_ROOT, '..', 'outside');
+    const readme = path.join(WORKSPACE_ROOT, 'README.md');
+    fs.seed(outside, 'sentinel');
+    fs.seed(readme, 'sentinel');
+
+    await writer.removeBundleFile('../../outside');
+    await writer.removeBundleFile('../outside');
+    await writer.removeBundleFile('README.md');
+    await new RepositoryScopeWriterAdapter(writer).remove(target, 'prompts/x.md', '../../outside');
+
+    expect(await fs.exists(outside)).toBe(true);
+    expect(await fs.exists(readme)).toBe(true);
+  });
+
+  it('still removes a legacy workspace-relative .github entry', async () => {
+    const fs = new InMemoryFileSystem();
+    const adapter = new RepositoryScopeWriterAdapter(
+      new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' })
+    );
+    const legacy = github('prompts', 'x.prompt.md');
+    fs.seed(legacy, '# X');
+
+    expect((await adapter.locate(target, [{ path: '.github/prompts/x.prompt.md' }])).paths).toEqual([legacy]);
+    await adapter.remove(target, '.github/prompts/x.prompt.md');
+
+    expect(await fs.exists(legacy)).toBe(false);
+  });
+
+  it('locates an unrouted or escaping record as null', async () => {
+    const adapter = new RepositoryScopeWriterAdapter(
+      new RepositoryScopeWriter({ fs: new InMemoryFileSystem(), workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' })
+    );
+
+    const located = await adapter.locate(target, [
+      { path: 'README.md' },
+      { path: '../outside' },
+      { path: 'prompts/a.md', installedPath: '/abs/a.md' }
+    ]);
+
+    expect(located.paths).toEqual([null, null, null]);
   });
 });
 
