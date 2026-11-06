@@ -32,7 +32,10 @@
 import * as path from 'node:path';
 import {
   activateProfile,
+  batchInstallProfile,
+  type BatchInstallProfileResult,
   checksumFiles,
+  cleanupOrphanedSource,
   deactivateProfile,
   emptyLockfile,
   githubRepoSlugForSource,
@@ -43,6 +46,8 @@ import {
   type LockfileSourceEntry,
   type ProfileLifecycleDeps,
   readLockfile,
+  removeBundleEntry,
+  removeSupersededFiles,
   resolveUserConfigPaths,
   type TargetWriter,
   UninstallPipeline,
@@ -393,7 +398,15 @@ async function activateBundleForTarget(
     type: src.type,
     url: src.url,
     ...(src.config?.branch ? { branch: src.config.branch } : {}),
-    ...(src.config?.collectionsPath ? { collectionsPath: src.config.collectionsPath } : {})
+    ...(src.config?.collectionsPath ? { collectionsPath: src.config.collectionsPath } : {}),
+    // Artifactory sources need their index and credentials to be fetched (as `install` records them).
+    ...(src.type === 'artifactory'
+      ? {
+        ...(typeof src.config?.indexFile === 'string' ? { indexFile: src.config.indexFile } : {}),
+        authMode: src.config?.authMode === 'bearer' ? 'bearer' as const : 'anonymous' as const,
+        ...(typeof src.config?.credentialRef === 'string' ? { credentialRef: src.config.credentialRef } : {})
+      }
+      : {})
   };
   // `fetchFilesForSource` only reads `.version`/`.sourceId` off this
   // parameter — the rest are dummy values to satisfy `LockfileBundleEntry`'s
@@ -456,30 +469,41 @@ async function activateBundleForTarget(
  */
 async function deactivateProfileBundles(ctx: Context, state: ProfileActivationState, targets: Target[]): Promise<void> {
   for (const configuredTarget of targets) {
-    const target = resolveEffectiveTarget(ctx, configuredTarget);
-    if (target.scope === 'repository') {
-      const pipeline = new UninstallPipeline({
-        fs: ctx.fs,
-        target,
-        repositoryPath: target.rootPath ?? ctx.cwd(),
-        writerFactory: createUninstallWriterFactory(ctx, {})
-      });
-      for (const bundleId of state.syncedBundles) {
-        try {
-          await pipeline.run(bundleId);
-        } catch {
-          // Best-effort cleanup.
-        }
+    await removeBundlesFromTarget(ctx, state.syncedBundles, configuredTarget);
+  }
+}
+
+/**
+ * Remove bundles (files and lockfile entries) from one target. Best
+ * effort: a bundle missing from the target's lockfile is skipped.
+ * @param ctx CLI context.
+ * @param bundleIds Bundles to remove.
+ * @param configuredTarget Target to remove them from.
+ */
+async function removeBundlesFromTarget(ctx: Context, bundleIds: string[], configuredTarget: Target): Promise<void> {
+  const target = resolveEffectiveTarget(ctx, configuredTarget);
+  if (target.scope === 'repository') {
+    const pipeline = new UninstallPipeline({
+      fs: ctx.fs,
+      target,
+      repositoryPath: target.rootPath ?? ctx.cwd(),
+      writerFactory: createUninstallWriterFactory(ctx, {})
+    });
+    for (const bundleId of bundleIds) {
+      try {
+        await pipeline.run(bundleId);
+      } catch {
+        // Best-effort cleanup.
       }
-    } else {
-      const lockPath = lockfilePathForTarget(ctx, target);
-      const writer = createUninstallWriterFactory(ctx, {})(target);
-      for (const bundleId of state.syncedBundles) {
-        try {
-          await runUserScopeUninstall(bundleId, lockPath, target, ctx, writer);
-        } catch {
-          // Best-effort cleanup.
-        }
+    }
+  } else {
+    const lockPath = lockfilePathForTarget(ctx, target);
+    const writer = createUninstallWriterFactory(ctx, {})(target);
+    for (const bundleId of bundleIds) {
+      try {
+        await runUserScopeUninstall(bundleId, lockPath, target, ctx, writer);
+      } catch {
+        // Best-effort cleanup.
       }
     }
   }
@@ -548,17 +572,7 @@ export async function runProfileActivation(
     await rollbackProfileActivation(ctx, lifecycle, hubId, profile.id, effectiveTargets, sync.report);
     const missing = result.missingRequiredBundles ?? [];
     if (missing.length > 0) {
-      const reasons = sync.report.failures
-        .filter((f) => missing.includes(f.bundleId))
-        .map((f) => `${f.bundleId} (${f.target}): ${f.reason}`);
-      throw new RegistryError({
-        code: 'HUB.REQUIRED_BUNDLE_MISSING',
-        message: `profile activate: required bundles were not installed: ${missing.join(', ')}`
-          + (reasons.length > 0 ? ` (${reasons.join('; ')})` : ''),
-        hint: 'Fix the install error of each required bundle (source configured, reachable, and authenticated), '
-          + 'then re-run the command. Bundles a profile can do without should be marked `required: false` in the hub.',
-        context: { hubId, profileId: profile.id, missingRequiredBundles: missing }
-      });
+      throw requiredBundleMissingError('activate', hubId, profile.id, missing, sync.report.failures);
     }
     // e.g. the activation state could not be saved after the install.
     throw new RegistryError({
@@ -573,6 +587,39 @@ export async function runProfileActivation(
     throw new Error(`profile activate: no activation state recorded for "${profile.id}"`);
   }
   return { state, written: sync.report.written, failures: sync.report.failures };
+}
+
+/**
+ * The error `profile activate` and `profile install` report when a
+ * `required: true` bundle was not installed.
+ * @param verb Subcommand name, used in the message.
+ * @param hubId Hub of the profile.
+ * @param profileId Profile id.
+ * @param missing Ids of the required bundles that were not installed.
+ * @param failures Per-bundle/per-target install failures, for the reasons.
+ * @param detail Optional sentence appended to the message.
+ * @returns The error.
+ */
+function requiredBundleMissingError(
+  verb: 'activate' | 'install',
+  hubId: string,
+  profileId: string,
+  missing: string[],
+  failures: TargetProfileSyncReport['failures'],
+  detail?: string
+): RegistryError {
+  const reasons = failures
+    .filter((f) => missing.includes(f.bundleId))
+    .map((f) => `${f.bundleId} (${f.target}): ${f.reason}`);
+  return new RegistryError({
+    code: 'HUB.REQUIRED_BUNDLE_MISSING',
+    message: `profile ${verb}: required bundles were not installed: ${missing.join(', ')}`
+      + (reasons.length > 0 ? ` (${reasons.join('; ')})` : '')
+      + (detail === undefined ? '' : `. ${detail}`),
+    hint: 'Fix the install error of each required bundle (source configured, reachable, and authenticated), '
+      + 'then re-run the command. Bundles a profile can do without should be marked `required: false` in the hub.',
+    context: { hubId, profileId, missingRequiredBundles: missing }
+  });
 }
 
 /** The stores app's profile lifecycle needs, without a registry sync. */
@@ -750,6 +797,73 @@ async function installProfileBundles(
 }
 
 /**
+ * Resolve the hub, the profile, and the targets a `profile activate` or
+ * `profile install` acts on, reporting a usage error when one is missing.
+ * @param ctx CLI context.
+ * @param fmt Output format.
+ * @param built HubManager + stores (from `buildHubMgr`).
+ * @param verb Subcommand name, used in messages.
+ * @param profileId `<profile-id>` argument.
+ * @param hubIdOption `--hub` value.
+ * @param targetsOption `--target` value (comma-separated names).
+ * @returns The hub id, profile, and targets, or the exit code of the reported error.
+ */
+async function resolveProfileAndTargets(
+  ctx: Context,
+  fmt: OutputFormat,
+  built: BuiltHubMgr,
+  verb: 'activate' | 'install',
+  profileId: string | undefined,
+  hubIdOption: string | undefined,
+  targetsOption: string | undefined
+): Promise<number | { hubId: string; profile: HubProfile; targets: Target[] }> {
+  if (!profileId) {
+    return failWith(ctx, fmt, 'profile', new RegistryError({
+      code: 'USAGE.MISSING_FLAG',
+      message: `profile ${verb}: <profileId> required`,
+      hint: 'Run `ai-primitives-hub profile list` to see available profile IDs.'
+    }));
+  }
+
+  let hubId: string;
+  try {
+    hubId = await resolveHubId(built.mgr, hubIdOption);
+  } catch (err) {
+    if (err instanceof RegistryError) {
+      return failWith(ctx, fmt, 'profile', err);
+    }
+    throw err;
+  }
+
+  const active = await requireActiveHubOrFail(built.mgr, hubId, `profile.${verb}`, ctx, fmt);
+  if (typeof active === 'number') {
+    return active;
+  }
+  const profile = active.config.profiles.find((p) => p.id === profileId);
+  if (profile === undefined) {
+    return failWith(ctx, fmt, 'profile', new RegistryError({
+      code: 'BUNDLE.NOT_FOUND',
+      message: `profile ${verb}: "${profileId}" not in hub "${hubId}"`,
+      hint: 'Run `ai-primitives-hub profile list` to see available profiles.'
+    }));
+  }
+
+  let targets = await loadTargets(ctx);
+  if (targetsOption) {
+    const wanted = new Set(targetsOption.split(',').map((s) => s.trim()).filter((s) => s.length > 0));
+    targets = targets.filter((t) => wanted.has(t.name));
+  }
+  if (targets.length === 0) {
+    return failWith(ctx, fmt, 'profile', new RegistryError({
+      code: 'USAGE.MISSING_FLAG',
+      message: `profile ${verb}: no targets configured`,
+      hint: 'Run `ai-primitives-hub target add <name> --type <type>` to configure a target.'
+    }));
+  }
+  return { hubId, profile, targets };
+}
+
+/**
  * profile activate - activate a profile
  */
 export class ProfileActivateCommand extends BaseProfileCommand {
@@ -782,49 +896,11 @@ export class ProfileActivateCommand extends BaseProfileCommand {
     const fmt = (this.output ?? 'text') as OutputFormat;
     const built = buildHubMgr(ctx, http, tokens);
 
-    if (!this.profileId) {
-      return failWith(ctx, fmt, 'profile', new RegistryError({
-        code: 'USAGE.MISSING_FLAG',
-        message: 'profile activate: <profileId> required',
-        hint: 'Run `ai-primitives-hub profile list` to see available profile IDs.'
-      }));
+    const resolved = await resolveProfileAndTargets(ctx, fmt, built, 'activate', this.profileId, this.hubId, this.targets);
+    if (typeof resolved === 'number') {
+      return resolved;
     }
-
-    let hubId: string;
-    try {
-      hubId = await resolveHubId(built.mgr, this.hubId);
-    } catch (err) {
-      if (err instanceof RegistryError) {
-        return failWith(ctx, fmt, 'profile', err);
-      }
-      throw err;
-    }
-
-    const active = await requireActiveHubOrFail(built.mgr, hubId, 'profile.activate', ctx, fmt);
-    if (typeof active === 'number') {
-      return active;
-    }
-    const profile = active.config.profiles.find((p) => p.id === this.profileId);
-    if (profile === undefined) {
-      return failWith(ctx, fmt, 'profile', new RegistryError({
-        code: 'BUNDLE.NOT_FOUND',
-        message: `profile activate: "${this.profileId}" not in hub "${hubId}"`,
-        hint: 'Run `ai-primitives-hub profile list` to see available profiles.'
-      }));
-    }
-
-    let targets = await loadTargets(ctx);
-    if (this.targets) {
-      const wanted = new Set(this.targets.split(',').map((s) => s.trim()).filter((s) => s.length > 0));
-      targets = targets.filter((t) => wanted.has(t.name));
-    }
-    if (targets.length === 0) {
-      return failWith(ctx, fmt, 'profile', new RegistryError({
-        code: 'USAGE.MISSING_FLAG',
-        message: 'profile activate: no targets configured',
-        hint: 'Run `ai-primitives-hub target add <name> --type <type>` to configure a target.'
-      }));
-    }
+    const { hubId, profile, targets } = resolved;
 
     if (this.dryRun) {
       formatOutput({
@@ -864,6 +940,300 @@ export class ProfileActivateCommand extends BaseProfileCommand {
       textRenderer: (d) => `Activated profile "${d.profileId}" from hub "${d.hubId}":\n`
         + `  Bundles: ${[...new Set(d.state.syncedBundles)].join(', ')}\n`
         + `  Targets: ${Object.keys(d.written).join(', ')}\n`
+        + (d.failures.length > 0
+          ? `  Failures:\n${d.failures.map((f) => `    - ${f.bundleId} (${f.target}): ${f.reason}\n`).join('')}`
+          : '')
+    });
+    return failures.length === 0 ? 0 : 1;
+  }
+}
+
+/** Outcome of {@link runProfileInstall}. */
+interface ProfileInstallRunResult {
+  result: BatchInstallProfileResult;
+  /** Per-bundle/per-target install failures. */
+  failures: TargetProfileSyncReport['failures'];
+}
+
+/**
+ * Install `profile`'s bundles onto every target as ordinary installs,
+ * through app's shared `batchInstallProfile`, without activating the
+ * profile: each target's lockfile records the bundles, no activation
+ * state is saved, and active profiles stay active.
+ *
+ * Whether a bundle was installed before is read once, before anything is
+ * written, from every lockfile the target uses (user targets share one;
+ * a repository has a `commit` and a `local-only` one). Only bundles new
+ * to a target count as added: undoing the batch removes the files this
+ * command wrote for them and, once those are gone, their lockfile
+ * entries. Files that cannot be removed stay tracked and are reported.
+ * @param ctx CLI context.
+ * @param built HubManager + HTTP/token deps (from `buildHubMgr`).
+ * @param hubId Hub the profile belongs to.
+ * @param profile Profile whose bundles to install.
+ * @param targets Targets to install onto.
+ * @returns The batch outcome plus per-target failures.
+ */
+async function runProfileInstall(
+  ctx: Context,
+  built: BuiltHubMgr,
+  hubId: string,
+  profile: HubProfile,
+  targets: Target[]
+): Promise<ProfileInstallRunResult> {
+  const effectiveTargets = targets.map((target) => resolveEffectiveTarget(ctx, target));
+  const sources: Record<string, RegistrySource> = Object.fromEntries((await built.mgr.listSources(hubId)).map((s) => [s.id, s]));
+  const failures: TargetProfileSyncReport['failures'] = [];
+  const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
+    ? createSourceAwareInstallDependencyCache(built.http, ctx)
+    : undefined;
+
+  // Lockfiles as they were before this command, by path.
+  const lockfilesBefore = new Map<string, Lockfile | null>();
+  const lockPathsOf = (target: Target): string[] => (target.scope === 'repository'
+    ? (['commit', 'local-only'] as const).map((mode) => lockfilePathForTarget(ctx, target, mode))
+    : [lockfilePathForTarget(ctx, target)]);
+  for (const lockPath of effectiveTargets.flatMap((target) => lockPathsOf(target))) {
+    if (!lockfilesBefore.has(lockPath)) {
+      lockfilesBefore.set(lockPath, await readLockfile(lockPath, ctx.fs));
+    }
+  }
+  const entryBefore = (target: Target, bundleId: string): LockfileBundleEntry | undefined =>
+    lockPathsOf(target).map((lockPath) => lockfilesBefore.get(lockPath)?.bundles[bundleId]).find((e) => e !== undefined);
+
+  // What this command added: files written for bundles new to a target, per
+  // target and bundle, and the lockfiles each bundle got an entry in that it
+  // did not have before (also for bundles installed before in another lockfile).
+  const addedFiles = new Map<string, Map<string, string[]>>();
+  const createdEntries = new Map<string, Set<string>>();
+
+  const removeAdded = async (bundleIds: string[]): Promise<void> => {
+    const leftovers: string[] = [];
+    const removed = new Set(bundleIds);
+    for (const target of effectiveTargets) {
+      const writer = createWriterFactory(ctx, {})(target);
+      for (const bundleId of bundleIds) {
+        const written = addedFiles.get(target.name)?.get(bundleId) ?? [];
+        try {
+          await (writer.rollback === undefined
+            ? Promise.all(written.map((file) => ctx.fs.remove(file)))
+            : writer.rollback(target, written));
+        } catch {
+          // Checked file by file below.
+        }
+        for (const file of written) {
+          if (await ctx.fs.exists(file)) {
+            leftovers.push(file);
+            removed.delete(bundleId);
+          }
+        }
+      }
+    }
+    // Drop the entries this command created. A new bundle stays tracked while
+    // any of its files remain, so `uninstall` can still find it; a bundle
+    // installed before keeps its files and its earlier entry.
+    const newBundles = new Set(bundleIds);
+    const lockPaths = new Set([...createdEntries.values()].flatMap((paths) => [...paths]));
+    for (const lockPath of lockPaths) {
+      let lock = await readLockfile(lockPath, ctx.fs);
+      if (lock === null) {
+        continue;
+      }
+      for (const [bundleId, paths] of createdEntries) {
+        const entry = lock.bundles[bundleId];
+        if (entry !== undefined && paths.has(lockPath) && (!newBundles.has(bundleId) || removed.has(bundleId))) {
+          lock = cleanupOrphanedSource(removeBundleEntry(lock, bundleId), entry.sourceId);
+        }
+      }
+      await writeLockfile(lockPath, lock, ctx.fs);
+    }
+    if (leftovers.length > 0) {
+      throw new Error(`could not remove ${leftovers.join(', ')}`);
+    }
+  };
+
+  const result = await batchInstallProfile({
+    installBundles: async (bundleRefs) => {
+      const statusRank = { unchanged: 0, updated: 1, new: 2 } as const;
+      const installed = new Map<string, { version: string; status: keyof typeof statusRank }>();
+      try {
+        for (const target of effectiveTargets) {
+          const writer = createWriterFactory(ctx, {})(target);
+          const lockPath = lockfilePathForTarget(ctx, target);
+          let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+          const superseded: { previous: LockfileBundleEntry['files']; next: LockfileBundleEntry['files'] }[] = [];
+          for (const bundleRef of bundleRefs) {
+            const outcome = await activateBundleForTarget(
+              bundleRef, sources, target, writer, built.http, built.tokens, ctx, sourceAwareDependencyCache
+            );
+            if (!outcome.ok) {
+              failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
+              continue;
+            }
+            const before = entryBefore(target, bundleRef.id);
+            // Compare with this lockfile as it was before the command: user
+            // targets share it, so an earlier target may already have rewritten the entry.
+            const previousFiles = lockfilesBefore.get(lockPath)?.bundles[bundleRef.id]?.files;
+            if (previousFiles !== undefined) {
+              superseded.push({ previous: previousFiles, next: outcome.entry.files });
+            }
+            if (lockfilesBefore.get(lockPath)?.bundles[bundleRef.id] === undefined) {
+              createdEntries.set(bundleRef.id, (createdEntries.get(bundleRef.id) ?? new Set<string>()).add(lockPath));
+            }
+            lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
+            lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
+            let status: keyof typeof statusRank;
+            if (before === undefined) {
+              status = 'new';
+              const files = addedFiles.get(target.name) ?? new Map<string, string[]>();
+              files.set(bundleRef.id, outcome.written);
+              addedFiles.set(target.name, files);
+            } else {
+              status = before.version === outcome.entry.version && before.sourceId === outcome.entry.sourceId ? 'unchanged' : 'updated';
+            }
+            const previous = installed.get(bundleRef.id);
+            installed.set(bundleRef.id, {
+              version: outcome.entry.version,
+              status: previous !== undefined && statusRank[previous.status] > statusRank[status] ? previous.status : status
+            });
+          }
+          await writeLockfile(lockPath, lock, ctx.fs);
+          // Like `install`, drop files a replaced version no longer ships.
+          for (const { previous, next } of superseded) {
+            await removeSupersededFiles(writer, target, previous, next);
+          }
+        }
+      } catch (err) {
+        // e.g. lockfile I/O: undo what this command added, then report the
+        // error, together with what could not be undone.
+        const newBundles = [...new Set([...addedFiles.values()].flatMap((files) => [...files.keys()]))];
+        const undoError = await removeAdded(newBundles).then(() => undefined, (e: unknown) => e);
+        if (undoError === undefined) {
+          throw err;
+        }
+        const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+        throw new Error(`${message(err)}; undoing this install also failed: ${message(undoError)}`, { cause: err });
+      }
+      return {
+        installed: [...installed].map(([bundleId, v]) => ({ bundleId, ...v })),
+        failed: bundleRefs
+          .filter((b) => !installed.has(b.id))
+          .map((b) => ({
+            bundleId: b.id,
+            reason: failures.filter((f) => f.bundleId === b.id).map((f) => `${f.target}: ${f.reason}`).join('; ')
+          }))
+      };
+    },
+    removeBundles: removeAdded
+  }, profile.bundles);
+  return { result, failures };
+}
+
+/**
+ * profile install - install a profile's bundles without activating it
+ */
+export class ProfileInstallCommand extends BaseProfileCommand {
+  public static readonly paths = [['profile', 'install']];
+  public static readonly usage = Command.Usage({
+    description: 'Install a profile\'s bundles on configured targets without activating the profile.',
+    category: 'Hub & Discovery',
+    details: `
+      Usage: ai-primitives-hub profile install <profile-id> [options]
+
+      Installs every bundle of the profile as an ordinary install, recorded in
+      each target's lockfile. The profile is not activated, active profiles stay
+      active, and \`profile deactivate\` does not remove these bundles; use
+      \`uninstall\` for that. When a required bundle cannot be installed, the
+      bundles this command added are removed again and the command fails.
+
+      Options:
+        --hub <hub-id>           Hub ID containing the profile
+        --target <name>          Comma-separated target names to limit the install
+        --dry-run                Preview changes without applying
+        -o, --output <format>     Output format (text, json, yaml, ndjson)
+
+      Examples:
+        ai-primitives-hub profile install default
+        ai-primitives-hub profile install default --target vscode
+        ai-primitives-hub profile install default --dry-run
+    `
+  });
+
+  public profileId = Option.String({ required: false });
+  public targets = Option.String('--target');
+  public dryRun = Option.Boolean('--dry-run', false);
+
+  public async execute() {
+    const { ctx, http, tokens } = this.commandContext;
+    const fmt = (this.output ?? 'text') as OutputFormat;
+    const built = buildHubMgr(ctx, http, tokens);
+
+    const resolved = await resolveProfileAndTargets(ctx, fmt, built, 'install', this.profileId, this.hubId, this.targets);
+    if (typeof resolved === 'number') {
+      return resolved;
+    }
+    const { hubId, profile, targets } = resolved;
+
+    if (this.dryRun) {
+      formatOutput({
+        ctx, command: 'profile.install', output: fmt, status: 'ok',
+        data: {
+          dryRun: true,
+          hubId,
+          profileId: profile.id,
+          profileName: profile.name,
+          bundles: profile.bundles.map((b) => b.id),
+          targets: targets.map((t) => t.name)
+        },
+        textRenderer: (d) => `[dry-run] Would install the bundles of profile "${d.profileId}" from hub "${d.hubId}":\n`
+          + `  Bundles: ${d.bundles.join(', ')}\n`
+          + `  Targets: ${d.targets.join(', ')}\n`
+          + 'Run without --dry-run to apply.\n'
+      });
+      return 0;
+    }
+
+    let run: ProfileInstallRunResult;
+    try {
+      run = await runProfileInstall(ctx, built, hubId, profile, targets);
+    } catch (err) {
+      return failWith(ctx, fmt, 'profile', err instanceof RegistryError
+        ? err
+        : new RegistryError({
+          code: 'FS.PROFILE_INSTALL_FAILED',
+          message: `profile install: ${err instanceof Error ? err.message : String(err)}`,
+          hint: 'Check that the targets and the lockfile are writable, remove any file named above, then re-run the command.',
+          context: { hubId, profileId: profile.id }
+        }));
+    }
+    const { result, failures } = run;
+    if (!result.success) {
+      return failWith(ctx, fmt, 'profile', requiredBundleMissingError(
+        'install', hubId, profile.id, result.missingRequiredBundles ?? [], failures,
+        result.removalError === undefined
+          ? 'Bundles this command added were removed again'
+          : `Removing the bundles this command added failed (${result.removalError}); remove those files manually`
+      ));
+    }
+
+    const status = failures.length === 0 ? 'ok' : 'warning';
+    formatOutput({
+      ctx, command: 'profile.install', output: fmt, status,
+      data: {
+        hubId,
+        profileId: profile.id,
+        installed: result.installed,
+        alreadyInstalled: result.alreadyInstalled,
+        failures,
+        targets: targets.map((t) => t.name)
+      },
+      warnings: failures.length > 0 ? failures.map((f) => `${f.bundleId} (${f.target}): ${f.reason}`) : undefined,
+      textRenderer: (d) => `Installed the bundles of profile "${d.profileId}" from hub "${d.hubId}" (profile not activated):\n`
+        + `  Installed: ${d.installed.map((b) => `${b.bundleId}@${b.version}`).join(', ') || 'none'}\n`
+        + (d.alreadyInstalled.length > 0
+          ? `  Already installed: ${d.alreadyInstalled.map((b) => `${b.bundleId}@${b.version}`).join(', ')}\n`
+          : '')
+        + `  Targets: ${d.targets.join(', ')}\n`
         + (d.failures.length > 0
           ? `  Failures:\n${d.failures.map((f) => `    - ${f.bundleId} (${f.target}): ${f.reason}\n`).join('')}`
           : '')

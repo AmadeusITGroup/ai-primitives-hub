@@ -10,6 +10,9 @@
  * `doctor diagnostics`' steps 1-9 and 20-21.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   chmod,
   mkdir,
   mkdtemp,
@@ -22,6 +25,7 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  getLockfilePathForMode,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import type {
@@ -34,6 +38,10 @@ import {
   buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
+import {
+  dump,
+  load,
+} from 'js-yaml';
 import {
   afterEach,
   beforeEach,
@@ -53,6 +61,7 @@ import {
   ProfileActivateCommand,
   ProfileCurrentCommand,
   ProfileDeactivateCommand,
+  ProfileInstallCommand,
   ProfileListCommand,
   ProfileShowCommand,
 } from '../../src/commands/profile';
@@ -79,7 +88,8 @@ const COMMAND_CLASSES = [
   ProfileShowCommand,
   ProfileCurrentCommand,
   ProfileActivateCommand,
-  ProfileDeactivateCommand
+  ProfileDeactivateCommand,
+  ProfileInstallCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -356,6 +366,14 @@ profiles:
         version: latest
         source: sample-collections
         required: true
+  - id: install-only
+    name: Install only
+    description: Pinned to the released version
+    bundles:
+      - id: acme-org-sample-skills-sample-skills
+        version: 1.8.1
+        source: sample-collections
+        required: true
   - id: partial-required
     name: Partially installable
     description: One required bundle installs, the other does not
@@ -420,6 +438,188 @@ profiles:
     expect(Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
     const current = await run(['profile', 'current', '-o', 'json']);
     expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+  });
+
+  describe('profile install', () => {
+    const lockedBundleIds = async (): Promise<string[]> => {
+      const lock = await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8').catch(() => '{"bundles":{}}');
+      return Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {});
+    };
+
+    it('installs the profile bundles as ordinary installs without activating the profile', async () => {
+      const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: { bundleId: string; version: string }[] }>).data;
+      expect(data.installed).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+    });
+
+    it('keeps the active profile active and reports bundles already installed at the pinned version', async () => {
+      expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; alreadyInstalled: unknown[] }>).data;
+      expect(data.installed).toEqual([]);
+      expect(data.alreadyInstalled).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active)
+        .toEqual({ hubId: 'sample-hub', profileId: 'organization-sample-developer' });
+    });
+
+    it('removes what it installed when a required bundle is missing', async () => {
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+      expect(await lockedBundleIds()).toEqual([]);
+    });
+
+    it('installs onto every user target even though they share one lockfile, and removes from all on failure', async () => {
+      const secondDir = path.join(workspace, 'second-target');
+      await mkdir(secondDir, { recursive: true });
+      expect((await run(['target', 'add', 'second', '--type', 'copilot-cli', '--path', secondDir, '-o', 'json'])).exitCode).toBe(0);
+
+      const installed = await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json']);
+      expect(installed.exitCode, installed.stdout).toBe(0);
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      }
+
+      await rm(resolveUserConfigPaths(env()).userLockfile);
+      await rm(path.join(targetDir, 'prompts'), { recursive: true });
+      await rm(path.join(secondDir, 'prompts'), { recursive: true });
+      const failed = await run(['profile', 'install', 'partial-required', '--target', 'copilot,second', '-o', 'json']);
+      expect(failed.exitCode).toBe(1);
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+      }
+      expect(await lockedBundleIds()).toEqual([]);
+    });
+
+    it('reports a version change as installed, not as already installed', async () => {
+      expect((await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      const lockPath = resolveUserConfigPaths(env()).userLockfile;
+      const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { bundles: Record<string, { version: string }> };
+      lock.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
+      await writeFile(lockPath, JSON.stringify(lock));
+
+      const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; alreadyInstalled: unknown[] }>).data;
+      expect(data.installed).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      expect(data.alreadyInstalled).toEqual([]);
+    });
+
+    it('keeps a bundle tracked and reports its path when the rollback cannot remove a file', async () => {
+      class FailingRemoveFs extends NodeFileSystem {
+        public override async remove(filePath: string, opts?: { recursive?: boolean }): Promise<void> {
+          if (filePath.endsWith('hello.prompt.md')) {
+            throw new Error('EBUSY: resource busy');
+          }
+          await super.remove(filePath, opts);
+        }
+      }
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json'], new FailingRemoveFs());
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(result.stdout).toContain('hello.prompt.md');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+    });
+
+    it('reports both errors when the install fails and undoing it fails too', async () => {
+      class FailingLockAndRemoveFs extends NodeFileSystem {
+        public override async writeFile(filePath: string, contents: string): Promise<void> {
+          if (filePath === resolveUserConfigPaths(env()).userLockfile) {
+            throw new Error('EACCES: lockfile not writable');
+          }
+          await super.writeFile(filePath, contents);
+        }
+
+        public override async remove(filePath: string, opts?: { recursive?: boolean }): Promise<void> {
+          if (filePath.endsWith('hello.prompt.md')) {
+            throw new Error('EBUSY: resource busy');
+          }
+          await super.remove(filePath, opts);
+        }
+      }
+
+      const result = await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json'], new FailingLockAndRemoveFs());
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(result.stdout).toContain('EACCES: lockfile not writable');
+      expect(result.stdout).toContain('hello.prompt.md');
+    });
+
+    it('removes files a target\'s previous version shipped, on every target sharing the lockfile', async () => {
+      const secondDir = path.join(workspace, 'second-target');
+      await mkdir(secondDir, { recursive: true });
+      expect((await run(['target', 'add', 'second', '--type', 'copilot-cli', '--path', secondDir, '-o', 'json'])).exitCode).toBe(0);
+      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json'])).exitCode).toBe(0);
+      // Pretend the installed version also shipped a prompt the current one no longer has.
+      const lockPath = resolveUserConfigPaths(env()).userLockfile;
+      const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { bundles: Record<string, { files: { path: string; checksum: string }[] }> };
+      lock.bundles['acme-org-sample-skills-sample-skills'].files.push({ path: 'prompts/old.prompt.md', checksum: 'x' });
+      await writeFile(lockPath, JSON.stringify(lock));
+      for (const dir of [targetDir, secondDir]) {
+        await writeFile(path.join(dir, 'prompts', 'old.prompt.md'), 'old');
+      }
+
+      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json'])).exitCode).toBe(0);
+
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'old.prompt.md'), 'utf8')).rejects.toThrow();
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      }
+    });
+
+    it('drops the entry it added to the local-only lockfile, and keeps the commit one, when a required bundle is missing', async () => {
+      const repoDir = path.join(workspace, 'repo');
+      await mkdir(repoDir, { recursive: true });
+      for (const name of ['repo-commit', 'repo-local']) {
+        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', repoDir, '-o', 'json'])).exitCode).toBe(0);
+      }
+      // `target add` has no commit-mode flag: mark the second target local-only in the project config.
+      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
+      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
+      config.targets.find((t) => t.name === 'repo-local')!.commitMode = 'local-only';
+      await writeFile(configFile, dump(config));
+      const bundleIds = async (mode: 'commit' | 'local-only'): Promise<string[]> => {
+        const raw = await readFile(getLockfilePathForMode(repoDir, mode), 'utf8').catch(() => '{"bundles":{}}');
+        return Object.keys((JSON.parse(raw) as { bundles?: object }).bundles ?? {});
+      };
+      const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo-commit', '-o', 'json']);
+      expect(seeded.exitCode, seeded.stdout).toBe(0);
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'repo-local', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(await bundleIds('commit')).toEqual(['acme-org-sample-skills-sample-skills']);
+      expect(await bundleIds('local-only')).toEqual([]);
+      await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    });
+
+    it('leaves bundles installed before the batch in place when a required bundle is missing', async () => {
+      expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+    });
   });
 
   it('replays the activated profile\'s lockfile into a clean target', async () => {
@@ -504,5 +704,109 @@ profiles:
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('manifest id \\"sample-skills\\" does not match expected');
+  });
+});
+
+describe('profile install with an Artifactory hub source', () => {
+  let workspace: string;
+  let targetDir: string;
+  const root = 'https://artifactory.example/repo/source';
+  const env = (): Record<string, string> => ({
+    HOME: workspace,
+    USERPROFILE: workspace,
+    XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+    XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+    ARTIFACTORY_TOKEN: 'reader-token'
+  });
+  const archive = buildZip([...createLegacyReleaseArchive({ id: 'bundle', version: '1.0.0' })]
+    .map(([filePath, bytes]) => ({ path: filePath, bytes })));
+  const requests: HttpRequest[] = [];
+  const http: HttpClient = {
+    fetch: (request: HttpRequest): Promise<HttpResponse> => {
+      requests.push(request);
+      if (request.url === `${root}/custom-index.json`) {
+        const body = JSON.stringify({
+          formatVersion: 1, source: { id: 'artifact-source', name: 'Artifact Source', updatedAt: '2026-01-01T00:00:00Z' },
+          bundles: [{
+            id: 'bundle', version: '1.0.0', name: 'Bundle', description: '', author: 'Test', environments: ['vscode'],
+            tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+            manifest: { path: '1.0.0/bundle/deployment-manifest.yml', size: 1, sha256: 'a'.repeat(64) },
+            archive: { path: '1.0.0/bundle.zip', size: archive.length,
+              sha256: createHash('sha256').update(archive).digest('hex'), mediaType: 'application/zip' }
+          }]
+        });
+        return Promise.resolve({ statusCode: 200, body: new TextEncoder().encode(body), finalUrl: request.url, headers: {} });
+      }
+      if (request.url === `${root}/1.0.0/bundle.zip`) {
+        return Promise.resolve({ statusCode: 200, body: archive, finalUrl: request.url, headers: {} });
+      }
+      return Promise.resolve({ statusCode: 404, body: new Uint8Array(), finalUrl: request.url, headers: {} });
+    }
+  };
+
+  const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env: env() });
+    const exitCode = await runCli(argv, {
+      ctx,
+      http,
+      tokens: { getToken: () => Promise.resolve(undefined) },
+      commandClasses: COMMAND_CLASSES,
+      commands: [],
+      name: 'test',
+      version: 'test'
+    });
+    return { exitCode, stdout: ctx.stdout.captured() };
+  };
+
+  beforeEach(async () => {
+    requests.length = 0;
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-profile-artifactory-test-'));
+    targetDir = path.join(workspace, 'target');
+    await mkdir(targetDir, { recursive: true });
+    const hubConfigFile = path.join(workspace, 'hub-config.yml');
+    await writeFile(hubConfigFile, `version: 1.0.0
+metadata:
+  name: Artifactory Hub
+  description: Hub with an Artifactory source
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: artifact-source
+    name: Artifact Source
+    type: artifactory
+    url: ${root}
+    enabled: true
+    priority: 0
+    config:
+      indexFile: custom-index.json
+      authMode: bearer
+      credentialRef: ARTIFACTORY_TOKEN
+profiles:
+  - id: artifactory-profile
+    name: Artifactory profile
+    description: One Artifactory bundle
+    bundles:
+      - id: bundle
+        version: 1.0.0
+        source: artifact-source
+        required: true
+`);
+    expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'use', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('uses the source\'s index file and bearer credentials', async () => {
+    const result = await run(['profile', 'install', 'artifactory-profile', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    const artifactoryRequests = requests.filter((r) => r.url.startsWith(root));
+    expect(artifactoryRequests.map((r) => r.url)).toContain(`${root}/custom-index.json`);
+    expect(artifactoryRequests.every((r) => r.headers?.Authorization === 'Bearer reader-token')).toBe(true);
   });
 });
