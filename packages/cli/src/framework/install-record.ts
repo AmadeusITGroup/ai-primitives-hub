@@ -11,9 +11,14 @@ import {
   findLockfile,
   type InstallRecordService,
   type InstallRecordServices,
+  type Lockfile,
+  type LockfileSourceEntry,
+  type RecordInstallInput,
+  type RecordInstallResult,
   type RecordSelection,
   type RecordSourceInput,
   type RecordStore,
+  readLockfile,
   resolveExcludeFile,
   resolveUserConfigPaths,
   selectRecord,
@@ -31,10 +36,12 @@ import {
   type RegistrySource,
   type RepositoryExclusion,
   type Target,
+  type TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
   GitInfoExclude,
   NodeRecordFs,
+  StaticTokenProvider,
 } from '@ai-primitives-hub/infra';
 import {
   CLI_VERSION,
@@ -43,8 +50,18 @@ import type {
   Context,
 } from './context';
 import {
+  readTargetsSafely,
+  resolveTarget,
+  resolveTargetName,
+} from './error';
+import {
   createHubManager,
 } from './hub-manager';
+import {
+  loadTargets,
+  resolveEffectiveTarget,
+  type TargetOverrides,
+} from './target';
 
 /** Writer stamp for records written by the CLI. */
 export const CLI_RECORD_GENERATED_BY = `ai-primitives-hub-cli@${CLI_VERSION}`;
@@ -396,6 +413,150 @@ export const configuredSources = async (ctx: Context): Promise<Map<string, Regis
     }
   }
   return sources;
+};
+
+/** Token provider that never returns a token. */
+const NO_TOKENS: TokenProvider = new StaticTokenProvider('');
+
+/**
+ * The token provider for a planned entry's lookup and download: none for a
+ * source the trust gate took from the record, so such a fetch runs without
+ * credentials (NFR4.11).
+ * @param tokens - The command's token provider.
+ * @param fromRecordOnly - `true` when no configured source has the entry's id.
+ * @returns The provider to fetch with.
+ */
+export const tokensForRecordSource = (tokens: TokenProvider, fromRecordOnly: boolean): TokenProvider =>
+  fromRecordOnly ? NO_TOKENS : tokens;
+
+/** A planned (bundle, tool) entry, as {@link recordPlannedInstall} re-records it. */
+export interface PlannedRecordInstall {
+  bundleId: string;
+  tool: string;
+  /** The file that holds the entry (BR6.5). */
+  location: RecordLocation;
+  sourceId: string;
+  /** Source decided by the trust gate, in the legacy lockfile shape. */
+  source: LockfileSourceEntry;
+  /** Source type to record for the entry. */
+  sourceType: string;
+}
+
+/**
+ * Re-record a planned entry after its target's writer wrote it (W5 step 5,
+ * W6 step 3). Superseded files are not deleted here: see {@link finishRecordRun}.
+ * @param service - Record service of the selection.
+ * @param item - The planned entry.
+ * @param target - Effective target that wrote it; its root is the workspace root.
+ * @param ctx - CLI context; `ctx.cwd()` is the fallback workspace root.
+ * @param version - Version written.
+ * @param written - The writer's `written` list, absolute paths.
+ * @param syncSiblings - Which sibling entries sharing the files to sync (BR8.3).
+ * @returns The record change.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+export const recordPlannedInstall = (
+  service: InstallRecordService,
+  item: PlannedRecordInstall,
+  target: Target,
+  ctx: Context,
+  version: string,
+  written: readonly string[],
+  syncSiblings: RecordInstallInput['syncSiblings']
+): Promise<RecordInstallResult> => service.recordInstall({
+  location: item.location,
+  bundleId: item.bundleId,
+  version,
+  tool: item.tool,
+  source: { sourceId: item.sourceId, ...item.source },
+  sourceType: item.sourceType,
+  writtenPaths: written,
+  workspaceRoot: target.rootPath ?? ctx.cwd(),
+  syncSiblings
+});
+
+/**
+ * End a replay or update run: remove the superseded files only after every
+ * save, keeping any file an entry of either file still lists (FR3.2, NFR4.9).
+ * @param service - Record service of the selection.
+ * @param changes - Every record change of the run.
+ * @returns The warnings of the saves and of the removal.
+ */
+export const finishRecordRun = async (service: InstallRecordService, changes: readonly RecordInstallResult[]): Promise<string[]> => {
+  const removal = await service.deleteSupersededAfterAll(changes);
+  return [...changes.flatMap((change) => change.warnings), ...removal.warnings];
+};
+
+/** The selected level's old `prompt-registry.*` file and the bundles only it has (BR10.1). */
+export interface OldFileOnlyBundles {
+  /** Absolute path of the old file. */
+  lockPath: string;
+  /** The old file, read with today's code. */
+  lock: Lockfile;
+  /** Ids of the old file's bundles the new record does not have, in file order; may be empty. */
+  bundleIds: string[];
+}
+
+/**
+ * Read the selected level's old file and find the bundles the new record does
+ * not have: today's code handles those, on that file, and the record wins for
+ * the others (BR10.1; W5 step 6, W6 step 4, W8).
+ * @param ctx - CLI context.
+ * @param prepared - The command's record selection.
+ * @returns The old file and its old-file-only bundles, or `undefined` when there is no readable old file.
+ */
+export const oldFileOnlyBundles = async (ctx: Context, prepared: PreparedRecordSelection): Promise<OldFileOnlyBundles | undefined> => {
+  const lockPath = prepared.selection.oldLockfile;
+  const lock = lockPath === undefined ? null : await readLockfile(lockPath, ctx.fs);
+  if (lockPath === undefined || lock === null) {
+    return undefined;
+  }
+  const recorded = new Set((await prepared.service.listEntries(prepared.selection.locations)).map((row) => row.bundleId));
+  return { lockPath, lock, bundleIds: Object.keys(lock.bundles).filter((bundleId) => !recorded.has(bundleId)) };
+};
+
+/** How {@link prepareOldFileOnly} finds the target that writes the old-file-only bundles. */
+export interface OldFileTargetInput {
+  /** Command name, for the target errors. */
+  command: string;
+  /** The target to write with, already effective, when the command has one; it is used as is. */
+  target?: Target;
+  /** `--scope` / `--commit-mode` applied to an inferred target. */
+  overrides?: TargetOverrides;
+}
+
+/** Old-file-only bundles with the target that writes them, or why no target could be found. */
+export type OldFileOnlyPlan = OldFileOnlyBundles & ({ target: Target } | { reason: string });
+
+/**
+ * The old-file-only bundles and the target that writes them, as today: the
+ * given target, else the only configured target, else the last used one,
+ * made effective with the overrides (BR10.1).
+ * @param ctx - CLI context.
+ * @param prepared - The command's record selection.
+ * @param resolve - Command name, the given target and the overrides.
+ * @returns The bundles and their target or the reason none was found, or `undefined` when no bundle is only in the old file.
+ */
+export const prepareOldFileOnly = async (
+  ctx: Context,
+  prepared: PreparedRecordSelection,
+  resolve: OldFileTargetInput
+): Promise<OldFileOnlyPlan | undefined> => {
+  const old = await oldFileOnlyBundles(ctx, prepared);
+  if (old === undefined || old.bundleIds.length === 0) {
+    return undefined;
+  }
+  if (resolve.target !== undefined) {
+    return { ...old, target: resolve.target };
+  }
+  try {
+    const targets = await readTargetsSafely(loadTargets(ctx));
+    const name = targets.length === 1 ? targets[0].name : await resolveTargetName(undefined, resolve.command, ctx, () => loadTargets(ctx));
+    const configured = await resolveTarget(name, resolve.command, ctx, () => loadTargets(ctx));
+    return { ...old, target: resolveEffectiveTarget(ctx, configured, resolve.overrides) };
+  } catch (error) {
+    return { ...old, reason: error instanceof Error ? error.message : String(error) };
+  }
 };
 
 /** The `level` and `records` fields every record command reports (BR6.3, NFR5.1). */
