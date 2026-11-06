@@ -433,6 +433,27 @@ suite('BundleScopeCommands', () => {
       assert.ok(mockShowInformationMessage.calledOnce, 'Info message should be shown');
       assert.ok(mockRepositoryScopeService.switchCommitMode.notCalled, 'switchCommitMode should not be called');
     });
+
+    test('uses the host entry mode when a newer entry of another tool shows the target mode', async () => {
+      // Arrange: the listing shows a newer local-only entry of another tool; the host entry is committed
+      const repoBundle = createTestInstalledBundle('repository', 'local-only');
+      mockStorage.getInstalledBundle.withArgs(testBundleId, 'repository').resolves(repoBundle);
+      mockRegistryManager.getHostCommitMode.withArgs(testBundleId).resolves('commit');
+      mockRepositoryScopeService.switchCommitMode.resolves();
+      mockShowWarningMessage.resolves('Switch');
+
+      const commands = new BundleScopeCommands(
+        mockRegistryManager,
+        mockScopeConflictResolver,
+        mockRepositoryScopeService
+      );
+
+      // Act
+      await commands.switchCommitMode(testBundleId, 'local-only');
+
+      // Assert
+      assert.ok(mockRepositoryScopeService.switchCommitMode.calledOnceWith(testBundleId, 'local-only'), 'the host entry should be switched');
+    });
   });
 
   suite('Error Handling', () => {

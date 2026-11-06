@@ -251,8 +251,9 @@ export class BundleScopeCommands {
         return;
       }
 
-      // Check if already in target mode
-      const currentMode = repoBundle.commitMode ?? 'commit';
+      // Check if already in target mode: the host entry's own mode wins over the
+      // merged listing, which shows the newest entry across tools
+      const currentMode = (await this.registryManager.getHostCommitMode(bundleId)) ?? repoBundle.commitMode ?? 'commit';
       if (currentMode === newMode) {
         vscode.window.showInformationMessage(`Bundle is already in ${newMode} mode.`);
         return;
