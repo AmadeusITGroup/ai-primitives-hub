@@ -27,6 +27,7 @@ import type {
   HttpClient,
   HttpRequest,
   HttpResponse,
+  InstallRecord,
   RegistrySource,
   Target,
 } from '@ai-primitives-hub/core';
@@ -70,6 +71,11 @@ import {
   createLegacyReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
+import {
+  initGitRoot,
+  readRecord,
+  recordPathIn,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -80,11 +86,6 @@ interface JsonEnvelope<T> {
   status: string;
   data: T;
   errors?: { code: string; context?: Record<string, unknown> }[];
-}
-
-/** The parts of a 3.0.0 install record these tests read. */
-interface InstallRecordJson {
-  bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
 }
 
 describe('install command (local --from mode)', () => {
@@ -966,7 +967,7 @@ agents:
     // User scope keeps the 2.0.0 lockfile (`bundles.<id>.files`); repository
     // scope now writes the 3.0.0 install record (`bundles.<id>.tools.<type>.files`).
     const lockedFiles = async (lockfilePath: string): Promise<unknown> => {
-      const parsed = JSON.parse(await readFile(lockfilePath, 'utf8')) as Lockfile | InstallRecordJson;
+      const parsed = JSON.parse(await readFile(lockfilePath, 'utf8')) as Lockfile | InstallRecord;
       const bundle = parsed.bundles['exec-demo'] as { files?: unknown; tools?: Record<string, { files: unknown }> };
       return bundle.tools === undefined ? bundle.files : bundle.tools['copilot-cli'].files;
     };
@@ -1082,16 +1083,13 @@ agents:
   });
 
   describe('repository install record (ai-primitives-hub.lock.json, format 3.0.0)', () => {
-    const recordPath = (): string => path.join(workspace, 'ai-primitives-hub.lock.json');
+    const recordPath = (): string => recordPathIn(workspace);
     const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
-    const readRecord = async (): Promise<InstallRecordJson> =>
-      JSON.parse(await readFile(recordPath(), 'utf8')) as InstallRecordJson;
     const installTo = (targetName: string): ReturnType<typeof runCommand> =>
       run(['install', 'local-foo', '--from', bundleDir, '--target', targetName, '-o', 'json']);
 
     beforeEach(async () => {
-      await mkdir(path.join(workspace, '.git'), { recursive: true });
-      await writeFile(path.join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      await initGitRoot(workspace);
       for (const [name, type] of [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]) {
         expect((await run([
           'target', 'add', name, '--type', type, '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
@@ -1105,7 +1103,7 @@ agents:
 
       expect(result.exitCode, result.stdout).toBe(0);
       expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(recordPath());
-      expect(Object.keys((await readRecord()).bundles['local-foo'].tools).toSorted()).toEqual(['kiro', 'vscode']);
+      expect(Object.keys((await readRecord(workspace)).bundles['local-foo'].tools).toSorted()).toEqual(['kiro', 'vscode']);
     });
 
     it('leaves existing prompt-registry lockfiles byte-identical', async () => {
