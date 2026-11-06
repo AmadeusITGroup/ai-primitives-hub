@@ -12,6 +12,7 @@
  * (see `record-parse.ts`), so a hostile key can never reach `Object.prototype`.
  * @module domain/install/record-types
  */
+import * as path from 'node:path';
 import type {
   TargetType,
 } from './target';
@@ -143,6 +144,17 @@ export interface RecordLocation {
   /** Repository level only: which of the two files this is. */
   commitMode?: RepositoryCommitMode;
 }
+
+/**
+ * Both repository record locations at a root (BR2.2): the committed file,
+ * then the local-only one.
+ * @param root - Absolute repository root (the git root).
+ * @returns The two locations, committed first, as {@link RECORD_FILE_NAMES} orders them.
+ */
+export const repositoryLocations = (root: string): [RecordLocation, RecordLocation] => [
+  { level: 'repository', root, path: path.join(root, RECORD_FILE_NAME), commitMode: 'commit' },
+  { level: 'repository', root, path: path.join(root, LOCAL_RECORD_FILE_NAME), commitMode: 'local-only' }
+];
 
 /** Identifies one tool entry of one bundle. */
 export interface RecordEntryKey {

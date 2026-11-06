@@ -24,10 +24,8 @@ import {
   type InstallRecord,
   isJsonObject,
   isRecordError,
-  LOCAL_RECORD_FILE_NAME,
   nullPrototypeCopy,
   parseRecord,
-  RECORD_FILE_NAME,
   RECORD_FORMAT_VERSION,
   RECORD_MAX_BYTES,
   RECORD_SCHEMA_URL,
@@ -36,6 +34,7 @@ import {
   type RecordLevel,
   type RecordLocation,
   relativeInside,
+  repositoryLocations,
   type UnvalidatedRecord,
 } from '@ai-primitives-hub/core';
 import {
@@ -278,10 +277,7 @@ export class RecordStore {
    */
   public async resolveRepository(input: { start: string }): Promise<[RecordLocation, RecordLocation]> {
     const root = await resolveRepositoryRoot(this.fs, input.start);
-    return [
-      { level: 'repository', root, path: path.join(root, RECORD_FILE_NAME), commitMode: 'commit' },
-      { level: 'repository', root, path: path.join(root, LOCAL_RECORD_FILE_NAME), commitMode: 'local-only' }
-    ];
+    return repositoryLocations(root);
   }
 
   /**
