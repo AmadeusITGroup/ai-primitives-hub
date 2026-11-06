@@ -41,6 +41,11 @@ import {
   createGovernedReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
+import {
+  initGitRoot,
+  readRecord,
+  recordPathIn,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -207,16 +212,14 @@ describe('uninstall command', () => {
         sources: { 'local-bundle': { type: 'local', url: bundleDir } }
       }, null, 2)}\n`);
     };
-    const recordPath = (): string => path.join(workspace, 'ai-primitives-hub.lock.json');
+    const recordPath = (): string => recordPathIn(workspace);
     const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
     const recordedTools = async (): Promise<string[]> =>
-      Object.keys((JSON.parse(await readFile(recordPath(), 'utf8')) as { bundles: Record<string, { tools: object }> })
-        .bundles['local-foo'].tools).toSorted();
+      Object.keys((await readRecord(workspace)).bundles['local-foo'].tools).toSorted();
     const exists = async (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
 
     beforeEach(async () => {
-      await mkdir(path.join(workspace, '.git'), { recursive: true });
-      await writeFile(path.join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      await initGitRoot(workspace);
       for (const [name, type] of [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]) {
         expect((await run([
           'target', 'add', name, '--type', type, '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
