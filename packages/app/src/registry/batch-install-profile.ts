@@ -34,7 +34,11 @@ export interface BatchInstallReport {
 /** Delivery-provided install and removal of profile bundles. */
 export interface BatchInstallProfilePorts {
   installBundles(bundles: HubProfileBundle[]): Promise<BatchInstallReport>;
-  /** Remove bundles this batch installed (used to undo a failed batch). */
+  /**
+   * Undo a failed batch: remove the bundles it newly installed (`bundleIds`,
+   * possibly empty) and any other record the batch created, such as a
+   * lockfile entry for a bundle that was already installed elsewhere.
+   */
   removeBundles(bundleIds: string[]): Promise<void>;
 }
 
@@ -85,17 +89,17 @@ export async function batchInstallProfile(
   let error = `Required bundles were not installed: ${missingRequiredBundles.join(', ')}.`;
   let remaining = [...added, ...updated];
   let removalError: string | undefined;
-  if (added.length > 0) {
-    try {
-      await ports.removeBundles(added.map((b) => b.bundleId));
-      remaining = updated;
+  try {
+    await ports.removeBundles(added.map((b) => b.bundleId));
+    remaining = updated;
+    if (added.length > 0) {
       error += ' The bundles this install added were removed again.';
-    } catch (removeError) {
-      removalError = removeError instanceof Error ? removeError.message : String(removeError);
-      log(onLog, 'error', 'Failed to remove the bundles of a failed profile install', removeError instanceof Error ? removeError : new Error(removalError));
-      error += ` Removing the bundles this install added failed (${removalError}); remove them manually: `
-        + `${added.map((b) => b.bundleId).join(', ')}.`;
     }
+  } catch (removeError) {
+    removalError = removeError instanceof Error ? removeError.message : String(removeError);
+    log(onLog, 'error', 'Failed to remove the bundles of a failed profile install', removeError instanceof Error ? removeError : new Error(removalError));
+    error += ` Removing the bundles this install added failed (${removalError}); remove them manually: `
+      + `${added.map((b) => b.bundleId).join(', ')}.`;
   }
   error += ' Check each bundle\'s install error (source configured, reachable, and authenticated), then install the profile again.';
   log(onLog, 'error', error);

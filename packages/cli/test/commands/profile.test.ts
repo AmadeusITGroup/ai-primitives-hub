@@ -25,6 +25,7 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  getLockfilePathForMode,
   readLockfile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
@@ -39,6 +40,10 @@ import {
   buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
+import {
+  dump,
+  load,
+} from 'js-yaml';
 import {
   afterEach,
   beforeEach,
@@ -532,6 +537,79 @@ profiles:
       expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
       expect(result.stdout).toContain('hello.prompt.md');
       expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+    });
+
+    it('reports both errors when the install fails and undoing it fails too', async () => {
+      class FailingLockAndRemoveFs extends NodeFileSystem {
+        public override async writeFile(filePath: string, contents: string): Promise<void> {
+          if (filePath === resolveUserConfigPaths(env()).userLockfile) {
+            throw new Error('EACCES: lockfile not writable');
+          }
+          await super.writeFile(filePath, contents);
+        }
+
+        public override async remove(filePath: string, opts?: { recursive?: boolean }): Promise<void> {
+          if (filePath.endsWith('hello.prompt.md')) {
+            throw new Error('EBUSY: resource busy');
+          }
+          await super.remove(filePath, opts);
+        }
+      }
+
+      const result = await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json'], new FailingLockAndRemoveFs());
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(result.stdout).toContain('EACCES: lockfile not writable');
+      expect(result.stdout).toContain('hello.prompt.md');
+    });
+
+    it('removes files a target\'s previous version shipped, on every target sharing the lockfile', async () => {
+      const secondDir = path.join(workspace, 'second-target');
+      await mkdir(secondDir, { recursive: true });
+      expect((await run(['target', 'add', 'second', '--type', 'copilot-cli', '--path', secondDir, '-o', 'json'])).exitCode).toBe(0);
+      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json'])).exitCode).toBe(0);
+      // Pretend the installed version also shipped a prompt the current one no longer has.
+      const lockPath = resolveUserConfigPaths(env()).userLockfile;
+      const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { bundles: Record<string, { files: { path: string; checksum: string }[] }> };
+      lock.bundles['acme-org-sample-skills-sample-skills'].files.push({ path: 'prompts/old.prompt.md', checksum: 'x' });
+      await writeFile(lockPath, JSON.stringify(lock));
+      for (const dir of [targetDir, secondDir]) {
+        await writeFile(path.join(dir, 'prompts', 'old.prompt.md'), 'old');
+      }
+
+      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json'])).exitCode).toBe(0);
+
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'old.prompt.md'), 'utf8')).rejects.toThrow();
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      }
+    });
+
+    it('drops the entry it added to the local-only lockfile, and keeps the commit one, when a required bundle is missing', async () => {
+      const repoDir = path.join(workspace, 'repo');
+      await mkdir(repoDir, { recursive: true });
+      for (const name of ['repo-commit', 'repo-local']) {
+        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', repoDir, '-o', 'json'])).exitCode).toBe(0);
+      }
+      // `target add` has no commit-mode flag: mark the second target local-only in the project config.
+      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
+      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
+      config.targets.find((t) => t.name === 'repo-local')!.commitMode = 'local-only';
+      await writeFile(configFile, dump(config));
+      const bundleIds = async (mode: 'commit' | 'local-only'): Promise<string[]> => {
+        const raw = await readFile(getLockfilePathForMode(repoDir, mode), 'utf8').catch(() => '{"bundles":{}}');
+        return Object.keys((JSON.parse(raw) as { bundles?: object }).bundles ?? {});
+      };
+      const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo-commit', '-o', 'json']);
+      expect(seeded.exitCode, seeded.stdout).toBe(0);
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'repo-local', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(await bundleIds('commit')).toEqual(['acme-org-sample-skills-sample-skills']);
+      expect(await bundleIds('local-only')).toEqual([]);
+      await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
     it('leaves bundles installed before the batch in place when a required bundle is missing', async () => {

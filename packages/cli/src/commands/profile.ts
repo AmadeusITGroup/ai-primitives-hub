@@ -997,9 +997,11 @@ async function runProfileInstall(
   const entryBefore = (target: Target, bundleId: string): LockfileBundleEntry | undefined =>
     lockPathsOf(target).map((lockPath) => lockfilesBefore.get(lockPath)?.bundles[bundleId]).find((e) => e !== undefined);
 
-  // What this command added: written files per target and bundle, and the lockfiles that got an entry.
+  // What this command added: files written for bundles new to a target, per
+  // target and bundle, and the lockfiles each bundle got an entry in that it
+  // did not have before (also for bundles installed before in another lockfile).
   const addedFiles = new Map<string, Map<string, string[]>>();
-  const addedLockPaths = new Map<string, Set<string>>();
+  const createdEntries = new Map<string, Set<string>>();
 
   const removeAdded = async (bundleIds: string[]): Promise<void> => {
     const leftovers: string[] = [];
@@ -1023,16 +1025,19 @@ async function runProfileInstall(
         }
       }
     }
-    // Keep a bundle tracked while any of its files remain, so `uninstall` can still find it.
-    const lockPaths = new Set([...addedLockPaths.values()].flatMap((paths) => [...paths]));
+    // Drop the entries this command created. A new bundle stays tracked while
+    // any of its files remain, so `uninstall` can still find it; a bundle
+    // installed before keeps its files and its earlier entry.
+    const newBundles = new Set(bundleIds);
+    const lockPaths = new Set([...createdEntries.values()].flatMap((paths) => [...paths]));
     for (const lockPath of lockPaths) {
       let lock = await readLockfile(lockPath, ctx.fs);
       if (lock === null) {
         continue;
       }
-      for (const bundleId of removed) {
+      for (const [bundleId, paths] of createdEntries) {
         const entry = lock.bundles[bundleId];
-        if (entry !== undefined && addedLockPaths.get(bundleId)?.has(lockPath)) {
+        if (entry !== undefined && paths.has(lockPath) && (!newBundles.has(bundleId) || removed.has(bundleId))) {
           lock = cleanupOrphanedSource(removeBundleEntry(lock, bundleId), entry.sourceId);
         }
       }
@@ -1062,9 +1067,14 @@ async function runProfileInstall(
               continue;
             }
             const before = entryBefore(target, bundleRef.id);
-            const previousFiles = lock.bundles[bundleRef.id]?.files;
+            // Compare with this lockfile as it was before the command: user
+            // targets share it, so an earlier target may already have rewritten the entry.
+            const previousFiles = lockfilesBefore.get(lockPath)?.bundles[bundleRef.id]?.files;
             if (previousFiles !== undefined) {
               superseded.push({ previous: previousFiles, next: outcome.entry.files });
+            }
+            if (lockfilesBefore.get(lockPath)?.bundles[bundleRef.id] === undefined) {
+              createdEntries.set(bundleRef.id, (createdEntries.get(bundleRef.id) ?? new Set<string>()).add(lockPath));
             }
             lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
             lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
@@ -1074,7 +1084,6 @@ async function runProfileInstall(
               const files = addedFiles.get(target.name) ?? new Map<string, string[]>();
               files.set(bundleRef.id, outcome.written);
               addedFiles.set(target.name, files);
-              addedLockPaths.set(bundleRef.id, (addedLockPaths.get(bundleRef.id) ?? new Set<string>()).add(lockPath));
             } else {
               status = before.version === outcome.entry.version && before.sourceId === outcome.entry.sourceId ? 'unchanged' : 'updated';
             }
@@ -1091,9 +1100,15 @@ async function runProfileInstall(
           }
         }
       } catch (err) {
-        // e.g. lockfile I/O: undo what this command added, then report the error.
-        await removeAdded([...addedLockPaths.keys()]).catch(() => undefined);
-        throw err;
+        // e.g. lockfile I/O: undo what this command added, then report the
+        // error, together with what could not be undone.
+        const newBundles = [...new Set([...addedFiles.values()].flatMap((files) => [...files.keys()]))];
+        const undoError = await removeAdded(newBundles).then(() => undefined, (e: unknown) => e);
+        if (undoError === undefined) {
+          throw err;
+        }
+        const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+        throw new Error(`${message(err)}; undoing this install also failed: ${message(undoError)}`, { cause: err });
       }
       return {
         installed: [...installed].map(([bundleId, v]) => ({ bundleId, ...v })),
@@ -1178,10 +1193,14 @@ export class ProfileInstallCommand extends BaseProfileCommand {
     try {
       run = await runProfileInstall(ctx, built, hubId, profile, targets);
     } catch (err) {
-      if (err instanceof RegistryError) {
-        return failWith(ctx, fmt, 'profile', err);
-      }
-      throw err;
+      return failWith(ctx, fmt, 'profile', err instanceof RegistryError
+        ? err
+        : new RegistryError({
+          code: 'FS.PROFILE_INSTALL_FAILED',
+          message: `profile install: ${err instanceof Error ? err.message : String(err)}`,
+          hint: 'Check that the targets and the lockfile are writable, remove any file named above, then re-run the command.',
+          context: { hubId, profileId: profile.id }
+        }));
     }
     const { result, failures } = run;
     if (!result.success) {
