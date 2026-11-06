@@ -19,9 +19,6 @@
  * which governs per-user roots only.
  * @module records/record-store
  */
-import {
-  randomBytes,
-} from 'node:crypto';
 import * as path from 'node:path';
 import {
   type InstallRecord,
@@ -41,6 +38,9 @@ import {
   relativeInside,
   type UnvalidatedRecord,
 } from '@ai-primitives-hub/core';
+import {
+  writeFileAtomically,
+} from './atomic-write';
 import {
   confinePath,
 } from './confine-path';
@@ -257,19 +257,12 @@ export class RecordStore {
    * @param file - Record file to name in errors.
    */
   private async writeAtomically(location: RecordLocation, text: string, file: string): Promise<void> {
-    let target = location.path;
-    let temp: string | undefined;
     try {
-      if ((await this.fs.lstat(location.path))?.kind === 'symlink') {
-        target = await this.resolveAllowedLink(location, file);
-      }
-      temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
-      await this.fs.writeFile(temp, text);
-      await this.fs.rename(temp, target);
+      const target = (await this.fs.lstat(location.path))?.kind === 'symlink'
+        ? await this.resolveAllowedLink(location, file)
+        : location.path;
+      await writeFileAtomically(this.fs, target, text);
     } catch (error) {
-      if (temp !== undefined) {
-        await this.fs.unlink(temp).catch(() => undefined);
-      }
       if (isRecordError(error)) {
         throw error;
       }
