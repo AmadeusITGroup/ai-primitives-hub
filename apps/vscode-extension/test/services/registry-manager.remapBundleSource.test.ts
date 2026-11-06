@@ -12,14 +12,6 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {
-  emptyLockfile,
-  getLockfilePathForMode,
-  type LockfileFs,
-  upsertBundleEntry,
-  upsertSource,
-  writeLockfile,
-} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import {
   RegistryManager,
@@ -39,7 +31,9 @@ import {
   initGitRoot,
   LOCAL_RECORD_FILE,
   RECORD_FILE,
+  recordEntry,
   snapshotTree,
+  writeOldEntry,
 } from '../helpers/install-record-test-helpers';
 import {
   cleanupTestWorkspace,
@@ -49,12 +43,6 @@ import {
 const OLD_SOURCE_ID = 'old-source-id';
 const NEW_SOURCE_ID = 'new-source-id';
 const OLD_LOCKFILE = 'prompt-registry.lock.json';
-
-const nodeLockfileFs: LockfileFs = {
-  readFile: (file) => fs.promises.readFile(file, 'utf8'),
-  writeFile: (file, contents) => fs.promises.writeFile(file, contents),
-  exists: async (file) => fs.existsSync(file)
-};
 
 suite('RegistryManager.remapBundleSource', () => {
   let sandbox: sinon.SinonSandbox;
@@ -92,23 +80,10 @@ suite('RegistryManager.remapBundleSource', () => {
    * @param commitMode
    * @param bundleId
    */
-  const recordFromOldSource = async (commitMode: 'commit' | 'local-only', bundleId: string): Promise<void> => {
-    const relative = `.github/prompts/${bundleId}.prompt.md`;
-    fs.mkdirSync(path.join(root, '.github', 'prompts'), { recursive: true });
-    fs.writeFileSync(path.join(root, relative), `# ${bundleId}\n`);
-    const adapter = manager.getRecordAdapter();
-    const [committed, localOnly] = await adapter.locations(root);
-    await adapter.service.recordInstall({
-      location: commitMode === 'commit' ? committed : localOnly,
-      bundleId,
-      version: '1.0.0',
-      tool: 'vscode',
-      source: { sourceId: OLD_SOURCE_ID, type: 'github', url: 'https://github.com/org/old' },
-      sourceType: 'github',
-      writtenPaths: [path.join(root, relative)],
-      syncSiblings: false
-    });
-  };
+  const recordFromOldSource = (commitMode: 'commit' | 'local-only', bundleId: string): Promise<void> => recordEntry(manager.getRecordAdapter(), root, {
+    bundleId, tool: 'vscode', files: [`.github/prompts/${bundleId}.prompt.md`], commitMode,
+    source: { sourceId: OLD_SOURCE_ID, type: 'github', url: 'https://github.com/org/old' }
+  });
 
   setup(async () => {
     sandbox = sinon.createSandbox();
@@ -130,11 +105,7 @@ suite('RegistryManager.remapBundleSource', () => {
 
     await recordFromOldSource('commit', 'committed-bundle');
     await recordFromOldSource('local-only', 'local-bundle');
-    let lock = upsertBundleEntry(emptyLockfile('prompt-registry@1.0.0'), 'old-bundle', {
-      version: '1.0.0', sourceId: OLD_SOURCE_ID, sourceType: 'github', installedAt: '2026-10-28T10:00:00.000Z', files: []
-    });
-    lock = upsertSource(lock, OLD_SOURCE_ID, { type: 'github', url: 'https://github.com/org/old' });
-    await writeLockfile(getLockfilePathForMode(root, 'commit'), lock, nodeLockfileFs);
+    await writeOldEntry(root, 'old-bundle', { source: { id: OLD_SOURCE_ID, type: 'github', url: 'https://github.com/org/old' } });
   });
 
   teardown(() => {

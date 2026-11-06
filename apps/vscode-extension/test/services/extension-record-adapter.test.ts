@@ -20,13 +20,6 @@ import {
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  emptyLockfile,
-  type LockfileFs,
-  upsertBundleEntry,
-  upsertSource,
-  writeLockfile,
-} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -54,7 +47,9 @@ import {
   initGitRoot,
   LOCAL_RECORD_FILE,
   RECORD_FILE,
+  recordEntry,
   snapshotTree,
+  writeOldEntry,
 } from '../helpers/install-record-test-helpers';
 
 const BUNDLE_ID = 'record-bundle';
@@ -109,16 +104,6 @@ const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
   return zip.toBuffer();
 };
 
-/** `LockfileFs` over Node's filesystem, for writing old-file fixtures. */
-const nodeLockfileFs: LockfileFs = {
-  readFile: (file) => fs.promises.readFile(file, 'utf8'),
-  writeFile: (file, contents) => fs.promises.writeFile(file, contents),
-  exists: (file) => Promise.resolve(fs.existsSync(file)),
-  mkdir: async (dir, options) => {
-    await fs.promises.mkdir(dir, options);
-  }
-};
-
 suite('ExtensionRecordAdapter: repository installs through the extension', function () {
   this.timeout(20_000);
 
@@ -160,36 +145,8 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
    * @param files - Root-relative files; created when missing.
    * @param bundleId - Bundle id.
    */
-  const recordOtherTool = async (tool: string, files: string[], bundleId = BUNDLE_ID): Promise<void> => {
-    for (const file of files.filter((candidate) => !fs.existsSync(abs(candidate)))) {
-      fs.mkdirSync(path.dirname(abs(file)), { recursive: true });
-      fs.writeFileSync(abs(file), `# ${tool}\n`);
-    }
-    const adapter = manager.getRecordAdapter();
-    const [committed] = await adapter.locations(root);
-    await adapter.service.recordInstall({
-      location: committed, bundleId, version: '1.0.0', tool,
-      source: { sourceId: SOURCE.id, type: 'github', url: SOURCE.url }, sourceType: 'github',
-      writtenPaths: files.map((file) => abs(file)), syncSiblings: false
-    });
-  };
-
-  /**
-   * Write an old `prompt-registry.lock.json` entry listing files with their bare checksums.
-   * @param bundleId - Bundle id.
-   * @param files - Root-relative path → content written now; `recorded` overrides the checksummed content.
-   */
-  const writeOldEntry = async (bundleId: string, files: Record<string, { content: string; recorded?: string }>): Promise<void> => {
-    for (const [file, { content }] of Object.entries(files)) {
-      fs.mkdirSync(path.dirname(abs(file)), { recursive: true });
-      fs.writeFileSync(abs(file), content);
-    }
-    const lock = upsertSource(upsertBundleEntry(emptyLockfile('ai-primitives-hub-extension@0.9.0'), bundleId, {
-      version: '0.9.0', sourceId: SOURCE.id, sourceType: 'github', installedAt: '2026-10-01T10:00:00.000Z',
-      files: Object.entries(files).map(([file, { content, recorded }]) => ({ path: file, checksum: sha256(recorded ?? content).slice('sha256:'.length) }))
-    }), SOURCE.id, { type: 'github', url: SOURCE.url });
-    await writeLockfile(abs(OLD_LOCKFILE), lock, nodeLockfileFs);
-  };
+  const recordOtherTool = (tool: string, files: string[], bundleId = BUNDLE_ID): Promise<void> =>
+    recordEntry(manager.getRecordAdapter(), root, { bundleId, tool, files, content: `# ${tool}\n`, keepExisting: true });
 
   setup(() => {
     sandbox = sinon.createSandbox();
@@ -359,7 +316,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
   });
 
   test('install retires the bundle\'s old prompt-registry entry and its unmodified old file', async () => {
-    await writeOldEntry(BUNDLE_ID, { '.github/prompts/old.prompt.md': { content: 'old content' } });
+    await writeOldEntry(root, BUNDLE_ID, { files: { '.github/prompts/old.prompt.md': 'old content' } });
 
     await install(V1);
 
@@ -372,11 +329,11 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     const shared = '.github/prompts/shared.prompt.md';
     const modified = '.github/prompts/modified.prompt.md';
     const plain = '.github/prompts/plain.prompt.md';
-    await writeOldEntry('old-bundle', {
-      [shared]: { content: 'shared' },
+    await writeOldEntry(root, 'old-bundle', { files: {
+      [shared]: 'shared',
       [modified]: { content: 'edited by the user', recorded: 'as installed' },
-      [plain]: { content: 'plain' }
-    });
+      [plain]: 'plain'
+    } });
     await recordOtherTool('vscode', [shared], 'other-bundle');
 
     await manager.uninstallBundle('old-bundle', 'repository');
@@ -390,7 +347,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
 
   test('uninstall of a recorded bundle also retires an old prompt-registry entry for it', async () => {
     await install(V1);
-    await writeOldEntry(BUNDLE_ID, { '.github/prompts/old.prompt.md': { content: 'old content' } });
+    await writeOldEntry(root, BUNDLE_ID, { files: { '.github/prompts/old.prompt.md': 'old content' } });
 
     await manager.uninstallBundle(BUNDLE_ID, 'repository');
 
