@@ -140,6 +140,9 @@ function readConfig() {
   if (!/^[A-Z_][A-Z0-9_]*$/.test(credentialRef)) {
     throw new Error('APH_LIVE_ARTIFACTORY_CREDENTIAL_REF must be an uppercase environment-variable name.');
   }
+  if (['HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME'].includes(credentialRef)) {
+    throw new Error(`APH_LIVE_ARTIFACTORY_CREDENTIAL_REF must not override the isolated environment variable ${credentialRef}.`);
+  }
 
   const observeMs = Number(process.env.APH_LIVE_OBSERVE_MS || '15000');
   if (!Number.isInteger(observeMs) || observeMs < 0 || observeMs > 3e5) {
