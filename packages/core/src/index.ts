@@ -49,6 +49,9 @@ export { default as ARTIFACTORY_SOURCE_INDEX_SCHEMA } from './public/schemas/art
  */
 export { default as AGENT_PLUGIN_MANIFEST_SCHEMA } from './public/schemas/agent-plugins/1.0.0/plugin.schema.json';
 
+/** Quality report (`security rate`) JSON schema. */
+export { default as QUALITY_REPORT_SCHEMA } from './public/schemas/quality-report.schema.json';
+
 /**
  * Phase 1 scaffolding marker, kept until `infra`/`app`/`cli` each have real
  * code of their own to depend on instead of this placeholder re-export
