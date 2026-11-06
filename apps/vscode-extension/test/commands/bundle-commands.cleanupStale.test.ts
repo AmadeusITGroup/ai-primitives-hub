@@ -14,13 +14,6 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {
-  emptyLockfile,
-  getLockfilePathForMode,
-  type LockfileFs,
-  upsertBundleEntry,
-  writeLockfile,
-} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -37,7 +30,9 @@ import {
   initGitRoot,
   LOCAL_RECORD_FILE,
   RECORD_FILE,
+  recordEntry,
   writeInstallRecord,
+  writeOldEntry,
 } from '../helpers/install-record-test-helpers';
 import {
   cleanupTestWorkspace,
@@ -45,12 +40,6 @@ import {
 } from '../helpers/mock-data';
 
 const OLD_LOCKFILE = 'prompt-registry.lock.json';
-
-const nodeLockfileFs: LockfileFs = {
-  readFile: (file) => fs.promises.readFile(file, 'utf8'),
-  writeFile: (file, contents) => fs.promises.writeFile(file, contents),
-  exists: async (file) => fs.existsSync(file)
-};
 
 suite('BundleCommands.cleanupStaleLockfileEntries', () => {
   let sandbox: sinon.SinonSandbox;
@@ -71,22 +60,7 @@ suite('BundleCommands.cleanupStaleLockfileEntries', () => {
    * @param remove - Files to delete after recording.
    */
   const recordBundle = async (bundleId: string, tool: string, files: string[], remove: string[] = files): Promise<void> => {
-    for (const relative of files) {
-      fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
-      fs.writeFileSync(path.join(root, relative), `# ${bundleId}\n`);
-    }
-    const adapter = manager.getRecordAdapter();
-    const [committed] = await adapter.locations(root);
-    await adapter.service.recordInstall({
-      location: committed,
-      bundleId,
-      version: '1.0.0',
-      tool,
-      source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' },
-      sourceType: 'github',
-      writtenPaths: files.map((relative) => path.join(root, relative)),
-      syncSiblings: false
-    });
+    await recordEntry(manager.getRecordAdapter(), root, { bundleId, tool, files });
     remove.forEach((relative) => fs.rmSync(path.join(root, relative)));
   };
 
@@ -117,11 +91,7 @@ suite('BundleCommands.cleanupStaleLockfileEntries', () => {
     await recordBundle('stale-vscode', 'vscode', ['.github/prompts/stale-vscode.prompt.md']);
     await recordBundle('stale-kiro', 'kiro', ['.kiro/steering/stale-kiro.md']);
     await recordBundle('partial', 'vscode', ['.github/prompts/partial-a.prompt.md', '.github/prompts/partial-b.prompt.md'], ['.github/prompts/partial-a.prompt.md']);
-    const oldLock = upsertBundleEntry(emptyLockfile('prompt-registry@1.0.0'), 'old-stale', {
-      version: '1.0.0', sourceId: 'acme-github', sourceType: 'github', installedAt: '2026-10-28T10:00:00.000Z',
-      files: [{ path: '.github/prompts/old-stale.prompt.md', checksum: '0'.repeat(64) }]
-    });
-    await writeLockfile(getLockfilePathForMode(root, 'commit'), oldLock, nodeLockfileFs);
+    await writeOldEntry(root, 'old-stale', { missing: ['.github/prompts/old-stale.prompt.md'] });
 
     await commands.cleanupStaleLockfileEntries();
 

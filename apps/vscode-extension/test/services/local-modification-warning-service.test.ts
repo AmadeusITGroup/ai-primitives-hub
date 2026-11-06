@@ -9,16 +9,8 @@
  */
 
 import * as assert from 'node:assert';
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {
-  emptyLockfile,
-  getLockfilePathForMode,
-  type LockfileFs,
-  upsertBundleEntry,
-  writeLockfile,
-} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -29,6 +21,8 @@ import {
 } from '../../src/services/local-modification-warning-service';
 import {
   initGitRoot,
+  recordEntry,
+  writeOldEntry,
 } from '../helpers/install-record-test-helpers';
 import {
   cleanupTestWorkspace,
@@ -37,12 +31,6 @@ import {
 
 const BUNDLE_ID = 'warn-bundle';
 const FILE = '.github/prompts/warn.prompt.md';
-
-const nodeLockfileFs: LockfileFs = {
-  readFile: (file) => fs.promises.readFile(file, 'utf8'),
-  writeFile: (file, contents) => fs.promises.writeFile(file, contents),
-  exists: async (file) => fs.existsSync(file)
-};
 
 suite('LocalModificationWarningService', () => {
   let sandbox: sinon.SinonSandbox;
@@ -58,34 +46,10 @@ suite('LocalModificationWarningService', () => {
   };
 
   /** Install `FILE` for the host tool through the record service. */
-  const recordInstall = async (): Promise<void> => {
-    writeFile(FILE, '# original\n');
-    const [committed] = await adapter.locations(root);
-    await adapter.service.recordInstall({
-      location: committed,
-      bundleId: BUNDLE_ID,
-      version: '1.0.0',
-      tool: adapter.hostTool,
-      source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' },
-      sourceType: 'github',
-      writtenPaths: [path.join(root, FILE)],
-      syncSiblings: false
-    });
-  };
+  const recordInstall = (): Promise<void> => recordEntry(adapter, root, { bundleId: BUNDLE_ID, files: [FILE], content: '# original\n' });
 
   /** Install `FILE` through an old `prompt-registry.lock.json` entry (bare-hex checksum). */
-  const oldInstall = async (): Promise<void> => {
-    writeFile(FILE, '# original\n');
-    const checksum = crypto.createHash('sha256').update('# original\n').digest('hex');
-    const lock = upsertBundleEntry(emptyLockfile('prompt-registry@1.0.0'), BUNDLE_ID, {
-      version: '1.0.0',
-      sourceId: 'acme-github',
-      sourceType: 'github',
-      installedAt: '2026-10-28T10:00:00.000Z',
-      files: [{ path: FILE, checksum }]
-    });
-    await writeLockfile(getLockfilePathForMode(root, 'commit'), lock, nodeLockfileFs);
-  };
+  const oldInstall = (): Promise<void> => writeOldEntry(root, BUNDLE_ID, { files: { [FILE]: '# original\n' } });
 
   setup(() => {
     sandbox = sinon.createSandbox();
