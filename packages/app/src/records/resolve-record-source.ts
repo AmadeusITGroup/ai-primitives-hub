@@ -5,7 +5,8 @@
  * A record may come from a cloned repository, so its sources are not trusted:
  * 1. A configured source with the same id (active hub first, then detached
  *    sources; the caller builds the map in that order) always wins, with its
- *    own URL, branch and credentials.
+ *    own URL, branch and credentials, normalised by `toRecordSource`. The
+ *    recorded copy is not compared, so any earlier record of that id passes.
  * 2. Otherwise the record's copy is used without `credentialRef` and
  *    `authMode`, so a fetch never reads an environment variable the record named.
  * 3. A `local` source from the record is resolved against the repository root
@@ -24,6 +25,13 @@ import {
   relativeInside,
   type SourceRecord,
 } from '@ai-primitives-hub/core';
+import {
+  copySourceFields,
+  SOURCE_FIELDS_WITHOUT_CREDENTIALS,
+} from './source-fields';
+import {
+  toRecordSource,
+} from './to-record-source';
 
 /** Outcome of {@link resolveRecordSource}. */
 export type SourceDecision =
@@ -35,12 +43,6 @@ export type SourceDecision =
 /** Reason reported for a `local` record source that leaves the repository. */
 export const LOCAL_SOURCE_OUTSIDE_REASON = 'local source outside the repository';
 
-/** Optional string fields copied from a configured source's `config`. */
-const CONFIGURED_FIELDS = ['branch', 'collectionsPath', 'indexFile', 'authMode', 'credentialRef'] as const;
-
-/** Optional string fields kept from a record's copy; never credentials. */
-const RECORD_FIELDS = ['branch', 'collectionsPath', 'indexFile'] as const;
-
 /**
  * Whether a source type reads a folder on disk, kept in its `url`.
  * @param type - Source type.
@@ -48,43 +50,13 @@ const RECORD_FIELDS = ['branch', 'collectionsPath', 'indexFile'] as const;
 const isLocalType = (type: string): boolean => type === 'local' || type.startsWith('local-');
 
 /**
- * The configured source as a record-shaped source, prototype-free.
- * @param sourceId - Record key.
- * @param configured - Configured source.
- */
-const fromConfigured = (sourceId: string, configured: RegistrySource): SourceRecord & { sourceId: string } => {
-  const source = Object.create(null) as SourceRecord & { sourceId: string };
-  source.sourceId = sourceId;
-  source.type = configured.type;
-  source.url = configured.url;
-  for (const field of CONFIGURED_FIELDS) {
-    const value = configured.config?.[field];
-    if (typeof value === 'string') {
-      source[field] = value;
-    }
-  }
-  return source;
-};
-
-/**
  * The record's copy without credentials, prototype-free.
  * @param sourceId - Record key.
  * @param fromRecord - Source as recorded.
  * @param url - URL to use.
  */
-const fromRecordCopy = (sourceId: string, fromRecord: SourceRecord, url: string): SourceRecord & { sourceId: string } => {
-  const source = Object.create(null) as SourceRecord & { sourceId: string };
-  source.sourceId = sourceId;
-  source.type = fromRecord.type;
-  source.url = url;
-  for (const field of RECORD_FIELDS) {
-    const value = fromRecord[field];
-    if (typeof value === 'string') {
-      source[field] = value;
-    }
-  }
-  return source;
-};
+const fromRecordCopy = (sourceId: string, fromRecord: SourceRecord, url: string): SourceRecord & { sourceId: string } =>
+  Object.assign(copySourceFields(fromRecord, fromRecord.type, url, SOURCE_FIELDS_WITHOUT_CREDENTIALS), { sourceId });
 
 /**
  * Realpath of a recorded `local` folder, when it stays inside the repository root.
@@ -121,7 +93,9 @@ export const resolveRecordSource = async (
 ): Promise<SourceDecision> => {
   const match = configured.get(sourceId);
   if (match !== undefined) {
-    return { use: fromConfigured(sourceId, match) };
+    // Normalised as an install records it, so a record written before
+    // `toRecordSource` existed is accepted and re-recorded the same way.
+    return { use: toRecordSource(match, sourceId) };
   }
   if (!isLocalType(fromRecord.type)) {
     return { use: fromRecordCopy(sourceId, fromRecord, fromRecord.url) };
