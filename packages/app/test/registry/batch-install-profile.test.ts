@@ -114,6 +114,18 @@ describe('batchInstallProfile', () => {
     expect(result.installed).toEqual([{ bundleId: 'upgraded', version: '2.0.0' }]);
   });
 
+  it('still asks the delivery to undo the batch when no bundle was new', async () => {
+    const { ports, removeBundles } = makePorts({
+      installed: [{ bundleId: 'present', version: '1.0.0', status: 'unchanged' }],
+      failed: [{ bundleId: 'req', reason: 'not found' }]
+    });
+
+    const result = await batchInstallProfile(ports, [bundle('present', false), bundle('req', true)]);
+
+    expect(result.success).toBe(false);
+    expect(removeBundles).toHaveBeenCalledWith([]);
+  });
+
   it('lists updated bundles under installed on success', async () => {
     const { ports } = makePorts({
       installed: [{ bundleId: 'upgraded', version: '2.0.0', status: 'updated' }],
