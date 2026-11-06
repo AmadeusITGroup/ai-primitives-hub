@@ -2,6 +2,9 @@ import type {
   RegistrySource,
 } from '@ai-primitives-hub/core';
 import {
+  countManifestItemsByKind,
+} from '@ai-primitives-hub/core';
+import {
   describe,
   expect,
   it,
@@ -160,6 +163,43 @@ describe('GitHubAdapter', () => {
       expect((bundles[0] as unknown as { mcpServers: unknown }).mcpServers).toEqual({ 'example-server': { command: 'node' } });
     });
 
+    it('attaches manifest items so a plugin declared only in items[] counts once', async () => {
+      const manifestYaml = [
+        'formatVersion: 1',
+        'id: my-collection',
+        'name: My Bundle',
+        'version: 1.0.0',
+        'items:',
+        '  - id: demo',
+        '    kind: plugin',
+        '    path: plugins/demo/plugin.json'
+      ].join('\n');
+      const api = new FakeGitHubApi().seedJson(RELEASES_PATH, [makeRelease()]).seedText(MANIFEST_ASSET_URL, manifestYaml);
+
+      const bundles = await new GitHubAdapter(makeSource(), api).fetchBundles();
+
+      expect(bundles[0]).toMatchObject({ formatVersion: 1, items: [{ id: 'demo', kind: 'plugin', path: 'plugins/demo/plugin.json' }] });
+      expect(countManifestItemsByKind(bundles[0])).toEqual({ plugin: 1 });
+    });
+
+    it('does not double-count items a release also projects into prompts', async () => {
+      const manifestYaml = [
+        'formatVersion: 1',
+        'id: my-collection',
+        'name: My Bundle',
+        'version: 1.0.0',
+        'items:',
+        '  - { id: demo, kind: plugin, path: plugins/demo/plugin.json }',
+        'prompts:',
+        '  - { id: demo, file: plugins/demo/plugin.json, type: plugin }'
+      ].join('\n');
+      const api = new FakeGitHubApi().seedJson(RELEASES_PATH, [makeRelease()]).seedText(MANIFEST_ASSET_URL, manifestYaml);
+
+      const bundles = await new GitHubAdapter(makeSource(), api).fetchBundles();
+
+      expect(countManifestItemsByKind(bundles[0])).toEqual({ plugin: 1 });
+    });
+
     it('attaches mcpInputs and mcpServers from their top-level manifest fields', async () => {
       const manifestYaml = [
         'id: my-collection',
@@ -195,6 +235,8 @@ describe('GitHubAdapter', () => {
     it('does not attach prompts/mcpServers when the manifest declares neither', async () => {
       const bundles = await new GitHubAdapter(makeSource(), new FakeGitHubApi().seedJson(RELEASES_PATH, [makeRelease()]).seedText(MANIFEST_ASSET_URL, MANIFEST_YAML)).fetchBundles();
 
+      expect(bundles[0]).not.toHaveProperty('items');
+      expect(bundles[0]).not.toHaveProperty('formatVersion');
       expect(bundles[0]).not.toHaveProperty('prompts');
       expect(bundles[0]).not.toHaveProperty('mcpServers');
     });

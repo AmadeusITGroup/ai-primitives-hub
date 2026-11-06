@@ -13,7 +13,9 @@
  * Ported, deliberately unchanged in shape from `main`: the ad hoc
  * `(bundle as any).prompts`/`.mcpServers` attachment the Marketplace
  * webview's content-breakdown UI reads (`ui/marketplace-view-provider.ts`'s
- * `getContentBreakdown`). Neither field is part of `Bundle`'s real type
+ * `getContentBreakdown`), since extended with `.items`/`.formatVersion` so
+ * items declared only in a release's canonical `items[]` are counted too.
+ * None of these fields is part of `Bundle`'s real type
  * (see `src/types/registry.ts`'s `DeploymentManifest`, not `Bundle`) — kept
  * as the same ad hoc cast rather than promoted to a real `Bundle` field,
  * to land this as a pure behavior-parity fix, not a type-system change.
@@ -82,6 +84,10 @@ interface DeploymentManifest {
   license?: string;
   /** Name of the README asset on the release, if any. */
   readme?: string;
+  /** Read only for the Marketplace webview's content-breakdown UI - see this module's own doc. */
+  formatVersion?: unknown;
+  /** Read only for the Marketplace webview's content-breakdown UI - see this module's own doc. */
+  items?: unknown[];
   /** Read only for the Marketplace webview's content-breakdown UI - see this module's own doc. */
   prompts?: unknown[];
   /** Read only for the Marketplace webview's content-breakdown UI - see this module's own doc. */
@@ -239,9 +245,16 @@ export class GitHubAdapter extends BaseSourceAdapter {
       readmeRevision: release.tag_name
     };
 
-    // Attach prompts/mcpServers from the manifest for the Marketplace
+    // Attach items/prompts/mcpServers from the manifest for the Marketplace
     // webview's content-breakdown UI. Not part of `Bundle`'s real type -
-    // see this module's own doc.
+    // see this module's own doc. `formatVersion` travels with `items`: it
+    // marks `prompts` as a projection of the same items, not extra ones.
+    if (manifest?.items && Array.isArray(manifest.items)) {
+      (bundle as Bundle & { items?: unknown }).items = manifest.items;
+      if (manifest.formatVersion !== undefined) {
+        (bundle as Bundle & { formatVersion?: unknown }).formatVersion = manifest.formatVersion;
+      }
+    }
     if (manifest?.prompts && Array.isArray(manifest.prompts)) {
       (bundle as Bundle & { prompts?: unknown }).prompts = manifest.prompts;
     }
