@@ -44,6 +44,7 @@ import {
   toRecordSource,
   upsertBundleEntry,
   upsertSource,
+  writeFileAtomically,
   writeLockfile,
 } from '@ai-primitives-hub/app';
 import {
@@ -134,7 +135,7 @@ export interface RetiredOldEntry {
 const toSlashes = (recordedPath: string): string => recordedPath.replaceAll('\\', '/');
 
 /**
- * `LockfileFs` over `RecordFs`; writes go to an exclusive temp file renamed over the target.
+ * `LockfileFs` over `RecordFs`; writes go through app's `writeFileAtomically`.
  */
 class RecordLockfileFs implements LockfileFs {
   public constructor(private readonly fs: RecordFs) {}
@@ -143,15 +144,8 @@ class RecordLockfileFs implements LockfileFs {
     return new TextDecoder('utf-8').decode(await this.fs.readCapped(file, OLD_LOCKFILE_MAX_BYTES));
   }
 
-  public async writeFile(file: string, contents: string): Promise<void> {
-    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-    await this.fs.writeFile(temp, contents);
-    try {
-      await this.fs.rename(temp, file);
-    } catch (error) {
-      await this.fs.unlink(temp).catch(() => undefined);
-      throw error;
-    }
+  public writeFile(file: string, contents: string): Promise<void> {
+    return writeFileAtomically(this.fs, file, contents);
   }
 
   public exists(file: string): Promise<boolean> {
