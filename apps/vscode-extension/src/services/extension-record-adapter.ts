@@ -25,6 +25,7 @@ import {
   findModifiedFiles,
   getLockfilePathForMode,
   InstallRecordService,
+  isAnyFileMissing,
   listedPaths,
   type LocatedToolEntry,
   type Lockfile,
@@ -186,21 +187,13 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Whether any of the paths is missing.
+   * Whether any of the paths is missing; an I/O error other than "missing" is logged and counts as present.
    * @param root - Root the paths are relative to.
    * @param paths - Root-relative paths.
    */
-  private async anyMissing(root: string, paths: readonly string[]): Promise<boolean> {
-    for (const recordedPath of paths) {
-      try {
-        if (await this.fs.lstat(path.join(root, ...recordedPath.split('/'))) === undefined) {
-          return true;
-        }
-      } catch (error) {
-        this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined);
-      }
-    }
-    return false;
+  private anyMissing(root: string, paths: readonly string[]): Promise<boolean> {
+    return isAnyFileMissing(this.fs, root, paths, (recordedPath, error) =>
+      this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined));
   }
 
   /**
