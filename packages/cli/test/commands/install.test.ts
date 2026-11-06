@@ -82,6 +82,8 @@ import {
 } from '../fixtures/release-archives';
 import {
   initGitRoot,
+  makeGitWorktree,
+  readExcludeLines,
   readRecord,
   recordPathIn,
 } from '../helpers/install-record-fixtures';
@@ -1174,20 +1176,14 @@ agents:
     });
 
     it('lists the local-only record and its installed files in one info/exclude in a git worktree', async () => {
-      // A worktree: `.git` is a file pointing at a git dir whose `commondir` holds `info/exclude`.
-      const commonDir = path.join(workspace, 'main.git');
-      const worktreeGitDir = path.join(commonDir, 'worktrees', 'wt');
-      await mkdir(worktreeGitDir, { recursive: true });
-      await writeFile(path.join(worktreeGitDir, 'commondir'), '../..\n');
-      await rm(path.join(workspace, '.git'), { recursive: true });
-      await writeFile(path.join(workspace, '.git'), `gitdir: ${worktreeGitDir}\n`);
+      const commonDir = await makeGitWorktree(workspace);
 
       const result = await run([
         'install', 'local-foo', '--from', bundleDir, '--target', 'repo-vscode', '--commit-mode', 'local-only', '-o', 'json'
       ]);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      const lines = (await readFile(path.join(commonDir, 'info', 'exclude'), 'utf8')).split('\n');
+      const lines = await readExcludeLines(commonDir);
       expect(lines).toContain('# Prompt Registry (local)');
       expect(lines).toContain('ai-primitives-hub.local.lock.json');
       expect(lines).toContain('.github/prompts/hello.prompt.md');
@@ -1317,6 +1313,42 @@ agents:
       expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject({ code: 'RECORD.MALFORMED' });
       expect(await readFile(vscodePrompt(), 'utf8')).toBe('# Kept\n');
       expect(await readFile(recordPath(), 'utf8')).toBe(text);
+    });
+
+    describe('in a git worktree, with the bundle recorded local-only', () => {
+      let commonDir: string;
+
+      beforeEach(async () => {
+        // No other entry lists the bundle's .github files, so uninstall removes them.
+        const record = await readRecord();
+        delete record.bundles['legacy-bar'];
+        await writeRecord(record);
+        commonDir = await makeGitWorktree(workspace);
+        const installed = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'repo-vscode', '--commit-mode', 'local-only', '-o', 'json']);
+        expect(installed.exitCode, installed.stdout).toBe(0);
+      });
+
+      it('replay lists the files it writes in the record\'s info/exclude', async () => {
+        await writeFile(path.join(commonDir, 'info', 'exclude'), '');
+        await rm(path.join(workspace, '.github'), { recursive: true, force: true });
+
+        const result = await run(['install', '--lockfile', 'ai-primitives-hub.local.lock.json', '--commit-mode', 'local-only', '-o', 'json']);
+
+        expect(result.exitCode, result.stdout).toBe(0);
+        expect(parseJson<ReplayData>(result.stdout).data.replayed.map((r) => r.tool)).toEqual(['vscode']);
+        expect(await readExcludeLines(commonDir)).toContain('.github/prompts/hello.prompt.md');
+      });
+
+      it('uninstall --lockfile drops the removed files from the record\'s info/exclude', async () => {
+        expect(await readExcludeLines(commonDir)).toContain('.github/prompts/hello.prompt.md');
+
+        const result = await runAll(['uninstall', '--lockfile', 'ai-primitives-hub.local.lock.json', '--target', 'repo-vscode', '-o', 'json']);
+
+        expect(result.exitCode, result.stdout).toBe(0);
+        expect((JSON.parse(result.stdout) as { warnings?: string[] }).warnings ?? []).toEqual([]);
+        expect(await exists(vscodePrompt())).toBe(false);
+        expect(await readExcludeLines(commonDir)).not.toContain('.github/prompts/hello.prompt.md');
+      });
     });
 
     it('bare install also replays bundles only in the old prompt-registry file and writes nothing about them to the record (BR10.1)', async () => {
