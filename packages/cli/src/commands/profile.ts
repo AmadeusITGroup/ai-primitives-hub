@@ -35,6 +35,7 @@ import {
   batchInstallProfile,
   type BatchInstallProfileResult,
   checksumFiles,
+  cleanupOrphanedSource,
   deactivateProfile,
   emptyLockfile,
   githubRepoSlugForSource,
@@ -45,6 +46,8 @@ import {
   type LockfileSourceEntry,
   type ProfileLifecycleDeps,
   readLockfile,
+  removeBundleEntry,
+  removeSupersededFiles,
   resolveUserConfigPaths,
   type TargetWriter,
   UninstallPipeline,
@@ -395,7 +398,15 @@ async function activateBundleForTarget(
     type: src.type,
     url: src.url,
     ...(src.config?.branch ? { branch: src.config.branch } : {}),
-    ...(src.config?.collectionsPath ? { collectionsPath: src.config.collectionsPath } : {})
+    ...(src.config?.collectionsPath ? { collectionsPath: src.config.collectionsPath } : {}),
+    // Artifactory sources need their index and credentials to be fetched (as `install` records them).
+    ...(src.type === 'artifactory'
+      ? {
+        ...(typeof src.config?.indexFile === 'string' ? { indexFile: src.config.indexFile } : {}),
+        authMode: src.config?.authMode === 'bearer' ? 'bearer' as const : 'anonymous' as const,
+        ...(typeof src.config?.credentialRef === 'string' ? { credentialRef: src.config.credentialRef } : {})
+      }
+      : {})
   };
   // `fetchFilesForSource` only reads `.version`/`.sourceId` off this
   // parameter — the rest are dummy values to satisfy `LockfileBundleEntry`'s
@@ -948,8 +959,14 @@ interface ProfileInstallRunResult {
  * Install `profile`'s bundles onto every target as ordinary installs,
  * through app's shared `batchInstallProfile`, without activating the
  * profile: each target's lockfile records the bundles, no activation
- * state is saved, and active profiles stay active. A bundle pinned to a
- * version already recorded in a target's lockfile is left as is.
+ * state is saved, and active profiles stay active.
+ *
+ * Whether a bundle was installed before is read once, before anything is
+ * written, from every lockfile the target uses (user targets share one;
+ * a repository has a `commit` and a `local-only` one). Only bundles new
+ * to a target count as added: undoing the batch removes the files this
+ * command wrote for them and, once those are gone, their lockfile
+ * entries. Files that cannot be removed stay tracked and are reported.
  * @param ctx CLI context.
  * @param built HubManager + HTTP/token deps (from `buildHubMgr`).
  * @param hubId Hub the profile belongs to.
@@ -967,45 +984,120 @@ async function runProfileInstall(
   const effectiveTargets = targets.map((target) => resolveEffectiveTarget(ctx, target));
   const sources: Record<string, RegistrySource> = Object.fromEntries((await built.mgr.listSources(hubId)).map((s) => [s.id, s]));
   const failures: TargetProfileSyncReport['failures'] = [];
-  // Bundles absent from a target's lockfile before this install, per target.
-  const newlyInstalled = new Map<string, Set<string>>();
   const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
     ? createSourceAwareInstallDependencyCache(built.http, ctx)
     : undefined;
 
+  // Lockfiles as they were before this command, by path.
+  const lockfilesBefore = new Map<string, Lockfile | null>();
+  const lockPathsOf = (target: Target): string[] => (target.scope === 'repository'
+    ? (['commit', 'local-only'] as const).map((mode) => lockfilePathForTarget(ctx, target, mode))
+    : [lockfilePathForTarget(ctx, target)]);
+  for (const lockPath of effectiveTargets.flatMap((target) => lockPathsOf(target))) {
+    if (!lockfilesBefore.has(lockPath)) {
+      lockfilesBefore.set(lockPath, await readLockfile(lockPath, ctx.fs));
+    }
+  }
+  const entryBefore = (target: Target, bundleId: string): LockfileBundleEntry | undefined =>
+    lockPathsOf(target).map((lockPath) => lockfilesBefore.get(lockPath)?.bundles[bundleId]).find((e) => e !== undefined);
+
+  // What this command added: written files per target and bundle, and the lockfiles that got an entry.
+  const addedFiles = new Map<string, Map<string, string[]>>();
+  const addedLockPaths = new Map<string, Set<string>>();
+
+  const removeAdded = async (bundleIds: string[]): Promise<void> => {
+    const leftovers: string[] = [];
+    const removed = new Set(bundleIds);
+    for (const target of effectiveTargets) {
+      const writer = createWriterFactory(ctx, {})(target);
+      for (const bundleId of bundleIds) {
+        const written = addedFiles.get(target.name)?.get(bundleId) ?? [];
+        try {
+          await (writer.rollback === undefined
+            ? Promise.all(written.map((file) => ctx.fs.remove(file)))
+            : writer.rollback(target, written));
+        } catch {
+          // Checked file by file below.
+        }
+        for (const file of written) {
+          if (await ctx.fs.exists(file)) {
+            leftovers.push(file);
+            removed.delete(bundleId);
+          }
+        }
+      }
+    }
+    // Keep a bundle tracked while any of its files remain, so `uninstall` can still find it.
+    const lockPaths = new Set([...addedLockPaths.values()].flatMap((paths) => [...paths]));
+    for (const lockPath of lockPaths) {
+      let lock = await readLockfile(lockPath, ctx.fs);
+      if (lock === null) {
+        continue;
+      }
+      for (const bundleId of removed) {
+        const entry = lock.bundles[bundleId];
+        if (entry !== undefined && addedLockPaths.get(bundleId)?.has(lockPath)) {
+          lock = cleanupOrphanedSource(removeBundleEntry(lock, bundleId), entry.sourceId);
+        }
+      }
+      await writeLockfile(lockPath, lock, ctx.fs);
+    }
+    if (leftovers.length > 0) {
+      throw new Error(`could not remove ${leftovers.join(', ')}`);
+    }
+  };
+
   const result = await batchInstallProfile({
     installBundles: async (bundleRefs) => {
-      const installed = new Map<string, { version: string; newlyInstalled: boolean }>();
-      for (const target of effectiveTargets) {
-        const writer = createWriterFactory(ctx, {})(target);
-        const lockPath = lockfilePathForTarget(ctx, target);
-        let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-        const added = new Set<string>();
-        newlyInstalled.set(target.name, added);
-        for (const bundleRef of bundleRefs) {
-          const existing = lock.bundles[bundleRef.id];
-          if (existing !== undefined && bundleRef.version !== 'latest' && existing.version === bundleRef.version) {
-            installed.set(bundleRef.id, { version: existing.version, newlyInstalled: installed.get(bundleRef.id)?.newlyInstalled ?? false });
-            continue;
+      const statusRank = { unchanged: 0, updated: 1, new: 2 } as const;
+      const installed = new Map<string, { version: string; status: keyof typeof statusRank }>();
+      try {
+        for (const target of effectiveTargets) {
+          const writer = createWriterFactory(ctx, {})(target);
+          const lockPath = lockfilePathForTarget(ctx, target);
+          let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+          const superseded: { previous: LockfileBundleEntry['files']; next: LockfileBundleEntry['files'] }[] = [];
+          for (const bundleRef of bundleRefs) {
+            const outcome = await activateBundleForTarget(
+              bundleRef, sources, target, writer, built.http, built.tokens, ctx, sourceAwareDependencyCache
+            );
+            if (!outcome.ok) {
+              failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
+              continue;
+            }
+            const before = entryBefore(target, bundleRef.id);
+            const previousFiles = lock.bundles[bundleRef.id]?.files;
+            if (previousFiles !== undefined) {
+              superseded.push({ previous: previousFiles, next: outcome.entry.files });
+            }
+            lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
+            lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
+            let status: keyof typeof statusRank;
+            if (before === undefined) {
+              status = 'new';
+              const files = addedFiles.get(target.name) ?? new Map<string, string[]>();
+              files.set(bundleRef.id, outcome.written);
+              addedFiles.set(target.name, files);
+              addedLockPaths.set(bundleRef.id, (addedLockPaths.get(bundleRef.id) ?? new Set<string>()).add(lockPath));
+            } else {
+              status = before.version === outcome.entry.version && before.sourceId === outcome.entry.sourceId ? 'unchanged' : 'updated';
+            }
+            const previous = installed.get(bundleRef.id);
+            installed.set(bundleRef.id, {
+              version: outcome.entry.version,
+              status: previous !== undefined && statusRank[previous.status] > statusRank[status] ? previous.status : status
+            });
           }
-          const outcome = await activateBundleForTarget(
-            bundleRef, sources, target, writer, built.http, built.tokens, ctx, sourceAwareDependencyCache
-          );
-          if (!outcome.ok) {
-            failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
-            continue;
+          await writeLockfile(lockPath, lock, ctx.fs);
+          // Like `install`, drop files a replaced version no longer ships.
+          for (const { previous, next } of superseded) {
+            await removeSupersededFiles(writer, target, previous, next);
           }
-          lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
-          lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
-          if (existing === undefined) {
-            added.add(bundleRef.id);
-          }
-          installed.set(bundleRef.id, {
-            version: outcome.entry.version,
-            newlyInstalled: (installed.get(bundleRef.id)?.newlyInstalled ?? false) || existing === undefined
-          });
         }
-        await writeLockfile(lockPath, lock, ctx.fs);
+      } catch (err) {
+        // e.g. lockfile I/O: undo what this command added, then report the error.
+        await removeAdded([...addedLockPaths.keys()]).catch(() => undefined);
+        throw err;
       }
       return {
         installed: [...installed].map(([bundleId, v]) => ({ bundleId, ...v })),
@@ -1017,12 +1109,7 @@ async function runProfileInstall(
           }))
       };
     },
-    removeBundles: async (bundleIds) => {
-      for (const target of effectiveTargets) {
-        const added = newlyInstalled.get(target.name) ?? new Set<string>();
-        await removeBundlesFromTarget(ctx, bundleIds.filter((id) => added.has(id)), target);
-      }
-    }
+    removeBundles: removeAdded
   }, profile.bundles);
   return { result, failures };
 }
@@ -1102,12 +1189,11 @@ export class ProfileInstallCommand extends BaseProfileCommand {
     }
     const { result, failures } = run;
     if (!result.success) {
-      const removalFailed = result.installed.length > 0;
       return failWith(ctx, fmt, 'profile', requiredBundleMissingError(
         'install', hubId, profile.id, result.missingRequiredBundles ?? [], failures,
-        removalFailed
-          ? `Removing the bundles this install added failed; uninstall them manually: ${result.installed.map((b) => b.bundleId).join(', ')}`
-          : 'The bundles this install added were removed again'
+        result.removalError === undefined
+          ? 'Bundles this command added were removed again'
+          : `Removing the bundles this command added failed (${result.removalError}); remove those files manually`
       ));
     }
 
