@@ -479,6 +479,61 @@ profiles:
       expect(await lockedBundleIds()).toEqual([]);
     });
 
+    it('installs onto every user target even though they share one lockfile, and removes from all on failure', async () => {
+      const secondDir = path.join(workspace, 'second-target');
+      await mkdir(secondDir, { recursive: true });
+      expect((await run(['target', 'add', 'second', '--type', 'copilot-cli', '--path', secondDir, '-o', 'json'])).exitCode).toBe(0);
+
+      const installed = await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json']);
+      expect(installed.exitCode, installed.stdout).toBe(0);
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      }
+
+      await rm(resolveUserConfigPaths(env()).userLockfile);
+      await rm(path.join(targetDir, 'prompts'), { recursive: true });
+      await rm(path.join(secondDir, 'prompts'), { recursive: true });
+      const failed = await run(['profile', 'install', 'partial-required', '--target', 'copilot,second', '-o', 'json']);
+      expect(failed.exitCode).toBe(1);
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+      }
+      expect(await lockedBundleIds()).toEqual([]);
+    });
+
+    it('reports a version change as installed, not as already installed', async () => {
+      expect((await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      const lockPath = resolveUserConfigPaths(env()).userLockfile;
+      const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { bundles: Record<string, { version: string }> };
+      lock.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
+      await writeFile(lockPath, JSON.stringify(lock));
+
+      const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; alreadyInstalled: unknown[] }>).data;
+      expect(data.installed).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      expect(data.alreadyInstalled).toEqual([]);
+    });
+
+    it('keeps a bundle tracked and reports its path when the rollback cannot remove a file', async () => {
+      class FailingRemoveFs extends NodeFileSystem {
+        public override async remove(filePath: string, opts?: { recursive?: boolean }): Promise<void> {
+          if (filePath.endsWith('hello.prompt.md')) {
+            throw new Error('EBUSY: resource busy');
+          }
+          await super.remove(filePath, opts);
+        }
+      }
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json'], new FailingRemoveFs());
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(result.stdout).toContain('hello.prompt.md');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+    });
+
     it('leaves bundles installed before the batch in place when a required bundle is missing', async () => {
       expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
 
@@ -766,5 +821,109 @@ profiles:
     expect(result.exitCode, result.stdout).not.toBe(0);
     expect(result.stdout).toContain('does not match expected');
     await expect(stat(path.join(targetDir, 'prompts', 'hello.prompt.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe('profile install with an Artifactory hub source', () => {
+  let workspace: string;
+  let targetDir: string;
+  const root = 'https://artifactory.example/repo/source';
+  const env = (): Record<string, string> => ({
+    HOME: workspace,
+    USERPROFILE: workspace,
+    XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+    XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+    ARTIFACTORY_TOKEN: 'reader-token'
+  });
+  const archive = buildZip([...createLegacyReleaseArchive({ id: 'bundle', version: '1.0.0' })]
+    .map(([filePath, bytes]) => ({ path: filePath, bytes })));
+  const requests: HttpRequest[] = [];
+  const http: HttpClient = {
+    fetch: (request: HttpRequest): Promise<HttpResponse> => {
+      requests.push(request);
+      if (request.url === `${root}/custom-index.json`) {
+        const body = JSON.stringify({
+          formatVersion: 1, source: { id: 'artifact-source', name: 'Artifact Source', updatedAt: '2026-01-01T00:00:00Z' },
+          bundles: [{
+            id: 'bundle', version: '1.0.0', name: 'Bundle', description: '', author: 'Test', environments: ['vscode'],
+            tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+            manifest: { path: '1.0.0/bundle/deployment-manifest.yml', size: 1, sha256: 'a'.repeat(64) },
+            archive: { path: '1.0.0/bundle.zip', size: archive.length,
+              sha256: createHash('sha256').update(archive).digest('hex'), mediaType: 'application/zip' }
+          }]
+        });
+        return Promise.resolve({ statusCode: 200, body: new TextEncoder().encode(body), finalUrl: request.url, headers: {} });
+      }
+      if (request.url === `${root}/1.0.0/bundle.zip`) {
+        return Promise.resolve({ statusCode: 200, body: archive, finalUrl: request.url, headers: {} });
+      }
+      return Promise.resolve({ statusCode: 404, body: new Uint8Array(), finalUrl: request.url, headers: {} });
+    }
+  };
+
+  const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env: env() });
+    const exitCode = await runCli(argv, {
+      ctx,
+      http,
+      tokens: { getToken: () => Promise.resolve(undefined) },
+      commandClasses: COMMAND_CLASSES,
+      commands: [],
+      name: 'test',
+      version: 'test'
+    });
+    return { exitCode, stdout: ctx.stdout.captured() };
+  };
+
+  beforeEach(async () => {
+    requests.length = 0;
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-profile-artifactory-test-'));
+    targetDir = path.join(workspace, 'target');
+    await mkdir(targetDir, { recursive: true });
+    const hubConfigFile = path.join(workspace, 'hub-config.yml');
+    await writeFile(hubConfigFile, `version: 1.0.0
+metadata:
+  name: Artifactory Hub
+  description: Hub with an Artifactory source
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: artifact-source
+    name: Artifact Source
+    type: artifactory
+    url: ${root}
+    enabled: true
+    priority: 0
+    config:
+      indexFile: custom-index.json
+      authMode: bearer
+      credentialRef: ARTIFACTORY_TOKEN
+profiles:
+  - id: artifactory-profile
+    name: Artifactory profile
+    description: One Artifactory bundle
+    bundles:
+      - id: bundle
+        version: 1.0.0
+        source: artifact-source
+        required: true
+`);
+    expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'use', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('uses the source\'s index file and bearer credentials', async () => {
+    const result = await run(['profile', 'install', 'artifactory-profile', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    const artifactoryRequests = requests.filter((r) => r.url.startsWith(root));
+    expect(artifactoryRequests.map((r) => r.url)).toContain(`${root}/custom-index.json`);
+    expect(artifactoryRequests.every((r) => r.headers?.Authorization === 'Bearer reader-token')).toBe(true);
   });
 });

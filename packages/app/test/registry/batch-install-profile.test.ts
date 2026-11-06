@@ -30,8 +30,8 @@ describe('batchInstallProfile', () => {
   it('installs every profile bundle and reports new and already-present ones', async () => {
     const { ports, installBundles, removeBundles } = makePorts({
       installed: [
-        { bundleId: 'a', version: '1.0.0', newlyInstalled: true },
-        { bundleId: 'b', version: '1.0.0', newlyInstalled: false }
+        { bundleId: 'a', version: '1.0.0', status: 'new' },
+        { bundleId: 'b', version: '1.0.0', status: 'unchanged' }
       ],
       failed: []
     });
@@ -50,7 +50,7 @@ describe('batchInstallProfile', () => {
 
   it('succeeds and reports the failure when only an optional bundle fails', async () => {
     const { ports, removeBundles } = makePorts({
-      installed: [{ bundleId: 'a', version: '1.0.0', newlyInstalled: true }],
+      installed: [{ bundleId: 'a', version: '1.0.0', status: 'new' }],
       failed: [{ bundleId: 'opt', reason: 'source unreachable' }]
     });
 
@@ -64,8 +64,8 @@ describe('batchInstallProfile', () => {
   it('fails and removes only the newly installed bundles when a required bundle is missing', async () => {
     const { ports, removeBundles } = makePorts({
       installed: [
-        { bundleId: 'new', version: '1.0.0', newlyInstalled: true },
-        { bundleId: 'present', version: '1.0.0', newlyInstalled: false }
+        { bundleId: 'new', version: '1.0.0', status: 'new' },
+        { bundleId: 'present', version: '1.0.0', status: 'unchanged' }
       ],
       failed: [{ bundleId: 'req', reason: 'not found' }]
     });
@@ -83,7 +83,7 @@ describe('batchInstallProfile', () => {
 
   it('still reports the missing required bundles when removing the new ones fails', async () => {
     const { ports, removeBundles } = makePorts({
-      installed: [{ bundleId: 'new', version: '1.0.0', newlyInstalled: true }],
+      installed: [{ bundleId: 'new', version: '1.0.0', status: 'new' }],
       failed: [{ bundleId: 'req', reason: 'not found' }]
     });
     removeBundles.mockRejectedValueOnce(new Error('disk full'));
@@ -93,5 +93,35 @@ describe('batchInstallProfile', () => {
     expect(result.success).toBe(false);
     expect(result.missingRequiredBundles).toEqual(['req']);
     expect(result.error).toContain('disk full');
+    expect(result.removalError).toBe('disk full');
+    // The bundle that could not be removed is still reported as installed.
+    expect(result.installed).toEqual([{ bundleId: 'new', version: '1.0.0' }]);
+  });
+
+  it('reports an update as installed and keeps it when a required bundle is missing', async () => {
+    const { ports, removeBundles } = makePorts({
+      installed: [
+        { bundleId: 'new', version: '1.0.0', status: 'new' },
+        { bundleId: 'upgraded', version: '2.0.0', status: 'updated' }
+      ],
+      failed: [{ bundleId: 'req', reason: 'not found' }]
+    });
+
+    const result = await batchInstallProfile(ports, [bundle('new', false), bundle('upgraded', false), bundle('req', true)]);
+
+    expect(result.success).toBe(false);
+    expect(removeBundles).toHaveBeenCalledWith(['new']);
+    expect(result.installed).toEqual([{ bundleId: 'upgraded', version: '2.0.0' }]);
+  });
+
+  it('lists updated bundles under installed on success', async () => {
+    const { ports } = makePorts({
+      installed: [{ bundleId: 'upgraded', version: '2.0.0', status: 'updated' }],
+      failed: []
+    });
+
+    const result = await batchInstallProfile(ports, [bundle('upgraded', true)]);
+
+    expect(result).toMatchObject({ success: true, installed: [{ bundleId: 'upgraded', version: '2.0.0' }], alreadyInstalled: [] });
   });
 });

@@ -152,6 +152,7 @@ flowchart LR
     Profile --> profileShow
     Profile --> profileActivate
     Profile --> profileDeactivate
+    Profile --> profileInstall
     Profile --> profileCurrent
     Profile --> profileCreate
     Profile --> profileEdit
