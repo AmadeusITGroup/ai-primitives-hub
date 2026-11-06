@@ -50,7 +50,7 @@ export class ArtifactoryReplicationPublisher implements ReplicationPublisherPort
       }
     } else if (head.statusCode !== 404 && head.statusCode !== 410) {
       throw new Error(`Artifactory HEAD failed for ${path}: HTTP ${String(head.statusCode)}`);
-    } else if (replace) {
+    } else {
       headers['If-None-Match'] = '*';
     }
     const response = await this.http.fetch({ url, followRedirects: false, method: 'PUT', headers: { ...headers, 'Content-Type': mediaType, 'X-Checksum-Sha256': digest }, body: data });
