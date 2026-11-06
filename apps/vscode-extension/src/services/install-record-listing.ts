@@ -59,6 +59,8 @@ export const getExtensionRecordGeneratedBy = (): string => {
 export interface InstallRecordListingOptions {
   /** Filesystem port; `NodeRecordFs` by default. */
   fs?: RecordFs;
+  /** Record store to read with, e.g. `ExtensionRecordAdapter.store`; one over `fs` by default. */
+  store?: RecordStore;
   /** Shows a listing problem to the user; a warning notification by default. */
   showProblem?: (message: string) => void;
 }
@@ -103,7 +105,7 @@ export class InstallRecordListing {
 
   public constructor(options: InstallRecordListingOptions = {}) {
     this.fs = options.fs ?? new NodeRecordFs();
-    this.store = createInstallRecordServices({ fs: this.fs, generatedBy: getExtensionRecordGeneratedBy() }).store;
+    this.store = options.store ?? createInstallRecordServices({ fs: this.fs, generatedBy: getExtensionRecordGeneratedBy() }).store;
     this.showProblem = options.showProblem ?? ((message) => {
       void vscode.window.showWarningMessage(message);
     });
@@ -231,15 +233,6 @@ export class InstallRecordListing {
     }
     this.shown.add(problem.key);
     this.showProblem(problem.message);
-  }
-
-  /**
-   * Repository root the records live at: the git root above `start`, or `start` without one.
-   * @param start - Workspace root.
-   */
-  public async resolveRoot(start: string): Promise<string> {
-    const [committed] = await this.store.resolveRepository({ start });
-    return committed.root;
   }
 
   /**

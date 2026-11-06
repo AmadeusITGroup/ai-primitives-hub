@@ -2,8 +2,9 @@
  * Extension record adapter: the extension's composition of the shared
  * install record (U3; BR11.1–BR11.9, BR12.1, NFR4.12, NFR4.15, NFR5.2).
  *
- * Wires app's `RecordStore` and `InstallRecordService` to infra's
- * `NodeRecordFs` and `RecordSchemaValidator`, stamps
+ * Builds app's `RecordStore` and `InstallRecordService` with
+ * `createInstallRecordServices` (infra's `NodeRecordFs` and
+ * `RecordSchemaValidator`), stamps
  * `generatedBy = ai-primitives-hub-extension@<version>`, and records every
  * repository install under the host tool from `detectHostApp()`. It holds no
  * record logic of its own; it supplies the extension-side inputs the app
@@ -20,11 +21,12 @@
 import * as path from 'node:path';
 import {
   cleanupOrphanedSource,
+  createInstallRecordServices,
   deleteLockfile,
   emptyLockfile,
   findModifiedFiles,
   getLockfilePathForMode,
-  InstallRecordService,
+  type InstallRecordService,
   isAnyFileMissing,
   listedPaths,
   type LocatedToolEntry,
@@ -36,7 +38,7 @@ import {
   RECORD_SOURCE_TYPES,
   type RecordSourceDescriptor,
   type RecordSourceInput,
-  RecordStore,
+  type RecordStore,
   remapSourceId,
   removeBundleEntry,
   toRecordSource,
@@ -53,12 +55,7 @@ import {
   recordErrorDetails,
   type RegistrySource,
   type TargetType,
-  type ToolEntry,
 } from '@ai-primitives-hub/core';
-import {
-  NodeRecordFs,
-  RecordSchemaValidator,
-} from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import type {
   InstalledBundle,
@@ -178,9 +175,10 @@ export class ExtensionRecordAdapter {
   private readonly logger = Logger.getInstance();
 
   public constructor(options: ExtensionRecordAdapterOptions) {
-    this.fs = options.fs ?? new NodeRecordFs();
-    this.store = new RecordStore({ fs: this.fs, validator: new RecordSchemaValidator(), generatedBy: getExtensionRecordGeneratedBy() });
-    this.service = new InstallRecordService({ store: this.store, fs: this.fs });
+    const services = createInstallRecordServices({ generatedBy: getExtensionRecordGeneratedBy(), fs: options.fs });
+    this.fs = services.fs;
+    this.store = services.store;
+    this.service = services.service;
     this.hostTool = options.hostTool ?? detectHostApp();
     this.sources = options.sources;
     this.lockfileFs = new RecordLockfileFs(this.fs);
@@ -252,10 +250,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async prepareInstall(workspaceFolder: string, commitMode: RepositoryCommitMode): Promise<RecordLocation> {
-    const [committed, localOnly] = await this.locations(workspaceFolder);
-    await this.store.load(committed);
-    await this.store.load(localOnly);
-    return commitMode === 'local-only' ? localOnly : committed;
+    return (await this.store.loadRepository({ start: workspaceFolder, commitMode })).location;
   }
 
   /**
