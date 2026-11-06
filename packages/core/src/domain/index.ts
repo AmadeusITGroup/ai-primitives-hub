@@ -33,6 +33,7 @@ export * from './install/integrity';
 export * from './install/file-mode';
 export * from './install/transform';
 export * from './install/record-types';
+export * from './install/record-object';
 export * from './install/record-errors';
 export * from './install/record-path';
 export * from './install/record-parse';

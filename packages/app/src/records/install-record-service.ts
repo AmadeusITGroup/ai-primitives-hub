@@ -17,6 +17,7 @@
 import * as path from 'node:path';
 import {
   type BundleRecord,
+  compareCodeUnits,
   FORBIDDEN_KEYS,
   type InstallRecord,
   LOCAL_RECORD_FILE_NAME,
@@ -170,18 +171,6 @@ const MERGED_MCP_CONFIG_PATHS = mergedMcpConfigPaths();
 export const isMergedMcpConfigPath = (relative: string, workspacePrefix = ''): boolean =>
   MERGED_MCP_CONFIG_PATHS.some((mcpPath) => relative === (workspacePrefix === '' ? mcpPath : `${workspacePrefix}/${mcpPath}`));
 
-/**
- * Code-unit order, the same order the canonical serializer uses.
- * @param left - First text.
- * @param right - Second text.
- */
-const compareText = (left: string, right: string): number => {
-  if (left === right) {
-    return 0;
-  }
-  return left < right ? -1 : 1;
-};
-
 const isOutside = (relative: string): boolean =>
   relative === '' || path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`);
 
@@ -323,7 +312,7 @@ export class InstallRecordService {
       file.checksum = await this.fs.hashFile(path.join(root, ...relative.split('/')));
       files.set(relative, file);
     }
-    return [...files.values()].toSorted((a, b) => compareText(a.path, b.path));
+    return [...files.values()].toSorted((a, b) => compareCodeUnits(a.path, b.path));
   }
 
   /**
@@ -447,8 +436,8 @@ export class InstallRecordService {
     }
     return {
       changedEntries: [{ bundleId, tool }],
-      deletedFiles: deletedFiles.toSorted(compareText),
-      keptSharedFiles: keptSharedFiles.toSorted(compareText),
+      deletedFiles: deletedFiles.toSorted(compareCodeUnits),
+      keptSharedFiles: keptSharedFiles.toSorted(compareCodeUnits),
       location,
       warnings
     };
@@ -510,8 +499,8 @@ export class InstallRecordService {
     }
     return {
       changedEntries: [{ bundleId, tool }],
-      deletedFiles: [...deletedFiles].toSorted(compareText),
-      keptSharedFiles: [...keptSharedFiles].toSorted(compareText),
+      deletedFiles: [...deletedFiles].toSorted(compareCodeUnits),
+      keptSharedFiles: [...keptSharedFiles].toSorted(compareCodeUnits),
       location: changed[0].file.location,
       warnings
     };

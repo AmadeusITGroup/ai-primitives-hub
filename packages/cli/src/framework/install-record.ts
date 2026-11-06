@@ -17,6 +17,7 @@ import {
   RecordStore,
 } from '@ai-primitives-hub/app';
 import {
+  compareCodeUnits,
   isRecordError,
   type RecordFs,
   type RecordLocation,
@@ -244,7 +245,7 @@ export const prepareRepositoryUninstall = async (
       tool: target.type,
       // Same adapter and root the repository-scope writer used at install time.
       exclusion: new GitInfoExclude({ fs: ctx.fs, workspaceRoot }),
-      entries: new Map([...entries].toSorted(([left], [right]) => (left < right ? -1 : (left > right ? 1 : 0))))
+      entries: new Map([...entries].toSorted(([left], [right]) => compareCodeUnits(left, right)))
     };
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
