@@ -46,7 +46,9 @@ run_step "Install dependencies" "pnpm install --frozen-lockfile"
 run_step "Security audit (pnpm)" "pnpm audit --prod --audit-level=moderate || echo 'Audit warnings found'"
 # 5. Lint code
 run_step "ESLint validation" "pnpm run lint"
-# 6. Type checking & compilation
+# 6. Build packages (the extension compiles against them; the unit tests run the built CLI),
+#    then type checking & compilation
+run_step "Build packages" "pnpm -C packages -r build"
 run_step "TypeScript compilation" "pnpm run compile"
 # 7. Compile tests
 run_step "Compile test suite" "pnpm run compile-tests"

@@ -228,6 +228,11 @@ export class SchemaValidator {
 
   /**
    * Validate a collection against the collection schema
+   * @deprecated Collections are validated by `validateCollectionFile` /
+   * `validateAllCollections` from `@ai-primitives-hub/app`, which the
+   * `promptRegistry.validateCollections` command and
+   * `ai-primitives-hub collection validate` both use. Kept only as the
+   * regression oracle in the command's tests.
    * @param data Collection data to validate
    * @param options Validation options
    * @returns Validation result

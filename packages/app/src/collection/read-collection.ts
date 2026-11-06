@@ -112,6 +112,7 @@ export function validateCollectionFile(
 
   const schema = validateCollectionObject(collection, rel);
   errors.push(...schema.errors);
+  warnings.push(...schema.warnings);
 
   if (Array.isArray(collection?.items)) {
     collection.items.forEach((item, idx) => {
@@ -234,14 +235,16 @@ export function generateMarkdown(result: AllCollectionsResult, totalFiles: numbe
 /**
  * List all collection files in the repository.
  * @param repoRoot - Repository root path
- * @returns Array of collection file paths (repo-relative)
+ * @returns Collection file paths (repo-relative), sorted so every delivery
+ * lists files and reports duplicates in the same order
  */
 export function listCollectionFiles(repoRoot: string): string[] {
   const collectionsDir = path.join(repoRoot, 'collections');
   return fs
     .readdirSync(collectionsDir)
     .filter((f) => f.endsWith('.collection.yml'))
-    .map((f) => path.join('collections', f));
+    .map((f) => path.join('collections', f))
+    .toSorted();
 }
 
 /**

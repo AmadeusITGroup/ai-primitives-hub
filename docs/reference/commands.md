@@ -64,7 +64,7 @@ Writes `<dir>/<name>/plugin.json` (default `plugins/<name>/plugin.json`), an Age
 
 - `<name>` must be 1–64 characters of lowercase letters, digits, `.` and `-`, start and end with a letter or digit, and contain no `--` or `..`. An invalid name fails with `PRIMITIVE.INVALID_NAME` and a suggested valid name, and nothing is written.
 - An existing `plugin.json` is never overwritten; the command fails with `PRIMITIVE.ALREADY_EXISTS`.
-- `--collection <id>` adds a `kind: plugin` item to `collections/<id>.collection.yml`. The collection is read before anything is written, so a missing or unreadable collection fails with `FS.COLLECTION_UPDATE_FAILED` and writes nothing. If writing the collection fails, the files the command created are removed.
+- `--collection <id>` adds a `kind: plugin` item (`path`, `kind`, and `description` when `--description` is given) to `collections/<id>.collection.yml`. The other `<kind> create --collection` commands write the name you pass as the item `title`. The collection is read before anything is written, so a missing or unreadable collection fails with `FS.COLLECTION_UPDATE_FAILED` and writes nothing. If writing the collection fails, the files the command created are removed.
 
 See [Plugin Items](../author-guide/collection-schema.md#plugin-items) for the plugin layout.
 
@@ -238,7 +238,7 @@ This is useful when bundle files have been manually deleted but the lockfile sti
 | Command | Title | Description |
 |---------|-------|-------------|
 | `promptRegistry.createCollection` | Create New Collection | Create a new prompt collection |
-| `promptRegistry.validateCollections` | Validate Collections | Validate collection YAML files including file references and duplicate detection |
+| `promptRegistry.validateCollections` | Validate Collections | Validate collection YAML files against the collection schema, file references, duplicate IDs and names, and Agent Plugin manifests of `kind: plugin` items; reports the same errors and warnings as `ai-primitives-hub collection validate` |
 | `promptRegistry.validateApm` | Validate APM Package | Validate an APM package |
 | `promptRegistry.listCollections` | List All Collections | Display all collections |
 | `promptregistry.contributeToCollection` | Contribute to Collection (Fork, Clone & Open Visual Editor) | Fork and clone a GitHub-backed collection repository from a Marketplace tile or Explorer item, check out a branch, and open the target `.collection.yml` in the Visual Collection Editor (Artifactory sources are read-only and excluded) |

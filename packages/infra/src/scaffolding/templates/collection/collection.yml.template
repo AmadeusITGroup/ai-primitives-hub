@@ -3,5 +3,5 @@ name: {{name}}
 description: {{description}}
 author: {{author}}
 {{tags_section}}
-items:
-  # Add items here
+# Add items here
+items: []

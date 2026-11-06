@@ -10,15 +10,13 @@
  */
 import * as path from 'node:path';
 import {
+  addCollectionItem,
   readCollection,
   writeCollection,
 } from '@ai-primitives-hub/app';
 import {
   generateSanitizedId,
   TemplateContext,
-} from '@ai-primitives-hub/core';
-import type {
-  CollectionItem,
 } from '@ai-primitives-hub/core';
 import {
   TEMPLATE_PATHS,
@@ -113,14 +111,12 @@ export class AgentCreateCommand extends Command {
           const relativePath = path.relative(ctx.cwd(), createdFile).replace(/\\/g, '/');
 
           // Add item to collection
-          const newItem: CollectionItem = {
+          addCollectionItem(collection, {
             path: relativePath,
             kind: 'agent',
-            name: displayName,
+            title: displayName,
             description: this.description
-          };
-
-          collection.items.push(newItem);
+          });
           writeCollection(ctx.cwd(), collectionFile, collection);
         } catch (error) {
           const err = new RegistryError({

@@ -1,0 +1,6 @@
+id: demo-invalid
+name: Demo Invalid Plugin Collection
+description: This collection packages an Agent Plugin whose manifest breaks the Agent Plugins 1.0.0 rules
+items:
+  - path: plugins/demo-invalid/plugin.json
+    kind: plugin
