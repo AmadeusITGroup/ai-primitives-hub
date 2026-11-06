@@ -39,7 +39,8 @@ const actionScript = async (name = 'targets'): Promise<string> => {
   return step.run;
 };
 
-describe('security scan action target selection', () => {
+// Each test spawns several git and bash processes, which is slow on Windows runners.
+describe('security scan action target selection', { timeout: 30_000 }, () => {
   let directory: string;
 
   beforeEach(async () => {
