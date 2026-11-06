@@ -25,6 +25,7 @@ import {
   findModifiedFiles,
   getLockfilePathForMode,
   InstallRecordService,
+  type LocatedToolEntry,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileFs,
@@ -99,18 +100,6 @@ export interface ExtensionRecordAdapterOptions {
   fs?: RecordFs;
   /** Host tool; `detectHostApp()` by default. */
   hostTool?: TargetType;
-}
-
-/** One tool entry of a bundle, with the record file holding it. */
-export interface LocatedToolEntry {
-  location: RecordLocation;
-  tool: string;
-  entry: ToolEntry;
-}
-
-/** One tool entry of any bundle in a record file. */
-export interface LocatedBundleToolEntry extends LocatedToolEntry {
-  bundleId: string;
 }
 
 /** One old `prompt-registry` lockfile at a workspace root. */
@@ -276,49 +265,34 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Every tool entry of a bundle in both record files, committed file first.
+   * Every tool entry of a bundle in both record files, committed file first;
+   * an entry in both files is listed once, from the committed file.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param bundleId - Bundle id.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findEntries(workspaceFolder: string, bundleId: string): Promise<LocatedToolEntry[]> {
-    const entries: LocatedToolEntry[] = [];
-    for (const location of await this.locations(workspaceFolder)) {
-      const { record } = await this.store.load(location);
-      const bundle = Object.hasOwn(record.bundles, bundleId) ? record.bundles[bundleId] : undefined;
-      for (const [tool, entry] of Object.entries(bundle?.tools ?? {})) {
-        entries.push({ location, tool, entry });
-      }
-    }
-    return entries;
+    return this.service.findEntries(await this.locations(workspaceFolder), bundleId);
   }
 
   /**
-   * The host tool's entry of a bundle, from the first file holding it (BR6.5).
+   * The host tool's entry of a bundle, from the committed file when both hold it (BR6.5).
    * @param workspaceFolder - Absolute workspace folder path.
    * @param bundleId - Bundle id.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findHostEntry(workspaceFolder: string, bundleId: string): Promise<LocatedToolEntry | undefined> {
-    return (await this.findEntries(workspaceFolder, bundleId)).find((located) => located.tool === this.hostTool);
+    return (await this.service.findEntries(await this.locations(workspaceFolder), bundleId, this.hostTool))[0];
   }
 
   /**
-   * Every tool entry of every bundle in both record files, committed file first.
+   * Every tool entry of every bundle in both record files, committed file
+   * first; an entry in both files is listed once, from the committed file.
    * @param workspaceFolder - Absolute workspace folder path.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
-  public async listAllEntries(workspaceFolder: string): Promise<LocatedBundleToolEntry[]> {
-    const entries: LocatedBundleToolEntry[] = [];
-    for (const location of await this.locations(workspaceFolder)) {
-      const { record } = await this.store.load(location);
-      for (const [bundleId, bundle] of Object.entries(record.bundles)) {
-        for (const [tool, entry] of Object.entries(bundle.tools)) {
-          entries.push({ bundleId, location, tool, entry });
-        }
-      }
-    }
-    return entries;
+  public async listAllEntries(workspaceFolder: string): Promise<LocatedToolEntry[]> {
+    return this.service.listToolEntries(await this.locations(workspaceFolder));
   }
 
   /**

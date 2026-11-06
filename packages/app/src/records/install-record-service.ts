@@ -137,6 +137,16 @@ export interface StatusRow {
   needsReinstall: boolean;
 }
 
+/** One tool entry of a bundle, with the record file holding it. */
+export interface LocatedToolEntry {
+  /** The record file holding the entry. */
+  location: RecordLocation;
+  bundleId: string;
+  /** Tool key. */
+  tool: string;
+  entry: ToolEntry;
+}
+
 /** Outcome of {@link InstallRecordService.deleteSuperseded}. */
 export interface DeleteSupersededResult {
   /** Root-relative paths that were removed. */
@@ -741,33 +751,70 @@ export class InstallRecordService {
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async listEntries(locations: readonly RecordLocation[]): Promise<StatusRow[]> {
-    const rows = new Map<string, { row: StatusRow; committed: boolean }>();
+    const rows: StatusRow[] = (await this.listToolEntries(locations)).map(({ location, bundleId, tool, entry }) => ({
+      bundleId,
+      tool,
+      level: location.level,
+      version: entry.version,
+      record: location.path,
+      needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true
+    }));
+    return rows.toSorted((left, right) =>
+      compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool) || compareCodeUnits(left.record, right.record));
+  }
+
+  /**
+   * Tool entries of the given record files in file order, one per level,
+   * root, bundle and tool: an entry in both repository files at one root (an
+   * interrupted `moveEntry`) is taken from the committed file.
+   * @param locations - Record files to read.
+   * @param bundleId - Only this bundle's entries, when given.
+   * @param tool - Only this tool's entries, when given.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  private async locateEntries(locations: readonly RecordLocation[], bundleId?: string, tool?: string): Promise<LocatedToolEntry[]> {
+    const found = new Map<string, LocatedToolEntry>();
     for (const location of locations) {
       const { record } = await this.store.load(location);
-      const committed = location.commitMode !== 'local-only';
-      for (const [bundleId, bundle] of Object.entries(record.bundles)) {
-        for (const [tool, entry] of Object.entries(bundle.tools)) {
-          const key = JSON.stringify([location.level, location.root, bundleId, tool]);
-          const existing = rows.get(key);
-          if (existing !== undefined && (existing.committed || !committed)) {
+      const bundles = Object.entries(record.bundles).filter(([id]) => bundleId === undefined || id === bundleId);
+      for (const [id, bundle] of bundles) {
+        for (const [key, entry] of Object.entries(bundle.tools).filter(([name]) => tool === undefined || name === tool)) {
+          const dedupeKey = JSON.stringify([location.level, location.root, id, key]);
+          const existing = found.get(dedupeKey);
+          if (existing !== undefined && (existing.location.commitMode !== 'local-only' || location.commitMode === 'local-only')) {
             continue;
           }
-          rows.set(key, {
-            committed,
-            row: {
-              bundleId,
-              tool,
-              level: location.level,
-              version: entry.version,
-              record: location.path,
-              needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true
-            }
-          });
+          found.set(dedupeKey, { location, bundleId: id, tool: key, entry });
         }
       }
     }
-    return [...rows.values()].map(({ row }) => row).toSorted((left, right) =>
-      compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool) || compareCodeUnits(left.record, right.record));
+    return [...found.values()];
+  }
+
+  /**
+   * A bundle's tool entries in the given record files (BR6.5, BR11.2), in file
+   * order; an entry in both repository files at one root is listed once, from
+   * the committed file. Works for any list of files, a single user record included.
+   * @param locations - Record files to search, committed first.
+   * @param bundleId - Bundle id.
+   * @param tool - Only this tool's entry, when given.
+   * @returns The entries found; empty when no file has the bundle.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public findEntries(locations: readonly RecordLocation[], bundleId: string, tool?: string): Promise<LocatedToolEntry[]> {
+    return this.locateEntries(locations, bundleId, tool);
+  }
+
+  /**
+   * Every tool entry of every bundle in the given record files, in file
+   * order; an entry in both repository files at one root is listed once, from
+   * the committed file (stale cleanup BR12.2, status BR9.2).
+   * @param locations - Record files to list.
+   * @returns The entries.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public listToolEntries(locations: readonly RecordLocation[]): Promise<LocatedToolEntry[]> {
+    return this.locateEntries(locations);
   }
 
   /**
@@ -775,17 +822,11 @@ export class InstallRecordService {
    * @param locations - Record files to search, committed first.
    * @param bundleId - Bundle id.
    * @param tool - Tool key.
-   * @returns The first file holding the entry, or `undefined` when none does.
+   * @returns The file holding the entry (the committed one when both do), or `undefined` when none does.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async holdingLocation(locations: readonly RecordLocation[], bundleId: string, tool: string): Promise<RecordLocation | undefined> {
-    for (const location of locations) {
-      const { record } = await this.store.load(location);
-      if (Object.hasOwn(record.bundles, bundleId) && Object.hasOwn(record.bundles[bundleId].tools, tool)) {
-        return location;
-      }
-    }
-    return undefined;
+    return (await this.findEntries(locations, bundleId, tool))[0]?.location;
   }
 
   /**
