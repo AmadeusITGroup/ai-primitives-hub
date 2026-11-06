@@ -573,9 +573,11 @@ export interface RecordOutputFields {
  * store file at user level and for an old-format `--lockfile`.
  * @param selection - The command's record selection.
  * @param fs - Filesystem port, for the existence checks.
+ * @param oldFileRead - The old-store file, when the command also read it (`status`):
+ * listed after the existing new files, and instead of a new file that does not exist yet.
  * @returns The output fields.
  */
-export const recordOutputFields = async (selection: RecordSelection, fs: RecordFs): Promise<RecordOutputFields> => {
+export const recordOutputFields = async (selection: RecordSelection, fs: RecordFs, oldFileRead?: string): Promise<RecordOutputFields> => {
   if (selection.locations.length === 0) {
     return { level: selection.level, records: selection.oldLockfile === undefined ? [] : [selection.oldLockfile] };
   }
@@ -584,6 +586,9 @@ export const recordOutputFields = async (selection: RecordSelection, fs: RecordF
     if (await fs.exists(location.path)) {
       existing.push(location.path);
     }
+  }
+  if (oldFileRead !== undefined) {
+    existing.push(oldFileRead);
   }
   return { level: selection.level, records: existing.length > 0 ? existing : [selection.locations[0].path] };
 };

@@ -13,13 +13,13 @@
  * @module commands/status
  */
 import {
-  readLockfile,
   resolveUserConfigPaths,
   type StatusRow,
 } from '@ai-primitives-hub/app';
 import {
   compareCodeUnits,
   type RecordLevel,
+  UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
   ActiveHubStore,
@@ -34,6 +34,7 @@ import {
   defineCommand,
   formatOutput,
   loadTargets,
+  oldFileOnlyBundles,
   Option,
   type OutputFormat,
   prepareRecordSelection,
@@ -192,26 +193,20 @@ async function runStatus(ctx: Context, fmt: OutputFormat, verbose: boolean): Pro
  * @throws {RegistryError} A `RECORD.*` error naming the file.
  */
 async function readRecordStatus(ctx: Context): Promise<Pick<StatusData, 'level' | 'records' | 'entries'>> {
-  const { selection, service, fs } = await prepareRecordSelection(ctx, { command: 'status' });
+  const prepared = await prepareRecordSelection(ctx, { command: 'status' });
+  const { selection, service, fs } = prepared;
   const entries = await service.listEntries(selection.locations);
-  const records: string[] = [];
-  for (const location of selection.locations) {
-    if (await fs.exists(location.path)) {
-      records.push(location.path);
+  const old = await oldFileOnlyBundles(ctx, prepared);
+  if (old !== undefined) {
+    for (const bundleId of old.bundleIds) {
+      entries.push({
+        bundleId, tool: UNKNOWN_TOOL_NAME, level: selection.level, version: old.lock.bundles[bundleId].version, record: old.lockPath, needsReinstall: false
+      });
     }
-  }
-  const old = selection.oldLockfile === undefined ? null : await readLockfile(selection.oldLockfile, ctx.fs);
-  if (old !== null && selection.oldLockfile !== undefined) {
-    const recorded = new Set(entries.map((row) => row.bundleId));
-    for (const [bundleId, entry] of Object.entries(old.bundles)) {
-      if (!recorded.has(bundleId)) {
-        entries.push({ bundleId, tool: 'unknown', level: selection.level, version: entry.version, record: selection.oldLockfile, needsReinstall: false });
-      }
-    }
-    records.push(selection.oldLockfile);
   }
   entries.sort((left, right) => compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool));
-  return { level: selection.level, records: records.length > 0 ? records : (await recordOutputFields(selection, fs)).records, entries };
+  const { level, records } = await recordOutputFields(selection, fs, old?.lockPath);
+  return { level, records, entries };
 }
 
 /**
