@@ -124,7 +124,9 @@ APM dependencies; the build warns when native translation is unavailable.
 More complete metadata increases archive size even without duplicate payloads.
 
 APH requires a companion root `apm.yml` to be valid YAML with the same package
-name/collection ID and version. Governed archives must inventory it as `metadata`;
+name/collection ID and version. Its optional `includes` field accepts `auto`,
+a list of strings, or an omitted/null value, matching APM 0.35.0; other values
+are rejected. Governed archives must inventory it as `metadata`;
 unlisted, tampered or installable-role companions are rejected. It is not
 passed to target writers, while unexpected nested files remain subject to normal
 unsupported-content checks.

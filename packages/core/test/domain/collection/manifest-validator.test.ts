@@ -164,6 +164,23 @@ describe('validateManifest', () => {
     ]);
   });
 
+  it.each([undefined, null, 'auto', ['.apm/instructions/rules.instructions.md']].map((includes) => ({ includes })))('accepts supported APM includes value $includes', ({ includes }) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes })));
+
+    expect(validateManifest(files, {}).id).toBe('example');
+  });
+
+  it.each(['invalid', 123, true, {}, ['.apm/instructions/rules.instructions.md', 123]].map((includes) => ({ includes })))('rejects unsupported APM includes value $includes', ({ includes }) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes })));
+
+    expect(() => validateManifest(files, {})).toThrowError(expect.objectContaining({
+      code: 'BUNDLE.MANIFEST_INVALID',
+      message: expect.stringContaining('apm.yml includes')
+    }));
+  });
+
   it('uses the root copy of a primitive when its APM mirror is also present', () => {
     const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
     files.set('agents/shared.agent.md', bytes('root copy'));

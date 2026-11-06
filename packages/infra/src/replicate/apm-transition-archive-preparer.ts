@@ -11,6 +11,7 @@ import {
   normalizePrimitiveKind,
   RegistryError,
   serializeReleaseManifest,
+  validateManifest,
 } from '@ai-primitives-hub/core';
 import AdmZip from 'adm-zip';
 import * as yaml from 'js-yaml';
@@ -226,22 +227,31 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
       throw new Error(`Transition mode found mismatched release version for ${candidate.bundleId}@${candidate.version}.`);
     }
     const existingApmName = isApmReady(files, candidate);
+    const sourceFiles = new Map(files.map((file) => [file.path, file.bytes]));
+    if (!existingDeploymentManifest && !existingApmName) {
+      sourceFiles.set(DEPLOYMENT_MANIFEST, candidate.manifestBytes);
+    }
+    const validatedManifest = validateManifest(sourceFiles, { expectedVersion: candidate.version });
+    if (validatedManifest.id !== candidate.manifest.id) {
+      throw new Error(`Release ZIP deployment manifest identity does not match the published release for ${candidate.bundleId}@${candidate.version}.`);
+    }
+    const manifest: Record<string, unknown> = { ...validatedManifest };
     if (existingApmName) {
       return { bytes: archive, packageName: existingApmName, translated: false, warnings: [] };
     }
-    const governed = candidate.manifest.formatVersion === 1;
-    const sourceFileRoles = getGovernedFileRoles(candidate.manifest);
+    const governed = manifest.formatVersion === 1;
+    const sourceFileRoles = getGovernedFileRoles(manifest);
 
-    const id = candidate.manifest.id;
+    const id = manifest.id;
     if (typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
       throw new Error(`Transition mode cannot use manifest id "${String(id)}" as an Agent Packages name.`);
     }
 
-    const items = getDeclaredItems(candidate.manifest);
+    const items = getDeclaredItems(manifest);
     const warnings: string[] = [];
     validateDeclaredFiles(items, files, warnings);
-    if ((Array.isArray(candidate.manifest.dependencies) && candidate.manifest.dependencies.length > 0)
-      || (isRecord(candidate.manifest.mcpServers) && Object.keys(candidate.manifest.mcpServers).length > 0)) {
+    if ((Array.isArray(manifest.dependencies) && manifest.dependencies.length > 0)
+      || (isRecord(manifest.mcpServers) && Object.keys(manifest.mcpServers).length > 0)) {
       warnings.push('APH dependency/MCP declarations remain in deployment-manifest.yml and x-aph metadata; they are not translated into native APM dependencies.');
     }
 
@@ -296,10 +306,10 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
     }
     const embeddedManifest = governed
       ? {
-        ...candidate.manifest,
+        ...manifest,
         files: createReleaseManifestFileInventory(inventoryEntries())
       }
-      : candidate.manifest;
+      : manifest;
     const apmManifest = createApmReleaseManifest(embeddedManifest);
     add(APM_MANIFEST, new TextEncoder().encode(serializeReleaseManifest(apmManifest)), 'metadata');
     if (governed) {
@@ -314,6 +324,7 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
     if (nativeCount === 0) {
       throw new Error('Transition mode could not create APM primitive files from this release archive.');
     }
+    validateManifest(output, { expectedId: id, expectedVersion: candidate.version });
     const bytes = buildZip([...output].map(([path, content]) => ({ path, bytes: content })));
     return { bytes, packageName: id, translated: true, warnings: [...new Set(warnings)] };
   }

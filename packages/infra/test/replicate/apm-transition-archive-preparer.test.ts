@@ -37,7 +37,7 @@ const manifest = {
     path: 'instructions/sample.instructions.md'
   }]
 };
-const manifestBytes = new TextEncoder().encode('id: sample-collection\nversion: 1.2.3\n');
+const manifestBytes = new TextEncoder().encode(serializeReleaseManifest(manifest));
 const candidate: ReplicationCandidate = {
   sourceId: 'sample-source',
   repo: 'acme/sample-repo',
@@ -134,6 +134,7 @@ describe('ApmTransitionArchivePreparer', () => {
     expect(files.get('.apm/instructions/sample.instructions.md')).toEqual(Buffer.from(rootFiles[1].bytes));
     expect(files.get('.apm/README.md')).toEqual(Buffer.from(rootFiles[2].bytes));
     expect(files.get('deployment-manifest.yml')).toEqual(Buffer.from(manifestBytes));
+    expect(validateManifest(files, {}).id).toBe('sample-collection');
     expect(files.has('.apm/deployment-manifest.yml')).toBe(false);
     expect(apmManifest).toContain('name: sample-collection');
     expect(apmManifest).toContain('version: 1.2.3');
@@ -145,15 +146,19 @@ describe('ApmTransitionArchivePreparer', () => {
     ['instruction', 'instructions/team/rules.instructions.md'],
     ['skill', 'skills/team/example/SKILL.md']
   ])('warns when translating a nested %s outside native APM discovery paths', async (kind, path) => {
+    const nestedManifest = {
+      ...manifest,
+      items: [{ id: 'nested-primitive', kind, path }]
+    };
+    const nestedManifestBytes = new TextEncoder().encode(serializeReleaseManifest(nestedManifest));
     const nestedCandidate = {
       ...candidate,
-      manifest: {
-        ...manifest,
-        items: [{ id: 'nested-primitive', kind, path }]
-      }
+      manifest: nestedManifest,
+      manifestBytes: nestedManifestBytes
     };
     const archive = buildZip([
-      ...rootFiles,
+      ...rootFiles.filter((file) => file.path !== 'deployment-manifest.yml'),
+      { path: 'deployment-manifest.yml', bytes: nestedManifestBytes },
       { path, bytes: new TextEncoder().encode('Nested primitive content.') }
     ]);
 
@@ -164,7 +169,7 @@ describe('ApmTransitionArchivePreparer', () => {
     ]);
   });
 
-  it('updates governed inventories so translated archives remain installable', async () => {
+  it.each(['unchanged', 'modified', 'missing'])('validates %s governed payload before regenerating inventories', async (scenario) => {
     const payload = [
       { ...rootFiles[1], role: 'installable' },
       { ...rootFiles[2], role: 'metadata' },
@@ -195,10 +200,27 @@ describe('ApmTransitionArchivePreparer', () => {
       }
     };
     const governedManifestBytes = new TextEncoder().encode(serializeReleaseManifest(governedManifest));
+    const archivePayload = payload
+      .filter((file) => scenario !== 'missing' || file.path !== 'LICENSE')
+      .map(({ path, bytes }) => ({
+        path,
+        bytes: scenario === 'modified' && path === rootFiles[1].path
+          ? new TextEncoder().encode('X'.repeat(bytes.byteLength))
+          : bytes
+      }));
     const archive = buildZip([
       { path: 'deployment-manifest.yml', bytes: governedManifestBytes },
-      ...payload.map(({ path, bytes }) => ({ path, bytes }))
+      ...archivePayload
     ]);
+
+    if (scenario !== 'unchanged') {
+      await expect(preparer.prepare({
+        ...candidate,
+        manifest: governedManifest,
+        manifestBytes: governedManifestBytes
+      }, archive)).rejects.toThrow(scenario === 'modified' ? /sha256/i : /missing from the archive/i);
+      return;
+    }
 
     const result = await preparer.prepare({
       ...candidate,
@@ -218,13 +240,60 @@ describe('ApmTransitionArchivePreparer', () => {
     expect(manifestFilePaths(embeddedManifest)).not.toContain('apm.yml');
   });
 
+  it('rejects APM-ready archives without a root deployment manifest', async () => {
+    const archive = buildZip([
+      { path: 'apm.yml', bytes: new TextEncoder().encode(serializeReleaseManifest({
+        name: manifest.id,
+        version: manifest.version,
+        dependencies: { apm: [], mcp: [] },
+        includes: 'auto'
+      })) },
+      { path: '.apm/instructions/sample.instructions.md', bytes: rootFiles[1].bytes }
+    ]);
+
+    await expect(preparer.prepare(candidate, archive)).rejects.toThrow(/deployment-manifest\.yml/);
+  });
+
+  it.each(['invalid', ['.apm/instructions/sample.instructions.md', 123]].map((includes) => ({ includes })))('rejects APM-ready archives with invalid includes $includes', async ({ includes }) => {
+    const archive = buildZip([
+      ...rootFiles,
+      { path: 'apm.yml', bytes: new TextEncoder().encode(serializeReleaseManifest({
+        name: manifest.id,
+        version: manifest.version,
+        dependencies: { apm: [], mcp: [] },
+        includes
+      })) },
+      { path: '.apm/instructions/sample.instructions.md', bytes: rootFiles[1].bytes }
+    ]);
+
+    await expect(preparer.prepare(candidate, archive)).rejects.toThrow(/apm\.yml includes/);
+  });
+
+  it('embeds a valid standalone deployment manifest when translating a legacy archive', async () => {
+    const archive = buildZip(rootFiles.filter((file) => file.path !== 'deployment-manifest.yml'));
+
+    const result = await preparer.prepare(candidate, archive);
+    const zip = new AdmZip(Buffer.from(result.bytes));
+    const files = new Map(zip.getEntries().map((entry) => [entry.entryName, entry.getData()]));
+
+    expect(result.translated).toBe(true);
+    expect(validateManifest(files, {}).id).toBe(manifest.id);
+    expect(files.get('deployment-manifest.yml')).toEqual(Buffer.from(manifestBytes));
+  });
+
   it('rejects source manifests that cannot produce an APM package', async () => {
+    const unsupportedManifest = { ...manifest, items: [{ id: 'hook', kind: 'hook', path: 'hooks/pre-commit.sh' }] };
+    const unsupportedManifestBytes = new TextEncoder().encode(serializeReleaseManifest(unsupportedManifest));
     const unsupportedCandidate = {
       ...candidate,
-      manifest: { ...manifest, items: [{ id: 'hook', kind: 'hook', path: 'hooks/pre-commit.sh' }] }
+      manifest: unsupportedManifest,
+      manifestBytes: unsupportedManifestBytes
     };
 
-    await expect(preparer.prepare(unsupportedCandidate, buildZip(rootFiles)))
+    await expect(preparer.prepare(unsupportedCandidate, buildZip([
+      ...rootFiles.filter((file) => file.path !== 'deployment-manifest.yml'),
+      { path: 'deployment-manifest.yml', bytes: unsupportedManifestBytes }
+    ])))
       .rejects.toThrow(/does not support|requires at least one supported primitive/i);
   });
 

@@ -279,6 +279,14 @@ const validateCompanionApmManifest = (files: ExtractedFiles, id: string, version
       'BUNDLE.MANIFEST_INVALID'
     );
   }
+  const includes = manifest.includes;
+  if (includes !== undefined && includes !== null && includes !== 'auto'
+    && !(Array.isArray(includes) && includes.every((path: unknown) => typeof path === 'string'))) {
+    throw new ManifestValidationError(
+      `${APM_MANIFEST_FILENAME} includes must be "auto" or a list of strings when present`,
+      'BUNDLE.MANIFEST_INVALID'
+    );
+  }
 };
 
 /**
