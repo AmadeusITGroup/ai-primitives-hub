@@ -16,6 +16,9 @@ import {
 import AdmZip from 'adm-zip';
 import * as yaml from 'js-yaml';
 import {
+  readZipEntryModes,
+} from '../extractors/zip-bundle-extractor';
+import {
   buildZip,
 } from '../writers/zip-writer';
 
@@ -236,11 +239,20 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
       throw new Error(`Release ZIP deployment manifest identity does not match the published release for ${candidate.bundleId}@${candidate.version}.`);
     }
     const manifest: Record<string, unknown> = { ...validatedManifest };
+    const sourceFileRoles = getGovernedFileRoles(manifest);
+    for (const [path, role] of sourceFileRoles) {
+      if (role === 'ignored' && path.startsWith(APM_ROOT)) {
+        throw new RegistryError({
+          code: 'BUNDLE.APM_UNSUPPORTED_CONTENT',
+          message: `Transition mode cannot publish ignored content inside .apm/: "${path}".`
+        });
+      }
+    }
     if (existingApmName) {
       return { bytes: archive, packageName: existingApmName, translated: false, warnings: [] };
     }
     const governed = manifest.formatVersion === 1;
-    const sourceFileRoles = getGovernedFileRoles(manifest);
+    const sourceModes = readZipEntryModes(archive);
 
     const id = manifest.id;
     if (typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
@@ -257,7 +269,8 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
 
     const output = new Map<string, Uint8Array>();
     const outputFileRoles = new Map<string, ReleaseManifestFileRole>();
-    const add = (path: string, contentBytes: Uint8Array, role?: ReleaseManifestFileRole): void => {
+    const outputModes = new Map<string, number>();
+    const add = (path: string, contentBytes: Uint8Array, role?: ReleaseManifestFileRole, mode?: number): void => {
       const previous = output.get(path);
       if (previous && !Buffer.from(previous).equals(Buffer.from(contentBytes))) {
         throw new Error(`Transition mode found conflicting content for ZIP path "${path}".`);
@@ -265,6 +278,13 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
       const previousRole = outputFileRoles.get(path);
       if (previousRole !== undefined && role !== undefined && previousRole !== role) {
         throw new Error(`Transition mode found conflicting inventory roles for ZIP path "${path}".`);
+      }
+      const previousMode = outputModes.get(path);
+      if (previousMode !== undefined && mode !== undefined && previousMode !== mode) {
+        throw new Error(`Transition mode found conflicting permissions for ZIP path "${path}".`);
+      }
+      if (mode !== undefined) {
+        outputModes.set(path, mode);
       }
       if (role !== undefined) {
         outputFileRoles.set(path, role);
@@ -288,7 +308,7 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
         continue;
       }
       if (file.path === DEPLOYMENT_MANIFEST) {
-        add(file.path, file.bytes);
+        add(file.path, file.bytes, undefined, sourceModes.get(file.path));
         continue;
       }
       const role = sourceFileRoles.get(file.path);
@@ -298,8 +318,11 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
           message: `Transition mode cannot find a governed inventory role for "${file.path}".`
         });
       }
-      add(file.path, file.bytes, role);
-      add(translatedPath(file.path), file.bytes, role);
+      const mode = sourceModes.get(file.path);
+      add(file.path, file.bytes, role, mode);
+      if (role !== 'ignored') {
+        add(translatedPath(file.path), file.bytes, role, mode);
+      }
     }
     if (!existingDeploymentManifest) {
       add(DEPLOYMENT_MANIFEST, candidate.manifestBytes);
@@ -325,7 +348,7 @@ export class ApmTransitionArchivePreparer implements ReplicationArchivePreparer 
       throw new Error('Transition mode could not create APM primitive files from this release archive.');
     }
     validateManifest(output, { expectedId: id, expectedVersion: candidate.version });
-    const bytes = buildZip([...output].map(([path, content]) => ({ path, bytes: content })));
+    const bytes = buildZip([...output].map(([path, content]) => ({ path, bytes: content, mode: outputModes.get(path) })));
     return { bytes, packageName: id, translated: true, warnings: [...new Set(warnings)] };
   }
 }

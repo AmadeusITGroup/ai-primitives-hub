@@ -16,6 +16,9 @@ import {
   it,
 } from 'vitest';
 import {
+  ZipBundleExtractor,
+} from '../../src/extractors/zip-bundle-extractor';
+import {
   ApmTransitionArchivePreparer,
 } from '../../src/replicate/apm-transition-archive-preparer';
 import {
@@ -169,7 +172,7 @@ describe('ApmTransitionArchivePreparer', () => {
     ]);
   });
 
-  it.each(['unchanged', 'modified', 'missing'])('validates %s governed payload before regenerating inventories', async (scenario) => {
+  it.each(['unchanged', 'modified', 'missing', 'ignored', 'ignored-apm'])('validates %s governed payload before regenerating inventories', async (scenario) => {
     const payload = [
       { ...rootFiles[1], role: 'installable' },
       { ...rootFiles[2], role: 'metadata' },
@@ -180,6 +183,13 @@ describe('ApmTransitionArchivePreparer', () => {
         role: 'metadata'
       }
     ];
+    if (scenario === 'ignored' || scenario === 'ignored-apm') {
+      payload.push({
+        path: `${scenario === 'ignored-apm' ? '.apm/' : ''}instructions/ignored.instructions.md`,
+        bytes: new TextEncoder().encode('Do not install these instructions.'),
+        role: 'ignored'
+      });
+    }
     const governedManifest = {
       ...manifest,
       formatVersion: 1,
@@ -213,12 +223,21 @@ describe('ApmTransitionArchivePreparer', () => {
       ...archivePayload
     ]);
 
-    if (scenario !== 'unchanged') {
+    if (scenario === 'modified' || scenario === 'missing') {
       await expect(preparer.prepare({
         ...candidate,
         manifest: governedManifest,
         manifestBytes: governedManifestBytes
       }, archive)).rejects.toThrow(scenario === 'modified' ? /sha256/i : /missing from the archive/i);
+      return;
+    }
+
+    if (scenario === 'ignored-apm') {
+      await expect(preparer.prepare({
+        ...candidate,
+        manifest: governedManifest,
+        manifestBytes: governedManifestBytes
+      }, archive)).rejects.toThrow(/ignored.*\.apm/i);
       return;
     }
 
@@ -238,6 +257,51 @@ describe('ApmTransitionArchivePreparer', () => {
     expect(manifestFilePaths(embeddedManifest))
       .toContain('.apm/instructions/sample.instructions.md');
     expect(manifestFilePaths(embeddedManifest)).not.toContain('apm.yml');
+    if (scenario === 'ignored') {
+      expect(files.has('instructions/ignored.instructions.md')).toBe(true);
+      expect(files.has('.apm/instructions/ignored.instructions.md')).toBe(false);
+    }
+  });
+
+  it('preserves skill script and resource permissions in both translated copies', async () => {
+    const skillManifest = {
+      ...manifest,
+      items: [{ id: 'sample-skill', kind: 'skill', path: 'skills/sample/SKILL.md' }]
+    };
+    const skillManifestBytes = new TextEncoder().encode(serializeReleaseManifest(skillManifest));
+    const skillFiles = [
+      { path: 'skills/sample/SKILL.md', bytes: new TextEncoder().encode('# Sample skill'), mode: 0o644 },
+      { path: 'skills/sample/run.sh', bytes: new TextEncoder().encode('#!/bin/sh\nexit 0\n'), mode: 0o755 },
+      { path: 'skills/sample/references/private.md', bytes: new TextEncoder().encode('Skill reference'), mode: 0o640 }
+    ];
+    const archive = buildZip([
+      { path: 'deployment-manifest.yml', bytes: skillManifestBytes },
+      ...skillFiles
+    ]);
+
+    const result = await preparer.prepare({
+      ...candidate,
+      manifest: skillManifest,
+      manifestBytes: skillManifestBytes
+    }, archive);
+    const files = await new ZipBundleExtractor().extract(result.bytes);
+
+    for (const file of skillFiles) {
+      for (const prefix of ['', '.apm/']) {
+        expect(files.get(`${prefix}${file.path}`)?.mode).toBe(file.mode);
+        expect(files.get(`${prefix}${file.path}`)).toEqual(Buffer.from(file.bytes));
+      }
+    }
+  });
+
+  it('rejects conflicting source permissions for one translated path', async () => {
+    const archive = buildZip([
+      ...rootFiles.filter((file) => file.path !== rootFiles[1].path),
+      { ...rootFiles[1], mode: 0o755 },
+      { path: `.apm/${rootFiles[1].path}`, bytes: rootFiles[1].bytes, mode: 0o644 }
+    ]);
+
+    await expect(preparer.prepare(candidate, archive)).rejects.toThrow(/conflicting.*permissions/i);
   });
 
   it('rejects APM-ready archives without a root deployment manifest', async () => {
