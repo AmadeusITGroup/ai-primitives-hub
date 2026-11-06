@@ -35,6 +35,8 @@ import {
   type SkippedBundleContent,
   type TargetMapping,
   type TargetWriter,
+  toLockfileBundleEntry,
+  toLockfileSourceEntry,
   TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
@@ -118,8 +120,6 @@ import {
   resolveTarget,
   resolveTargetName,
   toCommandRecordError,
-  toLockfileBundleEntry,
-  toLockfileSourceEntry,
   validateInputs,
 } from '../framework';
 
