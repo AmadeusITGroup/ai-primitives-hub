@@ -92,7 +92,7 @@ At repository scope, `install` writes a format `3.0.0` install record at the git
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
 - `prompt-registry.lock.json` and user-scope installs are left as they are.
 
-`uninstall` removes the target's entry and its files, keeps files another entry lists, and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`.
+`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`.
 
 Commands that use the record end their text output with `Record: <level> <path>`; their `-o json` data adds `level` and `records`.
 

@@ -235,9 +235,10 @@ export class BundleInstaller {
   ): Promise<void> {
     const group = writerGroupFor(this.records.hostTool, routeKeys);
     const root = prepared.location.root;
-    const changes: RecordInstallResult[] = [];
+    let change: RecordInstallResult;
+    const warnings: string[] = [];
     try {
-      changes.push(await this.records.service.recordInstall({
+      change = await this.records.service.recordInstall({
         location: prepared.location,
         bundleId: bundle.id,
         version: bundle.version,
@@ -247,22 +248,27 @@ export class BundleInstaller {
         writtenPaths: written,
         workspaceRoot: prepared.workspaceRoot,
         syncSiblings: (tool) => group.includes(tool)
-      }));
+      });
+      warnings.push(...change.warnings);
       if (inPlace !== undefined && inPlace.previousBundleId !== bundle.id && inPlace.location !== undefined) {
-        // The new version has another bundle id: the old id's host entry goes.
-        changes.push(await this.records.service.recordUninstall({ location: inPlace.location, bundleId: inPlace.previousBundleId, tool: this.records.hostTool }));
+        // The new version has another bundle id: the old id's host entry goes,
+        // with its files except shared and modified ones (NFR4.13).
+        const removed = await this.records.service.uninstallEntry({
+          location: inPlace.location, bundleId: inPlace.previousBundleId, tool: this.records.hostTool, keep: inPlace.modified
+        });
+        warnings.push(...removed.warnings);
       }
     } catch (error) {
       this.rethrowRecordError(error, written, root);
     }
-    this.reportOutOfDateSiblings(bundle.id, changes[0].siblings);
+    this.reportOutOfDateSiblings(bundle.id, change.siblings);
     await this.retireOldEntry(prepared.workspaceRoot, bundle.id, root);
     const modified = inPlace?.modified ?? new Set<string>();
-    const removal = await this.records.service.deleteSupersededAfterAll(changes.map((change) => ({
+    const removal = await this.records.service.deleteSupersededAfterAll([{
       location: change.location,
       deletedFiles: change.deletedFiles.filter((file) => !modified.has(file))
-    }))).catch((error: unknown) => this.rethrowRecordError(error, [], root));
-    for (const warning of [...changes.flatMap((change) => change.warnings), ...removal.warnings]) {
+    }]).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+    for (const warning of [...warnings, ...removal.warnings]) {
       this.logger.warn(`[BundleInstaller] ${warning}`);
     }
     this.logger.debug(`Recorded ${bundle.id} for ${this.records.hostTool} in ${prepared.location.path}`);

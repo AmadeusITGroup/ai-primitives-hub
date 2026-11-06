@@ -41,6 +41,9 @@ import {
   removeExcluded,
 } from './git-root';
 import {
+  findModifiedFiles,
+} from './modified-files';
+import {
   recordIdentityOf,
 } from './record-identity';
 import type {
@@ -145,6 +148,32 @@ export interface LocatedToolEntry {
   /** Tool key. */
   tool: string;
   entry: ToolEntry;
+}
+
+/** Input of {@link InstallRecordService.uninstallEntry}. */
+export interface UninstallEntryInput {
+  /** A record file holding the entry; for a repository file both files at its root are read. */
+  location: RecordLocation;
+  /** Bundle id. */
+  bundleId: string;
+  /** Tool key of the entry. */
+  tool: string;
+  /** More root-relative paths to keep, e.g. files found modified before an update wrote over them. */
+  keep?: ReadonlySet<string>;
+}
+
+/** Outcome of {@link InstallRecordService.uninstallEntry}. */
+export interface UninstallEntryResult {
+  /** The saved change from `recordUninstall`. */
+  change: RecordInstallResult;
+  /** Root-relative files that were removed. */
+  deleted: string[];
+  /** Root-relative files kept: listed by another entry, then modified, missing or in `keep` (NFR4.9, NFR4.13). */
+  kept: string[];
+  /** The kept files that are still on disk with content that no longer matches the recorded checksum, sorted. */
+  modified: string[];
+  /** Non-fatal problems from the saves and the deletions, for the caller to log. */
+  warnings: string[];
 }
 
 /** Outcome of {@link InstallRecordService.deleteSuperseded}. */
@@ -678,6 +707,46 @@ export class InstallRecordService {
       location: changed[0].file.location,
       warnings,
       siblings: []
+    };
+  }
+
+  /**
+   * Uninstall one tool's entry and delete its files, keeping files another
+   * entry lists, files changed or missing since the install, and `keep`. The
+   * `info/exclude` update for a local-only file stays with the caller.
+   * @param input - The file holding the entry, the bundle id, the tool and extra paths to keep.
+   * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND`, or any `RECORD.*` load or save error.
+   */
+  public async uninstallEntry(input: UninstallEntryInput): Promise<UninstallEntryResult> {
+    const { location, bundleId, tool } = input;
+    const other = this.otherLocation(location);
+    const recorded: RecordedFile[] = [];
+    for (const file of other === undefined ? [location] : [location, other]) {
+      const { record } = await this.store.load(file);
+      const bundle = Object.hasOwn(record.bundles, bundleId) ? record.bundles[bundleId] : undefined;
+      recorded.push(...(bundle !== undefined && Object.hasOwn(bundle.tools, tool) ? bundle.tools[tool].files : []));
+    }
+    const changedOrMissing = new Set(await findModifiedFiles(this.fs, location.root, recorded));
+    const change = await this.recordUninstall({ location, bundleId, tool });
+    const isKept = (recordedPath: string): boolean => changedOrMissing.has(recordedPath) || input.keep?.has(recordedPath) === true;
+    const removal = await this.deleteSuperseded({
+      location: change.location,
+      deletedFiles: change.deletedFiles.filter((recordedPath) => !isKept(recordedPath))
+    });
+    const keptOwn = change.deletedFiles.filter((recordedPath) => isKept(recordedPath));
+    const modified: string[] = [];
+    for (const recordedPath of keptOwn.filter((candidate) => changedOrMissing.has(candidate))) {
+      const stat = await this.fs.lstat(path.join(change.location.root, ...recordedPath.split('/'))).catch(() => undefined);
+      if (stat !== undefined) {
+        modified.push(recordedPath);
+      }
+    }
+    return {
+      change,
+      deleted: removal.deleted,
+      kept: [...change.keptSharedFiles, ...keptOwn],
+      modified,
+      warnings: [...change.warnings, ...removal.warnings]
     };
   }
 
