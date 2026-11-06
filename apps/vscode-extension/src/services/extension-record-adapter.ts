@@ -45,10 +45,12 @@ import {
   writeLockfile,
 } from '@ai-primitives-hub/app';
 import {
+  describeRecordError,
   isRecordError,
   type LockfileSourceDescriptor,
   type RecordFs,
   type RecordLocation,
+  recordErrorDetails,
   type RegistrySource,
   type TargetType,
   type ToolEntry,
@@ -353,12 +355,9 @@ export class ExtensionRecordAdapter {
     if (wasErrorShown(error)) {
       return true;
     }
-    const file = typeof error.context?.file === 'string' ? error.context.file : undefined;
-    const detail = typeof error.context?.detail === 'string' ? error.context.detail : undefined;
+    const { file } = recordErrorDetails(error);
     const message = [
-      error.message,
-      file === undefined ? '' : `File: ${file}.`,
-      detail === undefined ? '' : `Reason: ${detail}.`,
+      describeRecordError(error),
       written.length === 0 ? '' : `These files were written and left in place: ${written.join(', ')}.`,
       error.hint ?? ''
     ].filter((part) => part !== '').join(' ');
