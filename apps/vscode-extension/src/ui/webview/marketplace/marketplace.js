@@ -19,7 +19,8 @@
     { id: 'skills', label: 'Skills', icon: 'fa-puzzle-piece' },
     { id: 'prompts', label: 'Prompts', icon: 'fa-file-lines' },
     { id: 'mcpServers', label: 'MCP Servers', icon: 'fa-plug' },
-    { id: 'instructions', label: 'Instructions', icon: 'fa-list-check' }
+    { id: 'instructions', label: 'Instructions', icon: 'fa-list-check' },
+    { id: 'plugins', label: 'Plugins', icon: 'fa-plug-circle-check' }
   ];
   let sortBy = 'relevance';
   // Natural default direction per field: best/newest first, names A→Z.
@@ -507,8 +508,8 @@
     if (selectedContentTypes.length === 0) {
       text.textContent = 'Primitives';
     } else if (selectedContentTypes.length === 1) {
-      var labels = { agents: 'Agents', skills: 'Skills', prompts: 'Prompts', mcpServers: 'MCP Servers', instructions: 'Instructions' };
-      text.textContent = labels[selectedContentTypes[0]] || selectedContentTypes[0];
+      var selected = contentTypes.find((ct) => ct.id === selectedContentTypes[0]);
+      text.textContent = selected ? selected.label : selectedContentTypes[0];
     } else {
       text.textContent = selectedContentTypes.length + ' types';
     }
@@ -1189,6 +1190,7 @@
         + renderContentItem('fa-list-check', 'Instruction', bundle.contentBreakdown ? bundle.contentBreakdown.instructions || 0 : 0)
         + renderContentItem('fa-robot', 'Agent', bundle.contentBreakdown ? bundle.contentBreakdown.agents || 0 : 0)
         + renderContentItem('fa-puzzle-piece', 'Skill', bundle.contentBreakdown ? bundle.contentBreakdown.skills || 0 : 0)
+        + renderContentItem('fa-plug-circle-check', 'Plugin', bundle.contentBreakdown ? bundle.contentBreakdown.plugins || 0 : 0)
         + renderContentItem('fa-plug', 'MCP Server', bundle.contentBreakdown ? bundle.contentBreakdown.mcpServers || 0 : 0)
         + '</div>'
 

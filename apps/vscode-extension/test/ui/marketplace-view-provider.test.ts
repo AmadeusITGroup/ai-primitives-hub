@@ -388,6 +388,24 @@ suite('MarketplaceViewProvider - Dynamic Filtering', () => {
       assert.strictEqual(filtered.length, 0);
     });
 
+    test('should select plugin-only and mixed bundles with the plugins filter', () => {
+      const withPlugins = [
+        ...bundlesWithContent,
+        {
+          ...mockBundles[0],
+          id: 'plugin-only',
+          contentBreakdown: { prompts: 0, instructions: 0, agents: 0, skills: 0, plugins: 1, mcpServers: 0 }
+        },
+        {
+          ...mockBundles[1],
+          id: 'plugin-mixed',
+          contentBreakdown: { prompts: 1, instructions: 0, agents: 0, skills: 0, plugins: 1, mcpServers: 0 }
+        }
+      ];
+      const filtered = filterBundlesByContentType(withPlugins, ['plugins']);
+      assert.deepStrictEqual(filtered.map((b) => b.id), ['plugin-only', 'plugin-mixed']);
+    });
+
     test('should select all content types and return all bundles with any content', () => {
       const filtered = filterBundlesByContentType(
         bundlesWithContent,
