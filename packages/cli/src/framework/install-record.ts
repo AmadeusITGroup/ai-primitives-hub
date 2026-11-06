@@ -12,9 +12,10 @@
  */
 import * as path from 'node:path';
 import {
-  InstallRecordService,
+  createInstallRecordServices,
+  type InstallRecordService,
+  type InstallRecordServices,
   type RecordSourceInput,
-  RecordStore,
 } from '@ai-primitives-hub/app';
 import {
   compareCodeUnits,
@@ -29,7 +30,6 @@ import {
 import {
   GitInfoExclude,
   NodeRecordFs,
-  RecordSchemaValidator,
 } from '@ai-primitives-hub/infra';
 import {
   CLI_VERSION,
@@ -109,6 +109,46 @@ export const toInstallRecordError = (error: RegistryError, written?: readonly st
   toCommandRecordError('install', error, written);
 
 /**
+ * Record store and service for one CLI command, stamped with {@link CLI_RECORD_GENERATED_BY}.
+ * @param fs - Filesystem port.
+ */
+const createRecordServices = (fs: RecordFs): InstallRecordServices =>
+  createInstallRecordServices({ generatedBy: CLI_RECORD_GENERATED_BY, fs });
+
+/** Both repository record files for a target, and the one its commit mode names. */
+interface RepositoryRecords extends InstallRecordServices {
+  /** Workspace root the writer installs into (where merged MCP config files sit). */
+  workspaceRoot: string;
+  /** The committed record file at the git root. */
+  committed: RecordLocation;
+  /** The local-only record file at the git root. */
+  localOnly: RecordLocation;
+  /** The file the target's commit mode names (BR2.2). */
+  location: RecordLocation;
+}
+
+/**
+ * Build the record services and locate both repository record files for a
+ * repository-scope target (BR2.1, BR2.2). Loads nothing.
+ * @param ctx - CLI context; `ctx.cwd()` is the fallback start folder.
+ * @param target - Effective repository-scope target.
+ * @param fs - Filesystem port.
+ * @returns The services, the workspace root and the record locations.
+ */
+const openRepositoryRecords = async (ctx: Context, target: Target, fs: RecordFs): Promise<RepositoryRecords> => {
+  const services = createRecordServices(fs);
+  const workspaceRoot = target.rootPath ?? ctx.cwd();
+  const [committed, localOnly] = await services.store.resolveRepository({ start: workspaceRoot });
+  return {
+    ...services,
+    workspaceRoot,
+    committed,
+    localOnly,
+    location: target.commitMode === 'local-only' ? localOnly : committed
+  };
+};
+
+/**
  * Load and check both repository record files before anything is written
  * (W1 steps 2–4, BR3.5). Call only for repository-scope targets.
  * @param ctx - CLI context; `ctx.cwd()` is the fallback start folder.
@@ -122,14 +162,11 @@ export const prepareRepositoryRecord = async (
   target: Target,
   fs: RecordFs = new NodeRecordFs()
 ): Promise<PreparedRepositoryRecord> => {
-  const store = new RecordStore({ fs, validator: new RecordSchemaValidator(), generatedBy: CLI_RECORD_GENERATED_BY });
-  const service = new InstallRecordService({ store, fs });
-  const workspaceRoot = target.rootPath ?? ctx.cwd();
   try {
-    const [committed, localOnly] = await store.resolveRepository({ start: workspaceRoot });
-    await store.load(committed);
-    await store.load(localOnly);
-    return { location: target.commitMode === 'local-only' ? localOnly : committed, service, workspaceRoot };
+    const records = await openRepositoryRecords(ctx, target, fs);
+    await records.store.load(records.committed);
+    await records.store.load(records.localOnly);
+    return { location: records.location, service: records.service, workspaceRoot: records.workspaceRoot };
   } catch (error) {
     throw isRecordError(error) ? toInstallRecordError(error) : error;
   }
@@ -216,14 +253,11 @@ export const prepareRepositoryUninstall = async (
   target: Target,
   fs: RecordFs = new NodeRecordFs()
 ): Promise<PreparedRepositoryUninstall> => {
-  const store = new RecordStore({ fs, validator: new RecordSchemaValidator(), generatedBy: CLI_RECORD_GENERATED_BY });
-  const service = new InstallRecordService({ store, fs });
-  const workspaceRoot = target.rootPath ?? ctx.cwd();
   try {
-    const [committed, localOnly] = await store.resolveRepository({ start: workspaceRoot });
+    const { store, service, workspaceRoot, committed, localOnly, location } = await openRepositoryRecords(ctx, target, fs);
     const entries = new Map<string, string[]>();
-    for (const location of [committed, localOnly]) {
-      const { record } = await store.load(location);
+    for (const recordLocation of [committed, localOnly]) {
+      const { record } = await store.load(recordLocation);
       for (const [bundleId, bundle] of Object.entries(record.bundles)) {
         if (!Object.hasOwn(bundle.tools, target.type)) {
           continue;
@@ -233,7 +267,7 @@ export const prepareRepositoryUninstall = async (
       }
     }
     return {
-      location: target.commitMode === 'local-only' ? localOnly : committed,
+      location,
       service,
       tool: target.type,
       // Same adapter and root the repository-scope writer used at install time.

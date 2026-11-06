@@ -19,7 +19,8 @@
  */
 import * as path from 'node:path';
 import {
-  RecordStore,
+  createInstallRecordServices,
+  type RecordStore,
 } from '@ai-primitives-hub/app';
 import {
   type BundleRecord,
@@ -33,7 +34,6 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   NodeRecordFs,
-  RecordSchemaValidator,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import type {
@@ -116,7 +116,7 @@ export class InstallRecordListing {
 
   public constructor(options: InstallRecordListingOptions = {}) {
     this.fs = options.fs ?? new NodeRecordFs();
-    this.store = new RecordStore({ fs: this.fs, validator: new RecordSchemaValidator(), generatedBy: getExtensionRecordGeneratedBy() });
+    this.store = createInstallRecordServices({ fs: this.fs, generatedBy: getExtensionRecordGeneratedBy() }).store;
     this.showProblem = options.showProblem ?? ((message) => {
       void vscode.window.showWarningMessage(message);
     });
