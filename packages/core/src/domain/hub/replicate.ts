@@ -43,7 +43,7 @@ export interface ReplicationPublisherPort {
  * @param repository
  */
 export function requireAgentPackagesRepository(repository: ReplicationRepository): void {
-  if (repository.packageType !== 'agentpackages') {
+  if (repository.packageType.toLowerCase() !== 'agentpackages') {
     throw new RegistryError({
       code: 'ARTIFACTORY.CONFIG_INVALID',
       message: `APM transition requires an Agent Packages repository. Repository "${repository.key}" reports packageType "${repository.packageType}". No artifacts were published.`

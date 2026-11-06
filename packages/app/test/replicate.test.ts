@@ -327,6 +327,22 @@ describe('replicateHub', () => {
     expect(result).not.toHaveProperty('targetRepository');
   });
 
+  it.each(['AgentPackages', 'AGENTPACKAGES'])('accepts case-insensitive packageType %s from an SDK inspector', async (packageType) => {
+    const inspector: ReplicationRepositoryInspector = {
+      inspect: () => Promise.resolve({ key: 'root', packageType, rclass: 'local' })
+    };
+    const publisher: ReplicationPublisherPort = { publish: vi.fn(() => Promise.resolve('uploaded' as const)) };
+    const preparer: ReplicationArchivePreparer = {
+      prepare: () => Promise.resolve({ bytes: new Uint8Array([1, 2, 3]), packageName: 'bundle', translated: false, warnings: [] })
+    };
+    const result = await replicateHub({
+      sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest', publish: true, apmTransition: true
+    }, sourceFor([c]), publisher, preparer, inspector);
+    expect(result.index.bundles).toHaveLength(1);
+    expect(publisher.publish).toHaveBeenCalled();
+  });
+
   it('shares an identical Agent Packages artifact across distinct Hub IDs', async () => {
     const duplicate = { ...c, repo: 'owner/other-repo', bundleId: 'owner-other-repo-bundle' };
     const archiveBytes = new Uint8Array([9, 8, 7]);
