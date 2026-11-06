@@ -16,6 +16,7 @@ import {
   type InstallRecordService,
   type InstallRecordServices,
   type RecordSourceInput,
+  resolveExcludeFile,
 } from '@ai-primitives-hub/app';
 import {
   compareCodeUnits,
@@ -49,6 +50,11 @@ export interface PreparedRepositoryRecord {
   service: InstallRecordService;
   /** Workspace root the writer installs into (where merged MCP config files sit). */
   workspaceRoot: string;
+  /**
+   * `info/exclude` section the repository-scope writer lists local-only files
+   * in: the same file the record store adds the local-only record to.
+   */
+  exclusion: RepositoryExclusion;
 }
 
 /** What `recordRepositoryInstall` records. */
@@ -125,26 +131,39 @@ interface RepositoryRecords extends InstallRecordServices {
   localOnly: RecordLocation;
   /** The file the target's commit mode names (BR2.2). */
   location: RecordLocation;
+  /** The `info/exclude` section at the git root, in the file the record store uses (NFR4.6). */
+  exclusion: RepositoryExclusion;
 }
 
 /**
  * Build the record services and locate both repository record files for a
  * repository-scope target (BR2.1, BR2.2). Loads nothing.
+ *
+ * The exclusion edits the `info/exclude` file app's `resolveExcludeFile`
+ * finds (following `gitdir:` and `commondir` in a worktree), so the installed
+ * files' entries and the local-only record's entry share one file. Without a
+ * trusted git directory it keeps the writer's default, `<workspace>/.git/info/exclude`.
  * @param ctx - CLI context; `ctx.cwd()` is the fallback start folder.
  * @param target - Effective repository-scope target.
  * @param fs - Filesystem port.
- * @returns The services, the workspace root and the record locations.
+ * @returns The services, the workspace root, the record locations and the exclusion.
  */
 const openRepositoryRecords = async (ctx: Context, target: Target, fs: RecordFs): Promise<RepositoryRecords> => {
   const services = createRecordServices(fs);
   const workspaceRoot = target.rootPath ?? ctx.cwd();
   const [committed, localOnly] = await services.store.resolveRepository({ start: workspaceRoot });
+  // An unreadable `.git` keeps the default file; the record store warns about it on save.
+  const excludeFile = await resolveExcludeFile(fs, committed.root).catch(() => ({ warning: 'unreadable' }));
   return {
     ...services,
     workspaceRoot,
     committed,
     localOnly,
-    location: target.commitMode === 'local-only' ? localOnly : committed
+    location: target.commitMode === 'local-only' ? localOnly : committed,
+    exclusion: 'file' in excludeFile
+      // Exclude patterns are relative to the work tree root, which is the record root.
+      ? new GitInfoExclude({ fs: ctx.fs, workspaceRoot: committed.root, excludePath: excludeFile.file })
+      : new GitInfoExclude({ fs: ctx.fs, workspaceRoot })
   };
 };
 
@@ -166,7 +185,12 @@ export const prepareRepositoryRecord = async (
     const records = await openRepositoryRecords(ctx, target, fs);
     await records.store.load(records.committed);
     await records.store.load(records.localOnly);
-    return { location: records.location, service: records.service, workspaceRoot: records.workspaceRoot };
+    return {
+      location: records.location,
+      service: records.service,
+      workspaceRoot: records.workspaceRoot,
+      exclusion: records.exclusion
+    };
   } catch (error) {
     throw isRecordError(error) ? toInstallRecordError(error) : error;
   }
@@ -254,7 +278,7 @@ export const prepareRepositoryUninstall = async (
   fs: RecordFs = new NodeRecordFs()
 ): Promise<PreparedRepositoryUninstall> => {
   try {
-    const { store, service, workspaceRoot, committed, localOnly, location } = await openRepositoryRecords(ctx, target, fs);
+    const { store, service, committed, localOnly, location, exclusion } = await openRepositoryRecords(ctx, target, fs);
     const entries = new Map<string, string[]>();
     for (const recordLocation of [committed, localOnly]) {
       const { record } = await store.load(recordLocation);
@@ -270,8 +294,8 @@ export const prepareRepositoryUninstall = async (
       location,
       service,
       tool: target.type,
-      // Same adapter and root the repository-scope writer used at install time.
-      exclusion: new GitInfoExclude({ fs: ctx.fs, workspaceRoot }),
+      // Same exclude file the install wrote the local-only entries to.
+      exclusion,
       entries: new Map([...entries].toSorted(([left], [right]) => compareCodeUnits(left, right)))
     };
   } catch (error) {

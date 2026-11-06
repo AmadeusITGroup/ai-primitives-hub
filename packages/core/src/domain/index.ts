@@ -36,6 +36,7 @@ export * from './install/record-types';
 export * from './install/record-object';
 export * from './install/record-errors';
 export * from './install/record-path';
+export * from './install/git-exclude';
 export * from './install/record-parse';
 export * from './registry/types';
 export * from './registry/guards';
