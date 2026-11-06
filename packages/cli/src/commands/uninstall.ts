@@ -7,7 +7,8 @@
  *   ai-primitives-hub uninstall --all              (all bundles for target)
  *
  * Repository-scope `<bundle-id>` and `--all` uninstalls first use the 3.0.0
- * install record; bundles not recorded there fall back to the old store.
+ * install record, keeping files another entry lists or that were edited since
+ * the install; bundles not recorded there fall back to the old store.
  *
  * `uninstall --lockfile <ai-primitives-hub.*.lock.json>` removes only the
  * target tool's entries, and `uninstall <id>` without `--target` is refused
@@ -631,7 +632,7 @@ async function performRecordBundleUninstall(
 }
 
 /**
- * `uninstall --lockfile <record file>`: remove only the target tool's entries, keeping files another entry lists.
+ * `uninstall --lockfile <record file>`: remove only the target tool's entries, keeping files another entry lists or that were edited since the install.
  * @param run Options, target, context and output format.
  * @param prepared The selected record file, loaded and checked.
  * @returns Exit code.

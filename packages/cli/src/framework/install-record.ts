@@ -273,7 +273,7 @@ export interface RecordedRepositoryUninstall {
   lockfile: string;
   /** Root-relative files that were removed. */
   removed: string[];
-  /** Root-relative files kept because another entry still lists them. */
+  /** Root-relative files kept: another entry still lists them, or they were changed or missing since the install. */
   kept: string[];
   /** Non-fatal problems: skipped deletions or a record file that could not be removed. */
   warnings: string[];
@@ -310,7 +310,8 @@ export const prepareRepositoryUninstall = async (
 };
 
 /**
- * Remove one bundle's entry for the target's type, then delete its files except those another entry lists.
+ * Remove one bundle's entry for the target's type, then delete its files except
+ * those another entry lists or that changed since the install (each kept with a warning).
  * @param prepared - From {@link prepareRepositoryUninstall}.
  * @param bundleId - Bundle to uninstall.
  * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` or another `RECORD.*` error naming the file.
@@ -319,26 +320,26 @@ export const recordRepositoryUninstall = async (
   prepared: PreparedRepositoryUninstall,
   bundleId: string
 ): Promise<RecordedRepositoryUninstall> => {
-  let change;
+  let result;
   try {
-    change = await prepared.service.recordUninstall({ location: prepared.location, bundleId, tool: prepared.tool });
+    result = await prepared.service.uninstallEntry({ location: prepared.location, bundleId, tool: prepared.tool });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
-  const removal = await prepared.service.deleteSuperseded(change);
-  const warnings = [...change.warnings, ...removal.warnings];
-  if (change.location.commitMode === 'local-only' && removal.deleted.length > 0) {
+  const { change, deleted } = result;
+  const warnings = [...result.warnings, ...result.modified.map((file) => `Did not remove ${file}: it was changed after install.`)];
+  if (change.location.commitMode === 'local-only' && deleted.length > 0) {
     // Drop the removed files' `info/exclude` entries, as the old uninstall did.
     try {
-      await prepared.exclusion.remove(removal.deleted.map((relative) => path.join(change.location.root, ...relative.split('/'))));
+      await prepared.exclusion.remove(deleted.map((relative) => path.join(change.location.root, ...relative.split('/'))));
     } catch (error) {
       warnings.push(`Could not update .git/info/exclude: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   return {
     lockfile: change.location.path,
-    removed: removal.deleted,
-    kept: change.keptSharedFiles,
+    removed: deleted,
+    kept: result.kept,
     warnings
   };
 };

@@ -93,14 +93,15 @@ const sha256 = (text: string): string => `sha256:${createHash('sha256').update(t
 /**
  * Zip a bundle version with its deployment manifest.
  * @param bundle - Bundle version.
+ * @param bundleId - Manifest id.
  */
-const zipOf = (bundle: BundleVersion): Buffer => {
+const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
   // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
   const AdmZip = require('adm-zip');
   const zip = new AdmZip();
   const prompts = bundle.items.map((item) => `  - id: ${item.id}\n    file: ${item.file}\n    type: ${item.type}\n`).join('');
   zip.addFile('deployment-manifest.yml', Buffer.from(
-    `id: ${BUNDLE_ID}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}`
+    `id: ${bundleId}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}`
   ));
   for (const [file, content] of Object.entries(bundle.files)) {
     zip.addFile(file, Buffer.from(content));
@@ -297,7 +298,12 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
 
   const modifiedFileCases: { action: string; run: () => Promise<void>; vscodeAfter: string[] | undefined }[] = [
     { action: 'uninstall', run: () => manager.uninstallBundle(BUNDLE_ID, 'repository'), vscodeAfter: undefined },
-    { action: 'update', run: () => update(V2), vscodeAfter: [HELLO] }
+    { action: 'update', run: () => update(V2), vscodeAfter: [HELLO] },
+    {
+      action: 'update to another bundle id',
+      run: async () => installer.update(await listed(), { ...bundleOf(V2.version), id: `${BUNDLE_ID}-next` }, zipOf(V2, `${BUNDLE_ID}-next`), 'github').then(() => undefined),
+      vscodeAfter: undefined
+    }
   ];
 
   modifiedFileCases.forEach(({ action, run, vscodeAfter }) => {

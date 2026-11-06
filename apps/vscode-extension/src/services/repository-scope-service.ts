@@ -10,7 +10,7 @@
  * The files of an install are recorded by the caller in the shared install
  * record (`ExtensionRecordAdapter`): `syncBundle` returns the paths it wrote,
  * and `unsyncBundle` / `switchCommitMode` take their file lists from the
- * host tool's record entry (`recordUninstall`, `moveEntry`), or from the old
+ * host tool's record entry (`uninstallEntry`, `moveEntry`), or from the old
  * `prompt-registry` lockfile for a bundle only it holds (BR11.1, BR11.5, BR12.1).
  *
  * Requirements: 1.2-1.7, 3.1-3.7, 7.8-7.10, 10.1-10.6
@@ -23,7 +23,6 @@ import {
 } from 'node:util';
 import {
   FileTreeTargetWriter,
-  findModifiedFiles,
   KIND_TO_ROUTE_KEY,
   resolveLayout,
 } from '@ai-primitives-hub/app';
@@ -912,11 +911,10 @@ export class RepositoryScopeService implements IScopeService {
    * Remove synced files for a bundle (W10).
    * Implements IScopeService.unsyncBundle
    *
-   * With a host-tool entry in the install record: the file list is that
-   * entry's; `recordUninstall` removes the entry and keeps every path another
-   * entry still lists (`keptSharedFiles`); files whose content no longer
-   * matches the recorded checksum, or that are missing, are kept too
-   * (`findModifiedFiles`, NFR4.13); the rest go through `deleteSuperseded`.
+   * With a host-tool entry in the install record, app's `uninstallEntry`
+   * removes the entry and deletes its files, keeping every path another entry
+   * still lists and files whose content no longer matches the recorded
+   * checksum, or that are missing (NFR4.13).
    * A bundle only the old `prompt-registry` lockfile holds is removed from it
    * the same way (BR12.1), keeping paths any record entry lists; after a
    * record uninstall, an old entry for the same bundle is retired as well.
@@ -933,19 +931,13 @@ export class RepositoryScopeService implements IScopeService {
         }
         return;
       }
-      const { location, entry } = located;
-      const modified = new Set(await findModifiedFiles(this.records.fs, location.root, entry.files));
-      const change = await this.records.service.recordUninstall({ location, bundleId, tool: this.records.hostTool });
-      const removal = await this.records.service.deleteSuperseded({
-        location: change.location,
-        deletedFiles: change.deletedFiles.filter((file) => !modified.has(file))
-      });
-      for (const warning of [...change.warnings, ...removal.warnings]) {
+      const { location } = located;
+      const removed = await this.records.service.uninstallEntry({ location, bundleId, tool: this.records.hostTool });
+      for (const warning of removed.warnings) {
         this.logger.warn(`[RepositoryScopeService] ${warning}`);
       }
-      const kept = [...change.keptSharedFiles, ...[...modified].filter((file) => change.deletedFiles.includes(file))];
-      await this.afterFilesRemoved(location.commitMode === 'local-only', removal.deleted.map((file) => this.fromRootRelative(location.root, file)), kept);
-      this.logger.info(`[RepositoryScopeService] ✅ Removed ${removal.deleted.length} files for bundle: ${bundleId}`);
+      await this.afterFilesRemoved(location.commitMode === 'local-only', removed.deleted.map((file) => this.fromRootRelative(location.root, file)), removed.kept);
+      this.logger.info(`[RepositoryScopeService] ✅ Removed ${removed.deleted.length} files for bundle: ${bundleId}`);
       // Uninstall removes both (BR12.1): an old entry for the same bundle is
       // retired too, keeping every path a record entry still lists or that was modified.
       await this.unsyncOldEntry(bundleId);

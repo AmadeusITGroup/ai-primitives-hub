@@ -214,6 +214,25 @@ describe('repository install record', () => {
     expect(toolsIn(committed)).toEqual(['vscode']);
   });
 
+  it('uninstallEntry deletes the entry\'s files but keeps a shared, an edited, a missing and a caller-kept one', async () => {
+    await install('kiro', ['docs/shared.md']);
+    await install('vscode', ['docs/shared.md', 'docs/edited.md', 'docs/gone.md', 'docs/held.md', 'docs/plain.md'], { location: localOnly });
+    fs.writeFileSync(path.join(root, 'docs', 'edited.md'), 'my own edits\n');
+    fs.rmSync(path.join(root, 'docs', 'gone.md'));
+
+    const result = await service.uninstallEntry({ location: localOnly, bundleId: BUNDLE, tool: 'vscode', keep: new Set(['docs/held.md']) });
+
+    expect(result).toMatchObject({
+      deleted: ['docs/plain.md'],
+      kept: ['docs/shared.md', 'docs/edited.md', 'docs/gone.md', 'docs/held.md'],
+      modified: ['docs/edited.md']
+    });
+    expect(fs.existsSync(path.join(root, 'docs', 'plain.md'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'docs', 'edited.md'))).toBe(true);
+    expect(fs.existsSync(localOnly.path)).toBe(false);
+    expect(toolsIn(committed)).toEqual(['kiro']);
+  });
+
   it('uninstalling the last local-only entry deletes the file and its info/exclude line', async () => {
     await install('vscode', ['.github/prompts/a.prompt.md'], { location: localOnly });
 
