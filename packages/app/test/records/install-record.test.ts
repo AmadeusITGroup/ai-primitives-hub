@@ -32,6 +32,7 @@ import {
   isLocalSourceInsideRoot,
   LOCAL_SOURCE_OUTSIDE_REASON,
   mapToolToTarget,
+  orderConfiguredSources,
   type RecordInstallInput,
   RecordStore,
   resolveRecordSource,
@@ -641,6 +642,16 @@ describe('repository install record', () => {
       it('sets the record key when one is given', () => {
         expect({ ...toRecordSource(configuredSource('github', {}), 'acme') }).toEqual({ sourceId: 'acme', type: 'github', url: 'https://example.test/source' });
       });
+    });
+
+    it.each([
+      ['active hub, then detached sources; other hubs left out', {}, ['shared@hub-a', 'only-a@hub-a', 'detached@default-local']],
+      ['other hubs last when included', { includeOtherHubs: true }, ['shared@hub-a', 'only-a@hub-a', 'detached@default-local', 'only-b@hub-b']]
+    ])('orderConfiguredSources: %s, first id wins', (_label, options, expected) => {
+      const source = (id: string, hubId: string): RegistrySource => ({ id, name: id, type: 'github', url: `https://github.com/acme/${id}`, enabled: true, priority: 0, hubId });
+      const sources = [source('shared', 'hub-b'), source('only-b', 'hub-b'), source('detached', 'default-local'), source('shared', 'hub-a'), source('only-a', 'hub-a')];
+
+      expect(orderConfiguredSources(sources, 'hub-a', options).map((ordered) => `${ordered.id}@${ordered.hubId}`)).toEqual(expected);
     });
 
     it('lists one row per bundle and tool over both files, sorted, with their record path', async () => {

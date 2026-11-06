@@ -31,6 +31,7 @@ import {
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileFs,
+  orderConfiguredSources,
   readLockfile,
   RECORD_SOURCE_TYPES,
   type RecordSourceDescriptor,
@@ -44,7 +45,6 @@ import {
   writeLockfile,
 } from '@ai-primitives-hub/app';
 import {
-  DEFAULT_LOCAL_HUB_ID,
   isRecordError,
   type LockfileSourceDescriptor,
   type RecordFs,
@@ -315,26 +315,12 @@ export class ExtensionRecordAdapter {
 
   /**
    * Configured sources in lookup order, one per id: the active hub's sources,
-   * then detached (`default-local`) sources, then any other stored source.
+   * then detached (`default-local`) sources, then any other stored source
+   * (app's `orderConfiguredSources`).
    */
   public async configuredSources(): Promise<RegistrySource[]> {
-    const all = await this.sources.listSources();
     const activeHubId = (await this.sources.getActiveHubId?.()) ?? null;
-    const rank = (source: RegistrySource): number => {
-      if (activeHubId !== null && source.hubId === activeHubId) {
-        return 0;
-      }
-      return source.hubId === DEFAULT_LOCAL_HUB_ID ? 1 : 2;
-    };
-    const ordered = all.map((source, index) => ({ source, index }))
-      .toSorted((left, right) => rank(left.source) - rank(right.source) || left.index - right.index);
-    const byId = new Map<string, RegistrySource>();
-    for (const { source } of ordered) {
-      if (!byId.has(source.id)) {
-        byId.set(source.id, source);
-      }
-    }
-    return [...byId.values()];
+    return orderConfiguredSources(await this.sources.listSources(), activeHubId, { includeOtherHubs: true });
   }
 
   /**

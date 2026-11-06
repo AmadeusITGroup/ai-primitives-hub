@@ -13,6 +13,7 @@ import {
   type InstallRecordServices,
   type Lockfile,
   type LockfileSourceEntry,
+  orderConfiguredSources,
   readLockfile,
   recordIdentityOf,
   type RecordInstallInput,
@@ -25,7 +26,6 @@ import {
   selectRecord,
 } from '@ai-primitives-hub/app';
 import {
-  DEFAULT_LOCAL_HUB_ID,
   describeRecordError,
   type InstallationScope,
   isRecordError,
@@ -401,25 +401,16 @@ export const prepareRecordSelection = async (
 };
 
 /**
- * Configured sources by id for the source trust gate: the active hub's first, then detached sources.
+ * Configured sources by id for the source trust gate, in `orderConfiguredSources`
+ * order. A hub that cannot be read contributes no source.
  * @param ctx - CLI context.
  */
 export const configuredSources = async (ctx: Context): Promise<Map<string, RegistrySource>> => {
   const manager = createHubManager({ ctx });
-  const sources = new Map<string, RegistrySource>();
-  let active: RegistrySource[] = [];
-  try {
-    active = await manager.listSources();
-  } catch {
-    // No readable active hub: no configured source from it.
-  }
-  const detached = (await manager.listSourcesAcrossAllHubs()).filter((source) => source.hubId === DEFAULT_LOCAL_HUB_ID);
-  for (const source of [...active, ...detached]) {
-    if (!sources.has(source.id)) {
-      sources.set(source.id, source);
-    }
-  }
-  return sources;
+  // No readable active hub pointer: no source counts as the active hub's.
+  const activeHubId = await manager.getActiveHubId().catch(() => null);
+  const ordered = orderConfiguredSources(await manager.listSourcesAcrossAllHubs(), activeHubId);
+  return new Map(ordered.map((source) => [source.id, source]));
 };
 
 /** Token provider that never returns a token. */
