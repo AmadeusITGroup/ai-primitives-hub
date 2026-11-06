@@ -1,7 +1,9 @@
 /**
  * Contract tests for the 3.0.0 install record format (C1): the parse and
- * version gate (`parseRecord`) and the recorded-path check (`checkRecordedPath`).
+ * version gate (`parseRecord`), the recorded-path check (`checkRecordedPath`)
+ * and the path-inside check (`relativeInside`).
  */
+import * as path from 'node:path';
 import {
   describe,
   expect,
@@ -15,6 +17,7 @@ import {
 } from '../../../src/domain/install/record-parse';
 import {
   checkRecordedPath,
+  relativeInside,
 } from '../../../src/domain/install/record-path';
 
 const FILE = 'ai-primitives-hub.lock.json';
@@ -116,5 +119,24 @@ describe('checkRecordedPath', () => {
     [String.raw`.kiro\steering\style.md`, '.kiro/steering/style.md']
   ])('accepts %s as %s', (recordedPath, expected) => {
     expect(checkRecordedPath(recordedPath, FILE)).toBe(expected);
+  });
+});
+
+describe('relativeInside', () => {
+  const root = path.resolve('/repo');
+
+  it.each([
+    [path.join(root, '.github', 'prompts', 'a.prompt.md'), '.github/prompts/a.prompt.md'],
+    [path.join(root, '..notes'), '..notes'],
+    [root, undefined],
+    [path.dirname(root), undefined],
+    [path.join(path.dirname(root), 'repo-other', 'a.md'), undefined]
+  ])('gives %s as %s', (candidate, expected) => {
+    expect(relativeInside(root, candidate)).toBe(expected);
+  });
+
+  it('counts the root itself as inside with allowRoot', () => {
+    expect(relativeInside(root, root, { allowRoot: true })).toBe('');
+    expect(relativeInside(root, path.dirname(root), { allowRoot: true })).toBeUndefined();
   });
 });
