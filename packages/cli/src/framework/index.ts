@@ -111,8 +111,6 @@ export {
   renderRecordLine,
   toCommandRecordError,
   toInstallRecordError,
-  toLockfileBundleEntry,
-  toLockfileSourceEntry,
 } from './install-record';
 export type {
   CreateHubManagerOptions,

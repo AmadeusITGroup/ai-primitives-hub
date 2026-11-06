@@ -24,6 +24,8 @@ import {
   resolveUserConfigPaths,
   type TargetMapping,
   type TargetWriter,
+  toLockfileBundleEntry,
+  toLockfileSourceEntry,
   TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
@@ -96,8 +98,6 @@ import {
   resolveEffectiveTarget,
   resolveTarget,
   resolveTargetName,
-  toLockfileBundleEntry,
-  toLockfileSourceEntry,
 } from '../framework';
 
 /**

@@ -1,8 +1,8 @@
 /**
  * Install record wiring for the CLI: builds the record store and service,
- * selects the record a command acts on, gates record sources and adapts
- * entries to the lockfile shapes the fetch code reads. User level still uses
- * the old lockfile, and old `prompt-registry.*` files are never touched here.
+ * selects the record a command acts on and gates record sources. User level
+ * still uses the old lockfile, and old `prompt-registry.*` files are never
+ * touched here.
  * @module framework/install-record
  */
 import * as path from 'node:path';
@@ -11,8 +11,6 @@ import {
   findLockfile,
   type InstallRecordService,
   type InstallRecordServices,
-  type LockfileBundleEntry,
-  type LockfileSourceEntry,
   type RecordSelection,
   type RecordSourceInput,
   type RecordStore,
@@ -32,9 +30,7 @@ import {
   RegistryError,
   type RegistrySource,
   type RepositoryExclusion,
-  type SourceRecord,
   type Target,
-  type ToolEntry,
 } from '@ai-primitives-hub/core';
 import {
   GitInfoExclude,
@@ -401,39 +397,6 @@ export const configuredSources = async (ctx: Context): Promise<Map<string, Regis
   }
   return sources;
 };
-
-/**
- * A decided record source in the legacy lockfile shape today's fetch and
- * update code reads. Only the fields the record carries are copied; an
- * `authMode` other than `bearer` / `anonymous` is dropped.
- * @param source - Source from `resolveRecordSource` (or a record's copy).
- * @returns The legacy source entry.
- */
-export const toLockfileSourceEntry = (source: SourceRecord): LockfileSourceEntry => ({
-  type: source.type,
-  url: source.url,
-  ...(typeof source.branch === 'string' ? { branch: source.branch } : {}),
-  ...(typeof source.collectionsPath === 'string' ? { collectionsPath: source.collectionsPath } : {}),
-  ...(typeof source.indexFile === 'string' ? { indexFile: source.indexFile } : {}),
-  ...(source.authMode === 'bearer' || source.authMode === 'anonymous' ? { authMode: source.authMode } : {}),
-  ...(typeof source.credentialRef === 'string' ? { credentialRef: source.credentialRef } : {})
-});
-
-/**
- * A record tool entry in the legacy lockfile bundle shape. Record entries
- * carry per-file checksums and no bundle archive checksum, so the legacy
- * archive checksum check does not apply; `recordInstall` re-checksums the
- * written files.
- * @param entry - Tool entry from a 3.0.0 record.
- * @returns The legacy bundle entry.
- */
-export const toLockfileBundleEntry = (entry: ToolEntry): LockfileBundleEntry => ({
-  version: entry.version,
-  sourceId: entry.sourceId,
-  sourceType: entry.sourceType,
-  installedAt: entry.installedAt,
-  files: entry.files.map((file) => ({ path: file.path, checksum: file.checksum }))
-});
 
 /** The `level` and `records` fields every record command reports (BR6.3, NFR5.1). */
 export interface RecordOutputFields {
