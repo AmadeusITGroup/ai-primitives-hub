@@ -37,6 +37,7 @@ import {
   initGitRoot,
   LOCAL_RECORD_FILE,
   RECORD_FILE,
+  writeInstallRecord,
 } from '../helpers/install-record-test-helpers';
 import {
   cleanupTestWorkspace,
@@ -133,6 +134,20 @@ suite('BundleCommands.cleanupStaleLockfileEntries', () => {
     assert.ok(!exists(OLD_LOCKFILE), 'the emptied old lockfile is removed');
     assert.ok(exists('.github/prompts/partial-b.prompt.md'), 'no file is deleted');
     assert.ok(String(showInfo.lastCall.args[0]).includes('Successfully removed 3'));
+  });
+
+  test('lists an entry in both record files (an interrupted move) once and removes both copies', async () => {
+    const spec = { 'moved-bundle': { vscode: { version: '1.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/moved.prompt.md' } } };
+    writeInstallRecord(root, RECORD_FILE, spec);
+    writeInstallRecord(root, LOCAL_RECORD_FILE, spec);
+    fs.rmSync(path.join(root, '.github/prompts/moved.prompt.md'));
+
+    await commands.cleanupStaleLockfileEntries();
+
+    const offered = String(showWarning.firstCall.args[0]);
+    assert.strictEqual(offered.split('moved-bundle (vscode)').length - 1, 1, offered);
+    assert.ok(!exists(RECORD_FILE) && !exists(LOCAL_RECORD_FILE), 'both copies are removed');
+    assert.ok(String(showInfo.lastCall.args[0]).includes('Successfully removed 1'));
   });
 
   test('a malformed record file mid-batch stops the batch and reports removed and not-attempted rows', async () => {
