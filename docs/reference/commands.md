@@ -2,6 +2,20 @@
 
 This document lists all VS Code commands provided by the AI Primitives Hub extension.
 
+## Hub governance validation (CLI)
+
+`ai-primitives-hub hub validate --governance [--config <path>] [--policy <path>] [--report-path <path>] [--check-sources] [--verbose] [-o <format>]`
+
+`--policy` and `--report-path` also enable governance. The output formats are
+text, json, yaml and ndjson; any error returns exit code 1, warnings alone 0.
+Add `--base-ref <commit> --head-ref <commit>` or `--scope-file <path>` for
+semantic source/profile scope (requires `--governance`). In Git mode, both default
+and explicit `--policy` files are read from the merge base. Explicit policies must
+resolve within the repository and exist at that commit; otherwise CFG001 fails.
+Without Git refs, policies are loaded from the working tree. See
+[hub governance](../author-guide/validation.md#hub-governance-cli) and the
+[rule catalogue](../author-guide/rule-catalogue.md). No consumer workflow is included.
+
 ## Hub Replication (CLI)
 
 `ai-primitives-hub hub replicate --source-hub owner/repo --target-root https://artifactory.example/repo`
@@ -85,6 +99,24 @@ Beyond placement and clean uninstall, the run checks that a rejected install lis
 - The exit code is 0 when nothing fails, 1 otherwise. `-o json|yaml|ndjson` prints the full report; `--retain-workspace` keeps the workspace for inspection.
 
 ## Bundle Management
+
+### Collection governance (CLI)
+
+`ai-primitives-hub collection validate --governance [--root <dir>] [--collection-file <path>...]`
+
+Use `--policy <path>`, `--report-path <path>`, `--markdown-path <path>` and
+`-o text|json|yaml|ndjson` for configuration and reports. `--check-releases
+--repository owner/repo` enables publication verification (COL002); `--check-sources
+[--config hub-config.yml] --repository owner/repo` verifies ownership against the
+central `.config/sources/collection-index.yml`, relative to the directory containing
+that hub config (COL004), without scanning other sources. Both files must come
+from the same trusted registry revision.
+Missing or malformed registry data fails the check; there is no remote-scan fallback.
+`--base-ref <commit> --head-ref <commit>` enables PR scope and requires the head
+checked out and full history. Default and explicit policies come from the merge
+base; missing explicit policies and outside-repository paths fail CFG001.
+Changed enabled GitHub hub sources are downloaded
+and their collections validated. See [CLI governance validation](../author-guide/validation.md#cli-governance-validation).
 
 | Command | Title | Description |
 |---------|-------|-------------|
