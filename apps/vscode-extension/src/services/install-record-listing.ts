@@ -9,6 +9,7 @@
 import * as path from 'node:path';
 import {
   createInstallRecordServices,
+  isAnyFileMissing,
   type RecordStore,
   toLockfileBundleEntry,
 } from '@ai-primitives-hub/app';
@@ -179,22 +180,14 @@ export class InstallRecordListing {
   }
 
   /**
-   * Whether any file of the entry is missing on disk.
+   * Whether any file of the entry is missing on disk; on an I/O error other
+   * than "missing", the file is assumed to exist and the error is logged.
    * @param root - Record root.
    * @param entry - Tool entry.
    */
-  private async filesMissing(root: string, entry: ToolEntry): Promise<boolean> {
-    for (const file of entry.files) {
-      try {
-        if (await this.fs.lstat(path.join(root, ...file.path.split('/'))) === undefined) {
-          return true;
-        }
-      } catch (error) {
-        // On an I/O error other than "missing", assume the file exists.
-        this.logger.warn(`Failed to check file existence for ${file.path}:`, error instanceof Error ? error : undefined);
-      }
-    }
-    return false;
+  private filesMissing(root: string, entry: ToolEntry): Promise<boolean> {
+    return isAnyFileMissing(this.fs, root, entry.files.map((file) => file.path), (recordedPath, error) =>
+      this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined));
   }
 
   private async contentHash(file: string): Promise<string> {

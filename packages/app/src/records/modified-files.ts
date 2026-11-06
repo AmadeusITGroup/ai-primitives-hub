@@ -13,6 +13,9 @@
  * the check refuses, a leaf that is not a regular file (a symlink is never
  * followed) and a file with no recorded checksum are all treated as modified,
  * so they are kept rather than deleted.
+ *
+ * `areAllFilesMissing` (stale cleanup) and `isAnyFileMissing` (the listing's
+ * "files missing" flag) check only whether recorded paths exist.
  * @module records/modified-files
  */
 import * as path from 'node:path';
@@ -106,4 +109,30 @@ export const areAllFilesMissing = async (fs: RecordFs, root: string, paths: read
     }
   }
   return true;
+};
+
+/**
+ * Whether any recorded file is missing (the listing's "files missing" flag).
+ * A path that cannot be checked counts as present; `onError` is told about it.
+ * @param fs - Filesystem port.
+ * @param root - Root the paths are relative to.
+ * @param paths - Root-relative recorded paths, forward slashes.
+ * @param onError - Called for a path whose check failed, e.g. to log it.
+ */
+export const isAnyFileMissing = async (
+  fs: RecordFs,
+  root: string,
+  paths: readonly string[],
+  onError?: (recordedPath: string, error: unknown) => void
+): Promise<boolean> => {
+  for (const recordedPath of paths) {
+    try {
+      if (await fs.lstat(path.join(root, ...recordedPath.split('/'))) === undefined) {
+        return true;
+      }
+    } catch (error) {
+      onError?.(recordedPath, error);
+    }
+  }
+  return false;
 };
