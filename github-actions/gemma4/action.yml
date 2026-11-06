@@ -1,0 +1,183 @@
+name: AI Primitives Hub Gemma 4
+description: >-
+  Run Google Gemma 4 (default gemma4:e2b) on the runner with Ollama and return
+  the model's answer. Prompts stay on the runner; only Ollama and the model are downloaded.
+
+inputs:
+  model:
+    description: Ollama model tag. Start with gemma4:e2b; gemma4:e4b and larger need bigger runners.
+    required: false
+    default: gemma4:e2b
+  prompt:
+    description: >-
+      User prompt. When prompt-file is also set, this text is sent first as the
+      instruction and the file content is appended after a blank line.
+    required: false
+    default: ''
+  prompt-file:
+    description: Path (absolute or relative to the workspace) to a file whose content is sent as the prompt.
+    required: false
+    default: ''
+  system:
+    description: Optional system prompt.
+    required: false
+    default: ''
+  think:
+    description: Gemma 4 thinking mode. 'false' (fast, default), 'true', or empty to use the model default.
+    required: false
+    default: 'false'
+  format:
+    description: Structured output. Empty, 'json', or a JSON schema string.
+    required: false
+    default: ''
+  temperature:
+    description: Sampling temperature. Empty uses the model default.
+    required: false
+    default: ''
+  seed:
+    description: Sampling seed for reproducible output. Empty means random.
+    required: false
+    default: ''
+  max-tokens:
+    description: Maximum tokens to generate (Ollama num_predict).
+    required: false
+    default: '1024'
+  num-ctx:
+    description: Context window in tokens. Larger values use more runner memory.
+    required: false
+    default: '8192'
+  request-timeout:
+    description: Seconds to wait for the model's answer.
+    required: false
+    default: '900'
+  keep-alive:
+    description: How long Ollama keeps the model loaded between calls in the same job.
+    required: false
+    default: 30m
+  output-file:
+    description: Where to write the response. Defaults to $RUNNER_TEMP/gemma4-response.md.
+    required: false
+    default: ''
+  step-summary:
+    description: Write the response and token stats to the job summary ('true' or 'false').
+    required: false
+    default: 'true'
+  ollama-version:
+    description: Pinned Ollama release installed when the runner has no Ollama.
+    required: false
+    default: v0.40.13
+  ollama-host:
+    description: host:port the Ollama server listens on. Keep it on loopback; Ollama has no authentication.
+    required: false
+    default: 127.0.0.1:11434
+  cache:
+    description: Cache the Ollama runtime and model with actions/cache ('true' or 'false').
+    required: false
+    default: 'true'
+
+outputs:
+  response:
+    description: The model's answer.
+    value: ${{ steps.generate.outputs.response }}
+  response-file:
+    description: Path of the file holding the answer.
+    value: ${{ steps.generate.outputs.response-file }}
+  done-reason:
+    description: Why generation stopped ('stop', or 'length' when max-tokens cut it off).
+    value: ${{ steps.generate.outputs.done-reason }}
+  prompt-tokens:
+    description: Tokens in the prompt.
+    value: ${{ steps.generate.outputs.prompt-tokens }}
+  response-tokens:
+    description: Tokens generated.
+    value: ${{ steps.generate.outputs.response-tokens }}
+  tokens-per-second:
+    description: Generation speed.
+    value: ${{ steps.generate.outputs.tokens-per-second }}
+  base-url:
+    description: URL of the running Ollama server, for later steps in the same job.
+    value: ${{ steps.resolve.outputs.base-url }}
+  ollama-version:
+    description: Version reported by the Ollama server.
+    value: ${{ steps.setup.outputs.ollama-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve platform and cache keys
+      id: resolve
+      shell: bash
+      env:
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_OLLAMA_VERSION: ${{ inputs.ollama-version }}
+        INPUT_OLLAMA_HOST: ${{ inputs.ollama-host }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/resolve.sh"
+
+    - name: Restore Ollama runtime
+      id: runtime-cache
+      if: inputs.cache == 'true' && steps.resolve.outputs.install == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.install-dir }}
+        key: ${{ steps.resolve.outputs.runtime-cache-key }}
+
+    - name: Restore model
+      id: model-cache
+      if: inputs.cache == 'true' && steps.resolve.outputs.server-running == 'false'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.models-dir }}
+        key: ${{ steps.resolve.outputs.model-cache-key }}
+
+    - name: Start Ollama and pull model
+      id: setup
+      shell: bash
+      env:
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_OLLAMA_VERSION: ${{ inputs.ollama-version }}
+        INPUT_KEEP_ALIVE: ${{ inputs.keep-alive }}
+        RESOLVED_OS: ${{ steps.resolve.outputs.os }}
+        RESOLVED_ARCH: ${{ steps.resolve.outputs.arch }}
+        RESOLVED_HOST: ${{ steps.resolve.outputs.host }}
+        RESOLVED_BASE_URL: ${{ steps.resolve.outputs.base-url }}
+        RESOLVED_INSTALL: ${{ steps.resolve.outputs.install }}
+        RESOLVED_INSTALL_DIR: ${{ steps.resolve.outputs.install-dir }}
+        RESOLVED_MODELS_DIR: ${{ steps.resolve.outputs.models-dir }}
+        RESOLVED_SERVER_RUNNING: ${{ steps.resolve.outputs.server-running }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/setup.sh"
+
+    - name: Save Ollama runtime
+      if: inputs.cache == 'true' && steps.resolve.outputs.install == 'true' && steps.runtime-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.install-dir }}
+        key: ${{ steps.resolve.outputs.runtime-cache-key }}
+
+    - name: Save model
+      if: inputs.cache == 'true' && steps.resolve.outputs.server-running == 'false' && steps.model-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.models-dir }}
+        key: ${{ steps.resolve.outputs.model-cache-key }}
+
+    - name: Generate
+      id: generate
+      if: inputs.prompt != '' || inputs.prompt-file != ''
+      shell: bash
+      env:
+        BASE_URL: ${{ steps.resolve.outputs.base-url }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_PROMPT: ${{ inputs.prompt }}
+        INPUT_PROMPT_FILE: ${{ inputs.prompt-file }}
+        INPUT_SYSTEM: ${{ inputs.system }}
+        INPUT_THINK: ${{ inputs.think }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_TEMPERATURE: ${{ inputs.temperature }}
+        INPUT_SEED: ${{ inputs.seed }}
+        INPUT_MAX_TOKENS: ${{ inputs.max-tokens }}
+        INPUT_NUM_CTX: ${{ inputs.num-ctx }}
+        INPUT_REQUEST_TIMEOUT: ${{ inputs.request-timeout }}
+        INPUT_KEEP_ALIVE: ${{ inputs.keep-alive }}
+        INPUT_OUTPUT_FILE: ${{ inputs.output-file }}
+        INPUT_STEP_SUMMARY: ${{ inputs.step-summary }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/generate.sh"
