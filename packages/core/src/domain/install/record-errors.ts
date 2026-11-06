@@ -100,3 +100,28 @@ export const recordError = (code: RecordErrorCode, details: RecordErrorDetails =
 export const isRecordError = (value: unknown, code?: RecordErrorCode): value is RegistryError =>
   value instanceof RegistryError
   && (code === undefined ? (RECORD_ERROR_CODES as readonly string[]).includes(value.code) : value.code === code);
+
+/**
+ * The typed `file` and `detail` a record error carries in its context, the
+ * reverse of {@link recordError}.
+ * @param error - A record error.
+ * @returns The string fields that are present.
+ */
+export const recordErrorDetails = (error: RegistryError): { file?: string; detail?: string } => ({
+  ...(typeof error.context?.file === 'string' ? { file: error.context.file } : {}),
+  ...(typeof error.context?.detail === 'string' ? { detail: error.context.detail } : {})
+});
+
+/**
+ * User text for a record error: its message, then ` File: <file>.` and
+ * ` Reason: <detail>.` when known (BR4.2). Both delivery layers show record
+ * errors this way.
+ * @param error - A record error.
+ * @param fileLabel - File to name instead of the one in the error's context.
+ * @returns The message with the file and the reason appended.
+ */
+export const describeRecordError = (error: RegistryError, fileLabel?: string): string => {
+  const { file, detail } = recordErrorDetails(error);
+  const named = fileLabel ?? file;
+  return `${error.message}${named === undefined ? '' : ` File: ${named}.`}${detail === undefined ? '' : ` Reason: ${detail}.`}`;
+};

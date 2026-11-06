@@ -18,6 +18,7 @@ import {
 } from '@ai-primitives-hub/app';
 import {
   compareCodeUnits,
+  describeRecordError,
   isRecordError,
   type RecordFs,
   type RecordLocation,
@@ -81,15 +82,7 @@ export interface RecordedRepositoryInstall {
  * @returns The error to throw.
  */
 const toCommandRecordError = (command: string, error: RegistryError, written?: readonly string[]): RegistryError => {
-  const file = typeof error.context?.file === 'string' ? error.context.file : undefined;
-  const detail = typeof error.context?.detail === 'string' ? error.context.detail : undefined;
-  let message = `${command}: ${error.message}`;
-  if (file !== undefined) {
-    message += ` File: ${file}.`;
-  }
-  if (detail !== undefined) {
-    message += ` Reason: ${detail}.`;
-  }
+  let message = `${command}: ${describeRecordError(error)}`;
   if (written !== undefined && written.length > 0) {
     message += ` These files were written but are not recorded; run the install again to record them: ${written.join(', ')}`;
   }
