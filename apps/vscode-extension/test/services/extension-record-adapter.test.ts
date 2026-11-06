@@ -245,6 +245,16 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.strictEqual(read(HELLO), V1.files['prompts/hello.prompt.md']);
   });
 
+  test('install records the configured source with the fields the CLI records for its type', async () => {
+    ((manager as any).storage.getSources as sinon.SinonStub).resolves([{
+      ...SOURCE, config: { branch: 'main', collectionsPath: '', indexFile: 'index.json', authMode: 'bearer', credentialRef: 'ACME_TOKEN' }
+    }]);
+
+    await install(V1);
+
+    assert.deepStrictEqual(readRecord().sources[SOURCE.id], { type: 'github', url: SOURCE.url, branch: 'main' });
+  });
+
   const refusedInstalls: { name: string; arrange: () => void; sourceId?: string; expected: RegExp | { code: string }; errorShown: boolean }[] = [
     { name: 'an unconfigured source id', arrange: () => undefined, sourceId: 'not-configured', expected: /source not-configured is not configured/, errorShown: false },
     {
