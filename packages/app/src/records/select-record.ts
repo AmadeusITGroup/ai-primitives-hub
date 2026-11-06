@@ -16,11 +16,10 @@
 import * as path from 'node:path';
 import {
   type InstallationScope,
-  LOCAL_RECORD_FILE_NAME,
-  RECORD_FILE_NAMES,
   type RecordFs,
   type RecordLevel,
   type RecordLocation,
+  repositoryLocations,
 } from '@ai-primitives-hub/core';
 import type {
   RecordStore,
@@ -155,15 +154,11 @@ const lockfileSelection = async (options: SelectRecordOptions, lockfile: string)
   }
   const root = path.dirname(absolute);
   const name = path.basename(absolute);
-  if (!(RECORD_FILE_NAMES as readonly string[]).includes(name)) {
+  // The record file name gives the commit mode (BR2.2).
+  const location = repositoryLocations(root).find((candidate) => path.basename(candidate.path) === name);
+  if (location === undefined) {
     return { level: 'repository', root, locations: [], oldLockfile: absolute, inferred: false, reason: 'lockfile-flag' };
   }
-  const location: RecordLocation = {
-    level: 'repository',
-    root,
-    path: absolute,
-    commitMode: name === LOCAL_RECORD_FILE_NAME ? 'local-only' : 'commit'
-  };
   await options.store.load(location);
   return { level: 'repository', root, locations: [location], inferred: false, reason: 'lockfile-flag' };
 };

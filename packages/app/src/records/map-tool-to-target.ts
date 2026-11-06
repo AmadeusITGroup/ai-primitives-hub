@@ -8,10 +8,11 @@
  * @module records/map-tool-to-target
  */
 import * as path from 'node:path';
-import type {
-  RecordFs,
-  RecordLevel,
-  Target,
+import {
+  compareCodeUnits,
+  type RecordFs,
+  type RecordLevel,
+  type Target,
 } from '@ai-primitives-hub/core';
 import {
   resolveRepositoryRoot,
@@ -44,13 +45,6 @@ export interface MapToolToTargetOptions {
   /** Current folder: the root of a target without `rootPath`. */
   cwd: string;
 }
-
-const compareText = (left: string, right: string): number => {
-  if (left === right) {
-    return 0;
-  }
-  return left < right ? -1 : 1;
-};
 
 /**
  * Whether two folders are the same, also through a symlink.
@@ -114,7 +108,7 @@ export const mapToolToTarget = async (options: MapToolToTargetOptions): Promise<
   if (candidates.length === 0) {
     return { skip: `no ${tool} target configured; add one with \`target add\`` };
   }
-  const [first, ...rest] = candidates.toSorted((left, right) => compareText(left.name, right.name));
+  const [first, ...rest] = candidates.toSorted((left, right) => compareCodeUnits(left.name, right.name));
   return rest.length === 0
     ? { target: first }
     : { target: first, note: `several ${tool} targets match; using ${first.name}` };

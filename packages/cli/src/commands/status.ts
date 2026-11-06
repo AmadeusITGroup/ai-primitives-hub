@@ -17,8 +17,9 @@ import {
   resolveUserConfigPaths,
   type StatusRow,
 } from '@ai-primitives-hub/app';
-import type {
-  RecordLevel,
+import {
+  compareCodeUnits,
+  type RecordLevel,
 } from '@ai-primitives-hub/core';
 import {
   ActiveHubStore,
@@ -209,11 +210,9 @@ async function readRecordStatus(ctx: Context): Promise<Pick<StatusData, 'level' 
     }
     records.push(selection.oldLockfile);
   }
-  entries.sort((left, right) => compare(left.bundleId, right.bundleId) || compare(left.tool, right.tool));
+  entries.sort((left, right) => compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool));
   return { level: selection.level, records: records.length > 0 ? records : (await recordOutputFields(selection, fs)).records, entries };
 }
-
-const compare = (left: string, right: string): number => (left < right ? -1 : (left > right ? 1 : 0));
 
 /**
  * Read list of hub IDs from the hubs directory.
