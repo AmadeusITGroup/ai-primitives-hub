@@ -141,6 +141,10 @@ prompts: []
 
     test('rejects bundle IDs that escape the storage root', async () => {
       const bundle: Bundle = { ...testBundle, id: '../../outside-bundle' };
+      // Repository installs check the configured source first (NFR4.15); configure it so the path check runs.
+      sandbox.stub((installer as any).storage, 'getSources').resolves([
+        { id: bundle.sourceId, name: 'GitHub', type: 'github', url: 'https://github.com/test-owner/test-repo', enabled: true, priority: 0 }
+      ]);
       const zip = new (require('adm-zip'))();
       zip.addFile('deployment-manifest.yml', Buffer.from(`
 id: ${bundle.id}
