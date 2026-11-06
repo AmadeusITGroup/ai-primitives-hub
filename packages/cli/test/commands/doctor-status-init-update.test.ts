@@ -11,6 +11,9 @@
  * approach in install.test.ts/uninstall.test.ts.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   realpathSync,
 } from 'node:fs';
 import {
@@ -501,7 +504,7 @@ profiles: []
     const json = (request: HttpRequest, body: unknown) =>
       ({ statusCode: 200, body: new TextEncoder().encode(JSON.stringify(body)), finalUrl: request.url, headers: {} });
 
-    /** HTTP boundary: GitHub releases of `releaseZips` and an Artifactory index serving `local-foo` 2.0.0. */
+    /** HTTP boundary: GitHub releases of `releaseZips` and an Artifactory index and archive serving `local-foo` 2.0.0. */
     const http: HttpClient = {
       fetch: async (request) => {
         requests.push(request);
@@ -520,9 +523,12 @@ profiles: []
               id: 'local-foo', version: '2.0.0', name: 'Local Foo', description: '', author: 'Test', environments: ['vscode'],
               tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
               manifest: { path: '2.0.0/local-foo/deployment-manifest.yml', size: 1, sha256: 'a'.repeat(64) },
-              archive: { path: '2.0.0/local-foo.zip', size: v2Zip.length, sha256: 'b'.repeat(64), mediaType: 'application/zip' }
+              archive: { path: '2.0.0/local-foo.zip', size: v2Zip.length, sha256: createHash('sha256').update(v2Zip).digest('hex'), mediaType: 'application/zip' }
             }]
           });
+        }
+        if (request.url === `${ART_ROOT}/2.0.0/local-foo.zip`) {
+          return { statusCode: 200, body: v2Zip, finalUrl: request.url, headers: {} };
         }
         throw new Error(`Unexpected request: ${request.url}`);
       }
@@ -699,6 +705,28 @@ profiles: []
       expect(requests.every((request) => request.url.startsWith(ART_ROOT) && request.headers?.Authorization === 'Bearer reader-token')).toBe(true);
       expect(envReads.has('RECORD_SECRET')).toBe(false);
       expect(await readFile(recordPath(), 'utf8')).toBe(record);
+    });
+
+    it.each([
+      ['update', ['update', '--no-hub-sync', '-o', 'json']],
+      ['replay', ['install', '--lockfile', 'ai-primitives-hub.lock.json', '-o', 'json']]
+    ])('%s accepts a record written without authMode for an Artifactory source configured without one, and records it as anonymous', async (command, argv) => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'artifactory', url: ART_ROOT });
+      if (command === 'replay') {
+        // Replay restores the recorded version; the Artifactory index serves 2.0.0.
+        const record = await readRecord();
+        record.bundles['local-foo'].tools.vscode.version = '2.0.0';
+        await writeFile(recordPath(), JSON.stringify(record, null, 2) + '\n');
+      }
+      expect((await runRecord(['source', 'add', '--type', 'artifactory', '--url', ART_ROOT, '--id', 'remote', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runRecord(argv);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await versions()).toEqual({ vscode: '2.0.0' });
+      expect((await readRecord()).sources.remote).toEqual({ type: 'artifactory', url: ART_ROOT, authMode: 'anonymous' });
+      expect(requests.length).toBeGreaterThan(0);
+      expect(requests.filter((request) => request.headers?.Authorization !== undefined)).toEqual([]);
     });
 
     it('a user-scope update leaves the repository record byte-identical', async () => {

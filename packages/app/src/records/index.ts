@@ -16,3 +16,4 @@ export * from './resolve-record-source';
 export * from './sanitize-source';
 export * from './select-record';
 export * from './serialize-record';
+export * from './to-record-source';

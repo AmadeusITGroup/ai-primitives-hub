@@ -35,6 +35,7 @@ import {
   resolveRecordSource,
   selectRecord,
   type SelectRecordOptions,
+  toRecordSource,
 } from '../../src/records';
 import {
   findLockfile,
@@ -520,6 +521,9 @@ describe('repository install record', () => {
       const configured = new Map<string, RegistrySource>([['acme-github', {
         id: 'acme-github', name: 'Acme', type: 'github', url: 'https://github.com/acme/configured', enabled: true, priority: 0,
         config: { branch: 'main', credentialRef: 'ACME_TOKEN' }
+      }], ['art-configured', {
+        id: 'art-configured', name: 'Art', type: 'artifactory', url: 'https://art.example/configured', enabled: true, priority: 0,
+        config: { indexFile: 'index-v1.json', credentialRef: 'ART_TOKEN' }
       }]]);
 
       beforeEach(() => {
@@ -530,7 +534,13 @@ describe('repository install record', () => {
       it.each([
         ['a configured source wins over a different record URL', 'acme-github',
           (): SourceRecord => ({ type: 'github', url: 'https://evil.example/acme', credentialRef: 'EVIL_TOKEN' }),
-          (): object => ({ use: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/configured', branch: 'main', credentialRef: 'ACME_TOKEN' } })],
+          (): object => ({ use: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/configured', branch: 'main' } })],
+        ['a configured Artifactory source without authMode is used as anonymous, also for a record written without it', 'art-configured',
+          (): SourceRecord => ({ type: 'artifactory', url: 'https://art.example/configured', indexFile: 'index-v1.json' }),
+          (): object => ({ use: {
+            sourceId: 'art-configured', type: 'artifactory', url: 'https://art.example/configured',
+            indexFile: 'index-v1.json', authMode: 'anonymous', credentialRef: 'ART_TOKEN'
+          } })],
         ['an unconfigured source loses its credentialRef and authMode', 'art',
           (): SourceRecord => ({ type: 'artifactory', url: 'https://art.example/repo', indexFile: 'index.json', authMode: 'bearer', credentialRef: 'GITHUB_TOKEN' }),
           (): object => ({ use: { sourceId: 'art', type: 'artifactory', url: 'https://art.example/repo', indexFile: 'index.json' } })],
@@ -555,6 +565,32 @@ describe('repository install record', () => {
         const decision = await resolveRecordSource('mine', { type: 'local', url: 'sources/link' }, configured, root, recordFs);
 
         expect(decision).toEqual({ skip: LOCAL_SOURCE_OUTSIDE_REASON });
+      });
+    });
+
+    describe('toRecordSource', () => {
+      const configuredSource = (type: RegistrySource['type'], config: RegistrySource['config']): RegistrySource => ({
+        id: 'src', name: 'Source', type, url: 'https://example.test/source', enabled: true, priority: 0, token: 'SECRET_TOKEN', config
+      });
+
+      it.each([
+        ['Artifactory without authMode records anonymous', configuredSource('artifactory', { indexFile: 'index-v1.json' }),
+          { type: 'artifactory', url: 'https://example.test/source', indexFile: 'index-v1.json', authMode: 'anonymous' }],
+        ['Artifactory bearer keeps its credentialRef and drops branch', configuredSource('artifactory', { authMode: 'bearer', credentialRef: 'ART_TOKEN', branch: 'main' }),
+          { type: 'artifactory', url: 'https://example.test/source', authMode: 'bearer', credentialRef: 'ART_TOKEN' }],
+        ['GitHub keeps branch and collectionsPath and drops Artifactory fields', configuredSource('github', { branch: 'main', collectionsPath: 'collections', authMode: 'bearer', credentialRef: 'X' }),
+          { type: 'github', url: 'https://example.test/source', branch: 'main', collectionsPath: 'collections' }],
+        ['an empty collectionsPath is not recorded', configuredSource('awesome-copilot', { collectionsPath: '' }),
+          { type: 'awesome-copilot', url: 'https://example.test/source' }]
+      ] as [string, RegistrySource, Record<string, string>][])('%s', (_label, configured, expected) => {
+        const recorded = toRecordSource(configured);
+
+        expect({ ...recorded }).toEqual(expected);
+        expect(Object.getPrototypeOf(recorded)).toBeNull();
+      });
+
+      it('sets the record key when one is given', () => {
+        expect({ ...toRecordSource(configuredSource('github', {}), 'acme') }).toEqual({ sourceId: 'acme', type: 'github', url: 'https://example.test/source' });
       });
     });
 

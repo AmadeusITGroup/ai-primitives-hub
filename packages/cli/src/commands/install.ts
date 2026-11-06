@@ -37,6 +37,7 @@ import {
   type TargetWriter,
   toLockfileBundleEntry,
   toLockfileSourceEntry,
+  toRecordSource,
   TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
@@ -1648,31 +1649,17 @@ async function performRemoteInstall(
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
-    const sourceConfig = opts.sourceConfig;
-    const collectionsPath = sourceConfig?.config?.collectionsPath;
-    const sourceDetails: LockfileSourceEntry = {
-      type: sourceConfig?.type ?? 'github',
-      url: sourceConfig?.url ?? `https://github.com/${repoSlug}`,
-      ...(collectionsPath ? { collectionsPath } : {}),
-      ...(sourceConfig?.type === 'artifactory'
-        ? {
-          indexFile: typeof sourceConfig.config?.indexFile === 'string' ? sourceConfig.config.indexFile : undefined,
-          authMode: sourceConfig.config?.authMode === 'bearer' ? 'bearer' : 'anonymous',
-          credentialRef: typeof sourceConfig.config?.credentialRef === 'string' ? sourceConfig.config.credentialRef : undefined
-        }
-        : {})
-    };
+    // No configured source: the GitHub repository the bundle was resolved from.
+    const recordSource = opts.sourceConfig === undefined
+      ? { type: 'github', url: `https://github.com/${repoSlug}` }
+      : toRecordSource(opts.sourceConfig);
+    // The old lockfile never kept a branch.
+    const { branch: _branch, ...sourceDetails } = toLockfileSourceEntry(recordSource);
     const { lockPath, warnings } = await persistInstall(prepared, {
       bundleId: lockKey,
       version: manifest.version,
       tool: effectiveTarget.type,
-      source: {
-        sourceId: installable.ref.sourceId,
-        ...sourceDetails,
-        ...(sourceConfig?.type !== 'artifactory' && typeof sourceConfig?.config?.branch === 'string'
-          ? { branch: sourceConfig.config.branch }
-          : {})
-      },
+      source: { sourceId: installable.ref.sourceId, ...recordSource },
       writtenPaths: result.written
     }, async () => {
       const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
