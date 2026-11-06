@@ -102,8 +102,10 @@ import {
   defineCommand,
   formatOutput,
   type OutputFormat,
+  type PreparedRepositoryRecord,
   readTargetsSafely,
   RegistryError,
+  type RepositoryInstallToRecord,
   resolveEffectiveTarget,
   resolveTarget,
   resolveTargetName,
@@ -677,6 +679,26 @@ async function lookupHubSource(
 }
 
 /**
+ * Persist an install after the writer ran: in the repository install record
+ * when one was prepared (W1 steps 6–13), otherwise through the old lockfile.
+ * @param prepared The prepared repository record, or `undefined` for the old lockfile.
+ * @param record What the install record gets.
+ * @param legacy Writes the old lockfile entry and returns the lockfile path.
+ * @returns The file updated and the install record warnings.
+ */
+const persistInstall = async (
+  prepared: PreparedRepositoryRecord | undefined,
+  record: RepositoryInstallToRecord,
+  legacy: () => Promise<string>
+): Promise<{ lockPath: string; warnings: string[] }> => {
+  if (prepared === undefined) {
+    return { lockPath: await legacy(), warnings: [] };
+  }
+  const recorded = await recordRepositoryInstall(prepared, record);
+  return { lockPath: recorded.lockfile, warnings: recorded.warnings };
+};
+
+/**
  * Create a writer factory that routes to the appropriate
  * writer based on target scope.
  * - user scope → FileTreeTargetWriter
@@ -1028,11 +1050,15 @@ async function performLocalInstall(
 
     const localSourceId = `local-${path.basename(opts.from as string)}`;
     const localSourceUrl = path.resolve(ctx.cwd(), opts.from as string);
-    let lockPath: string;
-    let warnings: string[] = [];
-    if (prepared === undefined) {
-      lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-      const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+    const { lockPath, warnings } = await persistInstall(prepared, {
+      bundleId: manifest.id,
+      version: manifest.version,
+      tool: effectiveTarget.type,
+      source: { sourceId: localSourceId, type: 'local', url: localSourceUrl },
+      writtenPaths: result.written
+    }, async () => {
+      const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
+      const existing = await readLockfile(legacyLockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
       const entry: LockfileBundleEntry = {
         version: manifest.version,
         sourceId: localSourceId,
@@ -1046,19 +1072,10 @@ async function performLocalInstall(
         type: 'local',
         url: localSourceUrl
       });
-      await writeLockfile(lockPath, nextLock, ctx.fs);
+      await writeLockfile(legacyLockPath, nextLock, ctx.fs);
       await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
-    } else {
-      const recorded = await recordRepositoryInstall(prepared, {
-        bundleId: manifest.id,
-        version: manifest.version,
-        tool: effectiveTarget.type,
-        source: { sourceId: localSourceId, type: 'local', url: localSourceUrl },
-        writtenPaths: result.written
-      });
-      lockPath = recorded.lockfile;
-      warnings = recorded.warnings;
-    }
+      return legacyLockPath;
+    });
 
     await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
 
@@ -1329,11 +1346,21 @@ async function performRemoteInstall(
         }
         : {})
     };
-    let lockPath: string;
-    let warnings: string[] = [];
-    if (prepared === undefined) {
-      lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-      const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+    const { lockPath, warnings } = await persistInstall(prepared, {
+      bundleId: lockKey,
+      version: manifest.version,
+      tool: effectiveTarget.type,
+      source: {
+        sourceId: installable.ref.sourceId,
+        ...sourceDetails,
+        ...(sourceConfig?.type !== 'artifactory' && typeof sourceConfig?.config?.branch === 'string'
+          ? { branch: sourceConfig.config.branch }
+          : {})
+      },
+      writtenPaths: result.written
+    }, async () => {
+      const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
+      const existing = await readLockfile(legacyLockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
       const entry: LockfileBundleEntry = {
         version: manifest.version,
         sourceId: installable.ref.sourceId,
@@ -1345,25 +1372,10 @@ async function performRemoteInstall(
       const previousFiles = existing.bundles[lockKey]?.files;
       let nextLock = upsertBundleEntry(existing, lockKey, entry);
       nextLock = upsertSource(nextLock, installable.ref.sourceId, sourceDetails);
-      await writeLockfile(lockPath, nextLock, ctx.fs);
+      await writeLockfile(legacyLockPath, nextLock, ctx.fs);
       await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
-    } else {
-      const recorded = await recordRepositoryInstall(prepared, {
-        bundleId: lockKey,
-        version: manifest.version,
-        tool: effectiveTarget.type,
-        source: {
-          sourceId: installable.ref.sourceId,
-          ...sourceDetails,
-          ...(sourceConfig?.type !== 'artifactory' && typeof sourceConfig?.config?.branch === 'string'
-            ? { branch: sourceConfig.config.branch }
-            : {})
-        },
-        writtenPaths: result.written
-      });
-      lockPath = recorded.lockfile;
-      warnings = recorded.warnings;
-    }
+      return legacyLockPath;
+    });
 
     formatOutput({
       ctx,
