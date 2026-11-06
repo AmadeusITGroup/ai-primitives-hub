@@ -545,8 +545,22 @@ export async function runProfileActivation(
     throw sync.report.error;
   }
   if (!result.success) {
-    // e.g. the activation state could not be saved after the install.
     await rollbackProfileActivation(ctx, lifecycle, hubId, profile.id, effectiveTargets, sync.report);
+    const missing = result.missingRequiredBundles ?? [];
+    if (missing.length > 0) {
+      const reasons = sync.report.failures
+        .filter((f) => missing.includes(f.bundleId))
+        .map((f) => `${f.bundleId} (${f.target}): ${f.reason}`);
+      throw new RegistryError({
+        code: 'HUB.REQUIRED_BUNDLE_MISSING',
+        message: `profile activate: required bundles were not installed: ${missing.join(', ')}`
+          + (reasons.length > 0 ? ` (${reasons.join('; ')})` : ''),
+        hint: 'Fix the install error of each required bundle (source configured, reachable, and authenticated), '
+          + 'then re-run the command. Bundles a profile can do without should be marked `required: false` in the hub.',
+        context: { hubId, profileId: profile.id, missingRequiredBundles: missing }
+      });
+    }
+    // e.g. the activation state could not be saved after the install.
     throw new RegistryError({
       code: 'HUB.ACTIVATION_FAILED',
       message: `profile activate: ${result.error ?? 'activation failed'}`,

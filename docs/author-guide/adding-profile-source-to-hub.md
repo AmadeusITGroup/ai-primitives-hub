@@ -138,7 +138,9 @@ Each bundle in a profile needs:
 - **id**: Must match a bundle ID from one of the hub's sources
 - **version**: Semantic version or `"latest"`
 - **source**: Must reference a source ID defined in the hub
-- **required**: `true` for mandatory bundles, `false` for optional
+- **required**: `true` for mandatory bundles, `false` for optional. When a
+  required bundle cannot be installed, activation fails and is undone; an
+  optional bundle that fails is reported and skipped
 
 Pin a semantic version for stable or production profiles whose contents
 should change only through a reviewed Hub update. Use `latest` only when

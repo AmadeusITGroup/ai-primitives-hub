@@ -200,7 +200,7 @@ The `profiles` array defines predefined bundle collections.
 | `id` | string | Yes | Bundle identifier (1-50 chars) |
 | `version` | string | Yes | Bundle version (semver or `"latest"`) |
 | `source` | string | Yes | The `id` of a source declared in this hub's `sources` array (see [Source Identity](#source-identity)) |
-| `required` | boolean | Yes | Whether this bundle is mandatory for the profile |
+| `required` | boolean | Yes | Whether this bundle is mandatory for the profile. Activation fails, and is undone, when a required bundle cannot be installed |
 
 ### Example
 
