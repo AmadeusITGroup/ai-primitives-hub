@@ -20,14 +20,13 @@ import {
   compareCodeUnits,
   FORBIDDEN_KEYS,
   type InstallRecord,
-  LOCAL_RECORD_FILE_NAME,
-  RECORD_FILE_NAME,
   type RecordChange,
   type RecordedFile,
   recordError,
   type RecordFs,
   type RecordLocation,
   relativeInside,
+  repositoryLocations,
   type SourceRecord,
   type SourceType,
   TARGET_TYPES,
@@ -239,13 +238,8 @@ export class InstallRecordService {
     if (location.level !== 'repository') {
       return undefined;
     }
-    const isLocal = location.commitMode === 'local-only';
-    return {
-      level: 'repository',
-      root: location.root,
-      path: path.join(location.root, isLocal ? RECORD_FILE_NAME : LOCAL_RECORD_FILE_NAME),
-      commitMode: isLocal ? 'commit' : 'local-only'
-    };
+    const [committed, localOnly] = repositoryLocations(location.root);
+    return location.commitMode === 'local-only' ? committed : localOnly;
   }
 
   /**
