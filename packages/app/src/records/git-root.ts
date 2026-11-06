@@ -15,6 +15,9 @@ import type {
   RecordFs,
 } from '@ai-primitives-hub/core';
 import {
+  findAncestorFile,
+} from '../diagnostics/find-ancestor-file';
+import {
   writeFileAtomically,
 } from './atomic-write';
 
@@ -41,17 +44,8 @@ export interface ExcludeResult {
  * @returns The folder, or `undefined` when no ancestor holds `.git`.
  */
 export const findGitRoot = async (fs: RecordFs, start: string): Promise<string | undefined> => {
-  let dir = path.resolve(start);
-  for (;;) {
-    if (await fs.exists(path.join(dir, '.git'))) {
-      return dir;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) {
-      return undefined;
-    }
-    dir = parent;
-  }
+  const dotGit = await findAncestorFile(fs, path.resolve(start), ['.git']);
+  return dotGit === undefined ? undefined : path.dirname(dotGit);
 };
 
 /**
