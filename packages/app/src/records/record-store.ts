@@ -25,8 +25,10 @@ import {
 import * as path from 'node:path';
 import {
   type InstallRecord,
+  isJsonObject,
   isRecordError,
   LOCAL_RECORD_FILE_NAME,
+  nullPrototypeCopy,
   parseRecord,
   RECORD_FILE_NAME,
   RECORD_FORMAT_VERSION,
@@ -88,9 +90,6 @@ export interface RecordStoreOptions {
 }
 
 const LARGE_RECORD_HINT = 'The record is larger than 10 MB. Fix or remove the file, then run the command again.';
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isInside = (realRoot: string, candidate: string): boolean => {
   const relative = path.relative(realRoot, candidate);
@@ -242,18 +241,15 @@ export class RecordStore {
    * @param record - Record being checked or written.
    */
   private stamp(location: RecordLocation, record: InstallRecord): InstallRecord {
-    const stamped = Object.create(null) as InstallRecord;
-    for (const key of Object.keys(record)) {
-      stamped[key] = record[key];
-    }
+    const stamped = nullPrototypeCopy(record);
     stamped.version = RECORD_FORMAT_VERSION;
     stamped.level = location.level;
     stamped.generatedAt = this.now().toISOString();
     stamped.generatedBy = this.generatedBy;
-    if (!isObject(stamped.bundles)) {
+    if (!isJsonObject(stamped.bundles)) {
       stamped.bundles = Object.create(null) as InstallRecord['bundles'];
     }
-    if (!isObject(stamped.sources)) {
+    if (!isJsonObject(stamped.sources)) {
       stamped.sources = Object.create(null) as InstallRecord['sources'];
     }
     return stamped;

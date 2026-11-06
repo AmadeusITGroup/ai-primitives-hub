@@ -17,6 +17,10 @@ import {
   recordError,
 } from './record-errors';
 import {
+  isJsonObject,
+  nullPrototypeCopy,
+} from './record-object';
+import {
   FORBIDDEN_KEYS,
   RECORD_FORMAT_MAJOR,
 } from './record-types';
@@ -32,24 +36,13 @@ export interface UnvalidatedRecord {
   readonly [key: string]: unknown;
 }
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const toNullPrototype = (value: Record<string, unknown>): Record<string, unknown> => {
-  const copy = Object.create(null) as Record<string, unknown>;
-  for (const key of Object.keys(value)) {
-    copy[key] = value[key];
-  }
-  return copy;
-};
-
 const parseJson = (text: string, file: string | undefined): unknown => {
   try {
     return JSON.parse(text, (key: string, value: unknown) => {
       if (FORBIDDEN_KEYS.has(key)) {
         throw recordError('RECORD.MALFORMED', { file, detail: `forbidden key ${key}` });
       }
-      return isPlainObject(value) ? toNullPrototype(value) : value;
+      return isJsonObject(value) ? nullPrototypeCopy(value) : value;
     });
   } catch (error) {
     if (isRegistryError(error)) {
@@ -94,7 +87,7 @@ const checkVersion = (version: unknown, file: string | undefined): void => {
  */
 export const parseRecord = (text: string, file?: string): UnvalidatedRecord => {
   const parsed = parseJson(text, file);
-  if (!isPlainObject(parsed)) {
+  if (!isJsonObject(parsed)) {
     throw recordError('RECORD.MALFORMED', { file, detail: 'top level is not an object' });
   }
   checkVersion(parsed.version, file);
