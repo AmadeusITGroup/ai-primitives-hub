@@ -73,6 +73,7 @@ export class PrimitiveValidateCommand extends Command {
   public baseRef = Option.String('--base-ref');
   public headRef = Option.String('--head-ref');
   public config = Option.String('--config');
+  // eslint-disable-next-line new-cap -- Clipanion exposes Rest as a factory function with an uppercase name.
   public inputs = Option.Rest();
   public commandContext!: { ctx: Context; http?: HttpClient; tokens?: TokenProvider };
 
