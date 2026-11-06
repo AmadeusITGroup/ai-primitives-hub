@@ -71,6 +71,18 @@
     },
     {
       "type": "shell",
+      "label": "pnpm: build live replica consumer tests",
+      "command": "pnpm",
+      "args": ["run", "build:live:replica-consumers"],
+      "problemMatcher": "$tsc",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "type": "shell",
       "label": "pnpm: compile-tests",
       "command": "pnpm",
       "args": ["-C", "apps/vscode-extension", "run", "compile-tests"],

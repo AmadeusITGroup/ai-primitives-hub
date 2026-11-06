@@ -10,6 +10,9 @@
  * `doctor diagnostics`' steps 1-9 and 20-21.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   chmod,
   mkdir,
   mkdtemp,
@@ -22,9 +25,11 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  readLockfile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import type {
+  ArtifactorySourceIndex,
   HttpClient,
   HttpRequest,
   HttpResponse,
@@ -504,5 +509,198 @@ profiles:
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('manifest id \\"sample-skills\\" does not match expected');
+  });
+});
+
+describe('profile activate with an authenticated Artifactory hub source', () => {
+  let workspace: string;
+  let targetDir: string;
+
+  const bundleId = 'example-repo-artifactory-bundle';
+  const manifestId = 'artifactory-bundle';
+  const sourceRoot = 'https://artifactory.example/repo';
+  const archivePath = 'bundles/artifactory-bundle/1.0.0/bundle.zip';
+  const bundleFiles = createLegacyReleaseArchive({ id: manifestId, version: '1.0.0' });
+  const duplicatePrompt = bundleFiles.get('prompts/hello.prompt.md');
+  if (duplicatePrompt === undefined) {
+    throw new Error('Legacy release fixture is missing its expected prompt');
+  }
+  bundleFiles.set('apm.yml', new TextEncoder().encode(`name: ${manifestId}\nversion: 1.0.0\n`));
+  bundleFiles.set('.apm/prompts/hello.prompt.md', duplicatePrompt);
+  const bundleZip = buildZip([...bundleFiles]
+    .map(([filePath, bytes]) => ({ path: filePath, bytes })));
+  const index: ArtifactorySourceIndex = {
+    formatVersion: 1,
+    source: { id: 'replicated', name: 'Replicated', updatedAt: '2026-01-01T00:00:00Z' },
+    bundles: [{
+      id: bundleId,
+      version: '1.0.0',
+      name: 'Artifactory Bundle',
+      description: 'Bundle served from an authenticated Artifactory source',
+      author: 'Test',
+      environments: ['vscode'],
+      tags: [],
+      lastUpdated: '2026-01-01T00:00:00Z',
+      dependencies: [],
+      canonicalSource: 'https://github.com/example/repo',
+      license: 'Apache-2.0',
+      manifest: {
+        path: 'bundles/artifactory-bundle/1.0.0/deployment-manifest.yml',
+        size: 1,
+        sha256: 'a'.repeat(64),
+        mediaType: 'application/yaml'
+      },
+      archive: {
+        path: archivePath,
+        size: bundleZip.byteLength,
+        sha256: createHash('sha256').update(bundleZip).digest('hex'),
+        mediaType: 'application/zip'
+      }
+    }]
+  };
+  let servedZip = bundleZip;
+  let servedIndex = index;
+
+  const requests: HttpRequest[] = [];
+  const http: HttpClient = {
+    fetch: (request: HttpRequest): Promise<HttpResponse> => {
+      requests.push(request);
+      if (request.headers?.Authorization !== 'Bearer test-artifactory-token') {
+        return Promise.resolve({ statusCode: 401, body: new Uint8Array(), finalUrl: request.url, headers: {} });
+      }
+      if (request.url === `${sourceRoot}/index-v1.json`) {
+        return Promise.resolve({
+          statusCode: 200,
+          body: new TextEncoder().encode(JSON.stringify(servedIndex)),
+          finalUrl: request.url,
+          headers: {}
+        });
+      }
+      if (request.url === `${sourceRoot}/${archivePath}`) {
+        return Promise.resolve({ statusCode: 200, body: servedZip, finalUrl: request.url, headers: {} });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${request.url}`));
+    }
+  };
+
+  const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({
+      cwd: workspace,
+      fs: new NodeFileSystem(),
+      env: {
+        HOME: workspace,
+        USERPROFILE: workspace,
+        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+        ARTIFACTORY_READER_TOKEN: 'test-artifactory-token'
+      }
+    });
+    const exitCode = await runCli(argv, {
+      ctx,
+      http,
+      tokens: { getToken: () => Promise.resolve(undefined) },
+      commandClasses: [...COMMAND_CLASSES, InstallCommand],
+      commands: [],
+      name: 'test',
+      version: 'test'
+    });
+    return { exitCode, stdout: ctx.stdout.captured() };
+  };
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-profile-artifactory-test-'));
+    targetDir = path.join(workspace, 'target');
+    await mkdir(targetDir, { recursive: true });
+    requests.length = 0;
+    servedZip = bundleZip;
+    servedIndex = structuredClone(index);
+    const hubConfigFile = path.join(workspace, 'hub-config.yml');
+    await writeFile(hubConfigFile, `version: 1.0.0
+metadata:
+  name: Artifactory Hub
+  description: Hub with an authenticated Artifactory source
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: replicated
+    name: Replicated
+    type: artifactory
+    url: ${sourceRoot}
+    enabled: true
+    priority: 0
+    config:
+      indexFile: index-v1.json
+      authMode: bearer
+      credentialRef: ARTIFACTORY_READER_TOKEN
+profiles:
+  - id: artifactory-profile
+    name: Artifactory Profile
+    description: Installs a bundle from the authenticated source
+    bundles:
+      - id: ${bundleId}
+        version: 1.0.0
+        source: replicated
+        required: true
+`);
+
+    expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'use', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('authenticates and installs repository-qualified Artifactory bundle IDs', async () => {
+    const result = await run(['profile', 'activate', 'artifactory-profile', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.headers?.Authorization === 'Bearer test-artifactory-token')).toBe(true);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
+      .resolves.toContain('Hello Prompt');
+
+    const lockfilePath = resolveUserConfigPaths({
+      HOME: workspace,
+      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+      XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+    }).userLockfile;
+    const persisted = await readLockfile(lockfilePath, new NodeFileSystem());
+    expect(persisted?.sources.replicated).toEqual({
+      type: 'artifactory',
+      url: sourceRoot,
+      indexFile: 'index-v1.json',
+      authMode: 'bearer',
+      credentialRef: 'ARTIFACTORY_READER_TOKEN'
+    });
+    const replayDir = path.join(workspace, 'replay-target');
+    await mkdir(replayDir);
+    expect((await run(['target', 'add', 'replay', '--type', 'copilot-cli', '--path', replayDir, '-o', 'json'])).exitCode).toBe(0);
+    requests.length = 0;
+    const replay = await run(['install', '--lockfile', lockfilePath, '--target', 'replay', '-o', 'json']);
+
+    expect(replay.exitCode, replay.stdout).toBe(0);
+    expect(requests.map((request) => request.url)).toEqual([`${sourceRoot}/index-v1.json`, `${sourceRoot}/${archivePath}`]);
+    expect(requests.every((request) => request.headers?.Authorization === 'Bearer test-artifactory-token')).toBe(true);
+    await expect(readFile(path.join(replayDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+  });
+
+  it.each(['profile', 'install'])('rejects a valid-checksum archive for another package through %s', async (entryPoint) => {
+    const wrongFiles = createLegacyReleaseArchive({ id: 'unrelated-bundle', version: '1.0.0' });
+    servedZip = buildZip([...wrongFiles].map(([filePath, bytes]) => ({ path: filePath, bytes })));
+    servedIndex.bundles[0].archive = {
+      ...servedIndex.bundles[0].archive,
+      size: servedZip.byteLength,
+      sha256: createHash('sha256').update(servedZip).digest('hex')
+    };
+
+    const result = await run(entryPoint === 'profile'
+      ? ['profile', 'activate', 'artifactory-profile', '--target', 'copilot', '-o', 'json']
+      : ['install', bundleId, '--source', 'replicated', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).not.toBe(0);
+    expect(result.stdout).toContain('does not match expected');
+    await expect(stat(path.join(targetDir, 'prompts', 'hello.prompt.md'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

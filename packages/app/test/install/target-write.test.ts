@@ -8,10 +8,19 @@ import type {
   ValidatedManifest,
 } from '@ai-primitives-hub/core';
 import {
+  applyReleaseLayout,
+  isReleaseDeploymentManifest,
+  serializeReleaseManifest,
+  validateManifest,
+} from '@ai-primitives-hub/core';
+import {
   describe,
   expect,
   it,
 } from 'vitest';
+import {
+  createGovernedReleaseArchive,
+} from '../../../core/test/fixtures/release-archives';
 import {
   manifestPlacementItems,
   TargetWriteRejectedError,
@@ -86,6 +95,165 @@ describe('manifestPlacementItems', () => {
 });
 
 describe('writeBundleSafely', () => {
+  it('installs a generated governed dual-layout archive once from its preserved Hub paths', async () => {
+    const original = createGovernedReleaseArchive();
+    const originalManifest = validateManifest(original, {});
+    if (!isReleaseDeploymentManifest(originalManifest)) {
+      throw new Error('Expected a governed fixture.');
+    }
+    const entries = originalManifest.files.map((file) => {
+      const bytes = original.get(file.path);
+      if (bytes === undefined) {
+        throw new Error(`Missing fixture file: ${file.path}`);
+      }
+      return { path: file.path, role: file.role, bytes, mode: 0o644 };
+    });
+    const { plan } = applyReleaseLayout({
+      manifest: { ...originalManifest },
+      entries,
+      collectionPath: 'collections/governed.collection.yml'
+    }, 'apm');
+    const files = new Map(plan.entries.map((entry) => [entry.path, entry.bytes]));
+    files.set('deployment-manifest.yml', text(serializeReleaseManifest(plan.manifest)));
+    const manifest = validateManifest(files, {});
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const target: Target = { name: 'dual', type: 'vscode', scope: 'user', path: '/target' };
+
+    const { installableFiles, result } = await writeBundleSafely(writer, target, files, manifest);
+
+    expect([...installableFiles.keys()].toSorted()).toEqual(['deployment-manifest.yml', 'prompts/hello.prompt.md']);
+    expect(result.written).toEqual([localPath('/target', 'prompts', 'hello.prompt.md')]);
+    expect(await fs.readFile(localPath('/target', 'prompts', 'hello.prompt.md'))).toBe('# Hello Prompt\n');
+  });
+
+  it.each(['', '.github/'])('installs selected APM skill content instead of its %s root copies', async (prefix) => {
+    const files = new Map([
+      ['deployment-manifest.yml', text([
+        'id: selected',
+        'version: 1.0.0',
+        'name: Selected',
+        'prompts:',
+        '  - id: sample',
+        '    type: skill',
+        '    file: .apm/skills/sample/SKILL.md'
+      ].join('\n'))],
+      ['apm.yml', text('name: selected\nversion: 1.0.0\n')],
+      [`${prefix}skills/sample/SKILL.md`, text('# Root skill')],
+      [`${prefix}skills/sample/references/rules.md`, text('# Root rules')],
+      ['.apm/skills/sample/SKILL.md', text('# Selected skill')],
+      ['.apm/skills/sample/references/rules.md', text('# Selected rules')]
+    ]);
+    const manifest = validateManifest(files, {});
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const target: Target = { name: 'selected', type: 'copilot-cli', scope: 'user', path: '/target' };
+
+    const { installableFiles, result } = await writeBundleSafely(writer, target, files, manifest);
+
+    expect(installableFiles.has(`${prefix}skills/sample/SKILL.md`)).toBe(false);
+    expect(result.written).toHaveLength(2);
+    expect(await fs.readFile(localPath('/target', 'skills', 'sample', 'SKILL.md'))).toBe('# Selected skill');
+    expect(await fs.readFile(localPath('/target', 'skills', 'sample', 'references', 'rules.md'))).toBe('# Selected rules');
+  });
+
+  it.each(['vscode', 'copilot-cli', 'kiro', 'kiro-cli'] as const)(
+    'preserves %s placement and rejection behavior after single-copy repackaging',
+    async (type) => {
+      const sourceManifest: ValidatedManifest = {
+        ...copilotManifest(),
+        prompts: [
+          ...manifestPlacementItems(copilotManifest()),
+          { id: 'helper', file: '.github/agents/helper.agent.md', type: 'agent' },
+          { id: 'legacy-expert', file: '.github/chatmodes/legacy-expert.chatmode.md', type: 'chatmode' },
+          { id: 'review', file: '.github/prompts/team/review.prompt.md', type: 'prompt' }
+        ]
+      };
+      const original = copilotBundle();
+      original.set('.github/agents/helper.agent.md', text('# Helper'));
+      original.set('.github/chatmodes/legacy-expert.chatmode.md', text('# Legacy expert'));
+      original.set('.github/prompts/team/review.prompt.md', text('# Review'));
+      original.set('deployment-manifest.yml', text(JSON.stringify(sourceManifest)));
+      const rewire = (file: string): string => `.apm/${file.replace(/^\.github\//, '')}`;
+      const rewritten: ValidatedManifest = {
+        ...sourceManifest,
+        prompts: manifestPlacementItems(sourceManifest).map((item) => ({ ...item, file: rewire(item.file) }))
+      };
+      const packaged = new Map([...original].map(([file, content]) => [
+        file === 'deployment-manifest.yml' ? file : rewire(file), content
+      ]));
+      packaged.set('deployment-manifest.yml', text(JSON.stringify(rewritten)));
+      packaged.set('apm.yml', text('name: sample-skills\nversion: 1.0.0\n'));
+      const target: Target = { name: 'parity', type, scope: 'user', path: '/target' };
+      const write = async (files: Map<string, Uint8Array>) => {
+        const fs = new InMemoryFileSystem();
+        const writer = new FileTreeTargetWriter({ fs, env });
+        const manifest = validateManifest(files, {});
+        try {
+          return { fs, success: await writeBundleSafely(writer, target, files, manifest) };
+        } catch (error) {
+          if (!(error instanceof TargetWriteRejectedError)) {
+            throw error;
+          }
+          return { fs, rejection: error };
+        }
+      };
+      const baseline = await write(original);
+      const repacked = await write(packaged);
+
+      if (baseline.rejection === undefined) {
+        expect(repacked.rejection).toBeUndefined();
+        expect(repacked.success?.result.written.toSorted()).toEqual(baseline.success.result.written.toSorted());
+        for (const file of baseline.success.result.written) {
+          expect(await repacked.fs.readFileBytes(file)).toEqual(await baseline.fs.readFileBytes(file));
+        }
+      } else {
+        const normalize = (file: string): string => file.replace(/^(?:\.github|\.apm)\//, '');
+        expect(repacked.rejection?.skipped.map((file) => normalize(file))).toEqual(
+          baseline.rejection.skipped.map((file) => normalize(file))
+        );
+        expect(await baseline.fs.exists('/target')).toBe(false);
+        expect(await repacked.fs.exists('/target')).toBe(false);
+      }
+    }
+  );
+
+  it('installs single-copy APM primitives and skill resources without installing companion metadata', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const target: Target = { name: 'vsc', type: 'vscode', scope: 'user' };
+    const files = new Map([
+      ['deployment-manifest.yml', text([
+        'id: dual',
+        'version: 1.0.0',
+        'name: Dual',
+        'prompts:',
+        '  - id: rules',
+        '    type: instructions',
+        '    file: .apm/instructions/rules.instructions.md',
+        '  - id: sample',
+        '    type: skill',
+        '    file: .apm/skills/sample/SKILL.md'
+      ].join('\n'))],
+      ['apm.yml', text('name: dual\nversion: 1.0.0\n')],
+      ['.apm/instructions/rules.instructions.md', text('# Rules')],
+      ['.apm/skills/sample/SKILL.md', text('# Sample')],
+      ['.apm/skills/sample/references/data.bin', new Uint8Array([0, 255, 1])]
+    ]);
+    const manifest = validateManifest(files, {});
+
+    const { result, installableFiles } = await writeBundleSafely(writer, target, files, manifest);
+
+    expect(installableFiles.has('apm.yml')).toBe(false);
+    expect(result.written.toSorted()).toEqual([
+      localPath('/home/u', '.copilot', 'instructions', 'rules.instructions.md'),
+      localPath('/home/u', '.copilot', 'skills', 'sample', 'SKILL.md'),
+      localPath('/home/u', '.copilot', 'skills', 'sample', 'references', 'data.bin')
+    ].toSorted());
+    expect(await fs.readFileBytes(localPath('/home/u', '.copilot', 'skills', 'sample', 'references', 'data.bin')))
+      .toEqual(new Uint8Array([0, 255, 1]));
+  });
+
   it('places a Copilot-layout bundle by type on a Kiro user target', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env });

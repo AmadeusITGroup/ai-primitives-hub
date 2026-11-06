@@ -76,8 +76,8 @@ describe('ArtifactoryReplicationPublisher', () => {
     expect(http.requests).toHaveLength(2);
   });
 
-  it('uploads after a missing HEAD and sends the expected digest/auth headers', async () => {
-    const http = new FakeHttp([response(404), response(201)]);
+  it.each([404, 410])('conditionally creates an object after HEAD returns %s', async (statusCode) => {
+    const http = new FakeHttp([response(statusCode), response(201)]);
     const publisher = new ArtifactoryReplicationPublisher(http, credentials, 'https://art.example/repo');
 
     await expect(publisher.publish('bundles/object', bytes, 'application/zip')).resolves.toBe('uploaded');
@@ -85,8 +85,38 @@ describe('ArtifactoryReplicationPublisher', () => {
     expect(http.requests[1].headers).toMatchObject({
       Authorization: 'Bearer publisher',
       'X-Checksum-Sha256': sha256,
-      'Content-Type': 'application/zip'
+      'Content-Type': 'application/zip',
+      'If-None-Match': '*'
     });
+  });
+
+  it.each([false, true])('preserves a concurrent immutable upload with allowUnverifiedExisting=%s', async (allowUnverifiedExisting) => {
+    const concurrentBytes = new TextEncoder().encode('concurrent publication');
+    let stored: Uint8Array | undefined;
+    const requests: HttpRequest[] = [];
+    const http: HttpClient = {
+      fetch: (request) => {
+        requests.push(request);
+        if (request.method === 'HEAD') {
+          stored = concurrentBytes;
+          return Promise.resolve(response(404));
+        }
+        if (request.headers?.['If-None-Match'] === '*' && stored !== undefined) {
+          return Promise.resolve(response(412));
+        }
+        if (!(request.body instanceof Uint8Array)) {
+          throw new Error('Expected publication bytes.');
+        }
+        stored = request.body;
+        return Promise.resolve(response(201));
+      }
+    };
+    const publisher = new ArtifactoryReplicationPublisher(http, credentials, 'https://art.example/repo', allowUnverifiedExisting);
+
+    await expect(publisher.publish('owner/sample/sample-1.0.0.zip', bytes, 'application/zip'))
+      .rejects.toThrow(/sample-1\.0\.0\.zip.*412/);
+    expect(stored).toBe(concurrentBytes);
+    expect(requests.map((request) => request.method)).toEqual(['HEAD', 'PUT']);
   });
 
   it('skips an existing object when its remote digest matches', async () => {

@@ -137,6 +137,53 @@ describe('InstallPipeline', () => {
     });
   });
 
+  it('uses the resolved Artifactory namespace for repository-qualified IDs', async () => {
+    const resolved: Installable = {
+      ...installable,
+      ref: { ...installable.ref, sourceType: 'artifactory', bundleId: 'acme-org-tools-my-bundle' },
+      sourceRepoSlug: 'acme-org/tools'
+    };
+    const pipeline = new InstallPipeline({
+      resolver: { resolve: () => Promise.resolve(resolved) },
+      downloader: okDownloader,
+      extractor: okExtractor,
+      writerFactory: () => okWriter
+    });
+
+    expect((await pipeline.run({ bundleId: resolved.ref.bundleId, bundleVersion: 'latest' }, TARGET)).manifest.id).toBe('my-bundle');
+  });
+
+  it.each([
+    { id: 'other-bundle', version: '1.0.0', code: 'BUNDLE.ID_MISMATCH' },
+    { id: 'my-bundle', version: '2.0.0', code: 'BUNDLE.VERSION_MISMATCH' }
+  ])('binds Artifactory payload $id@$version to the resolved index entry before writing', async ({ id, version, code }) => {
+    const resolved: Installable = {
+      ...installable,
+      ref: { ...installable.ref, sourceType: 'artifactory', bundleId: 'acme-org-tools-my-bundle' },
+      sourceRepoSlug: 'acme-org/tools'
+    };
+    const writes: string[] = [];
+    const pipeline = new InstallPipeline({
+      resolver: { resolve: () => Promise.resolve(resolved) },
+      downloader: okDownloader,
+      extractor: { extract: () => Promise.resolve(createLegacyReleaseArchive({ id, version })) },
+      writerFactory: () => ({
+        ...okWriter,
+        write: () => {
+          writes.push('write');
+          return Promise.resolve({ written: [], skipped: [] });
+        }
+      }),
+      skipManifestIdValidation: true
+    });
+
+    await expect(pipeline.run({ bundleId: resolved.ref.bundleId, bundleVersion: 'latest' }, TARGET)).rejects.toMatchObject({
+      code,
+      stage: 'validate'
+    });
+    expect(writes).toEqual([]);
+  });
+
   it('emits events for every stage in order', async () => {
     const events: PipelineEvent['kind'][] = [];
     const pipeline = new InstallPipeline({

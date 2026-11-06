@@ -248,6 +248,29 @@ prompts:
     expect(await fs.exists(path.join(skillDir, 'api.ts'))).toBe(true);
   });
 
+  it.each(['.apm/', '.github/'])('writes manifest-selected %s skills and their resources', async (prefix) => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const skillPath = `${prefix}skills/test-skill/skill.json`;
+    const resourcePath = `${prefix}skills/test-skill/references/data.bin`;
+    const files = new Map([
+      ['deployment-manifest.yml', new TextEncoder().encode(SAMPLE_MANIFEST.replace('skills/test-skill/skill.json', skillPath))],
+      [skillPath, new TextEncoder().encode('{"name":"Selected skill"}')],
+      [resourcePath, new Uint8Array([0, 255, 1])],
+      [`${prefix}skills/test-skill-other/SKILL.md`, new TextEncoder().encode('Do not copy this sibling')]
+    ]);
+
+    const preflight = await writer.preflight(files, ['skill']);
+    const result = await writer.write(files, ['skill']);
+
+    expect(preflight.writable.toSorted()).toEqual([skillPath, resourcePath].toSorted());
+    expect(result.writtenBundlePaths?.toSorted()).toEqual(preflight.writable.toSorted());
+    const skillDir = path.join(WORKSPACE_ROOT, '.github', 'skills', 'test-skill');
+    expect(await fs.readFile(path.join(skillDir, 'skill.json'))).toBe('{"name":"Selected skill"}');
+    expect(await fs.readFileBytes(path.join(skillDir, 'references', 'data.bin'))).toEqual(new Uint8Array([0, 255, 1]));
+    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'skills', 'test-skill-other'))).toBe(false);
+  });
+
   it('returns empty result when manifest is missing', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
