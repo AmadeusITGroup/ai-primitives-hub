@@ -53,6 +53,7 @@ import {
   ProfileActivateCommand,
   ProfileCurrentCommand,
   ProfileDeactivateCommand,
+  ProfileInstallCommand,
   ProfileListCommand,
   ProfileShowCommand,
 } from '../../src/commands/profile';
@@ -79,7 +80,8 @@ const COMMAND_CLASSES = [
   ProfileShowCommand,
   ProfileCurrentCommand,
   ProfileActivateCommand,
-  ProfileDeactivateCommand
+  ProfileDeactivateCommand,
+  ProfileInstallCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -356,6 +358,14 @@ profiles:
         version: latest
         source: sample-collections
         required: true
+  - id: install-only
+    name: Install only
+    description: Pinned to the released version
+    bundles:
+      - id: acme-org-sample-skills-sample-skills
+        version: 1.8.1
+        source: sample-collections
+        required: true
   - id: partial-required
     name: Partially installable
     description: One required bundle installs, the other does not
@@ -420,6 +430,60 @@ profiles:
     expect(Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
     const current = await run(['profile', 'current', '-o', 'json']);
     expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+  });
+
+  describe('profile install', () => {
+    const lockedBundleIds = async (): Promise<string[]> => {
+      const lock = await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8').catch(() => '{"bundles":{}}');
+      return Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {});
+    };
+
+    it('installs the profile bundles as ordinary installs without activating the profile', async () => {
+      const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: { bundleId: string; version: string }[] }>).data;
+      expect(data.installed).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+    });
+
+    it('keeps the active profile active and reports bundles already installed at the pinned version', async () => {
+      expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; alreadyInstalled: unknown[] }>).data;
+      expect(data.installed).toEqual([]);
+      expect(data.alreadyInstalled).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active)
+        .toEqual({ hubId: 'sample-hub', profileId: 'organization-sample-developer' });
+    });
+
+    it('removes what it installed when a required bundle is missing', async () => {
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+      expect(await lockedBundleIds()).toEqual([]);
+    });
+
+    it('leaves bundles installed before the batch in place when a required bundle is missing', async () => {
+      expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+    });
   });
 
   it('replays the activated profile\'s lockfile into a clean target', async () => {

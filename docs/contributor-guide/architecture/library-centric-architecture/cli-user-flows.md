@@ -63,6 +63,7 @@ flowchart LR
         profileShow[profile show<br/>Show profile]
         profileActivate[profile activate<br/>Activate profile]
         profileDeactivate[profile deactivate<br/>Deactivate profile]
+        profileInstall[profile install<br/>Install profile bundles]
         profileCurrent[profile current<br/>Current profile]
         profileCreate[profile create<br/>Create profile]
         profileEdit[profile edit<br/>Edit profile]
@@ -605,6 +606,7 @@ flowchart LR
 | `profile show <id>` | Show profile details | `--hub <hub-id>` |
 | `profile activate <id>` | Activate profile | `--hub <hub-id>`, `--target <name>`, `--dry-run` |
 | `profile deactivate` | Deactivate profile | `--dry-run` |
+| `profile install <id>` | Install the profile's bundles without activating it | `--hub <hub-id>`, `--target <name>`, `--dry-run` |
 | `profile current` | Show current profile | |
 | `profile create` | Create profile | `--name <name>`, `--description <desc>` |
 | `profile edit` | Edit profile | `--editor <cmd>` |
