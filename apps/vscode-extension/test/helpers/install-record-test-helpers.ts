@@ -5,6 +5,11 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  LOCAL_RECORD_FILE_NAME,
+  RECORD_FILE_NAME,
+  RECORD_SCHEMA_URL,
+} from '@ai-primitives-hub/core';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -12,10 +17,10 @@ import {
   LockfileBuilder,
 } from './lockfile-test-helpers';
 
-/** Committed install record file name. */
-export const RECORD_FILE = 'ai-primitives-hub.lock.json';
-/** Local-only install record file name. */
-export const LOCAL_RECORD_FILE = 'ai-primitives-hub.local.lock.json';
+/** Committed install record file name (core `RECORD_FILE_NAME`). */
+export const RECORD_FILE = RECORD_FILE_NAME;
+/** Local-only install record file name (core `LOCAL_RECORD_FILE_NAME`). */
+export const LOCAL_RECORD_FILE = LOCAL_RECORD_FILE_NAME;
 
 /**
  * Minimal `ExtensionContext` for constructing a `RegistryManager`.
@@ -83,7 +88,7 @@ export const writeInstallRecord = (root: string, fileName: string, spec: RecordS
     }))
   }]));
   fs.writeFileSync(path.join(root, fileName), `${JSON.stringify({
-    $schema: 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json',
+    $schema: RECORD_SCHEMA_URL,
     version: '3.0.0',
     level: 'repository',
     generatedAt: '2026-10-28T10:00:00.000Z',

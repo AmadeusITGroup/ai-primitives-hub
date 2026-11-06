@@ -6,8 +6,9 @@
  * separates APH's own state from user-facing writes, snapshot diffs and the
  * containment check run before any command. Pure functions: no I/O.
  *
- * The bookkeeping names are literals, because core cannot import app or
- * infra; an app drift-guard test labels the real constants and resolvers.
+ * The bookkeeping names owned by app or infra are literals, because core
+ * cannot import them; an app drift-guard test labels the real constants and
+ * resolvers. The install record names come from core's `RECORD_FILE_NAMES`.
  * @module domain/diagnostics/primitives/sandbox
  */
 import {
@@ -18,6 +19,9 @@ import type {
   PreparedSandbox,
   SnapshotRoot,
 } from '../../../ports/primitive-diagnostics-driver';
+import {
+  RECORD_FILE_NAMES,
+} from '../../install/record-types';
 
 /** Sandbox snapshot: label → sha256 hex of the file bytes. */
 export type Snapshot = ReadonlyMap<string, string>;
@@ -75,9 +79,8 @@ const WORKSPACE_BOOKKEEPING_FILES: ReadonlySet<string> = new Set([
   'ai-primitives-hub.yaml',
   'prompt-registry.lock.json',
   'prompt-registry.local.lock.json',
-  // Install record files (format 3.0.0), `RECORD_FILE_NAMES`; the app drift guard checks them.
-  'ai-primitives-hub.lock.json',
-  'ai-primitives-hub.local.lock.json'
+  // Install record files (format 3.0.0).
+  ...RECORD_FILE_NAMES
 ]);
 const STATE_DIR = '.ai-primitives-hub';
 
