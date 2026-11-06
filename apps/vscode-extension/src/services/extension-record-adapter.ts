@@ -51,9 +51,9 @@ import {
   describeRecordError,
   isRecordError,
   type LockfileSourceDescriptor,
+  recordErrorDetails,
   type RecordFs,
   type RecordLocation,
-  recordErrorDetails,
   type RegistrySource,
   type TargetType,
 } from '@ai-primitives-hub/core';

@@ -576,6 +576,32 @@ export class InstallRecordService {
   }
 
   /**
+   * Tool entries of the given record files, one per level, root, bundle and
+   * tool; an entry in both repository files at one root comes from the committed file.
+   * @param locations - Record files to read.
+   * @param bundleId - Only this bundle's entries, when given.
+   * @param tool - Only this tool's entries, when given.
+   */
+  private async locateEntries(locations: readonly RecordLocation[], bundleId?: string, tool?: string): Promise<LocatedToolEntry[]> {
+    const found = new Map<string, LocatedToolEntry>();
+    for (const location of locations) {
+      const { record } = await this.store.load(location);
+      const bundles = Object.entries(record.bundles).filter(([id]) => bundleId === undefined || id === bundleId);
+      for (const [id, bundle] of bundles) {
+        for (const [key, entry] of Object.entries(bundle.tools).filter(([name]) => tool === undefined || name === tool)) {
+          const dedupeKey = JSON.stringify([location.level, location.root, id, key]);
+          const existing = found.get(dedupeKey);
+          if (existing !== undefined && (existing.location.commitMode !== 'local-only' || location.commitMode === 'local-only')) {
+            continue;
+          }
+          found.set(dedupeKey, { location, bundleId: id, tool: key, entry });
+        }
+      }
+    }
+    return [...found.values()];
+  }
+
+  /**
    * Record that a tool installed a bundle, moving the entry out of the other
    * repository file and syncing siblings. The tool's entries with the same
    * bundle identity in either file are replaced. Saves the target file first;
@@ -834,34 +860,6 @@ export class InstallRecordService {
     }));
     return rows.toSorted((left, right) =>
       compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool) || compareCodeUnits(left.record, right.record));
-  }
-
-  /**
-   * Tool entries of the given record files in file order, one per level,
-   * root, bundle and tool: an entry in both repository files at one root (an
-   * interrupted `moveEntry`) is taken from the committed file.
-   * @param locations - Record files to read.
-   * @param bundleId - Only this bundle's entries, when given.
-   * @param tool - Only this tool's entries, when given.
-   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
-   */
-  private async locateEntries(locations: readonly RecordLocation[], bundleId?: string, tool?: string): Promise<LocatedToolEntry[]> {
-    const found = new Map<string, LocatedToolEntry>();
-    for (const location of locations) {
-      const { record } = await this.store.load(location);
-      const bundles = Object.entries(record.bundles).filter(([id]) => bundleId === undefined || id === bundleId);
-      for (const [id, bundle] of bundles) {
-        for (const [key, entry] of Object.entries(bundle.tools).filter(([name]) => tool === undefined || name === tool)) {
-          const dedupeKey = JSON.stringify([location.level, location.root, id, key]);
-          const existing = found.get(dedupeKey);
-          if (existing !== undefined && (existing.location.commitMode !== 'local-only' || location.commitMode === 'local-only')) {
-            continue;
-          }
-          found.set(dedupeKey, { location, bundleId: id, tool: key, entry });
-        }
-      }
-    }
-    return [...found.values()];
   }
 
   /**
