@@ -25,6 +25,7 @@ import {
   findModifiedFiles,
   getLockfilePathForMode,
   InstallRecordService,
+  listedPaths,
   type LocatedToolEntry,
   type Lockfile,
   type LockfileBundleEntry,
@@ -301,16 +302,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async listedPathsIn(location: RecordLocation): Promise<Set<string>> {
-    const { record } = await this.store.load(location);
-    const listed = new Set<string>();
-    for (const bundle of Object.values(record.bundles)) {
-      for (const entry of Object.values(bundle.tools)) {
-        for (const file of entry.files) {
-          listed.add(file.path);
-        }
-      }
-    }
-    return listed;
+    return listedPaths([(await this.store.load(location)).record]);
   }
 
   /**

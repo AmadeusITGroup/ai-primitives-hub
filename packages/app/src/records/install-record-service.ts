@@ -257,7 +257,11 @@ const copyRecordedFile = (file: RecordedFile): RecordedFile => {
   return copy;
 };
 
-const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
+/**
+ * Every installed path listed by any entry of the given records.
+ * @param records - Records to scan.
+ */
+export const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
   const listed = new Set<string>();
   for (const record of records) {
     for (const bundle of Object.values(record.bundles)) {
