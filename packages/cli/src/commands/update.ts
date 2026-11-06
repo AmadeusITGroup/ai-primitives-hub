@@ -42,6 +42,7 @@ import type {
   RecordLevel,
   RecordLocation,
   RegistrySource,
+  RepositoryExclusion,
   SourceType,
   Target,
   TokenProvider,
@@ -587,15 +588,18 @@ function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skipp
  * @param target Target being updated.
  * @param scope Effective scope (may override `target.scope`).
  * @param commitMode Effective commit mode (repository scope only).
+ * @param exclusion Where a local-only repository write lists its files; the
+ * writer's `<workspace>/.git/info/exclude` by default.
  * @returns A TargetWriter.
  */
-function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode): TargetWriter {
+function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode, exclusion?: RepositoryExclusion): TargetWriter {
   const effectiveScope = scope as Target['scope'];
   if (effectiveScope === 'repository' && new Set(['vscode', 'vscode-insiders', 'copilot-cli']).has(target.type)) {
     const writer = new RepositoryScopeWriter({
       fs: ctx.fs,
       workspaceRoot: target.rootPath ?? ctx.cwd(),
-      commitMode
+      commitMode,
+      exclusion
     });
     return new RepositoryScopeWriterAdapter(writer);
   }
@@ -838,10 +842,17 @@ const lookupLockfile = (item: RecordPlanItem): Lockfile => ({
  * @param target Effective target.
  * @param files Extracted bundle files.
  * @param manifest Validated manifest.
+ * @param exclusion The record's `info/exclude` section, for local-only files (NFR4.6).
  * @returns The writer's `written` list (absolute paths).
  */
-async function writeForTarget(ctx: Context, target: Target, files: ExtractedFiles, manifest: ValidatedManifest): Promise<string[]> {
-  const writer = writerFor(ctx, target, target.scope, target.commitMode ?? 'commit');
+async function writeForTarget(
+  ctx: Context,
+  target: Target,
+  files: ExtractedFiles,
+  manifest: ValidatedManifest,
+  exclusion?: RepositoryExclusion
+): Promise<string[]> {
+  const writer = writerFor(ctx, target, target.scope, target.commitMode ?? 'commit', exclusion);
   const { result } = await writeBundleSafely(writer, target, files, manifest);
   return [...result.written];
 }
@@ -912,7 +923,7 @@ async function applyRecordUpdate(
   const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) =>
     recordPlannedInstall(
       prepared.service, { ...item, tool, location, sourceType: item.source.type }, target, ctx, manifest.version,
-      await writeForTarget(ctx, target, files, manifest), syncSiblings
+      await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings
     );
   const change = await record(item.tool, item.location, item.target, (sibling) => siblingTargets.has(sibling));
   const changes = [change];

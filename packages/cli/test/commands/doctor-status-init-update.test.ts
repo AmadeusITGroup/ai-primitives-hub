@@ -71,6 +71,10 @@ import {
   runCli,
   runCommand,
 } from '../../src/framework';
+import {
+  makeGitWorktree,
+  readExcludeLines,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   DoctorCommand,
@@ -727,6 +731,17 @@ profiles: []
       expect((await readRecord()).sources.remote).toEqual({ type: 'artifactory', url: ART_ROOT, authMode: 'anonymous' });
       expect(requests.length).toBeGreaterThan(0);
       expect(requests.filter((request) => request.headers?.Authorization !== undefined)).toEqual([]);
+    });
+
+    it('lists the local-only files an update writes in the record\'s info/exclude in a git worktree', async () => {
+      const commonDir = await makeGitWorktree(workspace);
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+
+      const result = await runRecord(['update', '--target', 'repo-vscode', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await versions()).toEqual({ vscode: '2.0.0' });
+      expect(await readExcludeLines(commonDir)).toContain('.github/prompts/hello.prompt.md');
     });
 
     it('a user-scope update leaves the repository record byte-identical', async () => {

@@ -1335,7 +1335,8 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
   const http = opts.http ?? new NodeHttpClient();
   const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
   const cache = isGitHubAppAuthEnabled(ctx.env) ? createSourceAwareInstallDependencyCache(http, ctx) : undefined;
-  const writerFactory = createWriterFactory(ctx, opts);
+  // Local-only files go to the record's info/exclude, also in a git worktree (NFR4.6).
+  const writerFactory = createWriterFactory(ctx, opts, prepared.exclusion);
   // Every entry is mapped and its source gated before any fetch (NFR4.10, NFR4.11).
   const plan = await planRecordEntries({
     service,

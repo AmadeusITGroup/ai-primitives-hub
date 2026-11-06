@@ -42,7 +42,6 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   FileSystemLayoutConfigLoader,
-  GitInfoExclude,
   type RepositoryCommitMode,
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
@@ -648,7 +647,7 @@ async function performRecordBundleUninstall(
  */
 async function performRecordLockfileUninstall(run: UninstallRun, prepared: PreparedRecordSelection): Promise<number> {
   const { target, ctx, fmt, opts } = run;
-  const { selection, store, service, fs } = prepared;
+  const { selection, fs } = prepared;
   const mapping = await mapToolToTarget({ fs, tool: target.type, level: selection.level, gitRoot: selection.root, targets: [], explicit: target, cwd: ctx.cwd() });
   if ('skip' in mapping) {
     throw new RegistryError({
@@ -657,15 +656,9 @@ async function performRecordLockfileUninstall(run: UninstallRun, prepared: Prepa
       hint: 'Pass a --target whose scope and repository match the record.'
     });
   }
-  const [location] = selection.locations;
-  const entries = new Map<string, string[]>();
-  const { record } = await store.load(location);
-  for (const bundleId of Object.keys(record.bundles).toSorted()) {
-    const tools = record.bundles[bundleId].tools;
-    if (Object.hasOwn(tools, target.type)) {
-      entries.set(bundleId, tools[target.type].files.map((file) => file.path));
-    }
-  }
+  // The one selected file; its git root's info/exclude, as the install used (NFR4.6).
+  const uninstall = await prepareRepositoryUninstall(ctx, target, { locations: selection.locations });
+  const { location, entries } = uninstall;
   const fields = await recordOutputFields(selection, fs);
   const bundleIds = [...entries.keys()];
 
@@ -685,13 +678,6 @@ async function performRecordLockfileUninstall(run: UninstallRun, prepared: Prepa
     return 0;
   }
 
-  const uninstall: PreparedRepositoryUninstall = {
-    location,
-    service,
-    tool: target.type,
-    exclusion: new GitInfoExclude({ fs: ctx.fs, workspaceRoot: target.rootPath ?? location.root }),
-    entries
-  };
   const results: { id: string; removed: number }[] = [];
   const warnings: string[] = [];
   for (const bundleId of bundleIds) {
