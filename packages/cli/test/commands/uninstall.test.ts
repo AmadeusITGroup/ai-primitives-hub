@@ -16,9 +16,6 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  NodeFileSystem,
-} from '@ai-primitives-hub/infra';
-import {
   afterEach,
   beforeEach,
   describe,
@@ -35,14 +32,13 @@ import {
   UninstallCommand,
 } from '../../src/commands/uninstall';
 import {
-  runCommand,
-} from '../../src/framework';
-import {
   createGovernedReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
 import {
+  addRepositoryTargets,
   initGitRoot,
+  makeRun,
   readRecord,
   recordPathIn,
 } from '../helpers/install-record-fixtures';
@@ -64,19 +60,7 @@ describe('uninstall command', () => {
   let targetDir: string;
   const installedFile = (): string => path.join(targetDir, 'prompts', 'hello.prompt.md');
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-    commandClasses: COMMAND_CLASSES,
-    context: {
-      cwd: workspace,
-      fs: new NodeFileSystem(),
-      env: {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-      }
-    }
-  });
+  const run = makeRun(() => workspace, COMMAND_CLASSES);
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -220,12 +204,7 @@ describe('uninstall command', () => {
 
     beforeEach(async () => {
       await initGitRoot(workspace);
-      for (const [name, type] of [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]) {
-        expect((await run([
-          'target', 'add', name, '--type', type, '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
-        ])).exitCode).toBe(0);
-        expect((await run(['install', 'local-foo', '--from', bundleDir, '--target', name, '-o', 'json'])).exitCode).toBe(0);
-      }
+      await addRepositoryTargets(run, workspace, [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], { bundleDir });
     });
 
     it('uninstalling one tool from the record keeps the other tool and its files', async () => {
@@ -316,19 +295,7 @@ describe('uninstall command', () => {
     try {
       const freshTargetDir = path.join(freshWorkspace, 'target');
       await mkdir(freshTargetDir, { recursive: true });
-      const freshRun = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-        commandClasses: COMMAND_CLASSES,
-        context: {
-          cwd: freshWorkspace,
-          fs: new NodeFileSystem(),
-          env: {
-            HOME: freshWorkspace,
-            USERPROFILE: freshWorkspace,
-            XDG_CONFIG_HOME: path.join(freshWorkspace, 'xdg-config'),
-            XDG_CACHE_HOME: path.join(freshWorkspace, 'xdg-cache')
-          }
-        }
-      });
+      const freshRun = makeRun(() => freshWorkspace, COMMAND_CLASSES);
       expect((await freshRun([
         'target', 'add', 'copilot', '--type', 'copilot-cli', '--path', freshTargetDir, '-o', 'json'
       ])).exitCode).toBe(0);

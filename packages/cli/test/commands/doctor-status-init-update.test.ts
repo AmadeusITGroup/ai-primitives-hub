@@ -69,11 +69,17 @@ import {
 import {
   createTestContext,
   runCli,
-  runCommand,
 } from '../../src/framework';
 import {
+  addRepositoryTargets,
+  initGitRoot,
   makeGitWorktree,
+  makeRun,
   readExcludeLines,
+  readRecord,
+  recordPathIn,
+  workspaceEnv,
+  writeRecord,
 } from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
@@ -94,20 +100,7 @@ interface JsonEnvelope<T> {
 describe('doctor/status/init/update commands', () => {
   let workspace: string;
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-    commandClasses: COMMAND_CLASSES,
-    context: {
-      cwd: workspace,
-      fs: new NodeFileSystem(),
-      env: {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
-        AI_PRIMITIVES_HUB_SKIP_NETWORK: '1'
-      }
-    }
-  });
+  const run = makeRun(() => workspace, COMMAND_CLASSES, { AI_PRIMITIVES_HUB_SKIP_NETWORK: '1' });
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -468,7 +461,7 @@ profiles: []
 
   describe('update on the repository install record (format 3.0.0)', () => {
     const ART_ROOT = 'https://artifactory.example/repo/source';
-    const recordPath = (): string => path.join(workspace, 'ai-primitives-hub.lock.json');
+    const recordPath = (): string => recordPathIn(workspace);
     const bundleDir = (): string => path.join(workspace, 'bundle');
     const requests: HttpRequest[] = [];
     const envReads = new Set<string>();
@@ -546,13 +539,7 @@ profiles: []
       const base = createTestContext({
         cwd: workspace,
         fs: new NodeFileSystem(),
-        env: {
-          HOME: workspace,
-          USERPROFILE: workspace,
-          XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-          XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
-          ARTIFACTORY_TOKEN: 'reader-token'
-        }
+        env: workspaceEnv(workspace, { ARTIFACTORY_TOKEN: 'reader-token' })
       });
       const env = new Proxy(base.env, {
         get: (target, key, receiver) => {
@@ -586,9 +573,9 @@ profiles: []
       alsoUpdated: { bundleId: string; tool: string }[];
       skipped: { bundleId: string; tool: string; reason: string }[];
     }
-    const readRecord = async (): Promise<RecordJson> => JSON.parse(await readFile(recordPath(), 'utf8')) as RecordJson;
+    const readRecordJson = (): Promise<RecordJson> => readRecord<RecordJson>(workspace);
     const versions = async (): Promise<Record<string, string>> =>
-      Object.fromEntries(Object.entries((await readRecord()).bundles['local-foo'].tools).map(([tool, entry]) => [tool, entry.version]));
+      Object.fromEntries(Object.entries((await readRecordJson()).bundles['local-foo'].tools).map(([tool, entry]) => [tool, entry.version]));
     const promptFile = (name: string): string => path.join(workspace, '.github', 'prompts', name);
 
     /**
@@ -602,20 +589,14 @@ profiles: []
         await mkdir(path.dirname(path.join(bundleDir(), filePath)), { recursive: true });
         await writeFile(path.join(bundleDir(), filePath), text);
       }
-      for (const [name, type] of targets) {
-        expect((await runRecord(['target', 'add', name, '--type', type, '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'])).exitCode).toBe(0);
-      }
-      for (const [name] of targets) {
-        const installed = await runRecord(['install', 'local-foo', '--from', bundleDir(), '--target', name, '-o', 'json']);
-        expect(installed.exitCode, installed.stdout).toBe(0);
-      }
-      const record = await readRecord();
+      await addRepositoryTargets(runRecord, workspace, targets, { bundleDir: bundleDir() });
+      const record = await readRecordJson();
       record.sources = { remote: source };
       for (const entry of Object.values(record.bundles['local-foo'].tools)) {
         entry.sourceId = 'remote';
         entry.sourceType = source.type;
       }
-      await writeFile(recordPath(), JSON.stringify(record, null, 2) + '\n');
+      await writeRecord(workspace, record);
     };
     const GITHUB_SOURCE = { type: 'github', url: 'https://github.com/acme-org/local-foo' };
 
@@ -624,8 +605,7 @@ profiles: []
       requests.length = 0;
       envReads.clear();
       ambientToken = undefined;
-      await mkdir(path.join(workspace, '.git'), { recursive: true });
-      await writeFile(path.join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      await initGitRoot(workspace);
     });
 
     it.each([
@@ -643,7 +623,7 @@ profiles: []
         { bundleId: 'local-foo', tool: 'kiro', from: '1.0.0', to: '2.0.0' },
         { bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }
       ]);
-      const record = await readRecord();
+      const record = await readRecordJson();
       expect(Object.keys(record.bundles)).toEqual(['local-foo']);
       expect(await versions()).toEqual({ kiro: '2.0.0', vscode: '2.0.0' });
       expect(await readFile(promptFile('hello.prompt.md'), 'utf8')).toBe('# Hello 2.0.0\n');
@@ -718,9 +698,9 @@ profiles: []
       await installAt100([['repo-vscode', 'vscode']], { type: 'artifactory', url: ART_ROOT });
       if (command === 'replay') {
         // Replay restores the recorded version; the Artifactory index serves 2.0.0.
-        const record = await readRecord();
+        const record = await readRecordJson();
         record.bundles['local-foo'].tools.vscode.version = '2.0.0';
-        await writeFile(recordPath(), JSON.stringify(record, null, 2) + '\n');
+        await writeRecord(workspace, record);
       }
       expect((await runRecord(['source', 'add', '--type', 'artifactory', '--url', ART_ROOT, '--id', 'remote', '-o', 'json'])).exitCode).toBe(0);
 
@@ -728,7 +708,7 @@ profiles: []
 
       expect(result.exitCode, result.stdout).toBe(0);
       expect(await versions()).toEqual({ vscode: '2.0.0' });
-      expect((await readRecord()).sources.remote).toEqual({ type: 'artifactory', url: ART_ROOT, authMode: 'anonymous' });
+      expect((await readRecordJson()).sources.remote).toEqual({ type: 'artifactory', url: ART_ROOT, authMode: 'anonymous' });
       expect(requests.length).toBeGreaterThan(0);
       expect(requests.filter((request) => request.headers?.Authorization !== undefined)).toEqual([]);
     });
@@ -802,10 +782,10 @@ profiles: []
         'id: other-bar\nversion: 1.0.0\nname: Other Bar\nprompts:\n  - id: bar\n    file: prompts/bar.prompt.md\n    type: prompt\n');
       await writeFile(path.join(barDir, 'prompts', 'bar.prompt.md'), '# Bar\n');
       expect((await runRecord(['install', 'other-bar', '--from', barDir, '--target', 'repo-vscode', '-o', 'json'])).exitCode).toBe(0);
-      const record = await readRecord();
+      const record = await readRecordJson();
       record.sources['remote-bar'] = { type: 'github', url: 'https://github.com/acme-org/other-bar' };
       Object.assign(record.bundles['other-bar'].tools.vscode, { sourceId: 'remote-bar', sourceType: 'github' });
-      await writeFile(recordPath(), JSON.stringify(record, null, 2) + '\n');
+      await writeRecord(workspace, record);
       const shared = '.github/prompts/extra.prompt.md';
       expect(record.bundles['local-foo'].tools.vscode.files.map((file) => file.path)).toContain(shared);
 
@@ -813,7 +793,7 @@ profiles: []
 
       expect(result.exitCode, result.stdout).toBe(0);
       expect(parseJson<UpdateData>(result.stdout).data.updates.map((u) => u.bundleId)).toEqual(['local-foo', 'other-bar']);
-      const after = await readRecord();
+      const after = await readRecordJson();
       expect(after.bundles['local-foo'].tools.vscode.files.map((file) => file.path)).not.toContain(shared);
       expect(after.bundles['other-bar'].tools.vscode.files.map((file) => file.path)).toContain(shared);
       expect(await readFile(path.join(workspace, shared), 'utf8')).toBe('# other-bar extra 2.0.0\n');
@@ -838,7 +818,7 @@ profiles: []
       const old = JSON.parse(await readFile(oldPath, 'utf8')) as { bundles: Record<string, { version: string }> };
       expect(old.bundles['old-only'].version).toBe('2.0.0');
       expect(old.bundles['local-foo'].version).toBe('0.9.0');
-      expect(Object.keys((await readRecord()).bundles)).toEqual(['local-foo']);
+      expect(Object.keys((await readRecordJson()).bundles)).toEqual(['local-foo']);
       expect(await readFile(promptFile('old.prompt.md'), 'utf8')).toBe('# old-only old 2.0.0\n');
     });
 
