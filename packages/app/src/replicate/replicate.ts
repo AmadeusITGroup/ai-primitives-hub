@@ -8,6 +8,7 @@ import type {
   ReplicationArchivePreparer,
   ReplicationCandidateDiscovery,
   ReplicationPublisherPort,
+  ReplicationRepositoryInspector,
   ReplicationResult,
   ReplicationSourcePort,
 } from '@ai-primitives-hub/core';
@@ -15,6 +16,7 @@ import {
   isRegistryError,
   makeReplicatedEntry,
   requestsFromHubConfig,
+  requireAgentPackagesRepository,
   resolveReplicatedProfiles,
   selectReplications,
 } from '@ai-primitives-hub/core';
@@ -48,10 +50,20 @@ const repoFromUrl = (url: string): { owner: string; repo: string } => {
  * @param source
  * @param publisher
  * @param archivePreparer
+ * @param repositoryInspector
  */
-export async function replicateHub(options: ReplicateOptions, source: ReplicationSourcePort, publisher?: ReplicationPublisherPort, archivePreparer?: ReplicationArchivePreparer): Promise<ReplicationResult> {
+export async function replicateHub(options: ReplicateOptions, source: ReplicationSourcePort, publisher?: ReplicationPublisherPort, archivePreparer?: ReplicationArchivePreparer, repositoryInspector?: ReplicationRepositoryInspector): Promise<ReplicationResult> {
   if (options.apmTransition && (!options.publish || !publisher || !archivePreparer)) {
     throw new Error('--apm-transition requires publication, a publisher, and an APM archive preparer; the CLI also requires --review.');
+  }
+  if (options.apmTransition && !repositoryInspector) {
+    throw new Error('--apm-transition requires repository packageType inspection before publication.');
+  }
+  const targetRepository = options.apmTransition && repositoryInspector
+    ? await repositoryInspector.inspect(options.targetRoot)
+    : undefined;
+  if (targetRepository) {
+    requireAgentPackagesRepository(targetRepository);
   }
   const raw = await source.getHubConfig(options.sourceHub, options.sourceRef);
   const configuredSources: unknown[] = Array.isArray(raw.sources) ? raw.sources as unknown[] : [];
@@ -220,7 +232,7 @@ export async function replicateHub(options: ReplicateOptions, source: Replicatio
     if (hubStatus === 'skipped-unverified') {
       throw new Error(`Unverified existing metadata at ${hubConfigPath}. Check the target objects before retrying.`);
     }
-    return { index, hubConfig: config, warnings, selected: selection.selected };
+    return { index, hubConfig: config, warnings, selected: selection.selected, ...(targetRepository ? { targetRepository } : {}) };
   }
   const dryRunProfiles = resolveReplicatedProfiles(raw, selection.selected);
   warnings.push(...dryRunProfiles.warnings);

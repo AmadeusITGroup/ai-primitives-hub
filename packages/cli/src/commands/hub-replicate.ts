@@ -10,6 +10,8 @@ import {
   ApmTransitionArchivePreparer,
   ArtifactoryEnvCredentialProvider,
   ArtifactoryReplicationPublisher,
+  ArtifactoryRepositoryCredentialProvider,
+  ArtifactoryRepositoryInspector,
   defaultTokenProvider,
   FileReplicationCache,
   GitHubApiClient,
@@ -104,14 +106,18 @@ export class HubReplicateCommand extends Command {
         targetAuth,
         targetCredentialRef: consumerCredentialRef,
         apmTransition: this.apmTransition
-      }, source, publisher, this.apmTransition ? new ApmTransitionArchivePreparer() : undefined);
+      }, source, publisher, this.apmTransition ? new ApmTransitionArchivePreparer() : undefined,
+      this.apmTransition
+        ? new ArtifactoryRepositoryInspector(http,
+          new ArtifactoryRepositoryCredentialProvider(ctx.env, publisherCredentialRef, publishRoot))
+        : undefined);
       const fmt = (this.output ?? 'text') as OutputFormat;
       formatOutput({
         ctx,
         command: 'hub.replicate',
         output: fmt,
         status: result.warnings.length > 0 ? 'warning' : 'ok',
-        data: { mode, publish: this.publish, transitionMode: this.apmTransition ? 'temporary-apm' : 'immutable-promotion', selectedBundles: result.selected.length, diagnostics: result.warnings, unresolvedProfiles: result.warnings, index: result.index, targetRoot: target },
+        data: { mode, publish: this.publish, transitionMode: this.apmTransition ? 'temporary-apm' : 'immutable-promotion', selectedBundles: result.selected.length, diagnostics: result.warnings, unresolvedProfiles: result.warnings, index: result.index, targetRoot: target, ...(result.targetRepository ? { targetRepository: result.targetRepository } : {}) },
         warnings: result.warnings
       });
       return result.warnings.length > 0 ? 2 : 0;

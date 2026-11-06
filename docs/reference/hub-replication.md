@@ -42,7 +42,7 @@ Important options:
 | `--request-budget` | `600` | Maximum uncached GitHub API requests; every page of a repository's release list counts as one request |
 | `--target-auth` | `bearer` | Authentication mode recorded for the generated target source |
 | `--target-credential-ref` | `ARTIFACTORY_READER_TOKEN` | Consumer credential reference recorded in generated hub config |
-| `--publisher-credential-ref` | `ARTIFACTORY_PUBLISHER_TOKEN` | Environment variable used only for publication |
+| `--publisher-credential-ref` | `ARTIFACTORY_PUBLISHER_TOKEN` | Environment variable used for publication and transition repository metadata inspection |
 | `--dry-run` | false | Explicitly request metadata-only behavior |
 | `--publish` | false | Enable Artifactory writes; requires `--review` |
 | `--review` | false | Acknowledges the publication review gate |
@@ -54,6 +54,10 @@ The command is metadata-only unless both `--publish` and `--review` are provided
 ### Temporary Agent Packages transition
 
 `--apm-transition` is an explicit, temporary exception to immutable promotion. The normal mode promotes the release ZIP byte-for-byte into the Generic `sources/replicated` tree. Transition mode instead checks each selected ZIP: an archive with a matching root `apm.yml` and `.apm/` payload is passed through unchanged; otherwise, the CLI creates an APM-compatible ZIP from supported file-backed `prompt`, `instruction`, `agent`, `chat-mode`, and `skill` entries. The translation retains the original APH files and deployment metadata, adds their APM paths, and generates `apm.yml`. For governed (`formatVersion: 1`) manifests, it regenerates the `files` inventory to cover the added APM copies and manifest. The uploaded bytes may therefore differ from the immutable GitHub release asset. JSON output identifies this mode as `data.transitionMode: "temporary-apm"`; enabling the mode alone does not produce a warning or change the exit code.
+
+Before reading source releases or preparing archives, transition mode queries `GET /artifactory/api/repositories/<repository-key>` using the publisher credential. The target must be an explicit repository root such as `https://artifactory.example.com/artifactory/agent-repo`, without an artifact subpath; an additional reverse-proxy prefix before `/artifactory/` is supported. The reported `packageType` must be `agentpackages` (case-insensitive). Repository names and `repoLayoutRef` are not evidence of package type: Generic repositories can use the same layout. Missing metadata, mismatched repository keys, malformed responses, redirects, and permission/HTTP failures stop the run before any writes. Ordinary replication performs no repository-type query.
+
+JSON output includes `data.targetRepository` with the verified repository key, normalized package type and repository class. The publisher needs permission to read the selected repository's configuration endpoint as well as to publish artifacts. Metadata credentials are confined to that exact endpoint on the target origin; artifact credentials retain their existing repository-path scope. SDK callers enabling transition must supply a `ReplicationRepositoryInspector` to `replicateHub`. This check establishes repository type only; it does not prove package indexing, client consumption, or atomic enforcement of conditional PUTs.
 
 This transition validates the original Hub archive before translation and the transformed archive before publication. Governed inventory sizes, digests, coverage, and references must match the original bytes before inventory regeneration. APM-ready archives must contain their matching root deployment manifest; a legacy archive without an embedded manifest can still be translated using its validated standalone release manifest. Existing APM companions must have matching identity/version and a supported `includes` value (`auto`, a list of strings, or omitted/null).
 

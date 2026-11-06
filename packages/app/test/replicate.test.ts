@@ -8,6 +8,7 @@ import type {
   ReplicationArchivePreparer,
   ReplicationCandidate,
   ReplicationPublisherPort,
+  ReplicationRepositoryInspector,
   ReplicationSourcePort,
 } from '@ai-primitives-hub/core';
 import {
@@ -44,6 +45,9 @@ const sourceFor = (candidates: ReplicationCandidate[]): ReplicationSourcePort =>
   listReleaseCandidates: vi.fn(() => Promise.resolve({ candidates, warnings: [] })),
   downloadArchive: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3])))
 });
+const agentPackagesInspector: ReplicationRepositoryInspector = {
+  inspect: () => Promise.resolve({ key: 'root', packageType: 'agentpackages', rclass: 'local' })
+};
 
 describe('replicateHub', () => {
   it('stops before publishing pointers when an immutable catalog generation is unverified', async () => {
@@ -235,6 +239,9 @@ describe('replicateHub', () => {
       })
     };
     const targetRoot = 'https://artifactory.invalid/aph-replica-apm';
+    const inspector: ReplicationRepositoryInspector = {
+      inspect: vi.fn(() => Promise.resolve({ key: 'aph-replica-apm', packageType: 'agentpackages', rclass: 'local' }))
+    };
     const result = await replicateHub({
       sourceHub: 'owner/hub',
       sourceRef: 'main',
@@ -242,8 +249,10 @@ describe('replicateHub', () => {
       mode: 'latest',
       publish: true,
       apmTransition: true
-    }, sourceFor([c]), publisher, prepareArchive);
+    }, sourceFor([c]), publisher, prepareArchive, inspector);
 
+    expect(inspector.inspect).toHaveBeenCalledExactlyOnceWith(targetRoot);
+    expect(result.targetRepository).toEqual({ key: 'aph-replica-apm', packageType: 'agentpackages', rclass: 'local' });
     expect(prepareArchive.prepare).toHaveBeenCalledWith(
       expect.objectContaining({ bundleId: c.bundleId }),
       new Uint8Array([1, 2, 3])
@@ -286,6 +295,38 @@ describe('replicateHub', () => {
     expect(source.getHubConfig).not.toHaveBeenCalled();
   });
 
+  it.each(['generic', 'unavailable', 'missing-inspector'])('rejects %s repository inspection before reading sources or publishing', async (kind) => {
+    const source = sourceFor([c]);
+    const publisher: ReplicationPublisherPort = { publish: vi.fn() };
+    const preparer: ReplicationArchivePreparer = { prepare: vi.fn() };
+    const inspector: ReplicationRepositoryInspector | undefined = kind === 'missing-inspector'
+      ? undefined
+      : {
+        inspect: vi.fn(() => kind === 'generic'
+          ? Promise.resolve({ key: 'root', packageType: 'generic', rclass: 'local' })
+          : Promise.reject(new Error('Repository metadata unavailable')))
+      };
+    await expect(replicateHub({
+      sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest', publish: true, apmTransition: true
+    }, source, publisher, preparer, inspector)).rejects.toThrow(/Agent Packages repository|metadata unavailable|packageType inspection/);
+    expect(source.getHubConfig).not.toHaveBeenCalled();
+    expect(source.downloadArchive).not.toHaveBeenCalled();
+    expect(preparer.prepare).not.toHaveBeenCalled();
+    expect(publisher.publish).not.toHaveBeenCalled();
+  });
+
+  it('does not inspect repository metadata during ordinary replication', async () => {
+    const inspector: ReplicationRepositoryInspector = { inspect: vi.fn() };
+    const publisher: ReplicationPublisherPort = { publish: vi.fn(() => Promise.resolve('uploaded' as const)) };
+    const result = await replicateHub({
+      sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest', publish: true
+    }, sourceFor([c]), publisher, undefined, inspector);
+    expect(inspector.inspect).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('targetRepository');
+  });
+
   it('shares an identical Agent Packages artifact across distinct Hub IDs', async () => {
     const duplicate = { ...c, repo: 'owner/other-repo', bundleId: 'owner-other-repo-bundle' };
     const archiveBytes = new Uint8Array([9, 8, 7]);
@@ -311,7 +352,7 @@ describe('replicateHub', () => {
       mode: 'latest',
       publish: true,
       apmTransition: true
-    }, sourceFor([c, duplicate]), publisher, prepareArchive);
+    }, sourceFor([c, duplicate]), publisher, prepareArchive, agentPackagesInspector);
 
     expect(result.index.bundles).toHaveLength(2);
     expect(result.index.bundles.map((entry) => entry.archive.path)).toEqual([
@@ -348,7 +389,7 @@ describe('replicateHub', () => {
       mode: 'latest',
       publish: true,
       apmTransition: true
-    }, sourceFor([c, duplicate]), publisher, prepareArchive)).rejects.toThrow(/different release content; no artifacts were published/);
+    }, sourceFor([c, duplicate]), publisher, prepareArchive, agentPackagesInspector)).rejects.toThrow(/different release content; no artifacts were published/);
     expect(publisher.publish).not.toHaveBeenCalled();
   });
 
@@ -373,7 +414,7 @@ describe('replicateHub', () => {
       mode: 'latest',
       publish: true,
       apmTransition: true
-    }, sourceFor([c]), publisher, prepareArchive);
+    }, sourceFor([c]), publisher, prepareArchive, agentPackagesInspector);
 
     expect(result.index.bundles).toEqual([]);
     expect(result.hubConfig.profiles).toEqual([]);
