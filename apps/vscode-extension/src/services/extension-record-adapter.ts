@@ -38,6 +38,7 @@ import {
   RecordStore,
   remapSourceId,
   removeBundleEntry,
+  toRecordSource,
   upsertBundleEntry,
   upsertSource,
   writeLockfile,
@@ -82,9 +83,6 @@ import {
 
 /** Largest old lockfile read, in bytes (the record cap). */
 const OLD_LOCKFILE_MAX_BYTES = 10 * 1024 * 1024;
-
-/** Optional source fields copied from a configured source's `config` (C1). */
-const SOURCE_CONFIG_FIELDS = ['branch', 'collectionsPath', 'indexFile', 'authMode', 'credentialRef'] as const;
 
 /** Where configured sources come from. */
 export interface RecordSourcesPort {
@@ -341,8 +339,7 @@ export class ExtensionRecordAdapter {
 
   /**
    * The source an install records (NFR4.15): the configured source with this
-   * id, mapped to the C1 fields (`type`, `url`, `branch`, `collectionsPath`,
-   * `indexFile`, `authMode`, `credentialRef`).
+   * id, normalised by app's `toRecordSource` as the CLI records it.
    * @param sourceId - Source id of the bundle.
    * @throws {Error} When the id is unknown or its type is not a `SourceType`.
    */
@@ -351,14 +348,7 @@ export class ExtensionRecordAdapter {
     if (configured === undefined || !(RECORD_SOURCE_TYPES as readonly string[]).includes(configured.type)) {
       throw new Error(`source ${sourceId ?? '(none)'} is not configured; add it or reinstall from a configured source`);
     }
-    const source: RecordSourceInput = { sourceId: configured.id, type: configured.type, url: configured.url };
-    for (const field of SOURCE_CONFIG_FIELDS) {
-      const value = configured.config?.[field];
-      if (typeof value === 'string') {
-        source[field] = value;
-      }
-    }
-    return source;
+    return { ...toRecordSource(configured, configured.id) };
   }
 
   /**
