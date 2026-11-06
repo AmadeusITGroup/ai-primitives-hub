@@ -18,10 +18,11 @@
  * @module records/resolve-record-source
  */
 import * as path from 'node:path';
-import type {
-  RecordFs,
-  RegistrySource,
-  SourceRecord,
+import {
+  type RecordFs,
+  type RegistrySource,
+  relativeInside,
+  type SourceRecord,
 } from '@ai-primitives-hub/core';
 
 /** Outcome of {@link resolveRecordSource}. */
@@ -45,11 +46,6 @@ const RECORD_FIELDS = ['branch', 'collectionsPath', 'indexFile'] as const;
  * @param type - Source type.
  */
 const isLocalType = (type: string): boolean => type === 'local' || type.startsWith('local-');
-
-const isInside = (realRoot: string, candidate: string): boolean => {
-  const relative = path.relative(realRoot, candidate);
-  return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
-};
 
 /**
  * The configured source as a record-shaped source, prototype-free.
@@ -100,7 +96,8 @@ const confineLocalFolder = async (fs: RecordFs, root: string, recordedPath: stri
   try {
     const realRoot = await fs.realpath(root);
     const realFolder = await fs.realpath(path.resolve(root, recordedPath));
-    return isInside(realRoot, realFolder) ? realFolder : undefined;
+    // The repository root itself is an allowed local source folder.
+    return relativeInside(realRoot, realFolder, { allowRoot: true }) === undefined ? undefined : realFolder;
   } catch {
     return undefined;
   }
