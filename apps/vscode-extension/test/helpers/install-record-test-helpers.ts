@@ -6,8 +6,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  LOCAL_RECORD_FILE_NAME,
-  RECORD_FILE_NAME,
   RECORD_SCHEMA_URL,
 } from '@ai-primitives-hub/core';
 import * as sinon from 'sinon';
@@ -17,10 +15,14 @@ import {
   LockfileBuilder,
 } from './lockfile-test-helpers';
 
-/** Committed install record file name (core `RECORD_FILE_NAME`). */
-export const RECORD_FILE = RECORD_FILE_NAME;
-/** Local-only install record file name (core `LOCAL_RECORD_FILE_NAME`). */
-export const LOCAL_RECORD_FILE = LOCAL_RECORD_FILE_NAME;
+/**
+ * Record file names from core: `RECORD_FILE` is the committed record,
+ * `LOCAL_RECORD_FILE` the local-only one.
+ */
+export {
+  LOCAL_RECORD_FILE_NAME as LOCAL_RECORD_FILE,
+  RECORD_FILE_NAME as RECORD_FILE,
+} from '@ai-primitives-hub/core';
 
 /**
  * Minimal `ExtensionContext` for constructing a `RegistryManager`.

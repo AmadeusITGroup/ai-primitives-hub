@@ -21,7 +21,7 @@ import type {
  * @param fs - Filesystem port.
  * @param target - File to replace or create; its folder must exist.
  * @param text - New contents, UTF-8.
- * @throws The filesystem error from the write or the rename; `target` is unchanged.
+ * @throws {Error} The filesystem error from the write or the rename; `target` is unchanged.
  */
 export const writeFileAtomically = async (fs: RecordFs, target: string, text: string): Promise<void> => {
   const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
