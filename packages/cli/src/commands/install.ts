@@ -25,15 +25,13 @@ import {
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
-  mapToolToTarget,
+  planRecordEntries,
   readLockfile,
   type RecordInstallResult,
   removeSupersededFiles,
   resolveInstallSource,
-  resolveRecordSource,
   resolveUserConfigPaths,
   type SkippedBundleContent,
-  type TargetMapping,
   type TargetWriter,
   toLockfileBundleEntry,
   toLockfileSourceEntry,
@@ -100,6 +98,7 @@ import {
   defineCommand,
   failWith,
   findProjectLockfile,
+  finishRecordRun,
   formatOutput,
   loadInquirer,
   loadTargets,
@@ -108,10 +107,12 @@ import {
   type OutputFormat,
   type PreparedRecordSelection,
   type PreparedRepositoryRecord,
+  prepareOldFileOnly,
   prepareRecordSelection,
   prepareRepositoryRecord,
   readTargetsSafely,
   recordOutputFields,
+  recordPlannedInstall,
   recordRepositoryInstall,
   RegistryError,
   renderRecordLine,
@@ -121,6 +122,7 @@ import {
   resolveTarget,
   resolveTargetName,
   toCommandRecordError,
+  tokensForRecordSource,
   validateInputs,
 } from '../framework';
 
@@ -1244,9 +1246,6 @@ async function performLockfileInstall(
   return failures.length === 0 ? 0 : 1;
 }
 
-/** Token provider that never returns a token, for sources taken from the record (NFR4.11). */
-const NO_TOKENS: TokenProvider = new StaticTokenProvider('');
-
 /** Inputs of {@link performRecordReplay}. */
 interface RecordReplayRun {
   ctx: Context;
@@ -1336,71 +1335,40 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
   const http = opts.http ?? new NodeHttpClient();
   const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
   const cache = isGitHubAppAuthEnabled(ctx.env) ? createSourceAwareInstallDependencyCache(http, ctx) : undefined;
-  const targets = await readTargetsSafely(loadTargets(ctx));
-  const configured = await configuredSources(ctx);
   const writerFactory = createWriterFactory(ctx, opts);
-  const mappings = new Map<string, TargetMapping>();
+  // Every entry is mapped and its source gated before any fetch (NFR4.10, NFR4.11).
+  const plan = await planRecordEntries({
+    service,
+    store,
+    fs,
+    selection,
+    targets: await readTargetsSafely(loadTargets(ctx)),
+    configured: await configuredSources(ctx),
+    explicit,
+    cwd: ctx.cwd(),
+    holdingFile: 'first-holding'
+  });
   const data: RecordReplayData = {
     ...await recordOutputFields(selection, fs),
-    replayPlanned: 0,
+    replayPlanned: plan.considered,
     replayed: [],
-    skipped: [],
-    needsReinstall: [],
+    skipped: plan.skipped,
+    needsReinstall: plan.needsReinstall.map((row) => ({ bundleId: row.bundleId, version: row.version })),
     failures: []
   };
-  const notes = new Set<string>();
   const changes: RecordInstallResult[] = [];
 
-  for (const row of await service.listEntries(selection.locations)) {
-    const { bundleId, tool } = row;
-    if (row.needsReinstall) {
-      data.needsReinstall.push({ bundleId, version: row.version });
-      continue;
-    }
-    if (explicit !== undefined && tool !== explicit.type) {
-      continue;
-    }
-    data.replayPlanned++;
-    let mapping = mappings.get(tool);
-    if (mapping === undefined) {
-      mapping = await mapToolToTarget({ fs, tool, level: selection.level, gitRoot: selection.root, targets, explicit, cwd: ctx.cwd() });
-      mappings.set(tool, mapping);
-    }
-    if ('skip' in mapping) {
-      data.skipped.push({ bundleId, tool, reason: mapping.skip });
-      continue;
-    }
-    if (mapping.note !== undefined) {
-      notes.add(mapping.note);
-    }
-    const location = await service.holdingLocation(selection.locations, bundleId, tool);
-    if (location === undefined) {
-      continue;
-    }
-    const { record } = await store.load(location);
-    const entry = record.bundles[bundleId].tools[tool];
-    const fromRecord = Object.hasOwn(record.sources, entry.sourceId) ? record.sources[entry.sourceId] : undefined;
-    if (fromRecord === undefined) {
-      data.skipped.push({ bundleId, tool, reason: `source ${entry.sourceId} is not in the record` });
-      continue;
-    }
-    // Trust gate before any fetch (NFR4.11).
-    const decision = await resolveRecordSource(entry.sourceId, fromRecord, configured, selection.root, fs);
-    if ('skip' in decision) {
-      data.skipped.push({ bundleId, tool, reason: decision.skip });
-      continue;
-    }
-    const source = toLockfileSourceEntry(decision.use);
-    // A source taken from the record (no configured match) is fetched without credentials (NFR4.11).
-    const fromRecordOnly = !configured.has(entry.sourceId);
-    const target = resolveEffectiveTarget(ctx, mapping.target);
+  for (const item of plan.items) {
+    const { bundleId, tool, entry } = item;
+    const source = toLockfileSourceEntry(item.source);
+    const target = resolveEffectiveTarget(ctx, item.target);
     let written: string[] = [];
     try {
       // Record entries carry per-file checksums and no archive checksum;
       // recordInstall re-checksums the written files.
       const files = await fetchFilesForSource(
         source, bundleId, toLockfileBundleEntry(entry), http,
-        fromRecordOnly ? NO_TOKENS : tokens, ctx, opts.verbose ?? false, fromRecordOnly ? undefined : cache
+        tokensForRecordSource(tokens, item.fromRecordOnly), ctx, opts.verbose ?? false, item.fromRecordOnly ? undefined : cache
       );
       if (files === null) {
         data.failures.push({ bundleId, tool, reason: `failed to fetch files from ${source.type} source` });
@@ -1413,17 +1381,9 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
       });
       const { result } = await writeBundleSafely(writerFactory(target), target, files, manifest);
       written = [...result.written];
-      changes.push(await service.recordInstall({
-        location,
-        bundleId,
-        version: manifest.version,
-        tool,
-        source: { sourceId: entry.sourceId, ...source },
-        sourceType: entry.sourceType,
-        writtenPaths: written,
-        workspaceRoot: target.rootPath ?? ctx.cwd(),
-        syncSiblings: false
-      }));
+      changes.push(await recordPlannedInstall(
+        service, { ...item, sourceId: entry.sourceId, source, sourceType: entry.sourceType }, target, ctx, manifest.version, written, false
+      ));
       await updateTargetState(ctx, target.name, bundleId, manifest.version);
       data.replayed.push({ bundleId, tool, version: manifest.version, target: target.name });
     } catch (cause) {
@@ -1434,14 +1394,10 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
     }
   }
 
-  const warnings = [...notes];
-  // Superseded files go only after every save, keeping any file an entry of either file still lists (FR3.2, NFR4.9).
-  const removal = await service.deleteSupersededAfterAll(changes);
-  warnings.push(...changes.flatMap((change) => change.warnings), ...removal.warnings);
+  const warnings = [...plan.notes, ...await finishRecordRun(service, changes)];
 
   // Bundles only in the old file replay as today; the record wins for the others (BR10.1, W6 step 4).
-  const recorded = new Set((await service.listEntries(selection.locations)).map((row) => row.bundleId));
-  data.oldFile = await replayOldFileOnly(run, recorded, { http, tokens, cache });
+  data.oldFile = await replayOldFileOnly(run, { http, tokens, cache });
   warnings.push(
     ...data.skipped.map((s) => `${s.bundleId} (${s.tool}): ${s.reason}`),
     ...data.needsReinstall.map((n) => `${n.bundleId}: needs reinstall`),
@@ -1471,7 +1427,6 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
  * about them into the new record (BR10.1; W6 step 4). They go to the
  * `--target` target, else the only configured target, else the last used one, as today.
  * @param run Replay inputs.
- * @param recorded Bundle ids the new record has; the record wins for them.
  * @param fetch HTTP client, token provider and source-aware dependency cache.
  * @param fetch.http HTTP client.
  * @param fetch.tokens Token provider.
@@ -1480,28 +1435,18 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
  */
 async function replayOldFileOnly(
   run: RecordReplayRun,
-  recorded: ReadonlySet<string>,
   fetch: { http: HttpClient; tokens: TokenProvider; cache?: SourceAwareInstallDependencyCache }
 ): Promise<OldFileReplay | undefined> {
   const { ctx, opts, prepared, explicit } = run;
-  const lockPath = prepared.selection.oldLockfile;
-  const lock = lockPath === undefined ? null : await readLockfile(lockPath, ctx.fs);
-  if (lockPath === undefined || lock === null) {
+  const old = await prepareOldFileOnly(ctx, prepared, { command: 'install', target: explicit, overrides: opts });
+  if (old === undefined) {
     return undefined;
   }
-  const bundleIds = Object.keys(lock.bundles).filter((bundleId) => !recorded.has(bundleId));
-  if (bundleIds.length === 0) {
-    return undefined;
+  const { lockPath, lock, bundleIds } = old;
+  if ('reason' in old) {
+    return { lockfile: lockPath, replayPlanned: bundleIds.length, replayed: [], failures: bundleIds.map((bundleId) => ({ bundleId, reason: old.reason })) };
   }
-  let target: Target;
-  try {
-    const targets = await readTargetsSafely(loadTargets(ctx));
-    const name = explicit?.name ?? (targets.length === 1 ? targets[0].name : await resolveTargetName(undefined, 'install', ctx, () => loadTargets(ctx)));
-    target = explicit ?? resolveEffectiveTarget(ctx, await resolveTarget(name, 'install', ctx, () => loadTargets(ctx)), opts);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return { lockfile: lockPath, replayPlanned: bundleIds.length, replayed: [], failures: bundleIds.map((bundleId) => ({ bundleId, reason })) };
-  }
+  const { target } = old;
   const { replayed, failures } = await replayLockfileEntries({
     bundleIds,
     lock,
