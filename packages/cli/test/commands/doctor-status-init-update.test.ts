@@ -37,7 +37,6 @@ import {
   addTarget,
   buildZip,
   NodeFileSystem,
-  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -1025,7 +1024,7 @@ profiles: []
 
       expect([await readFile(oldRepository, 'utf8'), await readFile(oldUserLockfile(), 'utf8')]).toEqual(before);
       expect(await exists(path.join(workspace, 'ai-primitives-hub.lock.json'))).toBe(false);
-      expect(await exists(new XdgAppStorage(env()).getPaths().userRecord)).toBe(false);
+      expect(await exists(userRecordPath(env()))).toBe(false);
     });
 
     it('a workspace-scope target still records in the old user lockfile, lists and uninstalls after a user-level migration', async () => {
@@ -1036,8 +1035,8 @@ profiles: []
         'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n');
       await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
       expect((await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
-      const userRecord = new XdgAppStorage(env()).getPaths().userRecord;
-      expect(JSON.parse(await readFile(userRecord, 'utf8'))).toHaveProperty('importedUserLockfileAt');
+      const userRecord = userRecordPath(env());
+      expect(await readInstallRecord(userRecord)).toHaveProperty('importedUserLockfileAt');
       // `target add` only writes user or repository scope; a workspace-scope target comes from the config file.
       await addTarget({ cwd: workspace, fs: new NodeFileSystem() }, { name: 'ws-kiro', type: 'kiro', scope: 'workspace', path: wsDir });
 
@@ -1053,7 +1052,7 @@ profiles: []
       expect(parseJson<{ removed: string[]; lockfile: string }>(removed.stdout).data).toMatchObject({ lockfile: oldUserLockfile() });
       expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed.length).toBeGreaterThan(0);
       expect(JSON.parse(await readFile(oldUserLockfile(), 'utf8'))).toMatchObject({ bundles: {} });
-      expect(Object.keys((JSON.parse(await readFile(userRecord, 'utf8')) as { bundles: Record<string, { tools: object }> }).bundles['local-foo'].tools)).toEqual(['copilot-cli']);
+      expect(Object.keys((await readInstallRecord(userRecord)).bundles['local-foo'].tools)).toEqual(['copilot-cli']);
     });
   });
 });
