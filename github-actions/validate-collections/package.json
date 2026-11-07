@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "@prompt-registry/collection-scripts": "^1.0.5",
-    "js-yaml": "^4.3.1"
+    "js-yaml": "^5.0.0"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^29.0.0",
