@@ -118,11 +118,7 @@ suite('RepositoryScopeService', () => {
   };
 
   /**
-   * Record a bundle's host-tool entry in the install record of the commit
-   * mode, as an install would, through the shared `recordEntry` helper. The
-   * workspace is made a git root first, so the record lives in it. Older
-   * `prompt-registry` files are migrated before any write, so the service
-   * only acts on record entries.
+   * Record a bundle's host-tool entry in the record of the commit mode, with the workspace as git root.
    * @param bundleId
    * @param commitMode
    * @param files - Root-relative paths, already written; their current content is recorded.
@@ -477,7 +473,6 @@ suite('RepositoryScopeService', () => {
 
       const bundleId = 'test-bundle';
 
-      // Record the host entry with its files and checksums
       await recordHostEntry(bundleId, 'commit', ['.github/prompts/test.prompt.md']);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
@@ -504,7 +499,6 @@ suite('RepositoryScopeService', () => {
       const promptFile = path.join(promptsDir, 'test.prompt.md');
       fs.writeFileSync(promptFile, '# Test');
 
-      // Record the host entry with its files and checksums
       await recordHostEntry(bundleId, 'local-only', ['.github/prompts/test.prompt.md']);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
@@ -541,7 +535,6 @@ suite('RepositoryScopeService', () => {
         { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
       ]);
 
-      // The host entry switchCommitMode moves, with the file it lists
       await recordHostEntry(bundleId, 'commit', ['.github/prompts/test.prompt.md']);
 
       await service.switchCommitMode(bundleId, 'local-only');
@@ -569,7 +562,6 @@ suite('RepositoryScopeService', () => {
         { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
       ]);
 
-      // The host entry switchCommitMode moves, with the file it lists
       await recordHostEntry(bundleId, 'local-only', ['.github/prompts/test.prompt.md']);
 
       await service.switchCommitMode(bundleId, 'commit');
@@ -664,7 +656,6 @@ suite('RepositoryScopeService', () => {
       const promptFile = path.join(promptsDir, 'test.prompt.md');
       fs.writeFileSync(promptFile, '# Test');
 
-      // Record the host entry with its files and checksums
       await recordHostEntry(bundleId, 'local-only', ['.github/prompts/test.prompt.md']);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
@@ -1058,7 +1049,6 @@ prompts:
       fs.writeFileSync(skillMdFile, '# Removable Skill');
       fs.writeFileSync(indexJsFile, 'module.exports = {};');
 
-      // Record the host entry with its files and checksums
       await recordHostEntry(bundleId, 'commit', [`.github/skills/${skillName}/SKILL.md`, `.github/skills/${skillName}/index.js`]);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
@@ -1087,7 +1077,6 @@ prompts:
       const skillMdFile = path.join(targetSkillDir, 'SKILL.md');
       fs.writeFileSync(skillMdFile, '# My Skill');
 
-      // Record the host entry with its files and checksums
       await recordHostEntry(bundleId, 'local-only', [`.github/skills/${skillName}/SKILL.md`]);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
@@ -1118,7 +1107,7 @@ prompts:
       fs.writeFileSync(skillMdFile, '# Partial Skill');
       // Note: sub/file.js is NOT created - simulating partial state
 
-      // Record the host entry with its files and checksums (only for existing file)
+      // Only the existing file is recorded
       await recordHostEntry(bundleId, 'commit', [`.github/skills/${skillName}/SKILL.md`]);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));

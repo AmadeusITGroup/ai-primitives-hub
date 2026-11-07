@@ -174,8 +174,7 @@ suite('Bundle State Management - Integration Tests', () => {
 
       await registryManager.uninstallBundle(bundle.id, 'user');
 
-      // Verify uninstallation (the user-level migration of this profile's
-      // RegistryStorage entries may also have removed it, BR20.2)
+      // Verify uninstallation; the user-level migration may also have removed it
       assert.ok(mockStorage.removeInstallation.calledWith(bundle.id, 'user'), 'Installation record should be removed');
 
       // Step 3: Verify UI state (button should be "install")

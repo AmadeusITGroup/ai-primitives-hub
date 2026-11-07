@@ -406,7 +406,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     copy: true
   });
 
-  test('CLI first: the CLI imports the old user lockfile; the extension lists its entries, replaces the unknown entry with this profile\'s entry and uninstalls it (NFR2.4)', async () => {
+  test('CLI first: the CLI imports the old user lockfile; the extension lists its entries, replaces the unknown entry with this profile\'s entry and uninstalls it', async () => {
     await writeOldLockfile(oldUserLockfile(), { [PROFILE_ID]: { version: '1.0.0' }, 'cli-only': { version: '1.0.0' } });
     await installForProfile();
     await runCli(['target', 'add', 'user-vscode', '--type', 'vscode', '-o', 'json']);
@@ -434,7 +434,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     assert.ok(!isOnDisk(userFile(PROFILE_FILE)), `${PROFILE_FILE} removed`);
   });
 
-  test('extension first: the extension imports the old user lockfile; a later CLI user install imports nothing and a CLI plain uninstall of the unknown entry keeps its files (NFR2.4)', async () => {
+  test('extension first: the extension imports the old user lockfile; a later CLI user install imports nothing and a CLI plain uninstall of the unknown entry keeps its files', async () => {
     const oldFile = '.copilot/prompts/old.prompt.md';
     fs.mkdirSync(path.dirname(userFile(oldFile)), { recursive: true });
     fs.writeFileSync(userFile(oldFile), '# Old\n');

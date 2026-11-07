@@ -177,9 +177,7 @@ export interface OldLockfileEntry {
 }
 
 /**
- * Write an old 2.0.0 lockfile (a repository `prompt-registry.*.json` or the
- * old user lockfile) through app's `writeLockfile`. Every entry is installed
- * at `2026-10-01T00:00:00.000Z`; the files it lists are not written.
+ * Write an old 2.0.0 lockfile; the files it lists are not written.
  * @param file - Absolute lockfile path.
  * @param bundles - Bundle id → entry.
  * @param sources - The lockfile's `sources`; none by default.

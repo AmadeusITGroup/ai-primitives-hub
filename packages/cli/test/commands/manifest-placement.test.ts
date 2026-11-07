@@ -292,7 +292,7 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
   it('update removes a path-routed file the new version places under a new name', async () => {
     await seedPathRoutedPrompts();
 
-    // `--lockfile` naming the old user lockfile keeps today's path: no migration (BR18.1).
+    // `--lockfile` naming the old user lockfile keeps today's path: no migration.
     const updated = await run(['update', '--target', 'kiro-ide', '--lockfile', resolveUserConfigPaths(env()).userLockfile, '--no-hub-sync', '-o', 'json']);
 
     expect(updated.exitCode, updated.stdout).toBe(0);

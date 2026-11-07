@@ -1060,7 +1060,7 @@ describe('repository install record', () => {
     });
   });
 
-  describe('record migration (U5)', () => {
+  describe('record migration', () => {
     const recordFs = new NodeRecordFs();
     const SOURCES = { 'acme-github': { type: 'github', url: 'https://github.com/acme/tools' } };
     const INSTALLED_AT = '2026-01-02T03:04:05.000Z';
@@ -1240,7 +1240,7 @@ describe('repository install record', () => {
         'other-bundle': { version: '0.9.0' }
       });
       await migrateRepository();
-      // Reinstalling clears other-bundle's unknown entry (BR21.2); it shares a.prompt.md.
+      // Reinstalling clears other-bundle's unknown entry; it shares a.prompt.md.
       await install('vscode', ['.github/prompts/a.prompt.md'], { bundleId: 'other-bundle' });
 
       const lone = await service.findLoneUnknown([committed, localOnly]);

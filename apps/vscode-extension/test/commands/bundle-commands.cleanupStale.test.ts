@@ -74,7 +74,7 @@ suite('BundleCommands.cleanupStaleLockfileEntries', () => {
     cleanupTestWorkspace(root);
   });
 
-  test('migrates the old lockfile first, then removes entries with all files missing for any tool; never offers an unknown or file-less entry (BR21.5)', async () => {
+  test('migrates the old lockfile first, then removes entries with all files missing for any tool; never offers an unknown or file-less entry', async () => {
     await recordBundle('stale-vscode', 'vscode', ['.github/prompts/stale-vscode.prompt.md']);
     await recordBundle('stale-kiro', 'kiro', ['.kiro/steering/stale-kiro.md']);
     await recordBundle('partial', 'vscode', ['.github/prompts/partial-a.prompt.md', '.github/prompts/partial-b.prompt.md'], ['.github/prompts/partial-a.prompt.md']);

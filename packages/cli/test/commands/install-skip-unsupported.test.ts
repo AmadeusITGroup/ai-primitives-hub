@@ -263,7 +263,7 @@ describe('install --skip-unsupported', () => {
     expect(removed.exitCode, removed.stdout).toBe(0);
     expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed).toEqual(['.kiro/steering/hello.prompt.md']);
     expect(await listFiles(kiroDir)).toEqual([]);
-    // The user record is kept empty, with its import marker (BR20.1).
+    // The user record is kept empty, with its import marker.
     expect(await readInstallRecord(userRecordPath(env()))).toMatchObject({ bundles: {}, importedUserLockfileAt: expect.any(String) });
   });
 

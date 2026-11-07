@@ -692,7 +692,7 @@ suite('user record', function () {
     assert.deepStrictEqual(files.filter((file) => isOnDisk(file)), [], 'their files are removed');
   });
 
-  test('activating a local profile with an old CLI user lockfile present migrates it before the first user record write (BR18.1)', async () => {
+  test('activating a local profile with an old CLI user lockfile present migrates it before the first user record write', async () => {
     await writeOldLockfile(resolveUserConfigPaths(process.env).userLockfile, { 'old-cli': { version: '1.0.0' } });
     await storage.addProfile({
       id: 'team', name: 'Team', description: '', icon: '', active: false, createdAt: '', updatedAt: '',
@@ -712,7 +712,7 @@ suite('user record', function () {
     assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools), ['vscode']);
   });
 
-  test('the scope commands lookup gives a lone unknown user bundle as RegistryManager lists and uninstalls it (BR21.4)', async () => {
+  test('the scope commands lookup gives a lone unknown user bundle as RegistryManager lists and uninstalls it', async () => {
     await writeOldLockfile(resolveUserConfigPaths(process.env).userLockfile, { 'old-cli': { version: '1.0.0' } });
     await manager.migrateBeforeWrite('user');
 
@@ -1007,7 +1007,7 @@ suite('user record', function () {
   });
 });
 
-suite('older records (U5)', function () {
+suite('older records', function () {
   this.timeout(20_000);
 
   const OTHER_ID = 'other-bundle';
@@ -1058,10 +1058,6 @@ suite('older records (U5)', function () {
   };
   const messages = (): string[] => [...showInfo.getCalls(), ...showWarning.getCalls()].map((call) => String(call.args[0]));
 
-  /**
-   * A bundle of the configured local source at 1.0.0.
-   * @param bundleId - Bundle id.
-   */
   const sourceBundle = (bundleId: string): Bundle => {
     const dir = path.join(localSource.url, bundleId);
     return {
@@ -1071,20 +1067,13 @@ suite('older records (U5)', function () {
     };
   };
 
-  /**
-   * Write `prompt-registry.lock.json` at the git root with the bundle at 0.9.0, listing {@link OLD_FILE}.
-   * @param bundleId - Bundle id.
-   */
   const writeOldRepositoryFile = async (bundleId: string): Promise<void> => {
     fs.mkdirSync(path.dirname(abs(OLD_FILE)), { recursive: true });
     fs.writeFileSync(abs(OLD_FILE), 'old content');
     await writeOldLockfile(abs(OLD_LOCKFILE), { [bundleId]: { version: '0.9.0', files: [OLD_FILE] } }, { id: localSource.id, type: 'local', url: localSource.url });
   };
 
-  /**
-   * This profile's 0.9.0 user install: its bundle cache, a symlink into it and the RegistryStorage entry.
-   * @param cached - The bundle version in the cache; {@link V0} by default.
-   */
+  // This profile's 0.9.0 user install, before the shared user record.
   const installForProfile = (cached = V0): Promise<void> => recordProfileInstall(storage, path.join(globalStorage, 'bundles', BUNDLE_ID), {
     bundleId: BUNDLE_ID, version: V0.version, sourceId: localSource.id,
     cache: { 'deployment-manifest.yml': manifestOf(cached), ...cached.files }, syncedFile: 'prompts/hello.prompt.md', userFile: userPath(USER_HELLO)
