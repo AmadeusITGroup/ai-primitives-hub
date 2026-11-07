@@ -46,10 +46,10 @@ import {
   TargetStateStore,
 } from '@ai-primitives-hub/infra';
 import {
-  createLayoutLoader,
   Command,
   type CommandDefinition,
   type Context,
+  createLayoutLoader,
   defineCommand,
   failWith,
   findProjectLockfile,
@@ -64,8 +64,8 @@ import {
   prepareRepositoryUninstall,
   prepareUninstallForTarget,
   readTargetsSafely,
-  recordOutputFields,
   type RecordOutputFields,
+  recordOutputFields,
   recordRepositoryUninstall,
   RegistryError,
   renderRecordLine,
