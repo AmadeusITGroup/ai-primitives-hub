@@ -22,9 +22,6 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-import {
-  createHash,
-} from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
@@ -58,8 +55,8 @@ import {
   HubUseCommand,
 } from '../../src/commands/hub';
 import {
-  InstallCommand,
   installBundleWithSource,
+  InstallCommand,
 } from '../../src/commands/install';
 import {
   ProfileActivateCommand,
@@ -838,10 +835,10 @@ describe('profile activate with an Artifactory hub source', () => {
     .map(([filePath, bytes]) => ({ path: filePath, bytes })));
   const requests: HttpRequest[] = [];
   const http: HttpClient = {
-    fetch: async (request: HttpRequest): Promise<HttpResponse> => {
+    fetch: (request: HttpRequest): Promise<HttpResponse> => {
       requests.push(request);
       if (request.url === `${ART_ROOT}/index-v1.json`) {
-        return {
+        return Promise.resolve({
           statusCode: 200,
           body: new TextEncoder().encode(JSON.stringify({
             formatVersion: 1, source: { id: ART_SOURCE.id, name: ART_SOURCE.name, updatedAt: '2026-01-01T00:00:00Z' },
@@ -855,15 +852,15 @@ describe('profile activate with an Artifactory hub source', () => {
           })),
           finalUrl: request.url,
           headers: {}
-        };
+        });
       }
       if (request.url === `${ART_ROOT}/1.0.0/art-bundle.zip`) {
-        return { statusCode: 200, body: bundleZip, finalUrl: request.url, headers: {} };
+        return Promise.resolve({ statusCode: 200, body: bundleZip, finalUrl: request.url, headers: {} });
       }
-      throw new Error(`Unexpected request: ${request.url}`);
+      return Promise.reject(new Error(`Unexpected request: ${request.url}`));
     }
   };
-  const tokens = { getToken: async () => undefined };
+  const tokens = { getToken: () => Promise.resolve(undefined) };
 
   const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
     const ctx = createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env: env() });
