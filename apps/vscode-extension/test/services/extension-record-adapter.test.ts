@@ -59,10 +59,11 @@ import {
   initGitRoot,
   isOnDisk,
   LOCAL_RECORD_FILE,
-  overrideEnv,
   RECORD_FILE,
   recordEntry,
+  setupUserRecordManager,
   snapshotTree,
+  testBundle,
   writeOldEntry,
 } from '../helpers/install-record-test-helpers';
 
@@ -123,6 +124,14 @@ const writeBundleDir = (dir: string, bundle: BundleVersion, bundleId = BUNDLE_ID
   }
 };
 
+/**
+ * The record bundle at a version, as a source lists it.
+ * @param version - Bundle version.
+ * @param sourceId - Source it comes from.
+ */
+const bundleOf = (version: string, sourceId = SOURCE.id): Bundle =>
+  testBundle({ id: BUNDLE_ID, name: 'Record Bundle', version, description: 'Test', author: 'test', sourceId, license: 'MIT' });
+
 suite('ExtensionRecordAdapter: repository installs through the extension', function () {
   this.timeout(20_000);
 
@@ -139,11 +148,6 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
   const read = (relative: string): string => fs.readFileSync(abs(relative), 'utf8');
   const readRecord = (file: string = RECORD_FILE): any => fs.existsSync(abs(file)) ? JSON.parse(read(file)) : null;
   const toolsOf = (file: string = RECORD_FILE, bundleId = BUNDLE_ID): Record<string, any> => readRecord(file)?.bundles[bundleId]?.tools ?? {};
-
-  const bundleOf = (version: string, sourceId = SOURCE.id): Bundle => ({
-    id: BUNDLE_ID, name: 'Record Bundle', version, description: 'Test', author: 'test', sourceId,
-    environments: [], tags: [], lastUpdated: '', size: '', dependencies: [], license: 'MIT', manifestUrl: '', downloadUrl: ''
-  });
 
   const install = (bundle: BundleVersion, options: { commitMode?: RepositoryCommitMode; sourceId?: string } = {}): Promise<InstalledBundle> =>
     installer.installFromBuffer(bundleOf(bundle.version, options.sourceId), zipOf(bundle), { scope: 'repository', commitMode: options.commitMode ?? 'commit' }, 'github');
@@ -531,7 +535,7 @@ suite('user record (U4)', function () {
   let manager: RegistryManager;
   let storage: RegistryStorage;
   let showError: sinon.SinonStub;
-  let restoreEnv: () => void;
+  let dispose: () => void;
 
   const userPath = (relative: string): string => path.join(home, ...relative.split('/'));
   const userRecordPath = (): string => storage.getPaths().userRecord;
@@ -543,8 +547,7 @@ suite('user record (U4)', function () {
   const v1Bundle = (): Bundle => {
     const bundleDir = path.join(localSource.url, BUNDLE_ID);
     return {
-      id: BUNDLE_ID, name: 'Record Bundle', version: V1.version, description: 'Test', author: 'test', sourceId: localSource.id,
-      environments: [], tags: [], lastUpdated: '', size: '', dependencies: [], license: 'MIT',
+      ...bundleOf(V1.version, localSource.id),
       manifestUrl: pathToFileURL(path.join(bundleDir, 'deployment-manifest.yml')).href, downloadUrl: pathToFileURL(bundleDir).href
     };
   };
@@ -554,32 +557,20 @@ suite('user record (U4)', function () {
     tempRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'extension-user-record-')));
     home = path.join(tempRoot, 'home');
     fs.mkdirSync(home, { recursive: true });
-    restoreEnv = overrideEnv({ HOME: home, USERPROFILE: home });
-    // `User/globalStorage/<id>`, so the user MCP config derived from it stays in the temp folder.
-    globalStorage = path.join(tempRoot, 'User', 'globalStorage', 'acme.extension');
 
     // A configured local source holding the bundle at 1.0.0, in the source cache.
     const sourceDir = path.join(tempRoot, 'source');
     writeBundleDir(path.join(sourceDir, BUNDLE_ID), V1);
     localSource = { id: 'acme-local', name: 'Acme local', type: 'local', url: sourceDir, enabled: true, priority: 0 };
 
-    (RegistryManager as any).instance = undefined;
-    manager = RegistryManager.getInstance({ ...createMockContext(sandbox), globalStorageUri: vscode.Uri.file(globalStorage) });
-    storage = manager.getStorage();
-    await storage.initialize();
-    await storage.addSource(localSource);
+    ({ manager, storage, globalStorage, showError, dispose } = await setupUserRecordManager(sandbox, {
+      tempRoot, env: { HOME: home, USERPROFILE: home }, source: localSource
+    }));
     await storage.cacheSourceBundles(localSource.id, [v1Bundle()]);
-
-    showError = sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
-    sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
-    sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
   });
 
   teardown(() => {
-    sandbox.restore();
-    restoreEnv();
-    (RegistryManager as any).instance = undefined;
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    dispose();
   });
 
   test('the user record path is under XDG_CONFIG_HOME, not under globalStorageUri', () => {
