@@ -19,7 +19,7 @@ import {
   type LockfileBundleEntry,
   type LockfileFs,
   type MigratedEntry,
-  migrateRecords,
+  migrateLevel,
   type MigrationReport,
   orderConfiguredSources,
   readLockfile,
@@ -28,7 +28,6 @@ import {
   type RecordSourceDescriptor,
   type RecordSourceInput,
   type RecordStore,
-  resolveUserConfigPaths,
   resolveUserHome,
   toRecordSource,
   writeFileAtomically,
@@ -732,7 +731,7 @@ export class ExtensionRecordAdapter {
    * action's first record change (W24; BR18.1, BR18.2). Called only at the
    * write entry points, never from a lookup or a listing.
    *
-   * - repository level: app's `migrateRecords` at the git root of `root`,
+   * - repository level: app's `migrateLevel` at the git root of `root`,
    *   which renames and merges `prompt-registry.lock.json` and
    *   `prompt-registry.local.lock.json` there;
    * - user level, outside WSL: the same on the user record, importing the
@@ -758,15 +757,7 @@ export class ExtensionRecordAdapter {
       const profileEntries = level === 'user' ? await this.buildProfileEntries() : [];
       let report: MigrationReport | undefined;
       try {
-        report = await migrateRecords({
-          store: this.store,
-          fs: this.fs,
-          level,
-          root: targets[0].root,
-          targets,
-          ...(level === 'user' ? { oldUserLockfile: resolveUserConfigPaths(this.env).userLockfile, profileEntries } : {}),
-          now: () => new Date()
-        });
+        report = await migrateLevel({ store: this.store, fs: this.fs, targets, env: this.env, profileEntries });
       } catch (error) {
         this.showRecordError(error, [], targets[0].root);
         throw error;

@@ -38,6 +38,9 @@ import {
   UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
+  resolveUserConfigPaths,
+} from '../registry/user-config-paths';
+import {
   LOCAL_LOCKFILE_NAME,
   type Lockfile,
   LOCKFILE_NAME,
@@ -561,4 +564,43 @@ export const migrateRecords = async (input: MigrationInput): Promise<MigrationRe
   }
   await deleteOldFiles(input.fs, oldFiles);
   return run.report;
+};
+
+/** Input of {@link migrateLevel}. */
+export interface MigrateLevelInput {
+  store: RecordStore;
+  fs: RecordFs;
+  /** Both repository files at one git root (committed first), or the user record. */
+  targets: readonly RecordLocation[];
+  /** Environment for the CLI's old user lockfile path (`resolveUserConfigPaths`); read at user level only. */
+  env: Record<string, string | undefined>;
+  /** User level, extension only: this profile's `RegistryStorage` user entries (BR20.2). */
+  profileEntries?: readonly MigratedEntry[];
+  /** Clock; the current time by default. */
+  now?: () => Date;
+}
+
+/**
+ * Migrate the old stores of the level the targets belong to (BR18.1): its
+ * root is the targets' root (the git root, or home for the user record),
+ * and at user level the CLI's old user lockfile from `env` is imported once
+ * (BR20.1), with the profile entries when given. The CLI and the extension
+ * both build their migration this way.
+ * @param input - Store, filesystem, targets, environment, profile entries and clock.
+ * @returns The report, or `undefined` when there was nothing to migrate.
+ * @throws {RegistryError} As {@link migrateRecords}.
+ */
+export const migrateLevel = (input: MigrateLevelInput): Promise<MigrationReport | undefined> => {
+  const level = input.targets[0].level;
+  return migrateRecords({
+    store: input.store,
+    fs: input.fs,
+    level,
+    root: input.targets[0].root,
+    targets: input.targets,
+    ...(level === 'user'
+      ? { oldUserLockfile: resolveUserConfigPaths(input.env).userLockfile, profileEntries: input.profileEntries ?? [] }
+      : {}),
+    now: input.now ?? (() => new Date())
+  });
 };
