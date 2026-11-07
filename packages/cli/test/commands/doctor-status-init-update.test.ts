@@ -88,6 +88,7 @@ import {
   recordPathIn,
   userRecordPath,
   workspaceEnv,
+  writeLocalFooBundle,
   writeOldLockfile,
   writeRecord,
 } from '../helpers/install-record-fixtures';
@@ -260,13 +261,8 @@ describe('doctor/status/init/update commands', () => {
     it('reflects a configured target + installed bundle', async () => {
       const bundleDir = path.join(workspace, 'bundle');
       const targetDir = path.join(workspace, 'target');
-      await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
+      await writeLocalFooBundle(bundleDir);
       await mkdir(targetDir, { recursive: true });
-      await writeFile(
-        path.join(bundleDir, 'deployment-manifest.yml'),
-        'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n'
-      );
-      await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
 
       await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json']);
       await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
@@ -447,13 +443,8 @@ profiles: []
     it('reports up to date for a lockfile with only local-source bundles (no network needed)', async () => {
       const bundleDir = path.join(workspace, 'bundle');
       const targetDir = path.join(workspace, 'target');
-      await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
+      await writeLocalFooBundle(bundleDir);
       await mkdir(targetDir, { recursive: true });
-      await writeFile(
-        path.join(bundleDir, 'deployment-manifest.yml'),
-        'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n'
-      );
-      await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
       await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json']);
       await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
 
@@ -466,13 +457,8 @@ profiles: []
     it('--dry-run reports the same up-to-date result without applying anything', async () => {
       const bundleDir = path.join(workspace, 'bundle');
       const targetDir = path.join(workspace, 'target');
-      await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
+      await writeLocalFooBundle(bundleDir);
       await mkdir(targetDir, { recursive: true });
-      await writeFile(
-        path.join(bundleDir, 'deployment-manifest.yml'),
-        'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n'
-      );
-      await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
       await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json']);
       await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
 
@@ -999,8 +985,7 @@ profiles: []
     const OLD_ENTRY = { 'old-bundle': { version: '0.1.0' } };
 
     beforeEach(async () => {
-      await mkdir(path.join(workspace, '.git'), { recursive: true });
-      await writeFile(path.join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      await initGitRoot(workspace);
       expect((await run(['target', 'add', 'repo-vscode', '--type', 'vscode', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'])).exitCode).toBe(0);
       expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', path.join(workspace, 'target'), '-o', 'json'])).exitCode).toBe(0);
     });
@@ -1026,10 +1011,7 @@ profiles: []
     it('a workspace-scope target still records in the old user lockfile, lists and uninstalls after a user-level migration', async () => {
       const bundleDir = path.join(workspace, 'bundle');
       const wsDir = path.join(workspace, 'ws-kiro');
-      await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
-      await writeFile(path.join(bundleDir, 'deployment-manifest.yml'),
-        'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n');
-      await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
+      await writeLocalFooBundle(bundleDir);
       expect((await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
       const userRecord = userRecordPath(env());
       expect(await readInstallRecord(userRecord)).toHaveProperty('importedUserLockfileAt');

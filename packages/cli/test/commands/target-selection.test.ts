@@ -26,7 +26,6 @@ import {
 } from '@ai-primitives-hub/app';
 import {
   NodeFileSystem,
-  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -59,6 +58,12 @@ import {
 import {
   runCommand,
 } from '../../src/framework';
+import {
+  initGitRoot,
+  userRecordPath,
+  writeLocalFooBundle,
+  writeOldLockfile,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [TargetAddCommand, TargetRemoveCommand, InstallCommand, UninstallCommand, UpdateCommand, StatusCommand, InitCommand];
 const OLD_STATE_LINE = 'The last used target (.ai-primitives-hub/target-state.json) is no longer used; pass --target.';
@@ -92,7 +97,7 @@ describe('target selection without target-state.json', () => {
   };
   const json = <T>(stdout: string): Envelope<T> => JSON.parse(stdout) as Envelope<T>;
 
-  const userRecord = (): string => new XdgAppStorage(env()).getPaths().userRecord;
+  const userRecord = (): string => userRecordPath(env());
   const repoRecord = (): string => path.join(repo, 'ai-primitives-hub.lock.json');
   const oldRepoLock = (): string => path.join(repo, 'prompt-registry.lock.json');
   const userTargetDir = (): string => path.join(home, 'target');
@@ -128,23 +133,16 @@ describe('target selection without target-state.json', () => {
   };
 
   /**
-   * Write a 2.0.0 `prompt-registry`-style lockfile.
+   * Write a 2.0.0 `prompt-registry`-style lockfile from the local bundle.
    * @param file Absolute path.
    * @param bundles Bundle id → its single file, root-relative; empty for an empty lockfile.
    */
   const writeOldLock = async (file: string, bundles: Record<string, string>): Promise<void> => {
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, `${JSON.stringify({
-      $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-      version: '2.0.0',
-      generatedAt: '2026-10-01T00:00:00.000Z',
-      generatedBy: 'ai-primitives-hub-cli@0.2.1',
-      bundles: Object.fromEntries(Object.entries(bundles).map(([id, filePath]) => [id, {
-        version: '1.0.0', sourceId: 'local-bundle', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z',
-        commitMode: 'commit', files: [{ path: filePath, checksum: '0'.repeat(64) }]
-      }])),
-      sources: Object.keys(bundles).length === 0 ? {} : { 'local-bundle': { type: 'local', url: bundle } }
-    }, null, 2)}\n`);
+    await writeOldLockfile(
+      file,
+      Object.fromEntries(Object.entries(bundles).map(([id, filePath]) => [id, { version: '1.0.0', files: [filePath], sourceId: 'local-bundle' }])),
+      Object.keys(bundles).length === 0 ? {} : { 'local-bundle': { type: 'local', url: bundle } }
+    );
   };
 
   beforeEach(async () => {
@@ -153,13 +151,9 @@ describe('target selection without target-state.json', () => {
     home = path.join(root, 'home');
     // Inside home, so the user level's source trust gate accepts the local source.
     bundle = path.join(home, 'bundle');
-    await mkdir(path.join(repo, '.git'), { recursive: true });
-    await writeFile(path.join(repo, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    await initGitRoot(repo);
     await mkdir(userTargetDir(), { recursive: true });
-    await mkdir(path.join(bundle, 'prompts'), { recursive: true });
-    await writeFile(path.join(bundle, 'deployment-manifest.yml'),
-      'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n');
-    await writeFile(path.join(bundle, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
+    await writeLocalFooBundle(bundle);
   });
 
   afterEach(async () => {
