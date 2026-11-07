@@ -1,12 +1,7 @@
 /**
- * Refusal for bundles the ai-primitives-hub CLI installed (BR5.6, NFR4.3).
- *
- * Until U3 moves update, uninstall, move and the commit-mode switch onto the
- * shared install-record service, the extension refuses these actions on
- * repository items that come from a 3.0.0 install record
- * (`recordOrigin === 'install-record'`). The refusal is a core
- * `RegistryError` with code `RECORD.CLI_MANAGED`, never a silent return, so no
- * caller can report it as a success. Callers turn it into one warning.
+ * Refusal for repository bundles the ai-primitives-hub CLI installed. The
+ * extension does not update, uninstall, move or switch them yet; it throws
+ * `RECORD.CLI_MANAGED`, never a silent return, and callers show one warning.
  * @module utils/cli-managed
  */
 import {
@@ -26,10 +21,9 @@ const ACTION_PHRASES: Readonly<Record<Exclude<CliManagedAction, 'update'>, strin
 };
 
 /**
- * User-facing refusal message, per action (security-design.md, "Message wording").
+ * User-facing refusal message, per action.
  * @param bundleId - Refused bundle.
  * @param action - Refused action.
- * @returns The message; the update wording names the CLI command that works in U1.
  */
 export const cliManagedMessage = (bundleId: string, action: CliManagedAction): string => {
   if (action === 'update') {
@@ -42,7 +36,6 @@ export const cliManagedMessage = (bundleId: string, action: CliManagedAction): s
  * Build the `RECORD.CLI_MANAGED` refusal.
  * @param bundleId - Refused bundle.
  * @param action - Refused action.
- * @returns The error, ready to throw.
  */
 export const cliManagedError = (bundleId: string, action: CliManagedAction): RegistryError =>
   recordError('RECORD.CLI_MANAGED', {

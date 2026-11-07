@@ -1,11 +1,6 @@
 /**
- * CLI-managed guard contract (BR5.6, NFR4.3).
- *
- * Repository items read from a 3.0.0 install record are refused by
- * uninstall, update, move to user scope and the commit-mode switch, with
- * nothing changed on disk and no success message. The same id at user scope
- * is not refused. Uses a real temp git root; `RegistryStorage`, the installer
- * and the VS Code notification API are stubbed.
+ * CLI-managed guard: repository items from an install record are refused with
+ * nothing changed on disk; the same id at user scope is not.
  */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';

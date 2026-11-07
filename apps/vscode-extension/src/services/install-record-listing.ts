@@ -1,20 +1,8 @@
 /**
- * Install record listing for the extension's repository view (workflow W2;
- * BR5.1, BR5.2, BR5.4, BR5.5, BR5.7).
- *
- * Reads the 3.0.0 repository records (`ai-primitives-hub.lock.json` and
- * `ai-primitives-hub.local.lock.json`, at the git root) through the shared
- * `RecordStore`, and merges them with the prompt-registry lockfiles read by
- * `LockfileManager`: for a bundle id present in a new file, the new item wins
- * and the old one is dropped. Only the listing port of
- * `RegistryManager.listInstalledBundles` uses this; `LockfileManager` and its
- * other callers are unchanged in U1.
- *
- * A bundle whose tools are split across the two new files (BR3.6) is one
- * item, built from its latest entry in either file. Problems (a `RECORD.*`
- * error, or the same bundle and tool in both new files) are shown once
- * per file path and content hash, and logged on every later refresh; the rest
- * of the list is still returned.
+ * Install record listing for the extension's repository view. Reads both
+ * repository records at the git root and merges them with the old
+ * prompt-registry lockfiles; the install record wins for the same bundle id.
+ * Problems are shown once per file and content, and logged on every refresh.
  * @module services/install-record-listing
  */
 import * as path from 'node:path';
@@ -49,11 +37,7 @@ import {
   createInstalledBundleFromLockfile,
 } from './lockfile-manager';
 
-/**
- * Writer stamp for records the extension writes (`generatedBy`), from the
- * same version source `LockfileManager` uses.
- * @returns `ai-primitives-hub-extension@<version>`.
- */
+/** Writer stamp for records the extension writes: `ai-primitives-hub-extension@<version>`. */
 export const getExtensionRecordGeneratedBy = (): string => {
   let extensionVersion = '0.0.0';
   try {
@@ -111,7 +95,7 @@ export class InstallRecordListing {
   private readonly store: RecordStore;
   private readonly showProblem: (message: string) => void;
   private readonly logger = Logger.getInstance();
-  /** Problem keys already shown to the user (BR5.5). */
+  /** Problem keys already shown to the user. */
   private readonly shown = new Set<string>();
 
   public constructor(options: InstallRecordListingOptions = {}) {
@@ -135,9 +119,7 @@ export class InstallRecordListing {
     const committedBundles = await this.loadBundles(committed);
     const localBundles = await this.loadBundles(localOnly);
     for (const bundleId of new Set([...committedBundles.keys(), ...localBundles.keys()])) {
-      // One bundle's tools may be split across the two files (BR3.6). Only
-      // the same bundle and tool in both files is a conflict (BR5.4): the
-      // committed entry is used for that tool and the conflict is reported.
+      // Tools may be split across the files; the same tool in both is a conflict and the committed entry wins.
       const committedTools = committedBundles.get(bundleId)?.tools ?? {};
       const candidates: LocatedEntry[] = Object.values(committedTools).map((entry) => ({ entry, location: committed }));
       const duplicateTools: string[] = [];
@@ -177,15 +159,14 @@ export class InstallRecordListing {
   }
 
   /**
-   * Build one item per bundle from its latest tool entry across both files (BR5.2).
+   * Build one item per bundle from its latest tool entry across both files.
    * @param items - Items so far, by bundle id.
    * @param location - File holding the entry; gives `commitMode`.
    * @param bundleId - Bundle id.
    * @param entry - The bundle's latest tool entry.
    */
   private async addItem(items: Map<string, InstalledBundle>, location: RecordLocation, bundleId: string, entry: ToolEntry): Promise<void> {
-    // Same minimal manifest and `.github` install path LockfileManager uses:
-    // never the git root, which the extension's uninstall would delete recursively.
+    // Use `.github`, as LockfileManager does: never the git root, which uninstall would delete recursively.
     const asLockfileEntry: LockfileBundleEntry = {
       version: entry.version,
       sourceId: entry.sourceId,
@@ -252,7 +233,7 @@ export class InstallRecordListing {
   }
 
   /**
-   * Show a problem once per key, log it every time (BR5.5).
+   * Show a problem once per key, log it every time.
    * @param problem - Problem to report.
    */
   private report(problem: ListingProblem): void {
@@ -265,7 +246,7 @@ export class InstallRecordListing {
   }
 
   /**
-   * Repository root the records live at (BR2.1): the git root above `start`, or `start` without one.
+   * Repository root the records live at: the git root above `start`, or `start` without one.
    * @param start - Workspace root.
    */
   public async resolveRoot(start: string): Promise<string> {
@@ -274,10 +255,9 @@ export class InstallRecordListing {
   }
 
   /**
-   * List repository bundles: new records first, then old lockfile items whose id no new file has (BR5.1).
+   * List repository bundles: install records first, then old lockfile items with other ids.
    * @param workspaceRoot - Workspace root the git-root walk starts from.
-   * @param legacy - Reads the prompt-registry lockfiles (`LockfileManager.getInstalledBundles`).
-   * @returns One item per bundle id.
+   * @param legacy - Reads the prompt-registry lockfiles.
    */
   public async listRepositoryBundles(
     workspaceRoot: string,
@@ -295,11 +275,9 @@ export class InstallRecordListing {
 }
 
 /**
- * Watch both install record files at a root and call `onChange` on create,
- * change or delete (BR5.7).
- * @param root - Repository root the records live at.
+ * Call `onChange` when either install record file at a root is created, changed or deleted.
+ * @param root - Repository root.
  * @param onChange - Refreshes the listing.
- * @returns The watcher's disposable.
  */
 export const watchInstallRecords = (root: string, onChange: () => void): vscode.Disposable => {
   const watcher = vscode.workspace.createFileSystemWatcher(
