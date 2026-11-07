@@ -6,6 +6,7 @@
  */
 import * as path from 'node:path';
 import {
+  bundleIdentityOf,
   type BundleRecord,
   compareCodeUnits,
   FORBIDDEN_KEYS,
@@ -148,6 +149,19 @@ const createBundle = (): BundleRecord => {
   return bundle;
 };
 
+/**
+ * Identity of a recorded key; an id past the helper's length guard is its own identity.
+ * @param bundleId - Bundle id.
+ * @param version - Version recorded for it.
+ */
+const identityOf = (bundleId: string, version: string): string => {
+  try {
+    return bundleIdentityOf(bundleId, version);
+  } catch {
+    return bundleId;
+  }
+};
+
 const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
   const listed = new Set<string>();
   for (const record of records) {
@@ -277,6 +291,23 @@ export class InstallRecordService {
     return entry;
   }
 
+  /**
+   * Remove the tool's entries keyed by the bundle id or by another id with the same identity.
+   * @param record - Record file to change.
+   * @param bundleId - Key of the new entry.
+   * @param identity - Identity of the new entry.
+   * @param tool - The target's type.
+   */
+  private removeSameIdentity(record: InstallRecord, bundleId: string, identity: string, tool: string): ToolEntry[] {
+    const removed: ToolEntry[] = [];
+    for (const [key, bundle] of Object.entries(record.bundles)) {
+      if (Object.hasOwn(bundle.tools, tool) && (key === bundleId || identityOf(key, bundle.tools[tool].version) === identity)) {
+        removed.push(this.removeEntry(record, key, tool) as ToolEntry);
+      }
+    }
+    return removed;
+  }
+
   private dropUnusedSource(record: InstallRecord, sourceId: string): void {
     if (!Object.hasOwn(record.sources, sourceId)) {
       return;
@@ -312,7 +343,8 @@ export class InstallRecordService {
 
   /**
    * Record that a tool installed a bundle, moving the entry out of the other
-   * repository file. Saves the target file first; deletes nothing.
+   * repository file. The tool's entries with the same bundle identity in either
+   * file are replaced. Saves the target file first; deletes nothing.
    * @param input - Install to record.
    * @returns The change, with the superseded files to delete after the save.
    * @throws {RegistryError} A `RECORD.*` error; the record is unchanged when the target save fails.
@@ -326,11 +358,14 @@ export class InstallRecordService {
     const other = otherLocation === undefined ? undefined : await this.store.load(otherLocation);
     const files = await this.toRecordedFiles(location.root, input.writtenPaths, input.workspaceRoot);
 
-    const previous = [this.removeEntry(target.record, bundleId, tool)];
-    const moved = other === undefined ? undefined : this.removeEntry(other.record, bundleId, tool);
-    previous.push(moved);
-    if (other !== undefined && moved !== undefined) {
-      this.dropUnusedSource(other.record, moved.sourceId);
+    const identity = identityOf(bundleId, input.version);
+    const previous = this.removeSameIdentity(target.record, bundleId, identity, tool);
+    const moved = other === undefined ? [] : this.removeSameIdentity(other.record, bundleId, identity, tool);
+    previous.push(...moved);
+    if (other !== undefined) {
+      for (const prior of moved) {
+        this.dropUnusedSource(other.record, prior.sourceId);
+      }
     }
 
     const entry = Object.create(null) as ToolEntry;
@@ -349,7 +384,7 @@ export class InstallRecordService {
     const stillListed = listedPaths(other === undefined ? [target.record] : [target.record, other.record]);
     const deletedFiles: string[] = [];
     const keptSharedFiles: string[] = [];
-    for (const old of previous.flatMap((prior) => prior?.files ?? [])) {
+    for (const old of previous.flatMap((prior) => prior.files)) {
       const oldPath = old.path;
       if (newPaths.has(oldPath) || deletedFiles.includes(oldPath) || keptSharedFiles.includes(oldPath)) {
         continue;
@@ -358,7 +393,7 @@ export class InstallRecordService {
     }
 
     const warnings = [...(await this.store.save(location, target.record)).warnings];
-    if (other !== undefined && moved !== undefined) {
+    if (other !== undefined && moved.length > 0) {
       warnings.push(...(await this.saveOther(other)));
     }
     return {
