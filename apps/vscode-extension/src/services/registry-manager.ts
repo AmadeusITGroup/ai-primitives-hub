@@ -1677,10 +1677,8 @@ export class RegistryManager {
    * @param silent
    */
   public async uninstallBundle(bundleId: string, scope: InstallationScope = 'user', silent = false): Promise<void> {
-    // Migrate older records first, so the uninstall works on the 3.0.0 record.
-    await this.migrateBeforeWrite(scope);
-    // Refuse entries only another tool holds before anything touches disk.
-    await this.assertHostTool(bundleId, scope, 'uninstall');
+    // Migrate first, then refuse entries only another tool holds, before anything touches disk.
+    await this.prepareWrite(bundleId, scope, 'uninstall');
     const installed = await uninstallInstalledBundle(
       bundleId,
       scope,
@@ -1778,8 +1776,7 @@ export class RegistryManager {
     const target = (await this.listInstalledBundles()).find((bundle) => bundle.bundleId === bundleId);
     if (target) {
       // Older records of the item's level are migrated before the guard reads the record (BR18.1).
-      await this.migrateBeforeWrite(target.scope);
-      await this.assertHostTool(bundleId, target.scope, 'update');
+      await this.prepareWrite(bundleId, target.scope, 'update');
     }
     // A repository entry updates from the source an install would record.
     const listSources = target?.scope === 'repository'
@@ -1922,6 +1919,19 @@ export class RegistryManager {
     if (workspaceRoot) {
       await this.recordAdapter.migrateBeforeWrite('repository', workspaceRoot);
     }
+  }
+
+  /**
+   * Start a write action on one bundle item: migrate its level, then refuse it
+   * when another tool owns the bundle.
+   * @param bundleId - Bundle the action targets.
+   * @param scope - Scope of the item.
+   * @param action - The action, for the message.
+   * @throws {RegistryError} A `RECORD.*` error, or `RECORD.CLI_MANAGED` for a refused action.
+   */
+  public async prepareWrite(bundleId: string, scope: InstallationScope, action: CliManagedAction): Promise<void> {
+    await this.migrateBeforeWrite(scope);
+    await this.assertHostTool(bundleId, scope, action);
   }
 
   /**
