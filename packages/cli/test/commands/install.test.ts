@@ -245,9 +245,7 @@ describe('install command (local --from mode)', () => {
     const tokens = { getToken: () => Promise.reject(new Error('GitHub credentials must not be used')) };
     const context = () => createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env });
     const target: Target = { name: 'copilot', type: 'copilot-cli', scope: 'user', path: targetDir };
-    // The record replay and update apply the source trust gate (NFR4.11): only a
-    // configured source is fetched with credentials. Configure the Artifactory
-    // source as a user would, as a detached `default-local` source, before installing.
+    // The source trust gate fetches only configured sources with credentials, so configure it first.
     let sourceConfigured = false;
     const configureSource = async () => {
       if (sourceConfigured) {

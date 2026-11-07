@@ -462,7 +462,7 @@ const runCase = async (
   const excludePath = path.join(sandbox.workspace, '.git', 'info', 'exclude');
   const gitExclude = normalizeExclude(await readOptional(excludePath));
   const lockEntry = await readLockEntry(sandbox, bundleId, spec.targetType);
-  // No install writes the old 2.0.0 user lockfile any more: user scope records in the user record.
+  // User scope records in the user record, never the old user lockfile.
   expect(await readOptional(resolveUserConfigPaths(sandbox.env).userLockfile)).toBeNull();
   await run(sandbox, ['uninstall', '--target', 't', '--all', ...commitMode, '-o', 'json']);
   return {

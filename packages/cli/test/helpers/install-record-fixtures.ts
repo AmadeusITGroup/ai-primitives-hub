@@ -138,15 +138,13 @@ export const readRecord = <T = InstallRecord>(dir: string, fileName?: string): P
 /**
  * Read and parse a record file at any path, e.g. the shared user record.
  * @param file - Absolute record path.
- * @returns The parsed record, typed as the test reads it.
  */
 export const readInstallRecord = async <T = InstallRecord>(file: string): Promise<T> =>
   JSON.parse(await readFile(file, 'utf8')) as T;
 
 /**
- * Path of the shared user record for an environment (`AppStoragePaths.userRecord`).
+ * Path of the shared user record for an environment.
  * @param env - Environment with the XDG and home folders.
- * @returns The absolute user record path.
  */
 export const userRecordPath = (env: Record<string, string | undefined>): string =>
   new XdgAppStorage(env).getPaths().userRecord;

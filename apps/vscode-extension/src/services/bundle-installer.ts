@@ -132,41 +132,36 @@ export interface RepositoryUpdateInPlace {
   modified: ReadonlySet<string>;
 }
 
-/** A user install on the shared user record, prepared before any file is written (BR16.x). */
+/** A user install on the shared user record, prepared before any file is written. */
 interface PreparedUserInstall {
-  /** The user record location. */
   location: RecordLocation;
-  /** Configured source the entry records (NFR4.15). */
+  /** Configured source the entry records. */
   source: RecordSourceInput;
   /** Bundle id of the host entry being replaced, when the user record has one. */
   previousBundleId?: string;
   /** Home-relative paths of that entry that were modified or missing before the write. */
   modified: ReadonlySet<string>;
-  /** Ids whose RegistryStorage user installation the install replaces: the bundle's, and the previous id's on an update. */
+  /** Ids whose profile installation the install replaces. */
   profileEntryIds: string[];
 }
 
 /** What {@link BundleInstaller.recordHostInstall} records, at either level. */
 interface HostInstallToRecord {
-  /** Record file the host entry is recorded in. */
   location: RecordLocation;
-  /** Configured source the entry records (NFR4.15). */
+  /** Configured source the entry records. */
   source: RecordSourceInput;
   /** Root the written paths are recorded against: the workspace folder, or home. */
   workspaceRoot: string;
-  /** Absolute paths the writer wrote. */
   written: readonly string[];
-  /** Writer-group siblings brought along (BR11.6); repository level only. */
+  /** Writer-group siblings brought along; repository level only. */
   syncSiblings?: (tool: string) => boolean;
   /**
-   * The host entry an update replaces, removed when the new version has
-   * another bundle id. `deleteFilesNow`: its files go with the entry (app's
-   * `uninstallEntry`, repository level); otherwise with the superseded files
-   * after both saves (user level). Each level keeps its order of record
-   * writes and deletions.
+   * The host entry an update replaces when the bundle id changes. With
+   * `deleteFilesNow` (repository) its files go with the entry; otherwise with
+   * the superseded files after both saves (user).
    */
   previous?: { bundleId: string; location: RecordLocation; deleteFilesNow: boolean };
-  /** Root-relative paths that were modified or missing before the write; never deleted (NFR4.13). */
+  /** Root-relative paths that were modified or missing before the write; never deleted. */
   modified: ReadonlySet<string>;
 }
 
@@ -303,15 +298,11 @@ export class BundleInstaller {
   }
 
   /**
-   * Record the host tool's entry with the written files at either level
-   * (W9 steps 6–10, W11, BR16.x): the new entry, then, when an update brings
-   * another bundle id, the removal of the old id's host entry; then
-   * `beforeDelete`; then the superseded files are deleted except modified
-   * ones (NFR4.13).
+   * Record the host tool's entry at either level, remove the old id's entry on
+   * an id change, run `beforeDelete`, then delete superseded files except modified ones.
    * @param bundle - Installed bundle.
    * @param input - Where and what to record.
    * @param beforeDelete - Runs after the saves, before the superseded files are deleted.
-   * @returns The warnings of the saves and the deletions, in that order.
    * @throws {RegistryError} A `RECORD.*` error, after it was shown once.
    */
   private async recordHostInstall(
@@ -363,10 +354,6 @@ export class BundleInstaller {
     return [...warnings, ...removal.warnings];
   }
 
-  /**
-   * Log record warnings.
-   * @param warnings - Non-fatal problems from the record service.
-   */
   private logWarnings(warnings: readonly string[]): void {
     for (const warning of warnings) {
       this.logger.warn(`[BundleInstaller] ${warning}`);
@@ -449,23 +436,14 @@ export class BundleInstaller {
     this.logger.debug(`Recorded ${bundle.id} for ${this.records.hostTool} in ${prepared.location.path}`);
   }
 
-  /**
-   * Whether a user record entry of any tool lists a file under a folder.
-   * @param location - The user record location.
-   * @param folder - Absolute folder under the record root.
-   */
+  // Any tool's entry counts.
   private async userRecordListsUnder(location: RecordLocation, folder: string): Promise<boolean> {
     const listed = await this.records.listedPathsIn(location).catch((error: unknown) => this.rethrowRecordError(error, [], location.root));
     const relative = relativeInside(location.root, folder);
     return relative !== undefined && [...listed].some((file) => file.startsWith(`${relative}/`));
   }
 
-  /**
-   * Retire the profile's user installation of a bundle, keeping files the user record lists.
-   * @param bundleId - Bundle id.
-   * @param root - User record root, for "Open file".
-   * @param keepAlso - Further absolute paths to leave in place.
-   */
+  // Retire the profile's user installation, keeping files the user record lists.
   private async retireProfileEntry(bundleId: string, root: string, keepAlso: readonly string[] = []): Promise<void> {
     await this.records.retireProfileEntry(
       bundleId,
@@ -474,11 +452,6 @@ export class BundleInstaller {
     ).catch((error: unknown) => this.rethrowRecordError(error, [], root));
   }
 
-  /**
-   * Remove a bundle's cache folder in extension storage, if present.
-   * @param bundleId - Bundle id.
-   * @param skipPath - A folder never to remove: the installation's own path when it is the cache.
-   */
   private async removeBundleCache(bundleId: string, skipPath?: string): Promise<void> {
     const bundleCachePath = this.getInstallDirectory(bundleId, 'user');
     if (bundleCachePath !== skipPath && fs.existsSync(bundleCachePath)) {
@@ -487,10 +460,6 @@ export class BundleInstaller {
     }
   }
 
-  /**
-   * The files of a host entry that were modified or missing before a write.
-   * @param located - The host entry, if any.
-   */
   private async modifiedFilesOf(located: LocatedToolEntry | undefined): Promise<Set<string>> {
     return new Set(located === undefined ? [] : await findModifiedFiles(this.records.fs, located.location.root, located.entry.files));
   }
@@ -907,17 +876,7 @@ export class BundleInstaller {
     );
   }
 
-  /**
-   * Update over the installed host entry, with no uninstall first (W11, and
-   * BR16.x at user scope): refresh the MCP servers, then install the new
-   * version in place.
-   * @param installed - Installed version.
-   * @param bundle - New version.
-   * @param bundleBuffer - Downloaded bundle bytes.
-   * @param sourceType - Source type of the new version.
-   * @param options - Scope and version of the install.
-   * @param inPlace - The old entry, read before the write.
-   */
+  // Update over the installed host entry with no uninstall first.
   private async updateInPlace(
     installed: InstalledBundle,
     bundle: Bundle,
@@ -974,8 +933,7 @@ export class BundleInstaller {
     const repository = options.scope === 'repository'
       ? await this.prepareRepositoryInstall(bundle, options.commitMode ?? 'commit', inPlace)
       : undefined;
-    // User installs on the shared user record do the same with the user record (BR16.x),
-    // skills installed straight into the skills folder included.
+    // User installs on the shared user record do the same, skills included.
     const user = options.scope === 'user' && this.records.usesSharedUserRecord()
       ? await this.prepareUserInstall(bundle, inPlace?.previousBundleId)
       : undefined;
@@ -1095,8 +1053,7 @@ export class BundleInstaller {
           }
 
           // Check for existing skill using checkPathExists to detect broken symlinks.
-          // A user install writes over a skill folder the user record lists, for any tool or profile (BR16.x):
-          // no prompt, no removal; superseded-file deletion keeps any file an entry still lists.
+          // A user install writes over a skill folder the user record lists, without a prompt or removal.
           const existingEntry = await checkPathExists(installDir);
           if (existingEntry.exists && !(user && (inPlace || await this.userRecordListsUnder(user.location, installDir)))) {
             // For broken symlinks, we can safely remove without prompting
@@ -1183,7 +1140,7 @@ export class BundleInstaller {
       if (installSkillsToCopilotDir) {
         this.logger.debug('Skills bundle - skipping MCP servers and Copilot sync (already installed to ~/.copilot/skills/)');
         if (user) {
-          // The user record is the store of this install: RegistryStorage is not written (BR16.x).
+          // The user record is the store of this install: RegistryStorage is not written.
           await this.recordUserInstall(bundle, user, outcome.write.written);
           installed.recordOrigin = 'install-record';
         }
@@ -1216,7 +1173,7 @@ export class BundleInstaller {
           const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
           await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace);
         } else if (user) {
-          // The user record is the store of this install: RegistryStorage is not written (BR16.x).
+          // The user record is the store of this install: RegistryStorage is not written.
           const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
           await this.recordUserInstall(bundle, user, written);
           installed.recordOrigin = 'install-record';
@@ -1247,7 +1204,6 @@ export class BundleInstaller {
     this.logger.info(`Uninstalling bundle: ${installed.bundleId}`);
 
     try {
-      // A user item on the shared user record: the host tool's entry, if any (BR16.x).
       const userEntry = await this.findUserRecordEntry(installed, 'uninstall');
 
       // Uninstall MCP servers
@@ -1313,8 +1269,7 @@ export class BundleInstaller {
         return await this.updateRepositoryInPlace(installed, bundle, bundleBuffer, resolvedSourceType);
       }
       if (await this.findUserRecordEntry(installed, 'update') !== undefined) {
-        // In place over the user record's host entry, like a repository update (BR16.x);
-        // the install itself reads the entry and its modified files.
+        // In place over the user record's host entry, like a repository update.
         return await this.updateInPlace(
           installed,
           bundle,
@@ -1462,7 +1417,7 @@ export class BundleInstaller {
    */
   public async uninstallSkillSymlink(installed: InstalledBundle): Promise<void> {
     if (installed.recordOrigin === 'install-record') {
-      // A local skill installed from a buffer is held by the user record, not linked (BR16.x).
+      // A local skill installed from a buffer is held by the user record, not linked.
       await this.uninstall(installed);
       return;
     }

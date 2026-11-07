@@ -5,8 +5,7 @@
  * nothing is written (unchanged). With it, the supported items install,
  * the rest are listed in the output, the lockfile records only what was
  * installed, and uninstall removes exactly that. User-scope targets record
- * in the shared user record (`bundles.<id>.tools.<type>`, paths relative to
- * home).
+ * in the shared user record.
  */
 import {
   mkdir,

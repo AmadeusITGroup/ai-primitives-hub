@@ -90,9 +90,9 @@ export interface ExtensionRecordAdapterOptions {
   fs?: RecordFs;
   /** Host tool; `detectHostApp()` by default. */
   hostTool?: TargetType;
-  /** Absolute user record path (`AppStoragePaths.userRecord`); the user record is not used without it. */
+  /** Absolute user record path; the user record is not used without it. */
   userRecordPath?: string;
-  /** Environment for the home folder (`resolveUserHome`); `process.env` by default. */
+  /** Environment for the home folder; `process.env` by default. */
   env?: Record<string, string | undefined>;
 }
 
@@ -152,11 +152,11 @@ export class ExtensionRecordAdapter {
   private readonly sources: RecordSourcesPort;
   private readonly lockfileFs: LockfileFs;
   private readonly logger = Logger.getInstance();
-  /** The user level's home folder; the root of every user record path (BR14.3). */
+  /** The user level's home folder, the root of every user record path. */
   public readonly home: string;
   private readonly userRecordPath: string | undefined;
   private loggedWslUserRecord = false;
-  /** Tail of the job chain of each record file, by resolved path; see {@link serialize}. */
+  /** Tail of each record file's job queue, by resolved path. */
   private readonly recordQueues = new Map<string, Promise<unknown>>();
 
   public constructor(options: ExtensionRecordAdapterOptions) {

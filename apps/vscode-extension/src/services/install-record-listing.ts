@@ -284,15 +284,11 @@ export class InstallRecordListing {
   }
 
   /**
-   * List the bundles of the shared user record as user-scope items (BR16.x):
-   * one item per bundle, from the host tool's entry when it has one (the
-   * entry the extension acts on; another tool's entry is refused at action
-   * time), else from its latest entry. A `RECORD.*` error is reported once
-   * and gives no item.
+   * List the shared user record's bundles as user-scope items, one per bundle,
+   * from the host tool's entry when there is one. A `RECORD.*` error gives no items.
    * @param location - The user record location.
    * @param hostTool - The tool the extension records under.
    * @param installPathFor - The extension's bundle cache folder of a bundle id.
-   * @returns The items, and the ids the user record holds for the host tool.
    */
   public async listUserBundles(
     location: RecordLocation,

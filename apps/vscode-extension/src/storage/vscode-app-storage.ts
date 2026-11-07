@@ -38,8 +38,7 @@ export class VsCodeAppStorage implements AppStorage {
       profilesInstalled: path.join(storagePath, 'installed', 'profiles'),
       profiles: path.join(storagePath, 'profiles'),
       logs: path.join(storagePath, 'logs'),
-      // The user record is per machine, not per profile: it lives in the same
-      // XDG config folder the CLI uses, never under globalStorageUri (BR14.1).
+      // Per machine, not per profile: the CLI's XDG config folder, never globalStorageUri.
       userRecord: path.join(xdgConfigDir(process.env), USER_RECORD_FILE_NAME)
     };
   }

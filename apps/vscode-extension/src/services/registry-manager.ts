@@ -351,21 +351,12 @@ export class RegistryManager {
     this.versionConsolidator.setSourceTypeResolver((sourceId: string) => this.getSourceType(sourceId));
   }
 
-  /**
-   * User-scope items of the shared user record (BR16.x), with the ids it
-   * holds for the host tool; none in WSL or when the record cannot be read.
-   */
+  // None in WSL or when the record cannot be read.
   private listUserRecordBundles(): Promise<{ items: InstalledBundle[]; hostBundleIds: Set<string> }> {
     return listUserRecordBundles(this.userRecordReader());
   }
 
-  /**
-   * RegistryStorage installs of a scope (all scopes when omitted). User scope
-   * on the shared user record (BR16.x): every user record bundle, plus the
-   * RegistryStorage user installs whose bundle the user record does not hold
-   * for the host tool, listed first. In WSL: RegistryStorage only.
-   * @param scope - Scope filter.
-   */
+  // At user scope this adds the user record's bundles, except in WSL.
   private async listStoredBundles(scope?: InstallationScope): Promise<InstalledBundle[]> {
     const stored = await this.storage.getInstalledBundles(scope);
     if (scope !== undefined && scope !== 'user') {
@@ -375,24 +366,13 @@ export class RegistryManager {
     return [...stored.filter((bundle) => bundle.scope !== 'user' || !hostBundleIds.has(bundle.bundleId)), ...items];
   }
 
-  /**
-   * The RegistryStorage install of a bundle at a scope; at user scope on the
-   * shared user record, else the user record's item when it holds the host
-   * tool's entry (BR16.x).
-   * @param bundleId - Bundle id.
-   * @param scope - Scope.
-   */
+  // Falls back to the user record's host-tool item at user scope.
   private async getStoredOrUserBundle(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined> {
     const stored = await this.storage.getInstalledBundle(bundleId, scope);
     return stored !== undefined || scope !== 'user' ? stored : findUserRecordBundle(this.userRecordReader(), bundleId);
   }
 
-  /**
-   * Record an installation in RegistryStorage, except a user install the
-   * installer recorded in the shared user record, which is its store (BR16.x),
-   * as repository installs are never written to RegistryStorage.
-   * @param installation - The installation.
-   */
+  // A user install already in the shared user record is not stored again.
   private async recordStoredInstallation(installation: InstalledBundle): Promise<void> {
     if (installation.scope === 'user' && installation.recordOrigin === 'install-record') {
       return;
@@ -400,12 +380,7 @@ export class RegistryManager {
     await this.storage.recordInstallation(installation);
   }
 
-  /**
-   * Bundle ids of an active hub's profile, read before its deactivation
-   * deletes the activation state: the state's synced bundles, else the
-   * profile definition's bundles. Undefined when it is not a hub profile.
-   * @param profileId - Profile about to be deactivated.
-   */
+  // `undefined` when the profile is not a hub profile.
   private async getHubProfileBundleIds(profileId: string): Promise<string[] | undefined> {
     if (!this.hubManager) {
       return undefined;
@@ -418,15 +393,7 @@ export class RegistryManager {
     return state?.profileId === profileId ? state.syncedBundles : (hubProfile.bundles ?? []).map((bundle) => bundle.id);
   }
 
-  /**
-   * Installs profile deactivation looks through for a profile's bundles: the
-   * RegistryStorage installs, plus, on the shared user record (which has no
-   * profile key, BR16.x), the host tool's user record items of the profile's
-   * bundle ids, attributed to that profile. The bundle ids are the hub
-   * profile's when given, else the local profile's.
-   * @param profileId - Profile being deactivated.
-   * @param hubBundleIds - Bundle ids of the hub profile, read before its deactivation.
-   */
+  // Adds the host tool's user record items of the profile's bundles: the record has no profile key.
   private async listProfileInstalls(profileId: string, hubBundleIds?: string[]): Promise<InstalledBundle[]> {
     const stored = await this.storage.getInstalledBundles();
     const bundleIds = hubBundleIds
@@ -1861,7 +1828,7 @@ export class RegistryManager {
     return this.recordAdapter;
   }
 
-  /** This manager's adapter, storage and listing, to read the shared user record with (BR16.x). */
+  /** This manager's adapter, storage and listing, for reading the shared user record. */
   public userRecordReader(): UserRecordReader {
     return { adapter: this.recordAdapter, storage: this.storage, listing: this.getInstallRecordListing() };
   }
@@ -1917,7 +1884,7 @@ export class RegistryManager {
    */
   public async assertHostTool(bundleId: string, scope: InstallationScope, action: CliManagedAction): Promise<void> {
     if (scope === 'user') {
-      // A user item only another tool's user record entry holds; this profile's own install is not refused (BR16.x).
+      // This profile's own install is not refused.
       if (this.recordAdapter.usesSharedUserRecord() && (await this.storage.getInstalledBundle(bundleId, 'user')) === undefined) {
         await this.recordAdapter.assertUserHostTool(bundleId, action);
       }
