@@ -65,17 +65,13 @@ import type {
   Context,
 } from './context';
 import {
-  readTargetsSafely,
-  resolveTarget,
-  resolveTargetName,
+  resolveCommandTarget,
 } from './error';
 import {
   createHubManager,
 } from './hub-manager';
-import {
-  loadTargets,
-  resolveEffectiveTarget,
-  type TargetOverrides,
+import type {
+  TargetOverrides,
 } from './target';
 
 /** Writer stamp for records written by the CLI. */
@@ -925,10 +921,7 @@ export const prepareOldFileOnly = async (
     return { ...old, target: resolve.target };
   }
   try {
-    const targets = await readTargetsSafely(loadTargets(ctx));
-    const name = targets.length === 1 ? targets[0].name : await resolveTargetName(undefined, resolve.command, ctx, () => loadTargets(ctx));
-    const configured = await resolveTarget(name, resolve.command, ctx, () => loadTargets(ctx));
-    return { ...old, target: resolveEffectiveTarget(ctx, configured, resolve.overrides) };
+    return { ...old, target: await resolveCommandTarget(ctx, resolve.command, undefined, resolve.overrides) };
   } catch (error) {
     return { ...old, reason: error instanceof Error ? error.message : String(error) };
   }

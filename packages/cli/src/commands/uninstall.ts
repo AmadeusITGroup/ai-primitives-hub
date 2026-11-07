@@ -63,6 +63,7 @@ import {
   failWith,
   findProjectLockfile,
   formatOutput,
+  inferTargetName,
   loadTargets,
   lockfilePathForTarget,
   Option,
@@ -76,16 +77,15 @@ import {
   prepareUnknownUninstall,
   readTargetsSafely,
   recordedTools,
-  type RecordOutputFields,
   recordOutputFields,
+  type RecordOutputFields,
   recordRepositoryUninstall,
   recordUnknownUninstall,
   RegistryError,
   renderMigration,
   renderRecordLine,
+  resolveCommandTarget,
   resolveEffectiveTarget,
-  resolveTarget,
-  resolveTargetName,
   validateInputs,
   writerEnv,
 } from '../framework';
@@ -119,7 +119,8 @@ export interface UninstallOptions {
 
 /**
  * Detect uninstall context from the project environment (symmetric with install).
- * Fills in `opts.lockfile` and `opts.target` when they can be inferred.
+ * Fills in `opts.lockfile` when it can be inferred; the target is inferred
+ * later (`inferTargetName`, BR23.2).
  * @param opts Uninstall options (mutated in-place).
  * @param ctx CLI context.
  */
@@ -128,15 +129,6 @@ async function detectUninstallContext(opts: UninstallOptions, ctx: Context): Pro
     const foundLock = await findProjectLockfile(ctx);
     if (foundLock !== null) {
       opts.lockfile = foundLock;
-    }
-  }
-
-  if (!opts.target || opts.target.length === 0) {
-    const targets = await readTargetsSafely(
-      loadTargets(ctx)
-    );
-    if (targets.length === 1) {
-      opts.target = targets[0].name;
     }
   }
 }
@@ -324,16 +316,15 @@ export class UninstallCommand extends BaseUninstallCommand {
     try {
       const bundleMode = opts.bundle !== undefined && opts.bundle.length > 0 && opts.all !== true
         && (opts.lockfile === undefined || opts.lockfile.length === 0);
-      if (bundleMode && (opts.target === undefined || opts.target.length === 0)) {
+      const targetName = await inferTargetName(ctx, opts.target);
+      if (bundleMode && targetName === undefined) {
         const code = await uninstallWithoutTarget(opts, ctx, fmt);
         if (code !== undefined) {
           return code;
         }
       }
 
-      const targetName = await resolveTargetName(opts.target, 'uninstall', ctx, () => loadTargets(ctx));
-      const configuredTarget = await resolveTarget(targetName, 'uninstall', ctx, () => loadTargets(ctx));
-      const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
+      const target = await resolveCommandTarget(ctx, 'uninstall', targetName, opts);
 
       if (opts.all === true) {
         return await performAllUninstall(opts, target, ctx, fmt);
