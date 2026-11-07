@@ -41,9 +41,9 @@ import {
   describeRecordError,
   isRecordError,
   type LockfileSourceDescriptor,
-  recordError,
   recordErrorDetails,
   type RecordFs,
+  type RecordLevel,
   type RecordLocation,
   type RegistrySource,
   type TargetType,
@@ -56,7 +56,6 @@ import type {
 import {
   type CliManagedAction,
   cliManagedError,
-  cliManagedMessage,
   markErrorShown,
   wasErrorShown,
 } from '../utils/cli-managed';
@@ -172,6 +171,28 @@ export class ExtensionRecordAdapter {
     this.userRecordPath = options.userRecordPath;
   }
 
+  private entriesIn(locations: readonly RecordLocation[], bundleId: string, tool?: string): Promise<LocatedToolEntry[]> {
+    return this.service.findEntries(locations, bundleId, tool);
+  }
+
+  private allEntriesIn(locations: readonly RecordLocation[]): Promise<LocatedToolEntry[]> {
+    return this.service.listToolEntries(locations);
+  }
+
+  // Refuse a bundle whose entries in these files all belong to another tool.
+  private async assertHostToolIn(
+    locations: readonly RecordLocation[],
+    bundleId: string,
+    action: CliManagedAction,
+    level: RecordLevel
+  ): Promise<void> {
+    const tools = (await this.entriesIn(locations, bundleId)).map((located) => located.tool);
+    if (tools.length === 0 || tools.includes(this.hostTool)) {
+      return;
+    }
+    throw cliManagedError(bundleId, action, tools.toSorted()[0], level);
+  }
+
   // An I/O error other than "missing" is logged and counts as present.
   private anyMissing(root: string, paths: readonly string[]): Promise<boolean> {
     return isAnyFileMissing(this.fs, root, paths, (recordedPath, error) =>
@@ -259,7 +280,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findEntries(workspaceFolder: string, bundleId: string): Promise<LocatedToolEntry[]> {
-    return this.service.findEntries(await this.locations(workspaceFolder), bundleId);
+    return this.entriesIn(await this.locations(workspaceFolder), bundleId);
   }
 
   /**
@@ -272,7 +293,7 @@ export class ExtensionRecordAdapter {
    */
   public async findHostEntries(workspaceFolder: string, bundleId: string, version?: string): Promise<LocatedToolEntry[]> {
     const identity = version === undefined ? bundleId : recordIdentityOf(bundleId, version);
-    return (await this.service.listToolEntries(await this.locations(workspaceFolder))).filter((located) =>
+    return (await this.allEntriesIn(await this.locations(workspaceFolder))).filter((located) =>
       located.tool === this.hostTool
       && (located.bundleId === bundleId || recordIdentityOf(located.bundleId, located.entry.version) === identity));
   }
@@ -301,7 +322,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async listAllEntries(workspaceFolder: string): Promise<LocatedToolEntry[]> {
-    return this.service.listToolEntries(await this.locations(workspaceFolder));
+    return this.allEntriesIn(await this.locations(workspaceFolder));
   }
 
   /**
@@ -322,11 +343,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} `RECORD.CLI_MANAGED` naming the tool; any `RECORD.*` error from loading.
    */
   public async assertHostTool(bundleId: string, action: CliManagedAction, workspaceFolder: string): Promise<void> {
-    const tools = (await this.findEntries(workspaceFolder, bundleId)).map((located) => located.tool);
-    if (tools.length === 0 || tools.includes(this.hostTool)) {
-      return;
-    }
-    throw cliManagedError(bundleId, action, tools.toSorted()[0]);
+    await this.assertHostToolIn(await this.locations(workspaceFolder), bundleId, action, 'repository');
   }
 
   /**
@@ -374,7 +391,7 @@ export class ExtensionRecordAdapter {
    * @param bundleId - Bundle id.
    */
   public async findUserEntries(bundleId: string): Promise<LocatedToolEntry[]> {
-    return this.service.findEntries([this.userLocation()], bundleId);
+    return this.entriesIn([this.userLocation()], bundleId);
   }
 
   /**
@@ -382,12 +399,12 @@ export class ExtensionRecordAdapter {
    * @param bundleId - Bundle id.
    */
   public async findUserHostEntry(bundleId: string): Promise<LocatedToolEntry | undefined> {
-    return (await this.service.findEntries([this.userLocation()], bundleId, this.hostTool))[0];
+    return (await this.entriesIn([this.userLocation()], bundleId, this.hostTool))[0];
   }
 
   /** Every tool entry of every bundle in the user record. */
   public async listUserEntries(): Promise<LocatedToolEntry[]> {
-    return this.service.listToolEntries([this.userLocation()]);
+    return this.allEntriesIn([this.userLocation()]);
   }
 
   /**
@@ -397,16 +414,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} `RECORD.CLI_MANAGED`, or a `RECORD.*` error from loading.
    */
   public async assertUserHostTool(bundleId: string, action: CliManagedAction): Promise<void> {
-    const tools = (await this.findUserEntries(bundleId)).map((located) => located.tool);
-    if (tools.length === 0 || tools.includes(this.hostTool)) {
-      return;
-    }
-    const tool = tools.toSorted()[0];
-    throw recordError('RECORD.CLI_MANAGED', {
-      message: cliManagedMessage(bundleId, action, tool).replace(`<a ${tool} target>`, `<a ${tool} user target>`),
-      hint: '',
-      context: { bundleId, action, tool, level: 'user' }
-    });
+    await this.assertHostToolIn([this.userLocation()], bundleId, action, 'user');
   }
 
   /**
