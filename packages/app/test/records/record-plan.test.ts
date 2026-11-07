@@ -227,16 +227,16 @@ describe('record plan and services', () => {
       expect(result.considered).toBe(1);
     });
 
-    it.each([
-      ['first-holding', ['ai-primitives-hub.lock.json', 'ai-primitives-hub.lock.json']],
-      ['listed', ['ai-primitives-hub.local.lock.json', 'ai-primitives-hub.lock.json']]
-    ] as [HoldingFileRule, string[]][])('re-records an entry held in both files in the %s file', async (holdingFile, expected) => {
+    it.each(['first-holding', 'listed'] as HoldingFileRule[])('with the %s rule, plans an entry held in both files once from the committed file', async (holdingFile) => {
       writeRecord(committed, [{ bundleId: 'b1', tool: 'vscode' }], { acme });
-      writeRecord(localOnly, [{ bundleId: 'b1', tool: 'vscode' }], { acme });
+      writeRecord(localOnly, [{ bundleId: 'b1', tool: 'vscode' }, { bundleId: 'b2', tool: 'vscode' }], { acme });
 
       const result = await plan({ targets: [target('vscode-main', 'vscode')], holdingFile });
 
-      expect(planned(result).map((item) => item.record).toSorted()).toEqual(expected.toSorted());
+      expect(planned(result).map((item) => [item.bundleId, item.record])).toEqual([
+        ['b1', 'ai-primitives-hub.lock.json'],
+        ['b2', 'ai-primitives-hub.local.lock.json']
+      ]);
     });
 
     it('stops with RECORD.MALFORMED when an entry\'s source is not in the record', async () => {
