@@ -12,6 +12,7 @@ export * from './install-record-services';
 export * from './legacy-shapes';
 export * from './map-tool-to-target';
 export * from './plan-record-entries';
+export * from './record-identity';
 export * from './record-store';
 export * from './resolve-record-source';
 export * from './sanitize-source';
