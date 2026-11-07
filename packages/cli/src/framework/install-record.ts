@@ -37,7 +37,6 @@ import {
   expandPath,
   IMPORTED_USER_LOCKFILE_FIELD,
   type InstallationScope,
-  type InstallRecord,
   isRecordError,
   matchKindRoute,
   type RecordFs,
@@ -48,7 +47,6 @@ import {
   type RepositoryExclusion,
   type Target,
   type TokenProvider,
-  UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
   FileSystemLayoutConfigLoader,
@@ -401,20 +399,6 @@ export interface RecordedRepositoryUninstall {
 }
 
 /**
- * Bundles whose only tool across the given records is `unknown`.
- * @param records - The level's loaded records.
- */
-const loneUnknownBundles = (records: readonly InstallRecord[]): Set<string> => {
-  const tools = new Map<string, Set<string>>();
-  for (const record of records) {
-    for (const [bundleId, bundle] of Object.entries(record.bundles)) {
-      tools.set(bundleId, new Set([...(tools.get(bundleId) ?? []), ...Object.keys(bundle.tools)]));
-    }
-  }
-  return new Set([...tools].filter(([, names]) => names.size === 1 && names.has(UNKNOWN_TOOL_NAME)).map(([bundleId]) => bundleId));
-};
-
-/**
  * Load, check and migrate the repository record files before anything is removed.
  * Bundles not in `entries` fall back to the old store.
  * @param ctx - CLI context.
@@ -435,17 +419,13 @@ export const prepareRepositoryUninstall = async (
     const { store, service, locations, location, exclusion } = await openRepositoryRecords(ctx, target, fs, options.locations);
     const given = options.locations !== undefined && options.locations.length > 0;
     const migration = options.dryRun === true || given ? undefined : await migrateLevel({ store, fs, targets: locations, env: ctx.env });
-    const records: InstallRecord[] = [];
-    for (const each of locations) {
-      records.push((await store.load(each)).record);
-    }
     return {
       location,
       service,
       tool: target.type,
       exclusion,
       entries: await service.entriesForTool(locations, target.type),
-      loneUnknown: loneUnknownBundles(records),
+      loneUnknown: new Set((await service.findLoneUnknown(locations)).keys()),
       ...(migration === undefined ? {} : { migration })
     };
   } catch (error) {
@@ -513,7 +493,7 @@ export const prepareUserUninstall = async (
       tool: target.type,
       entries,
       keepPaths,
-      loneUnknown: loneUnknownBundles([record]),
+      loneUnknown: new Set((await service.findLoneUnknown([location])).keys()),
       ignoresOldStore: imported,
       ...(migration === undefined ? {} : { migration })
     };
@@ -610,17 +590,17 @@ export const recordUnknownUninstall = async (
   prepared: PreparedRepositoryUninstall,
   bundleId: string
 ): Promise<RecordedRepositoryUninstall> => {
-  let change;
+  let result;
   try {
-    change = await prepared.service.recordUninstall({ location: prepared.location, bundleId, tool: UNKNOWN_TOOL_NAME });
+    result = await prepared.service.removeUnknownEntry(prepared.location, bundleId);
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
   return {
-    lockfile: change.location.path,
-    removed: [],
-    kept: [...change.deletedFiles, ...change.keptSharedFiles].toSorted(),
-    warnings: change.warnings
+    lockfile: result.change.location.path,
+    removed: result.deleted,
+    kept: result.kept,
+    warnings: result.warnings
   };
 };
 
