@@ -114,18 +114,17 @@ The VS Code extension uses the same record, under the tool of the editor it runs
 
 > **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it.
 
-User-scope installs are recorded in one install record per machine, shared by the CLI and every VS Code profile: `ai-primitives-hub.user.lock.json` in the user config folder (`$XDG_CONFIG_HOME/ai-primitives-hub/`, by default `~/.config/ai-primitives-hub/`; on Windows `%USERPROFILE%\.config\ai-primitives-hub\`). It uses the same format `3.0.0` as the repository record, with one entry per bundle and tool, and file paths relative to your home folder (`HOME`, else `USERPROFILE`).
+User-scope installs are recorded in one file per machine, shared by the CLI and every VS Code profile: `ai-primitives-hub.user.lock.json` in `$XDG_CONFIG_HOME/ai-primitives-hub/` (default `~/.config/ai-primitives-hub/`; on Windows `%USERPROFILE%\.config\ai-primitives-hub\`). It has the repository record's format, with paths relative to your home folder (`HOME`, else `USERPROFILE`).
 
-- `install`, `uninstall`, `update` and `install --lockfile` at user scope use this record, and so do `status` and a bare `install` run outside a repository that has a record. `-o json` names it in `data.lockfile`, and text output ends with `Record: user <path>`.
-- A bundle installed from one VS Code profile is installed for every profile. Installing it again from another profile replaces the same entry.
-- A user target must write inside your home folder. A target folder outside it, or a tool folder such as `~/.copilot` that is a symlink pointing outside home, is refused with `RECORD.PATH_OUTSIDE_ROOT` before anything is written: use a target under your home folder or a repository target.
-- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, keeps its name and is only read: bundles that only it lists are still updated and uninstalled from it, and an uninstall from the new record keeps any file it still lists.
-- As at repository scope, an uninstall at user scope keeps any file you edited after the install (the CLI warns about each one). The extension writes its user-scope files as links into its bundle cache. A link that still points at the installed content counts as unchanged, so it is removed.
-- In the extension, user-scope installs made before this change in a profile are still listed; the profile's old entry is removed when you reinstall, update or uninstall the bundle.
-- The extension changes only its own tool's user entries; others are read-only, with the CLI command to use (`RECORD.CLI_MANAGED`).
-- In a WSL remote window the extension keeps recording user-scope installs per profile, as before, and does not use the shared record. A skill from a `local-skills` source that the extension links to its source folder (instead of copying) is also still recorded per profile, because its files change with the source.
-- The CLI and the extension each read `XDG_CONFIG_HOME` from their own environment. A VS Code started from the macOS Dock or the Windows Start menu does not see a value set only in your shell; set it system-wide, or leave it unset, so both use the same file. The extension logs the path it uses when it starts.
-- Workspace-scope targets keep their current behaviour.
+- User-scope `install`, `uninstall`, `update` and `install --lockfile` use it, and so do `status` and a bare `install` outside a repository with a record. `-o json` names it in `data.lockfile`, and text output ends with `Record: user <path>`.
+- A bundle installed from one VS Code profile is installed for every profile.
+- A target folder outside your home folder, or a tool folder symlinked outside it, is refused with `RECORD.PATH_OUTSIDE_ROOT` before anything is written.
+- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is only read: bundles only it lists are still updated and uninstalled from it, and files it still lists are kept.
+- Uninstall keeps files you edited after the install, with a warning. An extension link into its bundle cache that still points at the installed content counts as unchanged.
+- In the extension, older per-profile installs are still listed; the profile entry is removed when you reinstall, update or uninstall the bundle. Other tools' entries are read-only (`RECORD.CLI_MANAGED`).
+- In a WSL remote window, and for `local-skills` skills linked to their source folder, the extension keeps recording per profile.
+- The CLI and the extension each read `XDG_CONFIG_HOME` from their own environment. A VS Code started from the Dock or Start menu does not see a value set only in your shell, so set it system-wide or not at all. The extension logs the path it uses.
+- Workspace-scope targets are unchanged.
 
 ## Plugin Create (CLI)
 
