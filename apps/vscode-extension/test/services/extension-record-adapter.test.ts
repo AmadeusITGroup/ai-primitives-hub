@@ -19,6 +19,9 @@ import * as path from 'node:path';
 import {
   pathToFileURL,
 } from 'node:url';
+import {
+  resolveUserConfigPaths,
+} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -686,6 +689,26 @@ suite('user record', function () {
 
     assert.deepStrictEqual(ids.filter((id) => readUserRecord()?.bundles[id] !== undefined), [], 'both are gone from the user record');
     assert.deepStrictEqual(files.filter((file) => isOnDisk(file)), [], 'their files are removed');
+  });
+
+  test('activating a local profile with an old CLI user lockfile present migrates it before the first user record write (BR18.1)', async () => {
+    await writeOldLockfile(resolveUserConfigPaths(process.env).userLockfile, { 'old-cli': { version: '1.0.0' } });
+    await storage.addProfile({
+      id: 'team', name: 'Team', description: '', icon: '', active: false, createdAt: '', updatedAt: '',
+      bundles: [{ id: BUNDLE_ID, version: '1.0.0', sourceId: localSource.id, required: true }]
+    });
+    const adapter = manager.getRecordAdapter();
+    const migrate = sandbox.spy(adapter, 'migrateBeforeWrite');
+    const recordInstall = sandbox.spy(adapter.service, 'recordInstall');
+
+    await manager.activateProfile('team');
+
+    assert.ok(recordInstall.called, 'the profile bundle was recorded');
+    assert.ok(migrate.calledBefore(recordInstall), 'the user level is migrated before the first user record write');
+    const record = readUserRecord();
+    assert.ok(record.importedUserLockfileAt, 'the import marker is set');
+    assert.deepStrictEqual(Object.keys(record.bundles['old-cli'].tools), ['unknown']);
+    assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools), ['vscode']);
   });
 
   test('a hub profile activated at user scope is recorded in the user record; activating another hub profile uninstalls its bundle and files', async () => {
