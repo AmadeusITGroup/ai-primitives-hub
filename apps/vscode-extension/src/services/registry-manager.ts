@@ -106,6 +106,11 @@ import {
   UpdateCancelledError,
 } from '../utils/error-handler';
 import {
+  findUserRecordBundle,
+  listUserRecordBundles,
+  type UserRecordReader,
+} from '../utils/bundle-scope-utils';
+import {
   Logger,
 } from '../utils/logger';
 import {
@@ -350,20 +355,8 @@ export class RegistryManager {
    * User-scope items of the shared user record (BR16.x), with the ids it
    * holds for the host tool; none in WSL or when the record cannot be read.
    */
-  private async listUserRecordBundles(): Promise<{ items: InstalledBundle[]; hostBundleIds: Set<string> }> {
-    if (!this.recordAdapter.usesSharedUserRecord()) {
-      return { items: [], hostBundleIds: new Set() };
-    }
-    try {
-      return await this.getInstallRecordListing().listUserBundles(
-        this.recordAdapter.userLocation(),
-        this.recordAdapter.hostTool,
-        (bundleId) => path.join(this.storage.getPaths().root, 'bundles', bundleId)
-      );
-    } catch (error) {
-      this.logger.warn('Failed to query user bundles from the user record:', error instanceof Error ? error : undefined);
-      return { items: [], hostBundleIds: new Set() };
-    }
+  private listUserRecordBundles(): Promise<{ items: InstalledBundle[]; hostBundleIds: Set<string> }> {
+    return listUserRecordBundles(this.userRecordReader());
   }
 
   /**
@@ -391,11 +384,7 @@ export class RegistryManager {
    */
   private async getStoredOrUserBundle(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined> {
     const stored = await this.storage.getInstalledBundle(bundleId, scope);
-    if (stored !== undefined || scope !== 'user') {
-      return stored;
-    }
-    const { items, hostBundleIds } = await this.listUserRecordBundles();
-    return hostBundleIds.has(bundleId) ? items.find((bundle) => bundle.bundleId === bundleId) : undefined;
+    return stored !== undefined || scope !== 'user' ? stored : findUserRecordBundle(this.userRecordReader(), bundleId);
   }
 
   /**
@@ -1870,6 +1859,11 @@ export class RegistryManager {
   /** The extension's composition of the shared install record. */
   public getRecordAdapter(): ExtensionRecordAdapter {
     return this.recordAdapter;
+  }
+
+  /** This manager's adapter, storage and listing, to read the shared user record with (BR16.x). */
+  public userRecordReader(): UserRecordReader {
+    return { adapter: this.recordAdapter, storage: this.storage, listing: this.getInstallRecordListing() };
   }
 
   /**

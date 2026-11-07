@@ -64,7 +64,7 @@ export class BundleScopeCommands {
    */
   private async getBundleForScope(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined> {
     return getInstalledBundleForScope(this.registryManager.getStorage(), bundleId, scope,
-      (workspaceRoot) => this.registryManager.listRepositoryBundles(workspaceRoot));
+      (workspaceRoot) => this.registryManager.listRepositoryBundles(workspaceRoot), this.registryManager.userRecordReader());
   }
 
   /**
