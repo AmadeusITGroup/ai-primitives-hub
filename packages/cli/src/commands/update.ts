@@ -99,13 +99,14 @@ import {
   loadInquirer,
   loadTargets,
   lockfilePathForTarget,
+  migrateDecision,
   Option,
   type OutputFormat,
   type PreparedRecordSelection,
   prepareOldFileOnly,
   prepareRecordDecision,
-  prepareRecordSelection,
   readTargetsSafely,
+  type RecordDecision,
   recordOutputFields,
   recordPlannedInstall,
   type RecordSelectionInput,
@@ -273,45 +274,35 @@ export class UpdateCommand extends BaseUpdateCommand {
       // decides. Its level is chosen read-only first, so a run the record does
       // not decide fails below before anything is migrated, written or fetched
       // (NFR4.27).
+      const input = { command: 'update', lockfile: this.lockfile, scope: opts.scope };
+      const run: RecordUpdateBase = { ctx, fmt, http, tokens, dryRun: this.dryRun, interactive: this.interactive, noHubSync: this.noHubSync };
       const targetName = await inferTargetName(ctx, opts.target);
       if (targetName === undefined) {
-        const decided = await prepareRecordWithoutTarget(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope }, this.dryRun);
-        if (decided !== undefined) {
-          if (!this.noHubSync) {
-            await syncActiveHub(ctx);
-          }
-          return await updateFromRecord({ ctx, fmt, http, tokens, prepared: decided, dryRun: this.dryRun, interactive: this.interactive });
+        const code = await runRecordUpdate(run, await prepareRecordWithoutTarget(ctx, input, this.dryRun));
+        if (code !== undefined) {
+          return code;
         }
       }
 
       const target = await resolveCommandTarget(ctx, 'update', targetName, opts);
 
       // Select the record first, so a bad record stops before anything is fetched or written; a dry run never migrates.
-      const prepared = await prepareRecordSelection(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope, write: this.dryRun !== true }, target);
-      if (prepared.selection.locations.length > 0) {
-        const rows = await prepared.service.listEntries(prepared.selection.locations);
-        // Once the user record imported the old user lockfile, an empty record never falls back to that file;
-        // a workspace-scope target still uses it.
-        const imported = prepared.selection.level === 'user' && target.scope === 'user' && !(this.lockfile?.length)
-          && (await prepared.store.load(prepared.selection.locations[0])).record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
-        if (rows.length > 0) {
-          if (!this.noHubSync) {
-            await syncActiveHub(ctx);
-          }
-          return await updateFromRecord({
-            ctx, fmt, http, tokens, prepared, target,
-            explicit: this.target !== undefined && this.target.length > 0 ? target : undefined,
-            dryRun: this.dryRun,
-            interactive: this.interactive
-          });
-        }
-        if (imported) {
-          return failWith(ctx, fmt, 'update', new RegistryError({
-            code: 'USAGE.MISSING_FLAG',
-            message: 'update: nothing is installed at the user level',
-            hint: 'Install a bundle first; the old user lockfile was imported and is no longer read.'
-          }));
-        }
+      const decision = await prepareRecordDecision(ctx, input, { write: this.dryRun !== true, target });
+      const code = await runRecordUpdate(run, decision, { target, explicit: this.target !== undefined && this.target.length > 0 ? target : undefined });
+      if (code !== undefined) {
+        return code;
+      }
+      // Once the user record imported the old user lockfile, an empty record never falls back to that file;
+      // a workspace-scope target and an explicit --lockfile still use it.
+      const prepared = decision?.prepared;
+      if (prepared !== undefined && prepared.selection.level === 'user' && prepared.selection.locations.length > 0
+        && target.scope === 'user' && !(this.lockfile?.length)
+        && (await prepared.store.load(prepared.selection.locations[0])).record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined) {
+        return failWith(ctx, fmt, 'update', new RegistryError({
+          code: 'USAGE.MISSING_FLAG',
+          message: 'update: nothing is installed at the user level',
+          hint: 'Install a bundle first; the old user lockfile was imported and is no longer read.'
+        }));
       }
 
       const commitMode = target.commitMode ?? 'commit';
@@ -405,24 +396,50 @@ const remoteBundleIds = (lock: Lockfile, bundleIds: readonly string[]): string[]
  * configured, no `--target`; BR23.3). The level is chosen read-only first
  * (`--lockfile`, then `--scope`, then the default rule) and only its 3.0.0
  * entries decide; bundles that only an older store lists do not. When they
- * decide, a real run selects the level again with `write`, so it is migrated
- * before anything is fetched (BR18.1); a dry run keeps the read-only selection.
+ * decide, a real run migrates the level before anything is fetched
+ * ({@link migrateDecision}, BR18.1); a dry run keeps the read-only selection.
  * @param ctx CLI context.
  * @param input Command name and the typed `--lockfile` / `--scope`.
  * @param dryRun `true` for `--dry-run`.
- * @returns The selection to update, or `undefined` when the record does not decide (the caller then needs a target).
+ * @returns The decision to update, or `undefined` when the record does not decide (the caller then needs a target).
  * @throws {RegistryError} A `RECORD.*` error naming the file.
  */
 async function prepareRecordWithoutTarget(
   ctx: Context,
   input: Omit<RecordSelectionInput, 'write'>,
   dryRun: boolean
-): Promise<PreparedRecordSelection | undefined> {
+): Promise<RecordDecision | undefined> {
   const decision = await prepareRecordDecision(ctx, input);
-  if (decision.rows.length === 0) {
+  return decision.rows.length === 0 ? undefined : migrateDecision(ctx, decision, { dryRun });
+}
+
+/** What every record-driven update run shares, whatever its target. */
+type RecordUpdateBase = Omit<RecordUpdateRun, 'prepared' | 'target' | 'explicit'> & { noHubSync: boolean };
+
+/**
+ * Update from the record when its entries decide: sync the active hub unless
+ * `--no-hub-sync`, then {@link updateFromRecord} (W5). One path for the run
+ * with no inferred target (BR23.3) and the targeted one.
+ * @param run Context, clients and flags of the update.
+ * @param decision The selected record and its entries; none when the record does not decide.
+ * @param targets The resolved target (it writes the old-file-only bundles) and the one named by `--target`.
+ * @param targets.target Resolved target; absent with no inferred target.
+ * @param targets.explicit Target named by `--target`; only it narrows the plan to one tool (BR6.1).
+ * @returns Exit code, or `undefined` when the selected record has no entry (the caller then uses the old store).
+ */
+async function runRecordUpdate(
+  run: RecordUpdateBase,
+  decision: RecordDecision | undefined,
+  targets: { target?: Target; explicit?: Target } = {}
+): Promise<number | undefined> {
+  if (decision === undefined || decision.rows.length === 0) {
     return undefined;
   }
-  return dryRun ? decision.prepared : prepareRecordSelection(ctx, { ...input, write: true });
+  const { noHubSync, ...base } = run;
+  if (!noHubSync) {
+    await syncActiveHub(base.ctx);
+  }
+  return updateFromRecord({ ...base, ...targets, prepared: decision.prepared });
 }
 
 /**

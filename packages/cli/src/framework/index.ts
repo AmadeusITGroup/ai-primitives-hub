@@ -113,6 +113,7 @@ export {
   createLayoutLoader,
   createRecordServices,
   finishRecordRun,
+  migrateDecision,
   oldFileOnlyBundles,
   prepareOldFileOnly,
   prepareRecordDecision,
