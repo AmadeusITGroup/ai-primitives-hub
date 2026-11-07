@@ -25,6 +25,11 @@ const nonEmpty = (value: string | undefined): string | undefined =>
 /**
  * The user level's home folder: a non-empty `HOME`, else a non-empty
  * `USERPROFILE`, else `os.homedir()` (BR14.3).
+ *
+ * This differs on purpose from infra's `homeDir` (xdg-base-dirs.ts), which
+ * reads `USERPROFILE` first on Windows: the record root must be the `HOME`
+ * the writers expand `~` against on every platform (NFR4.17), while infra
+ * keeps the platform rule so existing config folders do not move.
  * @param env - Environment variables (`ctx.env` in the CLI, `process.env` in the extension).
  * @returns Absolute home folder.
  */
