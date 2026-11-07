@@ -1,8 +1,4 @@
-/**
- * Shared fixtures for CLI tests that install into a repository and read the
- * 3.0.0 install record (`ai-primitives-hub.lock.json` /
- * `ai-primitives-hub.local.lock.json`) from a real temp git root.
- */
+/** Fixtures for CLI tests that read the install record from a real temp git root. */
 import {
   mkdir,
   readFile,
@@ -26,16 +22,14 @@ export const initGitRoot = async (dir: string): Promise<void> => {
 /**
  * Path of a record file at a repository root.
  * @param dir - Repository root.
- * @param fileName - Record file name; the committed record by default.
- * @returns The absolute record path.
+ * @param fileName - Defaults to the committed record.
  */
 export const recordPathIn = (dir: string, fileName: string = RECORD_FILE_NAME): string => path.join(dir, fileName);
 
 /**
  * Read and parse a record file at a repository root.
  * @param dir - Repository root.
- * @param fileName - Record file name; the committed record by default.
- * @returns The parsed record.
+ * @param fileName - Defaults to the committed record.
  */
 export const readRecord = async (dir: string, fileName?: string): Promise<InstallRecord> =>
   JSON.parse(await readFile(recordPathIn(dir, fileName), 'utf8')) as InstallRecord;

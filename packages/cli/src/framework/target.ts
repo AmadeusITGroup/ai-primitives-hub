@@ -3,14 +3,8 @@
  *
  * Centralizes target resolution logic to reduce duplication across commands.
  *
- * Lockfile paths resolved here (`prompt-registry.lock.json` /
- * `prompt-registry.local.lock.json`) belong to the legacy 2.0.0 store.
- * Repository-scope `install` and `uninstall` now use the install record
- * instead (`ai-primitives-hub.lock.json` /
- * `ai-primitives-hub.local.lock.json`, format 3.0.0, see
- * `framework/install-record.ts`); `uninstall` falls back to the legacy
- * store for older installs. `update`, `status` and replay still use the
- * legacy store until they move to the install record.
+ * Lockfile paths resolved here belong to the legacy 2.0.0 store; repository
+ * `install` and `uninstall` use the install record (`framework/install-record.ts`).
  * @module framework/target
  */
 import {

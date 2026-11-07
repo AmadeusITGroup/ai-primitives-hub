@@ -964,8 +964,7 @@ agents:
     const isExecutable = async (filePath: string): Promise<boolean> =>
       // eslint-disable-next-line no-bitwise -- test reads the POSIX execute bits
       ((await stat(filePath)).mode & 0o111) !== 0;
-    // User scope keeps the 2.0.0 lockfile (`bundles.<id>.files`); repository
-    // scope now writes the 3.0.0 install record (`bundles.<id>.tools.<type>.files`).
+    // User scope uses `bundles.<id>.files`; the repository record uses `bundles.<id>.tools.<type>.files`.
     const lockedFiles = async (lockfilePath: string): Promise<unknown> => {
       const parsed = JSON.parse(await readFile(lockfilePath, 'utf8')) as Lockfile | InstallRecord;
       const bundle = parsed.bundles['exec-demo'] as { files?: unknown; tools?: Record<string, { files: unknown }> };

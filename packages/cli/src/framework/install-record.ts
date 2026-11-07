@@ -1,13 +1,7 @@
 /**
- * Repository-scope install record wiring for CLI `install` (workflow W1;
- * BR2.1–BR2.4, BR3.3–BR3.5, BR4.2).
- *
- * This is the CLI composition root for the install record: it builds a
- * `RecordStore` and an `InstallRecordService` on `NodeRecordFs` and the
- * 3.0.0 `RecordSchemaValidator`, stamped `ai-primitives-hub-cli@<version>`.
- * Only repository-scope installs use it; user scope keeps the old lockfile
- * path until U4. Old `prompt-registry.*` files are never read, changed or
- * deleted here (BR2.4).
+ * Repository-scope install record wiring for CLI `install` and `uninstall`.
+ * User scope still uses the old lockfile, and old `prompt-registry.*` files
+ * are never touched here.
  * @module framework/install-record
  */
 import * as path from 'node:path';
@@ -44,16 +38,13 @@ export const CLI_RECORD_GENERATED_BY = `ai-primitives-hub-cli@${CLI_VERSION}`;
 
 /** A repository install whose record files were loaded and checked before writing. */
 export interface PreparedRepositoryRecord {
-  /** The file the install is recorded in, from the commit mode (BR2.2). */
+  /** The file the install is recorded in, from the commit mode. */
   location: RecordLocation;
   /** Service that records the install and removes superseded files. */
   service: InstallRecordService;
   /** Workspace root the writer installs into (where merged MCP config files sit). */
   workspaceRoot: string;
-  /**
-   * `info/exclude` section the repository-scope writer lists local-only files
-   * in: the same file the record store adds the local-only record to.
-   */
+  /** `info/exclude` section for local-only files, shared with the local-only record. */
   exclusion: RepositoryExclusion;
 }
 
@@ -61,11 +52,10 @@ export interface PreparedRepositoryRecord {
 export interface RepositoryInstallToRecord {
   bundleId: string;
   version: string;
-  /** The target's type (BR1.2). */
+  /** The target's type. */
   tool: string;
-  /** Full source details (BR3.2). */
   source: RecordSourceInput;
-  /** The writer's `written` list, absolute paths (BR1.7). */
+  /** The writer's `written` list, absolute paths. */
   writtenPaths: readonly string[];
 }
 
@@ -80,12 +70,10 @@ export interface RecordedRepositoryInstall {
 }
 
 /**
- * Re-raise a record error with the command name and its file in the message,
- * so text output shows it next to the code (BR4.2). Code, hint and context are kept.
- * @param command - Command name used as the message prefix.
+ * Re-raise a record error with the command name and its file in the message; code, hint and context are kept.
+ * @param command - Message prefix.
  * @param error - A `RECORD.*` error.
  * @param written - Files already written, for an install that failed after the write.
- * @returns The error to throw.
  */
 const toCommandRecordError = (command: string, error: RegistryError, written?: readonly string[]): RegistryError => {
   let message = `${command}: ${describeRecordError(error)}`;
@@ -105,11 +93,9 @@ const toCommandRecordError = (command: string, error: RegistryError, written?: r
 };
 
 /**
- * Re-raise a record error with its file in the message, so text output shows
- * it next to the code (BR4.2). Code, hint and context are kept.
+ * Re-raise a record error for `install`, with its file in the message.
  * @param error - A `RECORD.*` error.
- * @param written - Files the writer already put down, when the failure came after the write (BR3.5).
- * @returns The error to throw.
+ * @param written - Files already written, for a failure after the write.
  */
 export const toInstallRecordError = (error: RegistryError, written?: readonly string[]): RegistryError =>
   toCommandRecordError('install', error, written);
@@ -129,24 +115,19 @@ interface RepositoryRecords extends InstallRecordServices {
   committed: RecordLocation;
   /** The local-only record file at the git root. */
   localOnly: RecordLocation;
-  /** The file the target's commit mode names (BR2.2). */
+  /** The file the target's commit mode names. */
   location: RecordLocation;
-  /** The `info/exclude` section at the git root, in the file the record store uses (NFR4.6). */
+  /** The `info/exclude` section in the file the record store uses. */
   exclusion: RepositoryExclusion;
 }
 
 /**
- * Build the record services and locate both repository record files for a
- * repository-scope target (BR2.1, BR2.2). Loads nothing.
- *
- * The exclusion edits the `info/exclude` file app's `resolveExcludeFile`
- * finds (following `gitdir:` and `commondir` in a worktree), so the installed
- * files' entries and the local-only record's entry share one file. Without a
- * trusted git directory it keeps the writer's default, `<workspace>/.git/info/exclude`.
- * @param ctx - CLI context; `ctx.cwd()` is the fallback start folder.
- * @param target - Effective repository-scope target.
+ * Build the record services and locate both repository record files. Loads
+ * nothing. The exclusion uses the same `info/exclude` as the record store,
+ * also in a worktree.
+ * @param ctx - CLI context.
+ * @param target - Repository-scope target.
  * @param fs - Filesystem port.
- * @returns The services, the workspace root, the record locations and the exclusion.
  */
 const openRepositoryRecords = async (ctx: Context, target: Target, fs: RecordFs): Promise<RepositoryRecords> => {
   const services = createRecordServices(fs);
@@ -168,12 +149,10 @@ const openRepositoryRecords = async (ctx: Context, target: Target, fs: RecordFs)
 };
 
 /**
- * Load and check both repository record files before anything is written
- * (W1 steps 2–4, BR3.5). Call only for repository-scope targets.
- * @param ctx - CLI context; `ctx.cwd()` is the fallback start folder.
- * @param target - Effective repository-scope target.
- * @param fs - Filesystem port; `NodeRecordFs` unless a test passes one.
- * @returns The location to record in and the service to record with.
+ * Load and check both repository record files before anything is written.
+ * @param ctx - CLI context.
+ * @param target - Repository-scope target.
+ * @param fs - Filesystem port.
  * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was written.
  */
 export const prepareRepositoryRecord = async (
@@ -197,12 +176,10 @@ export const prepareRepositoryRecord = async (
 };
 
 /**
- * Record a repository install, then remove the files it superseded
- * (W1 steps 6–13). A failure here leaves the written files in place and the
- * error lists them (BR3.5).
- * @param prepared - Result of {@link prepareRepositoryRecord}.
+ * Record a repository install, then remove the files it superseded. On failure
+ * the written files stay and the error lists them.
+ * @param prepared - From {@link prepareRepositoryRecord}.
  * @param install - What was installed.
- * @returns The record path, removed files and warnings.
  * @throws {RegistryError} A `RECORD.*` error naming the file and the written files.
  */
 export const recordRepositoryInstall = async (
@@ -238,14 +215,11 @@ export interface PreparedRepositoryUninstall {
   location: RecordLocation;
   /** Service that removes the entry and its files. */
   service: InstallRecordService;
-  /** Tool key: the target's type (BR1.2). */
+  /** The target's type. */
   tool: string;
-  /** `.git/info/exclude` section the repository-scope writer lists local-only files in. */
+  /** `info/exclude` section local-only files are listed in. */
   exclusion: RepositoryExclusion;
-  /**
-   * Bundles with an entry for `tool` in either file, sorted, mapped to their
-   * recorded root-relative paths (both files merged).
-   */
+  /** Bundles with an entry for `tool` in either file, sorted, with their recorded paths. */
   entries: Map<string, string[]>;
 }
 
@@ -262,14 +236,11 @@ export interface RecordedRepositoryUninstall {
 }
 
 /**
- * Load and check both repository record files before anything is removed
- * (repository-scope uninstall, FR4.1 U1 part). Call only for repository-scope
- * targets. A bundle with no entry for the target's type here is not in the
- * map, so the caller can fall back to the old store for it.
- * @param ctx - CLI context; `ctx.cwd()` is the fallback start folder.
- * @param target - Effective repository-scope target.
- * @param fs - Filesystem port; `NodeRecordFs` unless a test passes one.
- * @returns The location, service, tool and the bundles recorded for that tool.
+ * Load and check both repository record files before anything is removed.
+ * Bundles not in `entries` fall back to the old store.
+ * @param ctx - CLI context.
+ * @param target - Repository-scope target.
+ * @param fs - Filesystem port.
  * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
  */
 export const prepareRepositoryUninstall = async (
@@ -294,7 +265,6 @@ export const prepareRepositoryUninstall = async (
       location,
       service,
       tool: target.type,
-      // Same exclude file the install wrote the local-only entries to.
       exclusion,
       entries: new Map([...entries].toSorted(([left], [right]) => compareCodeUnits(left, right)))
     };
@@ -304,11 +274,9 @@ export const prepareRepositoryUninstall = async (
 };
 
 /**
- * Remove one bundle's entry for the target's type from the repository
- * records, then delete its files except those another entry still lists.
- * @param prepared - Result of {@link prepareRepositoryUninstall}.
+ * Remove one bundle's entry for the target's type, then delete its files except those another entry lists.
+ * @param prepared - From {@link prepareRepositoryUninstall}.
  * @param bundleId - Bundle to uninstall.
- * @returns The record path, removed and kept files, and warnings.
  * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` or another `RECORD.*` error naming the file.
  */
 export const recordRepositoryUninstall = async (
@@ -324,8 +292,7 @@ export const recordRepositoryUninstall = async (
   const removal = await prepared.service.deleteSuperseded(change);
   const warnings = [...change.warnings, ...removal.warnings];
   if (change.location.commitMode === 'local-only' && removal.deleted.length > 0) {
-    // A local-only install listed its files in `.git/info/exclude`; drop the
-    // entries of the files removed, as the old uninstall path did.
+    // Drop the removed files' `info/exclude` entries, as the old uninstall did.
     try {
       await prepared.exclusion.remove(removal.deleted.map((relative) => path.join(change.location.root, ...relative.split('/'))));
     } catch (error) {

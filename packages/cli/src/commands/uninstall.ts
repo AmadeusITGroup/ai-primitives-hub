@@ -6,14 +6,8 @@
  *   ai-primitives-hub uninstall --lockfile <path>  (from lockfile)
  *   ai-primitives-hub uninstall --all              (all bundles for target)
  *
- * Repository-scope `<bundle-id>` and `--all` uninstalls first read the
- * install record (`ai-primitives-hub.lock.json` and
- * `ai-primitives-hub.local.lock.json`, format 3.0.0) that repository-scope
- * installs write: a bundle recorded there for the target's type is removed
- * through `InstallRecordService.recordUninstall` (only that tool's entry; a
- * file another entry still lists is kept). Bundles that are not in the
- * record fall back to the old store below, so installs made before the
- * record still uninstall.
+ * Repository-scope `<bundle-id>` and `--all` uninstalls first use the 3.0.0
+ * install record; bundles not recorded there fall back to the old store.
  *
  * Repository-scope targets otherwise delegate to `UninstallPipeline`
  * (`@ai-primitives-hub/app`), which already encapsulates the
@@ -412,8 +406,7 @@ async function findAllBundleEntries(
 }
 
 /**
- * Print the dry run of a one-bundle uninstall: the files that would go.
- * The old lockfile path and the install record path print the same thing.
+ * Print the dry run of a one-bundle uninstall.
  * @param ctx CLI context.
  * @param fmt Output format.
  * @param target Target the bundle is uninstalled from.
@@ -447,8 +440,7 @@ interface BundleUninstalled {
 }
 
 /**
- * Print the outcome of a one-bundle uninstall. The old lockfile path and the
- * install record path print the same thing.
+ * Print the outcome of a one-bundle uninstall.
  * @param ctx CLI context.
  * @param fmt Output format.
  * @param target Target the bundle was uninstalled from.
@@ -491,9 +483,7 @@ async function performBundleUninstall(
 ): Promise<number> {
   const bundleId = opts.bundle as string;
   if (target.scope === 'repository') {
-    // Both new record files are loaded first: a RECORD.* error stops here
-    // with nothing removed. A bundle recorded there for this target's type is
-    // uninstalled from the record; any other falls back to the old store.
+    // A RECORD.* error stops here with nothing removed; unrecorded bundles fall back to the old store.
     const prepared = await prepareRepositoryUninstall(ctx, target);
     const recordedFiles = prepared.entries.get(bundleId);
     if (recordedFiles !== undefined) {
@@ -556,8 +546,7 @@ interface UninstallRun {
 }
 
 /**
- * Uninstall one bundle recorded in the repository install record
- * (`ai-primitives-hub.lock.json` / `.local.lock.json`) for the target's type.
+ * Uninstall one bundle recorded in the repository install record for the target's type.
  * @param run Options, target, context and output format.
  * @param prepared Both record files, loaded and checked.
  * @param bundleId Bundle to uninstall.
@@ -704,14 +693,10 @@ async function performAllUninstall(
   ctx: Context,
   fmt: OutputFormat
 ): Promise<number> {
-  // Repository scope: both new record files are loaded first (a RECORD.*
-  // error stops with nothing removed). Bundles recorded there for this
-  // target's type are uninstalled from the record; the old store is then
-  // handled as before, so bundles installed before the record still go.
+  // A RECORD.* error stops here with nothing removed; the old store is handled afterwards.
   const prepared = target.scope === 'repository' ? await prepareRepositoryUninstall(ctx, target) : undefined;
   const recordedIds = prepared === undefined ? [] : [...prepared.entries.keys()];
-  // An id uninstalled from the record is not removed again from the old
-  // store, so each id is handled and reported once.
+  // Each id is handled and reported once, even when both stores list it.
   const recordedSet = new Set(recordedIds);
   const entries = Object.fromEntries(
     Object.entries(await findAllBundleEntries(target, opts, ctx)).filter(([id]) => !recordedSet.has(id))
