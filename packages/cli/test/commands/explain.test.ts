@@ -1,6 +1,3 @@
-/**
- * `explain` catalog contract for the install record `RECORD.*` codes (BR4.2).
- */
 import {
   RECORD_ERROR_CODES,
 } from '@ai-primitives-hub/core';

@@ -300,8 +300,7 @@ describe('install --skip-unsupported', () => {
     await expect(readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
     await expect(readFile(path.join(workspace, '.github', 'agents', 'hello.agent.md'), 'utf8')).rejects.toThrow();
-    // Repository scope records in the 3.0.0 install record: root-relative
-    // installed paths under `bundles.<id>.tools.<type>`.
+    // Repository scope records root-relative paths under `bundles.<id>.tools.<type>`.
     expect(envelope.data.lockfile).toBe(path.join(workspace, 'ai-primitives-hub.local.lock.json'));
     const record = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
       bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;

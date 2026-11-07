@@ -364,11 +364,9 @@ const skippedWarnings = (skipped: readonly SkippedBundleContent[]): string[] | u
   skipped.length === 0 ? undefined : skipped.map((s) => `skipped ${s.path}: ${s.reason}`);
 
 /**
- * All install warnings: skipped content first, then install-record warnings
- * (for example a superseded path that was not deleted).
+ * Skipped-content warnings, then install-record warnings; `undefined` when there are none.
  * @param skipped Skipped content.
- * @param recordWarnings Warnings from the repository install record.
- * @returns The combined warnings, or `undefined` when there are none.
+ * @param recordWarnings Warnings from the install record.
  */
 const installWarnings = (
   skipped: readonly SkippedBundleContent[],
@@ -679,12 +677,10 @@ async function lookupHubSource(
 }
 
 /**
- * Persist an install after the writer ran: in the repository install record
- * when one was prepared (W1 steps 6–13), otherwise through the old lockfile.
- * @param prepared The prepared repository record, or `undefined` for the old lockfile.
+ * Persist an install in the repository install record when one was prepared, otherwise in the old lockfile.
+ * @param prepared The prepared record, or `undefined` for the old lockfile.
  * @param record What the install record gets.
- * @param legacy Writes the old lockfile entry and returns the lockfile path.
- * @returns The file updated and the install record warnings.
+ * @param legacy Writes the old lockfile entry and returns its path.
  */
 const persistInstall = async (
   prepared: PreparedRepositoryRecord | undefined,
@@ -705,9 +701,7 @@ const persistInstall = async (
  * - repository scope → RepositoryScopeWriter
  * @param ctx CLI context.
  * @param opts Install options.
- * @param exclusion Where a `local-only` repository install lists its files;
- * the prepared record's exclusion, so they share the record's `info/exclude`.
- * Defaults to the writer's `<workspace>/.git/info/exclude`.
+ * @param exclusion Where a `local-only` repository install lists its files; defaults to `<workspace>/.git/info/exclude`.
  * @returns Writer factory function.
  */
 export const createWriterFactory = (
@@ -1037,8 +1031,7 @@ async function performLocalInstall(
       });
       return 0;
     }
-    // Repository scope: both record files are loaded and checked before the
-    // writer runs, so a RECORD.* error stops here with nothing written (BR3.5).
+    // Check both record files before the writer runs, so a RECORD.* error writes nothing.
     const prepared = effectiveTarget.scope === 'repository'
       ? await prepareRepositoryRecord(ctx, effectiveTarget)
       : undefined;
@@ -1323,7 +1316,7 @@ async function performRemoteInstall(
       });
       return 0;
     }
-    // Repository scope: check both record files before anything is written (BR3.5).
+    // Check both record files before the writer runs, so a RECORD.* error writes nothing.
     const prepared = effectiveTarget.scope === 'repository'
       ? await prepareRepositoryRecord(ctx, effectiveTarget)
       : undefined;
