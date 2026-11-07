@@ -431,7 +431,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     await manager.uninstallBundle(PROFILE_ID, 'user');
 
     assert.strictEqual(readUserRecord().bundles[PROFILE_ID], undefined);
-    assert.ok(!fs.lstatSync(userFile(PROFILE_FILE), { throwIfNoEntry: false }), `${PROFILE_FILE} removed`);
+    assert.ok(!isOnDisk(userFile(PROFILE_FILE)), `${PROFILE_FILE} removed`);
   });
 
   test('extension first: the extension imports the old user lockfile; a later CLI user install imports nothing and a CLI plain uninstall of the unknown entry keeps its files (NFR2.4)', async () => {
