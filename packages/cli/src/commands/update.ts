@@ -18,7 +18,9 @@ import {
   type LockfileSourceEntry,
   planRecordEntries,
   readLockfile,
+  recordIdentityOf,
   type RecordInstallResult,
+  recordKeyForVersion,
   removeSupersededFiles,
   resolveUserConfigPaths,
   type TargetMapping,
@@ -795,7 +797,13 @@ interface OldFileUpdate {
   failures: string[];
 }
 
-const entryKey = (bundleId: string, tool: string): string => `${bundleId}\u0000${tool}`;
+/**
+ * Key of a (bundle, tool) entry that matches the entry at any version of a versioned id.
+ * @param bundleId Recorded key.
+ * @param version Version recorded for it.
+ * @param tool Tool key.
+ */
+const entryKey = (bundleId: string, version: string, tool: string): string => `${recordIdentityOf(bundleId, version)}\u0000${tool}`;
 
 /**
  * A one-bundle legacy lockfile for `findUpdateCandidates`, built only from the entry and the decided source.
@@ -875,9 +883,11 @@ async function applyRecordUpdate(
 ): Promise<{ version: string; changes: RecordInstallResult[]; synced: string[]; outOfDate: { tool: string; version: string }[] }> {
   const { ctx, http, prepared } = run;
   const { files, manifest } = await downloadCandidate(candidate, http, tokensForRecordSource(run.tokens, item.fromRecord));
+  // A versioned id moves to the new version's key; the record then drops the old one.
+  const bundleId = recordKeyForVersion(item.bundleId, item.entry.version, manifest.version);
   const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) =>
     recordPlannedInstall(
-      prepared.service, { ...item, tool, location, sourceType: item.source.type }, target, ctx, manifest.version,
+      prepared.service, { ...item, bundleId, tool, location, sourceType: item.source.type }, target, ctx, manifest.version,
       await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings
     );
   const change = await record(item.tool, item.location, item.target, (sibling) => siblingTargets.has(sibling));
@@ -893,7 +903,7 @@ async function applyRecordUpdate(
     changes.push(await record(sibling.tool, sibling.location, siblingTarget, false));
     synced.push(sibling.tool);
   }
-  await saveTargetState(ctx, item.target, item.bundleId, manifest.version);
+  await saveTargetState(ctx, item.target, bundleId, manifest.version);
   return { version: manifest.version, changes, synced, outOfDate };
 }
 
@@ -962,11 +972,14 @@ async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
     const done = new Set<string>();
     const changes: RecordInstallResult[] = [];
     for (const { item, candidate } of found.filter((pair) => chosen.has(pair.candidate))) {
-      if (done.has(entryKey(item.bundleId, item.tool))) {
+      const key = entryKey(item.bundleId, item.entry.version, item.tool);
+      if (done.has(key)) {
         continue;
       }
+      const identity = recordIdentityOf(item.bundleId, item.entry.version);
       const siblingTargets = new Map<string, Target>();
-      for (const row of rows.filter((other) => other.bundleId === item.bundleId && other.tool !== item.tool && !other.needsReinstall)) {
+      const sameBundle = (other: { bundleId: string; version: string }): boolean => other.bundleId === item.bundleId || recordIdentityOf(other.bundleId, other.version) === identity;
+      for (const row of rows.filter((other) => sameBundle(other) && other.tool !== item.tool && !other.needsReinstall)) {
         const mapping = await mapTool(row.tool);
         if ('target' in mapping) {
           siblingTargets.set(row.tool, resolveEffectiveTarget(ctx, mapping.target));
@@ -975,10 +988,10 @@ async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
       try {
         const applied = await applyRecordUpdate(run, item, candidate, siblingTargets);
         changes.push(...applied.changes);
-        done.add(entryKey(item.bundleId, item.tool));
+        done.add(key);
         data.updates.push({ bundleId: item.bundleId, tool: item.tool, from: candidate.from, to: applied.version });
         for (const tool of applied.synced) {
-          done.add(entryKey(item.bundleId, tool));
+          done.add(entryKey(item.bundleId, item.entry.version, tool));
           data.alsoUpdated.push({ bundleId: item.bundleId, tool });
         }
         for (const stale of applied.outOfDate) {
