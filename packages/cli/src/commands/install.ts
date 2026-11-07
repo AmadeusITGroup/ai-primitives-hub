@@ -70,7 +70,6 @@ import {
   AwesomeCopilotBundleResolver,
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
-  FileSystemLayoutConfigLoader,
   GitHubApiClient,
   GitHubBundleResolver,
   type GitHubSourceAuthRuntime,
@@ -83,13 +82,13 @@ import {
   type RepositoryCommitMode,
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   SourceDispatcher,
   StaticTokenProvider,
   TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
+  createLayoutLoader,
   Command,
   type CommandDefinition,
   configuredSources,
@@ -108,9 +107,8 @@ import {
   type PreparedRecordSelection,
   type PreparedRepositoryRecord,
   prepareOldFileOnly,
+  prepareRecordForTarget,
   prepareRecordSelection,
-  prepareRepositoryRecord,
-  prepareUserRecord,
   readTargetsSafely,
   recordOutputFields,
   recordPlannedInstall,
@@ -759,11 +757,7 @@ export const createWriterFactory = (
 ): (target: Target) => TargetWriter => {
   // Create transformer registry and hierarchical layout loader once per command.
   const transformerRegistry = TransformerRegistry.withBuiltIns();
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
+  const layoutLoader = createLayoutLoader(ctx);
 
   return (target: Target): TargetWriter => {
     const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
@@ -1080,9 +1074,7 @@ async function performLocalInstall(
       return 0;
     }
     // Check the record files before the writer runs, so a RECORD.* error writes nothing.
-    const prepared = effectiveTarget.scope === 'repository'
-      ? await prepareRepositoryRecord(ctx, effectiveTarget)
-      : (effectiveTarget.scope === 'user' ? await prepareUserRecord(ctx, effectiveTarget) : undefined);
+    const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
@@ -1607,9 +1599,7 @@ async function performRemoteInstall(
       return 0;
     }
     // Check the record files before the writer runs, so a RECORD.* error writes nothing.
-    const prepared = effectiveTarget.scope === 'repository'
-      ? await prepareRepositoryRecord(ctx, effectiveTarget)
-      : (effectiveTarget.scope === 'user' ? await prepareUserRecord(ctx, effectiveTarget) : undefined);
+    const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(

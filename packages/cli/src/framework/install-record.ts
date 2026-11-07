@@ -150,8 +150,33 @@ export const toCommandRecordError = (command: string, error: RegistryError, writ
 export const toInstallRecordError = (error: RegistryError, written?: readonly string[]): RegistryError =>
   toCommandRecordError('install', error, written);
 
-const createRecordServices = (fs: RecordFs): InstallRecordServices =>
+/**
+ * Record store and service for one CLI command.
+ * @param fs - Filesystem port.
+ */
+export const createRecordServices = (fs: RecordFs = new NodeRecordFs()): InstallRecordServices =>
   createInstallRecordServices({ generatedBy: CLI_RECORD_GENERATED_BY, fs });
+
+/**
+ * The shared user record location, rooted at home.
+ * @param store - Record store.
+ * @param env - Environment for the home and XDG folders.
+ */
+export const userRecordLocation = (store: RecordStore, env: Record<string, string | undefined>): RecordLocation =>
+  store.resolveUser({ home: resolveUserHome(env), path: new XdgAppStorage(env).getPaths().userRecord });
+
+/**
+ * The layout config loader the CLI writers and record checks use.
+ * @param ctx - CLI context.
+ */
+export const createLayoutLoader = (ctx: Context): FileSystemLayoutConfigLoader =>
+  new FileSystemLayoutConfigLoader({ cwd: ctx.cwd(), fs: ctx.fs, userConfigDir: resolveUserConfigDir(ctx.env) });
+
+/**
+ * Whether a target's installs are kept in an install record (repository or user scope).
+ * @param target - Effective target.
+ */
+export const usesInstallRecord = (target: Target): boolean => target.scope === 'repository' || target.scope === 'user';
 
 /**
  * The `info/exclude` section the record store uses at a git root, also in a worktree.
@@ -244,8 +269,7 @@ const resolveUserTargetLayout = async (
   target: Target,
   home: string
 ): Promise<{ layout: TargetLayout; baseDir: string }> => {
-  const loader = new FileSystemLayoutConfigLoader({ cwd: ctx.cwd(), fs: ctx.fs, userConfigDir: resolveUserConfigDir(ctx.env) });
-  const layout = await resolveLayoutAsync(target, loader);
+  const layout = await resolveLayoutAsync(target, createLayoutLoader(ctx));
   return { layout, baseDir: path.resolve(expandPath(layout.baseDir, { ...ctx.env, HOME: home })) };
 };
 
@@ -263,9 +287,9 @@ export const prepareUserRecord = async (
   fs: RecordFs = new NodeRecordFs()
 ): Promise<PreparedRepositoryRecord> => {
   const { store, service } = createRecordServices(fs);
-  const home = resolveUserHome(ctx.env);
   try {
-    const location = store.resolveUser({ home, path: new XdgAppStorage(ctx.env).getPaths().userRecord });
+    const location = userRecordLocation(store, ctx.env);
+    const home = location.root;
     await store.load(location);
     const { layout, baseDir } = await resolveUserTargetLayout(ctx, target, home);
     const routes = Object.values(layout.kindRoutes);
@@ -418,22 +442,48 @@ export const prepareUserUninstall = async (
   fs: RecordFs = new NodeRecordFs()
 ): Promise<PreparedRepositoryUninstall> => {
   const { store, service } = createRecordServices(fs);
-  const home = resolveUserHome(ctx.env);
   try {
-    const location = store.resolveUser({ home, path: new XdgAppStorage(ctx.env).getPaths().userRecord });
-    const { record } = await store.load(location);
-    const entries = new Map<string, string[]>();
-    for (const bundleId of Object.keys(record.bundles).toSorted()) {
-      const tools = record.bundles[bundleId].tools;
-      if (Object.hasOwn(tools, target.type)) {
-        entries.set(bundleId, tools[target.type].files.map((file) => file.path));
-      }
-    }
-    const keepPaths = entries.size === 0 ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, home);
+    const location = userRecordLocation(store, ctx.env);
+    const entries = await service.entriesForTool([location], target.type);
+    const keepPaths = entries.size === 0 ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, location.root);
     return { location, service, tool: target.type, entries, keepPaths };
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
+};
+
+/**
+ * Load and check the install record a target installs into, before anything is written.
+ * @param ctx - CLI context.
+ * @param target - Effective target.
+ * @returns The prepared record; `undefined` for a target that keeps the old lockfile.
+ * @throws {RegistryError} A `RECORD.*` error naming the file or folder; nothing was written.
+ */
+export const prepareRecordForTarget = async (ctx: Context, target: Target): Promise<PreparedRepositoryRecord | undefined> => {
+  if (!usesInstallRecord(target)) {
+    return undefined;
+  }
+  return target.scope === 'repository' ? prepareRepositoryRecord(ctx, target) : prepareUserRecord(ctx, target);
+};
+
+/**
+ * Load and check the install record a target uninstalls from, before anything is removed.
+ * @param ctx - CLI context.
+ * @param target - Effective target.
+ * @param options - Repository level only.
+ * @param options.locations - Record files already selected by `--lockfile`.
+ * @returns The prepared record; `undefined` for a target that keeps the old lockfile.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
+ */
+export const prepareUninstallForTarget = async (
+  ctx: Context,
+  target: Target,
+  options: { locations?: readonly RecordLocation[] } = {}
+): Promise<PreparedRepositoryUninstall | undefined> => {
+  if (!usesInstallRecord(target)) {
+    return undefined;
+  }
+  return target.scope === 'repository' ? prepareRepositoryUninstall(ctx, target, options) : prepareUserUninstall(ctx, target);
 };
 
 /**
@@ -512,6 +562,7 @@ export const prepareRecordSelection = async (
 ): Promise<PreparedRecordSelection> => {
   const { store, service } = createRecordServices(fs);
   const userLockfile = resolveUserConfigPaths(ctx.env).userLockfile;
+  const user = userRecordLocation(store, ctx.env);
   try {
     const selection = await selectRecord({
       store,
@@ -524,8 +575,8 @@ export const prepareRecordSelection = async (
       },
       findOldLockfile: (start) => findLockfile(start, ctx.fs, userLockfile),
       userLockfile,
-      userRecord: new XdgAppStorage(ctx.env).getPaths().userRecord,
-      home: resolveUserHome(ctx.env)
+      userRecord: user.path,
+      home: user.root
     });
     const exclusion = selection.level === 'repository' && selection.locations.length > 0
       ? await recordExclusion(ctx, fs, selection.root)
