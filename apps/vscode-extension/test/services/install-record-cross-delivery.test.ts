@@ -14,11 +14,7 @@ import {
   pathToFileURL,
 } from 'node:url';
 import {
-  emptyLockfile,
   resolveUserConfigPaths,
-  upsertBundleEntry,
-  upsertSource,
-  writeLockfile,
 } from '@ai-primitives-hub/app';
 import {
   NodeFileSystem,
@@ -38,34 +34,15 @@ import {
   createMockContext,
   initGitRoot,
   isOnDisk,
-  nodeLockfileFs,
   overrideEnv,
   RECORD_FILE,
+  recordProfileInstall,
   setupUserRecordManager,
   testBundle,
+  writeOldLockfile,
 } from '../helpers/install-record-test-helpers';
 
 const BUNDLE_ID = 'cross-delivery-bundle';
-
-/**
- * Write an old 2.0.0 lockfile: each bundle at its version from `sourceId`, listing `files`.
- * @param file - Absolute lockfile path.
- * @param bundles - Bundle id -> version.
- * @param sourceId - Source id of every entry.
- * @param files - Paths every entry lists.
- */
-const writeOldLockfile = async (file: string, bundles: Record<string, string>, sourceId: string, files: string[] = []): Promise<void> => {
-  let lock = emptyLockfile('prompt-registry@2.0.0');
-  for (const [bundleId, version] of Object.entries(bundles)) {
-    lock = upsertBundleEntry(lock, bundleId, {
-      version, sourceId, sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
-      files: files.map((recorded) => ({ path: recorded, checksum: '0'.repeat(64) }))
-    });
-  }
-  lock = upsertSource(lock, sourceId, { type: 'local', url: '/old/source' });
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  await writeLockfile(file, lock, nodeLockfileFs);
-};
 
 const BUNDLE_FILES: Record<string, string> = {
   'deployment-manifest.yml': `id: ${BUNDLE_ID}
@@ -417,24 +394,21 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
   const oldUserLockfile = (): string => resolveUserConfigPaths(process.env).userLockfile;
 
   /** This profile's 0.9.0 install of {@link PROFILE_ID}: its bundle cache, its synced file and the RegistryStorage entry. */
-  const recordProfileInstall = async (): Promise<void> => {
-    const cacheDir = path.join(tempRoot, 'User', 'globalStorage', 'acme.extension', 'bundles', PROFILE_ID);
-    fs.mkdirSync(path.join(cacheDir, 'prompts'), { recursive: true });
-    fs.writeFileSync(path.join(cacheDir, 'deployment-manifest.yml'),
-      `id: ${PROFILE_ID}\nversion: 0.9.0\nname: Profile\nprompts:\n  - id: profile-hello\n    file: prompts/profile-hello.prompt.md\n    type: prompt\n`);
-    fs.writeFileSync(path.join(cacheDir, 'prompts', 'profile-hello.prompt.md'), '# Profile hello\n');
-    fs.mkdirSync(path.dirname(userFile(PROFILE_FILE)), { recursive: true });
+  const installForProfile = (): Promise<void> => recordProfileInstall(manager.getStorage(), path.join(tempRoot, 'User', 'globalStorage', 'acme.extension', 'bundles', PROFILE_ID), {
+    bundleId: PROFILE_ID, version: '0.9.0', sourceId: `local-${path.basename(bundleDir)}`,
+    cache: {
+      'deployment-manifest.yml': `id: ${PROFILE_ID}\nversion: 0.9.0\nname: Profile\nprompts:\n  - id: profile-hello\n    file: prompts/profile-hello.prompt.md\n    type: prompt\n`,
+      'prompts/profile-hello.prompt.md': '# Profile hello\n'
+    },
+    syncedFile: 'prompts/profile-hello.prompt.md',
+    userFile: userFile(PROFILE_FILE),
     // A copy matching the bundle's content (the symlink fallback), so the file is inside home.
-    fs.copyFileSync(path.join(cacheDir, 'prompts', 'profile-hello.prompt.md'), userFile(PROFILE_FILE));
-    await manager.getStorage().recordInstallation({
-      bundleId: PROFILE_ID, version: '0.9.0', installedAt: '2026-10-01T10:00:00.000Z', scope: 'user', installPath: cacheDir,
-      manifest: {} as any, sourceId: `local-${path.basename(bundleDir)}`, sourceType: 'local'
-    });
-  };
+    copy: true
+  });
 
   test('CLI first: the CLI imports the old user lockfile; the extension lists its entries, replaces the unknown entry with this profile\'s entry and uninstalls it (NFR2.4)', async () => {
-    await writeOldLockfile(oldUserLockfile(), { [PROFILE_ID]: '1.0.0', 'cli-only': '1.0.0' }, 'old-source');
-    await recordProfileInstall();
+    await writeOldLockfile(oldUserLockfile(), { [PROFILE_ID]: { version: '1.0.0' }, 'cli-only': { version: '1.0.0' } });
+    await installForProfile();
     await runCli(['target', 'add', 'user-vscode', '--type', 'vscode', '-o', 'json']);
     await runCli(['install', BUNDLE_ID, '--from', bundleDir, '--target', 'user-vscode', '-o', 'json']);
     assert.deepStrictEqual(Object.keys(readUserRecord().bundles[PROFILE_ID].tools), ['unknown'], 'imported by the CLI');
@@ -464,7 +438,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     const oldFile = '.copilot/prompts/old.prompt.md';
     fs.mkdirSync(path.dirname(userFile(oldFile)), { recursive: true });
     fs.writeFileSync(userFile(oldFile), '# Old\n');
-    await writeOldLockfile(oldUserLockfile(), { 'old-cli': '1.0.0' }, 'old-source', [oldFile]);
+    await writeOldLockfile(oldUserLockfile(), { 'old-cli': { version: '1.0.0', files: [oldFile] } });
     await manager.getStorage().cacheSourceBundles(`local-${path.basename(bundleDir)}`, [fixtureBundle(bundleDir)]);
 
     await manager.installBundle(BUNDLE_ID, { scope: 'user' });
@@ -473,7 +447,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     assert.deepStrictEqual(Object.keys(readUserRecord().bundles['old-cli'].tools), ['unknown']);
 
     // A later CLI workspace-scope install adds a bundle to the old user lockfile.
-    await writeOldLockfile(oldUserLockfile(), { 'old-cli': '1.0.0', 'later-workspace': '1.0.0' }, 'old-source', [oldFile]);
+    await writeOldLockfile(oldUserLockfile(), { 'old-cli': { version: '1.0.0', files: [oldFile] }, 'later-workspace': { version: '1.0.0', files: [oldFile] } });
     const oldBytes = fs.readFileSync(oldUserLockfile());
     await runCli(['target', 'add', 'user-vscode', '--type', 'vscode', '-o', 'json']);
     await runCli(['install', BUNDLE_ID, '--from', bundleDir, '--target', 'user-vscode', '-o', 'json']);
@@ -513,7 +487,7 @@ suite('Cross-delivery: an old file in a workspace folder below the git root', fu
     workspaceFolder = path.join(root, 'packages', 'app');
     fs.mkdirSync(path.join(workspaceFolder, '.github', 'prompts'), { recursive: true });
     fs.writeFileSync(path.join(workspaceFolder, '.github', 'prompts', 'sub-old.prompt.md'), '# Sub old\n');
-    await writeOldLockfile(path.join(workspaceFolder, 'prompt-registry.lock.json'), { 'sub-old': '1.0.0' }, 'old-source', ['.github/prompts/sub-old.prompt.md']);
+    await writeOldLockfile(path.join(workspaceFolder, 'prompt-registry.lock.json'), { 'sub-old': { version: '1.0.0', files: ['.github/prompts/sub-old.prompt.md'] } });
 
     (RegistryManager as any).instance = undefined;
     manager = RegistryManager.getInstance({

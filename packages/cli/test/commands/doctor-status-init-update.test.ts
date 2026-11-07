@@ -27,10 +27,7 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  emptyLockfile,
   resolveUserConfigPaths,
-  upsertBundleEntry,
-  writeLockfile,
 } from '@ai-primitives-hub/app';
 import type {
   HttpClient,
@@ -92,6 +89,7 @@ import {
   recordPathIn,
   userRecordPath,
   workspaceEnv,
+  writeOldLockfile,
   writeRecord,
 } from '../helpers/install-record-fixtures';
 
@@ -916,12 +914,10 @@ profiles: []
     it('migrates the old prompt-registry file before the update: its bundles go on the reinstall list and the old file is gone', async () => {
       await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
-      const oldEntry = (version: string, sourceId: string) => ({ version, sourceId, sourceType: 'github', installedAt: '2026-10-01T00:00:00.000Z', files: [] });
-      await writeFile(oldPath, JSON.stringify({
-        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
-        bundles: { 'local-foo': oldEntry('0.9.0', 'foo'), 'old-only': oldEntry('0.1.0', 'old') },
-        sources: { foo: GITHUB_SOURCE, old: { type: 'github', url: 'https://github.com/acme-org/old-only' } }
-      }));
+      await writeOldLockfile(oldPath, {
+        'local-foo': { version: '0.9.0', sourceId: 'foo', sourceType: 'github' },
+        'old-only': { version: '0.1.0', sourceId: 'old', sourceType: 'github' }
+      }, { foo: GITHUB_SOURCE, old: { type: 'github', url: 'https://github.com/acme-org/old-only' } });
 
       const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
 
@@ -1005,17 +1001,7 @@ profiles: []
     });
     const exists = (file: string): Promise<boolean> => access(file).then(() => true, () => false);
     const oldUserLockfile = (): string => resolveUserConfigPaths(env()).userLockfile;
-    /**
-     * Write a 2.0.0 lockfile holding one local-source bundle.
-     * @param file Lockfile path.
-     * @returns Its text.
-     */
-    const writeOld = async (file: string): Promise<string> => {
-      await writeLockfile(file, upsertBundleEntry(emptyLockfile('test'), 'old-bundle', {
-        version: '0.1.0', sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: []
-      }), new NodeFileSystem());
-      return readFile(file, 'utf8');
-    };
+    const OLD_ENTRY = { 'old-bundle': { version: '0.1.0' } };
 
     beforeEach(async () => {
       await mkdir(path.join(workspace, '.git'), { recursive: true });
@@ -1026,7 +1012,7 @@ profiles: []
 
     it('status and update --dry-run leave the old repository and user files byte-identical and create no record', async () => {
       const oldRepository = path.join(workspace, 'prompt-registry.lock.json');
-      const before = [await writeOld(oldRepository), await writeOld(oldUserLockfile())];
+      const before = [await writeOldLockfile(oldRepository, OLD_ENTRY), await writeOldLockfile(oldUserLockfile(), OLD_ENTRY)];
 
       for (const argv of [
         ['status'],
