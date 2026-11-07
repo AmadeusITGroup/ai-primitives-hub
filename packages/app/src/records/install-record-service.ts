@@ -38,16 +38,16 @@ import {
   resolveDeleteTarget,
 } from './confine-path';
 import {
-  createBundle,
-  hashRecordedFile,
-  putToolEntry,
-} from './record-entry';
-import {
   removeExcluded,
 } from './git-root';
 import {
   findModifiedFiles,
 } from './modified-files';
+import {
+  createBundle,
+  hashRecordedFile,
+  putToolEntry,
+} from './record-entry';
 import {
   recordIdentityOf,
 } from './record-identity';
