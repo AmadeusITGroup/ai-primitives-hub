@@ -18,17 +18,10 @@
  * `ProfileLifecycleSync` that writes the bundles.
  *
  * Activation writes bundle files to every configured target (optionally
- * filtered via `--target`), reusing the same fetch/write primitives as
- * `install.ts` (`fetchFilesForSource`, `createWriterFactory`). Repository
- * and user targets record each bundle in the 3.0.0 install record under the
- * target's type, exactly as a direct `install` does (`prepareRecordForTarget`,
- * which checks and migrates the level before anything is written, then
- * `recordRepositoryInstall`). Deactivation removes them through the record
- * uninstall path (`prepareUninstallForTarget`, `recordRepositoryUninstall`),
- * which keeps files another entry still lists. Workspace-scope targets keep the older user
- * lockfile (`lockfilePathForTarget`, `runUserScopeUninstall`), as `install`
- * and `uninstall` do. Activation state (which hub/profile is active, and
- * which bundles it synced) is tracked exclusively via `ProfileActivationStore`.
+ * filtered via `--target`) with the same primitives as `install`. Repository
+ * and user targets record bundles in the install record, as `install` and
+ * `uninstall` do; workspace targets keep the older user lockfile. Activation
+ * state is tracked only via `ProfileActivationStore`.
  */
 import * as path from 'node:path';
 import {
@@ -112,22 +105,16 @@ import {
 
 /** A record file a profile command read or wrote for one target. */
 export interface ProfileRecordFile {
-  /** Target name. */
   target: string;
-  /** Level of the record. */
   level: RecordLevel;
   /** Absolute path of the record file. */
   path: string;
 }
 
 /**
- * Re-raise a record error under a profile command's name. The record helpers
- * prefix their errors with `install:` / `uninstall:` (and an install error
- * lists the written files); the original error is re-wrapped instead, since
- * a failed activation rolls its written files back.
- * @param command Command name used as the message prefix.
- * @param error Any error.
- * @returns The error to throw or report; non-record errors unchanged.
+ * Re-wrap a record error under a profile command's name; the original error is used, since activation rolls back its files.
+ * @param command - message prefix
+ * @param error - any error
  */
 const toProfileRecordError = (command: string, error: unknown): unknown => {
   if (!isRecordError(error)) {
@@ -137,18 +124,11 @@ const toProfileRecordError = (command: string, error: unknown): unknown => {
   return toCommandRecordError(command, original);
 };
 
-/**
- * Message of an error, for a warning line.
- * @param error Any error.
- * @returns Its message.
- */
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /**
- * The `Record: <level> <path>` lines for a profile command, one per level,
- * each record file once.
- * @param records Record files per target.
- * @returns The lines, newline-terminated; empty when there are none.
+ * The `Record: <level> <path>` lines, one per level, each file once.
+ * @param records - record files per target
  */
 const renderProfileRecordLines = (records: readonly ProfileRecordFile[]): string => {
   const byLevel = new Map<RecordLevel, string[]>();
@@ -455,8 +435,8 @@ async function activateBundleForTarget(
     return { ok: false, reason: `source "${bundleRef.source}" not found in hub` };
   }
   // Same record source as `install`, so the source trust gate sees one source.
-  // The fetch entry keeps every recorded field, Artifactory's index file and auth included.
   const source = toRecordSource(src, src.id);
+  // The fetch entry keeps every recorded field, Artifactory's index file and auth included.
   const sourceEntry: LockfileSourceEntry = toLockfileSourceEntry(source);
   // `fetchFilesForSource` only reads `.version`/`.sourceId` off this
   // parameter — the rest are dummy values to satisfy `LockfileBundleEntry`'s
@@ -506,10 +486,9 @@ async function activateBundleForTarget(
   }
 }
 
-/** A profile bundle deactivate left in place because its record entry is `unknown`. */
+/** A profile bundle deactivate kept because its record entry is `unknown`. */
 export interface ProfileUnknownBundle {
   bundleId: string;
-  /** Target whose level holds the entry. */
   target: string;
   /** Record file holding the entry. */
   lockfile: string;
@@ -517,27 +496,21 @@ export interface ProfileUnknownBundle {
 
 /** What {@link deactivateProfileBundles} did. */
 export interface ProfileDeactivationReport {
-  /** Record files an entry was removed from, per repository/user target. */
+  /** Record files an entry was removed from. */
   records: ProfileRecordFile[];
-  /** Migration reports of the levels migrated first (BR22.1). */
   migrations: MigrationReport[];
-  /** Bundles whose only entry at the level is `unknown`: entry and files kept (BR21.3). */
+  /** Bundles whose only entry is `unknown`: entry and files kept. */
   unknown: ProfileUnknownBundle[];
-  /** Non-fatal problems: kept shared files, skipped deletions, a target that could not be read. */
   warnings: string[];
 }
 
 /**
- * Remove a profile's bundles from one repository or user target through the
- * record uninstall path: the level's records are loaded, checked and migrated
- * first, then each bundle with an entry for the target's type is removed,
- * keeping files another entry still lists. A bundle whose only entry is
- * `unknown` (it came from an older file) is left in place and reported: the
- * tool that wrote its files is not known, so nothing is deleted.
- * @param ctx CLI context.
- * @param bundleIds Bundles the profile synced.
- * @param target Effective repository- or user-scope target.
- * @param report Report to fill in.
+ * Remove a profile's bundles from one repository or user target through the record uninstall path.
+ * A bundle whose only entry is `unknown` is kept and reported, since its tool is not known.
+ * @param ctx - CLI context
+ * @param bundleIds - bundles the profile synced
+ * @param target - effective repository or user target
+ * @param report - report to fill in
  */
 async function deactivateRecordTarget(
   ctx: Context,
@@ -569,17 +542,11 @@ async function deactivateRecordTarget(
 }
 
 /**
- * Remove every bundle recorded in a profile activation state from every
- * given target — the inverse of the activate loop below. Repository and
- * user targets go through the install record ({@link deactivateRecordTarget});
- * workspace targets through the older user lockfile, as `uninstall` does.
- * Best-effort: a bundle not recorded for a target is skipped (it was never
- * written there), and a target that fails is reported as a warning so the
- * other targets and the activation state are still handled.
+ * Remove every bundle in a profile activation state from every target, the inverse of the activate loop.
+ * Best-effort: a target that fails becomes a warning.
  * @param ctx CLI context.
  * @param state Activation state recording which bundles were synced.
  * @param targets Targets to remove the profile's bundles from.
- * @returns What was read, migrated, kept and warned about.
  */
 async function deactivateProfileBundles(ctx: Context, state: ProfileActivationState, targets: Target[]): Promise<ProfileDeactivationReport> {
   const report: ProfileDeactivationReport = { records: [], migrations: [], unknown: [], warnings: [] };
@@ -613,11 +580,10 @@ export interface ProfileActivationResult {
   state: ProfileActivationState;
   written: Record<string, string[]>;
   failures: { bundleId: string; target: string; reason: string }[];
-  /** Install record files written, per repository/user target. */
+  /** Install record files written. */
   records: ProfileRecordFile[];
-  /** Migration reports of the levels migrated before the first write (BR22.1). */
+  /** Migration reports of the levels migrated before the first write. */
   migrations: MigrationReport[];
-  /** Non-fatal problems from recording (exclude-file updates, skipped deletions). */
   warnings: string[];
 }
 
@@ -650,8 +616,7 @@ export async function runProfileActivation(
   // `active` flag that app's lifecycle scans (`hub sync` rewrites hub configs
   // and drops that flag). Deactivate every tracked profile first, including
   // this one when it is re-activated (`apply`), so bundles it no longer
-  // lists are removed. Their removal may migrate a level first, so its
-  // report and anything it kept are part of this activation's output.
+  // lists are removed. Their migration reports and warnings join this output.
   const prior: ProfileDeactivationReport[] = [];
   for (const prev of await built.activations.listAll()) {
     prior.push(await deactivateTrackedProfile(ctx, lifecycle, prev, effectiveTargets));
@@ -724,7 +689,6 @@ type ProfileLifecycleStores = Pick<ProfileLifecycleDeps, 'store' | 'activationSt
  * @param lifecycle Hub config and activation stores.
  * @param state Activation state of the profile to deactivate.
  * @param targets Targets to remove the profile's bundles from.
- * @returns What removing the bundles read, migrated, kept and warned about.
  */
 async function deactivateTrackedProfile(
   ctx: Context,
@@ -743,9 +707,8 @@ async function deactivateTrackedProfile(
 }
 
 /**
- * The warning line for a profile bundle kept because its record entry is `unknown`.
- * @param kept The kept bundle.
- * @returns The warning.
+ * Warning for a bundle kept because its record entry is `unknown`.
+ * @param kept - the kept bundle
  */
 const unknownBundleWarning = (kept: ProfileUnknownBundle): string =>
   `${kept.bundleId} (${kept.target}): kept, its entry in ${kept.lockfile} has tool unknown; `
@@ -800,11 +763,8 @@ async function rollbackProfileActivation(
 interface TargetProfileSyncReport {
   written: Record<string, string[]>;
   failures: { bundleId: string; target: string; reason: string }[];
-  /** Install record files written, per repository/user target. */
   records: ProfileRecordFile[];
-  /** Migration reports of the levels prepared before the first write. */
   migrations: MigrationReport[];
-  /** Non-fatal problems from recording. */
   warnings: string[];
   /** Unexpected error (e.g. a record or lockfile I/O error) that app's lifecycle would otherwise swallow. */
   error?: Error;
@@ -851,16 +811,11 @@ function createTargetProfileSync(
 }
 
 /**
- * Load, check and migrate the install record of every repository and user
- * target before any bundle is written (BR3.5, BR18.1), the way `install`
- * does for its one target. Refuses two targets that would record the same
- * tool in the same level's record: the record keeps one entry per bundle
- * and tool, so the second would replace the first and remove its files.
- * @param ctx CLI context.
- * @param targets Effective targets.
+ * Prepare the install record of every repository and user target before any bundle is written.
+ * Refuses two targets of one tool at one level, since the record keeps one entry per bundle and tool.
+ * @param ctx - CLI context
+ * @param targets - effective targets
  * @returns The prepared record per target name; workspace targets have none.
- * @throws {RegistryError} A `RECORD.*` error naming the file, or
- *   `USAGE.INVALID_FLAG` for two targets of one tool at one level; nothing was written.
  */
 async function prepareProfileRecords(ctx: Context, targets: readonly Target[]): Promise<Map<string, PreparedRepositoryRecord>> {
   const prepared = new Map<string, PreparedRepositoryRecord>();
@@ -887,10 +842,7 @@ async function prepareProfileRecords(ctx: Context, targets: readonly Target[]): 
 }
 
 /**
- * Write the named profile bundles to every target, recording each one in
- * the target's install record (repository and user targets) or the older
- * user lockfile (workspace targets), and recording per-bundle/per-target
- * failures. Every record is prepared before the first write.
+ * Write the named profile bundles to every target and record them, noting per-bundle/per-target failures.
  * @param opts Sync options.
  * @param bundleIds Bundle ids to install, in profile order.
  * @param report Report to fill in.
