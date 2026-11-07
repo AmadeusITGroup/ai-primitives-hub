@@ -310,13 +310,9 @@ export class InstallRecordListing {
       if (entry === undefined) {
         continue;
       }
-      const item = createInstalledBundleFromLockfile(bundleId, {
-        version: entry.version,
-        sourceId: entry.sourceId,
-        sourceType: entry.sourceType,
-        installedAt: entry.installedAt,
-        files: entry.files.map((file) => ({ path: file.path, checksum: file.checksum }))
-      }, { installPath: installPathFor(bundleId), filesMissing: await this.filesMissing(location.root, entry) });
+      const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(entry), {
+        installPath: installPathFor(bundleId), filesMissing: await this.filesMissing(location.root, entry)
+      });
       items.push({ ...item, scope: 'user', commitMode: undefined, recordOrigin: 'install-record' });
     }
     return { items, hostBundleIds };
