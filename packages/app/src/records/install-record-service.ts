@@ -7,7 +7,6 @@
  */
 import * as path from 'node:path';
 import {
-  bundleIdentityOf,
   type BundleRecord,
   compareCodeUnits,
   FORBIDDEN_KEYS,
@@ -40,6 +39,9 @@ import {
 import {
   removeExcluded,
 } from './git-root';
+import {
+  recordIdentityOf,
+} from './record-identity';
 import type {
   LoadedRecord,
   RecordStore,
@@ -180,19 +182,6 @@ const createBundle = (): BundleRecord => {
   const bundle = Object.create(null) as BundleRecord;
   bundle.tools = Object.create(null) as BundleRecord['tools'];
   return bundle;
-};
-
-/**
- * Identity of a recorded key; an id past the helper's length guard is its own identity.
- * @param bundleId - Bundle id.
- * @param version - Version recorded for it.
- */
-const identityOf = (bundleId: string, version: string): string => {
-  try {
-    return bundleIdentityOf(bundleId, version);
-  } catch {
-    return bundleId;
-  }
 };
 
 const copyRecordedFile = (file: RecordedFile): RecordedFile => {
@@ -341,7 +330,7 @@ export class InstallRecordService {
   private removeSameIdentity(record: InstallRecord, bundleId: string, identity: string, tool: string): ToolEntry[] {
     const removed: ToolEntry[] = [];
     for (const [key, bundle] of Object.entries(record.bundles)) {
-      if (Object.hasOwn(bundle.tools, tool) && (key === bundleId || identityOf(key, bundle.tools[tool].version) === identity)) {
+      if (Object.hasOwn(bundle.tools, tool) && (key === bundleId || recordIdentityOf(key, bundle.tools[tool].version) === identity)) {
         removed.push(this.removeEntry(record, key, tool) as ToolEntry);
       }
     }
@@ -385,9 +374,11 @@ export class InstallRecordService {
 
   /**
    * Bring sibling entries that share the installed tool's files to its version, in memory.
+   * A sibling held under another key of the same identity moves to the installed key.
    * @param loaded - The target file, then the other repository file.
    * @param change - What the installed tool wrote.
    * @param change.bundleId - Bundle id.
+   * @param change.identity - Its bundle identity.
    * @param change.tool - The installed tool.
    * @param change.version - Its new version.
    * @param change.files - Its new recorded files.
@@ -399,6 +390,7 @@ export class InstallRecordService {
     loaded: readonly LoadedRecord[],
     change: {
       bundleId: string;
+      identity: string;
       tool: string;
       version: string;
       files: readonly RecordedFile[];
@@ -411,26 +403,40 @@ export class InstallRecordService {
     const siblings: SiblingSync[] = [];
     const changed = new Set<LoadedRecord>();
     for (const file of loaded) {
-      const bundle = Object.hasOwn(file.record.bundles, change.bundleId) ? file.record.bundles[change.bundleId] : undefined;
-      for (const [tool, entry] of Object.entries(bundle?.tools ?? {})) {
-        if (tool === change.tool || tool === UNKNOWN_TOOL_NAME || !entry.files.some((recorded) => isShared(recorded))) {
-          continue;
-        }
-        if (!change.accepts(tool)) {
-          siblings.push({ tool, version: entry.version, location: file.location, synced: false });
-          continue;
-        }
-        entry.files = entry.files.flatMap((recorded) => {
-          if (!isShared(recorded)) {
-            return [recorded];
+      const { bundles } = file.record;
+      const holdsTool = (tool: string): boolean => Object.hasOwn(bundles, change.bundleId) && Object.hasOwn(bundles[change.bundleId].tools, tool);
+      const handled = new Set<string>();
+      for (const [key, bundle] of Object.entries(bundles)) {
+        for (const [tool, entry] of Object.entries(bundle.tools)) {
+          const sameBundle = key === change.bundleId || recordIdentityOf(key, entry.version) === change.identity;
+          if (!sameBundle || handled.has(tool) || tool === change.tool || tool === UNKNOWN_TOOL_NAME
+            || !entry.files.some((recorded) => isShared(recorded)) || (key !== change.bundleId && holdsTool(tool))) {
+            continue;
           }
-          const written = newByPath.get(recorded.path);
-          return written === undefined ? [] : [copyRecordedFile(written)];
-        });
-        entry.version = change.version;
-        entry.installedAt = this.now().toISOString();
-        siblings.push({ tool, version: change.version, location: file.location, synced: true });
-        changed.add(file);
+          handled.add(tool);
+          if (!change.accepts(tool)) {
+            siblings.push({ tool, version: entry.version, location: file.location, synced: false });
+            continue;
+          }
+          entry.files = entry.files.flatMap((recorded) => {
+            if (!isShared(recorded)) {
+              return [recorded];
+            }
+            const written = newByPath.get(recorded.path);
+            return written === undefined ? [] : [copyRecordedFile(written)];
+          });
+          entry.version = change.version;
+          entry.installedAt = this.now().toISOString();
+          if (key !== change.bundleId) {
+            this.removeEntry(file.record, key, tool);
+            if (!Object.hasOwn(bundles, change.bundleId)) {
+              bundles[change.bundleId] = createBundle();
+            }
+            bundles[change.bundleId].tools[tool] = entry;
+          }
+          siblings.push({ tool, version: change.version, location: file.location, synced: true });
+          changed.add(file);
+        }
       }
     }
     return { siblings: siblings.toSorted((left, right) => compareCodeUnits(left.tool, right.tool)), changed };
@@ -454,7 +460,7 @@ export class InstallRecordService {
     const other = otherLocation === undefined ? undefined : await this.store.load(otherLocation);
     const files = await this.toRecordedFiles(location.root, input.writtenPaths, input.workspaceRoot);
 
-    const identity = identityOf(bundleId, input.version);
+    const identity = recordIdentityOf(bundleId, input.version);
     const previous = this.removeSameIdentity(target.record, bundleId, identity, tool);
     const moved = other === undefined ? [] : this.removeSameIdentity(other.record, bundleId, identity, tool);
     previous.push(...moved);
@@ -481,6 +487,7 @@ export class InstallRecordService {
       ? { siblings: [], changed: new Set<LoadedRecord>() }
       : this.syncSiblingEntries(loaded, {
         bundleId,
+        identity,
         tool,
         version: input.version,
         files,

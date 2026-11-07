@@ -386,10 +386,35 @@ describe('repository install record', () => {
       await installVersion('kiro', '1.0.0', ['docs/shared.md']);
       await installVersion('vscode', '1.0.0', ['docs/shared.md']);
 
-      const change = await installVersion('vscode', '2.0.0', ['docs/new.md']);
+      const change = await installVersion('vscode', '2.0.0', ['docs/new.md'], { syncSiblings: false });
 
       expect(entries(committed)).toEqual([`${COLL}-1.0.0 kiro 1.0.0`, `${COLL}-2.0.0 vscode 2.0.0`]);
       expect(change).toMatchObject({ deletedFiles: [], keptSharedFiles: ['docs/shared.md'] });
+    });
+
+    it.each([
+      ['committed', (): RecordLocation => committed],
+      ['local-only', (): RecordLocation => localOnly]
+    ])('moves a synced sibling of the old version\'s key in the %s file to the installed key', async (_label, siblingFile) => {
+      await installVersion('vscode-insiders', '1.0.0', ['.github/prompts/a.prompt.md', '.github/agents/own.agent.md'], { location: siblingFile() });
+      await installVersion('vscode', '1.0.0', ['.github/prompts/a.prompt.md']);
+
+      const change = await installVersion('vscode', '2.0.0', ['.github/prompts/a.prompt.md']);
+
+      expect(change.siblings).toEqual([{ tool: 'vscode-insiders', version: '2.0.0', location: siblingFile(), synced: true }]);
+      expect(entries(siblingFile()).filter((row) => row.includes('vscode-insiders'))).toEqual([`${COLL}-2.0.0 vscode-insiders 2.0.0`]);
+      expect(read(siblingFile()).bundles[`${COLL}-2.0.0`].tools['vscode-insiders'].files.map((file) => file.path))
+        .toEqual(['.github/agents/own.agent.md', '.github/prompts/a.prompt.md']);
+    });
+
+    it('reports a sibling of the old version\'s key it does not sync and leaves it there', async () => {
+      await installVersion('vscode-insiders', '1.0.0', ['.github/prompts/a.prompt.md']);
+      await installVersion('vscode', '1.0.0', ['.github/prompts/a.prompt.md']);
+
+      const change = await installVersion('vscode', '2.0.0', ['.github/prompts/a.prompt.md'], { syncSiblings: (tool) => tool !== 'vscode-insiders' });
+
+      expect(change.siblings).toEqual([{ tool: 'vscode-insiders', version: '1.0.0', location: committed, synced: false }]);
+      expect(entries(committed)).toEqual([`${COLL}-1.0.0 vscode-insiders 1.0.0`, `${COLL}-2.0.0 vscode 2.0.0`]);
     });
 
     it('removes the old version from the committed file when the new one is installed local-only', async () => {
