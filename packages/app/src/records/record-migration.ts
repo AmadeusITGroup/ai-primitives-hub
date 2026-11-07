@@ -23,7 +23,6 @@
  */
 import * as path from 'node:path';
 import {
-  type BundleRecord,
   compareVersions,
   IMPORTED_USER_LOCKFILE_FIELD,
   isJsonObject,
@@ -36,7 +35,6 @@ import {
   type RecordLevel,
   type RecordLocation,
   type SourceRecord,
-  type ToolEntry,
   UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
@@ -51,6 +49,10 @@ import type {
   LoadedRecord,
   RecordStore,
 } from './record-store';
+import {
+  hashRecordedFile,
+  putToolEntry,
+} from './record-entry';
 import {
   readRecordText,
 } from './read-record-text';
@@ -283,22 +285,18 @@ const keepFile = async (fs: RecordFs, root: string, recordedPath: string): Promi
     }
     throw error;
   }
-  const absolute = path.join(root, ...relative.split('/'));
-  const kind = (await fs.lstat(absolute))?.kind;
+  const kind = (await fs.lstat(path.join(root, ...relative.split('/'))))?.kind;
   if (kind === undefined) {
     return 'not found';
   }
   if (kind !== 'file' && kind !== 'symlink') {
     return 'not a regular file';
   }
-  const file = Object.create(null) as RecordedFile;
-  file.path = relative;
   try {
-    file.checksum = await fs.hashFile(absolute);
+    return await hashRecordedFile(fs, root, relative);
   } catch {
     return 'could not be read';
   }
-  return file;
 };
 
 /**
@@ -333,23 +331,19 @@ const addEntry = async (run: MigrationRun, target: LoadedRecord, entry: Migrated
       files.set(kept.path, kept);
     }
   }
-  const tool = Object.create(null) as ToolEntry;
-  tool.version = entry.version;
-  tool.sourceId = entry.sourceId;
-  tool.sourceType = entry.sourceType;
-  tool.installedAt = isDateTime(entry.installedAt) ? entry.installedAt : run.report.migratedAt;
-  tool.files = [...files.values()].toSorted((left, right) => (left.path < right.path ? -1 : 1));
-  if (entry.tool === UNKNOWN_TOOL_NAME) {
-    tool.needsReinstall = true;
+  const unknown = entry.tool === UNKNOWN_TOOL_NAME;
+  const { record } = target;
+  putToolEntry(record, entry.bundleId, entry.tool, {
+    version: entry.version,
+    sourceId: entry.sourceId,
+    sourceType: entry.sourceType,
+    installedAt: isDateTime(entry.installedAt) ? entry.installedAt : run.report.migratedAt,
+    files: [...files.values()],
+    ...(unknown ? { needsReinstall: true } : {})
+  });
+  if (unknown) {
     run.report.needsReinstall.push({ bundleId: entry.bundleId, version: entry.version });
   }
-  const { record } = target;
-  if (!Object.hasOwn(record.bundles, entry.bundleId)) {
-    const bundle = Object.create(null) as BundleRecord;
-    bundle.tools = Object.create(null) as BundleRecord['tools'];
-    record.bundles[entry.bundleId] = bundle;
-  }
-  record.bundles[entry.bundleId].tools[entry.tool] = tool;
   if (!Object.hasOwn(record.sources, entry.sourceId)) {
     record.sources[entry.sourceId] = toSourceRecord(entry);
   }
