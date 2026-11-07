@@ -20,3 +20,19 @@ export const recordIdentityOf = (bundleId: string, version: string): string => {
   }
 };
 
+/**
+ * The key of a versioned id at another version, with the same `-` or `-v` form; any other id is kept.
+ * @param bundleId - Recorded key.
+ * @param version - Version recorded for it.
+ * @param nextVersion - Version now installed.
+ */
+export const recordKeyForVersion = (bundleId: string, version: string, nextVersion: string): string => {
+  const identity = recordIdentityOf(bundleId, version);
+  if (identity === bundleId || nextVersion === version) {
+    return bundleId;
+  }
+  const marker = bundleId.slice(identity.length) === `-v${version}` ? '-v' : '-';
+  const next = `${identity}${marker}${nextVersion}`;
+  // A key the identity rule cannot match back would leave the old entry behind.
+  return recordIdentityOf(next, nextVersion) === identity ? next : bundleId;
+};

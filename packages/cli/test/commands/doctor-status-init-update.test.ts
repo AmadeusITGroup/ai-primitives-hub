@@ -657,6 +657,27 @@ profiles: []
       await expect(readFile(promptFile('extra.prompt.md'), 'utf8')).rejects.toThrow();
     });
 
+    it('moves a versioned bundle id and its sibling to the new version\'s key, so status lists one row per tool and a replay restores it', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-insiders', 'vscode-insiders']], GITHUB_SOURCE);
+      const versioned = (version: string): string => `acme-org-local-foo-local-foo-${version}`;
+      const record = await readRecordJson();
+      record.bundles = { [versioned('1.0.0')]: record.bundles['local-foo'] };
+      await writeRecord(workspace, record);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<UpdateData>(result.stdout).data.alsoUpdated).toEqual([{ bundleId: versioned('1.0.0'), tool: 'vscode-insiders' }]);
+      expect(Object.keys((await readRecordJson()).bundles)).toEqual([versioned('2.0.0')]);
+      const status = await runRecord(['status', '-o', 'json']);
+      expect(parseJson<{ entries: { bundleId: string; tool: string; version: string }[] }>(status.stdout).data.entries
+        .map(({ bundleId, tool, version }) => `${bundleId} ${tool} ${version}`))
+        .toEqual([`${versioned('2.0.0')} vscode 2.0.0`, `${versioned('2.0.0')} vscode-insiders 2.0.0`]);
+      const replay = await runRecord(['install', '--lockfile', 'ai-primitives-hub.lock.json', '-o', 'json']);
+      expect(replay.exitCode, replay.stdout).toBe(0);
+      expect(Object.keys((await readRecordJson()).bundles)).toEqual([versioned('2.0.0')]);
+    });
+
     it('reports a sibling with no target as out of date and keeps the file it still lists', async () => {
       await installAt100([['repo-insiders', 'vscode-insiders'], ['repo-vscode', 'vscode']], GITHUB_SOURCE);
       expect((await runRecord(['target', 'remove', 'repo-insiders', '-o', 'json'])).exitCode).toBe(0);
