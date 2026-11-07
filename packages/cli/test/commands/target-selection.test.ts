@@ -294,6 +294,20 @@ describe('target selection without target-state.json', () => {
       expect(await tree(root)).toEqual(before);
     });
 
+    it('update --dry-run --commit-mode local-only with one configured target checks the old-file-only bundles with that target (BR10.1, BR23.2)', async () => {
+      await addTargets([['repo-vscode', 'vscode']]);
+      await ok(['install', 'local-foo', '--from', bundle, '--target', 'repo-vscode', '-o', 'json']);
+      await writeOldLock(oldRepoLock(), { 'old-only': '.github/prompts/old.prompt.md' });
+      const before = await tree(root);
+
+      const result = await run(['update', '--dry-run', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = json<{ checked: number; oldFile: { lockfile: string; checked: number; failures: string[] } }>(result.stdout);
+      expect(data).toMatchObject({ checked: 1, oldFile: { lockfile: oldRepoLock(), checked: 1, failures: [] } });
+      expect(await tree(root)).toEqual(before);
+    });
+
     it('removes a lone unknown entry, keeps its files and names the record instead of a target (BR21.3)', async () => {
       await addTargets([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]);
       const oldPrompt = path.join(repo, '.github', 'prompts', 'old.prompt.md');
