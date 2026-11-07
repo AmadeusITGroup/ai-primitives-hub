@@ -60,6 +60,7 @@ import type {
 } from '../../src/types/registry';
 import {
   findUserRecordBundle,
+  getInstalledBundleForScope,
 } from '../../src/utils/bundle-scope-utils';
 import {
   Logger,
@@ -709,6 +710,23 @@ suite('user record', function () {
     assert.ok(record.importedUserLockfileAt, 'the import marker is set');
     assert.deepStrictEqual(Object.keys(record.bundles['old-cli'].tools), ['unknown']);
     assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools), ['vscode']);
+  });
+
+  test('the scope commands lookup gives a lone unknown user bundle as RegistryManager lists and uninstalls it (BR21.4)', async () => {
+    await writeOldLockfile(resolveUserConfigPaths(process.env).userLockfile, { 'old-cli': { version: '1.0.0' } });
+    await manager.migrateBeforeWrite('user');
+
+    const listed = (await manager.listInstalledBundles('user')).find((bundle) => bundle.bundleId === 'old-cli');
+    const viaManagerReader = await getInstalledBundleForScope(storage, 'old-cli', 'user', undefined, manager.userRecordReader());
+    const viaOwnAdapter = await getInstalledBundleForScope(storage, 'old-cli', 'user');
+
+    assert.ok(listed, 'RegistryManager lists it');
+    assert.deepStrictEqual(viaManagerReader, listed);
+    assert.deepStrictEqual(viaOwnAdapter, listed);
+
+    await manager.uninstallBundle('old-cli', 'user');
+
+    assert.strictEqual(readUserRecord().bundles['old-cli'], undefined, 'RegistryManager finds it to uninstall');
   });
 
   test('a hub profile activated at user scope is recorded in the user record; activating another hub profile uninstalls its bundle and files', async () => {
