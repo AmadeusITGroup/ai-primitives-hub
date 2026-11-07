@@ -174,10 +174,6 @@ export class InstallRecordService {
     this.now = options.now ?? (() => new Date());
   }
 
-  /**
-   * Reject a tool, source type or key the record cannot hold.
-   * @param input - Install to record.
-   */
   private validateInput(input: RecordInstallInput): void {
     if (!(TARGET_TYPES as readonly string[]).includes(input.tool)) {
       throw recordError('RECORD.UNKNOWN_TOOL', { detail: `tool ${JSON.stringify(input.tool)} is not a target type` });
@@ -267,12 +263,7 @@ export class InstallRecordService {
     return [...files.values()].toSorted((a, b) => compareCodeUnits(a.path, b.path));
   }
 
-  /**
-   * Remove an entry, and its bundle when no tool is left; returns the removed entry.
-   * @param record - Record to change.
-   * @param bundleId - Bundle id.
-   * @param tool - Tool key.
-   */
+  // Also removes the bundle when no tool is left.
   private removeEntry(record: InstallRecord, bundleId: string, tool: string): ToolEntry | undefined {
     const bundle = Object.hasOwn(record.bundles, bundleId) ? record.bundles[bundleId] : undefined;
     if (bundle === undefined || !Object.hasOwn(bundle.tools, tool)) {
@@ -286,11 +277,6 @@ export class InstallRecordService {
     return entry;
   }
 
-  /**
-   * Remove a source when no entry in the record uses it any more.
-   * @param record - Record to change.
-   * @param sourceId - Source key.
-   */
   private dropUnusedSource(record: InstallRecord, sourceId: string): void {
     if (!Object.hasOwn(record.sources, sourceId)) {
       return;

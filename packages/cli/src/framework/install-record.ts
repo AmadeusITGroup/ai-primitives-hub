@@ -40,7 +40,6 @@ export const CLI_RECORD_GENERATED_BY = `ai-primitives-hub-cli@${CLI_VERSION}`;
 export interface PreparedRepositoryRecord {
   /** The file the install is recorded in, from the commit mode. */
   location: RecordLocation;
-  /** Service that records the install and removes superseded files. */
   service: InstallRecordService;
   /** Workspace root the writer installs into (where merged MCP config files sit). */
   workspaceRoot: string;
@@ -100,10 +99,6 @@ const toCommandRecordError = (command: string, error: RegistryError, written?: r
 export const toInstallRecordError = (error: RegistryError, written?: readonly string[]): RegistryError =>
   toCommandRecordError('install', error, written);
 
-/**
- * Record store and service for one CLI command, stamped with {@link CLI_RECORD_GENERATED_BY}.
- * @param fs - Filesystem port.
- */
 const createRecordServices = (fs: RecordFs): InstallRecordServices =>
   createInstallRecordServices({ generatedBy: CLI_RECORD_GENERATED_BY, fs });
 
@@ -111,9 +106,7 @@ const createRecordServices = (fs: RecordFs): InstallRecordServices =>
 interface RepositoryRecords extends InstallRecordServices {
   /** Workspace root the writer installs into (where merged MCP config files sit). */
   workspaceRoot: string;
-  /** The committed record file at the git root. */
   committed: RecordLocation;
-  /** The local-only record file at the git root. */
   localOnly: RecordLocation;
   /** The file the target's commit mode names. */
   location: RecordLocation;
@@ -213,7 +206,6 @@ export const recordRepositoryInstall = async (
 export interface PreparedRepositoryUninstall {
   /** The file named by the commit mode; `recordUninstall` reads both files from its root. */
   location: RecordLocation;
-  /** Service that removes the entry and its files. */
   service: InstallRecordService;
   /** The target's type. */
   tool: string;

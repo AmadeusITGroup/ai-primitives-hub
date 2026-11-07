@@ -108,10 +108,6 @@ export class RecordStore {
     this.now = options.now ?? (() => new Date());
   }
 
-  /**
-   * Record path relative to its root, for messages.
-   * @param location - Record location.
-   */
   private labelOf(location: RecordLocation): string {
     return relativeInside(location.root, location.path) ?? location.path;
   }
@@ -176,12 +172,6 @@ export class RecordStore {
     return record;
   }
 
-  /**
-   * Confine every recorded path; one failure stops the load.
-   * @param location - Record location.
-   * @param record - Record to check.
-   * @param file - Record file to name in errors.
-   */
   private async checkPaths(location: RecordLocation, record: InstallRecord, file: string): Promise<void> {
     for (const bundle of Object.values(record.bundles)) {
       for (const entry of Object.values(bundle.tools)) {
@@ -192,11 +182,6 @@ export class RecordStore {
     }
   }
 
-  /**
-   * Every tool entry's `sourceId` must be a key of `sources`.
-   * @param record - Record to check.
-   * @param file - Record file to name in errors.
-   */
   private checkSourceIds(record: InstallRecord, file: string): void {
     for (const [bundleId, bundle] of Object.entries(record.bundles)) {
       for (const [tool, entry] of Object.entries(bundle.tools)) {
