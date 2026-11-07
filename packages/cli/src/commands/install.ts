@@ -97,6 +97,7 @@ import {
   findProjectLockfile,
   finishRecordRun,
   formatOutput,
+  inferTargetName,
   loadInquirer,
   loadTargets,
   lockfilePathForTarget,
@@ -116,9 +117,8 @@ import {
   renderRecordLine,
   type RepositoryInstallToRecord,
   requireActiveHubOrFail,
+  resolveCommandTarget,
   resolveEffectiveTarget,
-  resolveTarget,
-  resolveTargetName,
   toCommandRecordError,
   tokensForRecordSource,
   validateInputs,
@@ -485,7 +485,7 @@ export class InstallCommand extends BaseInstallCommand {
         let explicit: Target | undefined;
         if (typedTarget) {
           checkAllowTarget(opts.target as string, opts);
-          explicit = resolveEffectiveTarget(ctx, await resolveTarget(opts.target as string, 'install', ctx, () => loadTargets(ctx)), opts);
+          explicit = await resolveCommandTarget(ctx, 'install', opts.target, opts);
         }
         return await performRecordReplay({ ctx, fmt, opts, prepared: recordReplay, explicit });
       }
@@ -509,17 +509,20 @@ export class InstallCommand extends BaseInstallCommand {
     }
 
     try {
-      const targetName = await resolveTargetName(opts.target, 'install', ctx, () => loadTargets(ctx));
-      checkAllowTarget(targetName, opts);
-      const configuredTarget = await resolveTarget(targetName, 'install', ctx, () => loadTargets(ctx));
-      const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
+      const targetName = await inferTargetName(ctx, opts.target);
+      if (targetName !== undefined) {
+        checkAllowTarget(targetName, opts);
+      }
+      const target = await resolveCommandTarget(ctx, 'install', targetName, opts);
+      // The modes report the target they ran with, typed or inferred.
+      const runOpts: InstallOptions = { ...opts, target: targetName };
 
-      const mode = determineInstallMode(opts);
+      const mode = determineInstallMode(runOpts);
       if (mode === undefined) {
-        return await performRemoteInstall(opts, target, ctx, fmt);
+        return await performRemoteInstall(runOpts, target, ctx, fmt);
       }
 
-      return await executeInstallMode(mode, opts, target, ctx, fmt);
+      return await executeInstallMode(mode, runOpts, target, ctx, fmt);
     } catch (err) {
       if (err instanceof RegistryError) {
         return failWith(ctx, fmt, 'install', err);
@@ -582,9 +585,10 @@ function refuseDryRunReplay(opts: InstallOptions): void {
 
 /**
  * Detect install context from the project environment.
- * Fills in `opts.lockfile`, `opts.source`, `opts.interactive`, and `opts.target`
- * when they can be inferred without user input. A bare `install` that finds a
- * record or an old `prompt-registry` file at the git root replays it, migrating the old file first.
+ * Fills in `opts.lockfile`, `opts.source` and `opts.interactive` when they can
+ * be inferred without user input; the target is inferred later. A bare `install`
+ * that finds a record or an old `prompt-registry` file at the git root replays it,
+ * migrating the old file first.
  * @param opts Install options (mutated in-place).
  * @param ctx CLI context.
  * @returns The selected record to replay, or `undefined` for the other modes.
@@ -626,15 +630,6 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
       await autoDetectHubSource(opts, ctx, userPaths);
     } catch {
       // Ignore errors; proceed without auto-detected hub
-    }
-  }
-
-  if (!opts.target || opts.target.length === 0) {
-    const targets = await readTargetsSafely(
-      loadTargets(ctx)
-    );
-    if (targets.length === 1) {
-      opts.target = targets[0].name;
     }
   }
   return undefined;

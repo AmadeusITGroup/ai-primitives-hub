@@ -95,6 +95,7 @@ import {
   findProjectLockfile,
   finishRecordRun,
   formatOutput,
+  inferTargetName,
   loadInquirer,
   loadTargets,
   lockfilePathForTarget,
@@ -111,9 +112,8 @@ import {
   RegistryError,
   renderMigration,
   renderRecordLine,
+  resolveCommandTarget,
   resolveEffectiveTarget,
-  resolveTarget,
-  resolveTargetName,
   tokensForRecordSource,
   writerEnv,
 } from '../framework';
@@ -273,7 +273,8 @@ export class UpdateCommand extends BaseUpdateCommand {
       // decides. Its level is chosen read-only first, so a run the record does
       // not decide fails below before anything is migrated, written or fetched
       // (NFR4.27).
-      if (opts.target === undefined || opts.target.length === 0) {
+      const targetName = await inferTargetName(ctx, opts.target);
+      if (targetName === undefined) {
         const decided = await prepareRecordWithoutTarget(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope }, this.dryRun);
         if (decided !== undefined) {
           if (!this.noHubSync) {
@@ -283,9 +284,7 @@ export class UpdateCommand extends BaseUpdateCommand {
         }
       }
 
-      const targetName = await resolveTargetName(opts.target, 'update', ctx, () => loadTargets(ctx));
-      const configuredTarget = await resolveTarget(targetName, 'update', ctx, () => loadTargets(ctx));
-      const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
+      const target = await resolveCommandTarget(ctx, 'update', targetName, opts);
 
       // Select the record first, so a bad record stops before anything is fetched or written; a dry run never migrates.
       const prepared = await prepareRecordSelection(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope, write: this.dryRun !== true }, target);
@@ -378,7 +377,8 @@ export class UpdateCommand extends BaseUpdateCommand {
 
 /**
  * Detect update context from the project environment (symmetric with install/uninstall).
- * Fills in `opts.target` when it can be inferred.
+ * Fills in `opts.lockfile` when it can be inferred; the target is inferred
+ * later (`inferTargetName`, BR23.2).
  * @param opts Update options (mutated in-place).
  * @param ctx CLI context.
  */
@@ -387,12 +387,6 @@ async function detectUpdateContext(opts: UpdateOptions, ctx: Context): Promise<v
     const found = await findProjectLockfile(ctx);
     if (found !== null) {
       opts.lockfile = found;
-    }
-  }
-  if (!opts.target || opts.target.length === 0) {
-    const targets = await readTargetsSafely(loadTargets(ctx));
-    if (targets.length === 1) {
-      opts.target = targets[0].name;
     }
   }
 }

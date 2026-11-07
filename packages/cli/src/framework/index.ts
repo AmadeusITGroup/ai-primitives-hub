@@ -77,6 +77,8 @@ export {
   throwTargetNotFoundError,
   resolveTargetName,
   resolveTarget,
+  inferTargetName,
+  resolveCommandTarget,
   validateInputs,
   getCommandContext,
   requireActiveHub,
