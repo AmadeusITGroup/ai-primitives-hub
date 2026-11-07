@@ -692,40 +692,59 @@ export const prepareRecordSelection = async (
 };
 
 /**
- * A read-only record selection with its entries, for `update` and
- * `uninstall <bundle-id>` when the record decides the tools.
+ * A record selection with its entries, for `update` and `uninstall <bundle-id>`;
+ * with no target, the record decides which tools act.
  */
 export interface RecordDecision {
-  /** The typed `--lockfile` / `--scope`; never a target. */
+  /** The typed `--lockfile` / `--scope`. */
   input: Omit<RecordSelectionInput, 'write'>;
-  /** The selection, made with no target. */
+  /** The target the selection was made for, when there is one. */
+  target?: Target;
+  /** The selection: `--lockfile`, then `--scope`, then the target or the default rule. */
   prepared: PreparedRecordSelection;
   /** Every (bundle, tool) entry of the selected 3.0.0 record files. */
   rows: StatusRow[];
 }
 
 /**
- * Select the record with no target and list its entries; `options.write` migrates the level first.
+ * Select the record and list its entries; `options.write` migrates the level first.
  * @param ctx - CLI context.
  * @param input - Command name and the typed `--lockfile` / `--scope`.
  * @param options - Selection options.
  * @param options.write - `true` to migrate before selecting.
+ * @param options.target - Effective target the level is selected for, when there is one.
  * @throws {RegistryError} A `RECORD.*` error naming the command and the file.
  */
 export const prepareRecordDecision = async (
   ctx: Context,
   input: Omit<RecordSelectionInput, 'write'>,
-  options: { write?: boolean } = {}
+  options: { write?: boolean; target?: Target } = {}
 ): Promise<RecordDecision> => {
-  const prepared = await prepareRecordSelection(ctx, { ...input, write: options.write === true });
+  const { target } = options;
+  const prepared = await prepareRecordSelection(ctx, { ...input, write: options.write === true }, target);
   const { selection, service } = prepared;
   try {
     const rows = selection.locations.length === 0 ? [] : await service.listEntries(selection.locations);
-    return { input, prepared, rows };
+    return { input, ...(target === undefined ? {} : { target }), prepared, rows };
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError(input.command, error) : error;
   }
 };
+
+/**
+ * The decision a real run acts on: selected again with `write`, so the level is migrated; a dry run keeps `decision`.
+ * @param ctx - CLI context.
+ * @param decision - The read-only decision.
+ * @param options - Preview options.
+ * @param options.dryRun - `true` for `--dry-run`.
+ * @throws {RegistryError} A `RECORD.*` error naming the command and the file.
+ */
+export const migrateDecision = async (
+  ctx: Context,
+  decision: RecordDecision,
+  options: { dryRun?: boolean } = {}
+): Promise<RecordDecision> =>
+  options.dryRun === true ? decision : prepareRecordDecision(ctx, decision.input, { write: true, target: decision.target });
 
 /**
  * The distinct tools a bundle has entries for, in row order.
@@ -757,7 +776,7 @@ export const prepareUnknownUninstall = async (
   bundleId: string,
   options: { dryRun?: boolean } = {}
 ): Promise<PreparedUnknownUninstall> => {
-  const migrated = options.dryRun === true ? decision : await prepareRecordDecision(ctx, decision.input, { write: true });
+  const migrated = await migrateDecision(ctx, decision, options);
   const tools = recordedTools(migrated.rows, bundleId);
   if (tools.length !== 1 || tools[0] !== UNKNOWN_TOOL_NAME) {
     return { changed: migrated };
