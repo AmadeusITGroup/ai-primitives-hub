@@ -57,7 +57,7 @@ suite('Install record listing (repository scope)', () => {
     writeInstallRecord(root, RECORD_FILE, {
       shared: { vscode: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/shared.prompt.md' } }
     });
-    writeOldLockfile(root, 'prompt-registry.lock.json', { shared: '1.0.0', 'old-only': '1.5.0' });
+    await writeOldLockfile(path.join(root, 'prompt-registry.lock.json'), { shared: { version: '1.0.0' }, 'old-only': { version: '1.5.0' } });
 
     const items = await list();
 
@@ -136,7 +136,7 @@ suite('Install record listing (repository scope)', () => {
 
   test('a malformed record is warned about once and the old entries are still listed', async () => {
     fs.writeFileSync(path.join(root, RECORD_FILE), '{ not json');
-    writeOldLockfile(root, 'prompt-registry.lock.json', { legacy: '1.0.0' });
+    await writeOldLockfile(path.join(root, 'prompt-registry.lock.json'), { legacy: { version: '1.0.0' } });
 
     await list();
     const items = await list();

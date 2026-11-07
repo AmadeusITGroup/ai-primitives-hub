@@ -19,12 +19,6 @@ import * as path from 'node:path';
 import {
   pathToFileURL,
 } from 'node:url';
-import {
-  emptyLockfile,
-  upsertBundleEntry,
-  upsertSource,
-  writeLockfile,
-} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -72,14 +66,15 @@ import {
   initGitRoot,
   isOnDisk,
   LOCAL_RECORD_FILE,
-  nodeLockfileFs,
   overrideEnv,
   RECORD_FILE,
   recordEntry,
+  recordProfileInstall,
   setupUserRecordManager,
   snapshotTree,
   testBundle,
   writeOldEntry,
+  writeOldLockfile,
 } from '../helpers/install-record-test-helpers';
 
 const BUNDLE_ID = 'record-bundle';
@@ -1039,30 +1034,20 @@ suite('older records (U5)', function () {
    * Write `prompt-registry.lock.json` at the git root with the bundle at 0.9.0, listing {@link OLD_FILE}.
    * @param bundleId - Bundle id.
    */
-  const writeOldLockfile = async (bundleId: string): Promise<void> => {
+  const writeOldRepositoryFile = async (bundleId: string): Promise<void> => {
     fs.mkdirSync(path.dirname(abs(OLD_FILE)), { recursive: true });
     fs.writeFileSync(abs(OLD_FILE), 'old content');
-    const lock = upsertSource(upsertBundleEntry(emptyLockfile('prompt-registry@2.0.0'), bundleId, {
-      version: '0.9.0', sourceId: localSource.id, sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
-      files: [{ path: OLD_FILE, checksum: sha256('old content').slice('sha256:'.length) }]
-    }), localSource.id, { type: 'local', url: localSource.url });
-    await writeLockfile(abs(OLD_LOCKFILE), lock, nodeLockfileFs);
+    await writeOldLockfile(abs(OLD_LOCKFILE), { [bundleId]: { version: '0.9.0', files: [OLD_FILE] } }, { id: localSource.id, type: 'local', url: localSource.url });
   };
 
   /**
    * This profile's 0.9.0 user install: its bundle cache, a symlink into it and the RegistryStorage entry.
    * @param cached - The bundle version in the cache; {@link V0} by default.
    */
-  const recordProfileInstall = async (cached = V0): Promise<void> => {
-    const cacheDir = path.join(globalStorage, 'bundles', BUNDLE_ID);
-    writeBundleDir(cacheDir, cached);
-    fs.mkdirSync(path.dirname(userPath(USER_HELLO)), { recursive: true });
-    fs.symlinkSync(path.join(cacheDir, 'prompts', 'hello.prompt.md'), userPath(USER_HELLO), 'file');
-    await storage.recordInstallation({
-      bundleId: BUNDLE_ID, version: V0.version, installedAt: '2026-10-01T10:00:00.000Z', scope: 'user', installPath: cacheDir,
-      manifest: {} as InstalledBundle['manifest'], sourceId: localSource.id, sourceType: 'local'
-    });
-  };
+  const installForProfile = (cached = V0): Promise<void> => recordProfileInstall(storage, path.join(globalStorage, 'bundles', BUNDLE_ID), {
+    bundleId: BUNDLE_ID, version: V0.version, sourceId: localSource.id,
+    cache: { 'deployment-manifest.yml': manifestOf(cached), ...cached.files }, syncedFile: 'prompts/hello.prompt.md', userFile: userPath(USER_HELLO)
+  });
 
   setup(async () => {
     sandbox = sinon.createSandbox();
@@ -1110,7 +1095,7 @@ suite('older records (U5)', function () {
   });
 
   test('a repository install migrates prompt-registry.lock.json and notifies once; the same report through another adapter is only logged', async () => {
-    await writeOldLockfile('old-bundle');
+    await writeOldRepositoryFile('old-bundle');
     const migrate = sandbox.spy(manager.getRecordAdapter(), 'migrateBeforeWrite');
     const info = sandbox.spy(Logger.getInstance(), 'info');
 
@@ -1156,7 +1141,7 @@ suite('older records (U5)', function () {
       if (wsl) {
         sandbox.stub(vscode.env, 'remoteName').value('wsl');
       }
-      await recordProfileInstall();
+      await installForProfile();
       const adapter = manager.getRecordAdapter();
       if (otherToolFirst) {
         const kiroFile = userPath('.kiro/steering/hello.md');
@@ -1208,7 +1193,7 @@ suite('older records (U5)', function () {
 
   test('a cached profile manifest with an invalid prompt type or a source outside the bundle cache does not stop the migration; those items are skipped', async () => {
     const outsideTarget = userPath('.copilot/prompts/outside.prompt.md');
-    await recordProfileInstall({
+    await installForProfile({
       ...V0,
       items: [
         ...V0.items,
@@ -1251,7 +1236,7 @@ suite('older records (U5)', function () {
   ];
   loneUnknownCases.forEach(({ action, run, toolsAfter, message }) => {
     test(`a bundle only an old prompt-registry file holds: ${action} and keeps the old file`, async () => {
-      await writeOldLockfile(BUNDLE_ID);
+      await writeOldRepositoryFile(BUNDLE_ID);
 
       await run();
 

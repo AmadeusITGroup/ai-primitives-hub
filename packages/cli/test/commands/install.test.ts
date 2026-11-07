@@ -23,12 +23,8 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  emptyLockfile,
   type Lockfile,
   resolveUserConfigPaths,
-  upsertBundleEntry,
-  upsertSource,
-  writeLockfile,
 } from '@ai-primitives-hub/app';
 import type {
   HttpClient,
@@ -98,6 +94,7 @@ import {
   recordPathIn,
   userRecordPath,
   workspaceEnv,
+  writeOldLockfile,
   writeRecord,
 } from '../helpers/install-record-fixtures';
 
@@ -1133,14 +1130,8 @@ agents:
 
     it.each(['json', 'text'])('migrates prompt-registry.lock.json into the new record before the install (-o %s)', async (output) => {
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
-      const oldLock = upsertSource(upsertBundleEntry(emptyLockfile('test'), 'old-bundle', {
-        version: '0.1.0',
-        sourceId: 'old-src',
-        sourceType: 'github',
-        installedAt: '2026-10-01T00:00:00.000Z',
-        files: [{ path: '.github/prompts/gone.prompt.md', checksum: '0'.repeat(64) }]
-      }), 'old-src', { type: 'github', url: 'https://github.com/acme-org/old-bundle' });
-      await writeLockfile(oldPath, oldLock, new NodeFileSystem());
+      await writeOldLockfile(oldPath, { 'old-bundle': { version: '0.1.0', sourceType: 'github', files: ['.github/prompts/gone.prompt.md'] } },
+        { 'old-src': { type: 'github', url: 'https://github.com/acme-org/old-bundle' } });
 
       const result = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'repo-vscode', '-o', output]);
 
@@ -1472,12 +1463,8 @@ agents:
 
     it('bare install migrates the old prompt-registry file first: its bundles are listed as needs reinstall and the old file is gone', async () => {
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
-      const oldEntry = (version: string) => ({ version, sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] });
-      await writeFile(oldPath, JSON.stringify({
-        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
-        bundles: { 'local-foo': oldEntry('0.9.0'), 'old-only': oldEntry('0.1.0') },
-        sources: { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } }
-      }));
+      await writeOldLockfile(oldPath, { 'local-foo': { version: '0.9.0' }, 'old-only': { version: '0.1.0' } },
+        { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
 
       const result = await run(['install', '--target', 'repo-vscode', '-o', 'json']);
 
@@ -1494,11 +1481,7 @@ agents:
     it('bare install in a repository with only prompt-registry.lock.json migrates it, then lists its bundles as needs reinstall (BR18.1)', async () => {
       await rm(recordPath());
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
-      await writeFile(oldPath, JSON.stringify({
-        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
-        bundles: { 'old-only': { version: '0.1.0', sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] } },
-        sources: { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } }
-      }));
+      await writeOldLockfile(oldPath, { 'old-only': { version: '0.1.0' } }, { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
 
       const result = await run(['install', '-o', 'json']);
 
@@ -1514,12 +1497,7 @@ agents:
     it('bare install --dry-run with only prompt-registry.lock.json is refused and writes nothing (R-07)', async () => {
       await rm(recordPath());
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
-      const oldBytes = JSON.stringify({
-        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
-        bundles: { 'old-only': { version: '0.1.0', sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] } },
-        sources: { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } }
-      });
-      await writeFile(oldPath, oldBytes);
+      const oldBytes = await writeOldLockfile(oldPath, { 'old-only': { version: '0.1.0' } }, { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
 
       const result = await run(['install', '--dry-run', '-o', 'json']);
 

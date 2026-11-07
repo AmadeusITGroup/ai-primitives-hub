@@ -30,13 +30,10 @@ import type {
 } from '../../src/storage/registry-storage';
 import type {
   Bundle,
+  InstalledBundle,
   RegistrySource,
   RepositoryCommitMode,
 } from '../../src/types/registry';
-import {
-  createMockFileEntry,
-  LockfileBuilder,
-} from './lockfile-test-helpers';
 
 /** Committed and local-only record file names. */
 export {
@@ -68,23 +65,6 @@ export const initGitRoot = (root: string): void => {
   fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
 };
 
-/**
- * Write a prompt-registry lockfile and the files it lists.
- * @param root - Repository root.
- * @param fileName - `prompt-registry.lock.json` or `prompt-registry.local.lock.json`.
- * @param bundles - Bundle id → version.
- */
-export const writeOldLockfile = (root: string, fileName: string, bundles: Record<string, string>): void => {
-  const builder = LockfileBuilder.create().withSource('old-source', 'github', 'https://github.com/old/repo');
-  for (const [bundleId, version] of Object.entries(bundles)) {
-    const file = createMockFileEntry(`.github/prompts/${bundleId}.old.prompt.md`);
-    fs.mkdirSync(path.join(root, '.github', 'prompts'), { recursive: true });
-    fs.writeFileSync(path.join(root, file.path), 'old content');
-    builder.withBundle(bundleId, version, 'old-source', { sourceType: 'github', files: [file] });
-  }
-  fs.writeFileSync(path.join(root, fileName), JSON.stringify(builder.build(), null, 2));
-};
-
 /** Bundles to write: bundle id → tool → version, install time and one recorded file. */
 export type RecordSpec = Record<string, Record<string, { version: string; installedAt: string; file: string }>>;
 
@@ -96,6 +76,90 @@ export const nodeLockfileFs: LockfileFs = {
   mkdir: async (dir, options) => {
     await fs.promises.mkdir(dir, options);
   }
+};
+
+/** One bundle entry {@link writeOldLockfile} writes. */
+export interface OldLockfileEntry {
+  version: string;
+  /** Paths the entry lists, each with a zero checksum; none by default. */
+  files?: readonly string[];
+  /** The lockfile source's id by default. */
+  sourceId?: string;
+  /** The lockfile source's type by default. */
+  sourceType?: string;
+}
+
+/** Source {@link writeOldLockfile} writes by default. */
+export const OLD_LOCKFILE_SOURCE = { id: 'old-source', type: 'local', url: '/old/source' };
+
+/**
+ * Write an old 2.0.0 lockfile (a repository `prompt-registry.*.json` or the
+ * CLI's old user lockfile) through app's `writeLockfile`, creating its folder.
+ * Every entry is installed at `2026-10-01T10:00:00.000Z`; the files it lists
+ * are not written (migration takes checksums from disk again).
+ * @param file - Absolute lockfile path.
+ * @param bundles - Bundle id → entry.
+ * @param source - The lockfile's one source; {@link OLD_LOCKFILE_SOURCE} by default.
+ */
+export const writeOldLockfile = async (
+  file: string,
+  bundles: Record<string, OldLockfileEntry>,
+  source: { id: string; type: string; url: string } = OLD_LOCKFILE_SOURCE
+): Promise<void> => {
+  let lock = emptyLockfile('prompt-registry@2.0.0');
+  for (const [bundleId, entry] of Object.entries(bundles)) {
+    lock = upsertBundleEntry(lock, bundleId, {
+      version: entry.version,
+      sourceId: entry.sourceId ?? source.id,
+      sourceType: entry.sourceType ?? source.type,
+      installedAt: '2026-10-01T10:00:00.000Z',
+      files: (entry.files ?? []).map((recorded) => ({ path: recorded, checksum: '0'.repeat(64) }))
+    });
+  }
+  lock = upsertSource(lock, source.id, { type: source.type, url: source.url });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  await writeLockfile(file, lock, nodeLockfileFs);
+};
+
+/** What {@link recordProfileInstall} writes. */
+export interface ProfileInstallOptions {
+  bundleId: string;
+  version: string;
+  sourceId: string;
+  /** Bundle cache contents: bundle-relative path → content, the deployment manifest included. */
+  cache: Record<string, string>;
+  /** Bundle-relative file the profile synced, a key of `cache`. */
+  syncedFile: string;
+  /** Absolute user file it was synced to. */
+  userFile: string;
+  /** Copy the file (the symlink fallback) instead of linking to the cache. */
+  copy?: boolean;
+}
+
+/**
+ * A profile's RegistryStorage user install from before the user record: its
+ * bundle cache, the synced user file (a symlink into the cache, or a copy)
+ * and the RegistryStorage entry with scope `user` and source type `local`.
+ * @param storage - The manager's RegistryStorage.
+ * @param cacheDir - Absolute bundle cache folder (`globalStorage/bundles/<id>`).
+ * @param options - Bundle, version, source, cache contents and the synced file.
+ */
+export const recordProfileInstall = async (storage: RegistryStorage, cacheDir: string, options: ProfileInstallOptions): Promise<void> => {
+  for (const [file, content] of Object.entries(options.cache)) {
+    fs.mkdirSync(path.dirname(path.join(cacheDir, file)), { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, file), content);
+  }
+  const cached = path.join(cacheDir, ...options.syncedFile.split('/'));
+  fs.mkdirSync(path.dirname(options.userFile), { recursive: true });
+  if (options.copy === true) {
+    fs.copyFileSync(cached, options.userFile);
+  } else {
+    fs.symlinkSync(cached, options.userFile, 'file');
+  }
+  await storage.recordInstallation({
+    bundleId: options.bundleId, version: options.version, installedAt: '2026-10-01T10:00:00.000Z', scope: 'user', installPath: cacheDir,
+    manifest: {} as InstalledBundle['manifest'], sourceId: options.sourceId, sourceType: 'local'
+  });
 };
 
 /** Source {@link recordEntry} and {@link writeOldEntry} record by default. */
