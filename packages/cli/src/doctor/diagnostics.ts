@@ -1277,8 +1277,7 @@ export const runDiagnostics = async (
         path: relativePath,
         present: await fileExists(fsAbstraction, path.join(fixtures.targetDir, relativePath))
       })));
-      // User-scope installs are in the shared user record: per-tool entries, home-relative paths.
-      // Loaded through the shared store, so a bad record fails this step with its RECORD.* message (BR17.1).
+      // Loaded through the shared store, so a bad user record fails this step with its RECORD.* message.
       const diagnosticEnv = buildDiagnosticEnv(opts.ctx, workspace);
       const { store } = createRecordServices();
       const userLocation = userRecordLocation(store, diagnosticEnv);

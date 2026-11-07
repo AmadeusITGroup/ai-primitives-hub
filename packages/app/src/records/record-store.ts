@@ -226,7 +226,7 @@ export class RecordStore {
       const target = (await this.fs.lstat(location.path))?.kind === 'symlink'
         ? await this.resolveAllowedLink(location, file)
         : location.path;
-      // The user record's folder may not exist yet on a new machine (NFR7.4).
+      // The user record's folder may not exist yet on a new machine.
       await this.fs.mkdir(path.dirname(target), { recursive: true });
       await writeFileAtomically(this.fs, target, text);
     } catch (error) {

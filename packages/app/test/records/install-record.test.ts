@@ -913,7 +913,7 @@ describe('repository install record', () => {
     });
   });
 
-  describe('shared user record (U4)', () => {
+  describe('shared user record', () => {
     const recordFs = new NodeRecordFs();
     let home: string;
     let userRecord: string;

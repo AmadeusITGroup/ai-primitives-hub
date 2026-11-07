@@ -76,13 +76,10 @@ import {
 export const CLI_RECORD_GENERATED_BY = `ai-primitives-hub-cli@${CLI_VERSION}`;
 
 /**
- * The env a target writer expands `${HOME}` and `~` against. For a
- * user-scope target `HOME` is the user level's home from `resolveUserHome`,
- * so an empty `HOME` falls back the same way the pre-write folder check
- * does (NFR4.17); repository and workspace scope get `env` unchanged.
- * @param env - CLI environment (`ctx.env`).
+ * The env a target writer expands `~` against: at user scope `HOME` is the
+ * user level's home, so it matches the pre-write folder check.
+ * @param env - CLI environment.
  * @param scope - Effective scope of the target.
- * @returns The env to give the writer.
  */
 export const writerEnv = (env: Record<string, string | undefined>, scope: InstallationScope): Record<string, string | undefined> =>
   (scope === 'user' ? { ...env, HOME: resolveUserHome(env) } : env);
@@ -257,13 +254,7 @@ export const prepareRepositoryRecord = async (
   }
 };
 
-/**
-/**
- * The layout a user-scope target writes with and its base folder, with `HOME` set to home.
- * @param ctx - CLI context.
- * @param target - User-scope target.
- * @param home - Home folder.
- */
+// The layout a user-scope target writes with, and its base folder with `HOME` set to home.
 const resolveUserTargetLayout = async (
   ctx: Context,
   target: Target,
@@ -394,14 +385,7 @@ export const prepareRepositoryUninstall = async (
   }
 };
 
-/**
-/**
- * Per bundle, the home-relative paths the old user lockfile lists for a
- * user-scope target, resolved as the old uninstall does.
- * @param ctx - CLI context.
- * @param target - User-scope target.
- * @param home - Home folder.
- */
+// Per bundle, the home-relative paths the old user lockfile lists, resolved as the old uninstall does.
 const oldUserLockfilePaths = async (ctx: Context, target: Target, home: string): Promise<Map<string, Set<string>>> => {
   const out = new Map<string, Set<string>>();
   const lock = await readLockfile(resolveUserConfigPaths(ctx.env).userLockfile, ctx.fs);
