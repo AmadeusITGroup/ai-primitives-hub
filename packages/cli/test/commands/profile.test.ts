@@ -540,8 +540,8 @@ profiles:
     expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
     // The bundle that did install is rolled back: its files and user record entry are gone.
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
-    const record = await readFile(userRecordPath(env()), 'utf8').catch(() => '{"bundles":{}}');
-    expect(Object.keys((JSON.parse(record) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
+    const record = await readInstallRecord<{ bundles?: object }>(userRecordPath(env())).catch(() => ({ bundles: {} }));
+    expect(Object.keys(record.bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
     const current = await run(['profile', 'current', '-o', 'json']);
     expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
   });
@@ -551,7 +551,7 @@ profiles:
     expect(activated.exitCode, activated.stdout).toBe(0);
     const userRecord = userRecordPath(env());
     // The record keeps the hub's versionless bundle id as its key.
-    expect(Object.keys((JSON.parse(await readFile(userRecord, 'utf8')) as { bundles: object }).bundles))
+    expect(Object.keys((await readInstallRecord(userRecord)).bundles))
       .toEqual(['acme-org-sample-skills-sample-skills']);
     const cleanDir = path.join(workspace, 'clean-target');
     await mkdir(cleanDir, { recursive: true });
