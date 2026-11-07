@@ -872,5 +872,28 @@ profiles: []
       });
       expect(Object.keys(data)).toEqual(expect.arrayContaining(['configPath', 'userTargetsPath', 'activeHubId', 'hubs', 'index']));
     });
+
+    it('lets the record win over an old-file bundle of another version of the same versioned id in status and replay', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      const versioned = (version: string): string => `acme-org-local-foo-local-foo-${version}`;
+      const record = await readRecordJson();
+      // Replay restores the recorded version; the release serves 2.0.0.
+      record.bundles = { [versioned('2.0.0')]: record.bundles['local-foo'] };
+      record.bundles[versioned('2.0.0')].tools.vscode.version = '2.0.0';
+      await writeRecord(workspace, record);
+      await writeFile(path.join(workspace, 'prompt-registry.lock.json'), JSON.stringify({
+        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
+        bundles: { [versioned('1.0.0')]: { version: '1.0.0', sourceId: 'foo', sourceType: 'github', installedAt: '2026-10-01T00:00:00.000Z', files: [] } },
+        sources: { foo: GITHUB_SOURCE }
+      }));
+
+      const status = await runRecord(['status', '-o', 'json']);
+      const replay = await runRecord(['install', '-o', 'json']);
+
+      expect(parseJson<{ entries: { bundleId: string; tool: string }[] }>(status.stdout).data.entries
+        .map(({ bundleId, tool }) => `${bundleId} ${tool}`)).toEqual([`${versioned('2.0.0')} vscode`]);
+      expect(replay.exitCode, replay.stdout).toBe(0);
+      expect(parseJson<Record<string, unknown>>(replay.stdout).data).not.toHaveProperty('oldFile');
+    });
   });
 });
