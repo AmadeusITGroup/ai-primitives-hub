@@ -26,7 +26,6 @@ import type {
 import {
   buildZip,
   NodeFileSystem,
-  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -49,6 +48,10 @@ import {
   runCli,
   runCommand,
 } from '../../src/framework';
+import {
+  readInstallRecord,
+  userRecordPath,
+} from '../helpers/install-record-fixtures';
 
 const MIXED_FILES: Record<string, string> = {
   'deployment-manifest.yml': `id: sample-mixed
@@ -90,10 +93,6 @@ interface JsonEnvelope<T> {
   status: string;
   data: T;
   warnings: string[];
-}
-/** The 3.0.0 install record shape the assertions read. */
-interface InstallRecord {
-  bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
 }
 interface InstallData {
   written: string[];
@@ -175,9 +174,6 @@ describe('install --skip-unsupported', () => {
     });
     return { exitCode, stdout: ctx.stdout.captured() };
   };
-  const userRecordPath = (): string => new XdgAppStorage(env()).getPaths().userRecord;
-  const readRecord = async (recordPath: string): Promise<InstallRecord> =>
-    JSON.parse(await readFile(recordPath, 'utf8')) as InstallRecord;
 
   beforeEach(async () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-skip-unsupported-test-'));
@@ -199,7 +195,7 @@ describe('install --skip-unsupported', () => {
       expect(result.stdout).toContain('BUNDLE.UNSUPPORTED_CONTENT');
       expect(result.stdout).toContain('hooks/pre-commit.hook.json');
       expect(await listFiles(kiroDir)).toEqual([]);
-      await expect(readFile(userRecordPath(), 'utf8')).rejects.toThrow();
+      await expect(readFile(userRecordPath(env()), 'utf8')).rejects.toThrow();
     });
 
     it('keeps the JSON envelope of a fully supported install', async () => {
@@ -223,7 +219,7 @@ describe('install --skip-unsupported', () => {
 
       expect(result.exitCode, result.stdout).toBe(0);
       expect(result.stdout).toBe(
-        `Installed sample-mixed@1.0.0 into target "kiro-ide" (1 written, 0 skipped). Updated ${userRecordPath()}.\n`
+        `Installed sample-mixed@1.0.0 into target "kiro-ide" (1 written, 0 skipped). Updated ${userRecordPath(env())}.\n`
       );
       expect(result.stderr).toBe('');
     });
@@ -241,7 +237,7 @@ describe('install --skip-unsupported', () => {
     expect(envelope.data.skipped).toEqual([HOOK_SKIP]);
     expect(envelope.warnings).toEqual([`skipped hooks/pre-commit.hook.json: ${KIRO_REASON}`]);
     expect(await listFiles(kiroDir)).toEqual(['steering/hello.prompt.md']);
-    const entry = (await readRecord(envelope.data.lockfile)).bundles['sample-mixed'].tools.kiro;
+    const entry = (await readInstallRecord(envelope.data.lockfile)).bundles['sample-mixed'].tools.kiro;
     expect(entry.files.map((f) => f.path)).toEqual(['.kiro/steering/hello.prompt.md']);
   });
 
@@ -250,7 +246,7 @@ describe('install --skip-unsupported', () => {
 
     expect(result.exitCode, result.stdout).toBe(0);
     expect(result.stdout).toBe(
-      `Installed sample-mixed@1.0.0 into target "kiro-ide" (1 written, 1 skipped). Updated ${userRecordPath()}.\n`
+      `Installed sample-mixed@1.0.0 into target "kiro-ide" (1 written, 1 skipped). Updated ${userRecordPath(env())}.\n`
       + 'Skipped:\n'
       + `  - hooks/pre-commit.hook.json: ${KIRO_REASON}\n`
     );
@@ -268,7 +264,7 @@ describe('install --skip-unsupported', () => {
     expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed).toEqual(['.kiro/steering/hello.prompt.md']);
     expect(await listFiles(kiroDir)).toEqual([]);
     // The user record held only this entry, so it is removed with it.
-    await expect(readFile(userRecordPath(), 'utf8')).rejects.toThrow();
+    await expect(readFile(userRecordPath(env()), 'utf8')).rejects.toThrow();
   });
 
   it('applies to a remote install', async () => {
@@ -281,7 +277,7 @@ describe('install --skip-unsupported', () => {
     const envelope = parseJson<InstallData>(result.stdout);
     expect(envelope.status).toBe('warning');
     expect(envelope.data.skipped).toEqual([HOOK_SKIP]);
-    const entry = (await readRecord(envelope.data.lockfile)).bundles['sample-mixed'].tools.kiro;
+    const entry = (await readInstallRecord(envelope.data.lockfile)).bundles['sample-mixed'].tools.kiro;
     expect(entry.files.map((f) => f.path)).toEqual(['.kiro/steering/hello.prompt.md']);
   });
 
@@ -306,9 +302,7 @@ describe('install --skip-unsupported', () => {
     await expect(readFile(path.join(workspace, '.github', 'agents', 'hello.agent.md'), 'utf8')).rejects.toThrow();
     // Repository scope records root-relative paths under `bundles.<id>.tools.<type>`.
     expect(envelope.data.lockfile).toBe(path.join(workspace, 'ai-primitives-hub.local.lock.json'));
-    const record = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
-    };
+    const record = await readInstallRecord(envelope.data.lockfile);
     expect(record.bundles['sample-repo'].tools.vscode.files.map((f) => f.path))
       .toEqual(['.github/prompts/hello.prompt.md']);
 
@@ -344,6 +338,6 @@ describe('install --skip-unsupported', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('BUNDLE.UNSUPPORTED_CONTENT');
     expect(await listFiles(kiroDir)).toEqual([]);
-    await expect(readFile(userRecordPath(), 'utf8')).rejects.toThrow();
+    await expect(readFile(userRecordPath(env()), 'utf8')).rejects.toThrow();
   });
 });

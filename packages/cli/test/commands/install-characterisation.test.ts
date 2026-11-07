@@ -44,7 +44,6 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   NodeFileSystem,
-  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterAll,
@@ -66,6 +65,9 @@ import {
   createTestContext,
   runCli,
 } from '../../src/framework';
+import {
+  userRecordPath,
+} from '../helpers/install-record-fixtures';
 
 const REVISION = 'abcdef0123456789abcdef0123456789abcdef01';
 const COLLECTION_FILE = 'collections/example.collection.yml';
@@ -340,7 +342,7 @@ interface LockEntry {
  * @param sandbox - Sandbox.
  */
 const recordFiles = (sandbox: Sandbox): [label: string, file: string][] => {
-  const userRecord = new XdgAppStorage(sandbox.env).getPaths().userRecord;
+  const userRecord = userRecordPath(sandbox.env);
   return [
     ...['ai-primitives-hub.lock.json', 'ai-primitives-hub.local.lock.json']
       .map((name): [string, string] => [`<workspace>/${name}`, path.join(sandbox.workspace, name)]),

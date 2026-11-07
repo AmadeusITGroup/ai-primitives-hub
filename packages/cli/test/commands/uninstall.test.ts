@@ -23,7 +23,6 @@ import {
 } from '@ai-primitives-hub/app';
 import {
   NodeFileSystem,
-  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -51,6 +50,8 @@ import {
   makeRun,
   readRecord,
   recordPathIn,
+  readInstallRecord,
+  userRecordPath,
 } from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
@@ -349,10 +350,8 @@ describe('uninstall command', () => {
 
     it('records paths relative to HOME, not USERPROFILE, and uninstall removes exactly those files', async () => {
       await installUser();
-      const userRecord = new XdgAppStorage(userEnv).getPaths().userRecord;
-      const record = JSON.parse(await readFile(userRecord, 'utf8')) as {
-        bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
-      };
+      const userRecord = userRecordPath(userEnv);
+      const record = await readInstallRecord(userRecord);
       const recorded = record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path);
       expect(recorded).toEqual(['target/prompts/hello.prompt.md']);
 
