@@ -1,8 +1,9 @@
 /**
  * Install record listing for the extension's repository view. Reads both
  * repository records at the git root and merges them with the old
- * prompt-registry lockfiles; the install record wins for the same bundle id.
- * A bundle split across the two files is one item. Problems are shown once
+ * prompt-registry lockfiles; the install record wins for any version of a
+ * bundle. A bundle split across the two files is one item, and a tool's older
+ * version under another versioned key is not listed. Problems are shown once
  * per file and content, and logged on every refresh.
  * @module services/install-record-listing
  */
@@ -10,6 +11,7 @@ import * as path from 'node:path';
 import {
   createInstallRecordServices,
   isAnyFileMissing,
+  recordIdentityOf,
   type RecordStore,
   toLockfileBundleEntry,
 } from '@ai-primitives-hub/app';
@@ -74,10 +76,18 @@ interface ListingProblem {
 
 const UNREADABLE = 'unreadable';
 
-/** A tool entry with the record file it was read from. */
+/** A tool entry with its key, tool and the record file it was read from. */
 interface LocatedEntry {
+  bundleId: string;
+  tool: string;
   entry: ToolEntry;
   location: RecordLocation;
+}
+
+/** The record's listing items, and the identity of every entry for the old-file merge. */
+interface RecordItems {
+  items: Map<string, InstalledBundle>;
+  identities: Set<string>;
 }
 
 /**
@@ -111,39 +121,52 @@ export class InstallRecordListing {
     });
   }
 
-  private async readRecords(workspaceRoot: string): Promise<Map<string, InstalledBundle>> {
+  private async readRecords(workspaceRoot: string): Promise<RecordItems> {
     const items = new Map<string, InstalledBundle>();
+    const identities = new Set<string>();
     let locations: [RecordLocation, RecordLocation];
     try {
       locations = await this.store.resolveRepository({ start: workspaceRoot });
     } catch (error) {
       this.logger.warn('Failed to resolve the repository root for install records:', error instanceof Error ? error : undefined);
-      return items;
+      return { items, identities };
     }
     const [committed, localOnly] = locations;
     const committedBundles = await this.loadBundles(committed);
     const localBundles = await this.loadBundles(localOnly);
+    const candidates: LocatedEntry[] = [];
     for (const bundleId of new Set([...committedBundles.keys(), ...localBundles.keys()])) {
       // Tools may be split across the files; the same tool in both is a conflict and the committed entry wins.
       const committedTools = committedBundles.get(bundleId)?.tools ?? {};
-      const candidates: LocatedEntry[] = Object.values(committedTools).map((entry) => ({ entry, location: committed }));
+      candidates.push(...Object.entries(committedTools).map(([tool, entry]) => ({ bundleId, tool, entry, location: committed })));
       const duplicateTools: string[] = [];
       for (const [tool, entry] of Object.entries(localBundles.get(bundleId)?.tools ?? {})) {
         if (Object.hasOwn(committedTools, tool)) {
           duplicateTools.push(tool);
           continue;
         }
-        candidates.push({ entry, location: localOnly });
+        candidates.push({ bundleId, tool, entry, location: localOnly });
       }
       if (duplicateTools.length > 0) {
         this.report(await this.conflictProblem(bundleId, duplicateTools, committed, localOnly));
       }
-      const latest = latestEntry(candidates);
+    }
+    // A tool lists one version of a bundle: its latest install across the versioned keys.
+    const byIdentity = new Map<string, LocatedEntry[]>();
+    for (const candidate of candidates) {
+      const identity = recordIdentityOf(candidate.bundleId, candidate.entry.version);
+      identities.add(identity);
+      const key = JSON.stringify([identity, candidate.tool]);
+      byIdentity.set(key, [...(byIdentity.get(key) ?? []), candidate]);
+    }
+    const listed = new Set([...byIdentity.values()].map((group) => latestEntry(group)));
+    for (const bundleId of new Set(candidates.map((candidate) => candidate.bundleId))) {
+      const latest = latestEntry(candidates.filter((candidate) => candidate.bundleId === bundleId && listed.has(candidate)));
       if (latest !== undefined) {
         await this.addItem(items, latest.location, bundleId, latest.entry);
       }
     }
-    return items;
+    return { items, identities };
   }
 
   /**
@@ -231,7 +254,7 @@ export class InstallRecordListing {
   }
 
   /**
-   * List repository bundles: install records first, then old lockfile items with other ids.
+   * List repository bundles: install records first, then old lockfile items of other bundles.
    * @param workspaceRoot - Workspace root the git-root walk starts from.
    * @param legacy - Reads the old prompt-registry lockfiles.
    */
@@ -239,14 +262,24 @@ export class InstallRecordListing {
     workspaceRoot: string,
     legacy: () => Promise<InstalledBundle[]>
   ): Promise<InstalledBundle[]> {
-    const fromRecords = await this.readRecords(workspaceRoot);
+    const { items, identities } = await this.readRecords(workspaceRoot);
     let old: InstalledBundle[] = [];
     try {
       old = await legacy();
     } catch (error) {
       this.logger.warn('Failed to query repository bundles from lockfile:', error instanceof Error ? error : undefined);
     }
-    return [...fromRecords.values(), ...old.filter((bundle) => !fromRecords.has(bundle.bundleId))];
+    // The record wins over an old item of any version; old items list one version, the latest installed.
+    const oldByIdentity = new Map<string, InstalledBundle>();
+    for (const bundle of old) {
+      const identity = recordIdentityOf(bundle.bundleId, bundle.version);
+      const kept = oldByIdentity.get(identity);
+      if (!items.has(bundle.bundleId) && !identities.has(identity)
+        && (kept === undefined || Date.parse(bundle.installedAt) > Date.parse(kept.installedAt))) {
+        oldByIdentity.set(identity, bundle);
+      }
+    }
+    return [...items.values(), ...oldByIdentity.values()];
   }
 }
 

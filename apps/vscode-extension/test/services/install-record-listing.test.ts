@@ -15,6 +15,7 @@ import {
   initGitRoot,
   LOCAL_RECORD_FILE,
   RECORD_FILE,
+  type RecordSpec,
   writeInstallRecord,
   writeOldLockfile,
 } from '../helpers/install-record-test-helpers';
@@ -65,6 +66,44 @@ suite('Install record listing (repository scope)', () => {
       { bundleId: 'shared', version: '2.0.0' }
     ]);
     assert.ok(showWarning.notCalled);
+  });
+
+  const versionCases: { name: string; record: RecordSpec; old?: Record<string, string>; expected: { bundleId: string; version: string }[] }[] = [
+    {
+      name: 'an old lockfile holding 1.0.0 next to a record holding 2.0.0 of a versioned id lists the record\'s',
+      record: { 'acme-tools-coll-2.0.0': { vscode: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/coll.prompt.md' } } },
+      old: { 'acme-tools-coll-1.0.0': '1.0.0' },
+      expected: [{ bundleId: 'acme-tools-coll-2.0.0', version: '2.0.0' }]
+    },
+    {
+      name: 'two versioned keys of one bundle for the same tool list the latest installed',
+      record: {
+        'acme-tools-coll-1.0.0': { vscode: { version: '1.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/coll-1.prompt.md' } },
+        'acme-tools-coll-2.0.0': { vscode: { version: '2.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.github/prompts/coll-2.prompt.md' } }
+      },
+      expected: [{ bundleId: 'acme-tools-coll-1.0.0', version: '1.0.0' }]
+    },
+    {
+      name: 'versioned keys of one bundle held by different tools both list',
+      record: {
+        'acme-tools-coll-1.0.0': { kiro: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.kiro/steering/coll.md' } },
+        'acme-tools-coll-2.0.0': { vscode: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/coll.prompt.md' } }
+      },
+      expected: [{ bundleId: 'acme-tools-coll-1.0.0', version: '1.0.0' }, { bundleId: 'acme-tools-coll-2.0.0', version: '2.0.0' }]
+    }
+  ];
+
+  versionCases.forEach(({ name, record, old, expected }) => {
+    test(name, async () => {
+      writeInstallRecord(root, RECORD_FILE, record);
+      if (old !== undefined) {
+        writeOldLockfile(root, 'prompt-registry.lock.json', old);
+      }
+
+      const items = await list();
+
+      assert.deepStrictEqual(items.toSorted((a, b) => a.bundleId.localeCompare(b.bundleId)), expected);
+    });
   });
 
   test('tools of one bundle split across the two files list as one item without a warning', async () => {
