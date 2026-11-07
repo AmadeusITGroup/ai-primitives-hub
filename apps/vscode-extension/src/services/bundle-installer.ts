@@ -520,26 +520,16 @@ export class BundleInstaller {
    */
   private async uninstallUserRecordEntry(bundleId: string, located: LocatedToolEntry): Promise<void> {
     const root = located.location.root;
-    const { modified, change, removal } = await this.records.serialize(located.location.path, async () => {
-      let modifiedFiles: Set<string>;
-      let uninstalled: RecordInstallResult;
+    const result = await this.records.serialize(located.location.path, async () => {
       try {
-        modifiedFiles = new Set(await findModifiedFiles(this.records.fs, root, located.entry.files));
-        uninstalled = await this.records.service.recordUninstall({ location: located.location, bundleId, tool: this.records.hostTool });
+        return await this.records.service.uninstallEntry({ location: located.location, bundleId, tool: this.records.hostTool });
       } catch (error) {
         this.rethrowRecordError(error, [], root);
       }
-      const deleted = await this.records.service.deleteSuperseded({
-        location: uninstalled.location,
-        deletedFiles: uninstalled.deletedFiles.filter((file) => !modifiedFiles.has(file))
-      }).catch((error: unknown) => this.rethrowRecordError(error, [], root));
-      return { modified: modifiedFiles, change: uninstalled, removal: deleted };
     });
-    for (const warning of [...change.warnings, ...removal.warnings]) {
-      this.logger.warn(`[BundleInstaller] ${warning}`);
-    }
+    this.logWarnings(result.warnings);
     if ((await this.storage.getInstalledBundle(bundleId, 'user')) !== undefined) {
-      await this.retireProfileEntry(bundleId, root, [...modified].map((file) => path.join(root, ...file.split('/'))));
+      await this.retireProfileEntry(bundleId, root, result.kept.map((file) => path.join(root, ...file.split('/'))));
     }
     await this.removeBundleCache(bundleId);
   }
