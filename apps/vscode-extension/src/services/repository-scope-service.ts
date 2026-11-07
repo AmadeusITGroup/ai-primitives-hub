@@ -975,8 +975,8 @@ export class RepositoryScopeService implements IScopeService {
       }
       const moved = await this.records.service.moveEntry({ location: located.location, bundleId, tool: this.records.hostTool });
       moved.warnings.forEach((warning) => this.logger.warn(`[RepositoryScopeService] ${warning}`));
-      const [committed, localOnly] = await this.records.locations(this.workspaceRoot);
-      const otherMode = await this.records.listedPathsIn(newMode === 'local-only' ? committed : localOnly);
+      // The file the entry left is the other commit mode's file (BR2.2)
+      const otherMode = await this.records.listedPathsIn(moved.from);
       const paths = located.entry.files.map((file) => file.path).filter((file) => !otherMode.has(file))
         .map((file) => this.fromRootRelative(located.location.root, file));
       const forExclude = this.consolidateSkillPathsForGitExclude(paths);
