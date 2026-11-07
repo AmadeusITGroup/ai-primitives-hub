@@ -21,12 +21,11 @@
  * filtered via `--target`), reusing the same fetch/write primitives as
  * `install.ts` (`fetchFilesForSource`, `createWriterFactory`). Repository
  * and user targets record each bundle in the 3.0.0 install record under the
- * target's type, exactly as a direct `install` does (`prepareRepositoryRecord`
- * / `prepareUserRecord`, which check and migrate the level before anything is
- * written, then `recordRepositoryInstall`). Deactivation removes them through
- * the record uninstall path (`prepareRepositoryUninstall` /
- * `prepareUserUninstall`, `recordRepositoryUninstall`), which keeps files
- * another entry still lists. Workspace-scope targets keep the older user
+ * target's type, exactly as a direct `install` does (`prepareRecordForTarget`,
+ * which checks and migrates the level before anything is written, then
+ * `recordRepositoryInstall`). Deactivation removes them through the record
+ * uninstall path (`prepareUninstallForTarget`, `recordRepositoryUninstall`),
+ * which keeps files another entry still lists. Workspace-scope targets keep the older user
  * lockfile (`lockfilePathForTarget`, `runUserScopeUninstall`), as `install`
  * and `uninstall` do. Activation state (which hub/profile is active, and
  * which bundles it synced) is tracked exclusively via `ProfileActivationStore`.
@@ -98,6 +97,7 @@ import {
   requireActiveHubOrFail,
   resolveEffectiveTarget,
   toCommandRecordError,
+  usesInstallRecord,
 } from '../framework';
 import {
   createSourceAwareInstallDependencyCache,
@@ -585,7 +585,7 @@ async function deactivateProfileBundles(ctx: Context, state: ProfileActivationSt
   const report: ProfileDeactivationReport = { records: [], migrations: [], unknown: [], warnings: [] };
   for (const configuredTarget of targets) {
     const target = resolveEffectiveTarget(ctx, configuredTarget);
-    if (target.scope === 'repository' || target.scope === 'user') {
+    if (usesInstallRecord(target)) {
       try {
         await deactivateRecordTarget(ctx, state.syncedBundles, target, report);
       } catch (error) {
