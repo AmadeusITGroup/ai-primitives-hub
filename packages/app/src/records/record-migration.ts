@@ -49,6 +49,9 @@ import {
   confinePath,
 } from './confine-path';
 import {
+  isLoneUnknown,
+} from './install-record-service';
+import {
   readRecordText,
 } from './read-record-text';
 import {
@@ -429,8 +432,7 @@ const planUser = async (run: MigrationRun, target: LoadedRecord, old: OldFile | 
       dropEntry(run.report, entry);
       continue;
     }
-    const held = Object.keys(tools ?? {});
-    if (tools !== undefined && held.length === 1 && held[0] === UNKNOWN_TOOL_NAME) {
+    if (tools !== undefined && isLoneUnknown(Object.keys(tools))) {
       const replaced = tools[UNKNOWN_TOOL_NAME].version;
       delete tools[UNKNOWN_TOOL_NAME];
       if (replaced !== entry.version) {
