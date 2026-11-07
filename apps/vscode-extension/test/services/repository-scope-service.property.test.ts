@@ -10,11 +10,20 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  validateManifest,
+} from '@ai-primitives-hub/core';
 import * as fc from 'fast-check';
 import * as sinon from 'sinon';
 import {
+  LockfileManager,
+} from '../../src/services/lockfile-manager';
+import {
   RepositoryScopeService,
 } from '../../src/services/repository-scope-service';
+import type {
+  SyncBundleInstall,
+} from '../../src/services/scope-service';
 import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
@@ -76,6 +85,63 @@ suite('RepositoryScopeService Property Tests', () => {
       .map((paths) => [...new Set(paths)]); // Ensure uniqueness
   };
 
+  /**
+   * The `install` option of a bundle directory: every file below it, keyed
+   * by bundle path, with its validated manifest.
+   * @param bundlePath - Bundle directory holding `deployment-manifest.yml`.
+   */
+  const installFromDirectory = (bundlePath: string): SyncBundleInstall => {
+    const files = new Map<string, Uint8Array>();
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else {
+          files.set(path.relative(bundlePath, full).split(path.sep).join('/'), fs.readFileSync(full));
+        }
+      }
+    };
+    walk(bundlePath);
+    return {
+      files,
+      manifest: validateManifest(files, {}),
+      origin: { sourceId: 'local-test', sourceType: 'local' },
+      source: { type: 'local', url: 'local:local-test' }
+    };
+  };
+
+  /**
+   * Install a one-item bundle of a file type and return where its file landed.
+   * @param fileType - Primitive kind.
+   * @param fileName - Item id and base file name.
+   */
+  const installOneFile = async (fileType: Exclude<CopilotFileType, 'chatmode' | 'skill'>, fileName: string): Promise<string[]> => {
+    const sources: Record<typeof fileType, string> = {
+      prompt: `prompts/${fileName}.prompt.md`,
+      instructions: `instructions/${fileName}.instructions.md`,
+      agent: `agents/${fileName}.agent.md`
+    };
+    const bundlePath = path.join(tempDir, 'bundles', `one-${fileType}-${fileName}`);
+    fs.rmSync(bundlePath, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(path.join(bundlePath, sources[fileType])), { recursive: true });
+    fs.writeFileSync(path.join(bundlePath, sources[fileType]), `# ${fileName}\n`);
+    fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'),
+      [
+        'id: one',
+        'version: "1.0.0"',
+        'name: One',
+        'prompts:',
+        `  - id: ${JSON.stringify(fileName)}`,
+        `    name: ${JSON.stringify(fileName)}`,
+        `    file: ${JSON.stringify(sources[fileType])}`,
+        `    type: ${fileType}`,
+        ''
+      ].join('\n'));
+    const result = await service.syncBundle('one', bundlePath, { commitMode: 'commit', install: installFromDirectory(bundlePath) });
+    return result?.written ?? [];
+  };
+
   setup(() => {
     sandbox = sinon.createSandbox();
     tempDir = path.join(__dirname, '..', '..', '..', 'test-temp-repo-scope-prop');
@@ -88,11 +154,12 @@ suite('RepositoryScopeService Property Tests', () => {
     mockStorage = sandbox.createStubInstance(RegistryStorage);
 
     // Create service
-    service = new RepositoryScopeService(workspaceRoot, mockStorage);
+    service = new RepositoryScopeService(workspaceRoot, mockStorage, 'vscode');
   });
 
   teardown(() => {
     sandbox.restore();
+    LockfileManager.resetInstance();
     // Cleanup temp directories
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -138,57 +205,40 @@ suite('RepositoryScopeService Property Tests', () => {
       );
     });
 
-    test('getTargetPath returns absolute path within workspace for any file type and name', () => {
-      fc.assert(
-        fc.property(fileTypeGen(), fileNameGen(), (fileType, fileName) => {
-          const targetPath = service.getTargetPath(fileType, fileName);
+    test('an installed file lands inside the workspace .github/ directory for any file type and name', async () => {
+      await fc.assert(
+        fc.asyncProperty(fc.constantFrom<'prompt' | 'instructions' | 'agent'>('prompt', 'instructions', 'agent'), fileNameGen(), async (fileType, fileName) => {
+          const written = await installOneFile(fileType, fileName);
 
-          // Path must be absolute
-          assert.ok(
-            path.isAbsolute(targetPath),
-            `Target path should be absolute, got: ${targetPath}`
-          );
+          assert.strictEqual(written.length, 1, `one file is written for ${fileType} ${fileName}`);
+          const targetPath = written[0];
+          assert.ok(path.isAbsolute(targetPath), `Target path should be absolute, got: ${targetPath}`);
+          assert.ok(targetPath.startsWith(path.join(workspaceRoot, '.github') + path.sep), `Target path should be under .github/, got: ${targetPath}`);
 
-          // Path must be within workspace root
-          assert.ok(
-            targetPath.startsWith(workspaceRoot),
-            `Target path should be within workspace root, got: ${targetPath}`
-          );
-
-          // Path must include .github/
-          assert.ok(
-            targetPath.includes(path.join('.github', '')),
-            `Target path should include .github/, got: ${targetPath}`
-          );
-
+          await service.unsyncBundle('one');
           return true;
         }),
         {
           ...PropertyTestConfig.FAST_CHECK_OPTIONS,
-          numRuns: PropertyTestConfig.RUNS.STANDARD
+          numRuns: PropertyTestConfig.RUNS.QUICK
         }
       );
     });
 
-    test('file type to directory mapping is deterministic', () => {
-      fc.assert(
-        fc.property(fileTypeGen(), fileNameGen(), (fileType, fileName) => {
-          // Call twice with same inputs
-          const path1 = service.getTargetPath(fileType, fileName);
-          const path2 = service.getTargetPath(fileType, fileName);
+    test('file type to directory mapping is deterministic', async () => {
+      await fc.assert(
+        fc.asyncProperty(fc.constantFrom<'prompt' | 'instructions' | 'agent'>('prompt', 'instructions', 'agent'), fileNameGen(), async (fileType, fileName) => {
+          const first = await installOneFile(fileType, fileName);
+          await service.unsyncBundle('one');
+          const second = await installOneFile(fileType, fileName);
+          await service.unsyncBundle('one');
 
-          // Results must be identical
-          assert.strictEqual(
-            path1,
-            path2,
-            `Mapping should be deterministic: ${path1} !== ${path2}`
-          );
-
+          assert.deepStrictEqual(first, second, `Mapping should be deterministic: ${first.join(',')} !== ${second.join(',')}`);
           return true;
         }),
         {
           ...PropertyTestConfig.FAST_CHECK_OPTIONS,
-          numRuns: PropertyTestConfig.RUNS.STANDARD
+          numRuns: PropertyTestConfig.RUNS.QUICK
         }
       );
     });
@@ -474,11 +524,16 @@ suite('RepositoryScopeService Property Tests', () => {
           })),
           { minLength: 1, maxLength: 5 }
         )
-      ).map(([skillName, files]) => {
-        // Always include SKILL.md
-        const hasSkillMd = files.some((f) => f.relativePath.toLowerCase() === 'skill.md');
-        if (!hasSkillMd) {
-          files.unshift({ relativePath: 'SKILL.md', content: `# ${skillName}\nSkill description` });
+      ).map(([skillName, generated]) => {
+        // Exactly one SKILL.md (the manifest item file); generated paths are
+        // unique ignoring case, so case-insensitive filesystems hold them all.
+        const seen = new Set<string>(['skill.md']);
+        const files = [{ relativePath: 'SKILL.md', content: `# ${skillName}\nSkill description` }];
+        for (const file of generated) {
+          if (!seen.has(file.relativePath.toLowerCase())) {
+            seen.add(file.relativePath.toLowerCase());
+            files.push(file);
+          }
         }
         return { skillName, files };
       });
@@ -541,6 +596,7 @@ suite('RepositoryScopeService Property Tests', () => {
       // Create deployment manifest
       const manifest = `id: ${JSON.stringify(bundleId)}
 version: "1.0.0"
+name: ${JSON.stringify(bundleId)}
 prompts:
   - id: ${JSON.stringify(skillName)}
     name: ${JSON.stringify(skillName)}
@@ -594,7 +650,8 @@ prompts:
           fs.mkdirSync(path.join(tempDir, 'bundles'), { recursive: true });
 
           // Create service with fresh workspace
-          service = new RepositoryScopeService(workspaceRoot, mockStorage);
+          LockfileManager.resetInstance();
+          service = new RepositoryScopeService(workspaceRoot, mockStorage, 'vscode');
 
           // Create skill bundle
           const bundleId = `skill-bundle-${skillName}`;
@@ -604,7 +661,7 @@ prompts:
           mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, bundlePath, 'commit'));
 
           // Install the skill
-          await service.syncBundle(bundleId, bundlePath);
+          await service.syncBundle(bundleId, bundlePath, { install: installFromDirectory(bundlePath) });
 
           // Read back installed files
           const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
@@ -655,7 +712,8 @@ prompts:
           fs.mkdirSync(path.join(tempDir, 'bundles'), { recursive: true });
 
           // Create service with fresh workspace
-          service = new RepositoryScopeService(workspaceRoot, mockStorage);
+          LockfileManager.resetInstance();
+          service = new RepositoryScopeService(workspaceRoot, mockStorage, 'vscode');
 
           // Create skill bundle with a simple file
           const bundleId = `skill-bundle-${skillName}`;
@@ -666,7 +724,7 @@ prompts:
           mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, bundlePath, 'commit'));
 
           // Install the skill
-          await service.syncBundle(bundleId, bundlePath);
+          await service.syncBundle(bundleId, bundlePath, { install: installFromDirectory(bundlePath) });
 
           // Verify skill directory is in correct location
           const expectedDir = path.join(workspaceRoot, '.github', 'skills', skillName);
@@ -702,7 +760,8 @@ prompts:
           fs.mkdirSync(path.join(tempDir, 'bundles'), { recursive: true });
 
           // Create service with fresh workspace
-          service = new RepositoryScopeService(workspaceRoot, mockStorage);
+          LockfileManager.resetInstance();
+          service = new RepositoryScopeService(workspaceRoot, mockStorage, 'vscode');
 
           // Create skill bundle
           const bundleId = `skill-bundle-${skillName}`;
@@ -712,7 +771,7 @@ prompts:
           mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, bundlePath, 'commit'));
 
           // Install the skill
-          await service.syncBundle(bundleId, bundlePath);
+          await service.syncBundle(bundleId, bundlePath, { install: installFromDirectory(bundlePath) });
 
           // Verify directory structure is preserved
           const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);

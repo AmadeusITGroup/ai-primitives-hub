@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
   isTarget,
+  isTargetType,
   TARGET_TYPES,
 } from '../../../src/domain/install/target';
 
@@ -89,5 +90,17 @@ describe('isTarget', () => {
     expect(isTarget(null)).toBe(false);
     expect(isTarget('vscode')).toBe(false);
     expect(isTarget(42)).toBe(false);
+  });
+});
+
+describe('isTargetType', () => {
+  it('accepts every known target type', () => {
+    for (const type of TARGET_TYPES) {
+      expect(isTargetType(type)).toBe(true);
+    }
+  });
+
+  it.each([['emacs'], [''], [1], [undefined]])('rejects %j', (value) => {
+    expect(isTargetType(value)).toBe(false);
   });
 });

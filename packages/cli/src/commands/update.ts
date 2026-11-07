@@ -11,16 +11,18 @@
  */
 import * as path from 'node:path';
 import {
-  checksumFiles,
-  FileTreeTargetWriter,
+  buildLockfileBundleEntry,
+  computeInstalledChecksums,
+  getLockfilePathForMode,
+  type InstallRecord,
+  locateRecord,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
   readLockfile,
-  removeSupersededFiles,
+  removeSupersededRecordFiles,
   resolveUserConfigPaths,
-  type TargetWriter,
-  TransformerRegistry,
+  unexcludePaths,
   upsertBundleEntry,
   upsertSource,
   writeBundleSafely,
@@ -39,6 +41,7 @@ import type {
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  restoreOrRemove,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -49,16 +52,13 @@ import {
   ArtifactoryHttpClient,
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
-  FileSystemLayoutConfigLoader,
   GitHubApiClient,
+  GitInfoExclude,
   HttpsBundleDownloader,
   isGitHubAppAuthEnabled,
   NodeHttpClient,
   parseGitHubRepositoryTarget,
   type RepositoryCommitMode,
-  RepositoryScopeWriter,
-  RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   SourceDispatcher,
   StaticTokenProvider,
   TargetStateStore,
@@ -66,6 +66,7 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   Command,
+  createCliWriterFactory,
   createHubManager,
   failWith,
   findProjectLockfile,
@@ -275,13 +276,14 @@ export class UpdateCommand extends BaseUpdateCommand {
         return renderNoUpdates(ctx, fmt, bundleIds.length, skipped.length, discoveryFailures);
       }
 
-      const { updatedCount, updateResults, failures: updateFailures } = await applyUpdates(toInstall, target, scope, commitMode, lockPath, ctx, http, tokens);
+      const { updatedCount, updateResults, failures: updateFailures, warnings: updateWarnings } = await applyUpdates(toInstall, target, scope, commitMode, lockPath, ctx, http, tokens);
       const failures = [...discoveryFailures, ...updateFailures];
+      const warnings = [...failures, ...updateWarnings];
 
       formatOutput({
-        ctx, command: 'update', output: fmt, status: failures.length > 0 ? 'warning' : 'ok',
+        ctx, command: 'update', output: fmt, status: warnings.length > 0 ? 'warning' : 'ok',
         data: { lockfile: lockPath, target: target.name, checked: bundleIds.length, updated: updatedCount, skipped: skipped.length, updates: updateResults, failures },
-        warnings: failures,
+        warnings,
         textRenderer: failures.length > 0
           ? (data) => {
             const lines = data.updates.length > 0
@@ -535,34 +537,6 @@ function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skipp
   return failures.length > 0 ? 1 : 0;
 }
 
-/**
- * Build a scope-aware target writer, matching install/uninstall's own
- * `createWriterFactory`.
- * @param ctx CLI context.
- * @param target Target being updated.
- * @param scope Effective scope (may override `target.scope`).
- * @param commitMode Effective commit mode (repository scope only).
- * @returns A TargetWriter.
- */
-function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode): TargetWriter {
-  const effectiveScope = scope as Target['scope'];
-  if (effectiveScope === 'repository' && new Set(['vscode', 'vscode-insiders', 'copilot-cli']).has(target.type)) {
-    const writer = new RepositoryScopeWriter({
-      fs: ctx.fs,
-      workspaceRoot: target.rootPath ?? ctx.cwd(),
-      commitMode
-    });
-    return new RepositoryScopeWriterAdapter(writer);
-  }
-  const transformer = TransformerRegistry.withBuiltIns().getTransformer(target.type);
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-  return new FileTreeTargetWriter({ fs: ctx.fs, env: ctx.env, transformer, layoutLoader });
-}
-
 async function applyUpdates(
   toInstall: UpdateCandidate[],
   target: Target,
@@ -572,14 +546,17 @@ async function applyUpdates(
   ctx: Context,
   http: HttpClient,
   tokens: TokenProvider
-): Promise<{ updatedCount: number; updateResults: UpdateEntry[]; failures: string[] }> {
+): Promise<{ updatedCount: number; updateResults: UpdateEntry[]; failures: string[]; warnings: string[] }> {
   let updatedCount = 0;
   const updateResults: UpdateEntry[] = [];
   const failures: string[] = [];
+  const warnings: string[] = [];
 
   for (const candidate of toInstall) {
     try {
-      await applyUpdate(candidate, target, scope, commitMode, lockPath, ctx, http, tokens);
+      const { exclusionErrors } = await applyUpdate(candidate, target, scope, commitMode, lockPath, ctx, http, tokens);
+      // Like install and uninstall: a warning, never a failure, so the exit code stays 0.
+      warnings.push(...exclusionErrors.map((message) => `${candidate.bundleId}: could not update the git exclude file: ${message}`));
       updateResults.push({ bundleId: candidate.bundleId, from: candidate.from, to: candidate.to });
       updatedCount++;
     } catch (err) {
@@ -588,7 +565,7 @@ async function applyUpdates(
     }
   }
 
-  return { updatedCount, updateResults, failures };
+  return { updatedCount, updateResults, failures, warnings };
 }
 
 async function syncActiveHub(ctx: Context): Promise<void> {
@@ -609,6 +586,42 @@ async function syncActiveHub(ctx: Context): Promise<void> {
   }
 }
 
+/**
+ * The records an update's superseded-file removal must respect: every
+ * other bundle of the lockfile being updated and, at repository scope,
+ * every other bundle of the repository's other lockfile.
+ * @param ctx CLI context.
+ * @param input Target, scope, commit mode and the lockfile being updated.
+ * @param input.target Effective target.
+ * @param input.scope Effective scope.
+ * @param input.commitMode Effective commit mode.
+ * @param input.lockPath Lockfile being updated.
+ * @param input.lock Its content before the update.
+ * @param input.lockKey Key of the bundle being updated.
+ * @returns The other records.
+ */
+async function otherRecords(
+  ctx: Context,
+  input: { target: Target; scope: string; commitMode: RepositoryCommitMode; lockPath: string; lock: Lockfile; lockKey: string }
+): Promise<InstallRecord[]> {
+  const { target, scope, commitMode, lockPath, lock, lockKey } = input;
+  const recordsOf = (bundles: Lockfile['bundles'], mode: RepositoryCommitMode): InstallRecord[] =>
+    Object.entries(bundles)
+      .filter(([key]) => key !== lockKey)
+      .map(([, entry]) => (scope === 'repository' ? { entry, commitMode: mode } : { entry }));
+  const records = recordsOf(lock.bundles, commitMode);
+  if (scope !== 'repository') {
+    return records;
+  }
+  const otherMode: RepositoryCommitMode = commitMode === 'commit' ? 'local-only' : 'commit';
+  const otherPath = getLockfilePathForMode(target.rootPath ?? ctx.cwd(), otherMode);
+  if (path.resolve(otherPath) === path.resolve(lockPath)) {
+    return records;
+  }
+  const otherLock = await readLockfile(otherPath, ctx.fs);
+  return otherLock === null ? records : [...records, ...recordsOf(otherLock.bundles, otherMode)];
+}
+
 async function applyUpdate(
   candidate: UpdateCandidate,
   target: Target,
@@ -618,7 +631,7 @@ async function applyUpdate(
   ctx: Context,
   http: HttpClient,
   tokens: TokenProvider
-): Promise<void> {
+): Promise<{ exclusionErrors: string[] }> {
   const downloader = candidate.source.type === 'artifactory' && candidate.artifactoryClient !== undefined
     ? new ArtifactoryBundleDownloader(candidate.artifactoryClient)
     : new HttpsBundleDownloader(
@@ -634,31 +647,68 @@ async function applyUpdate(
   const isArtifactory = candidate.source.type === 'artifactory';
   const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
 
-  const writer = writerFor(ctx, target, scope, commitMode);
-  const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, target, files, manifest);
+  const writerFactory = createCliWriterFactory(ctx, { scope: scope as Target['scope'], commitMode });
+  const writer = writerFactory(target);
+  const write = await writeBundleSafely(writer, target, files, manifest);
 
-  const entry: LockfileBundleEntry = {
+  let installedChecksums: Map<string, string>;
+  try {
+    installedChecksums = await computeInstalledChecksums({ writer, target, write, fs: ctx.fs });
+  } catch (err) {
+    // Nothing records the new version: the files it replaced get their earlier bytes back, the others are removed.
+    // Not through `writer.rollback`: the repository writer would also drop the exclude lines of the files the
+    // previous local-only version still owns. A line the write added for a file it created stays.
+    await restoreOrRemove(ctx.fs, write.result.written, write.result.replaced);
+    throw err;
+  }
+  const entry = buildLockfileBundleEntry({
     version: manifest.version,
     sourceId: candidate.entry.sourceId,
     sourceType: candidate.entry.sourceType,
     checksum: dl.sha256,
-    installedAt: new Date().toISOString(),
-    files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-  };
-  if (scope === 'repository') {
-    entry.commitMode = commitMode;
-  }
+    targetType: target.type,
+    write,
+    installedChecksums,
+    now: new Date()
+  });
 
   const lock = await readLockfile(lockPath, ctx.fs);
   if (lock === null) {
-    return;
+    return { exclusionErrors: [] };
   }
   const lockKey = isArtifactory ? candidate.installable.ref.bundleId : manifest.id;
-  const previousFiles = lock.bundles[lockKey]?.files;
+  const previousEntry = Object.prototype.hasOwnProperty.call(lock.bundles, lockKey) ? lock.bundles[lockKey] : undefined;
   let nextLock = upsertBundleEntry(lock, lockKey, entry);
   nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
   await writeLockfile(lockPath, nextLock, ctx.fs);
-  await removeSupersededFiles(writer, target, previousFiles, entry.files);
+  const exclusionErrors: string[] = [];
+  if (previousEntry !== undefined) {
+    const recordMode = scope === 'repository' ? { commitMode } : {};
+    const next = await locateRecord(writerFactory, target, { entry, ...recordMode });
+    const removal = await removeSupersededRecordFiles({
+      writerFactory,
+      target,
+      previous: { entry: previousEntry, ...recordMode },
+      // The written paths count too, like install: a new version that can't be located still keeps its files.
+      produced: new Set([
+        ...write.result.written,
+        ...(next.kind === 'located' ? next.located.paths.filter((p): p is string => p !== null) : [])
+      ].map((p) => path.resolve(p))),
+      others: await otherRecords(ctx, { target, scope, commitMode, lockPath, lock, lockKey }),
+      fs: ctx.fs,
+      preserveModified: false
+    });
+    if (removal !== null && scope === 'repository') {
+      // Best effort, like install: the lines of removed local-only files leave the exclude file.
+      const outcome = await unexcludePaths({
+        exclusion: new GitInfoExclude({ fs: ctx.fs, workspaceRoot: target.rootPath ?? ctx.cwd() }),
+        target: { ...target, scope: 'repository' },
+        commitMode,
+        paths: [...removal.removedLocations, ...removal.pruned]
+      });
+      exclusionErrors.push(...outcome.exclusionErrors);
+    }
+  }
 
   const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
   const existingState = await stateStore.load(target.name);
@@ -671,4 +721,5 @@ async function applyUpdate(
     bundles[idx] = bundleState;
   }
   await stateStore.save({ targetName: target.name, lastInstalledBundles: bundles, lastUsedAt: new Date().toISOString() });
+  return { exclusionErrors };
 }

@@ -18,18 +18,26 @@ import type {
   ExtractedFile,
   ExtractedFiles,
   FileSystem,
+  KindRoutes,
   PrimitiveKind,
+  RecordedFile,
+  RecordedLocations,
   RepositoryExclusion,
   Target,
   TargetWritePlan,
   TargetWriter,
   TargetWriteResult,
+  WriteSnapshots,
 } from '@ai-primitives-hub/core';
 import {
   applyFileMode,
   categoryOf,
   isPrimitiveKind,
   normalizePrimitiveKind,
+  replacedFiles,
+  resolveRecordedLocation,
+  restoreOrRemove,
+  snapshotBeforeWrite,
   verifyWrittenBytes,
 } from '@ai-primitives-hub/core';
 import {
@@ -38,6 +46,22 @@ import {
 import {
   GitInfoExclude,
 } from './git-info-exclude';
+
+/**
+ * Bundle path prefixes and the `.github/` subdirectory each one installs
+ * into. A recorded bundle path is located through these routes unless the
+ * write recorded an `installedPath` for it.
+ */
+export const REPOSITORY_ROUTES: Readonly<KindRoutes> = Object.freeze({
+  'prompts/': 'prompts/',
+  'instructions/': 'instructions/',
+  'chat-modes/': 'agents/',
+  'chatmodes/': 'agents/',
+  'agents/': 'agents/',
+  'skills/': 'skills/',
+  'hooks/': 'hooks/',
+  'plugins/': 'plugins/'
+});
 
 /**
  * Commit mode for repository-scoped installations.
@@ -87,6 +111,15 @@ interface WriteResult {
   skipped: string[];
   skillDirs: string[];
   writtenBundlePaths: string[];
+  /**
+   * `.github/`-relative location (`/`-separated) of every written bundle
+   * path that {@link REPOSITORY_ROUTES} would place elsewhere: nested files
+   * are flattened, a declared type can differ from the source directory,
+   * and directory items are renamed by manifest id and sanitised.
+   */
+  installedPaths: Record<string, string>;
+  /** What each written path held before the write; set only when the write replaced a file. */
+  replaced?: Record<string, ExtractedFile>;
 }
 
 /**
@@ -137,8 +170,10 @@ export class RepositoryScopeWriter {
    * The executable bit the source recorded is then applied (issue #577).
    * @param targetPath Absolute destination path.
    * @param bytes Exact bytes to install.
+   * @param snapshots Snapshots of the current write: what `targetPath` held before.
    */
-  private async writeBytesVerified(targetPath: string, bytes: ExtractedFile): Promise<void> {
+  private async writeBytesVerified(targetPath: string, bytes: ExtractedFile, snapshots: WriteSnapshots): Promise<void> {
+    await snapshotBeforeWrite(this.fs, snapshots, targetPath);
     await this.fs.mkdir(path.dirname(targetPath), { recursive: true });
     await this.fs.writeFileBytes(targetPath, bytes);
     await verifyWrittenBytes(this.fs, targetPath, bytes);
@@ -184,6 +219,39 @@ export class RepositoryScopeWriter {
     return parts.at(-1) ?? '';
   }
 
+  private githubRoot(): string {
+    return path.join(this.workspaceRoot, '.github');
+  }
+
+  private resolveLocation(file: RecordedFile): string | null {
+    return resolveRecordedLocation({
+      root: this.githubRoot(),
+      routes: REPOSITORY_ROUTES,
+      workspaceRoot: this.workspaceRoot,
+      file
+    });
+  }
+
+  /**
+   * `installedPaths` of a write: every written bundle path whose location
+   * differs from the one its route gives.
+   * @param writtenBundlePaths Bundle paths, index-aligned with `written`.
+   * @param written Absolute paths written.
+   * @returns `.github/`-relative locations keyed by bundle path.
+   */
+  private installedPathsFor(writtenBundlePaths: readonly string[], written: readonly string[]): Record<string, string> {
+    const root = this.githubRoot();
+    const installedPaths: Record<string, string> = {};
+    for (const [index, bundlePath] of writtenBundlePaths.entries()) {
+      const targetPath = written[index];
+      const routed = resolveRecordedLocation({ root, routes: REPOSITORY_ROUTES, workspaceRoot: null, file: { path: bundlePath } });
+      if (routed === null || path.resolve(routed) !== path.resolve(targetPath)) {
+        installedPaths[bundlePath] = path.relative(root, targetPath).split(path.sep).join('/');
+      }
+    }
+    return installedPaths;
+  }
+
   /**
    * Collect paths to remove for a list of manifest items.
    * Skill items add skill directories; regular items add file paths.
@@ -222,6 +290,7 @@ export class RepositoryScopeWriter {
    * @param written Accumulates written file paths.
    * @param directories Accumulates installed directory paths.
    * @param writtenBundlePaths Accumulates bundle-relative paths written.
+   * @param snapshots Snapshots of the current write.
    */
   private async installDirectoryItem(
     p: { file: string; id?: string },
@@ -229,18 +298,20 @@ export class RepositoryScopeWriter {
     files: ExtractedFiles,
     written: string[],
     directories: string[],
-    writtenBundlePaths: string[]
+    writtenBundlePaths: string[],
+    snapshots: WriteSnapshots
   ): Promise<void> {
-    const sourceId = this.extractDirectoryId(p.file, subdirectory);
+    const sourceDirectory = this.extractSourceDirectory(p.file, subdirectory);
     // Match whole path segments: item `foo` must not pick up `foo-bar/` files.
-    const sourcePrefix = `${subdirectory}/${sourceId}/`;
-    const targetId = p.id ?? sourceId;
+    // The bundle directory keeps its own spelling; only the target id is sanitised.
+    const sourcePrefix = `${subdirectory}/${sourceDirectory}/`;
+    const targetId = p.id ?? this.sanitizeId(sourceDirectory);
     const directory = path.join(this.workspaceRoot, '.github', `${subdirectory}/${targetId}`);
     for (const [bundlePath, bytes] of files) {
       if (bundlePath.startsWith(sourcePrefix)) {
         const relativePath = bundlePath.slice(sourcePrefix.length);
         const targetPath = path.join(directory, relativePath);
-        await this.writeBytesVerified(targetPath, bytes);
+        await this.writeBytesVerified(targetPath, bytes, snapshots);
         written.push(targetPath);
         writtenBundlePaths.push(bundlePath);
       }
@@ -255,7 +326,8 @@ export class RepositoryScopeWriter {
     skipped: string[],
     directories: string[],
     writtenBundlePaths: string[],
-    allowedKinds: ReadonlySet<PrimitiveKind> | null
+    allowedKinds: ReadonlySet<PrimitiveKind> | null,
+    snapshots: WriteSnapshots
   ): Promise<void> {
     for (const p of items) {
       const kind = normalizePrimitiveKind(p.type);
@@ -270,13 +342,13 @@ export class RepositoryScopeWriter {
           skipped.push(p.file);
           continue;
         }
-        await this.installDirectoryItem(p, subdirectory, files, written, directories, writtenBundlePaths);
+        await this.installDirectoryItem(p, subdirectory, files, written, directories, writtenBundlePaths, snapshots);
       } else {
         const bytes = files.get(p.file);
         if (bytes) {
           const targetPath = this.getTargetPath({ type: p.type, file: p.file });
           if (targetPath) {
-            await this.writeBytesVerified(targetPath, bytes);
+            await this.writeBytesVerified(targetPath, bytes, snapshots);
             written.push(targetPath);
             writtenBundlePaths.push(p.file);
           } else {
@@ -294,10 +366,21 @@ export class RepositoryScopeWriter {
    * @param subdirectory Bundle subdirectory of the item's kind.
    */
   private extractDirectoryId(filePath: string, subdirectory: string): string {
+    return this.sanitizeId(this.extractSourceDirectory(filePath, subdirectory));
+  }
+
+  /**
+   * Bundle directory of a directory item, as spelled in the bundle: the
+   * path segment after the first `subdirectory` segment of its file, or
+   * `unknown`.
+   * @param filePath Item manifest file path.
+   * @param subdirectory Bundle subdirectory of the item's kind.
+   */
+  private extractSourceDirectory(filePath: string, subdirectory: string): string {
     const parts = filePath.split('/');
     const index = parts.indexOf(subdirectory);
     if (index !== -1 && index + 1 < parts.length) {
-      return this.sanitizeId(parts[index + 1]);
+      return parts[index + 1];
     }
     return 'unknown';
   }
@@ -417,11 +500,12 @@ export class RepositoryScopeWriter {
     const skipped: string[] = [];
     const directories: string[] = [];
     const writtenBundlePaths: string[] = [];
+    const snapshots: WriteSnapshots = new Map();
     const allowed = allowedKinds === undefined ? null : new Set(allowedKinds);
 
     const manifestBytes = files.get('deployment-manifest.yml');
     if (!manifestBytes) {
-      return { written, skipped, skillDirs: directories, writtenBundlePaths };
+      return { written, skipped, skillDirs: directories, writtenBundlePaths, installedPaths: {} };
     }
 
     const manifest = await this.parseManifest(manifestBytes);
@@ -433,7 +517,8 @@ export class RepositoryScopeWriter {
       skipped,
       directories,
       writtenBundlePaths,
-      allowed
+      allowed,
+      snapshots
     );
 
     // Update git exclude for local-only mode
@@ -441,51 +526,70 @@ export class RepositoryScopeWriter {
       await this.exclusion.add(written);
     }
 
-    return { written, skipped, skillDirs: directories, writtenBundlePaths };
+    const replaced = replacedFiles(snapshots);
+    return {
+      written,
+      skipped,
+      skillDirs: directories,
+      writtenBundlePaths,
+      installedPaths: this.installedPathsFor(writtenBundlePaths, written),
+      ...(replaced === undefined ? {} : { replaced })
+    };
   }
 
   /**
-   * Remove paths written by a rejected repository installation.
-   * @param written Absolute paths returned by `write`.
+   * Locate recorded files below `.github/`, as `write` placed them.
+   * @param files Recorded files (bundle path plus optional `installedPath`).
+   * @returns The `.github/` root and one location per file (`null` when it
+   *   has none inside the root).
    */
-  public async rollback(written: readonly string[]): Promise<void> {
-    await this.removePaths([...written]);
+  public locate(files: readonly RecordedFile[]): RecordedLocations {
+    return { root: this.githubRoot(), paths: files.map((file) => this.resolveLocation(file)) };
+  }
+
+  /**
+   * Undo the paths of a rejected repository installation, best effort: a
+   * file the write replaced gets its earlier bytes back, any other path
+   * is removed.
+   * @param written Absolute paths returned by `write`.
+   * @param replaced `replaced` returned by that write.
+   */
+  public async rollback(written: readonly string[], replaced?: Readonly<Record<string, ExtractedFile>>): Promise<void> {
+    await restoreOrRemove(this.fs, written, replaced);
     if (this.commitMode === 'local-only') {
       await this.exclusion.remove([...written]);
     }
   }
 
   /**
-   * Remove a single file path (for uninstall pipeline).
-   * @param filePath - Relative file path to remove (from bundle root).
+   * Remove a single recorded file (for uninstall pipeline). Located like
+   * {@link RepositoryScopeWriter.locate}; a file with no location inside
+   * `.github/` is left alone.
+   * @param filePath - Bundle-relative path recorded in the lockfile.
    */
   public async removeFile(filePath: string): Promise<void> {
-    const targetPath = path.join(this.workspaceRoot, '.github', filePath);
-    await this.removePaths([targetPath]);
+    const targetPath = this.resolveLocation({ path: filePath });
+    if (targetPath !== null) {
+      await this.removePaths([targetPath]);
+    }
   }
 
   /**
-   * Remove a bundle-relative file using the same route mapping as `write()`.
-   * Lockfiles record source paths from the bundle, whereas repository output
-   * lives below `.github/` and may use a different subdirectory.
+   * Remove a recorded bundle file from where `write()` placed it: its
+   * `installedPath` when recorded, otherwise its repository route, or a
+   * legacy `.github/`-prefixed workspace path. A file with no location
+   * inside `.github/` is left alone (the lockfile is user-editable).
    * @param filePath - Bundle-relative path recorded in the lockfile.
+   * @param installedPath - `.github/`-relative location recorded from `write()`.
    */
-  public async removeBundleFile(filePath: string): Promise<void> {
-    const normalized = filePath.replaceAll('\\', '/');
-    const route = [
-      ['prompts/', 'prompts/'],
-      ['instructions/', 'instructions/'],
-      ['chat-modes/', 'agents/'],
-      ['chatmodes/', 'agents/'],
-      ['agents/', 'agents/'],
-      ['skills/', 'skills/'],
-      ['hooks/', 'hooks/'],
-      ['plugins/', 'plugins/']
-    ].find(([sourcePrefix]) => normalized.startsWith(sourcePrefix));
-
-    const targetPath = route === undefined
-      ? path.join(this.workspaceRoot, normalized)
-      : path.join(this.workspaceRoot, '.github', route[1], normalized.slice(route[0].length));
+  public async removeBundleFile(filePath: string, installedPath?: string): Promise<void> {
+    const targetPath = this.resolveLocation({
+      path: filePath,
+      ...(installedPath === undefined ? {} : { installedPath })
+    });
+    if (targetPath === null) {
+      return;
+    }
     await this.removePaths([targetPath]);
     if (this.commitMode === 'local-only') {
       await this.exclusion.remove([targetPath]);
@@ -583,36 +687,39 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
     return {
       written: result.written,
       skipped: result.skipped,
-      writtenBundlePaths: result.writtenBundlePaths
+      writtenBundlePaths: result.writtenBundlePaths,
+      installedPaths: result.installedPaths,
+      ...(result.replaced === undefined ? {} : { replaced: result.replaced })
     };
+  }
+
+  /**
+   * TargetWriter.locate implementation: locations below `<workspace>/.github`.
+   * @param _target
+   * @param files
+   */
+  public locate(_target: Target, files: readonly RecordedFile[]): Promise<RecordedLocations> {
+    return Promise.resolve(this.writer.locate(files));
   }
 
   public async preflight(target: Target, files: ExtractedFiles): Promise<TargetWritePlan> {
     return this.writer.preflight(files, target.allowedKinds);
   }
 
-  public async rollback(_target: Target, written: readonly string[]): Promise<void> {
-    await this.writer.rollback(written);
+  public async rollback(_target: Target, written: readonly string[], replaced?: Readonly<Record<string, ExtractedFile>>): Promise<void> {
+    await this.writer.rollback(written, replaced);
   }
 
   /**
-   * TargetWriter.remove implementation - translates bundle-relative lockfile
-   * paths back through the repository writer's output routes. Legacy paths
-   * already relative to `.github/` retain the old behavior.
+   * TargetWriter.remove implementation - removes the file `locate` gives
+   * for the record: its `installedPath`, its repository route, or a legacy
+   * `.github/`-prefixed workspace path. A record with no location inside
+   * `.github/` removes nothing.
    * @param _target
    * @param filePath
+   * @param installedPath
    */
-  public async remove(_target: Target, filePath: string): Promise<void> {
-    const normalized = filePath.replaceAll('\\', '/');
-    if (normalized.startsWith('.github/')) {
-      await this.writer.removeBundleFile(normalized);
-      return;
-    }
-    const knownBundlePrefix = /^(prompts|instructions|chat-modes|chatmodes|agents|skills|hooks|plugins)\//;
-    if (knownBundlePrefix.test(normalized)) {
-      await this.writer.removeBundleFile(normalized);
-      return;
-    }
-    await this.writer.removeFile(normalized);
+  public async remove(_target: Target, filePath: string, installedPath?: string): Promise<void> {
+    await this.writer.removeBundleFile(filePath, installedPath);
   }
 }

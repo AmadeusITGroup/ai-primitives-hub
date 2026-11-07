@@ -59,6 +59,7 @@ graph TD
   - `install/` - Installation types (`Target`, `Installable`, `CopilotFileType`, layout, transforms)
     - `category.ts` - Install categories (`InstallCategory`: `file`, `directory`, `config`), the kind → category table and `categoryOf`
     - `kind-route.ts` - Layout route kinds: `ROUTE_PREFIX_KINDS`, `routeKindOf`, `matchKindRoute`, and the kind/route mismatch helpers `findKindRouteMismatch` and `formatKindRouteMismatch`
+    - `recorded-location.ts` - `resolveRecordedLocation` and `resolveContained`: where a lockfile-recorded file lives, never outside the target root
   - `primitive/` - Primitive types
   - `registry/` - Registry configuration types, guards, and settings
   - `scaffold/` - Scaffolding types
@@ -117,9 +118,9 @@ graph TD
 - `stores/` - JSON lockfile, target-state, and layout-config stores
 - `telemetry/` - Telemetry and optional Elasticsearch transport
 - `transports/` - Telemetry transport abstractions
-- `writers/` - Per-target file writing (`FileTreeTargetWriter`) and `default-layouts.json`
-  - `repo-scope-writer.ts` - `RepositoryScopeWriter` for VS Code / Copilot repository scope
-  - `git-info-exclude.ts` - `GitInfoExclude`, the `RepositoryExclusion` adapter over `.git/info/exclude`
+- `writers/` - Repository-scope writing and `default-layouts.json`
+  - `repo-scope-writer.ts` - `RepositoryScopeWriter` for VS Code / Copilot repository scope, its `RepositoryScopeWriterAdapter` (`TargetWriter` with `locate`) and `REPOSITORY_ROUTES`
+  - `git-info-exclude.ts` - `GitInfoExclude`, the `RepositoryExclusion` adapter over the git exclude file (plain repository, linked worktree, submodule), and `NO_EXCLUSION`
 
 **Exports**:
 - `TEMPLATE_ROOT` / `TEMPLATE_PATHS` - Template directory paths
@@ -144,14 +145,19 @@ graph TD
 - `context-detection/` - Repository context detection
 - `discovery/` - Discovery orchestration
 - `install/` - Installation orchestration
-  - `install-bundle.ts`, `uninstall-bundle.ts`, `pipeline.ts`
+  - `install-bundle.ts`, `uninstall-bundle.ts`, `pipeline.ts`, `uninstall-pipeline.ts`
   - `layout-resolver.ts` - Layout configuration resolution
+  - `target-writer-factory.ts` - `createTargetWriterFactory`: writer selection (the CLI's writers are built here)
+  - `lockfile-entry.ts` - `buildLockfileBundleEntry`, `computeInstalledChecksums`
+  - `recorded-files.ts` - `locateRecord`, guarded removal and empty-directory pruning
+  - `apply-bundle-install.ts` - `applyBundleInstall`, the shared install use case
+  - `apply-bundle-uninstall.ts` - `applyBundleUninstall`, the shared uninstall use case
 - `registry/` - Registry management (hub, profile, activation, user config paths)
 - `release/` - `planBundleRelease` (governed release plan with legacy fallback for `bundle build`; rejects invalid `kind: plugin` items of the packaged tree)
 - `search/` - Search orchestration
 - `transform/` - Multi-target content transforms (`kiro-transformer`, windsurf/devin, claude-code)
-- `writers/` - Application-level writers
-- `stores/` - Application-level stores
+- `writers/` - Application-level writers (`FileTreeTargetWriter`, layout-driven per-target writing)
+- `stores/` - Application-level stores (`json-lockfile-store.ts`; `install-record-store.ts` with `createLockfileRecordStore`)
 - `update/` - Update orchestration
 
 **Design Principle**: Application layer orchestrates infrastructure adapters for business use cases and exposes the public SDK surface.

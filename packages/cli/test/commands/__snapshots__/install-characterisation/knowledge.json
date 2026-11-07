@@ -126,7 +126,6 @@
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
-        "<workspace>/.devin/knowledge",
         "<workspace>/.devin/playbooks",
         "<workspace>/.devin/plugins",
         "<workspace>/.devin/powers",
@@ -171,7 +170,6 @@
         "$HOME/.config/devin/skills",
         "$HOME/.devin",
         "$HOME/.devin/hooks",
-        "$HOME/.devin/knowledge",
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
@@ -214,7 +212,6 @@
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
-        "<workspace>/.devin/knowledge",
         "<workspace>/.devin/playbooks",
         "<workspace>/.devin/plugins",
         "<workspace>/.devin/powers",
@@ -259,7 +256,6 @@
         "$HOME/.config/devin/skills",
         "$HOME/.devin",
         "$HOME/.devin/hooks",
-        "$HOME/.devin/knowledge",
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
@@ -337,6 +333,26 @@
       }
     },
     "kiro/repository": {
+      "dirsLeftAfterUninstall": [],
+      "files": {
+        "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": "BUNDLE.UNSUPPORTED_CONTENT",
+        "exitCode": 1,
+        "status": "error"
+      },
+      "lockEntry": null,
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "kiro/repository/local-only": {
       "dirsLeftAfterUninstall": [],
       "files": {
         "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
@@ -684,7 +700,6 @@
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
-        "<workspace>/.devin/knowledge",
         "<workspace>/.devin/playbooks",
         "<workspace>/.devin/plugins",
         "<workspace>/.devin/powers",
@@ -729,7 +744,6 @@
         "$HOME/.config/devin/skills",
         "$HOME/.devin",
         "$HOME/.devin/hooks",
-        "$HOME/.devin/knowledge",
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
@@ -772,7 +786,6 @@
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
-        "<workspace>/.devin/knowledge",
         "<workspace>/.devin/playbooks",
         "<workspace>/.devin/plugins",
         "<workspace>/.devin/powers",
@@ -817,7 +830,6 @@
         "$HOME/.config/devin/skills",
         "$HOME/.devin",
         "$HOME/.devin/hooks",
-        "$HOME/.devin/knowledge",
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
@@ -895,6 +907,26 @@
       }
     },
     "kiro/repository": {
+      "dirsLeftAfterUninstall": [],
+      "files": {
+        "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
+      },
+      "filesAfterUninstall": [
+        "<workspace>/ai-primitives-hub.yml"
+      ],
+      "gitExclude": null,
+      "gitExcludeAfterUninstall": null,
+      "install": {
+        "errorCode": "BUNDLE.UNSUPPORTED_CONTENT",
+        "exitCode": 1,
+        "status": "error"
+      },
+      "lockEntry": null,
+      "targetAdd": {
+        "effectiveScope": "repository"
+      }
+    },
+    "kiro/repository/local-only": {
       "dirsLeftAfterUninstall": [],
       "files": {
         "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"

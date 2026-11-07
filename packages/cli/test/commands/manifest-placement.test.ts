@@ -10,6 +10,7 @@ import {
   readdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -62,6 +63,9 @@ import {
   createTestContext,
   runCli,
 } from '../../src/framework';
+import {
+  makeGitDir,
+} from '../helpers/git-fixture';
 
 const MANIFEST = `id: sample-skills
 version: 1.8.1
@@ -191,8 +195,8 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
   });
 
-  const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
-    const ctx = createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env: env() });
+  const run = async (argv: string[], fs: NodeFileSystem = new NodeFileSystem()): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({ cwd: workspace, fs, env: env() });
     const exitCode = await runCli(argv, {
       ctx,
       http,
@@ -287,6 +291,247 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     // A file written to the same place by both versions is kept (overwritten).
     expect(await readFile(path.join(kiroDir, 'steering', 'keep.prompt.md'), 'utf8')).toBe('# Keep v2\n');
     expect((await readUserLock()).bundles['sample-prompts'].version).toBe('2.0.0');
+  });
+
+  it('update keeps the files it wrote when the new version cannot be located', async () => {
+    await seedPathRoutedPrompts();
+    const lockfile = resolveUserConfigPaths(env()).userLockfile;
+    // Fail the first filesystem probe after the lockfile write once: locating
+    // the new version fails, locating the previous one succeeds.
+    let armed = false;
+    const fs = new NodeFileSystem();
+    const writeFileOf = fs.writeFile.bind(fs);
+    const existsOf = fs.exists.bind(fs);
+    fs.writeFile = async (p: string, contents: string): Promise<void> => {
+      await writeFileOf(p, contents);
+      armed = armed || path.resolve(p) === path.resolve(lockfile);
+    };
+    fs.exists = async (p: string): Promise<boolean> => {
+      if (armed) {
+        armed = false;
+        throw new Error('EIO: transient read failure');
+      }
+      return existsOf(p);
+    };
+
+    const updated = await run(['update', '--target', 'kiro-ide', '--no-hub-sync', '-o', 'json'], fs);
+
+    expect(updated.exitCode, updated.stdout).toBe(0);
+    expect((await readUserLock()).bundles['sample-prompts'].version).toBe('2.0.0');
+    // Written by the update at a place the previous version also used: still on disk.
+    expect(await readFile(path.join(kiroDir, 'steering', 'keep.prompt.md'), 'utf8')).toBe('# Keep v2\n');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'update on a vscode repository target keeps a dropped file another bundle records and refuses a symlinked directory',
+    async () => {
+      expect((await run([
+        'target', 'add', 'vs-repo', '--type', 'vscode', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
+      ])).exitCode).toBe(0);
+      const github = path.join(workspace, '.github');
+      const outside = path.join(workspace, 'outside');
+      await mkdir(path.join(github, 'prompts'), { recursive: true });
+      await mkdir(path.join(github, 'plugins'), { recursive: true });
+      await mkdir(outside, { recursive: true });
+      await writeFile(path.join(github, 'prompts', 'keep.prompt.md'), '# Keep v1\n');
+      await writeFile(path.join(github, 'prompts', 'shared.prompt.md'), '# Shared\n');
+      await writeFile(path.join(outside, 'plugin.json'), 'sentinel\n');
+      await symlink(outside, path.join(github, 'plugins', 'p'));
+      const fileEntry = (p: string): { path: string; checksum: string } => ({ path: p, checksum: 'a'.repeat(64) });
+      let lock = upsertBundleEntry(emptyLockfile('test'), 'sample-prompts', {
+        version: '1.0.0',
+        sourceId: 'sample-prompts-source',
+        sourceType: 'github',
+        installedAt: '2026-01-01T00:00:00Z',
+        targetType: 'vscode',
+        files: [fileEntry('prompts/keep.prompt.md'), fileEntry('prompts/shared.prompt.md'), fileEntry('plugins/p/plugin.json')]
+      });
+      lock = upsertBundleEntry(lock, 'other', {
+        version: '1.0.0',
+        sourceId: 'other-source',
+        sourceType: 'local',
+        installedAt: '2026-01-01T00:00:00Z',
+        targetType: 'vscode',
+        files: [fileEntry('prompts/shared.prompt.md')]
+      });
+      lock = upsertSource(lock, 'sample-prompts-source', { type: 'github', url: 'https://github.com/acme-org/sample-prompts' });
+      lock = upsertSource(lock, 'other-source', { type: 'local', url: path.join(workspace, 'other') });
+      await writeLockfile(path.join(workspace, 'prompt-registry.lock.json'), lock, new NodeFileSystem());
+
+      const updated = await run(['update', '--target', 'vs-repo', '--no-hub-sync', '-o', 'json']);
+
+      expect(updated.exitCode, updated.stdout).toBe(0);
+      expect((JSON.parse(updated.stdout) as JsonEnvelope<{ updated: number }>).data.updated).toBe(1);
+      expect(await readFile(path.join(github, 'prompts', 'shared.prompt.md'), 'utf8')).toBe('# Shared\n');
+      expect(await readFile(path.join(outside, 'plugin.json'), 'utf8')).toBe('sentinel\n');
+      // A dropped file no other bundle records is still removed.
+      await expect(readFile(path.join(github, 'prompts', 'keep.prompt.md'), 'utf8')).rejects.toThrow();
+      expect(await readFile(path.join(github, 'prompts', 'x.md'), 'utf8')).toBe('# X v2\n');
+    }
+  );
+
+  it('local-only update on a Kiro repository target removes the exclude line of a superseded file', async () => {
+    expect((await run([
+      'target', 'add', 'kiro-repo', '--type', 'kiro', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
+    ])).exitCode).toBe(0);
+    const steering = path.join(workspace, '.kiro', 'steering');
+    await mkdir(steering, { recursive: true });
+    await writeFile(path.join(steering, 'x.md'), '# X v1\n');
+    await writeFile(path.join(steering, 'keep.prompt.md'), '# Keep v1\n');
+    const exclude = path.join(workspace, '.git', 'info', 'exclude');
+    await makeGitDir(workspace);
+    await mkdir(path.dirname(exclude));
+    await writeFile(exclude, [
+      '# Prompt Registry (local)', '.kiro/steering/x.md', '.kiro/steering/keep.prompt.md', 'prompt-registry.local.lock.json'
+    ].join('\n'));
+    let lock = upsertBundleEntry(emptyLockfile('test'), 'sample-prompts', {
+      version: '1.0.0',
+      sourceId: 'sample-prompts-source',
+      sourceType: 'github',
+      installedAt: '2026-01-01T00:00:00Z',
+      targetType: 'kiro',
+      files: [
+        { path: 'prompts/x.md', checksum: 'a'.repeat(64) },
+        { path: 'prompts/keep.prompt.md', checksum: 'b'.repeat(64) }
+      ]
+    });
+    lock = upsertSource(lock, 'sample-prompts-source', { type: 'github', url: 'https://github.com/acme-org/sample-prompts' });
+    await writeLockfile(path.join(workspace, 'prompt-registry.local.lock.json'), lock, new NodeFileSystem());
+
+    const updated = await run(['update', '--target', 'kiro-repo', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json']);
+
+    expect(updated.exitCode, updated.stdout).toBe(0);
+    await expect(readFile(path.join(steering, 'x.md'), 'utf8')).rejects.toThrow();
+    const lines = (await readFile(exclude, 'utf8')).split('\n');
+    expect(lines).not.toContain('.kiro/steering/x.md');
+    expect(lines).toContain('.kiro/steering/keep.prompt.md');
+  });
+
+  /**
+   * A Kiro repository target with version 1.0.0 of `sample-prompts`
+   * recorded and installed (`x.md`, `keep.prompt.md`), local-only, in a
+   * git workspace whose exclude file lists both files.
+   * @returns The steering directory and the exclude file.
+   */
+  const seedLocalOnlyKiroPrompts = async (): Promise<{ steering: string; exclude: string }> => {
+    expect((await run([
+      'target', 'add', 'kiro-repo', '--type', 'kiro', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
+    ])).exitCode).toBe(0);
+    const steering = path.join(workspace, '.kiro', 'steering');
+    await mkdir(steering, { recursive: true });
+    await writeFile(path.join(steering, 'x.md'), '# X v1\n');
+    await writeFile(path.join(steering, 'keep.prompt.md'), '# Keep v1\n');
+    const exclude = path.join(workspace, '.git', 'info', 'exclude');
+    await makeGitDir(workspace);
+    await mkdir(path.dirname(exclude));
+    await writeFile(exclude, [
+      '# Prompt Registry (local)', '.kiro/steering/x.md', '.kiro/steering/keep.prompt.md', 'prompt-registry.local.lock.json'
+    ].join('\n'));
+    let lock = upsertBundleEntry(emptyLockfile('test'), 'sample-prompts', {
+      version: '1.0.0',
+      sourceId: 'sample-prompts-source',
+      sourceType: 'github',
+      installedAt: '2026-01-01T00:00:00Z',
+      targetType: 'kiro',
+      files: [
+        { path: 'prompts/x.md', checksum: 'a'.repeat(64) },
+        { path: 'prompts/keep.prompt.md', checksum: 'b'.repeat(64) }
+      ]
+    });
+    lock = upsertSource(lock, 'sample-prompts-source', { type: 'github', url: 'https://github.com/acme-org/sample-prompts' });
+    await writeLockfile(path.join(workspace, 'prompt-registry.local.lock.json'), lock, new NodeFileSystem());
+    return { steering, exclude };
+  };
+
+  it('update reports an exclude file it cannot update as a warning, with exit code 0', async () => {
+    const { exclude } = await seedLocalOnlyKiroPrompts();
+    class ReadOnlyExclude extends NodeFileSystem {
+      public override writeFile(filePath: string, contents: string): Promise<void> {
+        return filePath === exclude ? Promise.reject(new Error('EACCES: permission denied')) : super.writeFile(filePath, contents);
+      }
+    }
+
+    const updated = await run(['update', '--target', 'kiro-repo', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json'], new ReadOnlyExclude());
+
+    expect(updated.exitCode, updated.stdout).toBe(0);
+    const envelope = JSON.parse(updated.stdout) as JsonEnvelope<{ updated: number; failures: string[] }> & { warnings: string[] };
+    expect(envelope.status).toBe('warning');
+    expect(envelope.data.updated).toBe(1);
+    expect(envelope.data.failures).toEqual([]);
+    expect(envelope.warnings).toEqual(['sample-prompts: could not update the git exclude file: EACCES: permission denied']);
+  });
+
+  it('update restores the files it wrote when their checksums cannot be read', async () => {
+    const { steering } = await seedLocalOnlyKiroPrompts();
+    const renamed = path.join(steering, 'x.prompt.md');
+    // The writer reads each file back once to verify it; the next read is the checksum's.
+    class UnreadableNewFile extends NodeFileSystem {
+      private reads = 0;
+      public override readFileBytes(filePath: string): Promise<Uint8Array> {
+        if (filePath === renamed && ++this.reads > 1) {
+          return Promise.reject(new Error('EIO: i/o error'));
+        }
+        return super.readFileBytes(filePath);
+      }
+    }
+
+    const updated = await run(['update', '--target', 'kiro-repo', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json'], new UnreadableNewFile());
+
+    expect(updated.exitCode, updated.stdout).toBe(1);
+    expect(updated.stdout).toContain('EIO: i/o error');
+    await expect(readFile(renamed, 'utf8')).rejects.toThrow();
+    expect(await readFile(path.join(steering, 'keep.prompt.md'), 'utf8')).toBe('# Keep v1\n');
+    expect(await readFile(path.join(steering, 'x.md'), 'utf8')).toBe('# X v1\n');
+  });
+
+  it('update keeps the exclude lines of the files it restores on a VS Code repository target', async () => {
+    expect((await run([
+      'target', 'add', 'vscode-repo', '--type', 'vscode', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
+    ])).exitCode).toBe(0);
+    const prompts = path.join(workspace, '.github', 'prompts');
+    await mkdir(prompts, { recursive: true });
+    await writeFile(path.join(prompts, 'x.md'), '# X v1\n');
+    await writeFile(path.join(prompts, 'keep.prompt.md'), '# Keep v1\n');
+    const exclude = path.join(workspace, '.git', 'info', 'exclude');
+    await makeGitDir(workspace);
+    await mkdir(path.dirname(exclude));
+    await writeFile(exclude, [
+      '# Prompt Registry (local)', '.github/prompts/x.md', '.github/prompts/keep.prompt.md', 'prompt-registry.local.lock.json'
+    ].join('\n'));
+    let lock = upsertBundleEntry(emptyLockfile('test'), 'sample-prompts', {
+      version: '1.0.0',
+      sourceId: 'sample-prompts-source',
+      sourceType: 'github',
+      installedAt: '2026-01-01T00:00:00Z',
+      targetType: 'vscode',
+      files: [
+        { path: 'prompts/x.md', checksum: 'a'.repeat(64) },
+        { path: 'prompts/keep.prompt.md', checksum: 'b'.repeat(64) }
+      ]
+    });
+    lock = upsertSource(lock, 'sample-prompts-source', { type: 'github', url: 'https://github.com/acme-org/sample-prompts' });
+    await writeLockfile(path.join(workspace, 'prompt-registry.local.lock.json'), lock, new NodeFileSystem());
+    const replaced = path.join(prompts, 'x.md');
+    // x.md is read for the snapshot before the write and to verify it after; the third read is the checksum's.
+    class UnreadableAfterWrite extends NodeFileSystem {
+      private reads = 0;
+      public override readFileBytes(filePath: string): Promise<Uint8Array> {
+        if (filePath === replaced && ++this.reads > 2) {
+          return Promise.reject(new Error('EIO: i/o error'));
+        }
+        return super.readFileBytes(filePath);
+      }
+    }
+
+    const updated = await run(['update', '--target', 'vscode-repo', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json'], new UnreadableAfterWrite());
+
+    expect(updated.exitCode, updated.stdout).toBe(1);
+    expect(updated.stdout).toContain('EIO: i/o error');
+    expect(await readFile(path.join(prompts, 'keep.prompt.md'), 'utf8')).toBe('# Keep v1\n');
+    expect(await readFile(replaced, 'utf8')).toBe('# X v1\n');
+    const lines = (await readFile(exclude, 'utf8')).split('\n');
+    expect(lines).toContain('.github/prompts/keep.prompt.md');
+    expect(lines).toContain('.github/prompts/x.md');
   });
 
   it('re-install removes a path-routed file the new version places under a new name', async () => {

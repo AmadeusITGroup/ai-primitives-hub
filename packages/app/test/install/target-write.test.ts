@@ -5,8 +5,13 @@
 import * as path from 'node:path';
 import type {
   Target,
+  TargetWriter,
   ValidatedManifest,
 } from '@ai-primitives-hub/core';
+import {
+  RepositoryScopeWriter,
+  RepositoryScopeWriterAdapter,
+} from '@ai-primitives-hub/infra';
 import {
   describe,
   expect,
@@ -14,6 +19,7 @@ import {
 } from 'vitest';
 import {
   manifestPlacementItems,
+  removeSupersededFiles,
   TargetWriteRejectedError,
   writeBundleSafely,
 } from '../../src/install/target-write';
@@ -255,5 +261,61 @@ describe('writeBundleSafely', () => {
       localPath('/home/u', '.kiro', 'steering', 'own-name.md')
     ].toSorted());
     expect(result.installedPaths).toBeUndefined();
+  });
+});
+
+describe('removeSupersededFiles', () => {
+  const vscodeRepo: Target = { name: 'vscode-repo', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+  const github = (...segments: string[]): string => localPath('/ws', '.github', ...segments);
+
+  it('removes the files a repository-scope writer no longer produces', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed(github('prompts', 'kept.prompt.md'), '# Kept');
+    fs.seed(github('prompts', 'dropped.prompt.md'), '# Dropped');
+    fs.seed(github('agents', 'moved.agent.md'), '# Moved');
+    const writer = new RepositoryScopeWriterAdapter(new RepositoryScopeWriter({ fs, workspaceRoot: '/ws', commitMode: 'commit' }));
+
+    const removed = await removeSupersededFiles(writer, vscodeRepo, [
+      { path: 'prompts/kept.prompt.md' },
+      { path: 'prompts/dropped.prompt.md' },
+      { path: 'prompts/moved.agent.md', installedPath: 'agents/moved.agent.md' }
+    ], [
+      { path: 'prompts/kept.prompt.md' },
+      { path: 'agents/moved.agent.md' }
+    ]);
+
+    expect(removed).toEqual(['prompts/dropped.prompt.md']);
+    expect(await fs.exists(github('prompts', 'kept.prompt.md'))).toBe(true);
+    expect(await fs.exists(github('prompts', 'dropped.prompt.md'))).toBe(false);
+    expect(await fs.exists(github('agents', 'moved.agent.md'))).toBe(true);
+  });
+
+  it('removes nothing through a writer that cannot locate files', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed(github('prompts', 'dropped.prompt.md'), '# Dropped');
+    const writer: TargetWriter = {
+      write: () => Promise.resolve({ written: [], skipped: [] }),
+      remove: (_target, filePath) => fs.remove(github(filePath))
+    };
+
+    const removed = await removeSupersededFiles(writer, vscodeRepo, [{ path: 'prompts/dropped.prompt.md' }], []);
+
+    expect(removed).toEqual([]);
+    expect(await fs.exists(github('prompts', 'dropped.prompt.md'))).toBe(true);
+  });
+
+  it('removes nothing for a file a custom locate gives no location', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed(github('prompts', 'dropped.prompt.md'), '# Dropped');
+    const writer: TargetWriter = {
+      write: () => Promise.resolve({ written: [], skipped: [] }),
+      locate: () => Promise.resolve({ root: github(), paths: [] }),
+      remove: (_target, filePath) => fs.remove(github(filePath))
+    };
+
+    const removed = await removeSupersededFiles(writer, vscodeRepo, [{ path: 'prompts/dropped.prompt.md' }], []);
+
+    expect(removed).toEqual([]);
+    expect(await fs.exists(github('prompts', 'dropped.prompt.md'))).toBe(true);
   });
 });

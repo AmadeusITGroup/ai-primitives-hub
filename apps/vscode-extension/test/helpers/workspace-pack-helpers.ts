@@ -24,7 +24,12 @@ const PACK_TIMEOUT_MS = 60_000;
  */
 const DEFAULT_INSTALL_TIMEOUT_MS = 300_000;
 
-function findWorkspaceRoot(startDir: string): string {
+/**
+ * Find the pnpm workspace root above a directory.
+ * @param startDir - Directory to start from.
+ * @returns The directory holding `pnpm-workspace.yaml`.
+ */
+export function findWorkspaceRoot(startDir: string): string {
   let directory = startDir;
 
   while (true) {
@@ -40,7 +45,8 @@ function findWorkspaceRoot(startDir: string): string {
   }
 }
 
-const workspaceRoot = findWorkspaceRoot(__dirname);
+/** Root of this checkout's pnpm workspace. */
+export const workspaceRoot = findWorkspaceRoot(__dirname);
 
 type CommandError = Error & {
   stdout?: Buffer | string;

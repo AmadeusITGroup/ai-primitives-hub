@@ -40,8 +40,64 @@ export type {
 } from './target-write';
 
 export {
+  planBundleInstall,
   writeBundleForInstall,
 } from './partial-target-write';
+
+export {
+  createTargetWriterFactory,
+} from './target-writer-factory';
+
+export {
+  buildLockfileBundleEntry,
+  computeInstalledChecksums,
+} from './lockfile-entry';
+
+export {
+  inspectRecordedFiles,
+  isRecordIncomplete,
+  locateRecord,
+  removeSupersededRecordFiles,
+} from './recorded-files';
+
+export type {
+  GuardedRemoval,
+  LocatedRecord,
+  RecordedFilesInspection,
+  SupersededRemoval,
+} from './recorded-files';
+
+export {
+  switchRecordedCommitMode,
+} from './recorded-commit-mode';
+
+export type {
+  SwitchRecordedCommitModeInput,
+  SwitchRecordedCommitModeResult,
+} from './recorded-commit-mode';
+
+export {
+  applyBundleInstall,
+} from './apply-bundle-install';
+
+export type {
+  ApplyBundleInstallInput,
+  ApplyBundleInstallResult,
+} from './apply-bundle-install';
+
+export {
+  applyBundleUninstall,
+  unexcludePaths,
+} from './apply-bundle-uninstall';
+
+export type {
+  ApplyBundleUninstallInput,
+  ApplyBundleUninstallResult,
+} from './apply-bundle-uninstall';
+
+export type {
+  TargetWriterFactoryOptions,
+} from './target-writer-factory';
 
 export type {
   BundleInstallWrite,
@@ -57,6 +113,7 @@ export type {
 
 export {
   UninstallPipeline,
+  uninstallResultOf,
 } from './uninstall-pipeline';
 
 export type {

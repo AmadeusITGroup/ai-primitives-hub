@@ -1,8 +1,9 @@
 /**
  * RepositoryScopeService Unit Tests
  *
- * Tests for repository-level bundle installation service.
- * Handles file placement in .github/ directories and git exclude management.
+ * Repository-scope install and uninstall through the shared use cases:
+ * files land where the CLI puts them, the lockfile records bundle paths,
+ * uninstall is guarded, local-only files are excluded from git.
  *
  * Requirements: 1.2-1.7, 3.1-3.7
  */
@@ -10,7 +11,15 @@
 import * as assert from 'node:assert';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  validateManifest,
+} from '@ai-primitives-hub/core';
+import {
+  ZipBundleExtractor,
+} from '@ai-primitives-hub/infra';
+import AdmZip from 'adm-zip';
 import * as sinon from 'sinon';
 import {
   LockfileManager,
@@ -18,22 +27,42 @@ import {
 import {
   RepositoryScopeService,
 } from '../../src/services/repository-scope-service';
+import type {
+  IScopeService,
+  SyncBundleInstall,
+} from '../../src/services/scope-service';
 import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
 import {
-  InstalledBundle,
   RepositoryCommitMode,
 } from '../../src/types/registry';
+import {
+  Logger,
+} from '../../src/utils/logger';
+import {
+  createRepositoryWithWorktree,
+  makeGitDir,
+} from '../helpers/git-test-helpers';
+import {
+  DEMO_PLUGIN_ID,
+  PluginBundleKind,
+  PluginBundleZipOptions,
+  writePluginBundleZip,
+} from '../helpers/plugin-bundle-fixtures';
+
+const POSIX = process.platform !== 'win32';
+const EXCLUDE_HEADER = '# Prompt Registry (local)';
+const sha256 = (content: string | Uint8Array): string => crypto.createHash('sha256').update(content).digest('hex');
 
 /**
- * Calculate checksum for a file (sync version for tests)
- * @param filePath
+ * Extract an archive and validate its manifest as the install pipeline does.
+ * @param bytes - Archive bytes.
  */
-function calculateChecksumSync(filePath: string): string {
-  const content = fs.readFileSync(filePath);
-  return crypto.createHash('sha256').update(content).digest('hex');
-}
+const extractBundle = async (bytes: Uint8Array): Promise<Pick<SyncBundleInstall, 'files' | 'manifest'>> => {
+  const files = await new ZipBundleExtractor().extract(bytes);
+  return { files, manifest: validateManifest(files, {}) };
+};
 
 suite('RepositoryScopeService', () => {
   let service: RepositoryScopeService;
@@ -45,1451 +74,521 @@ suite('RepositoryScopeService', () => {
   // ===== Test Utilities =====
 
   /**
-   * Create a mock bundle directory with test files
-   * @param bundleId
-   * @param files
+   * The `install` option of a fixture bundle.
+   * @param kind - Bundle content.
+   * @param opts - Fixture options.
    */
-  const createMockBundle = (bundleId: string, files: { name: string; content: string; type?: string }[]) => {
-    const bundlePath = path.join(tempDir, 'bundles', bundleId);
-    fs.mkdirSync(bundlePath, { recursive: true });
-
-    // Create deployment manifest
-    // Extract id by removing the full type extension (e.g., .prompt.md, .agent.md)
-    const prompts = files.map((f, _i) => ({
-      id: f.name.replace(/\.(prompt|instructions|agent|chatmode|skill)\.md$/, '').replace(/\.md$/, ''),
-      name: f.name,
-      file: f.name,
-      type: f.type || 'prompt'
-    }));
-
-    fs.writeFileSync(
-      path.join(bundlePath, 'deployment-manifest.yml'),
-      `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n${prompts.map((p) => `  - id: ${p.id}\n    name: ${p.name}\n    file: ${p.file}\n    type: ${p.type}`).join('\n')}`
-    );
-
-    // Create files
-    for (const file of files) {
-      fs.writeFileSync(path.join(bundlePath, file.name), file.content);
-    }
-
-    return bundlePath;
+  const installOf = async (kind: PluginBundleKind, opts: PluginBundleZipOptions = {}): Promise<SyncBundleInstall> => {
+    const { bytes } = writePluginBundleZip(tempDir, kind, opts);
+    return {
+      ...await extractBundle(bytes),
+      origin: { sourceId: 'local-demo', sourceType: 'local' },
+      source: { type: 'local', url: 'local:local-demo' }
+    };
   };
 
   /**
-   * Create mock installed bundle record
-   * @param bundleId
-   * @param commitMode
+   * Install of an archive holding the given files plus a manifest listing `items`.
+   * @param items - Manifest items.
+   * @param files - Bundle files.
    */
-  const createMockInstalledBundle = (
-    bundleId: string,
-    commitMode: RepositoryCommitMode = 'commit'
-  ): InstalledBundle => ({
-    bundleId,
-    version: '1.0.0',
-    installedAt: new Date().toISOString(),
-    scope: 'repository',
-    installPath: path.join(tempDir, 'bundles', bundleId),
-    manifest: {
-      common: { directories: [], files: [], include_patterns: [], exclude_patterns: [] },
-      bundle_settings: {
-        include_common_in_environment_bundles: false,
-        create_common_bundle: false,
-        compression: 'zip',
-        naming: { environment_bundle: '{env}' }
-      },
-      metadata: { manifest_version: '1.0.0', description: 'Test bundle' }
-    },
-    commitMode
-  });
+  const installOfFiles = async (
+    items: { id: string; file: string; type: string }[],
+    files: Record<string, string>
+  ): Promise<SyncBundleInstall> => {
+    const zip = new AdmZip();
+    const prompts = items.map((item) => `  - id: ${item.id}\n    name: ${item.id}\n    file: ${item.file}\n    type: ${item.type}`).join('\n');
+    zip.addFile('deployment-manifest.yml', Buffer.from(`id: ${DEMO_PLUGIN_ID}\nversion: 1.0.0\nname: Demo\nprompts:\n${prompts}\n`));
+    for (const [file, content] of Object.entries(files)) {
+      zip.addFile(file, Buffer.from(content));
+    }
+    return {
+      ...await extractBundle(zip.toBuffer()),
+      origin: { sourceId: 'local-demo', sourceType: 'local' },
+      source: { type: 'local', url: 'local:local-demo' }
+    };
+  };
+
+  const workspacePath = (relativePath: string, root = workspaceRoot): string => path.join(root, ...relativePath.split('/'));
+
+  const writeWorkspaceFile = (relativePath: string, content: string): void => {
+    const absolute = workspacePath(relativePath);
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, content);
+  };
+
+  const lockfileName = (mode: RepositoryCommitMode): string => (mode === 'local-only' ? 'prompt-registry.local.lock.json' : 'prompt-registry.lock.json');
+
+  const readEntry = (mode: RepositoryCommitMode, bundleId = DEMO_PLUGIN_ID, root = workspaceRoot) => {
+    const file = path.join(root, lockfileName(mode));
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).bundles[bundleId] : undefined;
+  };
 
   /**
-   * Read git exclude file content
+   * Seed a lockfile entry as an earlier extension version wrote it.
+   * @param bundleId - Bundle id.
+   * @param files - Recorded files.
+   * @param mode - Lockfile.
    */
-  const readGitExclude = (): string | null => {
-    const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-    if (fs.existsSync(excludePath)) {
-      return fs.readFileSync(excludePath, 'utf8');
-    }
-    return null;
+  const seedLegacyEntry = (bundleId: string, files: { path: string; checksum: string }[], mode: RepositoryCommitMode = 'commit'): void => {
+    fs.writeFileSync(path.join(workspaceRoot, lockfileName(mode)), JSON.stringify({
+      $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
+      version: '1.0.0',
+      generatedAt: new Date().toISOString(),
+      generatedBy: 'prompt-registry@test',
+      bundles: {
+        [bundleId]: { version: '1.0.0', sourceId: 'test-source', sourceType: 'github', installedAt: new Date().toISOString(), files }
+      },
+      sources: { 'test-source': { type: 'github', url: 'https://github.com/test/test' } }
+    }, null, 2));
+  };
+
+  const readGitExclude = (root = workspaceRoot): string | null => {
+    const excludePath = path.join(root, '.git', 'info', 'exclude');
+    return fs.existsSync(excludePath) ? fs.readFileSync(excludePath, 'utf8') : null;
+  };
+
+  const excludedLines = (root = workspaceRoot): string[] => {
+    const lines = (readGitExclude(root) ?? '').split('\n');
+    const header = lines.indexOf(EXCLUDE_HEADER);
+    return header === -1 ? [] : lines.slice(header + 1).filter((line) => line.trim().length > 0).toSorted();
   };
 
   /**
    * Create .git directory structure
    */
   const createGitDirectory = () => {
-    const gitInfoDir = path.join(workspaceRoot, '.git', 'info');
-    fs.mkdirSync(gitInfoDir, { recursive: true });
+    makeGitDir(workspaceRoot);
   };
 
-  /**
-   * Create a lockfile with bundle entry for unsyncBundle tests
-   * The unsyncBundle method now reads from LockfileManager instead of RegistryStorage
-   * @param bundleId
-   * @param commitMode
-   * @param files
-   */
-  const createLockfile = (bundleId: string, commitMode: RepositoryCommitMode = 'commit', files: { path: string; checksum: string }[] = []) => {
-    // Write to the correct lockfile based on commitMode
-    // - 'commit' mode: write to prompt-registry.lock.json
-    // - 'local-only' mode: write to prompt-registry.local.lock.json
-    const lockfileName = commitMode === 'local-only'
-      ? 'prompt-registry.local.lock.json'
-      : 'prompt-registry.lock.json';
-    const lockfilePath = path.join(workspaceRoot, lockfileName);
-    const lockfile = {
-      $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-      version: '1.0.0',
-      generatedAt: new Date().toISOString(),
-      generatedBy: 'prompt-registry@test',
-      bundles: {
-        [bundleId]: {
-          version: '1.0.0',
-          sourceId: 'test-source',
-          sourceType: 'github',
-          installedAt: new Date().toISOString(),
-          // Note: commitMode is NOT included in bundle entries (implicit based on file location)
-          files: files
-        }
-      },
-      sources: {
-        'test-source': {
-          type: 'github',
-          url: 'https://github.com/test/test'
-        }
-      }
-    };
-    fs.writeFileSync(lockfilePath, JSON.stringify(lockfile, null, 2));
-  };
+  const isExecutable = (file: string): boolean => (fs.statSync(file).mode & 0o100) !== 0; // eslint-disable-line no-bitwise -- owner execute bit
 
   setup(() => {
     sandbox = sinon.createSandbox();
     tempDir = path.join(__dirname, '..', '..', '..', 'test-temp-repo-scope');
     workspaceRoot = path.join(tempDir, 'workspace');
 
-    // Create temp directories
     fs.mkdirSync(workspaceRoot, { recursive: true });
-    fs.mkdirSync(path.join(tempDir, 'bundles'), { recursive: true });
 
-    // Create mock storage
     mockStorage = sandbox.createStubInstance(RegistryStorage);
-
-    // Mock storage.getPaths() to return the temp directory as root
-    // This is needed for unsyncBundle to find the bundle install path
-    mockStorage.getPaths.returns({
-      root: tempDir,
-      config: path.join(tempDir, 'config.json'),
-      cache: path.join(tempDir, 'cache'),
-      sourcesCache: path.join(tempDir, 'cache', 'sources'),
-      bundlesCache: path.join(tempDir, 'cache', 'bundles'),
-      installed: path.join(tempDir, 'installed'),
-      userInstalled: path.join(tempDir, 'user-installed'),
-      profilesInstalled: path.join(tempDir, 'profiles-installed'),
-      profiles: path.join(tempDir, 'profiles'),
-      logs: path.join(tempDir, 'logs')
-    });
-
-    // Create service
-    service = new RepositoryScopeService(workspaceRoot, mockStorage);
+    service = new RepositoryScopeService(workspaceRoot, mockStorage, 'vscode');
   });
 
   teardown(() => {
     sandbox.restore();
-    // Reset LockfileManager instance for this workspace
-    LockfileManager.resetInstance(workspaceRoot);
-    // Cleanup temp directories
+    LockfileManager.resetInstance();
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
-  suite('Service Initialization', () => {
-    test('should initialize with workspace root and storage', () => {
-      assert.ok(service, 'Service should be initialized');
-    });
+  suite('syncBundle', () => {
+    test('installs a spec-compliant plugin into .github/plugins/<name>/ and records bundle paths', async () => {
+      const install = await installOf('plugin');
 
-    test('should have IScopeService methods', () => {
-      assert.ok(typeof service.syncBundle === 'function', 'Should have syncBundle method');
-      assert.ok(typeof service.unsyncBundle === 'function', 'Should have unsyncBundle method');
-    });
+      const result = await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install });
 
-    test('should have switchCommitMode method', () => {
-      assert.ok(typeof service.switchCommitMode === 'function', 'Should have switchCommitMode method');
-    });
-  });
-
-  suite('syncBundle - File Placement', () => {
-    test('does not copy files referenced outside the installed bundle', async () => {
-      const bundleId = 'path-traversal-bundle';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      const outsideFile = path.join(tempDir, 'outside-secret.md');
-      fs.mkdirSync(bundlePath, { recursive: true });
-      fs.writeFileSync(outsideFile, 'secret host content');
-      fs.writeFileSync(
-        path.join(bundlePath, 'deployment-manifest.yml'),
-        `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n  - id: copied-secret\n    name: Copied Secret\n    file: ../../outside-secret.md\n    type: prompt\n`
-      );
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetFile = path.join(workspaceRoot, '.github', 'prompts', 'copied-secret.prompt.md');
-      assert.strictEqual(
-        fs.existsSync(targetFile),
-        false,
-        'A manifest path outside the bundle must not be copied into the repository'
-      );
-    });
-
-    test('does not follow bundle-file symlinks outside the installed bundle', async () => {
-      const bundleId = 'symlink-traversal-bundle';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      const outsideFile = path.join(tempDir, 'outside-secret.md');
-      fs.mkdirSync(bundlePath, { recursive: true });
-      fs.writeFileSync(outsideFile, 'secret host content');
-      fs.symlinkSync(outsideFile, path.join(bundlePath, 'linked-secret.md'));
-      fs.writeFileSync(
-        path.join(bundlePath, 'deployment-manifest.yml'),
-        `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n  - id: copied-secret\n    name: Copied Secret\n    file: linked-secret.md\n    type: prompt\n`
-      );
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetFile = path.join(workspaceRoot, '.github', 'prompts', 'copied-secret.prompt.md');
-      assert.strictEqual(
-        fs.existsSync(targetFile),
-        false,
-        'A bundle symlink resolving outside the bundle must not be copied'
-      );
-    });
-
-    test('should place prompt files in .github/prompts/', async () => {
-      const bundleId = 'test-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test Prompt', type: 'prompt' }
+      const pluginDir = path.join(workspaceRoot, '.github', 'plugins', DEMO_PLUGIN_ID);
+      const placed: string[] = [];
+      const walk = (dir: string): void => {
+        for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, dirent.name);
+          if (dirent.isDirectory()) {
+            walk(full);
+          } else {
+            placed.push(path.relative(pluginDir, full).split(path.sep).join('/'));
+          }
+        }
+      };
+      walk(pluginDir);
+      assert.deepStrictEqual(placed.toSorted(), ['mcp.json', 'plugin.json', 'scripts/run.sh', 'skills/helper/SKILL.md']);
+      if (POSIX) {
+        assert.ok(isExecutable(path.join(pluginDir, 'scripts', 'run.sh')), 'run.sh keeps its exec bit');
+      }
+      const entry = readEntry('commit');
+      assert.deepStrictEqual(entry.files.map((f: { path: string }) => f.path), [
+        'plugins/demo-plugin/mcp.json',
+        'plugins/demo-plugin/plugin.json',
+        'plugins/demo-plugin/scripts/run.sh',
+        'plugins/demo-plugin/skills/helper/SKILL.md'
       ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetFile = path.join(workspaceRoot, '.github', 'prompts', 'test.prompt.md');
-      assert.ok(fs.existsSync(targetFile), 'Prompt file should be placed in .github/prompts/');
+      assert.strictEqual(entry.targetType, 'vscode');
+      assert.ok(result, 'the shared install outcome is returned');
+      assert.strictEqual(result.written.length, 4);
     });
 
-    test('should place instruction files in .github/instructions/', async () => {
-      const bundleId = 'test-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'coding.instructions.md', content: '# Coding Standards', type: 'instructions' }
-      ]);
+    test('records only paths of the bundle', async () => {
+      const install = await installOf('mixed');
 
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install });
 
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetFile = path.join(workspaceRoot, '.github', 'instructions', 'coding.instructions.md');
-      assert.ok(fs.existsSync(targetFile), 'Instructions file should be placed in .github/instructions/');
+      for (const file of readEntry('commit').files as { path: string }[]) {
+        assert.ok(install.files.has(file.path), `${file.path} is a bundle path`);
+        assert.ok(!file.path.split('/').includes('..'), `${file.path} has no '..'`);
+        assert.notStrictEqual(file.path, 'deployment-manifest.yml');
+      }
     });
 
-    test('should place agent files in .github/agents/', async () => {
-      const bundleId = 'test-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'reviewer.agent.md', content: '# Code Reviewer', type: 'agent' }
-      ]);
+    test('places a mixed bundle prompt under the CLI file name', async () => {
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('mixed') });
 
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetFile = path.join(workspaceRoot, '.github', 'agents', 'reviewer.agent.md');
-      assert.ok(fs.existsSync(targetFile), 'Agent file should be placed in .github/agents/');
+      assert.ok(fs.existsSync(workspacePath('.github/prompts/hello.prompt.md')));
+      assert.ok(fs.existsSync(workspacePath('.github/plugins/demo-plugin/plugin.json')));
     });
 
-    test('should create parent directories if they do not exist', async () => {
-      const bundleId = 'test-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
+    test('places prompts, instructions, agents and skills where the VS Code layout routes them', async () => {
+      const install = await installOfFiles([
+        { id: 'greet', file: 'prompts/greet.prompt.md', type: 'prompt' },
+        { id: 'style', file: 'instructions/style.instructions.md', type: 'instructions' },
+        { id: 'helper', file: 'agents/helper.agent.md', type: 'agent' },
+        { id: 'tool', file: 'skills/tool/SKILL.md', type: 'skill' }
+      ], {
+        'prompts/greet.prompt.md': '# Greet',
+        'instructions/style.instructions.md': '# Style',
+        'agents/helper.agent.md': '# Helper',
+        'skills/tool/SKILL.md': '---\nname: tool\ndescription: Tool\n---\n',
+        'skills/tool/scripts/go.sh': 'echo go\n'
+      });
 
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install });
 
-      // Ensure .github doesn't exist
-      assert.ok(!fs.existsSync(path.join(workspaceRoot, '.github')), '.github should not exist initially');
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      assert.ok(fs.existsSync(path.join(workspaceRoot, '.github', 'prompts')), 'Should create .github/prompts/');
+      for (const file of [
+        '.github/prompts/greet.prompt.md',
+        '.github/instructions/style.instructions.md',
+        '.github/agents/helper.agent.md',
+        '.github/skills/tool/SKILL.md',
+        '.github/skills/tool/scripts/go.sh'
+      ]) {
+        assert.ok(fs.existsSync(workspacePath(file)), `${file} is placed`);
+      }
     });
 
-    test('should handle bundles with mixed file types', async () => {
-      const bundleId = 'mixed-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'prompt1.prompt.md', content: '# Prompt 1', type: 'prompt' },
-        { name: 'coding.instructions.md', content: '# Instructions', type: 'instructions' },
-        { name: 'reviewer.agent.md', content: '# Agent', type: 'agent' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      assert.ok(fs.existsSync(path.join(workspaceRoot, '.github', 'prompts', 'prompt1.prompt.md')));
-      assert.ok(fs.existsSync(path.join(workspaceRoot, '.github', 'instructions', 'coding.instructions.md')));
-      assert.ok(fs.existsSync(path.join(workspaceRoot, '.github', 'agents', 'reviewer.agent.md')));
-    });
-  });
-
-  suite('syncBundle - Git Exclude Management', () => {
-    test('should NOT modify git exclude for commit mode', async () => {
-      createGitDirectory();
-
-      const bundleId = 'commit-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const excludeContent = readGitExclude();
-      assert.ok(
-        excludeContent === null || !excludeContent.includes('.github/prompts/test.prompt.md'),
-        'Git exclude should not contain file path for commit mode'
+    test('throws when the extracted bundle is not given', async () => {
+      await assert.rejects(
+        service.syncBundle(DEMO_PLUGIN_ID, path.join(tempDir, 'cache'), { commitMode: 'commit' }),
+        { message: 'Repository-scope sync needs the extracted bundle; reinstall the bundle' }
       );
     });
 
-    test('should add paths to git exclude for local-only mode', async () => {
-      createGitDirectory();
+    test('a Kiro host rejects a plugin bundle and writes nothing', async () => {
+      const kiro = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
 
-      const bundleId = 'local-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes('.github/prompts/test.prompt.md'),
-        'Git exclude should contain file path for local-only mode'
+      await assert.rejects(
+        kiro.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('plugin') }),
+        (error: Error & { code?: string }) => error.code === 'BUNDLE.UNSUPPORTED_CONTENT'
       );
+
+      assert.deepStrictEqual(fs.readdirSync(workspaceRoot), [], 'no file, directory or lockfile is written');
     });
 
-    test('should create .git/info/exclude if it does not exist', async () => {
-      createGitDirectory();
-      const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-      assert.ok(!fs.existsSync(excludePath), 'Exclude file should not exist initially');
+    test('preflightBundle rejects what syncBundle would reject and writes nothing', async () => {
+      const kiro: IScopeService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      assert.ok('preflightBundle' in kiro, 'the repository scope checks a bundle before a legacy uninstall');
 
-      const bundleId = 'local-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      assert.ok(fs.existsSync(excludePath), 'Git exclude file should be created');
-    });
-
-    test('should add entries under "# Prompt Registry (local)" section', async () => {
-      createGitDirectory();
-
-      const bundleId = 'local-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes('# Prompt Registry (local)'),
-        'Git exclude should contain section header'
+      await assert.rejects(
+        async () => kiro.preflightBundle?.(DEMO_PLUGIN_ID, { commitMode: 'commit', install: await installOf('plugin') }),
+        (error: Error & { code?: string }) => error.code === 'BUNDLE.UNSUPPORTED_CONTENT'
       );
+      await kiro.preflightBundle?.(DEMO_PLUGIN_ID, { commitMode: 'commit', install: await installOf('prompt') });
+
+      assert.deepStrictEqual(fs.readdirSync(workspaceRoot), []);
     });
 
-    test('should preserve existing git exclude content', async () => {
+    test('a Kiro host installs a prompt-only bundle local-only, excluded from git, with the written checksum', async () => {
       createGitDirectory();
-      const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-      fs.writeFileSync(excludePath, '# Existing content\n*.log\n');
+      const kiro = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
 
-      const bundleId = 'local-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
+      await kiro.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'local-only', install: await installOf('prompt') });
 
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
+      const steering = workspacePath('.kiro/steering/hello.prompt.md');
+      assert.ok(fs.existsSync(steering));
+      assert.deepStrictEqual(excludedLines(), ['.kiro/steering/hello.prompt.md', 'prompt-registry.local.lock.json']);
+      const [file] = readEntry('local-only').files;
+      assert.strictEqual(file.path, 'prompts/hello.prompt.md');
+      assert.strictEqual(file.installedChecksum ?? file.checksum, sha256(fs.readFileSync(steering)));
+      assert.deepStrictEqual(await LockfileManager.getInstance(workspaceRoot).detectModifiedFiles(DEMO_PLUGIN_ID), []);
 
-      await service.syncBundle(bundleId, bundlePath);
+      await kiro.unsyncBundle(DEMO_PLUGIN_ID);
 
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent!.includes('# Existing content'), 'Should preserve existing content');
-      assert.ok(excludeContent!.includes('*.log'), 'Should preserve existing patterns');
-    });
-  });
-
-  suite('syncBundle - commitMode from Storage', () => {
-    test('should retrieve commitMode from RegistryStorage', async () => {
-      createGitDirectory();
-
-      const bundleId = 'storage-test-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      // Verify storage was called
-      assert.ok(mockStorage.getInstalledBundle.calledWith(bundleId, 'repository'),
-        'Should call getInstalledBundle with bundleId and repository scope');
+      assert.ok(!fs.existsSync(steering));
+      assert.deepStrictEqual(excludedLines(), []);
+      assert.ok(!fs.existsSync(path.join(workspaceRoot, 'prompt-registry.local.lock.json')));
     });
 
-    test('should use commitMode from options when provided (takes precedence over storage)', async () => {
-      createGitDirectory();
+    test('a Kiro install reports an edited file as modified and keeps it on uninstall', async () => {
+      const kiro = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
+      await kiro.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('prompt') });
+      const steering = workspacePath('.kiro/steering/hello.prompt.md');
+      fs.appendFileSync(steering, '\nMy own line.\n');
 
-      const bundleId = 'options-precedence-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
+      const modified = await LockfileManager.getInstance(workspaceRoot).detectModifiedFiles(DEMO_PLUGIN_ID);
+      await kiro.unsyncBundle(DEMO_PLUGIN_ID);
 
-      // Storage returns 'commit' but options specify 'local-only'
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath, { commitMode: 'local-only' });
-
-      // Verify git exclude was updated (proving options took precedence over storage)
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent?.includes('.github/prompts/test.prompt.md'),
-        'Should use commitMode from options (local-only), not storage (commit)');
-      assert.ok(excludeContent?.includes('# Prompt Registry (local)'),
-        'Should have section header when using local-only mode');
+      assert.deepStrictEqual(modified.map((m) => m.path), ['prompts/hello.prompt.md']);
+      assert.ok(fs.existsSync(steering), 'the edited file is kept');
     });
 
-    test('should NOT update git exclude when options specify commit mode (overriding storage)', async () => {
-      createGitDirectory();
+    test('a Kiro host honours the project layout file and ignores the user one', async () => {
+      const kiroLayout = (promptsRoute: string): string => [
+        'layouts:',
+        '  kiro:',
+        '    user:',
+        '      baseDir: "${HOME}/.kiro"',
+        '      kindRoutes:',
+        `        "prompts/": "${promptsRoute}"`,
+        '    repository:',
+        '      baseDir: "${workspaceRoot}/.kiro"',
+        '      kindRoutes:',
+        `        "prompts/": "${promptsRoute}"`,
+        '      skipPaths: ["deployment-manifest.yml", "README.md"]',
+        ''
+      ].join('\n');
+      const userConfig = path.join(tempDir, 'xdg-config');
+      fs.mkdirSync(path.join(userConfig, 'ai-primitives-hub'), { recursive: true });
+      fs.writeFileSync(path.join(userConfig, 'ai-primitives-hub', 'ai-primitives-hub-layouts.yml'),
+        kiroLayout('user-steering/'));
+      fs.writeFileSync(path.join(workspaceRoot, 'ai-primitives-hub-layouts.yml'),
+        kiroLayout('project-steering/'));
+      sandbox.stub(process, 'env').value({ ...process.env, XDG_CONFIG_HOME: userConfig });
+      const kiro = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
 
-      const bundleId = 'commit-override-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
+      await kiro.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('prompt') });
 
-      // Storage returns 'local-only' but options specify 'commit'
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
+      assert.ok(fs.existsSync(workspacePath('.kiro/project-steering/hello.prompt.md')), 'the project route applies');
+      assert.ok(!fs.existsSync(workspacePath('.kiro/user-steering')), 'the user layout file is not read');
+    });
 
-      await service.syncBundle(bundleId, bundlePath, { commitMode: 'commit' });
+    test('reinstalling over a legacy entry writes the CLI file name and removes the old file', async () => {
+      writeWorkspaceFile('.github/prompts/hello-prompt.prompt.md', '# Old hello');
+      seedLegacyEntry(DEMO_PLUGIN_ID, [{ path: '.github/prompts/hello-prompt.prompt.md', checksum: sha256('# Old hello') }]);
 
-      // Verify git exclude was NOT updated (proving options took precedence)
-      const excludeContent = readGitExclude();
-      assert.ok(!excludeContent || !excludeContent.includes('.github/prompts/test.prompt.md'),
-        'Should use commitMode from options (commit), not storage (local-only)');
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('prompt') });
+
+      assert.ok(fs.existsSync(workspacePath('.github/prompts/hello.prompt.md')));
+      assert.ok(!fs.existsSync(workspacePath('.github/prompts/hello-prompt.prompt.md')));
+      assert.deepStrictEqual(readEntry('commit').files.map((f: { path: string }) => f.path), ['prompts/hello.prompt.md']);
+    });
+
+    test('local-only in a git worktree excludes the files in the main repository', async () => {
+      const base = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-scope-worktree-'));
+      try {
+        const { mainRepo, worktree } = createRepositoryWithWorktree(base);
+        const inWorktree = new RepositoryScopeService(worktree, mockStorage, 'vscode');
+
+        await inWorktree.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'local-only', install: await installOf('prompt') });
+
+        assert.deepStrictEqual(excludedLines(mainRepo), ['.github/prompts/hello.prompt.md', 'prompt-registry.local.lock.json']);
+        assert.ok(fs.existsSync(path.join(worktree, 'prompt-registry.local.lock.json')));
+      } finally {
+        LockfileManager.resetInstance();
+        fs.rmSync(base, { recursive: true, force: true });
+      }
+    });
+
+    test('local-only outside a git repository installs, warns once and creates no .git', async () => {
+      const warn = sandbox.stub(Logger.getInstance(), 'warn');
+
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'local-only', install: await installOf('prompt') });
+
+      assert.ok(fs.existsSync(workspacePath('.github/prompts/hello.prompt.md')));
+      assert.ok(!fs.existsSync(path.join(workspaceRoot, '.git')));
+      const noGit = warn.getCalls().filter((call) => String(call.args[0]).includes('local-only files are not excluded from git'));
+      assert.strictEqual(noGit.length, 1, 'one warning names the missing repository');
     });
   });
 
   suite('unsyncBundle', () => {
-    test('should remove files from .github/ directories', async () => {
-      // Setup: create synced files
-      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
-      fs.mkdirSync(promptsDir, { recursive: true });
-      const promptFile = path.join(promptsDir, 'test.prompt.md');
-      fs.writeFileSync(promptFile, '# Test');
+    test('removes the plugin files and the directories they leave empty, deletes the lockfile and keeps .github/', async () => {
+      writeWorkspaceFile('.github/workflows/ci.yml', 'on: push\n');
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('plugin') });
 
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(promptFile);
+      const result = await service.unsyncBundle(DEMO_PLUGIN_ID);
 
-      const bundleId = 'test-bundle';
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'commit', [
-        { path: '.github/prompts/test.prompt.md', checksum }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.unsyncBundle(bundleId);
-
-      assert.ok(!fs.existsSync(path.join(promptsDir, 'test.prompt.md')), 'File should be removed');
+      assert.ok(!fs.existsSync(workspacePath('.github/plugins')), 'no empty plugin directory is left');
+      assert.ok(fs.existsSync(workspacePath('.github/workflows/ci.yml')), 'unrelated .github content is kept');
+      assert.ok(!fs.existsSync(path.join(workspaceRoot, 'prompt-registry.lock.json')));
+      assert.ok(result);
+      assert.strictEqual(result.removed.length, 4);
     });
 
-    test('should remove entries from .git/info/exclude', async () => {
+    test('keeps a file another bundle also installed', async () => {
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('mixed') });
+      await service.syncBundle('other-bundle', '', { commitMode: 'commit', install: await installOf('prompt') });
+
+      await service.unsyncBundle(DEMO_PLUGIN_ID);
+
+      assert.ok(fs.existsSync(workspacePath('.github/prompts/hello.prompt.md')), 'the shared prompt is kept');
+      assert.ok(!fs.existsSync(workspacePath('.github/plugins/demo-plugin')));
+      assert.ok(readEntry('commit', 'other-bundle'));
+    });
+
+    test('keeps a file the user modified', async () => {
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('mixed') });
+      fs.appendFileSync(workspacePath('.github/prompts/hello.prompt.md'), '\nedited\n');
+
+      await service.unsyncBundle(DEMO_PLUGIN_ID);
+
+      assert.ok(fs.existsSync(workspacePath('.github/prompts/hello.prompt.md')));
+      assert.ok(!fs.existsSync(workspacePath('.github/plugins/demo-plugin/plugin.json')));
+    });
+
+    test('removes a legacy workspace-relative entry', async () => {
+      writeWorkspaceFile('.github/prompts/old-prompt.prompt.md', '# Old');
+      seedLegacyEntry('legacy', [{ path: '.github/prompts/old-prompt.prompt.md', checksum: sha256('# Old') }]);
+
+      await service.unsyncBundle('legacy');
+
+      assert.ok(!fs.existsSync(workspacePath('.github/prompts/old-prompt.prompt.md')));
+      assert.ok(!fs.existsSync(path.join(workspaceRoot, 'prompt-registry.lock.json')));
+    });
+
+    test('removes a legacy local-only entry and its consolidated skill directory line', async () => {
       createGitDirectory();
-      const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-      fs.writeFileSync(excludePath, '# Prompt Registry (local)\n.github/prompts/test.prompt.md\n');
+      writeWorkspaceFile('.github/skills/helper/SKILL.md', '# Helper');
+      seedLegacyEntry('legacy', [{ path: '.github/skills/helper/SKILL.md', checksum: sha256('# Helper') }], 'local-only');
+      fs.writeFileSync(path.join(workspaceRoot, '.git', 'info', 'exclude'),
+        `${EXCLUDE_HEADER}\n.github/skills/helper\nprompt-registry.local.lock.json\n`);
 
-      const bundleId = 'test-bundle';
-      // Create the bundle directory with manifest so unsyncBundle can read it
-      createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
+      await service.unsyncBundle('legacy');
 
-      // Also create the synced file in .github
-      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
-      fs.mkdirSync(promptsDir, { recursive: true });
-      const promptFile = path.join(promptsDir, 'test.prompt.md');
-      fs.writeFileSync(promptFile, '# Test');
-
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(promptFile);
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'local-only', [
-        { path: '.github/prompts/test.prompt.md', checksum }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await service.unsyncBundle(bundleId);
-
-      const excludeContent = readGitExclude();
-      assert.ok(
-        !excludeContent!.includes('.github/prompts/test.prompt.md'),
-        'Git exclude should not contain removed file path'
-      );
+      assert.ok(!fs.existsSync(workspacePath('.github/skills/helper/SKILL.md')));
+      assert.deepStrictEqual(excludedLines(), []);
     });
 
-    test('should handle non-existent bundle gracefully', async () => {
-      // No lockfile created - bundle doesn't exist
-      mockStorage.getInstalledBundle.resolves(undefined);
+    test('never deletes a file outside the workspace, whatever the lockfile says', async () => {
+      const sentinelContent = 'sentinel\n';
+      const sentinels = {
+        parent: path.join(tempDir, 'outside', 'sentinel.txt'),
+        absolute: path.join(tempDir, 'absolute-sentinel.txt'),
+        dotted: path.join(tempDir, 'sentinel.txt'),
+        legacyCache: path.join(tempDir, 'global', 'bundles', 'x', 'plugin.json'),
+        linked: path.join(tempDir, 'linked-target', 'linked.prompt.md')
+      };
+      for (const file of Object.values(sentinels)) {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, sentinelContent);
+      }
+      const files = [
+        { path: '../outside/sentinel.txt', checksum: sha256(sentinelContent) },
+        { path: sentinels.absolute, checksum: sha256(sentinelContent) },
+        { path: '.github/../../sentinel.txt', checksum: sha256(sentinelContent) },
+        { path: '../global/bundles/x/plugin.json', checksum: sha256(sentinelContent) }
+      ];
+      if (POSIX) {
+        fs.mkdirSync(workspacePath('.github'), { recursive: true });
+        fs.symlinkSync(path.dirname(sentinels.linked), workspacePath('.github/prompts'), 'dir');
+        files.push({ path: '.github/prompts/linked.prompt.md', checksum: sha256(sentinelContent) });
+      }
+      seedLegacyEntry('hostile', files);
+      const warn = sandbox.stub(Logger.getInstance(), 'warn');
 
-      // Should not throw
-      await service.unsyncBundle('non-existent-bundle');
+      await service.unsyncBundle('hostile');
+
+      for (const [name, file] of Object.entries(sentinels)) {
+        if (name !== 'linked' || POSIX) {
+          assert.ok(fs.existsSync(file), `${name} sentinel survives`);
+        }
+      }
+      const warned = warn.getCalls().map((call) => call.args.map(String).join(' ')).join('\n');
+      for (const file of files) {
+        assert.ok(warned.includes(file.path), `a warning names ${file.path}`);
+      }
+    });
+
+    test('rethrows a lockfile removal failure', async () => {
+      await service.syncBundle(DEMO_PLUGIN_ID, '', { commitMode: 'commit', install: await installOf('prompt') });
+      sandbox.stub(LockfileManager.prototype, 'remove').rejects(new Error('disk full'));
+
+      await assert.rejects(service.unsyncBundle(DEMO_PLUGIN_ID), { message: 'disk full' });
+    });
+
+    test('changes nothing for a bundle that is not installed', async () => {
+      assert.strictEqual((await service.unsyncBundle('absent'))?.removed.length ?? 0, 0);
+      assert.deepStrictEqual(fs.readdirSync(workspaceRoot), []);
     });
   });
 
   suite('switchCommitMode', () => {
-    test('should add paths to git exclude when switching from commit to local-only', async () => {
-      createGitDirectory();
-
-      // Setup: create synced files
-      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
-      fs.mkdirSync(promptsDir, { recursive: true });
-      fs.writeFileSync(path.join(promptsDir, 'test.prompt.md'), '# Test');
-
-      const bundleId = 'test-bundle';
-      createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'commit');
-
-      await service.switchCommitMode(bundleId, 'local-only');
-
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes('.github/prompts/test.prompt.md'),
-        'Git exclude should contain file path after switching to local-only'
-      );
-    });
-
-    test('should remove paths from git exclude when switching from local-only to commit', async () => {
-      createGitDirectory();
-      const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-      fs.writeFileSync(excludePath, '# Prompt Registry (local)\n.github/prompts/test.prompt.md\n');
-
-      // Setup: create synced files
-      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
-      fs.mkdirSync(promptsDir, { recursive: true });
-      fs.writeFileSync(path.join(promptsDir, 'test.prompt.md'), '# Test');
-
-      const bundleId = 'test-bundle';
-      createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'local-only');
-
-      await service.switchCommitMode(bundleId, 'commit');
-
-      const excludeContent = readGitExclude();
-      assert.ok(
-        !excludeContent!.includes('.github/prompts/test.prompt.md'),
-        'Git exclude should not contain file path after switching to commit'
-      );
-    });
-  });
-
-  suite('Error Handling', () => {
-    test('should proceed without git integration when .git directory is missing', async () => {
-      // Don't create .git directory
-
-      const bundleId = 'no-git-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      // Should not throw
-      await service.syncBundle(bundleId, bundlePath);
-
-      // File should still be placed
-      const targetFile = path.join(workspaceRoot, '.github', 'prompts', 'test.prompt.md');
-      assert.ok(fs.existsSync(targetFile), 'File should be placed even without .git');
-    });
-
-    test('should handle missing bundle manifest gracefully', async () => {
-      const bundleId = 'no-manifest-bundle';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(bundlePath, { recursive: true });
-      // Don't create manifest
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      // Should not throw, but may log warning
-      await service.syncBundle(bundleId, bundlePath);
-    });
-
-    test('should rollback on partial file installation failure', async () => {
-      const bundleId = 'rollback-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test1.prompt.md', content: '# Test 1', type: 'prompt' },
-        { name: 'test2.prompt.md', content: '# Test 2', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      // Make the prompts directory read-only after first file to cause failure
-      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
-      fs.mkdirSync(promptsDir, { recursive: true });
-
-      // Create first file manually
-      fs.writeFileSync(path.join(promptsDir, 'test1.prompt.md'), '# Test 1');
-
-      // Make directory read-only (this may not work on all systems)
-      try {
-        fs.chmodSync(promptsDir, 0o444);
-
-        try {
-          await service.syncBundle(bundleId, bundlePath);
-        } catch {
-          // Expected to fail
-        }
-
-        // Restore permissions for cleanup
-        fs.chmodSync(promptsDir, 0o755);
-      } catch {
-        // chmod may not work on all systems, skip this test
-      }
-    });
-  });
-
-  suite('Git Exclude Section Management', () => {
-    test('should remove section header when no entries remain', async () => {
-      createGitDirectory();
-      const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-      fs.writeFileSync(excludePath, '# Other content\n*.log\n\n# Prompt Registry (local)\n.github/prompts/test.prompt.md\n');
-
-      const bundleId = 'test-bundle';
-      createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
-      ]);
-
-      // Also create the synced file in .github so unsyncBundle can find it
-      const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
-      fs.mkdirSync(promptsDir, { recursive: true });
-      const promptFile = path.join(promptsDir, 'test.prompt.md');
-      fs.writeFileSync(promptFile, '# Test');
-
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(promptFile);
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'local-only', [
-        { path: '.github/prompts/test.prompt.md', checksum }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await service.unsyncBundle(bundleId);
-
-      const excludeContent = readGitExclude();
-      // Section header should be removed when empty
-      assert.ok(
-        !excludeContent!.includes('# Prompt Registry (local)')
-        || excludeContent!.includes('# Prompt Registry (local)\n\n'),
-        'Section header should be removed or empty when no entries remain'
-      );
-    });
-
-    test('should keep section header when entries remain', () => {
-      createGitDirectory();
-      const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-      fs.writeFileSync(excludePath, '# Prompt Registry (local)\n.github/prompts/test1.prompt.md\n.github/prompts/test2.prompt.md\n');
-
-      const bundleId = 'test-bundle';
-      // Only remove test1, test2 should remain
-      createMockBundle(bundleId, [
-        { name: 'test1.prompt.md', content: '# Test 1', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      // Manually remove just test1
-      const content = fs.readFileSync(excludePath, 'utf8');
-      fs.writeFileSync(excludePath, content.replace('.github/prompts/test1.prompt.md\n', ''));
-
-      const excludeContent = readGitExclude();
-      assert.ok(
-        excludeContent!.includes('# Prompt Registry (local)'),
-        'Section header should remain when entries exist'
-      );
-      assert.ok(
-        excludeContent!.includes('.github/prompts/test2.prompt.md'),
-        'Other entries should remain'
-      );
-    });
-  });
-
-  /**
-   * Skills Directory Handling Tests
-   *
-   * Tests for skill directory installation at repository scope.
-   * Skills are directories (not single files) that need to be copied recursively.
-   *
-   * Requirements: 10.4 - "WHEN installing skill directories, THE Extension SHALL place them in .github/skills/<skill-name>/"
-   * Requirements: 1.5 - "WHEN installing agent skills at repository scope, THE Extension SHALL place files in .github/skills/"
-   */
-  suite('syncBundle - Skills Directory Handling', () => {
     /**
-     * Create a mock bundle with a skill directory
-     * @param bundleId
-     * @param skillName
-     * @param skillFiles
+     * Seed a repository entry as the CLI writes it for a vscode target, with its files under `.github/`.
+     * @param commitMode - Lockfile the entry is written to.
+     * @returns The entry.
      */
-    const createMockBundleWithSkill = (
-      bundleId: string,
-      skillName: string,
-      skillFiles: { relativePath: string; content: string }[]
-    ) => {
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(bundlePath, { recursive: true });
-
-      // Create skill directory
-      const skillDir = path.join(bundlePath, 'skills', skillName);
-      fs.mkdirSync(skillDir, { recursive: true });
-
-      // Create skill files
-      for (const file of skillFiles) {
-        const filePath = path.join(skillDir, file.relativePath);
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, file.content);
-      }
-
-      // Create deployment manifest with skill entry. The file field points at the
-      // skill's SKILL.md, matching what real adapters emit (skills/<name>/SKILL.md).
-      const manifest = `id: ${bundleId}
-version: "1.0.0"
-prompts:
-  - id: ${skillName}
-    name: ${skillName}
-    file: skills/${skillName}/SKILL.md
-    type: skill`;
-
-      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), manifest);
-
-      return bundlePath;
+    const seedCliEntry = (commitMode: RepositoryCommitMode) => {
+      writeWorkspaceFile('.github/plugins/demo-plugin/plugin.json', '{"name":"demo-plugin"}');
+      writeWorkspaceFile('.github/skills/helper/SKILL.md', '# Helper');
+      writeWorkspaceFile('.github/prompts/hello.prompt.md', '# Hello');
+      const entry = {
+        version: '1.0.0',
+        sourceId: 'local-demo',
+        sourceType: 'local',
+        installedAt: '2024-01-01T00:00:00.000Z',
+        targetType: 'vscode',
+        files: [
+          { path: 'plugins/demo-plugin/plugin.json', checksum: sha256('{"name":"demo-plugin"}') },
+          { path: 'prompts/hello.prompt.md', checksum: sha256('# Hello'), installedPath: 'prompts/hello.prompt.md' },
+          { path: 'skills/helper/SKILL.md', checksum: sha256('# Helper') }
+        ]
+      };
+      fs.writeFileSync(path.join(workspaceRoot, lockfileName(commitMode)), JSON.stringify({
+        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
+        version: '2.0.0',
+        generatedAt: new Date().toISOString(),
+        generatedBy: 'ai-primitives-hub-cli@test',
+        bundles: { 'demo-plugin': entry },
+        sources: { 'local-demo': { type: 'local', url: 'local:local-demo' } }
+      }, null, 2));
+      return entry;
+    };
+    const readLockfileBundle = (name: string) => {
+      const file = path.join(workspaceRoot, name);
+      return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).bundles['demo-plugin'] : undefined;
     };
 
-    test('should copy skill directories to .github/skills/<skill-name>/', async () => {
-      const bundleId = 'skill-bundle';
-      const skillName = 'my-skill';
-      const bundlePath = createMockBundleWithSkill(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# My Skill\nThis is a skill.' },
-        { relativePath: 'index.js', content: 'module.exports = {};' }
+    test('switching to local-only moves the entry and excludes exactly its recorded files and the local lockfile', async () => {
+      createGitDirectory();
+      const entry = seedCliEntry('commit');
+      writeWorkspaceFile('.github/prompts/unrelated.prompt.md', '# Not from this bundle');
+      writeWorkspaceFile('.github/copilot-instructions.md', '# Repository instructions');
+
+      await service.switchCommitMode('demo-plugin', 'local-only');
+
+      assert.deepStrictEqual(readLockfileBundle('prompt-registry.local.lock.json'), entry, 'the entry moves with targetType intact');
+      assert.strictEqual(readLockfileBundle('prompt-registry.lock.json'), undefined);
+      assert.deepStrictEqual(excludedLines(), [
+        '.github/plugins/demo-plugin/plugin.json',
+        '.github/prompts/hello.prompt.md',
+        '.github/skills/helper/SKILL.md',
+        'prompt-registry.local.lock.json'
       ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      assert.ok(fs.existsSync(targetSkillDir), 'Skill directory should be created');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'SKILL.md')), 'SKILL.md should be copied');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'index.js')), 'index.js should be copied');
     });
 
-    test('should copy all files within skill directory recursively', async () => {
-      const bundleId = 'skill-bundle-recursive';
-      const skillName = 'complex-skill';
-      const bundlePath = createMockBundleWithSkill(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# Complex Skill' },
-        { relativePath: 'src/main.js', content: 'console.log("main");' },
-        { relativePath: 'src/utils/helper.js', content: 'module.exports = {};' },
-        { relativePath: 'config/settings.json', content: '{"enabled": true}' }
-      ]);
+    test('switching back to commit removes the recorded files and a legacy skill directory line from git exclude', async () => {
+      createGitDirectory();
+      const entry = seedCliEntry('local-only');
+      fs.writeFileSync(path.join(workspaceRoot, '.git', 'info', 'exclude'), [
+        '# Prompt Registry (local)',
+        '.github/plugins/demo-plugin/plugin.json',
+        '.github/prompts/hello.prompt.md',
+        '.github/skills/helper',
+        'prompt-registry.local.lock.json',
+        ''
+      ].join('\n'));
 
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
+      await service.switchCommitMode('demo-plugin', 'commit');
 
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'SKILL.md')), 'SKILL.md should be copied');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'src', 'main.js')), 'src/main.js should be copied');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'src', 'utils', 'helper.js')), 'src/utils/helper.js should be copied');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'config', 'settings.json')), 'config/settings.json should be copied');
+      assert.deepStrictEqual(readLockfileBundle('prompt-registry.lock.json'), entry, 'the entry moves with targetType intact');
+      assert.ok(!fs.existsSync(path.join(workspaceRoot, 'prompt-registry.local.lock.json')));
+      assert.deepStrictEqual(excludedLines(), []);
     });
 
-    test('should preserve skill directory structure', async () => {
-      const bundleId = 'skill-bundle-structure';
-      const skillName = 'structured-skill';
-      const bundlePath = createMockBundleWithSkill(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# Structured Skill' },
-        { relativePath: 'lib/core.js', content: 'exports.core = {};' },
-        { relativePath: 'lib/utils/format.js', content: 'exports.format = {};' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-
-      // Verify directory structure is preserved
-      assert.ok(fs.statSync(path.join(targetSkillDir, 'lib')).isDirectory(), 'lib should be a directory');
-      assert.ok(fs.statSync(path.join(targetSkillDir, 'lib', 'utils')).isDirectory(), 'lib/utils should be a directory');
-
-      // Verify file contents are preserved
-      const coreContent = fs.readFileSync(path.join(targetSkillDir, 'lib', 'core.js'), 'utf8');
-      assert.strictEqual(coreContent, 'exports.core = {};', 'File content should be preserved');
-    });
-
-    test('should create parent .github/skills/ directory if it does not exist', async () => {
-      const bundleId = 'skill-bundle-parent';
-      const skillName = 'new-skill';
-      const bundlePath = createMockBundleWithSkill(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# New Skill' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      // Ensure .github/skills doesn't exist
-      const skillsDir = path.join(workspaceRoot, '.github', 'skills');
-      assert.ok(!fs.existsSync(skillsDir), '.github/skills should not exist initially');
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      assert.ok(fs.existsSync(skillsDir), '.github/skills should be created');
-      assert.ok(fs.existsSync(path.join(skillsDir, skillName)), 'Skill directory should be created');
-    });
-
-    test('should add skill files to git exclude for local-only mode', async () => {
+    test('switching a bundle that is not installed changes nothing', async () => {
       createGitDirectory();
 
-      const bundleId = 'skill-bundle-local';
-      const skillName = 'local-skill';
-      const bundlePath = createMockBundleWithSkill(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# Local Skill' },
-        { relativePath: 'index.js', content: 'module.exports = {};' }
-      ]);
+      await service.switchCommitMode('absent', 'local-only');
 
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes('.github/skills/local-skill'),
-        'Git exclude should contain skill directory path'
-      );
-    });
-
-    test('should NOT add skill files to git exclude for commit mode', async () => {
-      createGitDirectory();
-
-      const bundleId = 'skill-bundle-commit';
-      const skillName = 'commit-skill';
-      const bundlePath = createMockBundleWithSkill(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# Commit Skill' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const excludeContent = readGitExclude();
-      assert.ok(
-        excludeContent === null || !excludeContent.includes('.github/skills/commit-skill'),
-        'Git exclude should not contain skill path for commit mode'
-      );
-    });
-
-    test('should handle bundles with mixed skills and prompts', async () => {
-      const bundleId = 'mixed-bundle-with-skill';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(bundlePath, { recursive: true });
-
-      // Create a prompt file
-      fs.writeFileSync(path.join(bundlePath, 'my-prompt.prompt.md'), '# My Prompt');
-
-      // Create a skill directory
-      const skillDir = path.join(bundlePath, 'skills', 'my-skill');
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# My Skill');
-      fs.writeFileSync(path.join(skillDir, 'index.js'), 'module.exports = {};');
-
-      // Create manifest with both
-      const manifest = `id: ${bundleId}
-version: "1.0.0"
-prompts:
-  - id: my-prompt
-    name: My Prompt
-    file: my-prompt.prompt.md
-    type: prompt
-  - id: my-skill
-    name: My Skill
-    file: skills/my-skill/SKILL.md
-    type: skill`;
-
-      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), manifest);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      // Verify prompt was installed
-      assert.ok(
-        fs.existsSync(path.join(workspaceRoot, '.github', 'prompts', 'my-prompt.prompt.md')),
-        'Prompt should be installed'
-      );
-
-      // Verify skill was installed
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', 'my-skill');
-      assert.ok(fs.existsSync(targetSkillDir), 'Skill directory should be created');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'SKILL.md')), 'SKILL.md should be copied');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'index.js')), 'index.js should be copied');
-    });
-
-    test('should handle skill manifest with file path (skills/name/SKILL.md) instead of directory path', async () => {
-      // This test covers the AwesomeCopilotAdapter case where the manifest has:
-      // file: skills/my-skill/SKILL.md (file path) instead of file: skills/my-skill (directory path)
-      const bundleId = 'skill-bundle-file-path';
-      const skillName = 'awesome-skill';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(bundlePath, { recursive: true });
-
-      // Create skill directory with files
-      const skillDir = path.join(bundlePath, 'skills', skillName);
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.mkdirSync(path.join(skillDir, 'resources'), { recursive: true });
-      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Awesome Skill\nThis is a skill.');
-      fs.writeFileSync(path.join(skillDir, 'resources', 'helper.md'), '# Helper Resource');
-
-      // Create manifest with FILE PATH (skills/awesome-skill/SKILL.md) - this is what AwesomeCopilotAdapter produces
-      const manifest = `id: ${bundleId}
-version: "1.0.0"
-prompts:
-  - id: ${skillName}
-    name: ${skillName}
-    file: skills/${skillName}/SKILL.md
-    type: skill`;
-
-      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), manifest);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      // Verify skill directory and all files were copied
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      assert.ok(fs.existsSync(targetSkillDir), 'Skill directory should be created');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'SKILL.md')), 'SKILL.md should be copied');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'resources', 'helper.md')), 'resources/helper.md should be copied');
-    });
-
-    test('should sync skill packaged under a non-standard directory (.github/skills)', async () => {
-      // Regression for the PR 313 bug class at repository scope: the source directory
-      // must be derived from the manifest file path, not a hardcoded skills/ prefix.
-      const bundleId = 'skill-bundle-github-prefix';
-      const skillName = 'nevio-deployment-automation';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(bundlePath, { recursive: true });
-
-      // Skill lives under .github/skills/ instead of the standard skills/ root path
-      const skillDir = path.join(bundlePath, '.github', 'skills', skillName);
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Deployment Automation');
-      fs.writeFileSync(path.join(skillDir, 'helper.sh'), '#!/bin/bash\necho hello');
-
-      const manifest = `id: ${bundleId}
-version: "1.0.0"
-prompts:
-  - id: ${skillName}
-    name: ${skillName}
-    file: .github/skills/${skillName}/SKILL.md
-    type: skill`;
-
-      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), manifest);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      assert.ok(fs.existsSync(targetSkillDir), 'Skill directory should be created');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'SKILL.md')), 'SKILL.md should be copied');
-      assert.ok(fs.existsSync(path.join(targetSkillDir, 'helper.sh')), 'helper.sh should be copied');
-    });
-  });
-
-  suite('unsyncBundle - Skills Directory Removal', () => {
-    /**
-     * Create a mock bundle with a skill directory for unsync tests
-     * @param bundleId
-     * @param skillName
-     * @param skillFiles
-     */
-    const createMockBundleWithSkillForUnsync = (
-      bundleId: string,
-      skillName: string,
-      skillFiles: { relativePath: string; content: string }[]
-    ) => {
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(bundlePath, { recursive: true });
-
-      // Create skill directory in bundle
-      const skillDir = path.join(bundlePath, 'skills', skillName);
-      fs.mkdirSync(skillDir, { recursive: true });
-
-      for (const file of skillFiles) {
-        const filePath = path.join(skillDir, file.relativePath);
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, file.content);
-      }
-
-      // Create deployment manifest
-      const manifest = `id: ${bundleId}
-version: "1.0.0"
-prompts:
-  - id: ${skillName}
-    name: ${skillName}
-    file: skills/${skillName}/SKILL.md
-    type: skill`;
-
-      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), manifest);
-
-      return bundlePath;
-    };
-
-    test('should remove entire skill directory on unsync', async () => {
-      const bundleId = 'skill-unsync-bundle';
-      const skillName = 'removable-skill';
-
-      // Create the bundle
-      createMockBundleWithSkillForUnsync(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# Removable Skill' },
-        { relativePath: 'index.js', content: 'module.exports = {};' }
-      ]);
-
-      // Create the installed skill directory in .github
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      fs.mkdirSync(targetSkillDir, { recursive: true });
-      const skillMdFile = path.join(targetSkillDir, 'SKILL.md');
-      const indexJsFile = path.join(targetSkillDir, 'index.js');
-      fs.writeFileSync(skillMdFile, '# Removable Skill');
-      fs.writeFileSync(indexJsFile, 'module.exports = {};');
-
-      // Calculate checksums of the files we just created
-      const skillMdChecksum = calculateChecksumSync(skillMdFile);
-      const indexJsChecksum = calculateChecksumSync(indexJsFile);
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'commit', [
-        { path: `.github/skills/${skillName}/SKILL.md`, checksum: skillMdChecksum },
-        { path: `.github/skills/${skillName}/index.js`, checksum: indexJsChecksum }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.unsyncBundle(bundleId);
-
-      assert.ok(!fs.existsSync(targetSkillDir), 'Skill directory should be removed');
-    });
-
-    test('should clean up git exclude entries for all skill files', async () => {
-      createGitDirectory();
-      const excludePath = path.join(workspaceRoot, '.git', 'info', 'exclude');
-      fs.writeFileSync(excludePath, '# Prompt Registry (local)\n.github/skills/my-skill\n');
-
-      const bundleId = 'skill-unsync-local';
-      const skillName = 'my-skill';
-
-      // Create the bundle
-      createMockBundleWithSkillForUnsync(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# My Skill' }
-      ]);
-
-      // Create the installed skill directory
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      fs.mkdirSync(targetSkillDir, { recursive: true });
-      const skillMdFile = path.join(targetSkillDir, 'SKILL.md');
-      fs.writeFileSync(skillMdFile, '# My Skill');
-
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(skillMdFile);
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'local-only', [
-        { path: `.github/skills/${skillName}/SKILL.md`, checksum }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await service.unsyncBundle(bundleId);
-
-      const excludeContent = readGitExclude();
-      assert.ok(
-        !excludeContent!.includes('.github/skills/my-skill'),
-        'Git exclude should not contain skill path after unsync'
-      );
-    });
-
-    test('should handle partial directory removal gracefully', async () => {
-      const bundleId = 'skill-partial-unsync';
-      const skillName = 'partial-skill';
-
-      // Create the bundle
-      createMockBundleWithSkillForUnsync(bundleId, skillName, [
-        { relativePath: 'SKILL.md', content: '# Partial Skill' },
-        { relativePath: 'sub/file.js', content: 'exports = {};' }
-      ]);
-
-      // Create only partial skill directory (missing some files)
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      fs.mkdirSync(targetSkillDir, { recursive: true });
-      const skillMdFile = path.join(targetSkillDir, 'SKILL.md');
-      fs.writeFileSync(skillMdFile, '# Partial Skill');
-      // Note: sub/file.js is NOT created - simulating partial state
-
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(skillMdFile);
-
-      // Create lockfile with file entries including checksums (only for existing file)
-      createLockfile(bundleId, 'commit', [
-        { path: `.github/skills/${skillName}/SKILL.md`, checksum }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      // Should not throw
-      await service.unsyncBundle(bundleId);
-
-      // Directory should be removed (or at least attempted)
-      // The exact behavior depends on implementation
-    });
-  });
-
-  suite('copilotFileTypeUtils Integration for Skills', () => {
-    test('should detect skill type from manifest type field', async () => {
-      const bundleId = 'skill-type-detection';
-      const skillName = 'detected-skill';
-
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(bundlePath, { recursive: true });
-
-      // Create skill directory
-      const skillDir = path.join(bundlePath, 'skills', skillName);
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Detected Skill');
-
-      // Create manifest with explicit type: skill
-      const manifest = `id: ${bundleId}
-version: "1.0.0"
-prompts:
-  - id: ${skillName}
-    name: ${skillName}
-    file: skills/${skillName}/SKILL.md
-    type: skill`;
-
-      fs.writeFileSync(path.join(bundlePath, 'deployment-manifest.yml'), manifest);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await service.syncBundle(bundleId, bundlePath);
-
-      // Skill should be placed in .github/skills/
-      const targetSkillDir = path.join(workspaceRoot, '.github', 'skills', skillName);
-      assert.ok(fs.existsSync(targetSkillDir), 'Skill should be placed in .github/skills/');
-    });
-
-    test('should use getRepositoryTargetDirectory for skill type', () => {
-      const targetPath = service.getTargetPath('skill', 'test-skill');
-      assert.ok(
-        targetPath.includes(path.join('.github', 'skills', '')),
-        'Skill target path should include .github/skills/'
-      );
-    });
-  });
-
-  /**
-   * Host-Aware Destination Tests
-   *
-   * Regression coverage for the workspace-install host-awareness bug: the
-   * host editor target type (injected here for testability) must route
-   * repository-scope installs to the host-appropriate directory tree —
-   * `.kiro/` for Kiro, `.github/` for VS Code — with no `.github/`
-   * writes under a Kiro host and tracker/written-path parity.
-   *
-   */
-  suite('Host-Aware Destinations', () => {
-    /**
-     * Recursively collect every file path under a directory, relative to
-     * the workspace root, using forward slashes.
-     * @param dir - Absolute directory to walk.
-     */
-    const listFilesRelative = (dir: string): string[] => {
-      if (!fs.existsSync(dir)) {
-        return [];
-      }
-      const out: string[] = [];
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const abs = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          out.push(...listFilesRelative(abs));
-        } else {
-          out.push(path.relative(workspaceRoot, abs).replace(/\\/g, '/'));
-        }
-      }
-      return out;
-    };
-
-    test('Kiro host routes files under .kiro/ and never under .github/', async () => {
-      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
-      const bundleId = 'kiro-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Prompt', type: 'prompt' },
-        { name: 'coding.instructions.md', content: '# Instructions', type: 'instructions' },
-        { name: 'reviewer.agent.md', content: '# Agent', type: 'agent' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await kiroService.syncBundle(bundleId, bundlePath);
-
-      assert.ok(
-        fs.existsSync(path.join(workspaceRoot, '.kiro', 'steering', 'test.prompt.md')),
-        'Prompt should land in .kiro/steering/'
-      );
-      assert.ok(
-        fs.existsSync(path.join(workspaceRoot, '.kiro', 'steering', 'coding.instructions.md')),
-        'Instructions should land in .kiro/steering/'
-      );
-      assert.ok(
-        fs.existsSync(path.join(workspaceRoot, '.kiro', 'agents', 'reviewer.agent.md')),
-        'Agent should land in .kiro/agents/'
-      );
-      assert.ok(
-        !fs.existsSync(path.join(workspaceRoot, '.github')),
-        'Nothing should be written under .github/ for a Kiro host'
-      );
-    });
-
-    test('Kiro host routes skill directories under .kiro/skills/', async () => {
-      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
-      const bundleId = 'kiro-skill-bundle';
-      const skillName = 'my-skill';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(path.join(bundlePath, 'skills', skillName), { recursive: true });
-      fs.writeFileSync(path.join(bundlePath, 'skills', skillName, 'SKILL.md'), '# Skill');
-      fs.writeFileSync(
-        path.join(bundlePath, 'deployment-manifest.yml'),
-        `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n  - id: ${skillName}\n    name: ${skillName}\n    file: skills/${skillName}/SKILL.md\n    type: skill`
-      );
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await kiroService.syncBundle(bundleId, bundlePath);
-
-      assert.ok(
-        fs.existsSync(path.join(workspaceRoot, '.kiro', 'skills', skillName, 'SKILL.md')),
-        'Skill should land in .kiro/skills/<id>/'
-      );
-      assert.ok(
-        !fs.existsSync(path.join(workspaceRoot, '.github')),
-        'Nothing should be written under .github/ for a Kiro host'
-      );
-    });
-
-    test('VS Code host preserves .github/ destinations (no regression)', async () => {
-      const vscodeService = new RepositoryScopeService(workspaceRoot, mockStorage, 'vscode');
-      const bundleId = 'vscode-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Prompt', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await vscodeService.syncBundle(bundleId, bundlePath);
-
-      assert.ok(
-        fs.existsSync(path.join(workspaceRoot, '.github', 'prompts', 'test.prompt.md')),
-        'Prompt should land in .github/prompts/ for a VS Code host'
-      );
-      assert.ok(
-        !fs.existsSync(path.join(workspaceRoot, '.kiro')),
-        'Nothing should be written under .kiro/ for a VS Code host'
-      );
-    });
-
-    test('getTargetPath is host-aware for Kiro', () => {
-      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
-      assert.strictEqual(
-        kiroService.getTargetPath('prompt', 'demo'),
-        path.join(workspaceRoot, '.kiro', 'steering', 'demo.prompt.md')
-      );
-      assert.strictEqual(
-        kiroService.getTargetPath('skill', 'demo'),
-        path.join(workspaceRoot, '.kiro', 'skills', 'SKILL.md')
-      );
-    });
-
-    test('getTargetDirectory resolves host-appropriate dirs per file type', () => {
-      const cases: { targetType: string; type: string; expected: string }[] = [
-        { targetType: 'kiro', type: 'prompt', expected: '.kiro/steering/' },
-        { targetType: 'kiro', type: 'instructions', expected: '.kiro/steering/' },
-        { targetType: 'kiro', type: 'agent', expected: '.kiro/agents/' },
-        { targetType: 'kiro', type: 'chatmode', expected: '.kiro/agents/' },
-        { targetType: 'kiro', type: 'skill', expected: '.kiro/skills/' },
-        { targetType: 'vscode', type: 'prompt', expected: '.github/prompts/' },
-        { targetType: 'vscode', type: 'agent', expected: '.github/agents/' },
-        { targetType: 'vscode-insiders', type: 'prompt', expected: '.github/prompts/' },
-        { targetType: 'windsurf', type: 'prompt', expected: '.windsurf/rules/' },
-        { targetType: 'windsurf', type: 'agent', expected: '.windsurf/agents/' },
-        { targetType: 'claude-code', type: 'prompt', expected: '.claude/commands/' },
-        { targetType: 'claude-code', type: 'skill', expected: '.claude/skills/' }
-      ];
-      for (const { targetType, type, expected } of cases) {
-        const svc = new RepositoryScopeService(workspaceRoot, mockStorage, targetType as never);
-        assert.strictEqual(
-          svc.getTargetDirectory(type as never),
-          expected,
-          `${targetType} + ${type} should resolve to ${expected}`
-        );
-      }
-    });
-
-    test('switchCommitMode scans host-aware dirs (.kiro) on a Kiro host', async () => {
-      createGitDirectory();
-      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
-      const bundleId = 'kiro-switch-bundle';
-
-      // Simulate a Kiro install: a prompt already synced under .kiro/steering/.
-      const steeringDir = path.join(workspaceRoot, '.kiro', 'steering');
-      fs.mkdirSync(steeringDir, { recursive: true });
-      fs.writeFileSync(path.join(steeringDir, 'test.prompt.md'), '# Prompt');
-
-      createLockfile(bundleId, 'commit');
-
-      await kiroService.switchCommitMode(bundleId, 'local-only');
-
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes('.kiro/steering/test.prompt.md'),
-        'switchCommitMode should add the host-aware .kiro path to git exclude'
-      );
-      assert.ok(
-        !excludeContent.includes('.github/'),
-        'switchCommitMode should not reference .github on a Kiro host'
-      );
-    });
-
-    test('tracked git-exclude paths equal the host-aware written paths', async () => {
-      createGitDirectory();
-      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
-      const bundleId = 'kiro-local-bundle';
-      const bundlePath = createMockBundle(bundleId, [
-        { name: 'test.prompt.md', content: '# Prompt', type: 'prompt' }
-      ]);
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await kiroService.syncBundle(bundleId, bundlePath);
-
-      // In local-only mode the git-exclude entries are the tracker's relative
-      // paths, which are derived from the writer's actual written paths — so a
-      // .kiro entry here proves tracker/written parity for the detected host.
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes('.kiro/steering/test.prompt.md'),
-        'Tracked (git-exclude) path should match the host-aware written path'
-      );
-      assert.ok(
-        !excludeContent.includes('.github/'),
-        'No .github/ path should be tracked for a Kiro host'
-      );
-
-      // Sanity: the tracked path is exactly the file that was written.
-      const written = listFilesRelative(path.join(workspaceRoot, '.kiro'));
-      assert.deepStrictEqual(written, ['.kiro/steering/test.prompt.md']);
-    });
-
-    test('Kiro skill install (local-only) consolidates git-exclude under .kiro/skills', async () => {
-      createGitDirectory();
-      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
-      const bundleId = 'kiro-skill-local';
-      const skillName = 'my-skill';
-      const bundlePath = path.join(tempDir, 'bundles', bundleId);
-      fs.mkdirSync(path.join(bundlePath, 'skills', skillName), { recursive: true });
-      fs.writeFileSync(path.join(bundlePath, 'skills', skillName, 'SKILL.md'), '# Skill');
-      fs.writeFileSync(path.join(bundlePath, 'skills', skillName, 'run.sh'), 'echo hi');
-      fs.writeFileSync(
-        path.join(bundlePath, 'deployment-manifest.yml'),
-        `id: ${bundleId}\nversion: "1.0.0"\nprompts:\n  - id: ${skillName}\n    name: ${skillName}\n    file: skills/${skillName}/SKILL.md\n    type: skill`
-      );
-
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
-
-      await kiroService.syncBundle(bundleId, bundlePath);
-
-      const excludeContent = readGitExclude();
-      assert.ok(excludeContent, 'Git exclude file should exist');
-      assert.ok(
-        excludeContent.includes(`.kiro/skills/${skillName}`),
-        'Skill should be consolidated to the host-aware .kiro/skills/<name> dir'
-      );
-      assert.ok(
-        !excludeContent.includes(`.kiro/skills/${skillName}/SKILL.md`),
-        'Individual skill files should be consolidated, not listed separately'
-      );
-      assert.ok(!excludeContent.includes('.github'), 'Should not reference .github on a Kiro host');
-    });
-
-    test('Kiro unsync removes files and empty .kiro managed dirs, preserving the .kiro root', async () => {
-      const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
-      const bundleId = 'kiro-unsync-bundle';
-
-      // Simulate an installed prompt under .kiro/steering (host-aware path).
-      const steeringDir = path.join(workspaceRoot, '.kiro', 'steering');
-      fs.mkdirSync(steeringDir, { recursive: true });
-      const promptFile = path.join(steeringDir, 'test.prompt.md');
-      fs.writeFileSync(promptFile, '# Prompt');
-      const checksum = calculateChecksumSync(promptFile);
-
-      createLockfile(bundleId, 'commit', [{ path: '.kiro/steering/test.prompt.md', checksum }]);
-      mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
-
-      await kiroService.unsyncBundle(bundleId);
-
-      assert.ok(!fs.existsSync(promptFile), 'Tracked file should be removed');
-      assert.ok(!fs.existsSync(steeringDir), 'Emptied .kiro/steering should be cleaned up');
-      assert.ok(
-        fs.existsSync(path.join(workspaceRoot, '.kiro')),
-        'The .kiro root itself must be preserved (may hold unrelated files)'
-      );
+      assert.strictEqual(readGitExclude(), null);
+      assert.ok(!fs.existsSync(path.join(workspaceRoot, 'prompt-registry.local.lock.json')));
     });
   });
 });

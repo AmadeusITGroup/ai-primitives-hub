@@ -68,6 +68,17 @@ mv chatmodes agents
 
 Search your codebase for any remaining references to chatmode files and update them.
 
+## Repository-Scope Bundles Installed by Earlier Extension Versions {#repository-scope-shared-install}
+
+The extension now installs repository-scope bundles exactly as the `ai-primitives-hub` CLI does (see [Repository-Level Installation](user-guide/repository-installation.md#same-result-as-the-cli)). Bundles already installed keep working; the differences show up as follows:
+
+- **Prompt file names and slash commands** — a prompt file installed by an earlier version was named after its manifest entry; it now keeps its bundle file name. The installed file keeps its old name until the bundle is reinstalled or updated, which removes the old file and adds the new one: for a bundle whose `prompts/hello.prompt.md` was installed as `hello-prompt.prompt.md`, `/hello-prompt` becomes `/hello`. Update any notes or scripts that use the old slash command, and commit the renamed file for a bundle in commit mode.
+- **Older lockfile entries** — entries recorded with workspace paths (`.github/prompts/…`) are still read, checked for local modifications and uninstalled; they are rewritten in the new form on the next reinstall or update.
+- **Agent Plugin bundles** — plugin bundles recorded by earlier versions show the "files missing" warning in the Registry Explorer. Reinstall them to install the plugin into `.github/plugins/<plugin-name>/`.
+- **Bundles the editor cannot fully install** — installed partially before, they are now rejected with nothing written; see [Bundles the Editor Cannot Install](user-guide/repository-installation.md#bundles-the-editor-cannot-install).
+
+User-scope installs are unchanged.
+
 ## Need Help?
 
 - [GitHub Scaffold Documentation](https://github.com/prompt-registry/docs)

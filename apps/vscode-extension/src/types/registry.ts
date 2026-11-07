@@ -116,6 +116,8 @@ export interface InstalledBundle {
   sourceType?: string; // Source type for identity matching (github, local, etc.)
   commitMode?: RepositoryCommitMode; // Commit mode for repository-scoped installations
   filesMissing?: boolean; // Set when lockfile entry exists but files are missing (repository scope only)
+  /** Target type that placed the files (repository scope only); absent in entries written by older tooling. */
+  targetType?: string;
 }
 
 /**

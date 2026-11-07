@@ -1,700 +1,315 @@
 /**
  * BundleInstaller Repository Scope Unit Tests
  *
- * Tests for extending BundleInstaller to support repository-level installation.
- * Follows TDD approach - these tests are written first (RED phase).
+ * Install, reinstall, update and uninstall at repository scope through the
+ * real services: the workspace files, the lockfile, the MCP configuration
+ * and the bundle cache are observed on disk.
  *
  * Requirements covered:
  * - 1.1-1.8: Repository-Level Installation as Default
  * - 8.3-8.4: Update Detection Across Scopes
  */
-
 import * as assert from 'node:assert';
+import {
+  createHash,
+} from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import AdmZip from 'adm-zip';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
   BundleInstaller,
 } from '../../src/services/bundle-installer';
 import {
+  LocalModificationWarningService,
+} from '../../src/services/local-modification-warning-service';
+import {
   LockfileManager,
 } from '../../src/services/lockfile-manager';
-import {
-  RepositoryScopeService,
-} from '../../src/services/repository-scope-service';
-import {
-  ScopeServiceFactory,
-} from '../../src/services/scope-service-factory';
-import {
-  UserScopeService,
-} from '../../src/services/user-scope-service';
-import {
-  RegistryStorage,
-} from '../../src/storage/registry-storage';
 import {
   Bundle,
   InstallOptions,
 } from '../../src/types/registry';
 import {
-  BundleBuilder,
-  createMockInstalledBundle,
-} from '../helpers/bundle-test-helpers';
+  DEMO_PLUGIN_ID,
+  PluginBundleKind,
+  PluginBundleZipOptions,
+  writePluginBundleZip,
+} from '../helpers/plugin-bundle-fixtures';
+
+const POSIX = process.platform !== 'win32';
+
+/**
+ * Every file below a directory with its sha256, sorted; `[]` when absent.
+ * @param dir - Directory.
+ */
+const treeOf = (dir: string): string[] => {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const facts: string[] = [];
+  const walk = (current: string): void => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else {
+        facts.push(`${path.relative(dir, full).split(path.sep).join('/')} ${createHash('sha256').update(fs.readFileSync(full)).digest('hex')}`);
+      }
+    }
+  };
+  walk(dir);
+  return facts.toSorted();
+};
 
 suite('BundleInstaller - Repository Scope', () => {
   let sandbox: sinon.SinonSandbox;
-  let installer: BundleInstaller;
-  let mockContext: vscode.ExtensionContext;
-  let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
-  let mockLockfileManager: sinon.SinonStubbedInstance<LockfileManager>;
-  let mockRepositoryScopeService: sinon.SinonStubbedInstance<RepositoryScopeService>;
-  let mockUserScopeService: sinon.SinonStubbedInstance<UserScopeService>;
-  let tempDir: string;
+  let root: string;
+  let workspaceRoot: string;
+  let globalStorage: string;
+  let context: vscode.ExtensionContext;
+  let workspaceFolders: sinon.SinonStub;
 
-  // Test bundle data
-  const testBundle: Bundle = BundleBuilder.github('test-owner', 'test-repo')
-    .withVersion('1.0.0')
-    .withDescription('Test bundle for repository scope')
-    .build();
+  const bundleOf = (version = '1.0.0', overrides: Partial<Bundle> = {}): Bundle => ({
+    id: DEMO_PLUGIN_ID,
+    name: 'Demo Plugin',
+    version,
+    description: 'Demo plugin bundle',
+    author: 'Test',
+    sourceId: 'local-demo',
+    environments: ['vscode'],
+    tags: [],
+    lastUpdated: '2026-01-01T00:00:00Z',
+    size: '1KB',
+    dependencies: [],
+    license: 'MIT',
+    downloadUrl: 'https://example.com/demo-plugin.zip',
+    manifestUrl: 'https://example.com/deployment-manifest.yml',
+    ...overrides
+  });
+
+  const zipOf = (kind: PluginBundleKind, opts: PluginBundleZipOptions = {}): Buffer => writePluginBundleZip(root, kind, opts).bytes;
+
+  const repository = (overrides: Partial<InstallOptions> = {}): InstallOptions => ({ scope: 'repository', commitMode: 'commit', ...overrides });
+
+  const bundlesDir = (): string => path.join(globalStorage, 'bundles');
+
+  const cacheSiblings = (): string[] => (fs.existsSync(bundlesDir())
+    ? fs.readdirSync(bundlesDir()).filter((name) => name.startsWith(`${DEMO_PLUGIN_ID}.`))
+    : []);
+
+  const readLockfile = (): { bundles: Record<string, { version: string; files: { path: string }[] }>; sources: Record<string, { type: string; url: string }> } | undefined => {
+    const file = path.join(workspaceRoot, 'prompt-registry.lock.json');
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : undefined;
+  };
+
+  /** Act as a Kiro host: BundleInstaller target and the MCP host detection. */
+  const kiroInstaller = (): BundleInstaller => {
+    sandbox.stub(vscode.env, 'appName').value('Kiro');
+    sandbox.stub(vscode.env, 'uriScheme').value('kiro');
+    return new BundleInstaller(context, 'kiro');
+  };
 
   setup(() => {
     sandbox = sinon.createSandbox();
-    tempDir = path.join(__dirname, '..', '..', '..', 'test-temp-repo-scope');
-
-    // Create mock context
-    mockContext = {
-      globalStorageUri: { fsPath: path.join(tempDir, 'global') },
-      storageUri: { fsPath: path.join(tempDir, 'workspace') },
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-installer-repo-'));
+    workspaceRoot = path.join(root, 'workspace');
+    globalStorage = path.join(root, 'global');
+    fs.mkdirSync(workspaceRoot);
+    context = {
+      globalStorageUri: { fsPath: globalStorage },
+      storageUri: { fsPath: path.join(root, 'workspace-storage') },
       extensionPath: __dirname,
-      extension: {
-        packageJSON: {
-          publisher: 'test-publisher',
-          name: 'test-extension',
-          version: '1.0.0'
-        }
-      },
+      extension: { packageJSON: { publisher: 'test-publisher', name: 'test-extension', version: '1.0.0' } },
       globalState: {
         get: sandbox.stub().returns({}),
         update: sandbox.stub().resolves(),
         keys: sandbox.stub().returns([]),
         setKeysForSync: sandbox.stub()
       }
-    } as any;
-
-    // Create temp directories
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    // Create mock storage
-    mockStorage = sandbox.createStubInstance(RegistryStorage);
-    mockStorage.getInstalledBundle.resolves(undefined);
-    mockStorage.recordInstallation.resolves();
-    mockStorage.removeInstallation.resolves();
-
-    // Create mock LockfileManager
-    mockLockfileManager = {
-      createOrUpdate: sandbox.stub().resolves(),
-      remove: sandbox.stub().resolves(),
-      read: sandbox.stub().resolves(null),
-      validate: sandbox.stub().resolves({ valid: true, errors: [], warnings: [] }),
-      detectModifiedFiles: sandbox.stub().resolves([]),
-      getLockfilePath: sandbox.stub().returns(path.join(tempDir, 'prompt-registry.lock.json')),
-      onLockfileUpdated: new vscode.EventEmitter().event,
-      dispose: sandbox.stub()
-    } as any;
-
-    // Create mock scope services
-    mockRepositoryScopeService = {
-      syncBundle: sandbox.stub().resolves(),
-      unsyncBundle: sandbox.stub().resolves(),
-      getTargetPath: sandbox.stub().returns('.github/prompts/test.prompt.md'),
-      getStatus: sandbox.stub().resolves({ baseDirectory: '.github', dirExists: true, syncedFiles: 0, files: [] }),
-      switchCommitMode: sandbox.stub().resolves()
-    } as any;
-
-    mockUserScopeService = {
-      syncBundle: sandbox.stub().resolves(),
-      unsyncBundle: sandbox.stub().resolves(),
-      getTargetPath: sandbox.stub().returns('~/.vscode/prompts/test.prompt.md'),
-      getStatus: sandbox.stub().resolves({ baseDirectory: '~/.vscode', dirExists: true, syncedFiles: 0, files: [] })
-    } as any;
-
-    // Stub ScopeServiceFactory
-    sandbox.stub(ScopeServiceFactory, 'create').callsFake((scope, _context, _workspaceRoot, _storage) => {
-      if (scope === 'repository') {
-        return mockRepositoryScopeService;
-      }
-      return mockUserScopeService;
-    });
-
-    // Stub LockfileManager.getInstance
-    sandbox.stub(LockfileManager, 'getInstance').returns(mockLockfileManager);
-
-    // Stub vscode.workspace.workspaceFolders
-    sandbox.stub(vscode.workspace, 'workspaceFolders').value([
-      { uri: vscode.Uri.file(tempDir), name: 'test-workspace', index: 0 }
+    } as unknown as vscode.ExtensionContext;
+    workspaceFolders = sandbox.stub(vscode.workspace, 'workspaceFolders').value([
+      { uri: vscode.Uri.file(workspaceRoot), name: 'workspace', index: 0 }
     ]);
-
-    installer = new BundleInstaller(mockContext);
+    LockfileManager.resetInstance();
   });
 
   teardown(() => {
     sandbox.restore();
+    LockfileManager.resetInstance();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 
-    // Cleanup temp directories
-    if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+  test('installs a spec-compliant plugin into .github/plugins/<name>/ and uninstalls it completely', async () => {
+    const installer = new BundleInstaller(context, 'vscode');
+
+    const installed = await installer.installFromBuffer(bundleOf(), zipOf('plugin'), repository(), 'local');
+
+    const pluginDir = path.join(workspaceRoot, '.github', 'plugins', DEMO_PLUGIN_ID);
+    assert.deepStrictEqual(treeOf(pluginDir).map((fact) => fact.split(' ')[0]), [
+      'mcp.json', 'plugin.json', 'scripts/run.sh', 'skills/helper/SKILL.md'
+    ]);
+    if (POSIX) {
+      // eslint-disable-next-line no-bitwise -- owner execute bit
+      assert.ok((fs.statSync(path.join(pluginDir, 'scripts', 'run.sh')).mode & 0o100) !== 0, 'run.sh is executable');
     }
+
+    await installer.uninstall(installed);
+
+    assert.deepStrictEqual(treeOf(workspaceRoot), [], 'no file remains in the workspace');
+    assert.ok(!fs.existsSync(pluginDir), 'no plugin directory remains');
+    assert.strictEqual(readLockfile(), undefined, 'the lockfile is removed');
   });
 
-  suite('getInstallDirectory() - Repository Scope Support', () => {
-    test('should return .github-based path for repository scope', async () => {
-      // This test verifies that getInstallDirectory returns a path
-      // within the workspace .github directory for repository scope
-      // Requirements: 1.2-1.7
+  test('installs a skills-source bundle at repository scope through the shared install', async () => {
+    const zip = new AdmZip();
+    zip.addFile('deployment-manifest.yml', Buffer.from(`id: ${DEMO_PLUGIN_ID}\nversion: 1.0.0\nname: Demo\nprompts:\n  - id: my-skill\n    file: skills/my-skill/SKILL.md\n    type: skill\n`));
+    zip.addFile('skills/my-skill/SKILL.md', Buffer.from('---\nname: my-skill\ndescription: Mine\n---\n'));
+    const installer = new BundleInstaller(context, 'vscode');
 
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
+    await installer.installFromBuffer(bundleOf(), zip.toBuffer(), repository(), 'skills');
 
-      // The method is private, so we test it indirectly through installFromBuffer
-      // For now, we verify the error is no longer thrown for repository scope
-      // (The current implementation throws "Repository scope installation is not yet implemented")
-
-      // Create a minimal valid bundle buffer
-      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-      const AdmZip = require('adm-zip');
-      const zip = new AdmZip();
-      zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test bundle
-author: test
-prompts: []
-`));
-      const bundleBuffer = zip.toBuffer();
-
-      try {
-        await installer.installFromBuffer(testBundle, bundleBuffer, options, 'github');
-        // If we get here, repository scope is supported
-        assert.ok(true, 'Repository scope installation should be supported');
-      } catch (error: any) {
-        // Currently expected to fail until implementation is complete
-        if (error.message.includes('Repository scope installation is not yet implemented')) {
-          assert.ok(true, 'Repository scope not yet implemented - test will pass after implementation');
-        } else {
-          throw error;
-        }
-      }
-    });
-
-    test('should continue to support user scope', () => {
-      // Requirements: 9.1-9.5 - Backward compatibility
-      const options: InstallOptions = {
-        scope: 'user'
-      };
-
-      // User scope should continue to work
-      assert.strictEqual(options.scope, 'user');
-    });
-
-    test('should continue to support workspace scope', () => {
-      // Requirements: 9.1-9.5 - Backward compatibility
-      const options: InstallOptions = {
-        scope: 'workspace'
-      };
-
-      assert.strictEqual(options.scope, 'workspace');
-    });
+    assert.ok(fs.existsSync(path.join(workspaceRoot, '.github', 'skills', 'my-skill', 'SKILL.md')));
+    assert.deepStrictEqual(readLockfile()?.bundles[DEMO_PLUGIN_ID].files.map((f) => f.path), ['skills/my-skill/SKILL.md']);
   });
 
-  suite('Repository Scope Installation Flow', () => {
-    test('should use ScopeServiceFactory to get RepositoryScopeService', async () => {
-      // Requirements: 1.1, 1.8
-      // Verify that installation uses ScopeServiceFactory for repository scope
+  test('a Kiro host rejects a plugin bundle and leaves no file, MCP configuration or cache', async () => {
+    const installer = kiroInstaller();
 
-      // Trigger installation (will fail but should call factory)
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-      } catch {
-        // Expected to fail until implementation
+    await assert.rejects(
+      installer.installFromBuffer(bundleOf(), zipOf('plugin', { withMcpServers: true }), repository(), 'local'),
+      (error: Error & { code?: string; unsupported?: unknown[] }) => {
+        assert.strictEqual(error.code, 'BUNDLE.UNSUPPORTED_CONTENT');
+        assert.ok(error.message.startsWith('Cannot install "Demo Plugin" on kiro (repository scope): '), error.message);
+        assert.ok(Array.isArray(error.unsupported));
+        return true;
       }
+    );
 
-      // After implementation, this should verify factory was called
-      // assert.ok(factoryStub.calledWith('repository'), 'Should use ScopeServiceFactory for repository scope');
-    });
-
-    test('should route skills bundle at repository scope through RepositoryScopeService', async () => {
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      // Build a minimal skills bundle zip with deployment-manifest and SKILL.md
-      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-      const AdmZip = require('adm-zip');
-      const zip = new AdmZip();
-      zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test skill bundle
-author: test
-prompts:
-  - id: my-skill
-    file: skills/my-skill/SKILL.md
-    type: skill
-`));
-      zip.addFile('skills/my-skill/SKILL.md', Buffer.from('# My Skill'));
-
-      // Reset call history to ensure clean assertions
-      mockRepositoryScopeService.syncBundle.resetHistory();
-      mockUserScopeService.syncBundle.resetHistory();
-
-      await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'skills');
-
-      assert.ok(mockRepositoryScopeService.syncBundle.calledOnce, 'Repository scope should sync via RepositoryScopeService for skills');
-      assert.ok(!mockUserScopeService.syncBundle.called, 'User scope sync should not be used for repository-scoped skills');
-    });
-
-    test('should call LockfileManager.createOrUpdate for repository scope installation', async () => {
-      // Requirements: 4.1
-      // Verify lockfile is updated when installing at repository scope
-
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-
-        // After implementation, verify lockfile was updated
-        // assert.ok(mockLockfileManager.createOrUpdate.called, 'Should update lockfile for repository scope');
-      } catch {
-        // Expected until implementation
-      }
-    });
-
-    test('should NOT call LockfileManager for user scope installation', async () => {
-      // Requirements: 8.4
-      // Verify lockfile is NOT modified for user scope installations
-
-      const options: InstallOptions = {
-        scope: 'user'
-      };
-
-      // Reset the stub to track calls
-      mockLockfileManager.createOrUpdate.resetHistory();
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-      } catch {
-        // May fail for other reasons
-      }
-
-      // Lockfile should not be touched for user scope
-      assert.ok(!mockLockfileManager.createOrUpdate.called, 'Should NOT update lockfile for user scope');
-    });
-
-    test('should sync bundle using RepositoryScopeService for repository scope', async () => {
-      // Requirements: 1.2-1.7
-      // Verify files are synced to .github directories
-
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-
-        // After implementation, verify RepositoryScopeService.syncBundle was called
-        // assert.ok(mockRepositoryScopeService.syncBundle.called, 'Should sync using RepositoryScopeService');
-      } catch {
-        // Expected until implementation
-      }
-    });
+    assert.deepStrictEqual(fs.readdirSync(workspaceRoot), [], 'no file, MCP configuration or lockfile in the workspace');
+    assert.ok(!fs.existsSync(path.join(bundlesDir(), DEMO_PLUGIN_ID)), 'no bundle cache');
+    assert.deepStrictEqual(cacheSiblings(), [], 'no staging directory');
   });
 
-  suite('Repository Scope Uninstallation', () => {
-    test('should call LockfileManager.remove when uninstalling repository scope bundle', async () => {
-      // Requirements: 4.8
-      const installed = createMockInstalledBundle(testBundle.id, '1.0.0', {
-        scope: 'repository',
-        commitMode: 'commit',
-        installPath: path.join(tempDir, 'bundles', testBundle.id)
-      });
+  test('a rejected reinstall keeps the installed version, its entry and its cache', async () => {
+    const installer = kiroInstaller();
+    await installer.installFromBuffer(bundleOf(), zipOf('prompt'), repository(), 'local');
+    const cacheBefore = treeOf(path.join(bundlesDir(), DEMO_PLUGIN_ID));
+    const lockfileBefore = readLockfile();
+    const workspaceBefore = treeOf(workspaceRoot);
 
-      // Create the install path
-      fs.mkdirSync(installed.installPath, { recursive: true });
+    await assert.rejects(
+      installer.installFromBuffer(bundleOf('2.0.0'), zipOf('mixed', { version: '2.0.0' }), repository({ force: true }), 'local'),
+      { code: 'BUNDLE.UNSUPPORTED_CONTENT' }
+    );
 
-      try {
-        await installer.uninstall(installed);
-
-        // After implementation, verify lockfile entry was removed
-        // assert.ok(mockLockfileManager.remove.calledWith(testBundle.id), 'Should remove from lockfile');
-      } catch {
-        // May fail for other reasons
-      }
-    });
-
-    test('should NOT call LockfileManager.remove when uninstalling user scope bundle', async () => {
-      // Requirements: 8.4
-      const installed = createMockInstalledBundle(testBundle.id, '1.0.0', {
-        scope: 'user',
-        installPath: path.join(tempDir, 'bundles', testBundle.id)
-      });
-
-      // Create the install path
-      fs.mkdirSync(installed.installPath, { recursive: true });
-
-      mockLockfileManager.remove.resetHistory();
-
-      try {
-        await installer.uninstall(installed);
-      } catch {
-        // May fail for other reasons
-      }
-
-      assert.ok(!mockLockfileManager.remove.called, 'Should NOT remove from lockfile for user scope');
-    });
-
-    test('should unsync bundle using RepositoryScopeService for repository scope', async () => {
-      // Requirements: 1.2-1.7
-      const installed = createMockInstalledBundle(testBundle.id, '1.0.0', {
-        scope: 'repository',
-        commitMode: 'commit',
-        installPath: path.join(tempDir, 'bundles', testBundle.id)
-      });
-
-      fs.mkdirSync(installed.installPath, { recursive: true });
-
-      try {
-        await installer.uninstall(installed);
-
-        // After implementation, verify RepositoryScopeService.unsyncBundle was called
-        // assert.ok(mockRepositoryScopeService.unsyncBundle.called, 'Should unsync using RepositoryScopeService');
-      } catch {
-        // May fail for other reasons
-      }
-    });
+    assert.deepStrictEqual(treeOf(path.join(bundlesDir(), DEMO_PLUGIN_ID)), cacheBefore, 'the cache of the installed version is unchanged');
+    assert.deepStrictEqual(readLockfile(), lockfileBefore, 'the lockfile is unchanged');
+    assert.deepStrictEqual(treeOf(workspaceRoot), workspaceBefore, 'the installed files are unchanged');
+    assert.deepStrictEqual(cacheSiblings(), []);
   });
 
-  suite('Commit Mode Handling', () => {
-    test('should pass commitMode to RepositoryScopeService', async () => {
-      // Requirements: 3.1-3.2
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'local-only'
-      };
+  test('a rejected repository update keeps the installed version, its entry, its MCP servers and its cache', async () => {
+    const installer = kiroInstaller();
+    const installed = await installer.installFromBuffer(bundleOf(), zipOf('prompt', { withMcpServers: true }), repository(), 'local');
+    const mcpConfig = path.join(workspaceRoot, '.kiro', 'settings', 'mcp.json');
+    assert.ok(fs.existsSync(mcpConfig), 'the MCP server of v1 is configured');
+    const workspaceBefore = treeOf(workspaceRoot);
+    const cacheBefore = treeOf(path.join(bundlesDir(), DEMO_PLUGIN_ID));
+    const lockfileBefore = readLockfile();
 
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
+    await assert.rejects(
+      installer.update(installed, bundleOf('2.0.0'), zipOf('mixed', { version: '2.0.0', withMcpServers: true }), 'local'),
+      { code: 'BUNDLE.UNSUPPORTED_CONTENT' }
+    );
 
-        // After implementation, verify commitMode was passed correctly
-      } catch {
-        // Expected until implementation
-      }
-    });
-
-    test('should record commitMode in InstalledBundle', () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-
-        // After implementation, verify commitMode is in the result
-        // assert.strictEqual(result.commitMode, 'commit', 'Should record commitMode in InstalledBundle');
-      } catch {
-        // Expected until implementation
-      }
-    });
+    assert.deepStrictEqual(treeOf(workspaceRoot), workspaceBefore, 'v1 files and MCP configuration are unchanged');
+    assert.deepStrictEqual(readLockfile(), lockfileBefore, 'the v1 entry is unchanged');
+    assert.deepStrictEqual(treeOf(path.join(bundlesDir(), DEMO_PLUGIN_ID)), cacheBefore, 'the v1 cache is unchanged');
+    assert.deepStrictEqual(cacheSiblings(), []);
   });
 
-  suite('Lockfile Integration', () => {
-    test('should include source information in lockfile entry', async () => {
-      // Requirements: 12.1-12.3
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
+  test('a successful reinstall replaces the cache and leaves no staging or old directory', async () => {
+    const installer = new BundleInstaller(context, 'vscode');
+    await installer.installFromBuffer(bundleOf(), zipOf('prompt'), repository(), 'local');
+    const cacheBefore = treeOf(path.join(bundlesDir(), DEMO_PLUGIN_ID));
 
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
+    await installer.installFromBuffer(bundleOf('2.0.0'), zipOf('mixed', { version: '2.0.0' }), repository({ force: true }), 'local');
 
-        // After implementation, verify source info was included
-        // const createOrUpdateCall = mockLockfileManager.createOrUpdate.firstCall;
-        // assert.ok(createOrUpdateCall.args[0].source, 'Should include source in lockfile');
-      } catch {
-        // Expected until implementation
-      }
-    });
-
-    test('should include file checksums in lockfile entry', async () => {
-      // Requirements: 15.1-15.2
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts:
-  - id: test-prompt
-    name: Test Prompt
-    description: A test prompt
-    file: test.prompt.md
-`));
-        zip.addFile('test.prompt.md', Buffer.from('# Test Prompt'));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-
-        // After implementation, verify files with checksums were included
-        // const createOrUpdateCall = mockLockfileManager.createOrUpdate.firstCall;
-        // assert.ok(createOrUpdateCall.args[0].files.length > 0, 'Should include files in lockfile');
-      } catch {
-        // Expected until implementation
-      }
-    });
+    const cacheAfter = treeOf(path.join(bundlesDir(), DEMO_PLUGIN_ID));
+    assert.notDeepStrictEqual(cacheAfter, cacheBefore);
+    assert.ok(cacheAfter.some((fact) => fact.startsWith('plugins/demo-plugin/plugin.json ')), 'the cache holds v2');
+    assert.deepStrictEqual(cacheSiblings(), [], 'no .staging-* or .old-* directory');
+    assert.strictEqual(readLockfile()?.bundles[DEMO_PLUGIN_ID].version, '2.0.0');
   });
 
-  suite('Error Handling', () => {
-    test('should throw error when repository scope requested but no workspace open', async () => {
-      // Requirements: 1.8
-      // Stub workspaceFolders to be empty
-      sandbox.restore();
-      sandbox = sinon.createSandbox();
-      sandbox.stub(vscode.workspace, 'workspaceFolders').value(undefined);
+  test('an install removes stale cache leftovers and keeps the staging directory of an install still running', async () => {
+    const installer = new BundleInstaller(context, 'vscode');
+    const stale = path.join(bundlesDir(), `${DEMO_PLUGIN_ID}.staging-0000dead`);
+    const staleOld = path.join(bundlesDir(), `${DEMO_PLUGIN_ID}.old-0000dead`);
+    const running = path.join(bundlesDir(), `${DEMO_PLUGIN_ID}.staging-0000beef`);
+    for (const dir of [stale, staleOld, running]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'deployment-manifest.yml'), 'id: demo-plugin\n');
+    }
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(stale, twoHoursAgo, twoHoursAgo);
+    fs.utimesSync(staleOld, twoHoursAgo, twoHoursAgo);
 
-      installer = new BundleInstaller(mockContext);
+    await installer.installFromBuffer(bundleOf(), zipOf('prompt'), repository(), 'local');
 
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-        assert.fail('Should have thrown error for repository scope without workspace');
-      } catch (error: any) {
-        // Should throw an error about no workspace
-        assert.ok(
-          error.message.includes('workspace')
-          || error.message.includes('Repository scope')
-          || error.message.includes('not yet implemented'),
-          `Error should mention workspace requirement: ${error.message}`
-        );
-      }
-    });
-
-    test('should handle lockfile write failures gracefully', async () => {
-      // Requirements: 15.6
-      mockLockfileManager.createOrUpdate.rejects(new Error('Lockfile write failed'));
-
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-
-        // After implementation, should either throw or handle gracefully
-      } catch {
-        // Expected - lockfile failure should propagate or be handled
-        assert.ok(true, 'Lockfile failure handled');
-      }
-    });
+    assert.deepStrictEqual(cacheSiblings(), [path.basename(running)]);
   });
 
-  suite('Scope-Specific Behavior', () => {
-    test('should use UserScopeService for user scope', async () => {
-      // Requirements: 9.1-9.5
+  test('records a non-empty source URL when the bundle has no download or manifest URL', async () => {
+    const installer = new BundleInstaller(context, 'vscode');
 
-      const factoryStub = ScopeServiceFactory.create as sinon.SinonStub;
-      factoryStub.resetHistory();
+    await installer.installFromBuffer(bundleOf('1.0.0', { downloadUrl: '', manifestUrl: '' }), zipOf('prompt'), repository(), 'local');
 
-      const options: InstallOptions = {
-        scope: 'user'
-      };
+    assert.deepStrictEqual(readLockfile()?.sources['local-demo'], { type: 'local', url: 'local:local-demo' });
+  });
 
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
-      } catch {
-        // May fail for other reasons
-      }
+  test('a lockfile write failure fails the install and rolls back its files', async () => {
+    sandbox.stub(LockfileManager.prototype, 'writeBundleEntry').rejects(new Error('disk full'));
+    const installer = new BundleInstaller(context, 'vscode');
 
-      // Current implementation uses UserScopeService directly (copilotSync)
-      // After refactoring, should use ScopeServiceFactory
-    });
+    await assert.rejects(installer.installFromBuffer(bundleOf(), zipOf('mixed'), repository(), 'local'), /disk full/);
 
-    test('should use RepositoryScopeService for repository scope', async () => {
-      // Requirements: 1.1-1.8
+    assert.deepStrictEqual(treeOf(workspaceRoot), [], 'no bundle file remains in the workspace');
+  });
 
-      const factoryStub = ScopeServiceFactory.create as sinon.SinonStub;
-      factoryStub.resetHistory();
+  test('a Kiro install then update reports no local modification', async () => {
+    const installer = kiroInstaller();
+    const warnings = new LocalModificationWarningService(LockfileManager.getInstance(workspaceRoot));
+    const installed = await installer.installFromBuffer(bundleOf(), zipOf('prompt'), repository(), 'local');
 
-      const options: InstallOptions = {
-        scope: 'repository',
-        commitMode: 'commit'
-      };
+    assert.deepStrictEqual(await warnings.checkForModifications(DEMO_PLUGIN_ID), []);
 
-      try {
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-        const AdmZip = require('adm-zip');
-        const zip = new AdmZip();
-        zip.addFile('deployment-manifest.yml', Buffer.from(`
-id: ${testBundle.id}
-version: ${testBundle.version}
-name: ${testBundle.name}
-description: Test
-author: test
-prompts: []
-`));
-        await installer.installFromBuffer(testBundle, zip.toBuffer(), options, 'github');
+    await installer.update(installed, bundleOf('1.1.0'), zipOf('prompt', { version: '1.1.0' }), 'local');
 
-        // After implementation, verify factory was called with 'repository'
-      } catch {
-        // Expected until implementation
-      }
-    });
+    assert.deepStrictEqual(await warnings.checkForModifications(DEMO_PLUGIN_ID), []);
+    assert.strictEqual(readLockfile()?.bundles[DEMO_PLUGIN_ID].version, '1.1.0');
+  });
+
+  test('throws when repository scope is requested without an open workspace', async () => {
+    workspaceFolders.value(undefined);
+    const installer = new BundleInstaller(context, 'vscode');
+
+    await assert.rejects(
+      installer.installFromBuffer(bundleOf(), zipOf('prompt'), repository(), 'local'),
+      /Repository scope requires an open workspace/
+    );
   });
 
   suite('MCP server names', () => {
-    const mcpBundle: Bundle = {
-      ...testBundle,
+    const mcpBundle = (): Bundle => bundleOf('1.0.0', {
       id: 'mirror-org-mirror-sample-mcp-1.0.0',
-      version: '1.0.0',
       repository: 'https://github.com/mirror-org/mirror'
-    };
-    const options: InstallOptions = { scope: 'repository', commitMode: 'commit' };
+    });
 
     const bundleZip = (repositoryLine: string): Buffer => {
-      // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
-      const AdmZip = require('adm-zip');
       const zip = new AdmZip();
       zip.addFile('deployment-manifest.yml', Buffer.from(`
 id: sample-mcp
@@ -713,20 +328,24 @@ mcpServers:
     };
 
     const writtenServerNames = (): string[] => {
-      const config = JSON.parse(fs.readFileSync(path.join(tempDir, '.vscode', 'mcp.json'), 'utf8')) as { servers: Record<string, unknown> };
+      const config = JSON.parse(fs.readFileSync(path.join(workspaceRoot, '.vscode', 'mcp.json'), 'utf8')) as { servers: Record<string, unknown> };
       return Object.keys(config.servers);
     };
 
     test('names servers after the repository in the deployment manifest, not the source they came from', async () => {
+      const installer = new BundleInstaller(context, 'vscode');
+
       await installer.installFromBuffer(
-        mcpBundle, bundleZip('repository: https://github.com/acme-org/sample-collections'), options, 'github'
+        mcpBundle(), bundleZip('repository: https://github.com/acme-org/sample-collections'), repository(), 'github'
       );
 
       assert.deepStrictEqual(writtenServerNames(), ['ai-primitives-hub:acme-org:sample-collections:sample-mcp:gateway']);
     });
 
     test('uses the source repository when the deployment manifest has none', async () => {
-      await installer.installFromBuffer(mcpBundle, bundleZip("repository: ''"), options, 'github');
+      const installer = new BundleInstaller(context, 'vscode');
+
+      await installer.installFromBuffer(mcpBundle(), bundleZip("repository: ''"), repository(), 'github');
 
       assert.deepStrictEqual(writtenServerNames(), ['ai-primitives-hub:mirror-org:mirror:sample-mcp:gateway']);
     });

@@ -6,7 +6,7 @@
  * core's governed and legacy release planners, written out the way
  * `bundle build` lays out an archive, and installed through the real CLI
  * commands onto every target type in user and repository scope (plus the
- * VS Code repository `local-only` commit mode). The files written, the
+ * VS Code and Kiro repository `local-only` commit mode). The files written, the
  * lockfile entry, `.git/info/exclude` and what uninstall leaves behind are
  * stored as one snapshot file per kind. The snapshots were generated from
  * the code before the install-category refactor and must not change.
@@ -63,6 +63,9 @@ import {
   createTestContext,
   runCli,
 } from '../../src/framework';
+import {
+  makeGitDir,
+} from '../helpers/git-fixture';
 
 const REVISION = 'abcdef0123456789abcdef0123456789abcdef01';
 const COLLECTION_FILE = 'collections/example.collection.yml';
@@ -208,6 +211,9 @@ const createSandbox = async (parent: string, name: string): Promise<Sandbox> => 
   const workspace = path.join(root, 'workspace');
   await mkdir(home, { recursive: true });
   await mkdir(workspace, { recursive: true });
+  // The workspace is a git repository, so local-only installs have an
+  // exclude file to update.
+  await makeGitDir(workspace);
   return {
     root,
     home,
@@ -373,7 +379,8 @@ interface CaseSpec {
 const CASES: CaseSpec[] = [
   ...TARGET_TYPES.flatMap((targetType) => (['user', 'repository'] as const)
     .map((scope) => ({ targetType, scope, localOnly: false }))),
-  { targetType: 'vscode', scope: 'repository', localOnly: true }
+  { targetType: 'vscode', scope: 'repository', localOnly: true },
+  { targetType: 'kiro', scope: 'repository', localOnly: true }
 ];
 
 const caseKey = (spec: CaseSpec): string =>

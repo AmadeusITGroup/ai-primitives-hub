@@ -32,7 +32,8 @@
 import * as path from 'node:path';
 import {
   activateProfile,
-  checksumFiles,
+  buildLockfileBundleEntry,
+  computeInstalledChecksums,
   deactivateProfile,
   emptyLockfile,
   githubRepoSlugForSource,
@@ -425,18 +426,18 @@ async function activateBundleForTarget(
       // Hub profiles name GitHub bundles `{owner}-{repo}-{manifestId}`.
       sourceRepoSlug: githubRepoSlugForSource(src)
     });
-    const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, target, files, manifest);
-    const entry: LockfileBundleEntry = {
+    const write = await writeBundleSafely(writer, target, files, manifest);
+    const installedChecksums = await computeInstalledChecksums({ writer, target, write, fs: ctx.fs });
+    const entry = buildLockfileBundleEntry({
       version: manifest.version,
       sourceId: src.id,
       sourceType: src.type,
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-    };
-    if (target.scope === 'repository') {
-      entry.commitMode = target.commitMode ?? 'commit';
-    }
-    return { ok: true, written: result.written, entry, sourceEntry };
+      targetType: target.type,
+      write,
+      installedChecksums,
+      now: new Date()
+    });
+    return { ok: true, written: write.result.written, entry, sourceEntry };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
@@ -473,10 +474,10 @@ async function deactivateProfileBundles(ctx: Context, state: ProfileActivationSt
       }
     } else {
       const lockPath = lockfilePathForTarget(ctx, target);
-      const writer = createUninstallWriterFactory(ctx, {})(target);
+      const writerFactory = createUninstallWriterFactory(ctx, {});
       for (const bundleId of state.syncedBundles) {
         try {
-          await runUserScopeUninstall(bundleId, lockPath, target, ctx, writer);
+          await runUserScopeUninstall(bundleId, lockPath, target, ctx, writerFactory);
         } catch {
           // Best-effort cleanup.
         }

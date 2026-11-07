@@ -260,7 +260,7 @@ jobs:
 
       // Verify bundle files were installed
       const promptsDir = path.join(workspaceRoot, GITHUB_PROMPTS_DIR);
-      const promptFile = path.join(promptsDir, 'test-prompt.prompt.md');
+      const promptFile = path.join(promptsDir, 'test.prompt.md');
       assert.ok(fs.existsSync(promptFile), 'Prompt file should exist after installation');
 
       // Verify lockfile exists
@@ -357,7 +357,7 @@ updates:
 
       // Verify bundle files were installed
       const promptsDir = path.join(workspaceRoot, GITHUB_PROMPTS_DIR);
-      const promptFile = path.join(promptsDir, 'test-prompt.prompt.md');
+      const promptFile = path.join(promptsDir, 'test.prompt.md');
       assert.ok(fs.existsSync(promptFile), 'Prompt file should exist after installation');
 
       // === ACT: Modify the prompt file (simulate user customization) ===
@@ -396,7 +396,7 @@ updates:
 
       // Verify bundle files were installed
       const promptsDir = path.join(workspaceRoot, GITHUB_PROMPTS_DIR);
-      const bundlePromptFile = path.join(promptsDir, 'test-prompt.prompt.md');
+      const bundlePromptFile = path.join(promptsDir, 'test.prompt.md');
       assert.ok(fs.existsSync(bundlePromptFile), 'Bundle prompt file should exist after installation');
 
       // === ACT: Create a user's own prompt file in the same directory ===

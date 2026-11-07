@@ -1,48 +1,49 @@
 /**
  * Uninstall Pipeline.
  *
- * Mirrors the install pipeline but for removal operations:
- * - Resolve installed bundle from the lockfile
- * - Plan file removals
- * - Execute removals via target writer
- * - Update the lockfile
- *
- * Repository scope only — see `stores/json-lockfile-store.ts`'s module
- * doc for why. Since the lockfile is split across two physical files
+ * Repository-scope uninstall over the two physical lockfiles
  * (`prompt-registry.lock.json` for `commit` mode,
- * `prompt-registry.local.lock.json` for `local-only`) with no
- * per-entry `target` field, a bundle id is looked up in both files
- * (mirroring the extension's own `LockfileManager.remove()`), and
- * whichever file it's found in is the one updated.
+ * `prompt-registry.local.lock.json` for `local-only`; see
+ * `stores/json-lockfile-store.ts`'s module doc). A bundle id is looked up
+ * in both files, commit first (mirroring the extension's own
+ * `LockfileManager.remove()`), and whichever file holds it is the one
+ * updated.
  *
- * Known gap (matches the reference branch's own pipeline, not a
- * regression introduced here): per-file removal goes through the
- * generic `TargetWriter.remove()` method, which does not perform the
- * git-exclude cleanup that `RepositoryScopeWriter`'s own richer
- * `.remove(bundleId, manifest)` method does. Wiring that through the
- * `TargetWriter` interface is deferred.
+ * `plan`/`planAll` only read the lockfiles. `run`/`runAll` delegate each
+ * bundle to the shared `applyBundleUninstall` over a lockfile record
+ * store: files another bundle records are kept, recorded paths with no
+ * location inside the target root are refused, empty directories are
+ * pruned, and `local-only` files leave the git exclusion list.
  * @module install/uninstall-pipeline
  */
 
 import type {
   FileSystem,
+  RepositoryExclusion,
   Target,
 } from '@ai-primitives-hub/core';
+import {
+  GitInfoExclude,
+} from '@ai-primitives-hub/infra';
+import {
+  createLockfileRecordStore,
+  type InstallRecordStore,
+} from '../stores/install-record-store';
 import type {
   LockfileBundleEntry,
   RepositoryCommitMode,
 } from '../stores/json-lockfile-store';
 import {
-  cleanupOrphanedSource,
-  deleteLockfile,
   getLockfilePathForMode,
   readLockfile,
-  removeBundleEntry,
-  writeLockfile,
 } from '../stores/json-lockfile-store';
 import type {
   TargetWriter,
 } from '../writers/file-tree-writer';
+import {
+  applyBundleUninstall,
+  type ApplyBundleUninstallResult,
+} from './apply-bundle-uninstall';
 
 /**
  * Options for uninstall pipeline.
@@ -56,6 +57,12 @@ export interface UninstallPipelineOptions {
   repositoryPath: string;
   /** Writer factory for scope-aware routing. */
   writerFactory: (target: Target) => TargetWriter;
+  /** `generatedBy` of a lockfile the record store writes (default `ai-primitives-hub-cli`). */
+  generatedBy?: string;
+  /** Git exclusion list (default: `GitInfoExclude` over `repositoryPath`). */
+  exclusion?: RepositoryExclusion;
+  /** Keep files whose bytes changed since install (default `false`). */
+  preserveModified?: boolean;
 }
 
 /**
@@ -80,9 +87,29 @@ export interface UninstallResult {
   bundleId: string;
   /** Files removed. */
   removed: string[];
-  /** Files not found (skipped). */
+  /** Files left in place: kept, refused, missing or failed (see `outcome`). */
   skipped: string[];
+  /** Full outcome of the shared uninstall, when the bundle was recorded. */
+  outcome?: ApplyBundleUninstallResult;
 }
+
+/**
+ * The {@link UninstallResult} of a shared uninstall outcome.
+ * @param bundleId Bundle id.
+ * @param outcome Shared uninstall outcome.
+ * @returns `removed` as is; `skipped` = kept ∪ refused ∪ missing ∪ errors.
+ */
+export const uninstallResultOf = (bundleId: string, outcome: ApplyBundleUninstallResult): UninstallResult => ({
+  bundleId,
+  removed: outcome.removed,
+  skipped: [
+    ...outcome.kept.map((file) => file.path),
+    ...outcome.refused,
+    ...outcome.missing,
+    ...outcome.errors.map((file) => file.path)
+  ],
+  outcome
+});
 
 const COMMIT_MODES: readonly RepositoryCommitMode[] = ['commit', 'local-only'];
 
@@ -94,71 +121,42 @@ export class UninstallPipeline {
   private readonly target: Target;
   private readonly repositoryPath: string;
   private readonly writerFactory: (target: Target) => TargetWriter;
+  private readonly exclusion: RepositoryExclusion;
+  private readonly store: InstallRecordStore;
+  private readonly preserveModified: boolean;
 
   public constructor(opts: UninstallPipelineOptions) {
     this.fs = opts.fs;
     this.target = opts.target;
     this.repositoryPath = opts.repositoryPath;
     this.writerFactory = opts.writerFactory;
+    this.exclusion = opts.exclusion ?? new GitInfoExclude({ fs: opts.fs, workspaceRoot: opts.repositoryPath });
+    this.store = createLockfileRecordStore({
+      scope: 'repository',
+      fs: opts.fs,
+      rootPath: opts.repositoryPath,
+      generatedBy: opts.generatedBy ?? 'ai-primitives-hub-cli',
+      exclusion: this.exclusion
+    });
+    this.preserveModified = opts.preserveModified ?? false;
   }
 
   /**
-   * Remove files via writer.
-   * @param writer - Target writer.
-   * @param files - Files to remove.
-   * @param entry
-   * @returns Removal result.
+   * Uninstall one recorded bundle through the shared use case.
+   * @param id - Bundle id.
+   * @returns Uninstall result.
    */
-  private async removeFiles(
-    writer: TargetWriter,
-    files: string[],
-    entry: LockfileBundleEntry
-  ): Promise<{ removed: string[]; skipped: string[] }> {
-    const removed: string[] = [];
-    const skipped: string[] = [];
-    // Manifest-driven installs record where each file landed.
-    const installedPaths = new Map(entry.files.map((f) => [f.path, f.installedPath]));
-
-    for (const file of files) {
-      try {
-        const installedPath = installedPaths.get(file);
-        await (installedPath === undefined
-          ? writer.remove(this.target, file)
-          : writer.remove(this.target, file, installedPath));
-        removed.push(file);
-      } catch {
-        skipped.push(file);
-      }
-    }
-
-    return { removed, skipped };
-  }
-
-  /**
-   * Remove a bundle entry from its lockfile, cleaning up orphaned
-   * sources and deleting the physical file when it becomes empty.
-   * @param bundleId - Bundle id to remove.
-   * @param entry - The entry being removed (for its sourceId).
-   * @param commitMode - Which physical lockfile to update.
-   */
-  private async removeFromLockfile(
-    bundleId: string,
-    entry: LockfileBundleEntry,
-    commitMode: RepositoryCommitMode
-  ): Promise<void> {
-    const lockPath = getLockfilePathForMode(this.repositoryPath, commitMode);
-    const lock = await readLockfile(lockPath, this.fs);
-    if (lock === null) {
-      return;
-    }
-    let next = removeBundleEntry(lock, bundleId);
-    next = cleanupOrphanedSource(next, entry.sourceId);
-
-    if (Object.keys(next.bundles).length === 0) {
-      await deleteLockfile(lockPath, this.fs);
-      return;
-    }
-    await writeLockfile(lockPath, next, this.fs);
+  private async uninstall(id: string): Promise<UninstallResult> {
+    const outcome = await applyBundleUninstall({
+      writerFactory: this.writerFactory,
+      target: this.target,
+      key: id,
+      store: this.store,
+      exclusion: this.exclusion,
+      fs: this.fs,
+      preserveModified: this.preserveModified
+    });
+    return uninstallResultOf(id, outcome);
   }
 
   /**
@@ -184,7 +182,8 @@ export class UninstallPipeline {
   }
 
   /**
-   * Execute uninstall by removing files and updating the lockfile.
+   * Execute uninstall by removing files and updating the lockfile
+   * through the shared uninstall.
    * @param id - Bundle ID to uninstall.
    * @returns Uninstall result.
    */
@@ -195,16 +194,7 @@ export class UninstallPipeline {
       return { bundleId: id, removed: [], skipped: [] };
     }
 
-    const writer = this.writerFactory(this.target);
-    const result = await this.removeFiles(writer, plan.filesToRemove, plan.lockfileEntry);
-
-    await this.removeFromLockfile(id, plan.lockfileEntry, plan.commitMode);
-
-    return {
-      bundleId: id,
-      removed: result.removed,
-      skipped: result.skipped
-    };
+    return this.uninstall(id);
   }
 
   /**
@@ -244,15 +234,7 @@ export class UninstallPipeline {
         continue;
       }
 
-      const writer = this.writerFactory(this.target);
-      const result = await this.removeFiles(writer, plan.filesToRemove, plan.lockfileEntry);
-      await this.removeFromLockfile(plan.bundleId, plan.lockfileEntry, plan.commitMode);
-
-      results.push({
-        bundleId: plan.bundleId,
-        removed: result.removed,
-        skipped: result.skipped
-      });
+      results.push(await this.uninstall(plan.bundleId));
     }
 
     return results;

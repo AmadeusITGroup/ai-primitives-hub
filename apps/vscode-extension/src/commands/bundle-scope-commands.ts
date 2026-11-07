@@ -11,9 +11,6 @@
 
 import * as vscode from 'vscode';
 import {
-  LockfileManager,
-} from '../services/lockfile-manager';
-import {
   RegistryManager,
 } from '../services/registry-manager';
 import {
@@ -37,7 +34,6 @@ import {
   Logger,
 } from '../utils/logger';
 import {
-  getWorkspaceRoot,
   hasOpenWorkspace,
 } from '../utils/scope-selection-ui';
 
@@ -272,15 +268,8 @@ export class BundleScopeCommands {
         return;
       }
 
-      // Perform switch (updates git exclude entries)
+      // Moves the lockfile entry, then updates the git exclude entries
       await this.repositoryScopeService.switchCommitMode(bundleId, newMode);
-
-      // Update lockfile with new commit mode using atomic write
-      const workspaceRoot = getWorkspaceRoot();
-      if (workspaceRoot) {
-        const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-        await lockfileManager.updateCommitMode(bundleId, newMode);
-      }
 
       this.registryManager.handleWorkspaceFoldersChanged();
 

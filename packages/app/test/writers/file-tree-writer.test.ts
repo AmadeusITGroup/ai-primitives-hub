@@ -202,6 +202,29 @@ describe('FileTreeTargetWriter', () => {
     expect(await fs.exists(localPath('/out', 'prompts', 'second.md'))).toBe(false);
   });
 
+  it('restores a file it replaced when a later write fails, and reports what a write replaced', async () => {
+    const failing = new FailAfterFirstWriteFileSystem();
+    const first = localPath('/out', 'prompts', 'first.md');
+    failing.seed(first, 'user work\n');
+    const files = new Map<string, Uint8Array>([
+      ['prompts/first.md', new TextEncoder().encode('# First')],
+      ['prompts/second.md', new TextEncoder().encode('# Second')]
+    ]);
+
+    await expect(new FileTreeTargetWriter({ fs: failing, env: {} }).write(target, files)).rejects.toThrow('disk full after write');
+    expect(await failing.readFile(first)).toBe('user work\n');
+
+    const fs = new InMemoryFileSystem();
+    fs.seed(first, 'user work\n');
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const result = await writer.write(target, files);
+    expect(Object.keys(result.replaced ?? {})).toEqual([first]);
+
+    await writer.rollback(target, result.written, result.replaced);
+    expect(await fs.readFile(first)).toBe('user work\n');
+    expect(await fs.exists(localPath('/out', 'prompts', 'second.md'))).toBe(false);
+  });
+
   it('routes the legacy chatmodes path alias to the canonical chat-modes route', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env: {} });
@@ -663,13 +686,102 @@ describe('FileTreeTargetWriter manifest placement on a Kiro target', () => {
     }
   });
 
-  it('refuses a recorded installed path outside the target directory', async () => {
+  it('removes nothing for a recorded installed path outside the target directory', async () => {
     const fs = new InMemoryFileSystem();
     fs.seed(localPath('/home/u', 'outside.md'), '# Keep');
     const writer = new FileTreeTargetWriter({ fs, env });
 
-    await expect(writer.remove(kiroUser, 'x.md', '../outside.md')).rejects.toThrow(/outside the target directory/);
+    await writer.remove(kiroUser, 'x.md', '../outside.md');
+
     expect(await fs.exists(localPath('/home/u', 'outside.md'))).toBe(true);
+  });
+
+  it('locates every file writeManifestItems wrote', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const result = await writer.writeManifestItems(kiroUser, copilotBundle(), copilotItems);
+    const recorded = (result.writtenBundlePaths ?? []).map((bundlePath) => ({
+      path: bundlePath,
+      installedPath: result.installedPaths?.[bundlePath]
+    }));
+
+    const located = await writer.locate(kiroUser, recorded);
+
+    expect(located.root).toBe(kiroDir);
+    expect(located.paths).toEqual(result.written);
+  });
+
+  it('locates below a root in the same form as the written files for a non-normalised target path', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const target: Target = { ...kiroUser, path: '/custom/./kiro' };
+    const result = await writer.writeManifestItems(target, copilotBundle(), copilotItems);
+    const recorded = (result.writtenBundlePaths ?? []).map((bundlePath) => ({
+      path: bundlePath,
+      installedPath: result.installedPaths?.[bundlePath]
+    }));
+
+    const located = await writer.locate(target, recorded);
+
+    expect(located.root).toBe(localPath('/custom', 'kiro'));
+    expect(located.paths).toEqual(result.written);
+    for (const location of located.paths) {
+      expect((location as string).startsWith(`${located.root}${path.sep}`), location as string).toBe(true);
+    }
+  });
+
+  it('locates every file write placed by its route', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const files = new Map<string, Uint8Array>([
+      ['prompts/a.prompt.md', new TextEncoder().encode('# A')],
+      ['instructions/sub/b.instructions.md', new TextEncoder().encode('# B')],
+      ['.kiro/steering/c.md', new TextEncoder().encode('# C')]
+    ]);
+    const result = await writer.write(kiroUser, files);
+
+    const located = await writer.locate(kiroUser, (result.writtenBundlePaths ?? []).map((p) => ({ path: p })));
+
+    expect(located.paths).toEqual(result.written);
+  });
+
+  it.each(['../outside.md', '/abs/x.md', 'steering/../../x.md'])(
+    'locates no file for the escaping installed path %s',
+    async (installedPath) => {
+      const writer = new FileTreeTargetWriter({ fs: new InMemoryFileSystem(), env });
+
+      const located = await writer.locate(kiroUser, [{ path: 'x.md', installedPath }]);
+
+      expect(located.paths).toEqual([null]);
+    }
+  );
+
+  it('locates no file for an unrouted path at user scope and removes nothing for it', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed(localPath(kiroDir, 'README.md'), '# Keep');
+    const writer = new FileTreeTargetWriter({ fs, env });
+
+    const located = await writer.locate(kiroUser, [{ path: 'README.md' }]);
+    await writer.remove(kiroUser, 'README.md');
+
+    expect(located.paths).toEqual([null]);
+    expect(await fs.exists(localPath(kiroDir, 'README.md'))).toBe(true);
+  });
+
+  it('locates and removes a legacy workspace-relative entry at repository scope', async () => {
+    const fs = new InMemoryFileSystem();
+    const target: Target = { name: 'kiro-repo', type: 'kiro', scope: 'repository', rootPath: '/ws' };
+    const legacy = localPath('/ws', '.kiro', 'steering', 'old.md');
+    fs.seed(legacy, '# Old');
+    const writer = new FileTreeTargetWriter({ fs, env });
+
+    const located = await writer.locate(target, [{ path: '.kiro/steering/old.md' }, { path: '.kiro/other/x.md' }]);
+    await writer.remove(target, '.kiro/other/x.md');
+    await writer.remove(target, '.kiro/steering/old.md');
+
+    expect(located.root).toBe(localPath('/ws', '.kiro'));
+    expect(located.paths).toEqual([legacy, localPath('/ws', '.kiro', 'other', 'x.md')]);
+    expect(await fs.exists(legacy)).toBe(false);
   });
 
   it('rolls back what it wrote when a later item write fails', async () => {

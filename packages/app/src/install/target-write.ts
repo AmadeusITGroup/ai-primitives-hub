@@ -7,6 +7,7 @@
  * external writers that only implement `write`.
  * @module install/target-write
  */
+import * as path from 'node:path';
 import type {
   CopilotFileType,
   ExtractedFiles,
@@ -19,6 +20,7 @@ import {
   determineFileType,
   getFileExtension,
   getInstallableBundleFiles,
+  mergeReplacedFiles,
 } from '@ai-primitives-hub/core';
 import {
   FileTreeTargetWriter,
@@ -57,12 +59,28 @@ export async function writeTargetSafely(
       throw new TargetWriteRejectedError(plan.skipped);
     }
   }
+  return writeTargetChecked(writer, target, files);
+}
 
+/**
+ * The write half of {@link writeTargetSafely}: write, and reject (rolling
+ * back what was written) when the writer skipped content.
+ * @param writer Target writer.
+ * @param target Target configuration.
+ * @param files Files to write.
+ * @returns The successful writer result.
+ * @throws {TargetWriteRejectedError} When content is skipped.
+ */
+const writeTargetChecked = async (
+  writer: TargetWriter,
+  target: Target,
+  files: ExtractedFiles
+): Promise<TargetWriteResult> => {
   const result = await writer.write(target, files);
   if (result.skipped.length > 0) {
     if (writer.rollback !== undefined && result.written.length > 0) {
       try {
-        await writer.rollback(target, result.written);
+        await writer.rollback(target, result.written, result.replaced);
       } catch {
         // Preserve the policy failure; rollback is explicitly best effort.
       }
@@ -70,7 +88,7 @@ export async function writeTargetSafely(
     throw new TargetWriteRejectedError(result.skipped);
   }
   return result;
-}
+};
 
 const COPILOT_FILE_TYPES: ReadonlySet<string> = new Set<CopilotFileType>([
   'prompt',
@@ -173,6 +191,92 @@ export interface BundleTargetWrite {
 }
 
 /**
+ * What the preflight of a bundle write decided, before the first write.
+ */
+export interface BundleWritePreflight {
+  /** The installable files (see `getInstallableBundleFiles`). */
+  installableFiles: ExtractedFiles;
+  /**
+   * Installable placement items; empty unless the writer is a
+   * {@link FileTreeTargetWriter} and the manifest lists items.
+   */
+  items: ManifestPlacementItem[];
+  /**
+   * Files for path-routed `write`: every installable file when `items` is
+   * empty, else the files no item covers and no skipped item owns.
+   */
+  rest: ExtractedFiles;
+  /** Bundle paths the preflight skipped; empty unless `skipUnsupported`. */
+  skipped: string[];
+}
+
+/**
+ * Preflight a bundle write without writing anything: the check
+ * {@link writeBundleSafely} and `writeBundleForInstall` run before their
+ * first write.
+ *
+ * Without `skipUnsupported`, any content preflight cannot place rejects
+ * the bundle. With it, the bundle is rejected only when preflight can
+ * place none of its content, and the files of a skipped skill item are
+ * left out of `rest` so they are never path-routed.
+ * @param writer Target writer.
+ * @param target Target configuration.
+ * @param files Extracted bundle files (full archive).
+ * @param manifest Validated manifest of `files`.
+ * @param skipUnsupported Report unsupported content instead of rejecting.
+ * @returns What to write and what preflight skipped.
+ * @throws {TargetWriteRejectedError} When the bundle is rejected.
+ */
+export async function preflightBundleWrite(
+  writer: TargetWriter,
+  target: Target,
+  files: ExtractedFiles,
+  manifest: ValidatedManifest,
+  skipUnsupported: boolean
+): Promise<BundleWritePreflight> {
+  const installableFiles = getInstallableBundleFiles(files, manifest);
+  const items = writer instanceof FileTreeTargetWriter
+    ? manifestPlacementItems(manifest).filter((item) => isInstallableItem(item, installableFiles))
+    : [];
+  if (!(writer instanceof FileTreeTargetWriter) || items.length === 0) {
+    const plan = writer.preflight === undefined ? undefined : await writer.preflight(target, installableFiles);
+    if (plan !== undefined && plan.skipped.length > 0 && (!skipUnsupported || plan.writable.length === 0)) {
+      throw new TargetWriteRejectedError(plan.skipped);
+    }
+    return { installableFiles, items: [], rest: installableFiles, skipped: plan?.skipped ?? [] };
+  }
+
+  const itemPlan = await writer.preflightManifestItems(target, installableFiles, items);
+  if (!skipUnsupported && itemPlan.skipped.length > 0) {
+    throw new TargetWriteRejectedError(itemPlan.skipped);
+  }
+  const covered = new Set(itemPlan.writable);
+  const skippedFiles = new Set(itemPlan.skipped);
+  const skippedItems = items.filter((item) => skippedFiles.has(item.file));
+  const belongsToSkippedItem = (bundlePath: string): boolean => skippedItems.some((item) => {
+    if (bundlePath === item.file) {
+      return true;
+    }
+    if ((item.type ?? determineFileType(item.file, item.tags)) !== 'skill') {
+      return false;
+    }
+    const prefix = skillSourcePrefix(item.file);
+    return prefix !== null && bundlePath.startsWith(prefix);
+  });
+  const rest: ExtractedFiles = new Map([...installableFiles]
+    .filter(([bundlePath]) => !covered.has(bundlePath) && !belongsToSkippedItem(bundlePath)));
+  const restPlan = await writer.preflight(target, rest);
+  if (!skipUnsupported && restPlan.skipped.length > 0) {
+    throw new TargetWriteRejectedError(restPlan.skipped);
+  }
+  const skipped = [...itemPlan.skipped, ...restPlan.skipped];
+  if (skipUnsupported && covered.size + restPlan.writable.length === 0) {
+    throw new TargetWriteRejectedError(skipped);
+  }
+  return { installableFiles, items, rest, skipped };
+}
+
+/**
  * Write a validated bundle into a target, placing manifest items by type.
  *
  * For a {@link FileTreeTargetWriter} whose manifest lists file-backed
@@ -199,23 +303,9 @@ export async function writeBundleSafely(
   files: ExtractedFiles,
   manifest: ValidatedManifest
 ): Promise<BundleTargetWrite> {
-  const installableFiles = getInstallableBundleFiles(files, manifest);
-  const items = writer instanceof FileTreeTargetWriter
-    ? manifestPlacementItems(manifest).filter((item) => isInstallableItem(item, installableFiles))
-    : [];
+  const { installableFiles, items, rest } = await preflightBundleWrite(writer, target, files, manifest, false);
   if (!(writer instanceof FileTreeTargetWriter) || items.length === 0) {
-    return { installableFiles, result: await writeTargetSafely(writer, target, installableFiles) };
-  }
-
-  const itemPlan = await writer.preflightManifestItems(target, installableFiles, items);
-  if (itemPlan.skipped.length > 0) {
-    throw new TargetWriteRejectedError(itemPlan.skipped);
-  }
-  const covered = new Set(itemPlan.writable);
-  const rest: ExtractedFiles = new Map([...installableFiles].filter(([bundlePath]) => !covered.has(bundlePath)));
-  const restPlan = await writer.preflight(target, rest);
-  if (restPlan.skipped.length > 0) {
-    throw new TargetWriteRejectedError(restPlan.skipped);
+    return { installableFiles, result: await writeTargetChecked(writer, target, installableFiles) };
   }
 
   const itemResult = await writer.writeManifestItems(target, installableFiles, items);
@@ -223,17 +313,19 @@ export async function writeBundleSafely(
   try {
     restResult = await writer.write(target, rest);
   } catch (cause) {
-    await writer.rollback(target, itemResult.written);
+    await writer.rollback(target, itemResult.written, itemResult.replaced);
     throw cause;
   }
+  const replaced = mergeReplacedFiles(itemResult, restResult);
   const result: TargetWriteResult = {
     written: [...itemResult.written, ...restResult.written],
     skipped: [...itemResult.skipped, ...restResult.skipped],
     writtenBundlePaths: [...(itemResult.writtenBundlePaths ?? []), ...(restResult.writtenBundlePaths ?? [])],
-    installedPaths: itemResult.installedPaths ?? {}
+    installedPaths: itemResult.installedPaths ?? {},
+    ...(replaced === undefined ? {} : { replaced })
   };
   if (result.skipped.length > 0) {
-    await writer.rollback(target, result.written);
+    await writer.rollback(target, result.written, result.replaced);
     throw new TargetWriteRejectedError(result.skipped);
   }
   return { installableFiles, result };
@@ -256,13 +348,12 @@ export interface RecordedBundleFile {
  * Manifest placement can move a file (`prompts/x.md`, path-routed, becomes
  * `prompts/x.prompt.md`), and a new version can drop one; overwriting the
  * lockfile entry alone would leave those files behind. Files are compared
- * by physical location — `installedPath` when recorded, otherwise the
- * path-routed destination — so a file the new install wrote to the same
- * place is never removed. Removal goes through `writer.remove`, which keeps
- * its target-boundary check, and is best effort like uninstall.
+ * by the absolute location `writer.locate` gives them, so a file the new
+ * install wrote to the same place is never removed, and a recorded file
+ * with no location inside the target root is never touched. Removal goes
+ * through `writer.remove` and is best effort like uninstall.
  *
- * Only a {@link FileTreeTargetWriter} can report physical locations; for
- * any other writer nothing is removed.
+ * A writer without `locate` cannot report locations: nothing is removed.
  * @param writer Writer that performed the new install.
  * @param target Target configuration.
  * @param previous Files of the replaced lockfile entry (`undefined` when none).
@@ -275,14 +366,16 @@ export async function removeSupersededFiles(
   previous: readonly RecordedBundleFile[] | undefined,
   next: readonly RecordedBundleFile[]
 ): Promise<string[]> {
-  if (previous === undefined || previous.length === 0 || !(writer instanceof FileTreeTargetWriter)) {
+  if (previous === undefined || previous.length === 0 || writer.locate === undefined) {
     return [];
   }
-  const produced = new Set(await writer.installedLocations(target, next));
-  const oldLocations = await writer.installedLocations(target, previous);
+  const normalised = (location: string | null): string | null => location === null ? null : path.resolve(location);
+  const produced = new Set((await writer.locate(target, next)).paths.map((location) => normalised(location)));
+  const oldLocations = (await writer.locate(target, previous)).paths.map((location) => normalised(location));
   const removed: string[] = [];
   for (const [index, file] of previous.entries()) {
-    const location = oldLocations[index];
+    // `undefined`: a custom `locate` returned fewer locations than files.
+    const location = oldLocations.at(index) ?? null;
     if (location === null || produced.has(location)) {
       continue;
     }
