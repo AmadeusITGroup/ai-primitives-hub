@@ -276,6 +276,15 @@ const copyRecordedFile = (file: RecordedFile): RecordedFile => {
 };
 
 /**
+ * Whether a bundle's only entry at a level is `unknown`: migrated, and not reinstalled by any tool.
+ * @param tools - Tool keys of the bundle's entries at the level.
+ */
+export const isLoneUnknown = (tools: Iterable<string>): boolean => {
+  const names = new Set(tools);
+  return names.size === 1 && names.has(UNKNOWN_TOOL_NAME);
+};
+
+/**
  * Every installed path listed by any entry of the given records.
  * @param records - Records to scan.
  */
@@ -799,6 +808,40 @@ export class InstallRecordService {
       modified,
       warnings: [...change.warnings, ...removal.warnings]
     };
+  }
+
+  /**
+   * Bundles whose only entry across the given record files is `unknown`, with that entry.
+   * @param locations - Record files of one level, committed first.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public async findLoneUnknown(locations: readonly RecordLocation[]): Promise<Map<string, LocatedToolEntry>> {
+    const byBundle = new Map<string, LocatedToolEntry[]>();
+    for (const located of await this.listToolEntries(locations)) {
+      byBundle.set(located.bundleId, [...(byBundle.get(located.bundleId) ?? []), located]);
+    }
+    return new Map([...byBundle]
+      .filter(([, entries]) => isLoneUnknown(entries.map((located) => located.tool)))
+      .map(([bundleId, [located]]) => [bundleId, located]));
+  }
+
+  /**
+   * Remove a bundle's `unknown` entry and keep every file it lists, since no tool is known to own them.
+   * @param location - A record file of the level.
+   * @param bundleId - Bundle id.
+   * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` when no file has the entry, or another `RECORD.*` error.
+   */
+  public async removeUnknownEntry(location: RecordLocation, bundleId: string): Promise<UninstallEntryResult> {
+    const other = otherRepositoryLocation(location);
+    const keep = new Set<string>();
+    // Each file on its own: an interrupted move can leave two copies with different files.
+    for (const file of other === undefined ? [location] : [location, other]) {
+      for (const { entry } of await this.findEntries([file], bundleId, UNKNOWN_TOOL_NAME)) {
+        entry.files.forEach((recorded) => keep.add(recorded.path));
+      }
+    }
+    const result = await this.uninstallEntry({ location, bundleId, tool: UNKNOWN_TOOL_NAME, keep });
+    return { ...result, kept: result.kept.toSorted(compareCodeUnits) };
   }
 
   /**

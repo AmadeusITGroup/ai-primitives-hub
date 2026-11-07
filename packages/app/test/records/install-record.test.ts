@@ -1233,6 +1233,26 @@ describe('repository install record', () => {
       expect(fs.existsSync(oldCommitted())).toBe(false);
     });
 
+    it('findLoneUnknown gives a bundle only unknown holds; removeUnknownEntry removes it, deletes nothing and keeps every file it listed', async () => {
+      write('docs/own.md', '.github/prompts/a.prompt.md');
+      await writeOld(oldCommitted(), {
+        [BUNDLE]: { version: '0.9.0', files: ['docs/own.md', '.github/prompts/a.prompt.md'] },
+        'other-bundle': { version: '0.9.0' }
+      });
+      await migrateRepository();
+      // Reinstalling clears other-bundle's unknown entry (BR21.2); it shares a.prompt.md.
+      await install('vscode', ['.github/prompts/a.prompt.md'], { bundleId: 'other-bundle' });
+
+      const lone = await service.findLoneUnknown([committed, localOnly]);
+      const result = await service.removeUnknownEntry(committed, BUNDLE);
+
+      expect([...lone.keys()]).toEqual([BUNDLE]);
+      expect(lone.get(BUNDLE)).toMatchObject({ location: committed, tool: 'unknown', entry: { version: '0.9.0' } });
+      expect(result).toMatchObject({ deleted: [], kept: ['.github/prompts/a.prompt.md', 'docs/own.md'] });
+      expect(Object.keys(read(committed).bundles)).toEqual(['other-bundle']);
+      expect([fs.existsSync(path.join(root, 'docs/own.md')), fs.existsSync(path.join(root, '.github/prompts/a.prompt.md'))]).toEqual([true, true]);
+    });
+
     it('imports the old user lockfile once as unknown entries with no files and leaves it byte-identical', async () => {
       await writeOld(userLockfile, { [BUNDLE]: { version: '1.0.0', files: ['prompts/a.prompt.md'] } });
       const oldBytes = fs.readFileSync(userLockfile, 'utf8');

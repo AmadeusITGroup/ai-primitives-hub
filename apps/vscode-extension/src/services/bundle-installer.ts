@@ -44,7 +44,6 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   relativeInside,
-  UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
   ZipBundleExtractor,
@@ -392,11 +391,10 @@ export class BundleInstaller {
    */
   private async removeUnknownEntry(bundleId: string, located: LocatedToolEntry): Promise<void> {
     const root = located.location.root;
-    const change = await this.records.serialize(located.location.path, () =>
-      this.records.service.recordUninstall({ location: located.location, bundleId, tool: UNKNOWN_TOOL_NAME })
+    const { kept, warnings } = await this.records.serialize(located.location.path, () =>
+      this.records.service.removeUnknownEntry(located.location, bundleId)
     ).catch((error: unknown) => this.rethrowRecordError(error, [], root));
-    change.warnings.forEach((warning) => this.logger.warn(`[BundleInstaller] ${warning}`));
-    const kept = located.entry.files.map((file) => file.path);
+    this.logWarnings(warnings);
     const message = kept.length === 0
       ? `"${bundleId}" was removed from the install record. Its tool was unknown; it listed no files.`
       : `"${bundleId}" was removed from the install record. Its tool was unknown, so its files were kept: ${kept.join(', ')}`;

@@ -13,6 +13,7 @@ import {
   getLockfilePathForMode,
   type InstallRecordService,
   isAnyFileMissing,
+  isLoneUnknown,
   listedPaths,
   type LocatedToolEntry,
   type Lockfile,
@@ -285,7 +286,7 @@ export class ExtensionRecordAdapter {
     if (tools.length === 0 || tools.includes(this.hostTool)) {
       return true;
     }
-    if (tools.length === 1 && tools[0] === UNKNOWN_TOOL_NAME) {
+    if (isLoneUnknown(tools)) {
       if (action === 'update' || action === 'uninstall') {
         return true;
       }
@@ -722,8 +723,8 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findLoneUnknownEntry(bundleId: string, workspaceFolder?: string): Promise<LocatedToolEntry | undefined> {
-    const entries = workspaceFolder === undefined ? await this.findUserEntries(bundleId) : await this.findEntries(workspaceFolder, bundleId);
-    return entries.length === 1 && entries[0].tool === UNKNOWN_TOOL_NAME ? entries[0] : undefined;
+    const locations = workspaceFolder === undefined ? [this.userLocation()] : await this.locations(workspaceFolder);
+    return (await this.service.findLoneUnknown(locations)).get(bundleId);
   }
 
   /**
