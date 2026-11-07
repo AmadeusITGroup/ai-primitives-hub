@@ -89,12 +89,10 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   Command,
-  type CommandDefinition,
   configuredSources,
   type Context,
   createHubManager,
   createLayoutLoader,
-  defineCommand,
   failWith,
   findProjectLockfile,
   finishRecordRun,
@@ -1695,55 +1693,6 @@ export async function installBundleWithSource(
   };
   return performRemoteInstall(opts, target, ctx, fmt);
 }
-
-/**
- * Build the `install` command (factory function for backward compatibility).
- * @param opts - Command options.
- * @returns CommandDefinition wired to the framework adapter.
- */
-export const createInstallCommand = (
-  opts: InstallOptions = {}
-): CommandDefinition =>
-  defineCommand({
-    path: ['install'],
-    description: 'Install bundles to a configured target.',
-    category: 'Install & Manage',
-    run: async ({ ctx }: { ctx: Context }): Promise<number> => {
-      const fmt = opts.output ?? 'text';
-      const { bundle: noBundle, lockfile: noLockfile } = validateInputs(opts, { flags: ['bundle', 'lockfile'] });
-      if (noBundle && noLockfile) {
-        return failWith(ctx, fmt, 'install', new RegistryError({
-          code: 'USAGE.MISSING_FLAG',
-          message: 'install: provide either <bundle-id> (imperative) or --lockfile <path> (declarative)',
-          hint: 'Examples:\n'
-            + '  ai-primitives-hub install <bundle-id>\n'
-            + '  ai-primitives-hub install --lockfile ai-primitives-hub.lock.json'
-        }));
-      }
-
-      try {
-        const targetName = await resolveTargetName(opts.target, 'install', ctx, () => loadTargets(ctx));
-        checkAllowTarget(targetName, opts);
-        const configuredTarget = await resolveTarget(targetName, 'install', ctx, () => loadTargets(ctx));
-        const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
-
-        if (opts.from !== undefined && opts.from.length > 0) {
-          return await performLocalInstall(opts, target, ctx, fmt);
-        }
-
-        if (opts.lockfile !== undefined && opts.lockfile.length > 0) {
-          return await performLockfileInstall(opts, target, ctx, fmt);
-        }
-
-        return await performRemoteInstall(opts, target, ctx, fmt);
-      } catch (err) {
-        if (err instanceof RegistryError) {
-          return failWith(ctx, fmt, 'install', err);
-        }
-        throw err;
-      }
-    }
-  });
 
 /**
  * Replay lockfile entries for installation.
