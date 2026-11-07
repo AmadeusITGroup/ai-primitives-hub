@@ -1,13 +1,6 @@
 /**
- * The plan of a record replay or update (W5 steps 2–3, W6 steps 1–3; BR6.4,
- * BR6.5, NFR4.10, NFR4.11).
- *
- * Every (bundle, tool) entry of the selected record is narrowed to one tool
- * only by an explicit `--target`, its tool is mapped to the configured target
- * that writes it, the file that holds it is found, and its source goes through
- * the trust gate, all before anything contacts a source (also under
- * `--dry-run`). Entries that must be reinstalled are returned apart: replay
- * lists them, update ignores them.
+ * Plans a record replay or update: maps each entry to a target, finds its file
+ * and gates its source before anything contacts a source, also under `--dry-run`.
  * @module records/plan-record-entries
  */
 import type {
@@ -40,14 +33,13 @@ import type {
 export interface RecordPlanEntry {
   bundleId: string;
   tool: string;
-  /** The file that holds the entry; it is re-recorded there (BR6.5). */
+  /** The file that holds the entry; it is re-recorded there. */
   location: RecordLocation;
   entry: ToolEntry;
-  /** Source decided by the trust gate; `sourceId` is the record key (NFR4.11). */
+  /** Source decided by the trust gate. */
   source: SourceRecord & { sourceId: string };
-  /** Configured target the tool maps to (BR6.4); the caller applies its own overrides. */
   target: Target;
-  /** `true` when no configured source has the entry's id, so the source came from the record and is fetched without credentials (NFR4.11). */
+  /** `true` when the source came from the record only and is fetched without credentials. */
   fromRecordOnly: boolean;
 }
 
@@ -60,54 +52,41 @@ export interface RecordPlanSkip {
 
 /** Outcome of {@link planRecordEntries}. */
 export interface RecordPlan {
-  /** Entries to write, in `listEntries` order. */
   items: RecordPlanEntry[];
-  /** Entries with no target or an untrusted source, in `listEntries` order. */
+  /** Entries with no target or an untrusted source. */
   skipped: RecordPlanSkip[];
-  /** Entries under `unknown` (or marked) that only a reinstall can restore; never planned. */
+  /** Entries only a reinstall can restore; never planned. */
   needsReinstall: StatusRow[];
-  /** Entries considered after the `--target` narrowing, needs-reinstall rows left out. */
+  /** Entries considered after the `--target` narrowing. */
   considered: number;
-  /** Why a target was picked when several matched, once per tool. */
+  /** Why a target was picked when several matched. */
   notes: string[];
-  /** The cached tool-to-target mapping the plan used, for sibling tools. */
+  /** The cached tool-to-target mapping, for sibling tools. */
   mapTool: (tool: string) => Promise<TargetMapping>;
 }
 
-/**
- * How the plan finds the file an entry is re-recorded in:
- * - `first-holding`: the first selected file holding the (bundle, tool) entry (replay);
- * - `listed`: the file the `listEntries` row came from (update).
- */
+/** Where an entry is re-recorded: the first file holding it (replay) or the file it was listed from (update). */
 export type HoldingFileRule = 'first-holding' | 'listed';
 
 /** Inputs of {@link planRecordEntries}. */
 export interface PlanRecordEntriesOptions {
-  /** Service that lists the entries and finds the holding file. */
   service: InstallRecordService;
-  /** Store the selected files were loaded with. */
   store: RecordStore;
-  /** Filesystem port, for the mapping and the `local` source check. */
   fs: RecordFs;
-  /** The selected record. */
   selection: RecordSelection;
-  /** Configured targets. */
   targets: readonly Target[];
-  /** Configured sources by id, in lookup order (the trust gate's map). */
+  /** Configured sources by id, in lookup order. */
   configured: ReadonlyMap<string, RegistrySource>;
   /** The target named by `--target`; only it narrows the plan to one tool. */
   explicit?: Target;
-  /** Current folder: the root of a target without `rootPath`. */
+  /** Root of a target without `rootPath`. */
   cwd: string;
-  /** How to find the file an entry is re-recorded in. */
   holdingFile: HoldingFileRule;
 }
 
 /**
- * Plan a record replay or update: narrow, map, locate and gate every entry
- * of the selected record before any lookup or download (NFR4.10, NFR4.11).
- * @param options - The record, the configured targets and sources, the explicit target and the holding-file rule.
- * @returns The entries to write, the skipped and needs-reinstall entries, the notes and the mapping cache.
+ * Plan a record replay or update before any lookup or download.
+ * @param options - Plan inputs.
  * @throws {RegistryError} Any `RECORD.*` error from loading a selected file.
  */
 export const planRecordEntries = async (options: PlanRecordEntriesOptions): Promise<RecordPlan> => {
@@ -155,7 +134,7 @@ export const planRecordEntries = async (options: PlanRecordEntriesOptions): Prom
       plan.skipped.push({ bundleId, tool, reason: `source ${entry.sourceId} is not in the record` });
       continue;
     }
-    // Trust gate before any lookup or download (NFR4.11).
+    // Trust gate before any lookup or download.
     const decision = await resolveRecordSource(entry.sourceId, fromRecord, configured, selection.root, fs);
     if ('skip' in decision) {
       plan.skipped.push({ bundleId, tool, reason: decision.skip });

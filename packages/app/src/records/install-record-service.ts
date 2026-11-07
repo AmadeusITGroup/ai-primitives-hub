@@ -97,25 +97,20 @@ export interface RecordInstallInput {
   /** Workspace root the writer installed into, where merged MCP configs sit; defaults to the record's root. */
   workspaceRoot?: string;
   /**
-   * Shared-folder sync (BR8.3). `true` (default) brings every sibling entry of
-   * the bundle (another tool, either repository file, sharing a path with this
-   * tool's new or previous files) to this version and shared file list; a
-   * function limits that to the tools it accepts (e.g. those with a mapped
-   * target); `false` syncs and reports none. Pass `false` when re-recording a
-   * sibling after its own writer ran, so the sync never loops.
+   * Which sibling tools that share this tool's files to bring to the same version:
+   * all (default), the accepted ones, or none. Pass `false` when re-recording a sibling, so the sync never loops.
    */
   syncSiblings?: boolean | ((tool: string) => boolean);
 }
 
-/** One sibling entry found by the shared-folder sync (BR8.3). */
+/** One sibling entry found by the shared-folder sync. */
 export interface SiblingSync {
-  /** The sibling's tool key. */
   tool: string;
-  /** Its version now: the new version when synced, its old one otherwise. */
+  /** Its version now: the new one when synced, the old one otherwise. */
   version: string;
-  /** The file that holds the sibling, for re-recording it there (BR6.5). */
+  /** The file that holds the sibling. */
   location: RecordLocation;
-  /** `false` when `syncSiblings` did not accept the tool: the entry was left unchanged and is out of date. */
+  /** `false` when `syncSiblings` did not accept the tool, so the entry is out of date. */
   synced: boolean;
 }
 
@@ -123,11 +118,11 @@ export interface SiblingSync {
 export interface RecordInstallResult extends RecordChange {
   /** Non-fatal problems from the saves, for the caller to log. */
   warnings: string[];
-  /** Sibling entries found by the shared-folder sync, sorted by tool; empty for an uninstall (BR8.3). */
+  /** Sibling entries found by the shared-folder sync, sorted by tool; empty for an uninstall. */
   siblings: SiblingSync[];
 }
 
-/** One `status` row: one (bundle, tool) entry of a record file (entities.md `StatusRow`, BR9.2). */
+/** One `status` row: one (bundle, tool) entry of a record file. */
 export interface StatusRow {
   bundleId: string;
   tool: string;
@@ -200,10 +195,6 @@ const identityOf = (bundleId: string, version: string): string => {
   }
 };
 
-/**
- * Prototype-free copy of a recorded file's path and checksum.
- * @param file - Recorded file to copy.
- */
 const copyRecordedFile = (file: RecordedFile): RecordedFile => {
   const copy = Object.create(null) as RecordedFile;
   copy.path = file.path;
@@ -395,7 +386,13 @@ export class InstallRecordService {
   /**
    * Bring sibling entries that share the installed tool's files to its version, in memory.
    * @param loaded - The target file, then the other repository file.
-   * @param change - What the installed tool wrote, and which siblings to sync.
+   * @param change - What the installed tool wrote.
+   * @param change.bundleId - Bundle id.
+   * @param change.tool - The installed tool.
+   * @param change.version - Its new version.
+   * @param change.files - Its new recorded files.
+   * @param change.previousPaths - Paths its previous entry listed.
+   * @param change.accepts - Which sibling tools to sync.
    * @returns The siblings found, sorted by tool, and the files changed.
    */
   private syncSiblingEntries(
@@ -665,15 +662,9 @@ export class InstallRecordService {
   }
 
   /**
-   * Delete the superseded files of several saved changes from one command run
-   * (update, replay), once every save has run (FR3.2, NFR4.9).
-   *
-   * Each change's `deletedFiles` was worked out when that change was saved, so
-   * a later change in the same run may list one of those paths again. Both
-   * repository files at each change's root are loaded again here, and a path
-   * any entry still lists is kept; the rest go through {@link deleteSuperseded}.
-   * @param changes - The saved changes, in the order they were made.
-   * @returns The removed paths and one warning per skipped path.
+   * Delete the superseded files of several changes saved in one run, keeping
+   * any path a later change listed again.
+   * @param changes - The saved changes, in order.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async deleteSupersededAfterAll(changes: readonly Pick<RecordChange, 'deletedFiles' | 'location'>[]): Promise<DeleteSupersededResult> {

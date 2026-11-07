@@ -1,10 +1,6 @@
 /**
- * Tool-to-target mapping for record replay and update (BR6.4, NFR4.10).
- *
- * Each recorded tool key is written by one configured target of that type,
- * at the record's level and, at repository level, on the same git root, so a
- * command never loads one level and writes another. With an explicit
- * `--target`, only that target is used, and only for its own type.
+ * Maps a recorded tool to the configured target that writes it, at the
+ * record's level and git root, so a command never reads one level and writes another.
  * @module records/map-tool-to-target
  */
 import * as path from 'node:path';
@@ -30,28 +26,19 @@ export type TargetMapping =
 
 /** Inputs of {@link mapToolToTarget}. */
 export interface MapToolToTargetOptions {
-  /** Filesystem port, to find each target's git root. */
   fs: RecordFs;
   /** Recorded tool key (a target type). */
   tool: string;
-  /** Level of the record the entry is in. */
   level: RecordLevel;
-  /** The record's git root (repository level); ignored at user level. */
+  /** The record's git root; ignored at user level. */
   gitRoot: string;
-  /** Configured targets. */
   targets: readonly Target[];
-  /** The target named by `--target`, when the command was given one. */
+  /** The target named by `--target`. */
   explicit?: Target;
-  /** Current folder: the root of a target without `rootPath`. */
+  /** Root of a target without `rootPath`. */
   cwd: string;
 }
 
-/**
- * Whether two folders are the same, also through a symlink.
- * @param fs - Filesystem port.
- * @param left - First folder.
- * @param right - Second folder.
- */
 const isSameFolder = async (fs: RecordFs, left: string, right: string): Promise<boolean> => {
   if (path.resolve(left) === path.resolve(right)) {
     return true;
@@ -63,11 +50,6 @@ const isSameFolder = async (fs: RecordFs, left: string, right: string): Promise<
   }
 };
 
-/**
- * Whether a target writes at the record's level and, at repository level, on its git root.
- * @param options - Mapping inputs.
- * @param target - Candidate target.
- */
 const isOnRecordLevel = async (options: MapToolToTargetOptions, target: Target): Promise<boolean> => {
   if (recordLevelForScope(target.scope) !== options.level) {
     return false;
@@ -80,13 +62,8 @@ const isOnRecordLevel = async (options: MapToolToTargetOptions, target: Target):
 };
 
 /**
- * Map a recorded tool to the configured target that writes it (BR6.4).
- *
- * The explicit `--target` is used for its own type only. Otherwise the
- * candidates are the configured targets of that type at the level (and on the
- * same git root at repository level): one is used; of several, the first by
- * name is used and a note says so; none skips the entry.
- * @param options - The tool, level, git root, configured targets, explicit target and filesystem.
+ * Map a recorded tool to the configured target that writes it; of several, the first by name.
+ * @param options - Mapping inputs.
  * @returns The target to write with, or the reason the entry is skipped.
  */
 export const mapToolToTarget = async (options: MapToolToTargetOptions): Promise<TargetMapping> => {

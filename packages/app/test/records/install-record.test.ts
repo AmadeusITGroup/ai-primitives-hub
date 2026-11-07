@@ -419,7 +419,7 @@ describe('repository install record', () => {
     });
   });
 
-  describe('record selection, target mapping and source gate (U2)', () => {
+  describe('record selection, target mapping and source gate', () => {
     const recordFs = new NodeRecordFs();
     let userLockfile: string;
     let cwd: string;
