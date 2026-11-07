@@ -160,7 +160,7 @@ export async function getInstalledBundleForScope(
     }
   }
 
-  // At user scope, fall back to the shared user record's host-tool item.
+  // At user scope, fall back to the shared user record's host-tool item, or a lone `unknown` one.
   const stored = await storage.getInstalledBundle(bundleId, scope);
   if (stored !== undefined || scope !== 'user') {
     return stored;
@@ -168,7 +168,7 @@ export async function getInstalledBundleForScope(
   try {
     const adapter = userRecord?.adapter
       ?? new ExtensionRecordAdapter({ sources: { listSources: () => storage.getSources() }, userRecordPath: storage.getPaths().userRecord });
-    return await findUserRecordBundle({ adapter, storage, listing: userRecord?.listing }, bundleId);
+    return await findUserRecordBundle({ adapter, storage, listing: userRecord?.listing }, bundleId, { withLoneUnknown: true });
   } catch (error) {
     logger.warn(`[bundleScopeUtils] Failed to read the user record for bundle ${bundleId}:`, error instanceof Error ? error : undefined);
     return undefined;
