@@ -88,7 +88,7 @@ suite('BundleInstaller - Repository Scope', () => {
     mockStorage.getInstalledBundle.resolves(undefined);
     mockStorage.recordInstallation.resolves();
     mockStorage.removeInstallation.resolves();
-    // Repository installs record the configured source (NFR4.15).
+    // Repository installs record the configured source.
     mockStorage.getSources.resolves([
       { id: TEST_SOURCE_IDS.GITHUB, name: 'GitHub', type: 'github', url: 'https://github.com/test-owner/test-repo', enabled: true, priority: 0 }
     ] as any);

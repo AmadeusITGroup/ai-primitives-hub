@@ -321,7 +321,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(lockfileContent.bundles, 'Lockfile should have bundles object');
       assert.ok(Object.keys(lockfileContent.bundles).length > 0, 'Bundles object should not be empty');
 
-      // Req 4.6: Bundle entry fields (version, sourceId, sourceType, installedAt), per tool
+      // Bundle entry fields (version, sourceId, sourceType, installedAt), per tool
       const bundleEntry = (Object.values(lockfileContent.bundles)[0] as any).tools[HOST_TOOL];
       assert.ok(bundleEntry.version, 'Bundle entry should have version field');
       assert.ok(bundleEntry.sourceId, 'Bundle entry should have sourceId field');
@@ -1682,7 +1682,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(localLockfile.bundles, 'Local lockfile should have bundles object');
       assert.ok(Object.keys(localLockfile.bundles).length > 0, 'Local lockfile should contain the bundle');
 
-      // Verify bundle entry has a version, per tool (Requirement 1.4)
+      // Verify the local-only bundle entry has a version, per tool
       const bundleEntry = (Object.values(localLockfile.bundles)[0] as any).tools[HOST_TOOL];
       assert.ok(bundleEntry.version, 'Bundle entry should have version');
       // Note: commitMode field is deprecated and should not be present in new entries
@@ -1719,7 +1719,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(mainLockfile.bundles, 'Main lockfile should have bundles object');
       assert.ok(Object.keys(mainLockfile.bundles).length > 0, 'Main lockfile should contain the bundle');
 
-      // Verify bundle entry has a version, per tool (Requirement 1.5)
+      // Verify the committed bundle entry has a version, per tool
       const bundleEntry = (Object.values(mainLockfile.bundles)[0] as any).tools[HOST_TOOL];
       assert.ok(bundleEntry.version, 'Bundle entry should have version');
 
@@ -1754,7 +1754,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       // Stub the VS Code warning message to auto-confirm
       sandbox.stub(vscode.window, 'showWarningMessage').resolves('Switch' as any);
 
-      // Switch to local-only mode through the command (Requirement 4.1)
+      // Switch to local-only mode through the command
       const repositoryScopeService = testContext.registryManager.getBundleInstaller().createRepositoryScopeService();
       assert.ok(repositoryScopeService, 'RepositoryScopeService should be available');
       const bundleScopeCommands = new BundleScopeCommands(

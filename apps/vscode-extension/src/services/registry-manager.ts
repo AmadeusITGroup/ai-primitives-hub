@@ -209,13 +209,12 @@ function createFallbackBundleProvider(
 }
 
 /**
- * The one warning of a batch uninstall stopped by a `RECORD.*` error (BR12.5),
- * worded like stale cleanup's.
+ * The one warning of a batch uninstall stopped by a `RECORD.*` error.
  * @param failure - The item whose error stopped the batch.
  * @param failure.id - Its bundle id.
- * @param failure.error - The error; its `context.file` is named.
+ * @param failure.error - The error.
  * @param done - Ids uninstalled before the stop.
- * @param skipped - Ids refused because another tool's entry holds them.
+ * @param skipped - Ids another tool's entry holds.
  * @param notAttempted - Ids never started.
  */
 const batchUninstallStoppedMessage = (
@@ -264,7 +263,6 @@ export class RegistryManager {
   private hubManager?: HubManager;
   private _autoUpdateService?: AutoUpdateService;
   private readonly installer: BundleInstaller;
-  /** The extension's composition of the shared install record (U3). */
   private readonly recordAdapter: ExtensionRecordAdapter;
   private readonly logger: Logger;
   private readonly adapters = new Map<string, IRepositoryAdapter>();
@@ -330,7 +328,6 @@ export class RegistryManager {
       store: async () => undefined,
       delete: async () => undefined
     });
-    // Sources an install records: the active hub's, then detached, then any stored one (NFR4.15).
     this.recordAdapter = new ExtensionRecordAdapter({
       sources: {
         listSources: () => this.storage.getSources(),
@@ -1595,7 +1592,7 @@ export class RegistryManager {
           if (!workspaceRoot) {
             throw new Error('Cannot uninstall repository-scoped bundle: no workspace is open');
           }
-          // Install records merged with the old lockfiles (new record wins, BR5.1)
+          // Install records merged with the old lockfiles, the record winning
           return this.listRepositoryBundles(workspaceRoot);
         },
         listSources: () => this.storage.getSources(),
@@ -1617,10 +1614,8 @@ export class RegistryManager {
   }
 
   /**
-   * Uninstall multiple bundles in parallel. Repository bundles share the
-   * install-record files, so they are uninstalled one at a time; the batch
-   * stops at the first `RECORD.*` error and one warning names the done,
-   * skipped (another tool's) and not-attempted ids and the error's file (BR12.5).
+   * Uninstall multiple bundles in parallel. Repository bundles share the record
+   * files, so they go one at a time and the batch stops at the first `RECORD.*` error.
    * @param bundleIds
    * @param scope
    */
@@ -1664,7 +1659,6 @@ export class RegistryManager {
     if (recordFailure === undefined) {
       showCliManagedBatchWarning(refused, 'uninstall');
     } else {
-      // Shown once with "Open file", then what the stopped batch did (BR12.5).
       this.recordAdapter.showRecordError(recordFailure.error);
       void vscode.window.showWarningMessage(batchUninstallStoppedMessage(recordFailure, uninstalled, refused, bundleIds.slice(next)));
     }
@@ -1686,8 +1680,7 @@ export class RegistryManager {
     if (target) {
       await this.assertHostTool(bundleId, target.scope, 'update');
     }
-    // A repository entry updates from the source `buildSource` decides: the
-    // active hub's, then detached, then any stored source with that id (NFR4.15).
+    // A repository entry updates from the source an install would record.
     const listSources = target?.scope === 'repository'
       ? () => this.recordAdapter.configuredSources()
       : () => this.storage.getSources();
@@ -1762,9 +1755,7 @@ export class RegistryManager {
     return this.installRecordListing;
   }
 
-  /**
-   * The extension's composition of the shared install record.
-   */
+  /** The extension's composition of the shared install record. */
   public getRecordAdapter(): ExtensionRecordAdapter {
     return this.recordAdapter;
   }
@@ -1781,8 +1772,7 @@ export class RegistryManager {
   }
 
   /**
-   * Commit mode of the host tool's own repository entry of a bundle; the merged
-   * listing can show another tool's entry from the other record file instead.
+   * Commit mode of the host tool's own repository entry of a bundle, which the merged listing may not show.
    * @param bundleId - Bundle id.
    * @returns `undefined` without a workspace or a host entry.
    * @throws {RegistryError} Any `RECORD.*` error from loading.

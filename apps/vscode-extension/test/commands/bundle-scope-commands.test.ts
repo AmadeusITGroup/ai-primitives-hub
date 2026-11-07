@@ -435,7 +435,7 @@ suite('BundleScopeCommands', () => {
     });
 
     test('uses the host entry mode when a newer entry of another tool shows the target mode', async () => {
-      // Arrange: the listing shows a newer local-only entry of another tool; the host entry is committed
+      // The listing shows another tool's newer local-only entry; the host entry is committed
       const repoBundle = createTestInstalledBundle('repository', 'local-only');
       mockStorage.getInstalledBundle.withArgs(testBundleId, 'repository').resolves(repoBundle);
       mockRegistryManager.getHostCommitMode.withArgs(testBundleId).resolves('commit');
@@ -448,10 +448,8 @@ suite('BundleScopeCommands', () => {
         mockRepositoryScopeService
       );
 
-      // Act
       await commands.switchCommitMode(testBundleId, 'local-only');
 
-      // Assert
       assert.ok(mockRepositoryScopeService.switchCommitMode.calledOnceWith(testBundleId, 'local-only'), 'the host entry should be switched');
     });
   });

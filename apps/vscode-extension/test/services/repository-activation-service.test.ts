@@ -1,14 +1,7 @@
 /**
- * RepositoryActivationService contract tests (W14; BR12.4, NFR4.14).
- *
- * On workspace open the service lists the sources both install record files
- * and the old `prompt-registry` lockfiles name, skips a `local` source whose
- * folder resolves outside the repository root, shows a source's
- * `credentialRef` by name, and offers to add the unconfigured ones without
- * changing the configuration. Records are written through
- * `InstallRecordService` and old lockfiles through app's `writeLockfile`, in
- * a real temp git root; only `RegistryStorage`, `HubManager` and the VS Code
- * notification API are stubbed.
+ * RepositoryActivationService: offers the sources the install records and
+ * old lockfiles name, in a real temp git root; `RegistryStorage`,
+ * `HubManager` and notifications are stubbed.
  */
 
 import * as assert from 'node:assert';
@@ -56,12 +49,6 @@ suite('RepositoryActivationService', () => {
   let declined: string[];
   let showInfo: sinon.SinonStub;
 
-  /**
-   * Record one bundle for vscode from `source` through the record service.
-   * @param commitMode - Which record file.
-   * @param bundleId - Bundle id.
-   * @param source - Source the entry names.
-   */
   const recordBundle = (commitMode: 'commit' | 'local-only', bundleId: string, source: RecordSourceInput): Promise<void> =>
     recordEntry(adapter, root, { bundleId, tool: 'vscode', files: [`.github/prompts/${bundleId}.prompt.md`], commitMode, source });
 

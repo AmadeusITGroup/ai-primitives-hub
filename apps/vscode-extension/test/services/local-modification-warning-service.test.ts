@@ -1,11 +1,7 @@
 /**
- * LocalModificationWarningService contract tests (NFR4.13).
- *
- * Modified files come from app's `findModifiedFiles` over the host tool's
- * install record entry, or over the bundle's old `prompt-registry` lockfile
- * entry. Records are written through `InstallRecordService`, old lockfiles
- * through app's `writeLockfile`, in a real temp git root; only the VS Code
- * dialog and `openExternal` are stubbed.
+ * LocalModificationWarningService: modified files of the host tool's record
+ * entry or the old lockfile entry, in a real temp git root; only the dialog
+ * and `openExternal` are stubbed.
  */
 
 import * as assert from 'node:assert';

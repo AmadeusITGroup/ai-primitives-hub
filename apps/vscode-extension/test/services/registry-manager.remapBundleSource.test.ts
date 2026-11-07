@@ -1,12 +1,6 @@
 /**
- * RegistryManager.remapBundleSource contract tests (BR11.9).
- *
- * The remap rewrites the source id in both install record files and in the
- * old `prompt-registry` lockfile of the open workspace, and the installation
- * records in storage. An unresolvable replacement rejects before anything is
- * written. Records are written through `InstallRecordService`, the old
- * lockfile through app's `writeLockfile`, in a real temp git root; only
- * `RegistryStorage`, `getWorkspaceRoot()` and the logger are stubbed.
+ * RegistryManager.remapBundleSource: rewrites the source id in both install
+ * record files, the old lockfile and storage, in a real temp git root.
  */
 
 import * as assert from 'node:assert';
@@ -75,11 +69,6 @@ suite('RegistryManager.remapBundleSource', () => {
 
   const readJson = (file: string): any => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 
-  /**
-   * Record `bundleId` for vscode from the old source in one record file.
-   * @param commitMode
-   * @param bundleId
-   */
   const recordFromOldSource = (commitMode: 'commit' | 'local-only', bundleId: string): Promise<void> => recordEntry(manager.getRecordAdapter(), root, {
     bundleId, tool: 'vscode', files: [`.github/prompts/${bundleId}.prompt.md`], commitMode,
     source: { sourceId: OLD_SOURCE_ID, type: 'github', url: 'https://github.com/org/old' }
