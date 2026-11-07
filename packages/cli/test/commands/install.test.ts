@@ -1152,6 +1152,18 @@ agents:
       await expect(readFile(vscodePrompt(), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
+    it('keeps one entry when a versioned bundle id is upgraded for the same target', async () => {
+      for (const version of ['1.0.0', '2.0.0']) {
+        await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: `acme-tools-coll-${version}`, version }));
+        const result = await run(['install', '--from', bundleDir, '--target', 'repo-vscode', '-o', 'json']);
+        expect(result.exitCode, result.stdout).toBe(0);
+      }
+
+      const { bundles } = await readRecord(workspace);
+      expect(Object.keys(bundles)).toEqual(['acme-tools-coll-2.0.0']);
+      expect(bundles['acme-tools-coll-2.0.0'].tools.vscode.version).toBe('2.0.0');
+    });
+
     it('lists the local-only record and its installed files in one info/exclude in a git worktree', async () => {
       // A worktree: `.git` is a file pointing at a git dir whose `commondir` holds `info/exclude`.
       const commonDir = path.join(workspace, 'main.git');
