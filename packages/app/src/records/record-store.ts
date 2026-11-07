@@ -15,7 +15,6 @@ import {
   nullPrototypeCopy,
   parseRecord,
   RECORD_FORMAT_VERSION,
-  RECORD_MAX_BYTES,
   RECORD_SCHEMA_URL,
   recordError,
   type RecordFs,
@@ -35,6 +34,9 @@ import {
   ensureExcluded,
   resolveRepositoryRoot,
 } from './git-root';
+import {
+  readRecordText,
+} from './read-record-text';
 import {
   serializeRecord,
 } from './serialize-record';
@@ -156,16 +158,7 @@ export class RecordStore {
   }
 
   private async readAndCheck(location: RecordLocation, readPath: string, file: string): Promise<InstallRecord> {
-    const bytes = await this.fs.readCapped(readPath, RECORD_MAX_BYTES + 1);
-    if (bytes.byteLength > RECORD_MAX_BYTES) {
-      throw recordError('RECORD.MALFORMED', { file, detail: 'record larger than 10 MB', hint: LARGE_RECORD_HINT });
-    }
-    let text: string;
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    } catch (error) {
-      throw recordError('RECORD.MALFORMED', { file, detail: 'not valid UTF-8', cause: error });
-    }
+    const text = await readRecordText(this.fs, readPath, file, LARGE_RECORD_HINT);
     const record = this.validator.validate(parseRecord(text, file), file);
     await this.checkPaths(location, record, file);
     this.checkSourceIds(record, file);

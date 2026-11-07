@@ -30,7 +30,18 @@ export interface UnvalidatedRecord {
   readonly [key: string]: unknown;
 }
 
-const parseJson = (text: string, file: string | undefined): unknown => {
+/**
+ * Prototype-free `JSON.parse` (security layer 2, NFR4.4): a reviver refuses
+ * `__proto__`, `constructor` and `prototype` at any depth and rebuilds every
+ * object with a `null` prototype. No version or shape check: the record store
+ * runs {@link parseRecord} on top of it, and record migration uses it for the
+ * old 2.0.0 lockfiles.
+ * @param text - File contents, decoded as UTF-8.
+ * @param file - File to name in errors, if any.
+ * @returns The parsed value, with prototype-free objects throughout.
+ * @throws {RegistryError} `RECORD.MALFORMED` for invalid JSON or a forbidden key at any depth.
+ */
+export const parseJsonWithoutPrototypes = (text: string, file?: string): unknown => {
   try {
     return JSON.parse(text, (key: string, value: unknown) => {
       if (FORBIDDEN_KEYS.has(key)) {
@@ -74,7 +85,7 @@ const checkVersion = (version: unknown, file: string | undefined): void => {
  * @throws {RegistryError} `RECORD.MALFORMED`, `RECORD.NEWER_FORMAT` or `RECORD.LEGACY_UNMIGRATED`.
  */
 export const parseRecord = (text: string, file?: string): UnvalidatedRecord => {
-  const parsed = parseJson(text, file);
+  const parsed = parseJsonWithoutPrototypes(text, file);
   if (!isJsonObject(parsed)) {
     throw recordError('RECORD.MALFORMED', { file, detail: 'top level is not an object' });
   }
