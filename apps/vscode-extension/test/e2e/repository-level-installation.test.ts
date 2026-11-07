@@ -46,6 +46,9 @@ import {
   generateTestId,
 } from '../helpers/e2e-test-helpers';
 import {
+  initGitRoot,
+} from '../helpers/install-record-test-helpers';
+import {
   cleanupReleaseMocks,
   computeBundleId,
   createMockGitHubSource,
@@ -249,10 +252,8 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
     testContext = await createE2ETestContext();
     workspaceRoot = path.join(testContext.tempStoragePath, 'test-workspace');
-    fs.mkdirSync(workspaceRoot, { recursive: true });
+    initGitRoot(workspaceRoot);
     fs.mkdirSync(path.join(workspaceRoot, '.git', 'info'), { recursive: true });
-    // A real git directory has HEAD; the record store excludes the local-only record only then
-    fs.writeFileSync(path.join(workspaceRoot, '.git', 'HEAD'), 'ref: refs/heads/main\n');
 
     clearAdapterAuth();
 
