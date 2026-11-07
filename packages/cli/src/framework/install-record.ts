@@ -97,14 +97,13 @@ export interface PreparedRepositoryRecord {
   workspaceRoot: string;
   /** `info/exclude` section for local-only files; absent at user level. */
   exclusion?: RepositoryExclusion;
-  /** What the migration run before this action did; absent when there was nothing to migrate (BR22.1). */
+  /** What the migration run before this action did; absent when there was nothing to migrate. */
   migration?: MigrationReport;
 }
 
 /**
- * The text lines of a migration report, printed before the `Record:` line (BR22.1).
+ * The text lines of a migration report, printed before the `Record:` line.
  * @param report - The command's migration report, if one ran.
- * @returns The lines, newline-terminated; empty when the report has nothing to show.
  */
 export const renderMigration = (report: MigrationReport | undefined): string => {
   if (report === undefined) {
@@ -378,11 +377,11 @@ export interface PreparedRepositoryUninstall {
   entries: Map<string, string[]>;
   /** User level only: per bundle, paths the old user lockfile still lists; kept on uninstall until it is imported. */
   keepPaths?: ReadonlyMap<string, ReadonlySet<string>>;
-  /** Bundles whose only entry at the level is `unknown`; a plain uninstall removes it and keeps its files (BR21.3). */
+  /** Bundles whose only entry at the level is `unknown`; a plain uninstall removes it and keeps its files. */
   loneUnknown?: ReadonlySet<string>;
-  /** `true` at user level once the old user lockfile was imported: the old store is not read (BR20.1). */
+  /** `true` at user level once the old user lockfile was imported: the old store is not read. */
   ignoresOldStore?: boolean;
-  /** What the migration run before this action did; absent when there was nothing to migrate (BR22.1). */
+  /** What the migration run before this action did; absent when there was nothing to migrate. */
   migration?: MigrationReport;
 }
 
@@ -484,7 +483,7 @@ export const prepareUserUninstall = async (
     const migration = options.dryRun === true ? undefined : await migrateLevel({ store, fs, targets: [location], env: ctx.env });
     const { record } = await store.load(location);
     const entries = await service.entriesForTool([location], target.type);
-    // Once the old user lockfile was imported, the user level no longer reads it (BR20.1).
+    // Once the old user lockfile was imported, the user level no longer reads it.
     const imported = record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
     const keepPaths = entries.size === 0 || imported ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, location.root);
     return {
@@ -611,11 +610,7 @@ export interface RecordSelectionInput {
   /** `--lockfile <path>` as typed. */
   lockfile?: string;
   scope?: InstallationScope;
-  /**
-   * `true` for an action that changes the selected record (update, replay):
-   * the level is migrated before the selection is returned (BR18.1). Never
-   * for a read such as `status`.
-   */
+  /** `true` for an action that changes the record (update, replay): its level is migrated first. */
   write?: boolean;
 }
 
@@ -627,7 +622,7 @@ export interface PreparedRecordSelection {
   fs: RecordFs;
   /** `info/exclude` section at the repository record's root, for the writers; absent at user level. */
   exclusion?: RepositoryExclusion;
-  /** What the migration run for a `write` selection did; absent when nothing was migrated (BR22.1). */
+  /** What the migration run for a `write` selection did; absent when nothing was migrated. */
   migration?: MigrationReport;
 }
 

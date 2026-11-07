@@ -103,7 +103,7 @@ const sharedUserSelection = async (
   }
   const location = options.store.resolveUser({ home: options.home, path: options.userRecord });
   const { record } = await options.store.load(location);
-  // Once the old user lockfile was imported, the user level no longer reads it (BR20.1).
+  // Once the old user lockfile was imported, the user level no longer reads it.
   const oldExists = record[IMPORTED_USER_LOCKFILE_FIELD] === undefined && await options.fs.exists(options.userLockfile);
   return {
     level: 'user',
@@ -116,9 +116,8 @@ const sharedUserSelection = async (
 };
 
 /**
- * The old repository file found from `start`, accepted only at the git root
- * of `start` (security-design "Which old files"); the user lockfile the walk
- * may fall back to, and a file in a sub-folder or above the root, are ignored.
+ * The old repository file found from `start`, accepted only at its git root;
+ * the user lockfile the walk may fall back to is ignored.
  * @param options - Selection inputs.
  * @param start - Walk start.
  */

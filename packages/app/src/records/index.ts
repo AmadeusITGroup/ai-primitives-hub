@@ -1,8 +1,7 @@
 /**
  * Install-record barrel export: path confinement, git root and `info/exclude`,
  * canonical serialization, the record store and service, record selection,
- * migration of the old stores, tool-to-target mapping, the source trust gate,
- * the legacy lockfile shapes,
+ * migration, tool-to-target mapping, the source trust gate, the legacy lockfile shapes,
  * locally modified files and the writer group for the shared-folder sync.
  * @module records
  */

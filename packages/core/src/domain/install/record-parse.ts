@@ -31,15 +31,10 @@ export interface UnvalidatedRecord {
 }
 
 /**
- * Prototype-free `JSON.parse` (security layer 2, NFR4.4): a reviver refuses
- * `__proto__`, `constructor` and `prototype` at any depth and rebuilds every
- * object with a `null` prototype. No version or shape check: the record store
- * runs {@link parseRecord} on top of it, and record migration uses it for the
- * old 2.0.0 lockfiles.
- * @param text - File contents, decoded as UTF-8.
+ * `JSON.parse` that refuses prototype keys and builds `null`-prototype objects; no shape check.
+ * @param text - File contents.
  * @param file - File to name in errors, if any.
- * @returns The parsed value, with prototype-free objects throughout.
- * @throws {RegistryError} `RECORD.MALFORMED` for invalid JSON or a forbidden key at any depth.
+ * @throws {RegistryError} `RECORD.MALFORMED` for invalid JSON or a forbidden key.
  */
 export const parseJsonWithoutPrototypes = (text: string, file?: string): unknown => {
   try {

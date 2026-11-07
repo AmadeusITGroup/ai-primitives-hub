@@ -569,10 +569,9 @@ async function autoDetectHubSource(opts: InstallOptions, ctx: Context, userPaths
 }
 
 /**
- * Refuse `--dry-run` for a record replay: the replay migrates older files and
- * writes the recorded bundles, and a dry run must write nothing.
+ * Refuse `--dry-run` for a record replay, which migrates and writes.
  * @param opts Install options.
- * @throws {RegistryError} `USAGE.INVALID_FLAG` when `--dry-run` is set; nothing was written.
+ * @throws {RegistryError} `USAGE.INVALID_FLAG` when `--dry-run` is set.
  */
 function refuseDryRunReplay(opts: InstallOptions): void {
   if (opts.dryRun === true) {
@@ -604,7 +603,7 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
   if (!noLockfile && noBundle && !opts.from) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile });
     if (prepared.selection.locations.length > 0) {
-      // The replay changes the record: migrate its level first (BR18.1).
+      // The replay changes the record: migrate its level first.
       refuseDryRunReplay(opts);
       return prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile, write: true });
     }
@@ -613,7 +612,7 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
   if (noMode && !opts.interactive) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', scope: opts.scope });
     const { selection } = prepared;
-    // An old file at the git root is migrated first, then the record is replayed (BR18.1).
+    // An old file at the git root is migrated first, then the record is replayed.
     const migratesOldFile = selection.level === 'repository' && selection.oldLockfile !== undefined;
     if (migratesOldFile || (await prepared.service.listEntries(selection.locations)).length > 0) {
       refuseDryRunReplay(opts);
@@ -1290,7 +1289,7 @@ interface RecordReplayData {
   failures: ReplaySkip[];
   /** Bundles only in the old `prompt-registry.*` file, replayed with the old code. */
   oldFile?: OldFileReplay;
-  /** What the migration run before the replay did (BR22.1). */
+  /** What the migration run before the replay did. */
   migration?: MigrationReport;
 }
 
