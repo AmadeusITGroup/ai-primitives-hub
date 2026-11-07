@@ -191,6 +191,10 @@ export interface MoveEntryInput {
 export interface MoveEntryResult {
   from: RecordLocation;
   to: RecordLocation;
+  /** Root-relative files only the replaced entries listed, for `deleteSuperseded` at `to`; sorted. */
+  deletedFiles: string[];
+  /** Root-relative files of the replaced entries another entry still lists; sorted. */
+  keptSharedFiles: string[];
   warnings: string[];
 }
 
@@ -756,9 +760,11 @@ export class InstallRecordService {
 
   /**
    * Move one tool's entry, unchanged, between the committed and the local-only
-   * repository file. The target is saved first and its copy is overwritten, so
-   * a move interrupted between the two saves is repaired by the next one.
+   * repository file. The tool's entries with the same bundle identity in the
+   * target are replaced, so its copy from an interrupted move is too. The
+   * target is saved first; deletes nothing.
    * @param input - The file holding the entry, the bundle id and the tool.
+   * @returns Both files, with the replaced entries' files to delete after the save.
    * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` or `RECORD.MALFORMED`, or any `RECORD.*` load or save error.
    */
   public async moveEntry(input: MoveEntryInput): Promise<MoveEntryResult> {
@@ -780,15 +786,35 @@ export class InstallRecordService {
     // The store's load checked that the source exists.
     const source = from.record.sources[entry.sourceId];
     this.dropUnusedSource(from.record, entry.sourceId);
+    const replaced = this.removeSameIdentity(to.record, bundleId, recordIdentityOf(bundleId, entry.version), tool);
     if (!Object.hasOwn(to.record.bundles, bundleId)) {
       to.record.bundles[bundleId] = createBundle();
     }
     to.record.bundles[bundleId].tools[tool] = entry;
     to.record.sources[entry.sourceId] = source;
+    for (const prior of replaced) {
+      this.dropUnusedSource(to.record, prior.sourceId);
+    }
+
+    const movedPaths = new Set(entry.files.map((file) => file.path));
+    const stillListed = listedPaths([to.record, from.record]);
+    const deletedFiles = new Set<string>();
+    const keptSharedFiles = new Set<string>();
+    for (const old of replaced.flatMap((prior) => prior.files)) {
+      if (!movedPaths.has(old.path)) {
+        (stillListed.has(old.path) ? keptSharedFiles : deletedFiles).add(old.path);
+      }
+    }
 
     const saved = await this.store.save(targetLocation, to.record);
     const warnings = [...saved.warnings, ...(await this.saveOther(from))];
-    return { from: location, to: targetLocation, warnings };
+    return {
+      from: location,
+      to: targetLocation,
+      deletedFiles: [...deletedFiles].toSorted(compareCodeUnits),
+      keptSharedFiles: [...keptSharedFiles].toSorted(compareCodeUnits),
+      warnings
+    };
   }
 
   /**

@@ -480,6 +480,20 @@ describe('repository install record', () => {
 
       expect(entries(committed)).toEqual([`${BUNDLE} vscode 2.0.0`]);
     });
+
+    it('moveEntry replaces the tool\'s older version in the target file and returns the files only that version listed', async () => {
+      await installVersion('kiro', '1.0.0', ['.kiro/steering/a.md'], { syncSiblings: false });
+      await installVersion('vscode', '1.0.0', ['docs/shared.md', 'docs/old.md']);
+      const committedWithOldVersion = fs.readFileSync(committed.path, 'utf8');
+      await installVersion('vscode', '2.0.0', ['docs/shared.md', 'docs/new.md'], { location: localOnly });
+      fs.writeFileSync(committed.path, committedWithOldVersion);
+
+      const moved = await service.moveEntry({ location: localOnly, bundleId: `${COLL}-2.0.0`, tool: 'vscode' });
+
+      expect(entries(committed)).toEqual([`${COLL}-1.0.0 kiro 1.0.0`, `${COLL}-2.0.0 vscode 2.0.0`]);
+      expect(fs.existsSync(localOnly.path)).toBe(false);
+      expect(moved).toMatchObject({ to: committed, deletedFiles: ['docs/old.md'], keptSharedFiles: [] });
+    });
   });
 
   describe('record selection, target mapping and source gate', () => {
@@ -751,10 +765,10 @@ describe('repository install record', () => {
       const moved = read(localOnly);
       const back = await move(localOnly);
 
-      expect(there).toEqual({ from: committed, to: localOnly, warnings: [] });
+      expect(there).toEqual({ from: committed, to: localOnly, deletedFiles: [], keptSharedFiles: [], warnings: [] });
       expect(moved.bundles[BUNDLE].tools.vscode).toEqual(recorded.bundles[BUNDLE].tools.vscode);
       expect(moved.sources).toEqual(recorded.sources);
-      expect(back).toEqual({ from: localOnly, to: committed, warnings: [] });
+      expect(back).toEqual({ from: localOnly, to: committed, deletedFiles: [], keptSharedFiles: [], warnings: [] });
       expect(read(committed).bundles[BUNDLE].tools.vscode).toEqual(recorded.bundles[BUNDLE].tools.vscode);
       expect(fs.existsSync(localOnly.path)).toBe(false);
       expect(excludeText()).not.toContain(LOCAL_NAME);
