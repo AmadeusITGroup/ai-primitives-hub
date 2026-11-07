@@ -36,6 +36,7 @@ import type {
   HttpClient,
   HttpRequest,
   HttpResponse,
+  InstallRecord,
   ProfileActivationState,
   RegistrySource,
   Target,
@@ -43,7 +44,6 @@ import type {
 import {
   buildZip,
   NodeFileSystem,
-  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -74,7 +74,6 @@ import {
 import {
   createTestContext,
   runCli,
-  runCommand,
 } from '../../src/framework';
 import {
   createGovernedReleaseArchive,
@@ -82,9 +81,14 @@ import {
   writeReleaseArchive,
 } from '../fixtures/release-archives';
 import {
+  addRepositoryTargets,
+  initGitRoot,
+  makeRun,
   readInstallRecord,
+  recordPathIn,
   userRecordPath,
   workspaceEnv,
+  writeOldLockfile,
 } from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
@@ -110,19 +114,7 @@ describe('profile activate/deactivate', () => {
   let targetDir: string;
   let hubConfigFile: string;
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-    commandClasses: COMMAND_CLASSES,
-    context: {
-      cwd: workspace,
-      fs: new NodeFileSystem(),
-      env: {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-      }
-    }
-  });
+  const run = makeRun(() => workspace, COMMAND_CLASSES);
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -244,14 +236,8 @@ profiles:
     await expect(readFile(path.join(targetDir, 'ignored', 'build', 'cache.pyc'), 'utf8'))
       .rejects.toThrow();
 
-    const env = {
-      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-      HOME: workspace,
-      USERPROFILE: workspace
-    };
-    const record = JSON.parse(await readFile(new XdgAppStorage(env).getPaths().userRecord, 'utf8')) as {
-      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
-    };
+    const env = workspaceEnv(workspace);
+    const record = await readInstallRecord(userRecordPath(env));
     expect(record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
       'target/prompts/hello.prompt.md'
     ]);
@@ -290,46 +276,26 @@ profiles:
   });
 
   describe('install record', () => {
-    interface RecordFile {
-      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
-    }
-    const userEnv = (): Record<string, string> => ({ HOME: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config') });
     const project = (): string => path.join(workspace, 'project');
-    const recordPath = (): string => path.join(project(), 'ai-primitives-hub.lock.json');
+    const recordPath = (): string => recordPathIn(project());
     const oldLockPath = (): string => path.join(project(), 'prompt-registry.lock.json');
     const repoPrompt = (): string => path.join(project(), '.github', 'prompts', 'hello.prompt.md');
-    const userRecord = (): string => new XdgAppStorage(userEnv()).getPaths().userRecord;
+    const userRecord = (): string => userRecordPath(workspaceEnv(workspace));
     const exists = (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
-    const readRecord = async (file: string): Promise<RecordFile> => JSON.parse(await readFile(file, 'utf8')) as RecordFile;
-    const toolsOf = (record: RecordFile, bundleId: string): string[] => Object.keys(record.bundles[bundleId]?.tools ?? {});
+    const toolsOf = (record: InstallRecord, bundleId: string): string[] => Object.keys(record.bundles[bundleId]?.tools ?? {});
     /**
      * Write an older 2.0.0 `prompt-registry.lock.json`, as a profile activated before the record would have left it.
      * @param bundles - Bundle id → its single installed file, relative to the project.
      */
-    const writeOldLock = async (bundles: Record<string, string>): Promise<void> => {
-      await writeFile(oldLockPath(), `${JSON.stringify({
-        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-        version: '2.0.0',
-        generatedAt: '2026-10-01T00:00:00.000Z',
-        generatedBy: 'ai-primitives-hub-cli@0.2.1',
-        bundles: Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, {
-          version: '1.0.0',
-          sourceId: 'local-foo-src',
-          sourceType: 'local',
-          installedAt: '2026-10-01T00:00:00.000Z',
-          commitMode: 'commit',
-          files: [{ path: file, checksum: '0'.repeat(64) }]
-        }])),
-        sources: { 'local-foo-src': { type: 'local', url: bundleDir } }
-      }, null, 2)}\n`);
-    };
+    const writeOldLock = (bundles: Record<string, string>): Promise<string> => writeOldLockfile(
+      oldLockPath(),
+      Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, { version: '1.0.0', files: [file], sourceId: 'local-foo-src' }])),
+      { 'local-foo-src': { type: 'local', url: bundleDir } }
+    );
 
     beforeEach(async () => {
-      await mkdir(path.join(project(), '.git'), { recursive: true });
-      await writeFile(path.join(project(), '.git', 'HEAD'), 'ref: refs/heads/main\n');
-      expect((await run([
-        'target', 'add', 'repo', '--type', 'vscode', '--scope', 'repository', '--workspace-root', project(), '-o', 'json'
-      ])).exitCode).toBe(0);
+      await initGitRoot(project());
+      await addRepositoryTargets(run, project(), [['repo', 'vscode']]);
     });
 
     it('records a repository activation in ai-primitives-hub.lock.json and deactivate removes it, never writing prompt-registry.lock.json', async () => {
@@ -338,7 +304,7 @@ profiles:
       expect(activated.exitCode, activated.stdout).toBe(0);
       expect(parseJson<{ records: unknown[] }>(activated.stdout).data.records)
         .toEqual([{ target: 'repo', level: 'repository', path: recordPath() }]);
-      expect((await readRecord(recordPath())).bundles['local-foo'].tools.vscode.files.map((file) => file.path))
+      expect((await readInstallRecord(recordPath())).bundles['local-foo'].tools.vscode.files.map((file) => file.path))
         .toEqual(['.github/prompts/hello.prompt.md']);
       expect(await exists(repoPrompt())).toBe(true);
 
@@ -347,7 +313,7 @@ profiles:
       expect(deactivated.exitCode, deactivated.stdout).toBe(0);
       expect(deactivated.stdout).toContain(`Record: repository ${recordPath()}\n`);
       expect(await exists(repoPrompt())).toBe(false);
-      expect(await exists(recordPath()) ? toolsOf(await readRecord(recordPath()), 'local-foo') : []).toEqual([]);
+      expect(await exists(recordPath()) ? toolsOf(await readInstallRecord(recordPath()), 'local-foo') : []).toEqual([]);
       expect(await exists(oldLockPath())).toBe(false);
     });
 
@@ -356,7 +322,7 @@ profiles:
 
       expect(activated.exitCode, activated.stdout).toBe(0);
       expect(activated.stdout).toContain(`Record: user ${userRecord()}\n`);
-      expect((await readRecord(userRecord())).bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path))
+      expect((await readInstallRecord(userRecord())).bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path))
         .toEqual(['target/prompts/hello.prompt.md']);
 
       const deactivated = await run(['profile', 'deactivate', '-o', 'json']);
@@ -365,8 +331,8 @@ profiles:
       expect(parseJson<{ records: unknown[] }>(deactivated.stdout).data.records)
         .toEqual([{ target: 'copilot', level: 'user', path: userRecord() }]);
       expect(await exists(path.join(targetDir, 'prompts', 'hello.prompt.md'))).toBe(false);
-      expect(toolsOf(await readRecord(userRecord()), 'local-foo')).toEqual([]);
-      expect(await exists(resolveUserConfigPaths(userEnv()).userLockfile)).toBe(false);
+      expect(toolsOf(await readInstallRecord(userRecord()), 'local-foo')).toEqual([]);
+      expect(await exists(resolveUserConfigPaths(workspaceEnv(workspace)).userLockfile)).toBe(false);
     });
 
     it('migrates an older prompt-registry.lock.json before activating', async () => {
@@ -378,7 +344,7 @@ profiles:
       const { migrations } = parseJson<{ migrations: { needsReinstall: unknown[] }[] }>(activated.stdout).data;
       expect(migrations.map((migration) => migration.needsReinstall)).toEqual([[{ bundleId: 'old-only', version: '1.0.0' }]]);
       expect(await exists(oldLockPath())).toBe(false);
-      const record = await readRecord(recordPath());
+      const record = await readInstallRecord(recordPath());
       expect(toolsOf(record, 'old-only')).toEqual(['unknown']);
       expect(toolsOf(record, 'local-foo')).toEqual(['vscode']);
     });
@@ -396,14 +362,14 @@ profiles:
       expect(envelope.status).toBe('warning');
       expect(envelope.data.unknown).toEqual([{ bundleId: 'local-foo', target: 'repo', lockfile: recordPath() }]);
       expect(await exists(repoPrompt())).toBe(true);
-      expect(toolsOf(await readRecord(recordPath()), 'local-foo')).toEqual(['unknown']);
+      expect(toolsOf(await readInstallRecord(recordPath()), 'local-foo')).toEqual(['unknown']);
       expect(await exists(oldLockPath())).toBe(false);
       const current = await run(['profile', 'current', '-o', 'json']);
       expect(parseJson<{ active: null }>(current.stdout).data.active).toBeNull();
 
       // Activating again records the bundle for the target's tool.
       expect((await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json'])).exitCode).toBe(0);
-      expect(toolsOf(await readRecord(recordPath()), 'local-foo')).toEqual(['vscode']);
+      expect(toolsOf(await readInstallRecord(recordPath()), 'local-foo')).toEqual(['vscode']);
     });
 
     it('a record that cannot be read stops the activation before any file is written', async () => {
@@ -439,12 +405,7 @@ describe('profile activate with a GitHub hub source and {owner}-{repo}-{manifest
   let workspace: string;
   let targetDir: string;
 
-  const env = (): Record<string, string> => ({
-    HOME: workspace,
-    USERPROFILE: workspace,
-    XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-    XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-  });
+  const env = (): Record<string, string> => workspaceEnv(workspace);
 
   // Fake GitHub: one release of the `sample-skills` bundle (manifest id `sample-skills`).
   const bundleZip = buildZip([...createLegacyReleaseArchive({ id: 'sample-skills', version: '1.8.1' })]
@@ -579,7 +540,7 @@ profiles:
     expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
     // The bundle that did install is rolled back: its files and user record entry are gone.
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
-    const record = await readFile(new XdgAppStorage(env()).getPaths().userRecord, 'utf8').catch(() => '{"bundles":{}}');
+    const record = await readFile(userRecordPath(env()), 'utf8').catch(() => '{"bundles":{}}');
     expect(Object.keys((JSON.parse(record) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
     const current = await run(['profile', 'current', '-o', 'json']);
     expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
@@ -588,7 +549,7 @@ profiles:
   it('replays the activated profile\'s user record into a clean target', async () => {
     const activated = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
     expect(activated.exitCode, activated.stdout).toBe(0);
-    const userRecord = new XdgAppStorage(env()).getPaths().userRecord;
+    const userRecord = userRecordPath(env());
     // The record keeps the hub's versionless bundle id as its key.
     expect(Object.keys((JSON.parse(await readFile(userRecord, 'utf8')) as { bundles: object }).bundles))
       .toEqual(['acme-org-sample-skills-sample-skills']);
@@ -637,7 +598,7 @@ profiles:
     // Make the folder of the user record read-only: the record loads (it does
     // not exist yet), the bundle files are written and the activation state +
     // hub flag are already saved (in sub-folders) when the record write fails.
-    const userRecord = new XdgAppStorage(env()).getPaths().userRecord;
+    const userRecord = userRecordPath(env());
     const recordDir = path.dirname(userRecord);
     await mkdir(path.join(recordDir, 'hubs', 'profile-activations'), { recursive: true });
     await chmod(recordDir, 0o555);
