@@ -100,6 +100,7 @@ const manifestOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): string => {
   const prompts = bundle.items.map((item) => `  - id: ${item.id}\n    file: ${item.file}\n    type: ${item.type}\n`).join('');
   return `id: ${bundleId}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}`;
 };
+
 const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
   // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
   const AdmZip = require('adm-zip');
@@ -111,12 +112,6 @@ const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
   return zip.toBuffer();
 };
 
-/**
- * Write a bundle version's folder: its manifest and files.
- * @param dir - Bundle folder.
- * @param bundle - Bundle version.
- * @param bundleId - Bundle id the manifest declares.
- */
 const writeBundleDir = (dir: string, bundle: BundleVersion, bundleId = BUNDLE_ID): void => {
   for (const [file, content] of Object.entries({ 'deployment-manifest.yml': manifestOf(bundle, bundleId), ...bundle.files })) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
@@ -124,11 +119,6 @@ const writeBundleDir = (dir: string, bundle: BundleVersion, bundleId = BUNDLE_ID
   }
 };
 
-/**
- * The record bundle at a version, as a source lists it.
- * @param version - Bundle version.
- * @param sourceId - Source it comes from.
- */
 const bundleOf = (version: string, sourceId = SOURCE.id): Bundle =>
   testBundle({ id: BUNDLE_ID, name: 'Record Bundle', version, description: 'Test', author: 'test', sourceId, license: 'MIT' });
 
@@ -519,7 +509,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
   });
 });
 
-suite('user record (U4)', function () {
+suite('user record', function () {
   this.timeout(20_000);
 
   /** Home-relative files the vscode user layout writes for {@link V1}. */
@@ -652,8 +642,7 @@ suite('user record (U4)', function () {
     assert.strictEqual((await listedUser())?.version, '0.9.0');
     assert.strictEqual(readUserRecord(), null);
 
-    // Through the installer, so only the install's own retirement can remove the
-    // RegistryStorage entry (not `installBundle`'s old-version cleanup).
+    // Through the installer, so only the install's own retirement can remove the stored entry.
     await manager.getBundleInstaller().installFromBuffer(v1Bundle(), zipOf(V1), { scope: 'user' }, 'local');
 
     assert.strictEqual(await storage.getInstalledBundle(BUNDLE_ID, 'user'), undefined, 'the RegistryStorage entry is retired');
