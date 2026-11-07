@@ -166,7 +166,7 @@ overrides:
   '@hono/node-server': 2.1.6
   browserslist: ^4.28.7
   fast-uri: ^4.0.0
-  js-yaml: ^4.1.1
+  js-yaml: ^5.0.0
   mocha>chokidar: ^5.0.0
   mocha>diff: ^9.0.0
   nanoid@<3.3.17: ^6.0.0
@@ -227,8 +227,8 @@ importers:
         specifier: ^14.0.0
         version: 14.0.3
       js-yaml:
-        specifier: ^4.1.1
-        version: 4.3.2
+        specifier: ^5.0.0
+        version: 5.5.0
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
@@ -403,16 +403,16 @@ importers:
         version: 5.112.2(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.31))(csso@5.0.5)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.31)(svgo@3.3.5)(webpack-cli@7.2.3)
       webpack-cli:
         specifier: ^7.0.0
-        version: 7.2.3(js-yaml@4.3.2)(json5@2.2.3)(webpack-bundle-analyzer@4.10.2)(webpack-dev-server@5.2.7)(webpack@5.112.2)
+        version: 7.2.3(js-yaml@5.5.0)(json5@2.2.3)(webpack-bundle-analyzer@4.10.2)(webpack-dev-server@5.2.7)(webpack@5.112.2)
 
   github-actions/validate-collections:
     dependencies:
       '@prompt-registry/collection-scripts':
         specifier: ^1.0.5
-        version: 1.0.6(js-yaml@4.3.2)
+        version: 1.0.6(js-yaml@5.5.0)
       js-yaml:
-        specifier: ^4.1.1
-        version: 4.3.2
+        specifier: ^5.0.0
+        version: 5.5.0
     devDependencies:
       '@rollup/plugin-commonjs':
         specifier: ^29.0.0
@@ -430,8 +430,8 @@ importers:
         specifier: ^7.0.1
         version: 7.0.1
       js-yaml:
-        specifier: ^4.1.1
-        version: 4.3.2
+        specifier: ^5.0.0
+        version: 5.5.0
       semver:
         specifier: ^7.8.5
         version: 7.8.6
@@ -470,8 +470,8 @@ importers:
         specifier: workspace:*
         version: link:../infra
       js-yaml:
-        specifier: ^4.1.1
-        version: 4.3.2
+        specifier: ^5.0.0
+        version: 5.5.0
     devDependencies:
       '@types/js-yaml':
         specifier: ^4.0.9
@@ -513,8 +513,8 @@ importers:
         specifier: ^14.0.0
         version: 14.2.5(@types/node@22.20.5)
       js-yaml:
-        specifier: ^4.1.1
-        version: 4.3.2
+        specifier: ^5.0.0
+        version: 5.5.0
       semver:
         specifier: ^7.8.5
         version: 7.8.6
@@ -556,8 +556,8 @@ importers:
   packages/core:
     dependencies:
       js-yaml:
-        specifier: ^4.1.1
-        version: 4.3.2
+        specifier: ^5.0.0
+        version: 5.5.0
       semver:
         specifier: ^7.8.5
         version: 7.8.6
@@ -605,8 +605,8 @@ importers:
         specifier: ^7.0.1
         version: 7.0.1
       js-yaml:
-        specifier: ^4.1.1
-        version: 4.3.2
+        specifier: ^5.0.0
+        version: 5.5.0
     devDependencies:
       '@types/adm-zip':
         specifier: ^0.6.0
@@ -3475,7 +3475,7 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
     peerDependencies:
-      js-yaml: ^4.1.1
+      js-yaml: ^5.0.0
 
   '@rolldown/binding-android-arm-eabi@1.2.15':
     resolution: {integrity: sha512-aLcgK9gIJ3YRvrrtfSBbRa27F5WrpiTaPulnFpsHPxpUHgFlSgnU4854MHwoRGEBhfRJDWCS2WQ7lIjskE9Olw==}
@@ -7221,8 +7221,8 @@ packages:
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
-  js-yaml@4.3.2:
-    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
+  js-yaml@5.5.0:
+    resolution: {integrity: sha512-paNr4LFIFPjeeSmwNYdrb8FafLLG/Cr2Af3GjbsHJ5CxIjH4r0c2emlmRdAtpPAieP1gRVzk6buBbVP5gBMGAg==}
     hasBin: true
 
   jsdoc-type-pratt-parser@7.0.0:
@@ -10393,7 +10393,7 @@ packages:
     engines: {node: '>=20.9.0'}
     hasBin: true
     peerDependencies:
-      js-yaml: ^4.1.1
+      js-yaml: ^5.0.0
       json5: ^2.2.3
       toml: ^3.0.0 || ^4.0.0 || ^5.0.0
       webpack: ^5.101.0
@@ -10703,7 +10703,7 @@ snapshots:
 
   '@11ty/gray-matter@1.0.0':
     dependencies:
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       kind-of: 6.0.3
       section-matter: 1.0.0
       strip-bom-string: 1.0.0
@@ -12693,7 +12693,7 @@ snapshots:
       '@types/react-router-config': 5.0.11
       combine-promises: 1.2.0
       fs-extra: 11.4.1
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       lodash: 4.18.1
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
@@ -13306,7 +13306,7 @@ snapshots:
       '@docusaurus/utils-common': 3.10.2(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.31))(csso@5.0.5)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.31)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@8.1.1)(svgo@3.3.5)(webpack-cli@7.2.3)
       fs-extra: 11.4.1
       joi: 17.13.8
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       lodash: 4.18.1
       tslib: 2.8.1
     transitivePeerDependencies:
@@ -13344,7 +13344,7 @@ snapshots:
       github-slugger: 1.5.0
       globby: 11.1.0
       jiti: 1.21.7
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       lodash: 4.18.1
       micromatch: 4.0.8
       p-queue: 6.6.2
@@ -13607,7 +13607,7 @@ snapshots:
       globals: 14.0.0
       ignore: 5.3.2
       import-fresh: 3.3.1
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       minimatch: 3.1.5
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
@@ -13945,7 +13945,7 @@ snapshots:
       camelcase: 5.3.1
       find-up: 4.1.0
       get-package-type: 0.1.0
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       resolve-from: 5.0.0
 
   '@istanbuljs/nyc-config-typescript@1.0.2(nyc@18.0.0(supports-color@8.1.1))':
@@ -14692,10 +14692,10 @@ snapshots:
 
   '@polka/url@1.0.0-next.29': {}
 
-  '@prompt-registry/collection-scripts@1.0.6(js-yaml@4.3.2)':
+  '@prompt-registry/collection-scripts@1.0.6(js-yaml@5.5.0)':
     dependencies:
       archiver: 7.0.1
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       semver: 7.8.6
       yauzl: 3.4.0
     transitivePeerDependencies:
@@ -15149,7 +15149,7 @@ snapshots:
       '@textlint/resolver': 15.8.0
       '@textlint/types': 15.8.0
       debug: 4.4.3(supports-color@8.1.1)
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       lodash: 4.18.1
       pluralize: 2.0.0
       string-width: 4.2.3
@@ -16942,7 +16942,7 @@ snapshots:
   cosmiconfig@8.3.6(typescript@6.0.3):
     dependencies:
       import-fresh: 3.3.1
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       parse-json: 5.2.0
       path-type: 4.0.0
     optionalDependencies:
@@ -19080,9 +19080,9 @@ snapshots:
 
   js-tokens@4.0.0: {}
 
-  js-yaml@4.3.2:
+  js-yaml@5.5.0:
     dependencies:
-      argparse: 2.0.1
+      argparse: 3.0.4
 
   jsdoc-type-pratt-parser@7.0.0: {}
 
@@ -20123,7 +20123,7 @@ snapshots:
       glob: 13.0.6
       is-path-inside: 4.0.0
       is-unicode-supported: 0.1.0
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       minimatch: 10.2.6
       ms: 2.1.3
       picocolors: 1.1.1
@@ -21328,7 +21328,7 @@ snapshots:
   rc-config-loader@4.1.4(supports-color@8.1.1):
     dependencies:
       debug: 4.4.3(supports-color@8.1.1)
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       json5: 2.2.3
       require-from-string: 2.0.2
     transitivePeerDependencies:
@@ -22930,7 +22930,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  webpack-cli@7.2.3(js-yaml@4.3.2)(json5@2.2.3)(webpack-bundle-analyzer@4.10.2)(webpack-dev-server@5.2.7)(webpack@5.112.2):
+  webpack-cli@7.2.3(js-yaml@5.5.0)(json5@2.2.3)(webpack-bundle-analyzer@4.10.2)(webpack-dev-server@5.2.7)(webpack@5.112.2):
     dependencies:
       '@discoveryjs/json-ext': 1.1.0
       commander: 14.0.3
@@ -22942,7 +22942,7 @@ snapshots:
       webpack: 5.112.2(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.31))(csso@5.0.5)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.31)(svgo@3.3.5)(webpack-cli@7.2.3)
       webpack-merge: 6.0.1
     optionalDependencies:
-      js-yaml: 4.3.2
+      js-yaml: 5.5.0
       json5: 2.2.3
       webpack-bundle-analyzer: 4.10.2
       webpack-dev-server: 5.2.7(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)(webpack-cli@7.2.3)(webpack@5.112.2)
@@ -22990,7 +22990,7 @@ snapshots:
       ws: 8.22.0
     optionalDependencies:
       webpack: 5.112.2(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.31))(csso@5.0.5)(esbuild@0.28.2)(html-minifier-terser@7.2.0)(lightningcss@1.33.0)(postcss@8.5.31)(svgo@3.3.5)(webpack-cli@7.2.3)
-      webpack-cli: 7.2.3(js-yaml@4.3.2)(json5@2.2.3)(webpack-bundle-analyzer@4.10.2)(webpack-dev-server@5.2.7)(webpack@5.112.2)
+      webpack-cli: 7.2.3(js-yaml@5.5.0)(json5@2.2.3)(webpack-bundle-analyzer@4.10.2)(webpack-dev-server@5.2.7)(webpack@5.112.2)
     transitivePeerDependencies:
       - bufferutil
       - debug
@@ -23031,7 +23031,7 @@ snapshots:
       watchpack: 2.6.3
       webpack-sources: 3.6.0
     optionalDependencies:
-      webpack-cli: 7.2.3(js-yaml@4.3.2)(json5@2.2.3)(webpack-bundle-analyzer@4.10.2)(webpack-dev-server@5.2.7)(webpack@5.112.2)
+      webpack-cli: 7.2.3(js-yaml@5.5.0)(json5@2.2.3)(webpack-bundle-analyzer@4.10.2)(webpack-dev-server@5.2.7)(webpack@5.112.2)
     transitivePeerDependencies:
       - '@minify-html/node'
       - '@napi-rs/image'
