@@ -14,6 +14,7 @@ import {
   type Lockfile,
   type LockfileSourceEntry,
   readLockfile,
+  recordIdentityOf,
   type RecordInstallInput,
   type RecordInstallResult,
   type RecordSelection,
@@ -490,7 +491,7 @@ export const finishRecordRun = async (service: InstallRecordService, changes: re
 export interface OldFileOnlyBundles {
   lockPath: string;
   lock: Lockfile;
-  /** Ids of the old file's bundles the record does not have, in file order. */
+  /** Ids of the old file's bundles the record does not have at any version, in file order. */
   bundleIds: string[];
 }
 
@@ -506,8 +507,12 @@ export const oldFileOnlyBundles = async (ctx: Context, prepared: PreparedRecordS
   if (lockPath === undefined || lock === null) {
     return undefined;
   }
-  const recorded = new Set((await prepared.service.listEntries(prepared.selection.locations)).map((row) => row.bundleId));
-  return { lockPath, lock, bundleIds: Object.keys(lock.bundles).filter((bundleId) => !recorded.has(bundleId)) };
+  const rows = await prepared.service.listEntries(prepared.selection.locations);
+  const recordedIds = new Set(rows.map((row) => row.bundleId));
+  const recordedIdentities = new Set(rows.map((row) => recordIdentityOf(row.bundleId, row.version)));
+  const onlyOld = (bundleId: string): boolean =>
+    !recordedIds.has(bundleId) && !recordedIdentities.has(recordIdentityOf(bundleId, lock.bundles[bundleId].version));
+  return { lockPath, lock, bundleIds: Object.keys(lock.bundles).filter((bundleId) => onlyOld(bundleId)) };
 };
 
 /** How {@link prepareOldFileOnly} finds the target that writes the old-file-only bundles. */
