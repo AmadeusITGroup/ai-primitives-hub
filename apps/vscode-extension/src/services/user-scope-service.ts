@@ -54,6 +54,7 @@ import {
   Logger,
 } from '../utils/logger';
 import {
+  isPathInside,
   resolveContainedPath,
   resolveExistingPathInside,
 } from '../utils/path-safety';
@@ -668,7 +669,7 @@ export class UserScopeService implements IScopeService {
     const keep = new Set([...(options?.keep ?? [])].map((kept) => path.resolve(kept)));
     const isKept = (target: string): boolean => {
       const resolved = path.resolve(target);
-      return [...keep].some((kept) => kept === resolved || kept.startsWith(`${resolved}${path.sep}`));
+      return [...keep].some((kept) => isPathInside(resolved, kept, true));
     };
     try {
       this.logger.debug(`Removing Copilot files for bundle: ${bundleId}`);

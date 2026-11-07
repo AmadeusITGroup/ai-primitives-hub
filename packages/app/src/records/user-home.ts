@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import {
   recordError,
   type RecordFs,
+  relativeInside,
 } from '@ai-primitives-hub/core';
 import {
   confinePath,
@@ -50,8 +51,8 @@ const outsideHomeHint = (home: string): string =>
  * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT` naming the folder and the home folder.
  */
 export const assertUserFolderInsideHome = async (fs: RecordFs, home: string, folder: string): Promise<void> => {
-  const relative = path.relative(path.resolve(home), path.resolve(folder));
-  const outside = relative === '' || path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`);
+  // Home itself is not a target folder: it counts as outside.
+  const relative = relativeInside(path.resolve(home), path.resolve(folder));
   const refuse = (cause?: unknown) => recordError('RECORD.PATH_OUTSIDE_ROOT', {
     message: 'The user target folder is outside the home folder; nothing was written.',
     detail: `the user target folder ${folder} is outside the home folder ${home}`,
@@ -59,13 +60,13 @@ export const assertUserFolderInsideHome = async (fs: RecordFs, home: string, fol
     context: { folder, home },
     ...(cause === undefined ? {} : { cause })
   });
-  if (outside) {
+  if (relative === undefined) {
     throw refuse();
   }
   try {
     // The folder is checked as the parent of a probe leaf, so every folder on
     // the way (including the target folder itself) is realpath'd.
-    await confinePath(fs, home, `${relative.split(path.sep).join('/')}/.ai-primitives-hub-probe`);
+    await confinePath(fs, home, `${relative}/.ai-primitives-hub-probe`);
   } catch (error) {
     throw refuse(error);
   }
