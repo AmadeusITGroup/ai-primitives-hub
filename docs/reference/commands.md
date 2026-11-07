@@ -85,16 +85,16 @@ Files stored executable in the bundle (a committed `100755` file is archived as 
 
 > **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it. Until then, released versions keep using `prompt-registry.lock.json` at repository scope.
 
-At repository scope, `install` records the bundle in a new install record at the git root instead of `prompt-registry.lock.json`:
+At repository scope, `install` writes a format `3.0.0` install record at the git root instead of `prompt-registry.lock.json`:
 
-- `ai-primitives-hub.lock.json` for commit mode, and `ai-primitives-hub.local.lock.json` for local-only mode. The local-only file is added to `.git/info/exclude` under the existing `# Prompt Registry (local)` section.
-- The record uses format `3.0.0`. Each bundle keeps one entry per tool (for example `vscode` and `kiro`), so installing the same bundle for a second tool keeps the first tool's entry and files. The `-o json` result's `data.lockfile` names the record file.
-- Both record files are read before anything is written. A record that cannot be read stops the install with a `RECORD.*` error (exit 1) that names the file, and writes nothing. Run `ai-primitives-hub explain <code>` for the fix.
-- An existing `prompt-registry.lock.json` is left untouched. User-scope installs are unchanged.
+- `ai-primitives-hub.lock.json` (commit mode) or `ai-primitives-hub.local.lock.json` (local-only, added to `.git/info/exclude`).
+- Each bundle has one entry per tool, so installing it for `vscode` and `kiro` keeps both. `-o json` reports the file in `data.lockfile`.
+- An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
+- `prompt-registry.lock.json` and user-scope installs are left as they are.
 
-At repository scope, `uninstall` removes the target's tool entry from the install record and deletes its files, keeping any file another entry still lists. The record file is deleted when no bundles remain. Bundles installed before this change, which only `prompt-registry.lock.json` lists, are still uninstalled from that file. `update`, `status` and `install --lockfile` still use `prompt-registry.lock.json` for now.
+`uninstall` removes the target's entry and its files, keeps files another entry lists, and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`, which `update`, `status` and `install --lockfile` still use.
 
-The VS Code extension lists bundles from the install record as repository-scope installs, and refuses to uninstall, update, move or switch the commit mode of those entries, since the CLI manages them (`RECORD.CLI_MANAGED`).
+The VS Code extension lists these bundles at repository scope but refuses to uninstall, update, move or switch them (`RECORD.CLI_MANAGED`).
 
 ## Plugin Create (CLI)
 
