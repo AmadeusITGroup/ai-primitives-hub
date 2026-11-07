@@ -107,23 +107,22 @@ const unlink = promisify(fs.unlink);
 const rmdir = promisify(fs.rmdir);
 const symlink = promisify(fs.symlink);
 
-/** A repository install prepared before any file is written (W9 steps 1–2). */
+/** A repository install prepared before any file is written. */
 interface PreparedRepositoryInstall {
-  /** Workspace folder the writer installs into. */
   workspaceRoot: string;
   /** Record file the entry is recorded in. */
   location: RecordLocation;
-  /** Configured source the entry records (NFR4.15). */
+  /** Configured source the entry records. */
   source: RecordSourceInput;
 }
 
-/** An in-place repository update (W11): the old entry, read before the write. */
+/** An in-place repository update: the old entry, read before the write. */
 export interface RepositoryUpdateInPlace {
   /** Bundle id of the installed version; the new version may carry another id. */
   previousBundleId: string;
-  /** File holding the host entry (`holdingLocation`), when the record has one. */
+  /** File holding the host entry, when the record has one. */
   location?: RecordLocation;
-  /** Root-relative paths of the old entry that were modified or missing before the write. */
+  /** Root-relative paths of the old entry modified or missing before the write. */
   modified: ReadonlySet<string>;
 }
 
@@ -141,11 +140,8 @@ export class BundleInstaller {
   /**
    * Create a new BundleInstaller.
    * @param context - VS Code extension context.
-   * @param targetType - Host editor target type; detected from the running
-   *   editor by default, injectable for tests. Used to resolve host-aware
-   *   repository-scope destinations and as the recorded tool.
-   * @param records - Shared install record adapter; one over this
-   *   installer's stored sources with `targetType` as host tool by default.
+   * @param targetType - Host editor target type, also the recorded tool; detected by default.
+   * @param records - Shared install record adapter; built over the stored sources by default.
    */
   constructor(private readonly context: vscode.ExtensionContext, targetType?: TargetType, records?: ExtensionRecordAdapter) {
     this.logger = Logger.getInstance();
@@ -167,10 +163,7 @@ export class BundleInstaller {
     return ScopeServiceFactory.create(scope, this.context);
   }
 
-  /**
-   * The repository scope service for the open workspace, wired to the shared record.
-   * @throws {Error} When no workspace is open.
-   */
+  /** The repository scope service for the open workspace, wired to the shared record. */
   private getRepositoryScopeService(): RepositoryScopeService {
     const workspaceRoot = getWorkspaceRoot();
     if (!workspaceRoot) {
@@ -191,8 +184,7 @@ export class BundleInstaller {
   }
 
   /**
-   * W9 steps 1–2: check the configured source and load both record files
-   * before anything is written (NFR4.15, NFR5.2).
+   * Check the configured source and load both record files before anything is written.
    * @param bundle - Bundle to install.
    * @param commitMode - Commit mode of the install.
    * @param inPlace - The old entry, for an update.
@@ -216,10 +208,8 @@ export class BundleInstaller {
   }
 
   /**
-   * W9 steps 6–10 / W11: record the host tool's entry with the written files,
-   * bring writer-group siblings along (BR11.6), report other siblings as out
-   * of date, retire the old `prompt-registry` entry (BR12.1), then delete the
-   * superseded files except modified ones (NFR4.13).
+   * Record the host tool's entry with the written files, retire the old
+   * `prompt-registry` entry, then delete superseded files except modified ones.
    * @param bundle - Installed bundle.
    * @param prepared - Result of {@link prepareRepositoryInstall}.
    * @param written - Absolute paths the writer wrote.
@@ -251,8 +241,7 @@ export class BundleInstaller {
       });
       warnings.push(...change.warnings);
       if (inPlace !== undefined && inPlace.previousBundleId !== bundle.id && inPlace.location !== undefined) {
-        // The new version has another bundle id: the old id's host entry goes,
-        // with its files except shared and modified ones (NFR4.13).
+        // The new version has another bundle id: uninstall the old id's host entry.
         const removed = await this.records.service.uninstallEntry({
           location: inPlace.location, bundleId: inPlace.previousBundleId, tool: this.records.hostTool, keep: inPlace.modified
         });
@@ -275,7 +264,7 @@ export class BundleInstaller {
   }
 
   /**
-   * Retire the old `prompt-registry` entry of a bundle after the record was saved (BR12.1).
+   * Retire the old `prompt-registry` entry of a bundle after the record was saved.
    * @param workspaceRoot - Workspace folder.
    * @param bundleId - Bundle id.
    * @param root - Record root, for "Open file".
@@ -290,8 +279,7 @@ export class BundleInstaller {
   }
 
   /**
-   * One information message for sibling entries sharing the bundle's files
-   * that this install did not bring to the new version (BR11.4, BR11.6).
+   * Tell the user about tools sharing the bundle's files that are now out of date.
    * @param bundleId - Bundle id.
    * @param siblings - Siblings from `recordInstall`.
    */
@@ -620,7 +608,7 @@ export class BundleInstaller {
   }
 
   /**
-   * W11: repository update in place, over the host entry at `holdingLocation`.
+   * Repository update in place, over the host entry.
    * @param installed - Installed version.
    * @param bundle - New version.
    * @param bundleBuffer - Downloaded bundle bytes.
@@ -636,7 +624,7 @@ export class BundleInstaller {
     if (!workspaceRoot) {
       throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
     }
-    // The source check runs before anything is written, MCP config included (BR11.1).
+    // Check the source before anything is written, MCP config included.
     await this.records.buildSource(bundle.sourceId);
     let inPlace: RepositoryUpdateInPlace;
     try {
@@ -681,7 +669,7 @@ export class BundleInstaller {
    * @param bundleBuffer
    * @param options
    * @param sourceType
-   * @param inPlace - For a repository update (W11): the old entry, read before the write; no uninstall runs first.
+   * @param inPlace - For a repository update: the old entry, read before the write.
    */
   public async installFromBuffer(
     bundle: Bundle,
@@ -698,7 +686,7 @@ export class BundleInstaller {
     // user/workspace scopes should install directly into the Copilot skills directory.
     const installSkillsToCopilotDir = isSkillsBundle && options.scope !== 'repository';
 
-    // Repository installs check the source and the record before any write (W9 steps 1–2).
+    // Repository installs check the source and the record before any write.
     const repository = options.scope === 'repository'
       ? await this.prepareRepositoryInstall(bundle, options.commitMode ?? 'commit', inPlace)
       : undefined;
@@ -923,7 +911,7 @@ export class BundleInstaller {
         // The installation record hasn't been saved to RegistryStorage yet at this point,
         // so RepositoryScopeService can't look up commitMode from storage.
         if (repository) {
-          // Step 11: record the written files in the shared install record (W9).
+          // Step 11: record the written files in the shared install record.
           const repoService = this.getRepositoryScopeService();
           const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
           await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace);
@@ -945,9 +933,7 @@ export class BundleInstaller {
   }
 
   /**
-   * Uninstall a bundle. At repository scope the host tool's record entry is
-   * removed and its files deleted, except shared and modified ones (W10); a
-   * bundle only the old lockfile holds leaves it the same way (BR12.1).
+   * Uninstall a bundle. At repository scope shared and modified files are kept.
    * @param installed
    * @throws {RegistryError} A `RECORD.*` error, after it was shown once.
    */
@@ -995,12 +981,7 @@ export class BundleInstaller {
   }
 
   /**
-   * Update a bundle
-   *
-   * At repository scope the update runs in place (W11): the old host entry's
-   * modified files are found before the write, the new version is written and
-   * recorded over the existing entry in the file that holds it, and only
-   * unmodified superseded files are deleted. No uninstall runs first.
+   * Update a bundle. At repository scope it runs in place and keeps modified files.
    * @param installed
    * @param bundle
    * @param bundleBuffer

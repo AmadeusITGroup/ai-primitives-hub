@@ -111,8 +111,7 @@ export interface RecordEntryOptions {
 }
 
 /**
- * Write files and record them for a tool through the adapter's own
- * `InstallRecordService`, as that tool's install would.
+ * Write files and record them for a tool, as that tool's install would.
  * @param adapter - Record adapter of the extension under test.
  * @param root - Git root.
  * @param options - Bundle, tool, files and record file.
@@ -142,7 +141,7 @@ export const recordEntry = async (adapter: ExtensionRecordAdapter, root: string,
 
 /** What {@link writeOldEntry} writes. */
 export interface OldEntryOptions {
-  /** Root-relative path → content written now; the bare SHA-256 of `recorded` (or of the content) is recorded. */
+  /** Root-relative path → content written now; the bare SHA-256 of `recorded`, else of the content, is recorded. */
   files?: Record<string, string | { content: string; recorded: string }>;
   /** Root-relative paths recorded but not written, with a zero checksum. */
   missing?: readonly string[];
@@ -155,9 +154,8 @@ export interface OldEntryOptions {
 }
 
 /**
- * Write the committed old `prompt-registry.lock.json` with one bundle entry,
- * and the files it lists, through app's `writeLockfile`.
- * @param root - Workspace folder (where the old files live).
+ * Write the committed old `prompt-registry.lock.json` with one bundle entry and its files.
+ * @param root - Workspace folder.
  * @param bundleId - Bundle id.
  * @param options - Files, source, hubs and version.
  */

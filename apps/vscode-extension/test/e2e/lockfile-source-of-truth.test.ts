@@ -580,7 +580,7 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
      * - 3.2: onLockfileUpdated event fires with null
      * - 3.4: Complete uninstall workflow verification
      */
-    test('Requirement 3.1, 3.4: Uninstalling last bundle deletes the install record', async function () {
+    test('Uninstalling last bundle deletes the install record', async function () {
       this.timeout(60_000);
 
       const { bundle } = await setupSourceAndGetBundle('uninstall-last-source', 'uninstall-last-test');

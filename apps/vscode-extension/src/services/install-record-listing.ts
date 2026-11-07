@@ -59,7 +59,7 @@ export const getExtensionRecordGeneratedBy = (): string => {
 export interface InstallRecordListingOptions {
   /** Filesystem port; `NodeRecordFs` by default. */
   fs?: RecordFs;
-  /** Record store to read with, e.g. `ExtensionRecordAdapter.store`; one over `fs` by default. */
+  /** Record store to read with; one over `fs` by default. */
   store?: RecordStore;
   /** Shows a listing problem to the user; a warning notification by default. */
   showProblem?: (message: string) => void;
@@ -181,12 +181,7 @@ export class InstallRecordListing {
     items.set(bundleId, item);
   }
 
-  /**
-   * Whether any file of the entry is missing on disk; on an I/O error other
-   * than "missing", the file is assumed to exist and the error is logged.
-   * @param root - Record root.
-   * @param entry - Tool entry.
-   */
+  // An I/O error other than "missing" is logged and counts as present.
   private filesMissing(root: string, entry: ToolEntry): Promise<boolean> {
     return isAnyFileMissing(this.fs, root, entry.files.map((file) => file.path), (recordedPath, error) =>
       this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined));
@@ -264,21 +259,13 @@ export const watchInstallRecords = (root: string, onChange: () => void): vscode.
   watchFiles(root, `{${RECORD_FILE_NAMES.join(',')}}`, onChange);
 
 /**
- * Watch the old `prompt-registry*.lock.json` files of a workspace folder and
- * call `onChange` on create, change or delete.
+ * Call `onChange` when an old `prompt-registry*.lock.json` file of a folder is created, changed or deleted.
  * @param workspaceFolder - Folder the old files live in.
  * @param onChange - Refreshes the listing.
- * @returns The watcher's disposable.
  */
 export const watchOldLockfiles = (workspaceFolder: string, onChange: () => void): vscode.Disposable =>
   watchFiles(workspaceFolder, 'prompt-registry*.lock.json', onChange);
 
-/**
- * One file watcher calling `onChange` on create, change or delete.
- * @param base - Folder the pattern is relative to.
- * @param pattern - Glob pattern.
- * @param onChange - Change callback.
- */
 const watchFiles = (base: string, pattern: string, onChange: () => void): vscode.Disposable => {
   const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(base, pattern));
   const subscriptions = [watcher.onDidCreate(onChange), watcher.onDidChange(onChange), watcher.onDidDelete(onChange)];

@@ -1,7 +1,5 @@
 /**
- * Repository listing items built from a recorded bundle entry (an old
- * `prompt-registry` lockfile entry, or a 3.0.0 tool entry mapped to that
- * shape). Shared by the install record listing and the record adapter.
+ * Repository listing items built from a recorded bundle entry.
  * @module services/installed-bundle-from-entry
  */
 import type {
@@ -13,27 +11,18 @@ import type {
   RepositoryCommitMode,
 } from '../types/registry';
 
-/**
- * Options for creating an InstalledBundle from a recorded entry.
- */
+/** Options for creating an InstalledBundle from a recorded entry. */
 export interface CreateInstalledBundleOptions {
-  /** Install path (defaults to empty string if not provided) */
+  /** Install path; empty by default. */
   installPath?: string;
-  /** Deployment manifest (defaults to minimal manifest if not provided) */
+  /** Deployment manifest; a minimal one by default. */
   manifest?: DeploymentManifest;
-  /** Whether files are missing from the filesystem */
   filesMissing?: boolean;
-  /** Override the commit mode of the entry (the commit mode is implicit in the file holding it) */
+  /** Commit mode of the file holding the entry. */
   commitModeOverride?: RepositoryCommitMode;
 }
 
-/**
- * Create a minimal deployment manifest for a repository bundle. The record
- * stores no manifest, so it lists only the recorded file paths.
- * @param bundleId - The bundle ID
- * @param files - Recorded files of the entry
- * @returns Minimal DeploymentManifest object
- */
+// The record stores no manifest, so the listing gets one with the recorded file paths.
 const createMinimalManifest = (bundleId: string, files: readonly { path: string }[] = []): DeploymentManifest => ({
   common: {
     directories: [],
@@ -57,10 +46,9 @@ const createMinimalManifest = (bundleId: string, files: readonly { path: string 
 
 /**
  * Create a repository-scope InstalledBundle from a recorded bundle entry.
- * @param bundleId - The bundle ID
- * @param bundleEntry - The recorded entry
- * @param options - Optional configuration for the conversion
- * @returns InstalledBundle object
+ * @param bundleId - The bundle ID.
+ * @param bundleEntry - The recorded entry.
+ * @param options - Conversion options.
  */
 export const createInstalledBundleFromLockfile = (
   bundleId: string,

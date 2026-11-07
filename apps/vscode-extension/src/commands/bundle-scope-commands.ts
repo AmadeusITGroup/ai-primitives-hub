@@ -59,7 +59,6 @@ export class BundleScopeCommands {
 
   /**
    * Get installed bundle from the appropriate source based on scope.
-   * Repository scope comes from the merged repository listing (record and old lockfiles).
    * @param bundleId - Bundle id.
    * @param scope - Scope to look in.
    */
@@ -251,8 +250,7 @@ export class BundleScopeCommands {
         return;
       }
 
-      // Check if already in target mode: the host entry's own mode wins over the
-      // merged listing, which shows the newest entry across tools
+      // The host entry's own mode wins over the merged listing, which shows the newest entry across tools
       const currentMode = (await this.registryManager.getHostCommitMode(bundleId)) ?? repoBundle.commitMode ?? 'commit';
       if (currentMode === newMode) {
         vscode.window.showInformationMessage(`Bundle is already in ${newMode} mode.`);
@@ -282,7 +280,7 @@ export class BundleScopeCommands {
         return;
       }
 
-      // Perform switch: moves the record entry (or the old lockfile entry) and updates git exclude entries
+      // Perform switch (moves the record entry and updates git exclude entries)
       await this.repositoryScopeService.switchCommitMode(bundleId, newMode);
 
       this.registryManager.handleWorkspaceFoldersChanged();

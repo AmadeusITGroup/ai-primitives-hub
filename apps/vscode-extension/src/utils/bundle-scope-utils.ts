@@ -2,9 +2,8 @@
  * Bundle Scope Utilities
  *
  * Shared utilities for working with bundle scopes across different services.
- * Repository scope bundles are tracked in the install record (the 3.0.0
- * record files merged with the old `prompt-registry` lockfiles), while
- * user/workspace scopes use RegistryStorage.
+ * Repository scope bundles come from the install record and the old
+ * lockfiles; user/workspace scopes use RegistryStorage.
  */
 
 import {
@@ -27,17 +26,12 @@ import {
   getWorkspaceRoot,
 } from './scope-selection-ui';
 
-/**
- * Lists the repository bundles of a workspace folder (the merged listing,
- * `RegistryManager.listRepositoryBundles`).
- */
+/** Lists the repository bundles of a workspace folder. */
 export type RepositoryBundleLister = (workspaceRoot: string) => Promise<InstalledBundle[]>;
 
 /**
- * A lister over the install record and the old lockfiles, for callers that
- * hold only a `RegistryStorage`.
- * @param storage - The RegistryStorage instance (configured sources).
- * @returns The lister.
+ * A repository bundle lister for callers that hold only a `RegistryStorage`.
+ * @param storage - The RegistryStorage instance.
  */
 export const createRepositoryBundleLister = (storage: RegistryStorage): RepositoryBundleLister => {
   const adapter = new ExtensionRecordAdapter({ sources: { listSources: () => storage.getSources() } });
@@ -48,12 +42,11 @@ export const createRepositoryBundleLister = (storage: RegistryStorage): Reposito
 /**
  * Get installed bundle from the appropriate source based on scope.
  *
- * Repository scope bundles come from the merged repository listing.
- * Falls back to RegistryStorage if no workspace is available or the listing doesn't have the bundle.
+ * Falls back to RegistryStorage when no workspace is open or the repository listing lacks the bundle.
  * @param storage - The RegistryStorage instance
  * @param bundleId - The bundle ID to look up
  * @param scope - The scope to check
- * @param listRepository - Repository listing; one over the record and old lockfiles by default
+ * @param listRepository - Repository listing; built over `storage` by default
  * @returns InstalledBundle if found, undefined otherwise
  */
 export async function getInstalledBundleForScope(

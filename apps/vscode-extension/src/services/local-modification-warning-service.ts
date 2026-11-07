@@ -2,11 +2,8 @@
  * LocalModificationWarningService
  *
  * Detects local file modifications and warns users before updating bundles
- * that would override their changes (NFR4.13).
- *
- * The files and checksums come from the install record: the host tool's
- * entry when the bundle has one, else the bundle's old `prompt-registry`
- * lockfile entry. The comparison is app's `findModifiedFiles`.
+ * that would override their changes. Files and checksums come from the host
+ * tool's record entry, else the old `prompt-registry` lockfile entry.
  */
 
 import * as path from 'node:path';
@@ -30,9 +27,7 @@ import type {
  */
 export type ModificationWarningResult = typeof WARNING_RESULTS[keyof typeof WARNING_RESULTS];
 
-/**
- * A locally modified installed file.
- */
+/** A locally modified installed file. */
 export interface ModifiedFileInfo {
   /** Path relative to the record root (forward slashes). */
   path: string;
@@ -80,11 +75,6 @@ export class LocalModificationWarningService {
     return message;
   }
 
-  /**
-   * The recorded files of a bundle and the root they are relative to: the
-   * host tool's record entry, else the old lockfile entry.
-   * @param bundleId - Bundle id.
-   */
   private async recordedFiles(bundleId: string): Promise<{ root: string; files: RecordedFileCheck[] } | undefined> {
     const host = await this.adapter.findHostEntry(this.workspaceFolder, bundleId);
     if (host !== undefined) {

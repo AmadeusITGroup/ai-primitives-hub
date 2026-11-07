@@ -14,11 +14,7 @@ import * as vscode from 'vscode';
 /** Extension actions guarded for repository entries of another tool. */
 export type CliManagedAction = 'update' | 'uninstall' | 'move-to-user' | 'switch-commit-mode';
 
-/**
- * The CLI command that does the refused action for another tool. Moving to
- * user scope starts with an uninstall at repository level; a commit-mode
- * switch is a reinstall with the other mode.
- */
+/** The CLI command for each refused action: a move starts with an uninstall, a mode switch is a reinstall. */
 const CLI_COMMANDS: Readonly<Record<CliManagedAction, string>> = {
   update: 'update',
   uninstall: 'uninstall',
@@ -55,11 +51,11 @@ export const cliManagedError = (bundleId: string, action: CliManagedAction, tool
 export const isCliManagedError = (error: unknown): error is RegistryError =>
   isRecordError(error, 'RECORD.CLI_MANAGED');
 
-/** Errors already shown to the user once (e.g. by `ExtensionRecordAdapter.showRecordError`). */
+/** Errors already shown to the user once. */
 const shownErrors = new WeakSet<object>();
 
 /**
- * Remember that an error was already shown, so callers do not show it again.
+ * Remember that an error was already shown.
  * @param error - The error shown.
  */
 export const markErrorShown = (error: unknown): void => {
@@ -76,9 +72,7 @@ export const wasErrorShown = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && shownErrors.has(error);
 
 /**
- * Show the refusal as one warning notification, when `error` is one. An
- * error already shown elsewhere (a `RECORD.*` error with its "Open file"
- * notification) is handled too, without a second notification.
+ * Show the refusal as one warning, unless the error was already shown.
  * @param error - Anything thrown by a guarded action.
  * @returns `true` when the error was shown and the caller must stop without a success message.
  */

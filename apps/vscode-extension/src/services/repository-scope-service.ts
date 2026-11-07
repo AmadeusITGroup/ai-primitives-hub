@@ -7,11 +7,9 @@
  * to VS Code's .github layout).
  * Supports both commit mode (tracked by Git) and local-only mode (excluded via .git/info/exclude).
  *
- * The files of an install are recorded by the caller in the shared install
- * record (`ExtensionRecordAdapter`): `syncBundle` returns the paths it wrote,
- * and `unsyncBundle` / `switchCommitMode` take their file lists from the
- * host tool's record entry (`uninstallEntry`, `moveEntry`), or from the old
- * `prompt-registry` lockfile for a bundle only it holds (BR11.1, BR11.5, BR12.1).
+ * The caller records the files `syncBundle` returns in the shared install
+ * record; uninstall and the commit-mode switch read them from the host
+ * tool's record entry, or from the old `prompt-registry` lockfile.
  *
  * Requirements: 1.2-1.7, 3.1-3.7, 7.8-7.10, 10.1-10.6
  */
@@ -150,8 +148,7 @@ export class RepositoryScopeService implements IScopeService {
    * @param targetType - Host editor target type; detected from the running
    *   editor by default, injectable for tests. Determines the host-appropriate
    *   destination layout (VS Code -> .github, Kiro -> .kiro, etc.).
-   * @param records - Shared install record adapter; one over `storage`'s
-   *   sources with `targetType` as host tool by default.
+   * @param records - Shared install record adapter; built over `storage`'s sources by default.
    */
   constructor(workspaceRoot: string, storage: RegistryStorage, targetType?: TargetType, records?: ExtensionRecordAdapter) {
     this.workspaceRoot = workspaceRoot;
@@ -717,8 +714,7 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Remove a bundle's entry from the old `prompt-registry` lockfile, with its
-   * files (BR12.1).
+   * Remove a bundle's entry from the old `prompt-registry` lockfile, with its files.
    * @param bundleId - Bundle id.
    * @returns Whether an old entry existed.
    */
@@ -751,18 +747,12 @@ export class RepositoryScopeService implements IScopeService {
     }
   }
 
-  /**
-   * A record-root-relative path as a workspace-relative one, forward slashes.
-   * @param root - Record root (git root).
-   * @param recordedPath - Path relative to `root`.
-   */
   private fromRootRelative(root: string, recordedPath: string): string {
     return path.relative(this.workspaceRoot, path.join(root, ...recordedPath.split('/'))).split(path.sep).join('/');
   }
 
   /**
-   * Today's commit-mode switch for a bundle only the old lockfile holds:
-   * exclude entries for the host's managed folders.
+   * Commit-mode switch for a bundle only the old lockfile holds: exclude entries for the host's folders.
    * @param bundleId - Bundle identifier
    * @param newMode - New commit mode
    */
@@ -777,10 +767,8 @@ export class RepositoryScopeService implements IScopeService {
       return;
     }
 
-    // The old entry's files point to the bundle cache, not the installed
-    // location, so the host-aware destination folders are scanned (e.g.
-    // .github/* for VS Code, .kiro/* for Kiro). Kinds are deduped because
-    // several may resolve to the same folder (prompt + instructions -> .kiro/steering/).
+    // The old entry's files point to the bundle cache, so scan the host's
+    // destination folders; several kinds can share one folder.
     const filePaths: string[] = [];
     const scannedDirs = new Set<string>();
     for (const kind of MANAGED_KINDS) {
@@ -804,7 +792,7 @@ export class RepositoryScopeService implements IScopeService {
     }
 
     await (newMode === 'local-only' ? this.addToGitExclude(filePaths) : this.removeFromGitExclude(filePaths));
-    // Move the entry between the two old lockfiles (app `json-lockfile-store`).
+    // Move the entry between the two old lockfiles.
     await this.records.moveOldEntry(this.workspaceRoot, bundleId, newMode);
     this.logger.info(`[RepositoryScopeService] ✅ Switched ${bundleId} to ${newMode} mode`);
   }
@@ -854,7 +842,7 @@ export class RepositoryScopeService implements IScopeService {
    * @param bundleId - The unique identifier of the bundle
    * @param bundlePath - The path to the installed bundle directory
    * @param options - Optional sync options including commitMode
-   * @returns Absolute paths of the files written, for the install record (BR1.7); empty without a manifest.
+   * @returns Absolute paths of the files written; empty without a manifest.
    */
   public async syncBundle(bundleId: string, bundlePath: string, options?: SyncBundleOptions): Promise<string[]> {
     try {
@@ -908,18 +896,11 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Remove synced files for a bundle (W10).
+   * Remove synced files for a bundle, keeping files another entry lists or
+   * that changed since the install. An old lockfile entry is removed too.
    * Implements IScopeService.unsyncBundle
-   *
-   * With a host-tool entry in the install record, app's `uninstallEntry`
-   * removes the entry and deletes its files, keeping every path another entry
-   * still lists and files whose content no longer matches the recorded
-   * checksum, or that are missing (NFR4.13).
-   * A bundle only the old `prompt-registry` lockfile holds is removed from it
-   * the same way (BR12.1), keeping paths any record entry lists; after a
-   * record uninstall, an old entry for the same bundle is retired as well.
    * @param bundleId - The unique identifier of the bundle to unsync
-   * @throws {RegistryError} Any `RECORD.*` error; the record and files are unchanged when loading fails.
+   * @throws {RegistryError} Any `RECORD.*` error.
    */
   public async unsyncBundle(bundleId: string): Promise<void> {
     try {
@@ -938,8 +919,7 @@ export class RepositoryScopeService implements IScopeService {
       }
       await this.afterFilesRemoved(location.commitMode === 'local-only', removed.deleted.map((file) => this.fromRootRelative(location.root, file)), removed.kept);
       this.logger.info(`[RepositoryScopeService] ✅ Removed ${removed.deleted.length} files for bundle: ${bundleId}`);
-      // Uninstall removes both (BR12.1): an old entry for the same bundle is
-      // retired too, keeping every path a record entry still lists or that was modified.
+      // Retire an old entry for the same bundle too.
       await this.unsyncOldEntry(bundleId);
     } catch (error) {
       if (isRecordError(error)) {
@@ -950,13 +930,8 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Switch the commit mode for a bundle (BR11.5).
-   *
-   * A host-tool record entry moves unchanged to the other record file
-   * (`moveEntry`). Its paths are added to `info/exclude` only when no
-   * committed entry lists them, and removed only when no local-only entry
-   * lists them. A bundle only the old lockfile holds keeps today's
-   * folder-scan exclude update; the caller updates the old file.
+   * Switch the commit mode for a bundle: move the host entry to the other
+   * record file and update `info/exclude` for paths no other entry lists.
    * @param bundleId - Bundle identifier
    * @param newMode - New commit mode
    * @throws {RegistryError} Any `RECORD.*` error.
@@ -975,7 +950,7 @@ export class RepositoryScopeService implements IScopeService {
       }
       const moved = await this.records.service.moveEntry({ location: located.location, bundleId, tool: this.records.hostTool });
       moved.warnings.forEach((warning) => this.logger.warn(`[RepositoryScopeService] ${warning}`));
-      // The file the entry left is the other commit mode's file (BR2.2)
+      // Paths the file the entry left still lists keep their exclude state.
       const otherMode = await this.records.listedPathsIn(moved.from);
       const paths = located.entry.files.map((file) => file.path).filter((file) => !otherMode.has(file))
         .map((file) => this.fromRootRelative(located.location.root, file));
@@ -991,8 +966,7 @@ export class RepositoryScopeService implements IScopeService {
   }
 
   /**
-   * Bundle sub-path kinds (`kindRoutes` keys such as `prompts/`) the
-   * manifest's items write, for the writer group (BR11.6).
+   * Kinds (`kindRoutes` keys such as `prompts/`) the manifest's items write.
    * @param manifest - Deployment manifest of the installed bundle.
    */
   public routeKeysFor(manifest: DeploymentManifest): string[] {

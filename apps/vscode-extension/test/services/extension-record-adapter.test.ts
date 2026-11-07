@@ -1,17 +1,7 @@
 /**
- * Extension record adapter contract (U3; BR11.4–BR11.6, BR12.1, NFR4.12,
- * NFR4.13, NFR4.15, NFR5.2).
- *
- * The extension runs as the `vscode` host and installs, updates, uninstalls
- * and switches a repository bundle through `BundleInstaller`,
- * `RegistryManager` and `BundleScopeCommands` against a real temp git root.
- * Other tools' entries are written through the adapter's own
- * `InstallRecordService`; old `prompt-registry` files through app's
- * `json-lockfile-store`. Only `vscode.window`, the workspace lookup and
- * `RegistryStorage` (the configured sources) are stubbed.
- *
- * Covered elsewhere: refusing actions on an entry only `kiro` holds
- * (`cli-managed-guard.test.ts`).
+ * Extension record adapter: the extension, as the `vscode` host, installs,
+ * updates, uninstalls and switches a repository bundle against a real temp
+ * git root. Only `vscode.window`, the workspace lookup and `RegistryStorage` are stubbed.
  */
 import * as assert from 'node:assert';
 import {
@@ -79,17 +69,8 @@ const V2: BundleVersion = {
   items: [{ id: 'hello', file: 'prompts/hello.prompt.md', type: 'prompt' }]
 };
 
-/**
- * Record checksum of a text.
- * @param text - File content.
- */
 const sha256 = (text: string): string => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
-/**
- * Zip a bundle version with its deployment manifest.
- * @param bundle - Bundle version.
- * @param bundleId - Manifest id.
- */
 const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
   // eslint-disable-next-line @typescript-eslint/naming-convention -- matches library export name
   const AdmZip = require('adm-zip');
@@ -139,12 +120,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     await installer.update(await listed(), bundleOf(bundle.version), zipOf(bundle), 'github');
   };
 
-  /**
-   * Record another tool's entry in the committed record file, as that tool's own install would.
-   * @param tool - Tool key.
-   * @param files - Root-relative files; created when missing.
-   * @param bundleId - Bundle id.
-   */
+  // Record another tool's entry in the committed record file, as that tool's own install would.
   const recordOtherTool = (tool: string, files: string[], bundleId = BUNDLE_ID): Promise<void> =>
     recordEntry(manager.getRecordAdapter(), root, { bundleId, tool, files, content: `# ${tool}\n`, keepExisting: true });
 

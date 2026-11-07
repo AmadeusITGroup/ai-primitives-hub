@@ -1152,11 +1152,8 @@ export class PromptRegistryExtension {
   }
 
   /**
-   * Watch the install records of a workspace folder and refresh the installed
-   * view on any change (BR5.7): one watcher per record root (git root, or the
-   * folder), shared by every folder with that root, plus one on the folder's
-   * old `prompt-registry*.lock.json` files. A failure to set up a watcher is
-   * logged and never blocks activation.
+   * Refresh the installed view when an install record or old lockfile of a
+   * workspace folder changes; never blocks activation.
    * @param workspaceFolder - Workspace folder the git-root walk starts from.
    */
   private async subscribeRecordChanges(workspaceFolder: string): Promise<void> {

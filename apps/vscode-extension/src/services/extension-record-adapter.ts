@@ -1,21 +1,7 @@
 /**
- * Extension record adapter: the extension's composition of the shared
- * install record (U3; BR11.1–BR11.9, BR12.1, NFR4.12, NFR4.15, NFR5.2).
- *
- * Builds app's `RecordStore` and `InstallRecordService` with
- * `createInstallRecordServices` (infra's `NodeRecordFs` and
- * `RecordSchemaValidator`), stamps
- * `generatedBy = ai-primitives-hub-extension@<version>`, and records every
- * repository install under the host tool from `detectHostApp()`. It holds no
- * record logic of its own; it supplies the extension-side inputs the app
- * functions need:
- * - `resolveRoot`: the record root of a workspace folder (git root, or the folder);
- * - `assertHostTool`: refuse actions on bundles only another tool's entry holds;
- * - `buildSource`: the configured source an install records (active hub,
- *   then detached `default-local`, then any stored source);
- * - `showRecordError`: one error notification with "Open file";
- * - the old `prompt-registry.lock.json` files, read and changed through
- *   app's `json-lockfile-store` (listing, retirement, source remap).
+ * Extension record adapter: the extension's composition of the shared install
+ * record. Records every repository install under the host tool and reads and
+ * changes the old `prompt-registry.lock.json` files; the record logic lives in app.
  * @module services/extension-record-adapter
  */
 import * as path from 'node:path';
@@ -81,12 +67,12 @@ import {
   createInstalledBundleFromLockfile,
 } from './installed-bundle-from-entry';
 
-/** Largest old lockfile read, in bytes (the record cap). */
+/** Largest old lockfile read, in bytes. */
 const OLD_LOCKFILE_MAX_BYTES = 10 * 1024 * 1024;
 
 /** Where configured sources come from. */
 export interface RecordSourcesPort {
-  /** Every stored source, hub-provisioned and detached ones included (`RegistryStorage.getSources`). */
+  /** Every stored source, hub and detached ones included. */
   listSources(): Promise<RegistrySource[]>;
   /** Active hub id, when a hub is active. */
   getActiveHubId?(): Promise<string | null>;
@@ -94,7 +80,6 @@ export interface RecordSourcesPort {
 
 /** Dependencies of an {@link ExtensionRecordAdapter}. */
 export interface ExtensionRecordAdapterOptions {
-  /** Configured sources for `buildSource`. */
   sources: RecordSourcesPort;
   /** Filesystem port; `NodeRecordFs` by default. */
   fs?: RecordFs;
@@ -104,9 +89,7 @@ export interface ExtensionRecordAdapterOptions {
 
 /** One old `prompt-registry` lockfile at a workspace root. */
 export interface OldLockfile {
-  /** Absolute file path. */
   path: string;
-  /** Commit mode the file stands for. */
   commitMode: RepositoryCommitMode;
   /** Parsed content; `null` when absent or unreadable. */
   lock: Lockfile | null;
@@ -124,19 +107,12 @@ export interface RetiredOldEntry {
   deleted: string[];
   /** Workspace-relative files kept: listed by another entry, or modified. */
   kept: string[];
-  /** Non-fatal problems, for the caller to log. */
   warnings: string[];
 }
 
-/**
- * Forward-slash form of a recorded path.
- * @param recordedPath - Path as recorded.
- */
 const toSlashes = (recordedPath: string): string => recordedPath.replaceAll('\\', '/');
 
-/**
- * `LockfileFs` over `RecordFs`; writes go through app's `writeFileAtomically`.
- */
+/** `LockfileFs` over `RecordFs`, writing atomically. */
 class RecordLockfileFs implements LockfileFs {
   public constructor(private readonly fs: RecordFs) {}
 
@@ -178,21 +154,12 @@ export class ExtensionRecordAdapter {
     this.lockfileFs = new RecordLockfileFs(this.fs);
   }
 
-  /**
-   * Whether any of the paths is missing; an I/O error other than "missing" is logged and counts as present.
-   * @param root - Root the paths are relative to.
-   * @param paths - Root-relative paths.
-   */
+  // An I/O error other than "missing" is logged and counts as present.
   private anyMissing(root: string, paths: readonly string[]): Promise<boolean> {
     return isAnyFileMissing(this.fs, root, paths, (recordedPath, error) =>
       this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined));
   }
 
-  /**
-   * Save an old lockfile, or delete it when it has no bundle left.
-   * @param file - Absolute old lockfile path.
-   * @param lock - Content to save.
-   */
   private async saveOldLockfile(file: string, lock: Lockfile): Promise<void> {
     await (Object.keys(lock.bundles).length === 0
       ? deleteLockfile(file, this.lockfileFs)
@@ -200,9 +167,9 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Both old `prompt-registry` lockfiles of a workspace folder, committed first.
-   * An unreadable file is logged and given as `lock: null`.
-   * @param workspaceFolder - Absolute workspace folder path (where the old files live).
+   * Both old `prompt-registry` lockfiles of a workspace folder, committed first;
+   * an unreadable one has `lock: null`.
+   * @param workspaceFolder - Absolute workspace folder path.
    */
   public async readOldLockfiles(workspaceFolder: string): Promise<OldLockfile[]> {
     const files: OldLockfile[] = [];
@@ -220,7 +187,7 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Record root of a workspace folder (BR2.1): its git root, or the folder itself.
+   * Record root of a workspace folder: its git root, or the folder itself.
    * @param workspaceFolder - Absolute workspace folder path.
    */
   public async resolveRoot(workspaceFolder: string): Promise<string> {
@@ -230,15 +197,15 @@ export class ExtensionRecordAdapter {
 
   /**
    * Both repository record files of a workspace folder, committed first.
-   * @param workspaceFolder - Absolute workspace folder path.
+   * @param workspaceFolder - Workspace folder.
    */
   public locations(workspaceFolder: string): Promise<[RecordLocation, RecordLocation]> {
     return this.store.resolveRepository({ start: workspaceFolder });
   }
 
   /**
-   * Load and check both record files, so a bad record stops an install before
-   * any file is written (NFR5.2), and give the file for the commit mode.
+   * Load and check both record files before an install writes anything, and
+   * give the file for the commit mode.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param commitMode - Commit mode of the install.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
@@ -248,8 +215,7 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Every tool entry of a bundle in both record files, committed file first;
-   * an entry in both files is listed once, from the committed file.
+   * Every tool entry of a bundle in both record files, committed file first.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param bundleId - Bundle id.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
@@ -259,7 +225,7 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * The host tool's entry of a bundle, from the committed file when both hold it (BR6.5).
+   * The host tool's entry of a bundle, from the committed file when both hold it.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param bundleId - Bundle id.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
@@ -269,8 +235,7 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Every tool entry of every bundle in both record files, committed file
-   * first; an entry in both files is listed once, from the committed file.
+   * Every tool entry of every bundle in both record files, committed file first.
    * @param workspaceFolder - Absolute workspace folder path.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
@@ -289,8 +254,7 @@ export class ExtensionRecordAdapter {
 
   /**
    * Refuse an action on a bundle whose record entries all belong to another
-   * tool (BR11.2, NFR4.12). A bundle with a host-tool entry, or with no record
-   * entry (old-file rows have no tool and are the host's own), is allowed.
+   * tool. Old-file rows have no tool and count as the host's own.
    * @param bundleId - Bundle the action targets.
    * @param action - The action, for the message.
    * @param workspaceFolder - Absolute workspace folder path.
@@ -304,19 +268,14 @@ export class ExtensionRecordAdapter {
     throw cliManagedError(bundleId, action, tools.toSorted()[0]);
   }
 
-  /**
-   * Configured sources in lookup order, one per id: the active hub's sources,
-   * then detached (`default-local`) sources, then any other stored source
-   * (app's `orderConfiguredSources`).
-   */
+  /** Configured sources in lookup order, one per id: active hub, detached, then any other. */
   public async configuredSources(): Promise<RegistrySource[]> {
     const activeHubId = (await this.sources.getActiveHubId?.()) ?? null;
     return orderConfiguredSources(await this.sources.listSources(), activeHubId, { includeOtherHubs: true });
   }
 
   /**
-   * The source an install records (NFR4.15): the configured source with this
-   * id, normalised by app's `toRecordSource` as the CLI records it.
+   * The source an install records: the configured source with this id, as the CLI records it.
    * @param sourceId - Source id of the bundle.
    * @throws {Error} When the id is unknown or its type is not a `SourceType`.
    */
@@ -329,12 +288,11 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Show a `RECORD.*` error once: one error notification naming the file, with
-   * an "Open file" button, and the full detail in the log (NFR5.2).
+   * Show a `RECORD.*` error once, as a notification with "Open file" and the detail in the log.
    * @param error - Anything thrown.
-   * @param written - Absolute files the writer wrote before the error; they are left in place.
+   * @param written - Absolute files written before the error, left in place.
    * @param root - Record root, to open a file named relative to it.
-   * @returns `true` when `error` was a `RECORD.*` error (other than `RECORD.CLI_MANAGED`) and was shown, now or before.
+   * @returns `true` when it was a `RECORD.*` error other than `RECORD.CLI_MANAGED`.
    */
   public showRecordError(error: unknown, written: readonly string[] = [], root?: string): boolean {
     if (!isRecordError(error) || error.code === 'RECORD.CLI_MANAGED') {
@@ -363,8 +321,7 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Bundles of the old `prompt-registry` lockfiles, as listing items. A bundle
-   * in both old files is listed once, from the committed file.
+   * Bundles of the old `prompt-registry` lockfiles, as listing items, committed file first.
    * @param workspaceFolder - Absolute workspace folder path.
    */
   public async listOldBundles(workspaceFolder: string): Promise<InstalledBundle[]> {
@@ -402,9 +359,7 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Remove a bundle's entry from the old lockfile holding it, without touching
-   * any installed file (stale cleanup, BR12.2). Its source is dropped when no
-   * other entry uses it.
+   * Remove a bundle's entry from the old lockfile holding it, without touching installed files.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param bundleId - Bundle id.
    * @returns Whether an entry was removed.
@@ -421,8 +376,7 @@ export class ExtensionRecordAdapter {
 
   /**
    * Move an old-file-only bundle's entry, with its source, to the old lockfile
-   * of the other commit mode (today's behaviour for bundles never rewritten).
-   * The target file is saved first, then the entry leaves the first file.
+   * of the other commit mode, saving the target first.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param bundleId - Bundle id.
    * @param commitMode - Commit mode to move to.
@@ -447,13 +401,11 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Remove a bundle's entry from the old `prompt-registry` lockfiles and
-   * delete its files (BR12.1; the old-only uninstall). A file another old
-   * entry or any record entry lists, or that was modified, is kept. The old
-   * file is saved first (removed when empty), then files are deleted.
+   * Uninstall an old-file-only bundle: remove its old entry, then delete its
+   * files except those another entry lists or that were modified.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param bundleId - Bundle id.
-   * @returns What was deleted and kept, or `undefined` when no old file has the bundle.
+   * @returns `undefined` when no old file has the bundle.
    * @throws {RegistryError} Any `RECORD.*` error from loading the record files.
    */
   public async retireOldEntry(workspaceFolder: string, bundleId: string): Promise<RetiredOldEntry | undefined> {
@@ -489,14 +441,12 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Remap a source id (BR11.9): both record files first, through
-   * `InstallRecordService.remapSource`, then the old `prompt-registry`
-   * lockfiles that use it, through app's `remapSourceId`.
+   * Remap a source id in both record files, then in the old lockfiles that use it.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param from - Source id being retired.
    * @param to - Replacement source id.
-   * @param descriptor - Replacement source as resolved by app's `remapBundleSource`.
-   * @throws {RegistryError} Any `RECORD.*` error from the record remap; nothing is changed in the old files then.
+   * @param descriptor - Replacement source.
+   * @throws {RegistryError} Any `RECORD.*` error from the record remap; the old files are then unchanged.
    */
   public async remapSource(workspaceFolder: string, from: string, to: string, descriptor: LockfileSourceDescriptor): Promise<void> {
     let recordDescriptor: RecordSourceDescriptor = { ...descriptor };

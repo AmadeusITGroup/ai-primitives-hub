@@ -1,14 +1,7 @@
 /**
- * BundleCommands.cleanupStaleLockfileEntries contract tests (W13; BR12.2, BR12.5).
- *
- * Stale rows come from both install record files, for any tool, and from the
- * old `prompt-registry` lockfiles; a row is offered only when every file it
- * lists is missing. Confirming removes the entries only, never a file. A
- * `RECORD.*` error mid-batch stops the batch and one message names what was
- * removed and what was not attempted. Records are written through
- * `InstallRecordService` and the old lockfile through app's `writeLockfile`,
- * in a real temp git root; only `RegistryStorage`, `getWorkspaceRoot()` and
- * the VS Code notification API are stubbed.
+ * BundleCommands.cleanupStaleLockfileEntries: stale record and old lockfile
+ * entries in a real temp git root; `RegistryStorage`, the workspace lookup
+ * and notifications are stubbed.
  */
 
 import * as assert from 'node:assert';
@@ -52,13 +45,7 @@ suite('BundleCommands.cleanupStaleLockfileEntries', () => {
   const exists = (relative: string): boolean => fs.existsSync(path.join(root, relative));
   const readJson = (file: string): any => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 
-  /**
-   * Record a bundle for a tool through the record service, then delete the listed files named in `remove`.
-   * @param bundleId - Bundle id.
-   * @param tool - Tool key.
-   * @param files - Root-relative files the entry lists.
-   * @param remove - Files to delete after recording.
-   */
+  // Record a bundle for a tool, then delete the files named in `remove`.
   const recordBundle = async (bundleId: string, tool: string, files: string[], remove: string[] = files): Promise<void> => {
     await recordEntry(manager.getRecordAdapter(), root, { bundleId, tool, files });
     remove.forEach((relative) => fs.rmSync(path.join(root, relative)));

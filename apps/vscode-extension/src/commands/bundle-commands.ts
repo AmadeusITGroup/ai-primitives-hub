@@ -33,10 +33,7 @@ import {
   BundleUpdateCommands,
 } from './bundle-update-commands';
 
-/**
- * A stale repository entry: a record tool entry (with `tool` and `location`)
- * or an old lockfile entry (neither).
- */
+/** A stale repository entry: a record tool entry, or an old lockfile entry without `tool` and `location`. */
 interface StaleRow {
   bundleId: string;
   tool?: string;
@@ -64,18 +61,12 @@ export class BundleCommands {
     this.logger = Logger.getInstance();
   }
 
-  /**
-   * Label of a stale row in messages.
-   * @param row - Stale row.
-   */
   private static rowLabel(row: StaleRow): string {
     return row.tool === undefined ? `${row.bundleId} (old lockfile)` : `${row.bundleId} (${row.tool})`;
   }
 
   /**
-   * Stale rows of a workspace folder (BR12.2): one per bundle and tool entry
-   * of both record files, and one per old lockfile entry, offered only when
-   * every file the row lists is missing (app `areAllFilesMissing`).
+   * Stale rows of a workspace folder: record and old lockfile entries whose files are all missing.
    * @param workspaceRoot - Absolute workspace folder path.
    * @throws {RegistryError} Any `RECORD.*` error from loading the record files.
    */
@@ -208,11 +199,8 @@ export class BundleCommands {
   // ===== Cleanup Commands =====
 
   /**
-   * Clean up stale repository entries whose files are all missing (W13;
-   * BR12.2, BR12.5). Rows come from both record files and the old lockfiles,
-   * for any tool. On confirm only the entries are removed: no file is
-   * deleted, since none is left. The batch stops at the first `RECORD.*`
-   * error and one message names the removed and not-attempted rows.
+   * Clean up stale repository entries whose files are all missing, for any
+   * tool. Only the entries are removed; the batch stops at the first `RECORD.*` error.
    */
   public async cleanupStaleLockfileEntries(): Promise<void> {
     const workspaceRoot = getWorkspaceRoot();

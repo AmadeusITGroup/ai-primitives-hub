@@ -1,16 +1,10 @@
 /**
  * RepositoryActivationService
  *
- * On workspace open, lists the sources the repository's install records name
- * and offers to add the ones not configured (W14; BR12.4, NFR4.14).
- *
- * Sources come from both 3.0.0 record files (through the record store) and
- * the old `prompt-registry` lockfiles (through app's `json-lockfile-store`);
- * hubs from the old lockfiles only. A local folder source (`local` or
- * `local-*`, app `isLocalType`) whose folder resolves outside the repository
- * root (app `isLocalSourceInsideRoot`) is skipped. A
- * source's `credentialRef` is shown by name only, never resolved.
- * Manages "Don't ask again" persistence.
+ * On workspace open, lists the sources the repository's install records and
+ * old lockfiles name and offers to add the ones not configured. A local
+ * folder source outside the repository is skipped, and a `credentialRef` is
+ * shown by name only. Manages "Don't ask again" persistence.
  */
 
 import * as path from 'node:path';
@@ -182,7 +176,7 @@ export class RepositoryActivationService {
   }
 
   /**
-   * Add a recorded source unless it is a local folder source (`local` or `local-*`) outside the root (NFR4.14).
+   * Add a recorded source unless it is a local folder source outside the root.
    * @param into - Sources collected so far; the first occurrence of an id is kept.
    * @param root - Root a `local` source's path is relative to.
    * @param sources - Sources of one file.

@@ -7,8 +7,7 @@
  * Properties covered:
  * - Property 4: Repository Scope Operations Don't Modify RegistryStorage (Requirements 2.1, 2.3)
  *
- * The repository record itself is covered by the install record contract
- * tests (`extension-record-adapter.test.ts`, `install-record-cross-delivery.test.ts`).
+ * The repository record is covered by `extension-record-adapter.test.ts`.
  */
 
 import * as assert from 'node:assert';
