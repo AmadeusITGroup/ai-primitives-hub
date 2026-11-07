@@ -42,6 +42,9 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  relativeInside,
+} from '@ai-primitives-hub/core';
+import {
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import * as yaml from 'js-yaml';
@@ -452,9 +455,9 @@ export class BundleInstaller {
    * @param folder - Absolute folder under the record root.
    */
   private async userRecordListsUnder(location: RecordLocation, folder: string): Promise<boolean> {
-    const prefix = `${path.relative(location.root, folder).split(path.sep).join('/')}/`;
     const listed = await this.records.listedPathsIn(location).catch((error: unknown) => this.rethrowRecordError(error, [], location.root));
-    return [...listed].some((file) => file.startsWith(prefix));
+    const relative = relativeInside(location.root, folder);
+    return relative !== undefined && [...listed].some((file) => file.startsWith(`${relative}/`));
   }
 
   /**
