@@ -26,8 +26,9 @@ import {
   createMockContext,
   initGitRoot,
   isOnDisk,
-  overrideEnv,
   RECORD_FILE,
+  setupUserRecordManager,
+  testBundle,
 } from '../helpers/install-record-test-helpers';
 
 const BUNDLE_ID = 'cross-delivery-bundle';
@@ -142,10 +143,8 @@ const bundleZip = (): Buffer => {
  * The fixture bundle as the extension's configured local source lists it.
  * @param bundleDir - Fixture bundle folder (the CLI's `--from`).
  */
-const fixtureBundle = (bundleDir: string): Bundle => ({
-  id: BUNDLE_ID, name: 'Cross Delivery Bundle', version: '1.4.2', description: '', author: '', sourceId: `local-${path.basename(bundleDir)}`,
-  environments: [], tags: [], lastUpdated: '', size: '', dependencies: [], license: '', manifestUrl: '', downloadUrl: ''
-});
+const fixtureBundle = (bundleDir: string): Bundle =>
+  testBundle({ id: BUNDLE_ID, name: 'Cross Delivery Bundle', version: '1.4.2', sourceId: `local-${path.basename(bundleDir)}` });
 
 suite('Cross-delivery: CLI install record listed by the extension', function () {
   this.timeout(60_000);
@@ -296,7 +295,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
   let userProfile: string;
   let cli: CliModules;
   let manager: RegistryManager;
-  let restoreEnv: () => void;
+  let dispose: () => void;
   /** The CLI run in the home folder, outside any git root, so it selects the user record. */
   let runCli: (argv: string[]) => Promise<CliRunResult>;
 
@@ -314,29 +313,19 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     // A different USERPROFILE: both must use HOME as the one home (NFR4.17).
     userProfile = path.join(tempRoot, 'profile');
     fs.mkdirSync(userProfile, { recursive: true });
-    // The same HOME, USERPROFILE and XDG_CONFIG_HOME as `cliIn` gives the CLI.
-    restoreEnv = overrideEnv({ HOME: home, USERPROFILE: userProfile, XDG_CONFIG_HOME: path.join(home, 'xdg-config') });
     runCli = cliIn(cli, home, home, userProfile);
 
-    (RegistryManager as any).instance = undefined;
-    manager = RegistryManager.getInstance({
-      ...createMockContext(sandbox),
-      globalStorageUri: vscode.Uri.file(path.join(tempRoot, 'User', 'globalStorage', 'acme.extension'))
-    });
-    const storage = manager.getStorage();
-    await storage.initialize();
-    // The configured source matching the CLI's `--from <bundleDir>` source.
-    await storage.addSource({ id: `local-${path.basename(bundleDir)}`, name: 'Local bundle', type: 'local', url: bundleDir, enabled: true, priority: 0 });
-    sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
-    sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
-    sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+    ({ manager, dispose } = await setupUserRecordManager(sandbox, {
+      tempRoot,
+      // The same HOME, USERPROFILE and XDG_CONFIG_HOME as `cliIn` gives the CLI.
+      env: { HOME: home, USERPROFILE: userProfile, XDG_CONFIG_HOME: path.join(home, 'xdg-config') },
+      // The configured source matching the CLI's `--from <bundleDir>` source.
+      source: { id: `local-${path.basename(bundleDir)}`, name: 'Local bundle', type: 'local', url: bundleDir, enabled: true, priority: 0 }
+    }));
   });
 
   teardown(() => {
-    sandbox.restore();
-    restoreEnv();
-    (RegistryManager as any).instance = undefined;
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    dispose();
   });
 
   test('CLI → extension: the extension lists the bundle the CLI installed for a vscode user target and uninstalls it with its files', async () => {
