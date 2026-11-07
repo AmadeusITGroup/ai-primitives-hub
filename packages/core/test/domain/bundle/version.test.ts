@@ -12,6 +12,9 @@ import {
   it,
 } from 'vitest';
 import {
+  bundleIdentityOf,
+} from '../../../src';
+import {
   compareVersions,
   extractBundleIdentity,
   isSameBundleIdentity,
@@ -109,6 +112,23 @@ describe('extractBundleIdentity', () => {
   it('throws for excessively long bundle IDs', () => {
     const longId = `${'a'.repeat(201)}-v1.0.0`;
     expect(() => extractBundleIdentity(longId, 'github')).toThrow(/exceeds maximum length/);
+  });
+});
+
+describe('bundleIdentityOf', () => {
+  it.each([
+    ['owner-repo-coll-1.0.0', '1.0.0', 'owner-repo-coll'],
+    ['owner-repo-v2.0.0', '2.0.0', 'owner-repo'],
+    ['slug-coll-v1.2.3', '1.2.3', 'slug-coll'],
+    ['owner-repo-coll-1.0.0', '2.0.0', 'owner-repo-coll-1.0.0'],
+    ['acme-tools', '1.0.0', 'acme-tools'],
+    ['acme-1.0.0-tools', '1.0.0', 'acme-1.0.0-tools']
+  ])('maps %s at %s to %s', (bundleId, version, identity) => {
+    expect(bundleIdentityOf(bundleId, version)).toBe(identity);
+  });
+
+  it('throws for excessively long bundle IDs', () => {
+    expect(() => bundleIdentityOf(`${'a'.repeat(201)}-1.0.0`, '1.0.0')).toThrow(/exceeds maximum length/);
   });
 });
 
