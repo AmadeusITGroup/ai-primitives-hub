@@ -492,7 +492,7 @@ interface BundleUninstalled {
   warnings?: readonly string[];
   /** The record's `level` / `records` fields; none for the old lockfile path. */
   record?: RecordOutputFields;
-  /** What the migration run before the uninstall did (BR22.1). */
+  /** What the migration run before the uninstall did. */
   migration?: MigrationReport;
 }
 
@@ -534,7 +534,7 @@ function renderBundleUninstalled(ctx: Context, fmt: OutputFormat, target: Target
  * @param target Target configuration.
  * @param ctx CLI context.
  * @param fmt Output format.
- * @param typedTarget Whether `--target` was typed; only a plain uninstall removes a lone `unknown` entry (BR21.3).
+ * @param typedTarget Whether `--target` was typed; only a plain uninstall removes a lone `unknown` entry.
  * @returns Exit code.
  */
 async function performBundleUninstall(
@@ -556,7 +556,7 @@ async function performBundleUninstall(
       return await performUnknownBundleUninstall({ opts, target, ctx, fmt }, prepared, bundleId);
     }
   }
-  // The imported old user lockfile is not read at user level any more (BR20.1).
+  // The imported old user lockfile is not read at user level any more.
   const entry = prepared?.ignoresOldStore === true ? null : await findBundleEntry(bundleId, target, opts, ctx);
 
   if (entry === null) {

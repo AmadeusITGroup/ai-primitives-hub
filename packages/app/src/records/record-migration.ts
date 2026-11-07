@@ -1,24 +1,10 @@
 /**
- * Record migration: turn the old 2.0.0 stores of a level into 3.0.0 record
- * entries before the first record change of an action (workflow W22;
- * BR18.2, BR18.3, BR19.1–BR19.5, BR20.1–BR20.3; NFR4.21, NFR4.22, NFR4.24, NFR4.25, NFR7.5).
- *
- * `migrateRecords` decides which old files it reads, never the caller:
- * - repository level: exactly `<root>/prompt-registry.lock.json` and
- *   `<root>/prompt-registry.local.lock.json`, each merged into the target of
- *   the same commit mode, then deleted;
- * - user level: the CLI's 2.0.0 user lockfile, read only while the user record
- *   has no `importedUserLockfileAt` marker and never changed or deleted, plus
- *   the profile entries the extension passes in.
- *
- * It runs in three phases: load every target and old file (a bad old file is
- * `RECORD.MALFORMED` naming it, and nothing is written), plan in memory, then
- * save the changed targets and delete the old repository files. Old entries go
- * under the `unknown` tool with `needsReinstall`; only profile entries carry a
- * real tool. An old-file entry is skipped when a target already holds the
- * bundle under any tool, a profile entry only when the user record already
- * has an entry of its tool, so an interrupted run is finished by the next one
- * without adding anything back.
+ * Record migration: move a level's old 2.0.0 stores into its 3.0.0 records
+ * before the first record change. Repository level merges the two old
+ * `prompt-registry` files at the root and deletes them; user level imports the
+ * CLI's old user lockfile once and the extension's profile entries. Old
+ * entries go under the `unknown` tool. Entries a record already holds are
+ * skipped, so an interrupted run is finished by the next one.
  * @module records/record-migration
  */
 import * as path from 'node:path';
@@ -66,48 +52,44 @@ import {
   sanitizeSource,
 } from './sanitize-source';
 
-/** Which old store an entry came from (entities.md `OldStore.kind`). */
+/** Which old store an entry came from. */
 export type MigrationOrigin = 'repository-committed' | 'repository-local' | 'cli-user-lockfile' | 'profile-registry-storage';
 
-/** One old entry as it will appear in the 3.0.0 record (entities.md `MigratedEntry`). */
+/** One old entry as it will appear in the 3.0.0 record. */
 export interface MigratedEntry {
   bundleId: string;
-  /** `unknown` for old-file entries; the host tool for profile entries (BR20.2). */
+  /** `unknown` for old-file entries; the host tool for profile entries. */
   tool: string;
   version: string;
   sourceId: string;
-  /** A source type name, e.g. `github`. */
   sourceType: string;
   /** ISO 8601 UTC install time; the migration time when missing or not a date-time. */
   installedAt?: string;
-  /**
-   * Level-relative paths. Only safe paths with a file or symlink on disk are
-   * kept, with the checksum taken from disk again; the others are reported (BR19.3).
-   */
+  /** Level-relative paths; only safe paths found on disk are kept, re-hashed. */
   files: readonly { path: string; checksum?: string }[];
-  /** Source to record when the target has none for `sourceId`; credentials are removed (NFR4.25). */
+  /** Source to record when the target has none for `sourceId`; credentials are removed. */
   source?: Readonly<Record<string, unknown>>;
   from: MigrationOrigin;
 }
 
-/** What one migration run did (contract C5, amended by BR18.2). */
+/** What one migration run did. */
 export interface MigrationReport {
   level: RecordLevel;
-  /** Old repository files written under the new name because the new file did not exist. */
+  /** Old repository files written under the new name. */
   renamed: { from: string; to: string }[];
   /** Old stores merged into an existing record; the profile store is `RegistryStorage (this profile)`. */
   mergedFrom: string[];
-  /** The `unknown` entries this run created (BR21.1). */
+  /** The `unknown` entries this run created. */
   needsReinstall: { bundleId: string; version: string }[];
-  /** Bundles held by two old stores: the version kept and the one dropped (BR19.4, BR20.3). */
+  /** Bundles held by two old stores: the version kept and the one dropped. */
   versionConflicts: { bundleId: string; kept: string; dropped: string }[];
-  /** Old paths not kept (BR19.3). */
+  /** Old paths not kept. */
   droppedFiles: { bundleId: string; path: string; reason: string }[];
-  /** Old entries not added because the record already holds the bundle (BR19.4, BR20.1, BR20.2). */
+  /** Old entries not added because the record already holds the bundle. */
   droppedEntries: { bundleId: string; version: string; sourceId: string; reason: string }[];
   /** ISO 8601 time of the run; also the user record's `importedUserLockfileAt`. */
   migratedAt: string;
-  /** Non-fatal problems from the saves, e.g. an `info/exclude` that could not be updated. */
+  /** Non-fatal problems from the saves. */
   warnings: string[];
 }
 
@@ -120,14 +102,14 @@ export interface MigrationInput {
   root: string;
   /** Both repository files at `root`, or the user record. */
   targets: readonly RecordLocation[];
-  /** User level only: the CLI's 2.0.0 user lockfile (`resolveUserConfigPaths(env).userLockfile`). */
+  /** User level only: the CLI's 2.0.0 user lockfile. */
   oldUserLockfile?: string;
-  /** User level, extension only: this profile's `RegistryStorage` user entries, already under the host tool (BR20.2). */
+  /** User level, extension only: this profile's `RegistryStorage` user entries, under the host tool. */
   profileEntries?: readonly MigratedEntry[];
   now: () => Date;
 }
 
-/** The parts of a 2.0.0 lockfile migration reads, as checked by {@link readOldLockfile}. */
+/** The parts of a 2.0.0 lockfile migration reads. */
 export type OldLockfile = Pick<Lockfile, 'bundles' | 'sources' | 'hubs' | 'profiles'>;
 
 /** Name of the profile store in `MigrationReport.mergedFrom`. */
@@ -140,12 +122,7 @@ const ALREADY_RECORDED = 'already recorded';
 
 const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/i;
 
-/**
- * Whether a value is a date-time the record schema accepts: the ISO form,
- * with a real calendar date, a time of day and an offset under 24 hours
- * (`2024-02-30T00:00:00Z` or `2024-01-01T25:00:00Z` are not).
- * @param value - Old `installedAt`.
- */
+// The record schema needs a real calendar date and time, not only the ISO shape.
 const isDateTime = (value: string | undefined): value is string => {
   const match = value === undefined ? null : ISO_DATE_TIME.exec(value);
   if (match === null) {
@@ -168,10 +145,6 @@ const OLD_REPOSITORY_FILES = [
 
 const nonEmpty = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
 
-/**
- * The first way a parsed old file misses the minimum 2.0.0 shape, if any.
- * @param value - Parsed file.
- */
 const findShapeProblem = (value: unknown): string | undefined => {
   if (!isJsonObject(value)) {
     return 'top level is not an object';
@@ -199,15 +172,11 @@ const findShapeProblem = (value: unknown): string | undefined => {
 };
 
 /**
- * Read an old 2.0.0 lockfile with the record store's guards (NFR4.21): a read
- * capped at 10 MB + 1 byte, strict UTF-8, prototype-free parsing and the
- * minimum 2.0.0 shape (`bundles` an object; each entry with a version, a
- * source id, a source type name and a `files` list of objects with a string
- * `path`; `sources`, `hubs` and `profiles` objects when present).
+ * Read an old 2.0.0 lockfile with the record store's guards: capped size,
+ * strict UTF-8, prototype-free parsing and the minimum 2.0.0 shape.
  * @param fs - Filesystem port.
  * @param file - Absolute path of the old file.
- * @returns The parsed file, with prototype-free objects throughout.
- * @throws {RegistryError} `RECORD.MALFORMED` naming the file for any failure.
+ * @throws {RegistryError} `RECORD.MALFORMED` naming the file.
  */
 export const readOldLockfile = async (fs: RecordFs, file: string): Promise<OldLockfile> => {
   const parsed = parseJsonWithoutPrototypes(await readRecordText(fs, file, file), file);
@@ -218,7 +187,6 @@ export const readOldLockfile = async (fs: RecordFs, file: string): Promise<OldLo
   return parsed as OldLockfile;
 };
 
-/** An old file read for this run, and the target it goes into. */
 interface OldFile {
   path: string;
   origin: MigrationOrigin;
@@ -226,7 +194,6 @@ interface OldFile {
   target: LoadedRecord;
 }
 
-/** State of one run. */
 interface MigrationRun {
   input: MigrationInput;
   loaded: LoadedRecord[];
@@ -234,11 +201,7 @@ interface MigrationRun {
   report: MigrationReport;
 }
 
-/**
- * Order versions highest first; a version that cannot be compared keeps the order given.
- * @param left - First version.
- * @param right - Second version.
- */
+// A version that cannot be compared keeps the order given.
 const higherFirst = (left: string, right: string): number => {
   try {
     return compareVersions(right, left);
@@ -254,11 +217,6 @@ const dropEntry = (report: MigrationReport, entry: MigratedEntry): void => {
   report.droppedEntries.push({ bundleId: entry.bundleId, version: entry.version, sourceId: entry.sourceId, reason: ALREADY_RECORDED });
 };
 
-/**
- * One old-file entry as an `unknown` entry (BR19.2, BR20.1).
- * @param old - Old file.
- * @param bundleId - Bundle id.
- */
 const fromOldEntry = (old: OldFile, bundleId: string): MigratedEntry => {
   const entry = old.lock.bundles[bundleId];
   const sources: Readonly<Record<string, object>> = old.lock.sources ?? {};
@@ -275,12 +233,7 @@ const fromOldEntry = (old: OldFile, bundleId: string): MigratedEntry => {
   };
 };
 
-/**
- * The recorded file for one old path, or why it is dropped (BR19.3).
- * @param fs - Filesystem port.
- * @param root - Level root.
- * @param recordedPath - Old path, relative to the root.
- */
+// The recorded file for one old path, or why it is dropped.
 const keepFile = async (fs: RecordFs, root: string, recordedPath: string): Promise<RecordedFile | string> => {
   let relative: string;
   try {
@@ -305,11 +258,7 @@ const keepFile = async (fs: RecordFs, root: string, recordedPath: string): Promi
   }
 };
 
-/**
- * The source recorded for a migrated entry: sanitized, with the entry's type
- * and {@link MISSING_SOURCE_URL} filling what the old store lacks (BR19.2).
- * @param entry - Migrated entry.
- */
+// The record schema needs a type and url the old store may lack.
 const toSourceRecord = (entry: MigratedEntry): SourceRecord => {
   const given = entry.source ?? {};
   const source = sanitizeSource({ ...given, type: nonEmpty(given.type) ?? entry.sourceType, url: nonEmpty(given.url) ?? MISSING_SOURCE_URL });
@@ -319,14 +268,7 @@ const toSourceRecord = (entry: MigratedEntry): SourceRecord => {
   return source;
 };
 
-/**
- * Add a migrated entry to a target in memory, with its kept files and its
- * source. The CLI user lockfile records no target, so none of its files is
- * kept (BR20.1).
- * @param run - Current run.
- * @param target - Target record.
- * @param entry - Entry to add.
- */
+// The CLI user lockfile records no target, so none of its files is kept.
 const addEntry = async (run: MigrationRun, target: LoadedRecord, entry: MigratedEntry): Promise<void> => {
   const files = new Map<string, RecordedFile>();
   for (const { path: recordedPath } of entry.files) {
@@ -356,11 +298,7 @@ const addEntry = async (run: MigrationRun, target: LoadedRecord, entry: Migrated
   run.changed.add(target);
 };
 
-/**
- * Carry the old file's `hubs` and `profiles` into its target, keeping any key the target already has (BR19.2).
- * @param run - Current run.
- * @param old - Old file.
- */
+// Carry `hubs` and `profiles` over, keeping any key the target already has.
 const carryMaps = (run: MigrationRun, old: OldFile): void => {
   for (const key of ['hubs', 'profiles'] as const) {
     const from = old.lock[key];
@@ -377,12 +315,7 @@ const carryMaps = (run: MigrationRun, old: OldFile): void => {
   }
 };
 
-/**
- * Repository plan (BR19.1–BR19.4): a bundle in both old files keeps its
- * higher version (the committed one on a tie), in the target of its own mode.
- * @param run - Current run.
- * @param oldFiles - Old repository files, committed first.
- */
+// A bundle in both old files keeps its higher version, the committed one on a tie.
 const planRepository = async (run: MigrationRun, oldFiles: readonly OldFile[]): Promise<void> => {
   const candidates = new Map<string, { entry: MigratedEntry; target: LoadedRecord }[]>();
   for (const old of oldFiles) {
@@ -413,18 +346,9 @@ const planRepository = async (run: MigrationRun, oldFiles: readonly OldFile[]): 
   }
 };
 
-/**
- * User plan (BR20.1–BR20.3): profile entries first, each skipped only when
- * the record already has an entry of its own tool, replacing a lone `unknown`
- * entry and otherwise added beside other tools' entries; then the old user
- * lockfile's bundles nothing holds yet, as `unknown` with no files; then the marker.
- * @param run - Current run.
- * @param target - The user record.
- * @param old - The old user lockfile, when it is read.
- */
+// Profile entries first, replacing a lone `unknown` entry; then old user lockfile bundles nothing holds yet; then the marker.
 const planUser = async (run: MigrationRun, target: LoadedRecord, old: OldFile | undefined): Promise<void> => {
   const profileEntries = run.input.profileEntries ?? [];
-  /** Version of each profile entry this run recorded, by bundle id (BR20.3). */
   const recordedProfile = new Map<string, string>();
   for (const entry of profileEntries) {
     const tools = Object.hasOwn(target.record.bundles, entry.bundleId) ? target.record.bundles[entry.bundleId].tools : undefined;
@@ -465,11 +389,6 @@ const planUser = async (run: MigrationRun, target: LoadedRecord, old: OldFile | 
   }
 };
 
-/**
- * The old repository files present at the root, each with the target of its commit mode.
- * @param input - Migration input.
- * @param loaded - Loaded targets.
- */
 const readOldRepositoryFiles = async (input: MigrationInput, loaded: readonly LoadedRecord[]): Promise<OldFile[]> => {
   const oldFiles: OldFile[] = [];
   for (const { name, commitMode, origin } of OLD_REPOSITORY_FILES) {
@@ -482,11 +401,6 @@ const readOldRepositoryFiles = async (input: MigrationInput, loaded: readonly Lo
   return oldFiles;
 };
 
-/**
- * The old user lockfile, while the user record has no marker and the file exists (BR20.1).
- * @param input - Migration input.
- * @param target - The loaded user record.
- */
 const readOldUserFile = async (input: MigrationInput, target: LoadedRecord): Promise<OldFile | undefined> => {
   const file = input.oldUserLockfile;
   if (file === undefined || target.record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined || (await input.fs.lstat(file)) === undefined) {
@@ -495,12 +409,6 @@ const readOldUserFile = async (input: MigrationInput, target: LoadedRecord): Pro
   return { path: file, origin: 'cli-user-lockfile', lock: await readOldLockfile(input.fs, file), target };
 };
 
-/**
- * Delete the old repository files after every save (BR19.5).
- * @param fs - Filesystem port.
- * @param oldFiles - Old repository files.
- * @throws {RegistryError} `RECORD.WRITE_FAILED` naming the first file that could not be deleted.
- */
 const deleteOldFiles = async (fs: RecordFs, oldFiles: readonly OldFile[]): Promise<void> => {
   for (const old of oldFiles) {
     try {
@@ -518,19 +426,12 @@ const deleteOldFiles = async (fs: RecordFs, oldFiles: readonly OldFile[]): Promi
 };
 
 /**
- * Migrate the old stores of a level into its 3.0.0 records (W22).
- *
- * Loads every target and every old store first, plans in memory, saves each
- * changed target atomically (the user record always gets
- * `importedUserLockfileAt` when it is missing), then deletes the old
- * repository files. The CLI user lockfile is never changed or deleted.
- * @param input - Store, filesystem, level, root, targets, the old user lockfile, profile entries and the clock.
- * @returns The report, or `undefined` when there was nothing to do: no old
- * repository file, or at user level no profile entry and the marker already set.
- * @throws {RegistryError} `RECORD.MALFORMED` naming a bad old file, or any
- * `RECORD.*` error from loading a target (nothing is written);
- * `RECORD.WRITE_FAILED` from a save, or naming an old file that could not be
- * deleted after the saves.
+ * Migrate the old stores of a level into its 3.0.0 records: load everything,
+ * plan in memory, save the changed targets, then delete the old repository files.
+ * @param input - Migration input.
+ * @returns The report, or `undefined` when there was nothing to do.
+ * @throws {RegistryError} `RECORD.MALFORMED` for a bad old file (nothing is
+ * written), or `RECORD.WRITE_FAILED` from a save or delete.
  */
 export const migrateRecords = async (input: MigrationInput): Promise<MigrationReport | undefined> => {
   const loaded: LoadedRecord[] = [];
@@ -572,24 +473,18 @@ export const migrateRecords = async (input: MigrationInput): Promise<MigrationRe
 export interface MigrateLevelInput {
   store: RecordStore;
   fs: RecordFs;
-  /** Both repository files at one git root (committed first), or the user record. */
+  /** Both repository files at one git root, committed first, or the user record. */
   targets: readonly RecordLocation[];
-  /** Environment for the CLI's old user lockfile path (`resolveUserConfigPaths`); read at user level only. */
+  /** Environment for the CLI's old user lockfile path; read at user level only. */
   env: Record<string, string | undefined>;
-  /** User level, extension only: this profile's `RegistryStorage` user entries (BR20.2). */
+  /** User level, extension only: this profile's `RegistryStorage` user entries. */
   profileEntries?: readonly MigratedEntry[];
-  /** Clock; the current time by default. */
   now?: () => Date;
 }
 
 /**
- * Migrate the old stores of the level the targets belong to (BR18.1): its
- * root is the targets' root (the git root, or home for the user record),
- * and at user level the CLI's old user lockfile from `env` is imported once
- * (BR20.1), with the profile entries when given. The CLI and the extension
- * both build their migration this way.
+ * Migrate the level the targets belong to, rooted at their root; the CLI and the extension both use it.
  * @param input - Store, filesystem, targets, environment, profile entries and clock.
- * @returns The report, or `undefined` when there was nothing to migrate.
  * @throws {RegistryError} As {@link migrateRecords}.
  */
 export const migrateLevel = (input: MigrateLevelInput): Promise<MigrationReport | undefined> => {

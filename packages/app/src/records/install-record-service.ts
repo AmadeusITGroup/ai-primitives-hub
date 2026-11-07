@@ -526,12 +526,7 @@ export class InstallRecordService {
     }
   }
 
-  /**
-   * Remove a bundle's `unknown` entry and the source only it used.
-   * @param record - Record to change.
-   * @param bundleId - Bundle id.
-   * @returns Whether there was an entry to remove.
-   */
+  // Removes the source only the `unknown` entry used; `true` when there was one.
   private clearUnknown(record: InstallRecord, bundleId: string): boolean {
     const removed = this.removeEntry(record, bundleId, UNKNOWN_TOOL_NAME);
     if (removed !== undefined) {
@@ -731,7 +726,7 @@ export class InstallRecordService {
       keptSharedFiles.push(aliased);
     }
 
-    // A reinstall clears the bundle's `unknown` entry; its files are only no longer listed (BR21.2).
+    // A reinstall clears the bundle's `unknown` entry; its files are only no longer listed.
     const clearedOther = other !== undefined && this.clearUnknown(other.record, bundleId);
     this.clearUnknown(target.record, bundleId);
 

@@ -1,8 +1,5 @@
 /**
- * The capped, strict-UTF-8 read every install record reader runs before
- * parsing (security layer 1: NFR1.1, NFR4.21): at most 10 MB + 1 byte is
- * read, a larger file is refused, and the bytes must decode as UTF-8. The
- * record store and record migration (the old 2.0.0 lockfiles) both use it.
+ * The capped, strict-UTF-8 read shared by the record store and migration.
  * @module records/read-record-text
  */
 import {
@@ -12,14 +9,12 @@ import {
 } from '@ai-primitives-hub/core';
 
 /**
- * Read a record file as text.
+ * Read a record file of at most 10 MB as UTF-8 text.
  * @param fs - Filesystem port.
- * @param readPath - Absolute path to read (a record symlink's resolved target, for the store).
+ * @param readPath - Absolute path to read.
  * @param file - File to name in errors.
- * @param hint - Hint of the "larger than 10 MB" error; the `RECORD.MALFORMED` default without it.
- * @returns The decoded text.
- * @throws {RegistryError} `RECORD.MALFORMED` naming `file` when the file cannot
- * be read, is larger than 10 MB or is not valid UTF-8.
+ * @param hint - Hint for the size error.
+ * @throws {RegistryError} `RECORD.MALFORMED` naming `file`.
  */
 export const readRecordText = async (fs: RecordFs, readPath: string, file: string, hint?: string): Promise<string> => {
   let bytes: Uint8Array;

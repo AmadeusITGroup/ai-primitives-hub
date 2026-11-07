@@ -792,7 +792,7 @@ interface RecordUpdateData {
   failures: string[];
   /** Bundles only in the old `prompt-registry.*` file, handled with the old code. */
   oldFile?: OldFileUpdate;
-  /** What the migration run before the update did (BR22.1). */
+  /** What the migration run before the update did. */
   migration?: MigrationReport;
 }
 
