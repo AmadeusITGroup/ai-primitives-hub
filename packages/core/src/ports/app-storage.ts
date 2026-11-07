@@ -42,12 +42,7 @@ export interface AppStoragePaths {
   profiles: string;
   /** Log output. */
   logs: string;
-  /**
-   * The one user-level install record per machine
-   * (`<config dir>/ai-primitives-hub.user.lock.json`). Every implementation
-   * returns the same profile-independent file, so the CLI and every
-   * VS Code profile share it (BR14.1).
-   */
+  /** The one user-level install record per machine, shared by the CLI and every VS Code profile. */
   userRecord: string;
 }
 

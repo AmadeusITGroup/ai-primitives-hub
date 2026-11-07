@@ -57,13 +57,9 @@ export interface SelectRecordOptions {
   findOldLockfile: (start: string) => Promise<string | null>;
   /** Absolute path of the user lockfile. */
   userLockfile: string;
-  /**
-   * The shared 3.0.0 user record (`AppStoragePaths.userRecord`, BR14.1). With
-   * {@link home}, the user level selects it (BR15.1); without, the user level
-   * keeps the old user lockfile only.
-   */
+  /** The shared user record; with {@link home}, the user level selects it. */
   userRecord?: string;
-  /** Home folder from `resolveUserHome`; the user level's root (BR14.3). */
+  /** Home folder, the user level's root. */
   home?: string;
 }
 
@@ -84,10 +80,8 @@ const userSelection = (userLockfile: string, reason: RecordSelectionReason, infe
 });
 
 /**
- * User selection on the shared user record (BR15.1): the loaded user
- * location, rooted at home, with the old user lockfile as old store when it
- * exists. Falls back to the old-only selection when the caller did not pass
- * the user record and home, and for workspace scope (RQ4).
+ * User selection on the shared user record, with the old user lockfile as old
+ * store. Without the user record and home, or at workspace scope, only the old lockfile.
  * @param options - Selection inputs.
  * @param reason - Why the user level was picked.
  * @param inferred - Whether the level was inferred.

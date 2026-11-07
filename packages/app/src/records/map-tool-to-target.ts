@@ -51,7 +51,7 @@ const isSameFolder = async (fs: RecordFs, left: string, right: string): Promise<
 };
 
 const isOnRecordLevel = async (options: MapToolToTargetOptions, target: Target): Promise<boolean> => {
-  // Workspace-scope targets keep the old lockfile and never write the user record (RQ4).
+  // Workspace-scope targets keep the old lockfile and never write the user record.
   if (recordLevelForScope(target.scope) !== options.level || target.scope === 'workspace') {
     return false;
   }
