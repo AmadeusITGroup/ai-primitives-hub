@@ -38,6 +38,11 @@ export const APP_SUBDIR = 'ai-primitives-hub';
  * Home directory for the XDG fallbacks. Honours the injected env first,
  * mirroring `os.homedir()`'s own lookup (`USERPROFILE` on Windows, `HOME`
  * elsewhere), so the result is unchanged for `process.env` callers.
+ *
+ * App's `resolveUserHome` (records/user-home.ts) reads `HOME` first on every
+ * platform instead, because the user record root must match the writers'
+ * `~` (NFR4.17). This one keeps the platform rule so existing config
+ * folders do not move.
  * @param env
  */
 function homeDir(env: XdgEnv): string {
