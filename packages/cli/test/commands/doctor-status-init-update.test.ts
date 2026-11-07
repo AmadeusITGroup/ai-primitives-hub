@@ -218,7 +218,7 @@ describe('doctor/status/init/update commands', () => {
   });
 
   describe('status', () => {
-    it('falls back to the user level with no record or lockfile (BR6.2)', async () => {
+    it('falls back to the user level with no record or lockfile', async () => {
       const result = await run(['status', '-o', 'json']);
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<Record<string, unknown>>(result.stdout);
@@ -736,7 +736,7 @@ profiles: []
       expect(await readFile(recordPath(), 'utf8')).toBe(record);
     });
 
-    it('a repository-scope update leaves the user lockfile byte-identical (NFR4.10)', async () => {
+    it('a repository-scope update leaves the user lockfile byte-identical', async () => {
       await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
       expect((await runRecord(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', path.join(workspace, 'target'), '-o', 'json'])).exitCode).toBe(0);
       const installed = await runRecord(['install', 'local-foo', '--from', bundleDir(), '--target', 'copilot', '-o', 'json']);
@@ -750,7 +750,7 @@ profiles: []
       expect(await readFile(userLockfile, 'utf8')).toBe(before);
     });
 
-    it('looks up and downloads a source taken from the record without credentials (NFR4.11)', async () => {
+    it('looks up and downloads a source taken from the record without credentials', async () => {
       await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
       ambientToken = 'ambient-secret';
 
@@ -762,7 +762,7 @@ profiles: []
       expect(requests.filter((request) => request.headers?.Authorization !== undefined)).toEqual([]);
     });
 
-    it('exits 1 when every planned entry was skipped and nothing was updated (BR6.4)', async () => {
+    it('exits 1 when every planned entry was skipped and nothing was updated', async () => {
       await installAt100([['repo-vscode', 'vscode']], { type: 'local', url: path.dirname(workspace) });
 
       const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
@@ -774,7 +774,7 @@ profiles: []
       expect(data.skipped).toEqual([{ bundleId: 'local-foo', tool: 'vscode', reason: 'local source outside the repository' }]);
     });
 
-    it('keeps a file one bundle\'s update drops when another bundle\'s update in the same run starts writing it (NFR4.9)', async () => {
+    it('keeps a file one bundle\'s update drops when another bundle\'s update in the same run starts writing it', async () => {
       await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
       const barDir = path.join(workspace, 'bar-bundle');
       await mkdir(path.join(barDir, 'prompts'), { recursive: true });
@@ -799,7 +799,7 @@ profiles: []
       expect(await readFile(path.join(workspace, shared), 'utf8')).toBe('# other-bar extra 2.0.0\n');
     });
 
-    it('also updates bundles only in the old prompt-registry file, on that file, and writes nothing about them to the record (BR10.1)', async () => {
+    it('also updates bundles only in the old prompt-registry file, on that file, and writes nothing about them to the record', async () => {
       await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
       const oldEntry = (version: string, sourceId: string) => ({ version, sourceId, sourceType: 'github', installedAt: '2026-10-01T00:00:00.000Z', files: [] });

@@ -255,7 +255,7 @@ describe('uninstall command', () => {
       expect(await exists(vscodePrompt())).toBe(true);
     });
 
-    it('--lockfile <3.0.0 record> --target <user-scope vscode> refuses with USAGE.INVALID_FLAG, removing nothing (NFR4.10)', async () => {
+    it('--lockfile <3.0.0 record> --target <user-scope vscode> refuses with USAGE.INVALID_FLAG, removing nothing', async () => {
       expect((await run(['target', 'add', 'user-vscode', '--type', 'vscode', '--path', path.join(workspace, 'user-vscode'), '-o', 'json'])).exitCode).toBe(0);
       const before = await readFile(recordPath(), 'utf8');
 

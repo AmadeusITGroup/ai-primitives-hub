@@ -259,8 +259,7 @@ export class UpdateCommand extends BaseUpdateCommand {
       const configuredTarget = await resolveTarget(targetName, 'update', ctx, () => loadTargets(ctx));
       const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
-      // Select the record first: every selected file is loaded and checked
-      // before anything is fetched or written (W5 step 1, NFR4.8).
+      // Select the record first, so a bad record stops before anything is fetched or written.
       const prepared = await prepareRecordSelection(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope }, target);
       if (prepared.selection.level === 'repository' && prepared.selection.locations.length > 0) {
         const rows = await prepared.service.listEntries(prepared.selection.locations);
@@ -367,7 +366,6 @@ function isRemoteSource(type: string): boolean {
  * The bundles of a lockfile whose source can be looked up remotely.
  * @param lock Lockfile the bundles are in.
  * @param bundleIds Bundle ids to filter.
- * @returns The ids with a remote source, in the given order.
  */
 const remoteBundleIds = (lock: Lockfile, bundleIds: readonly string[]): string[] => bundleIds.filter((bundleId) => {
   const src = lock.sources[lock.bundles[bundleId].sourceId];
@@ -461,7 +459,7 @@ async function findUpdateCandidates(
   const candidates: UpdateCandidate[] = [];
   const skipped: string[] = [];
   const failures: string[] = [];
-  // A source taken from the record runs without credentials (NFR4.11).
+  // A source taken from the record runs without credentials.
   const sourceAware = !anonymous && isGitHubAppAuthEnabled(ctx.env);
   const githubApi = new GitHubApiClient(http, { tokenProvider: tokens });
   const dispatcher = new SourceDispatcher({ githubApi, fs: ctx.fs });
@@ -588,8 +586,7 @@ function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skipp
  * @param target Target being updated.
  * @param scope Effective scope (may override `target.scope`).
  * @param commitMode Effective commit mode (repository scope only).
- * @param exclusion Where a local-only repository write lists its files; the
- * writer's `<workspace>/.git/info/exclude` by default.
+ * @param exclusion Where a local-only write lists its files; `<workspace>/.git/info/exclude` by default.
  * @returns A TargetWriter.
  */
 function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode, exclusion?: RepositoryExclusion): TargetWriter {
@@ -750,22 +747,22 @@ async function saveTargetState(ctx: Context, target: Target, bundleId: string, v
 }
 
 // ---------------------------------------------------------------------------
-// Repository install record (format 3.0.0) — workflow W5.
+// Repository install record update.
 // ---------------------------------------------------------------------------
 
 /** One (bundle, tool) entry to update, with its mapped target and decided source. */
 interface RecordPlanItem {
   bundleId: string;
   tool: string;
-  /** The file that holds the entry (BR6.5). */
+  /** The file that holds the entry. */
   location: RecordLocation;
   entry: ToolEntry;
   sourceId: string;
-  /** Source decided by the trust gate, in the legacy lockfile shape (NFR4.11). */
+  /** Source decided by the trust gate, in the legacy lockfile shape. */
   source: LockfileSourceEntry;
-  /** Mapped target, made effective (BR6.4). */
+  /** Mapped target, made effective. */
   target: Target;
-  /** `true` when the trust gate took the source from the record: no configured source matched (NFR4.11). */
+  /** `true` when no configured source matched, so the source came from the record. */
   fromRecord: boolean;
 }
 
@@ -783,9 +780,9 @@ interface RecordUpdateRun {
   http: HttpClient;
   tokens: TokenProvider;
   prepared: PreparedRecordSelection;
-  /** The resolved target; it writes the old-file-only bundles, as today (BR10.1). */
+  /** The resolved target; it writes the old-file-only bundles. */
   target: Target;
-  /** The target named by `--target`; only it narrows the plan to one tool (BR6.1). */
+  /** The target named by `--target`; only it narrows the plan to one tool. */
   explicit?: Target;
   dryRun: boolean;
   interactive: boolean;
@@ -802,15 +799,13 @@ interface RecordUpdateData {
   alsoUpdated: { bundleId: string; tool: string }[];
   skipped: SkippedRecordEntry[];
   failures: string[];
-  /** Bundles only in the old `prompt-registry.*` file, handled with today's code (BR10.1). */
+  /** Bundles only in the old `prompt-registry.*` file, handled with the old code. */
   oldFile?: OldFileUpdate;
 }
 
 /** What {@link updateOldFileOnly} reports for the old `prompt-registry.*` file. */
 interface OldFileUpdate {
-  /** Absolute path of the old file. */
   lockfile: string;
-  /** Old-file-only bundles checked. */
   checked: number;
   updated: number;
   updates: UpdateEntry[];
@@ -822,9 +817,7 @@ interface OldFileUpdate {
 const entryKey = (bundleId: string, tool: string): string => `${bundleId}\u0000${tool}`;
 
 /**
- * A one-bundle legacy lockfile for `findUpdateCandidates`, built from the
- * record entry and the decided source only, so the record's own url and
- * credentials never reach the lookup unless the configured source matched.
+ * A one-bundle legacy lockfile for `findUpdateCandidates`, built only from the entry and the decided source.
  * @param item Plan item.
  */
 const lookupLockfile = (item: RecordPlanItem): Lockfile => ({
@@ -842,8 +835,8 @@ const lookupLockfile = (item: RecordPlanItem): Lockfile => ({
  * @param target Effective target.
  * @param files Extracted bundle files.
  * @param manifest Validated manifest.
- * @param exclusion The record's `info/exclude` section, for local-only files (NFR4.6).
- * @returns The writer's `written` list (absolute paths).
+ * @param exclusion The record's `info/exclude` section, for local-only files.
+ * @returns The writer's `written` list.
  */
 async function writeForTarget(
   ctx: Context,
@@ -858,14 +851,8 @@ async function writeForTarget(
 }
 
 /**
- * Build the update plan from the selected record (W5 steps 2–3): every
- * (bundle, tool) entry at the level except `unknown`, narrowed to one tool
- * only by an explicit `--target`. Each tool is mapped to a configured target
- * and each source goes through the trust gate here, before any lookup or
- * download and also under `--dry-run` (NFR4.10, NFR4.11). Each entry is
- * re-recorded in the file it was listed from.
+ * Build the update plan, mapping and gating every entry before any lookup, also under `--dry-run`.
  * @param run Update inputs.
- * @returns The plan items, the skipped entries, the mapping notes and the mapping cache.
  */
 async function planRecordUpdates(
   run: RecordUpdateRun
@@ -901,11 +888,7 @@ async function planRecordUpdates(
 }
 
 /**
- * Apply one update (W5 steps 4–5): write with the mapped target's writer,
- * re-record the entry under its key in the file that holds it, then run each
- * synced sibling's own writer at the new version and re-record it with
- * `syncSiblings: false`. Superseded files are not deleted here; the caller
- * deletes them after every save.
+ * Apply one update and run each synced sibling's own writer at the new version; deletes nothing.
  * @param run Update inputs.
  * @param item Plan item.
  * @param candidate Its update candidate, looked up from the decided source.
@@ -975,11 +958,9 @@ function renderRecordUpdateOutput(d: RecordUpdateData & { recordLine: string }):
 }
 
 /**
- * Update the bundles of the selected repository record (W5; BR6.1, BR6.4,
- * BR6.5, BR8.1–BR8.3, NFR4.8–NFR4.11). Every entry is gated, mapped and
- * looked up from its decided source before anything is downloaded.
+ * Update every tool entry of the selected repository record.
  * @param run Update inputs.
- * @returns Exit code: 1 when a lookup or an update failed, else 0.
+ * @returns Exit code.
  */
 async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
   const { ctx, fmt, http, prepared } = run;
@@ -1051,14 +1032,14 @@ async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
     data.updated = data.updates.length;
   }
 
-  // Bundles only in the old file are updated as today, on that file; the record wins for the others (BR10.1).
+  // Bundles only in the old file are updated with the old code; the record wins for the others.
   const oldFile = await updateOldFileOnly(run);
   if (oldFile !== undefined) {
     data.oldFile = oldFile;
     failures.push(...oldFile.failures);
   }
 
-  // Exit 1 when nothing at all could be processed: every planned entry was skipped (BR6.4).
+  // Exit 1 when every planned entry was skipped.
   const nothingProcessed = checked > 0 && items.length === 0 && (oldFile === undefined || oldFile.checked === oldFile.skipped);
   formatOutput({
     ctx,
@@ -1073,11 +1054,9 @@ async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
 }
 
 /**
- * Update the bundles that are only in the selected level's old
- * `prompt-registry.*` file with today's code, on that file, writing nothing
- * about them into the new record (BR10.1; W5 step 6).
- * @param run Update inputs; `run.target` writes the old-file bundles, as today.
- * @returns What was checked and updated, or `undefined` when there is no old-file-only bundle.
+ * Update the bundles only the old `prompt-registry.*` file has, with the old code and on that file.
+ * @param run Update inputs.
+ * @returns `undefined` when there is no old-file-only bundle.
  */
 async function updateOldFileOnly(run: RecordUpdateRun): Promise<OldFileUpdate | undefined> {
   const { ctx, http, tokens } = run;

@@ -10,10 +10,8 @@
  * install record; bundles not recorded there fall back to the old store.
  *
  * `uninstall --lockfile <ai-primitives-hub.*.lock.json>` removes only the
- * target tool's entries from that 3.0.0 file (BR7.2), and `uninstall <id>`
- * without `--target` is refused when the repository record lists the bundle
- * for more than one tool (BR7.1). Record outputs carry `level` / `records`
- * and the `Record:` text line.
+ * target tool's entries, and `uninstall <id>` without `--target` is refused
+ * when the record lists the bundle for several tools.
  *
  * Repository-scope targets otherwise delegate to `UninstallPipeline`
  * (`@ai-primitives-hub/app`), which already encapsulates the
@@ -128,8 +126,7 @@ async function detectUninstallContext(opts: UninstallOptions, ctx: Context): Pro
 }
 
 /**
- * Refuse `uninstall <id>` without `--target` when the bundle has entries for
- * more than one tool in the selected repository record (BR7.1).
+ * Refuse `uninstall <id>` without `--target` when the record lists the bundle for several tools.
  * @param ctx CLI context.
  * @param bundleId Bundle to uninstall.
  * @param scope `--scope`, when given.
@@ -224,8 +221,7 @@ export class UninstallCommand extends BaseUninstallCommand {
 
     const typedTarget = opts.target !== undefined && opts.target.length > 0;
     try {
-      // BR7.1: checked before the target is inferred, so a single configured
-      // target never silently picks one of several recorded tools.
+      // Checked before the target is inferred, so one configured target never picks one of several recorded tools.
       if (!typedTarget && opts.bundle !== undefined && opts.bundle.length > 0 && opts.all !== true
         && (opts.lockfile === undefined || opts.lockfile.length === 0)) {
         await refuseMultiToolUninstall(ctx, opts.bundle, opts.scope);
@@ -491,7 +487,7 @@ interface BundleUninstalled {
   lockfile: string;
   /** Non-fatal problems to report; none for the old lockfile path. */
   warnings?: readonly string[];
-  /** The record's `level` / `records` fields and `Record:` line; none for the old lockfile path (BR6.3). */
+  /** The record's `level` / `records` fields; none for the old lockfile path. */
   record?: RecordOutputFields;
 }
 
@@ -635,11 +631,7 @@ async function performRecordBundleUninstall(
 }
 
 /**
- * `uninstall --lockfile <file>` on a 3.0.0 record file (BR7.2): remove each
- * bundle's entry for the target's type from that record, deleting its files
- * except those another entry still lists (keep-if-listed). Entries for other
- * tools are kept. The target must write at the record's level and on its
- * git root, the same check record update and replay use (NFR4.10).
+ * `uninstall --lockfile <record file>`: remove only the target tool's entries, keeping files another entry lists.
  * @param run Options, target, context and output format.
  * @param prepared The selected record file, loaded and checked.
  * @returns Exit code.
@@ -656,7 +648,7 @@ async function performRecordLockfileUninstall(run: UninstallRun, prepared: Prepa
       hint: 'Pass a --target whose scope and repository match the record.'
     });
   }
-  // The one selected file; its git root's info/exclude, as the install used (NFR4.6).
+  // Use the selected file's git root info/exclude, as the install did.
   const uninstall = await prepareRepositoryUninstall(ctx, target, { locations: selection.locations });
   const { location, entries } = uninstall;
   const fields = await recordOutputFields(selection, fs);
@@ -717,7 +709,7 @@ async function performLockfileUninstall(
   fmt: OutputFormat
 ): Promise<number> {
   const lockfile = opts.lockfile as string;
-  // A 3.0.0 record file is loaded and checked first; any other file keeps today's path (BR10.1).
+  // A record file is loaded and checked first; any other file keeps the old path.
   const selected = await prepareRecordSelection(ctx, { command: 'uninstall', lockfile }, target);
   if (selected.selection.locations.length > 0) {
     return performRecordLockfileUninstall({ opts, target, ctx, fmt }, selected);

@@ -5,11 +5,8 @@
  * a concise dashboard without any network calls. Useful for verifying
  * that a project is correctly configured before activating profiles.
  *
- * The record is selected with no level given (W4, BR6.2): the repository
- * record when one (or an old `prompt-registry.*` file) is at the git root,
- * else the user lockfile. JSON carries `level`, `records` and one
- * `entries` row per (bundle, tool) (BR9.2); bundles only in an old file are
- * listed under tool `unknown` with that file as their record (BR10.1).
+ * It lists one row per (bundle, tool) of the repository record, or of the user
+ * lockfile when there is none; bundles only in an old file show under tool `unknown`.
  * @module commands/status
  */
 import {
@@ -53,15 +50,10 @@ export interface StatusData {
   activeHubId: string | null;
   hubs: string[];
   index: { primitives: number; path: string } | null;
-  /** Level of the selected record (BR6.2). */
   level: RecordLevel;
-  /** Record files read: the selected new files, plus the old-store file when it exists. */
+  /** Record files read, plus the old file when it exists. */
   records: string[];
-  /**
-   * One row per (bundle, tool), sorted by bundle then tool (BR9.2). Bundles
-   * only in an old `prompt-registry.*` / user lockfile are listed under tool
-   * `unknown` with that file as their `record` (BR10.1).
-   */
+  /** One row per (bundle, tool), sorted. */
   entries: StatusRow[];
 }
 
@@ -184,12 +176,8 @@ async function runStatus(ctx: Context, fmt: OutputFormat, verbose: boolean): Pro
 }
 
 /**
- * Read a record level, files and rows for `status` (W8; BR6.2, BR9.2,
- * BR10.1): select with no level given, list the new record's rows, then add
- * bundles found only in the old-store file, under tool `unknown`, marked
- * with that file's path.
+ * The `level`, `records` and `entries` fields for `status`, with old-file-only bundles under tool `unknown`.
  * @param ctx CLI context.
- * @returns The `level`, `records` and `entries` fields.
  * @throws {RegistryError} A `RECORD.*` error naming the file.
  */
 async function readRecordStatus(ctx: Context): Promise<Pick<StatusData, 'level' | 'records' | 'entries'>> {
