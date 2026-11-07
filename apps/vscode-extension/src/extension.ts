@@ -1241,7 +1241,7 @@ export class PromptRegistryExtension {
 
       if (repositoryScopeService) {
         // Create ScopeConflictResolver with storage
-        const scopeConflictResolver = new ScopeConflictResolver(registryStorage);
+        const scopeConflictResolver = new ScopeConflictResolver(registryStorage, this.registryManager.userRecordReader());
 
         this.bundleScopeCommands = new BundleScopeCommands(
           this.registryManager,
