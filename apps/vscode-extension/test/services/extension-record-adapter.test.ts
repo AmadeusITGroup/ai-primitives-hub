@@ -331,4 +331,110 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the emptied old file is removed');
     assert.ok(!fs.existsSync(abs('.github/prompts/old.prompt.md')), 'the old file is deleted');
   });
+
+  suite('one version per bundle and tool', () => {
+    const COLL = 'acme-tools-coll';
+    const OLD_ONLY = '.github/prompts/old.prompt.md';
+
+    /**
+     * A version of the versioned-id bundle: the shared prompt and one prompt of its own.
+     * @param version
+     * @param own
+     */
+    const versionOf = (version: string, own: 'old' | 'new'): BundleVersion => ({
+      version,
+      files: { 'prompts/hello.prompt.md': `# Hello ${version}\n`, [`prompts/${own}.prompt.md`]: `# ${own} ${version}\n` },
+      items: [{ id: 'hello', file: 'prompts/hello.prompt.md', type: 'prompt' }, { id: own, file: `prompts/${own}.prompt.md`, type: 'prompt' }]
+    });
+
+    const installVersion = (bundle: BundleVersion, commitMode: RepositoryCommitMode = 'commit'): Promise<InstalledBundle> =>
+      installer.installFromBuffer(
+        { ...bundleOf(bundle.version), id: `${COLL}-${bundle.version}` },
+        zipOf(bundle, `${COLL}-${bundle.version}`),
+        { scope: 'repository', commitMode },
+        'github'
+      );
+
+    /**
+     * `<key> <tool> <version>` for every entry of a record file, sorted.
+     * @param file
+     */
+    const entriesIn = (file: string): string[] => Object.entries(readRecord(file)?.bundles ?? {})
+      .flatMap(([key, bundle]: [string, any]) => Object.entries(bundle.tools).map(([tool, entry]: [string, any]) => `${key} ${tool} ${entry.version}`))
+      .toSorted();
+
+    const listedVersions = async (): Promise<string[]> => (await manager.listInstalledBundles('repository'))
+      .filter((item) => item.bundleId.startsWith(COLL))
+      .map((item) => `${item.bundleId} ${item.version}`);
+
+    [
+      { name: 'upgrade', from: '1.0.0', to: '2.0.0' },
+      { name: 'downgrade', from: '2.0.0', to: '1.0.0' }
+    ].forEach(({ name, from, to }) => {
+      test(`${name} by installing another version leaves one vscode entry, one listed item and no file only the old version wrote`, async () => {
+        await installVersion(versionOf(from, 'old'));
+
+        await installVersion(versionOf(to, 'new'));
+
+        assert.deepStrictEqual(entriesIn(RECORD_FILE), [`${COLL}-${to} vscode ${to}`]);
+        assert.deepStrictEqual(await listedVersions(), [`${COLL}-${to} ${to}`]);
+        assert.ok(!fs.existsSync(abs(OLD_ONLY)), 'the old version\'s own file is deleted');
+        assert.strictEqual(read(HELLO), `# Hello ${to}\n`);
+      });
+    });
+
+    test('installing another version keeps a locally modified file only the old version wrote', async () => {
+      await installVersion(versionOf('1.0.0', 'old'));
+      fs.writeFileSync(abs(OLD_ONLY), 'My own prompt.\n');
+
+      await installVersion(versionOf('2.0.0', 'new'));
+
+      assert.strictEqual(read(OLD_ONLY), 'My own prompt.\n');
+      assert.deepStrictEqual(entriesIn(RECORD_FILE), [`${COLL}-2.0.0 vscode 2.0.0`]);
+    });
+
+    test('update in place to the next versioned id leaves one vscode entry and deletes the old version\'s own file', async () => {
+      await installVersion(versionOf('1.0.0', 'old'));
+      const installed = (await manager.listInstalledBundles('repository')).find((item) => item.bundleId === `${COLL}-1.0.0`);
+      assert.ok(installed);
+      const next = versionOf('2.0.0', 'new');
+
+      await installer.update(installed, { ...bundleOf(next.version), id: `${COLL}-2.0.0` }, zipOf(next, `${COLL}-2.0.0`), 'github');
+
+      assert.deepStrictEqual(entriesIn(RECORD_FILE), [`${COLL}-2.0.0 vscode 2.0.0`]);
+      assert.ok(!fs.existsSync(abs(OLD_ONLY)), 'the old version\'s own file is deleted');
+      assert.ok(showError.notCalled, String(showError.firstCall?.args[0]));
+    });
+
+    test('installing another version retires the old prompt-registry entry of the old version and its unmodified file', async () => {
+      await writeOldEntry(root, `${COLL}-1.0.0`, { files: { '.github/prompts/legacy.prompt.md': 'old content' } });
+
+      await installVersion(versionOf('2.0.0', 'new'));
+
+      assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the emptied old file is removed');
+      assert.ok(!fs.existsSync(abs('.github/prompts/legacy.prompt.md')), 'the old file is deleted');
+      assert.deepStrictEqual(await listedVersions(), [`${COLL}-2.0.0 2.0.0`]);
+    });
+
+    test('commit-mode switch replaces an older version held under its own key in the target file', async () => {
+      // A committed 1.0.0 entry next to a local-only 2.0.0 one, as after a merge of a teammate's record.
+      await recordEntry(manager.getRecordAdapter(), root, { bundleId: `${COLL}-1.0.0`, files: [HELLO, OLD_ONLY] });
+      const committedWithOldVersion = read(RECORD_FILE);
+      await installVersion(versionOf('2.0.0', 'new'), 'local-only');
+      fs.writeFileSync(abs(RECORD_FILE), committedWithOldVersion);
+      fs.writeFileSync(abs(OLD_ONLY), `# ${COLL}-1.0.0\n`);
+      showWarning.resolves('Switch');
+      const repositoryScopeService = installer.createRepositoryScopeService();
+      assert.ok(repositoryScopeService);
+
+      await new BundleScopeCommands(manager, sandbox.createStubInstance(ScopeConflictResolver), repositoryScopeService)
+        .switchCommitMode(`${COLL}-2.0.0`, 'commit');
+
+      assert.deepStrictEqual(entriesIn(RECORD_FILE), [`${COLL}-2.0.0 vscode 2.0.0`]);
+      assert.ok(!fs.existsSync(abs(LOCAL_RECORD_FILE)), 'the emptied local-only file is removed');
+      assert.ok(!fs.existsSync(abs(OLD_ONLY)), 'the old version\'s own file is deleted');
+      assert.strictEqual(read(HELLO), '# Hello 2.0.0\n');
+      assert.deepStrictEqual(await listedVersions(), [`${COLL}-2.0.0 2.0.0`]);
+    });
+  });
 });
