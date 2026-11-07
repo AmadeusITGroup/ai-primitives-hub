@@ -1,4 +1,4 @@
-/** Fixtures for CLI tests that run commands in a temp workspace and read the install record from its git root. */
+/** Fixtures for CLI tests that run commands in a temp workspace and read the repository or user install record. */
 import {
   mkdir,
   readFile,
@@ -12,6 +12,7 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   NodeFileSystem,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   runCommand,
@@ -131,8 +132,24 @@ export const recordPathIn = (dir: string, fileName: string = RECORD_FILE_NAME): 
  * @param dir - Repository root.
  * @param fileName - Defaults to the committed record.
  */
-export const readRecord = async <T = InstallRecord>(dir: string, fileName?: string): Promise<T> =>
-  JSON.parse(await readFile(recordPathIn(dir, fileName), 'utf8')) as T;
+export const readRecord = <T = InstallRecord>(dir: string, fileName?: string): Promise<T> =>
+  readInstallRecord<T>(recordPathIn(dir, fileName));
+
+/**
+ * Read and parse a record file at any path, e.g. the shared user record.
+ * @param file - Absolute record path.
+ * @returns The parsed record, typed as the test reads it.
+ */
+export const readInstallRecord = async <T = InstallRecord>(file: string): Promise<T> =>
+  JSON.parse(await readFile(file, 'utf8')) as T;
+
+/**
+ * Path of the shared user record for an environment (`AppStoragePaths.userRecord`).
+ * @param env - Environment with the XDG and home folders.
+ * @returns The absolute user record path.
+ */
+export const userRecordPath = (env: Record<string, string | undefined>): string =>
+  new XdgAppStorage(env).getPaths().userRecord;
 
 /**
  * Write a record file at a repository root, as a test edits it.

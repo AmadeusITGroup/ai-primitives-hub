@@ -40,7 +40,6 @@ import {
 import {
   buildZip,
   NodeFileSystem,
-  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -93,6 +92,9 @@ import {
   readRecord,
   recordPathIn,
   writeRecord,
+  readInstallRecord,
+  userRecordPath,
+  workspaceEnv,
 } from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
@@ -297,7 +299,7 @@ describe('install command (local --from mode)', () => {
     const installEnvelope = JSON.parse(installed.ctx.stdout.captured());
     expect(installEnvelope.data.bundle).toEqual({ id: fixture.catalogId, version: '1.0.0' });
     // User-scope installs are in the user record: one entry per tool, home-relative paths.
-    const lock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as InstallRecord;
+    const lock = await readInstallRecord(installed.lockPath);
     expect(Object.keys(lock.bundles)).toEqual([fixture.catalogId]);
     expect(lock.bundles[fixture.catalogId].tools['copilot-cli'].files.map((file) => file.path)).toContain('target/prompts/hello.prompt.md');
     expect(lock.sources['artifact-source']).toMatchObject({ type: 'artifactory', credentialRef: 'ARTIFACTORY_TOKEN' });
@@ -463,9 +465,7 @@ describe('install command (local --from mode)', () => {
     await expect(readFile(path.join(targetDir, 'LICENSE'), 'utf8')).rejects.toThrow();
     await expect(readFile(path.join(targetDir, 'ignored', 'build', 'cache.pyc'), 'utf8')).rejects.toThrow();
     // User-scope installs go to the user record: per-tool entries, paths relative to home.
-    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
-    };
+    const lockfile = await readInstallRecord(envelope.data.lockfile);
     expect(lockfile.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
       'target/prompts/hello.prompt.md'
     ]);
@@ -480,9 +480,7 @@ describe('install command (local --from mode)', () => {
     const envelope = parseJson<{ lockfile: string }>(result.stdout);
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
-    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
-    };
+    const lockfile = await readInstallRecord(envelope.data.lockfile);
     expect(lockfile.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
       'target/prompts/hello.prompt.md'
     ]);
@@ -1208,13 +1206,8 @@ agents:
       const result = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      const env = {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-      };
-      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(new XdgAppStorage(env).getPaths().userRecord);
+      const env = workspaceEnv(workspace);
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(userRecordPath(env));
       await expect(readFile(resolveUserConfigPaths(env).userLockfile, 'utf8')).rejects.toThrow();
       await expect(readFile(recordPath(), 'utf8')).rejects.toThrow();
     });
@@ -1222,11 +1215,7 @@ agents:
 
   describe('user install record (ai-primitives-hub.user.lock.json)', () => {
     let userEnv: Record<string, string>;
-    const runUser = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-      commandClasses: COMMAND_CLASSES,
-      context: { cwd: workspace, fs: new NodeFileSystem(), env: userEnv }
-    });
-    const userRecordPath = (): string => new XdgAppStorage(userEnv).getPaths().userRecord;
+    const runUser = (argv: string[]): ReturnType<typeof runCommand> => makeRun(() => workspace, COMMAND_CLASSES, userEnv)(argv);
     const exists = (file: string): Promise<boolean> => stat(file).then(() => true, () => false);
 
     beforeEach(async () => {
@@ -1255,12 +1244,12 @@ agents:
         name: 'a malformed user record',
         targetFolder: (): string => path.join(userEnv.HOME, 'target'),
         seedRecord: MALFORMED_RECORD,
-        error: (): object => ({ code: 'RECORD.MALFORMED', context: { file: userRecordPath() } })
+        error: (): object => ({ code: 'RECORD.MALFORMED', context: { file: userRecordPath(userEnv) } })
       }
     ])('refuses a user-scope install into $name: exit 1, nothing written', async ({ targetFolder, seedRecord, error }) => {
       if (seedRecord !== undefined) {
-        await mkdir(path.dirname(userRecordPath()), { recursive: true });
-        await writeFile(userRecordPath(), seedRecord);
+        await mkdir(path.dirname(userRecordPath(userEnv)), { recursive: true });
+        await writeFile(userRecordPath(userEnv), seedRecord);
       }
       expect((await runUser([
         'target', 'add', 'user-copilot', '--type', 'copilot-cli', '--path', targetFolder(), '-o', 'json'
@@ -1272,9 +1261,9 @@ agents:
       expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject(error());
       expect(await exists(path.join(targetFolder(), 'prompts', 'hello.prompt.md'))).toBe(false);
       if (seedRecord === undefined) {
-        expect(await exists(userRecordPath())).toBe(false);
+        expect(await exists(userRecordPath(userEnv))).toBe(false);
       } else {
-        expect(await readFile(userRecordPath(), 'utf8')).toBe(seedRecord);
+        expect(await readFile(userRecordPath(userEnv), 'utf8')).toBe(seedRecord);
       }
     });
 
@@ -1292,7 +1281,7 @@ agents:
 
       expect(result.exitCode, result.stdout).toBe(0);
       await expect(readFile(path.join(userEnv.USERPROFILE, '.copilot', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
-      const record = JSON.parse(await readFile(userRecordPath(), 'utf8')) as InstallRecord;
+      const record = await readInstallRecord(userRecordPath(userEnv));
       expect(record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toContain('.copilot/prompts/hello.prompt.md');
     });
   });

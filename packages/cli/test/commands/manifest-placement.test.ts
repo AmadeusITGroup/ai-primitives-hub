@@ -30,7 +30,6 @@ import type {
 import {
   buildZip,
   NodeFileSystem,
-  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   afterEach,
@@ -63,6 +62,10 @@ import {
   createTestContext,
   runCli,
 } from '../../src/framework';
+import {
+  readInstallRecord,
+  userRecordPath,
+} from '../helpers/install-record-fixtures';
 
 const MANIFEST = `id: sample-skills
 version: 1.8.1
@@ -252,10 +255,8 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     // User scope records in the user record: one entry per tool, each file at
     // its install location relative to home.
     const recordPath = (JSON.parse(installed.stdout) as JsonEnvelope<{ lockfile: string }>).data.lockfile;
-    expect(recordPath).toBe(new XdgAppStorage(env()).getPaths().userRecord);
-    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
-      bundles: Record<string, { tools: Record<string, { files: { path: string; checksum: string }[] }> }>;
-    };
+    expect(recordPath).toBe(userRecordPath(env()));
+    const record = await readInstallRecord(recordPath);
     const entry = record.bundles['sample-skills'].tools.kiro;
     expect(entry.files.map((f) => f.path).toSorted()).toEqual(KIRO_PATHS.map((p) => `.kiro/${p}`).toSorted());
     expect(entry.files.every((f) => /^sha256:[a-f0-9]{64}$/.test(f.checksum))).toBe(true);
