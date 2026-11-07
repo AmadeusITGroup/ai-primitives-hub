@@ -78,10 +78,7 @@ const ALL_COPILOT_FILE_TYPES: readonly CopilotFileType[] = ['prompt', 'instructi
 
 /** Options of {@link UserScopeService.unsyncBundle}. */
 export interface UserUnsyncOptions {
-  /**
-   * Absolute paths another user record entry still lists (BR16.x): a target
-   * at one of them, or a skill folder holding one, is left in place.
-   */
+  /** Absolute paths another user record entry still lists; they, and skill folders holding them, stay. */
   keep?: ReadonlySet<string>;
 }
 
@@ -569,12 +566,8 @@ export class UserScopeService implements IScopeService {
   }
 
   /**
-   * The user-level folders this service writes into for the given kinds, one
-   * per folder (BR16.x): the record's pre-write home check runs on them. In
-   * WSL, skills resolve under the WSL home and the other kinds under the
-   * Windows home, as `syncBundle` writes them.
-   * @param kinds - Primitive kinds; every kind the target layout routes by default.
-   * @returns Absolute folders, without duplicates.
+   * The user-level folders this service writes into, for the record's pre-write home check.
+   * @param kinds - Primitive kinds; every routed kind by default.
    * @throws {Error} When an explicitly given kind has no route for the target.
    */
   public userFolders(kinds?: readonly CopilotFileType[]): string[] {
@@ -589,9 +582,7 @@ export class UserScopeService implements IScopeService {
    * @param bundleId - The unique identifier of the bundle
    * @param bundlePath - The path to the installed bundle directory
    * @param _options - Ignored for user scope (commitMode only applies to repository scope)
-   * @returns Absolute paths written, for the user install record: each
-   *   prompt/instructions/agent symlink or copy, and every file copied into a
-   *   skill folder. A failure is logged and the paths written so far are returned.
+   * @returns Absolute paths written; after a logged failure, those written so far.
    */
   public async syncBundle(bundleId: string, bundlePath: string, _options?: SyncBundleOptions): Promise<string[]> {
     const written: string[] = [];
@@ -663,7 +654,7 @@ export class UserScopeService implements IScopeService {
    * Implements IScopeService.unsyncBundle
    * Since we use a flat structure, we need to read the bundle's manifest to know which files to remove
    * @param bundleId
-   * @param options - `keep`: absolute paths left in place (listed by another user record entry).
+   * @param options - Paths to keep.
    */
   public async unsyncBundle(bundleId: string, options?: UserUnsyncOptions): Promise<void> {
     const keep = new Set([...(options?.keep ?? [])].map((kept) => path.resolve(kept)));

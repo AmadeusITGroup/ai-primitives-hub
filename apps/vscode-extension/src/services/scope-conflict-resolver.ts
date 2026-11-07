@@ -64,7 +64,7 @@ export class ScopeConflictResolver {
   /**
    * Resolver over a storage, reading the shared user record with the given adapter.
    * @param storage - RegistryStorage holding user and workspace installs.
-   * @param userRecord - Adapter and listing to read the shared user record with (RegistryManager's); a new adapter by default.
+   * @param userRecord - Adapter and listing for the shared user record; a new adapter by default.
    */
   constructor(private readonly storage: RegistryStorage, private readonly userRecord?: Omit<UserRecordReader, 'storage'>) {
     this.logger = Logger.getInstance();

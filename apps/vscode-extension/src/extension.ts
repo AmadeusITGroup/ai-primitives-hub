@@ -1177,12 +1177,7 @@ export class PromptRegistryExtension {
     }
   }
 
-  /**
-   * Watch the shared user record and refresh the installed view on any
-   * change, like the repository record watchers (BR16.x). Not set up in WSL,
-   * where the user record is not used; a failure is logged and never blocks
-   * activation.
-   */
+  /** Refresh the installed view when the shared user record changes; not in WSL, and a failure never blocks activation. */
   private subscribeUserRecordChanges(): void {
     try {
       if (!this.registryManager.getRecordAdapter().usesSharedUserRecord()) {
@@ -1956,7 +1951,6 @@ export class PromptRegistryExtension {
       // Initialize repository-level installation services
       await this.initializeRepositoryServices();
 
-      // Watch the shared user record (BR16.x)
       this.subscribeUserRecordChanges();
 
       // Register workspace folder change listener
