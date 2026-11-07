@@ -1,21 +1,8 @@
 /**
- * Source trust gate for record replay and update (NFR4.11; nfr-design
- * security-design "Source trust gate").
- *
- * A record may come from a cloned repository, so its sources are not trusted:
- * 1. A configured source with the same id (active hub first, then detached
- *    sources; the caller builds the map in that order) always wins, with its
- *    own URL, branch and credentials, normalised by `toRecordSource`. The
- *    recorded copy is not compared, so any earlier record of that id passes.
- * 2. Otherwise the record's copy is used without `credentialRef` and
- *    `authMode`, so a fetch never reads an environment variable the record named.
- * 3. A `local` source from the record is resolved against the repository root
- *    when relative, realpath'd, and must stay inside the realpath'd root;
- *    otherwise the entry is skipped.
- *
- * The caller runs this once per entry before anything contacts a source (the
- * version lookup, any download, and under `--dry-run`), and uses the decided
- * source for both the lookup and the download.
+ * Source trust gate for record replay and update. A record may come from a
+ * cloned repository, so a configured source with the same id wins; otherwise
+ * the recorded copy is used without credentials, and a `local` folder must stay
+ * inside the repository.
  * @module records/resolve-record-source
  */
 import * as path from 'node:path';
@@ -43,10 +30,6 @@ export type SourceDecision =
 /** Reason reported for a `local` record source that leaves the repository. */
 export const LOCAL_SOURCE_OUTSIDE_REASON = 'local source outside the repository';
 
-/**
- * Whether a source type reads a folder on disk, kept in its `url`.
- * @param type - Source type.
- */
 const isLocalType = (type: string): boolean => type === 'local' || type.startsWith('local-');
 
 /**
@@ -76,12 +59,12 @@ const confineLocalFolder = async (fs: RecordFs, root: string, recordedPath: stri
 };
 
 /**
- * Decide which source an entry is replayed or updated from (NFR4.11).
+ * Decide which source an entry is replayed or updated from.
  * @param sourceId - The entry's `sourceId`.
  * @param fromRecord - The record's copy of that source.
- * @param configured - Configured sources by id: the active hub's first, then detached sources.
- * @param root - Repository root a relative `local` path is resolved against.
- * @param fs - Filesystem port, for the `local` realpath check.
+ * @param configured - Configured sources by id, active hub first.
+ * @param root - Repository root.
+ * @param fs - Filesystem port.
  * @returns The source to use, or why the entry is skipped.
  */
 export const resolveRecordSource = async (
@@ -93,8 +76,7 @@ export const resolveRecordSource = async (
 ): Promise<SourceDecision> => {
   const match = configured.get(sourceId);
   if (match !== undefined) {
-    // Normalised as an install records it, so a record written before
-    // `toRecordSource` existed is accepted and re-recorded the same way.
+    // Normalised as an install records it, so older records are re-recorded the same way.
     return { use: toRecordSource(match, sourceId) };
   }
   if (!isLocalType(fromRecord.type)) {

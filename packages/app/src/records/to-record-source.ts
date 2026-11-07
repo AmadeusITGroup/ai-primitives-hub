@@ -1,16 +1,7 @@
 /**
- * Configured source → recorded source (BR3.2, NFR4.5, NFR4.11).
- *
- * One normalisation for every writer of a record source: the CLI install,
- * the extension install, the CLI profile and the trust gate's configured
- * match. Only the fields that apply to the source type are kept:
- * - every type: `type` and `url`, and `collectionsPath` when it is a non-empty string;
- * - Artifactory: `indexFile` and `credentialRef` when they are strings, and
- *   `authMode` always, `bearer` when configured so and `anonymous` otherwise
- *   (the default the Artifactory adapter applies when it is absent);
- * - any other type: `branch` when it is a string.
- * Tokens and other config never reach the result. The URL is cleaned later,
- * when `recordInstall` sanitizes the source.
+ * Configured source to recorded source: one normalisation for every writer of
+ * a record source. Only the fields that apply to the source type are kept, and
+ * tokens never reach the result.
  * @module records/to-record-source
  */
 import type {
@@ -23,22 +14,19 @@ import {
 
 /**
  * The record-shaped, prototype-free copy of a configured source.
- * @param configured - Source as configured in the hub or detached sources.
- * @returns The source to record.
+ * @param configured - Configured source.
  */
 export function toRecordSource(configured: RegistrySource): SourceRecord;
 /**
- * The record-shaped, prototype-free copy of a configured source, keyed by its record id.
- * @param configured - Source as configured in the hub or detached sources.
+ * The record-shaped copy of a configured source, with its record id.
+ * @param configured - Configured source.
  * @param sourceId - Record key of the source.
- * @returns The source to record, with `sourceId`.
  */
 export function toRecordSource(configured: RegistrySource, sourceId: string): SourceRecord & { sourceId: string };
 /**
  * Implementation of both overloads.
- * @param configured - Source as configured.
- * @param sourceId - Record key of the source, when the caller wants it set.
- * @returns The source to record.
+ * @param configured - Configured source.
+ * @param sourceId - Record key of the source.
  */
 export function toRecordSource(configured: RegistrySource, sourceId?: string): SourceRecord & { sourceId?: string } {
   const config: Readonly<Record<string, unknown>> | undefined = configured.config;
@@ -50,6 +38,7 @@ export function toRecordSource(configured: RegistrySource, sourceId?: string): S
     source.collectionsPath = config.collectionsPath;
   }
   if (isArtifactory) {
+    // `anonymous` is the Artifactory adapter's default when `authMode` is absent.
     source.authMode = config?.authMode === 'bearer' ? 'bearer' : 'anonymous';
   }
   if (sourceId !== undefined) {

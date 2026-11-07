@@ -1,16 +1,8 @@
 /**
- * Record selection: which install record file(s) a command acts on, and why
- * (workflow W4; BR6.1, BR6.2; NFR4.8).
- *
- * A level is given by, in order, `--lockfile` (that file's level), `--scope`,
- * or the resolved target's scope. Only `status` and a bare `install` have no
- * given level: they use the repository level when a new record file is at the
- * git root of the current folder or an old `prompt-registry.*` file is found
- * by today's upward walk, and the user level otherwise. Every repository
- * record file selected is loaded through the `RecordStore` before this
- * returns, so a hostile or malformed record stops the command with a
- * `RECORD.*` error before anything is written. The user level keeps the old
- * user lockfile until U4.
+ * Record selection: which install record file(s) a command acts on. The level
+ * comes from `--lockfile`, `--scope` or the target; without one, a record or old
+ * lockfile in the repository picks the repository level. Selected files are
+ * loaded, so a bad record stops the command before anything is written.
  * @module records/select-record
  */
 import * as path from 'node:path';
@@ -25,7 +17,7 @@ import type {
   RecordStore,
 } from './record-store';
 
-/** Why a {@link RecordSelection} picked its level (entities.md `RecordSelection.reason`). */
+/** Why a {@link RecordSelection} picked its level. */
 export type RecordSelectionReason =
   | 'lockfile-flag'
   | 'explicit-scope'
@@ -33,62 +25,42 @@ export type RecordSelectionReason =
   | 'repository-record-found'
   | 'user-fallback';
 
-/** The record file(s) a command acts on (entities.md `RecordSelection`). Never stored. */
+/** The record file(s) a command acts on. Never stored. */
 export interface RecordSelection {
-  /** Level of every selected file. */
   level: RecordLevel;
-  /** Level root: the git root (or the `--lockfile` folder) at repository level, the user lockfile's folder at user level. */
+  /** The git root or `--lockfile` folder, or the user lockfile's folder. */
   root: string;
-  /**
-   * New 3.0.0 record files, loaded and checked: both repository files at the
-   * git root (committed first), or the one `--lockfile` file. Empty at user
-   * level and for an old-format `--lockfile`.
-   */
+  /** Loaded record files, committed first; empty at user level and for an old `--lockfile`. */
   locations: RecordLocation[];
-  /**
-   * Old-store file for the same level: the `prompt-registry.*` file found by
-   * today's walk (repository), the user lockfile (user), or a `--lockfile`
-   * that is not a new record file. Read with today's code (BR10.1).
-   */
+  /** Old-format lockfile for the same level, read with the old code. */
   oldLockfile?: string;
-  /** `true` when no level was given and it was inferred (BR6.2). */
+  /** `true` when no level was given and it was inferred. */
   inferred: boolean;
-  /** Why this level was picked. */
   reason: RecordSelectionReason;
 }
 
 /** Inputs of {@link selectRecord}. */
 export interface SelectRecordOptions {
-  /** Record store used to load every selected file. */
   store: RecordStore;
-  /** Filesystem port, for the existence checks. */
   fs: RecordFs;
-  /** Current folder; the start of every walk when no target root is given. */
+  /** Current folder; where the walk starts when no target root is given. */
   cwd: string;
   /** What the command was given; nothing for `status` and a bare `install`. */
   given?: {
     /** `--lockfile <path>`, absolute or relative to `cwd`. */
     lockfile?: string;
-    /** `--scope`. */
     scope?: InstallationScope;
-    /** The resolved target; its scope gives the level, its root the start folder. */
     target?: { scope: InstallationScope; rootPath?: string };
   };
-  /**
-   * Today's upward walk for an old `prompt-registry.*` file (app `findLockfile`),
-   * passed in so this module does not depend on a delivery layer. A result equal
-   * to {@link userLockfile} is not a repository file and is ignored.
-   */
+  /** Upward walk for an old `prompt-registry.*` file; a result equal to the user lockfile is ignored. */
   findOldLockfile: (start: string) => Promise<string | null>;
-  /** Absolute path of the user lockfile (`resolveUserConfigPaths(env).userLockfile`). */
+  /** Absolute path of the user lockfile. */
   userLockfile: string;
 }
 
 /**
- * Record level for an install scope: `repository` for repository targets,
- * `user` for user and workspace targets (both use the user lockfile today).
+ * Record level for an install scope; user and workspace scopes are both `user`.
  * @param scope - Install scope.
- * @returns The record level.
  */
 export const recordLevelForScope = (scope: InstallationScope): RecordLevel =>
   scope === 'repository' ? 'repository' : 'user';
@@ -105,7 +77,7 @@ const userSelection = (userLockfile: string, reason: RecordSelectionReason, infe
 /**
  * The old repository file found from `start`, ignoring the user lockfile the walk may fall back to.
  * @param options - Selection inputs.
- * @param start - Folder the walk starts from.
+ * @param start - Walk start.
  */
 const findOldRepositoryFile = async (options: SelectRecordOptions, start: string): Promise<string | undefined> => {
   const found = await options.findOldLockfile(start);
@@ -113,7 +85,7 @@ const findOldRepositoryFile = async (options: SelectRecordOptions, start: string
 };
 
 /**
- * Repository selection at the git root of `start`, with both new files loaded (NFR4.8).
+ * Repository selection at the git root of `start`, with both record files loaded.
  * @param options - Selection inputs.
  * @param start - Target root or current folder.
  * @param reason - Why the repository level was picked.
@@ -141,9 +113,7 @@ const repositorySelection = async (
 };
 
 /**
- * Selection for `--lockfile <path>`: the level comes from the file (BR6.1).
- * The user lockfile is the user level; a new record file name is that one
- * repository file, loaded; any other name is an old-format file for today's code.
+ * Selection for `--lockfile <path>`; the file decides the level and format.
  * @param options - Selection inputs.
  * @param lockfile - The flag's value.
  */
@@ -154,7 +124,7 @@ const lockfileSelection = async (options: SelectRecordOptions, lockfile: string)
   }
   const root = path.dirname(absolute);
   const name = path.basename(absolute);
-  // The record file name gives the commit mode (BR2.2).
+  // The record file name gives the commit mode.
   const location = repositoryLocations(root).find((candidate) => path.basename(candidate.path) === name);
   if (location === undefined) {
     return { level: 'repository', root, locations: [], oldLockfile: absolute, inferred: false, reason: 'lockfile-flag' };
@@ -164,10 +134,9 @@ const lockfileSelection = async (options: SelectRecordOptions, lockfile: string)
 };
 
 /**
- * Choose the record file(s) a command acts on (W4 steps 1–3; BR6.1, BR6.2).
- * @param options - The store, filesystem, current folder, what the command was given and the old-store lookups.
- * @returns The level, root, loaded new record locations and the old-store file, if any.
- * @throws {RegistryError} Any `RECORD.*` error from loading a selected file; nothing was written.
+ * Choose the record file(s) a command acts on.
+ * @param options - Selection inputs.
+ * @throws {RegistryError} Any `RECORD.*` error from loading a selected file.
  */
 export const selectRecord = async (options: SelectRecordOptions): Promise<RecordSelection> => {
   const { given, cwd } = options;
