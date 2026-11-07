@@ -220,7 +220,7 @@ describe('uninstall command', () => {
       ['a file edited after install is kept and named in a warning', (): Promise<void> => writeFile(vscodePrompt(), '# My own edits\n'), true,
         ['Did not remove .github/prompts/hello.prompt.md: it was changed after install.']],
       ['a missing file does not fail it', (): Promise<void> => rm(vscodePrompt()), false, []]
-    ])('uninstall: %s, and the entry is removed (NFR4.13)', async (_label, change, onDisk, warnings) => {
+    ])('uninstall: %s, and the entry is removed', async (_label, change, onDisk, warnings) => {
       await change();
 
       const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json']);

@@ -133,10 +133,9 @@ export const repositoryLocations = (root: string): [RecordLocation, RecordLocati
 ];
 
 /**
- * The other repository record file at the same root (BR2.2): the committed
- * file for a local-only one, else the local-only file.
+ * The other repository record file at the same root.
  * @param location - A record location.
- * @returns The other file, or `undefined` when the location is not a repository file.
+ * @returns `undefined` when the location is not a repository file.
  */
 export const otherRepositoryLocation = (location: RecordLocation): RecordLocation | undefined => {
   if (location.level !== 'repository') {

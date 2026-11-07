@@ -143,10 +143,8 @@ export interface StatusRow {
 
 /** One tool entry of a bundle, with the record file holding it. */
 export interface LocatedToolEntry {
-  /** The record file holding the entry. */
   location: RecordLocation;
   bundleId: string;
-  /** Tool key. */
   tool: string;
   entry: ToolEntry;
 }
@@ -155,25 +153,21 @@ export interface LocatedToolEntry {
 export interface UninstallEntryInput {
   /** A record file holding the entry; for a repository file both files at its root are read. */
   location: RecordLocation;
-  /** Bundle id. */
   bundleId: string;
-  /** Tool key of the entry. */
   tool: string;
-  /** More root-relative paths to keep, e.g. files found modified before an update wrote over them. */
+  /** More root-relative paths to keep. */
   keep?: ReadonlySet<string>;
 }
 
 /** Outcome of {@link InstallRecordService.uninstallEntry}. */
 export interface UninstallEntryResult {
-  /** The saved change from `recordUninstall`. */
   change: RecordInstallResult;
-  /** Root-relative files that were removed. */
+  /** Root-relative files removed. */
   deleted: string[];
-  /** Root-relative files kept: listed by another entry, then modified, missing or in `keep` (NFR4.9, NFR4.13). */
+  /** Root-relative files kept: listed by another entry, modified, missing or in `keep`. */
   kept: string[];
-  /** The kept files that are still on disk with content that no longer matches the recorded checksum, sorted. */
+  /** Kept files still on disk whose content changed since the install, sorted. */
   modified: string[];
-  /** Non-fatal problems from the saves and the deletions, for the caller to log. */
   warnings: string[];
 }
 
@@ -187,29 +181,24 @@ export interface DeleteSupersededResult {
 
 /** Input of {@link InstallRecordService.moveEntry}. */
 export interface MoveEntryInput {
-  /** The repository file that holds the entry now; it moves to the other file at the same root. */
+  /** The repository file holding the entry now. */
   location: RecordLocation;
-  /** Bundle id. */
   bundleId: string;
-  /** Tool key of the entry. */
   tool: string;
 }
 
 /** Outcome of {@link InstallRecordService.moveEntry}. */
 export interface MoveEntryResult {
-  /** The file the entry left. */
   from: RecordLocation;
-  /** The file the entry is in now. */
   to: RecordLocation;
-  /** Non-fatal problems from the saves, for the caller to log. */
   warnings: string[];
 }
 
-/** The configured source a remapped id points to: the C1 fields of `RecordSourceInput` without the key. */
+/** The configured source a remapped id points to: `RecordSourceInput` without the key. */
 export interface RecordSourceDescriptor {
   /** A `SourceType` value. */
   type: string;
-  /** Source URL; credentials are removed before it is recorded (NFR4.5). */
+  /** Source URL; credentials are removed before it is recorded. */
   url: string;
   branch?: string;
   collectionsPath?: string;
@@ -222,11 +211,9 @@ export interface RecordSourceDescriptor {
 
 /** Input of {@link InstallRecordService.remapSource}. */
 export interface RemapSourceInput {
-  /** Repository root (git root) whose two record files are rewritten. */
+  /** Repository root whose two record files are rewritten. */
   root: string;
-  /** Source id to replace. */
   from: string;
-  /** Source id to use instead. */
   to: string;
   /** Fields recorded under `sources.<to>`. */
   descriptor: RecordSourceDescriptor;
@@ -234,9 +221,8 @@ export interface RemapSourceInput {
 
 /** Outcome of {@link InstallRecordService.remapSource}. */
 export interface RemapSourceResult {
-  /** Record files that changed and were saved, committed first; empty when nothing referred to `from`. */
+  /** Record files that changed and were saved, committed first. */
   changed: RecordLocation[];
-  /** Non-fatal problems from the saves, for the caller to log. */
   warnings: string[];
 }
 
@@ -731,8 +717,7 @@ export class InstallRecordService {
 
   /**
    * Uninstall one tool's entry and delete its files, keeping files another
-   * entry lists, files changed or missing since the install, and `keep`. The
-   * `info/exclude` update for a local-only file stays with the caller.
+   * entry lists, files changed or missing since the install, and `keep`.
    * @param input - The file holding the entry, the bundle id, the tool and extra paths to keep.
    * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND`, or any `RECORD.*` load or save error.
    */
@@ -856,13 +841,10 @@ export class InstallRecordService {
   }
 
   /**
-   * A bundle's tool entries in the given record files (BR6.5, BR11.2), in file
-   * order; an entry in both repository files at one root is listed once, from
-   * the committed file. Works for any list of files, a single user record included.
+   * A bundle's tool entries in the given record files, in file order.
    * @param locations - Record files to search, committed first.
    * @param bundleId - Bundle id.
    * @param tool - Only this tool's entry, when given.
-   * @returns The entries found; empty when no file has the bundle.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public findEntries(locations: readonly RecordLocation[], bundleId: string, tool?: string): Promise<LocatedToolEntry[]> {
@@ -870,11 +852,8 @@ export class InstallRecordService {
   }
 
   /**
-   * Every tool entry of every bundle in the given record files, in file
-   * order; an entry in both repository files at one root is listed once, from
-   * the committed file (stale cleanup BR12.2, status BR9.2).
+   * Every tool entry of every bundle in the given record files, in file order.
    * @param locations - Record files to list.
-   * @returns The entries.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public listToolEntries(locations: readonly RecordLocation[]): Promise<LocatedToolEntry[]> {
@@ -886,7 +865,7 @@ export class InstallRecordService {
    * @param locations - Record files to search, committed first.
    * @param bundleId - Bundle id.
    * @param tool - Tool key.
-   * @returns The file holding the entry (the committed one when both do), or `undefined` when none does.
+   * @returns The file holding the entry, the committed one when both do.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async holdingLocation(locations: readonly RecordLocation[], bundleId: string, tool: string): Promise<RecordLocation | undefined> {

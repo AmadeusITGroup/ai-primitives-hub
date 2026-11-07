@@ -736,7 +736,7 @@ describe('repository install record', () => {
     });
   });
 
-  describe('commit-mode move, source remap and extension helpers (U3)', () => {
+  describe('commit-mode move, source remap and extension helpers', () => {
     const recordFs = new NodeRecordFs();
     const LOCAL_NAME = 'ai-primitives-hub.local.lock.json';
     const move = (location: RecordLocation, tool = 'vscode'): ReturnType<InstallRecordService['moveEntry']> =>
