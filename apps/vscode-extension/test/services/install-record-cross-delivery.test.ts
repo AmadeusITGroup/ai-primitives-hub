@@ -25,6 +25,7 @@ import type {
 import {
   createMockContext,
   initGitRoot,
+  isOnDisk,
   overrideEnv,
   RECORD_FILE,
 } from '../helpers/install-record-test-helpers';
@@ -355,7 +356,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     await manager.uninstallBundle(BUNDLE_ID, 'user');
 
     for (const file of USER_INSTALLED_FILES) {
-      assert.ok(!fs.existsSync(userFile(file)), `${file} removed`);
+      assert.ok(!isOnDisk(userFile(file)), `${file} removed`);
     }
     assert.deepStrictEqual(await manager.listInstalledBundles('user'), []);
   });
@@ -377,7 +378,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     await runCli(['uninstall', '--bundle', BUNDLE_ID, '--target', 'user-vscode', '-o', 'json']);
 
     for (const file of USER_INSTALLED_FILES) {
-      assert.ok(!fs.lstatSync(userFile(file), { throwIfNoEntry: false }), `${file} removed`);
+      assert.ok(!isOnDisk(userFile(file)), `${file} removed`);
     }
     const after = JSON.parse((await runCli(['status', '-o', 'json'])).stdout).data;
     assert.deepStrictEqual(after.entries, []);

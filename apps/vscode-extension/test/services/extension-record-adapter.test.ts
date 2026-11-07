@@ -57,6 +57,7 @@ import {
 import {
   createMockContext,
   initGitRoot,
+  isOnDisk,
   LOCAL_RECORD_FILE,
   overrideEnv,
   RECORD_FILE,
@@ -721,7 +722,7 @@ suite('user record (U4)', function () {
     await manager.deactivateProfile('team');
 
     assert.deepStrictEqual(ids.filter((id) => readUserRecord()?.bundles[id] !== undefined), [], 'both are gone from the user record');
-    assert.deepStrictEqual(files.filter((file) => fs.existsSync(file)), [], 'their files are removed');
+    assert.deepStrictEqual(files.filter((file) => isOnDisk(file)), [], 'their files are removed');
   });
 
   test('a hub profile activated at user scope is recorded in the user record; activating another hub profile uninstalls its bundle and files', async () => {
@@ -747,7 +748,7 @@ suite('user record (U4)', function () {
     await hubManager.activateProfile('acme-hub', 'hub-empty', { installBundles: true });
 
     assert.strictEqual(readUserRecord()?.bundles[BUNDLE_ID], undefined, 'the bundle is gone from the user record');
-    assert.ok(!fs.existsSync(userPath(USER_HELLO)) && !fs.existsSync(userPath(USER_STYLE)), 'its files are removed');
+    assert.ok(!isOnDisk(userPath(USER_HELLO)) && !isOnDisk(userPath(USER_STYLE)), 'its files are removed');
   });
 
   test('a user-scope install from a local-skills source records the skill folder files in the user record; uninstall removes them', async () => {
@@ -771,7 +772,7 @@ suite('user record (U4)', function () {
     await manager.uninstallBundle('review-skill', 'user');
 
     assert.strictEqual(readUserRecord()?.bundles['review-skill'], undefined);
-    assert.ok(!fs.existsSync(userPath('.copilot/skills/review/SKILL.md')) && !fs.existsSync(userPath('.copilot/skills/review/checklist.md')), 'the skill files are removed');
+    assert.ok(!isOnDisk(userPath('.copilot/skills/review/SKILL.md')) && !isOnDisk(userPath('.copilot/skills/review/checklist.md')), 'the skill files are removed');
   });
 
   test('a user-scope skill install writes over a skill folder a copilot-cli user entry lists without the overwrite prompt; its files and both entries stay', async () => {

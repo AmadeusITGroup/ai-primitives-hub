@@ -234,6 +234,13 @@ export const overrideEnv = (values: Record<string, string>): (() => void) => {
 };
 
 /**
+ * Whether anything is at a path, a dangling symlink included (`fs.existsSync`
+ * follows links, so it misses one).
+ * @param file - Absolute path.
+ */
+export const isOnDisk = (file: string): boolean => fs.lstatSync(file, { throwIfNoEntry: false }) !== undefined;
+
+/**
  * Snapshot every file under a folder (path → content), for "nothing changed on disk" checks.
  * @param root - Folder to snapshot.
  */

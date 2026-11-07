@@ -857,6 +857,31 @@ describe('repository install record', () => {
       expect(modified).toEqual(expected);
     });
 
+    it.skipIf(POSIX_ONLY).each([
+      ['a symlink to a file with the recorded content', (file: string, linked: string): void => fs.renameSync(file, linked), []],
+      ['a symlink to a file with other content', (file: string, linked: string): void => {
+        fs.writeFileSync(linked, 'edited by the user\n');
+        fs.rmSync(file);
+      }, ['docs/a.md']],
+      ['a dangling symlink', (file: string): void => fs.rmSync(file), ['docs/a.md']],
+      ['a symlink to a folder', (file: string, linked: string): void => {
+        fs.mkdirSync(linked);
+        fs.rmSync(file);
+      }, ['docs/a.md']]
+    ] as const)('findModifiedFiles compares %s by the content it resolves to', async (_label, change, expected) => {
+      const [absolute] = write('docs/a.md');
+      const checksum = await recordFs.hashFile(absolute);
+      // The extension's user-scope files are links into its bundle cache.
+      const linked = path.join(root, 'cache', 'a.md');
+      fs.mkdirSync(path.dirname(linked), { recursive: true });
+      change(absolute, linked);
+      fs.symlinkSync(linked, absolute, 'file');
+
+      const modified = await findModifiedFiles(recordFs, root, [{ path: 'docs/a.md', checksum }]);
+
+      expect(modified).toEqual(expected);
+    });
+
     it.each([
       ['vscode', ['prompts/', 'agents/', 'skills/'], ['copilot-cli', 'vscode', 'vscode-insiders']],
       ['vscode', ['prompts/', 'chat-modes/'], ['vscode', 'vscode-insiders']],
