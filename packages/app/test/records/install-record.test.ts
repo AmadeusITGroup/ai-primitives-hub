@@ -310,4 +310,64 @@ describe('repository install record', () => {
 
     expect(fs.readFileSync(committed.path, 'utf8')).toBe(canonical);
   });
+
+  describe('one version per bundle and tool', () => {
+    const COLL = 'acme-tools-coll';
+    const entries = (location: RecordLocation): string[] => Object.entries(read(location).bundles)
+      .flatMap(([key, bundle]) => Object.entries(bundle.tools).map(([tool, entry]) => `${key} ${tool} ${entry.version}`))
+      .toSorted();
+    const installVersion = (tool: string, version: string, files: string[], overrides: Partial<RecordInstallInput> = {}): ReturnType<typeof install> =>
+      install(tool, files, { bundleId: `${COLL}-${version}`, version, ...overrides });
+
+    it.each([
+      ['upgrade', '1.0.0', '2.0.0'],
+      ['downgrade', '2.0.0', '1.0.0']
+    ])('%s keeps only the installed version and deletes files only the old one listed', async (_label, from, to) => {
+      await installVersion('vscode', from, ['docs/shared.md', 'docs/old.md']);
+
+      const change = await installVersion('vscode', to, ['docs/shared.md', 'docs/new.md']);
+      const removal = await service.deleteSuperseded(change);
+
+      expect(entries(committed)).toEqual([`${COLL}-${to} vscode ${to}`]);
+      expect(change).toMatchObject({ deletedFiles: ['docs/old.md'], keptSharedFiles: [] });
+      expect(removal.deleted).toEqual(['docs/old.md']);
+      expect(fs.existsSync(path.join(root, 'docs', 'shared.md'))).toBe(true);
+    });
+
+    it('leaves another tool\'s entry of the old version untouched', async () => {
+      await installVersion('kiro', '1.0.0', ['docs/shared.md']);
+      await installVersion('vscode', '1.0.0', ['docs/shared.md']);
+
+      const change = await installVersion('vscode', '2.0.0', ['docs/new.md']);
+
+      expect(entries(committed)).toEqual([`${COLL}-1.0.0 kiro 1.0.0`, `${COLL}-2.0.0 vscode 2.0.0`]);
+      expect(change).toMatchObject({ deletedFiles: [], keptSharedFiles: ['docs/shared.md'] });
+    });
+
+    it('removes the old version from the committed file when the new one is installed local-only', async () => {
+      await installVersion('vscode', '1.0.0', ['docs/a.md']);
+
+      await installVersion('vscode', '2.0.0', ['docs/a.md'], { location: localOnly });
+
+      expect(fs.existsSync(committed.path)).toBe(false);
+      expect(entries(localOnly)).toEqual([`${COLL}-2.0.0 vscode 2.0.0`]);
+    });
+
+    it('keeps a different bundle whose id starts the same', async () => {
+      await install('vscode', ['docs/extra.md'], { bundleId: `${COLL}-extra-1.0.0` });
+      await installVersion('vscode', '1.0.0', ['docs/a.md']);
+
+      await installVersion('vscode', '2.0.0', ['docs/a.md']);
+
+      expect(entries(committed)).toEqual([`${COLL}-2.0.0 vscode 2.0.0`, `${COLL}-extra-1.0.0 vscode 1.0.0`]);
+    });
+
+    it('replaces a non-versioned id in place', async () => {
+      await install('vscode', ['docs/a.md']);
+
+      await install('vscode', ['docs/a.md'], { version: '2.0.0' });
+
+      expect(entries(committed)).toEqual([`${BUNDLE} vscode 2.0.0`]);
+    });
+  });
 });
