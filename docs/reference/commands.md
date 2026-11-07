@@ -88,7 +88,7 @@ The level comes from `--lockfile` (for `update` only; `uninstall --lockfile` is 
 
 Bundles whose manifest lists no items keep path-based routing: a file is installed under the target route matching its bundle path prefix (for example `prompts/`, `skills/`), with its name unchanged.
 
-The install record lists each file an install wrote by its path relative to the level root (the git root, or your home folder at user level), with its checksum; `uninstall` removes those files. The older 2.0.0 lockfile, which workspace scope and `profile activate` still write, keeps bundle-relative `path` entries with their checksums and, for items placed by the manifest, `installedPath`, the location relative to the target's base directory, which `uninstall` and `profile deactivate` remove. Its entries without `installedPath` are removed by path routing as before.
+The install record lists each file an install wrote by its path relative to the level root (the git root, or your home folder at user level), with its checksum; `uninstall` removes those files, except any you edited after the install or that another entry still lists. The older 2.0.0 lockfile, which workspace scope and `profile activate` still write, keeps bundle-relative `path` entries with their checksums and, for items placed by the manifest, `installedPath`, the location relative to the target's base directory, which `uninstall` and `profile deactivate` remove. Its entries without `installedPath` are removed by path routing as before.
 
 Repository-scope VS Code and Copilot CLI targets keep their own `.github/` writer and are not affected.
 

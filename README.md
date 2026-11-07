@@ -41,7 +41,7 @@ Discover, govern, install, and share **prompts, instructions, agents, skills, MC
   <img src="./docs/assets/how-it-works.svg" width="640" alt="How AI Primitives Hub works: authors publish primitives, the organization hub governs them, consumers install them everywhere"/>
 </p>
 
-> **ℹ️ Note:** This project was formerly known as **Prompt Registry**. The VS Code extension ID (`AmadeusITGroup.prompt-registry`) and lockfile names remain unchanged for compatibility — seeing `prompt-registry` in paths is expected.
+> **ℹ️ Note:** This project was formerly known as **Prompt Registry**. The VS Code extension ID (`AmadeusITGroup.prompt-registry`) and `promptregistry.*` command IDs remain unchanged for compatibility — seeing `prompt-registry` in paths is expected. Install records are now `ai-primitives-hub.lock.json`; older `prompt-registry.lock.json` files are migrated.
 
 ## 💡 Why AI Primitives Hub?
 
