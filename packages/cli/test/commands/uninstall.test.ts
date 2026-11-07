@@ -112,7 +112,7 @@ describe('uninstall command', () => {
 
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
 
-    // The user record is kept empty, with its import marker (BR20.1).
+    // The user record is kept empty, with its import marker.
     expect(await readInstallRecord(envelope.data.lockfile)).toMatchObject({ bundles: {}, importedUserLockfileAt: expect.any(String) });
   });
 
@@ -132,7 +132,7 @@ describe('uninstall command', () => {
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
 
     const envelope = parseJson<{ lockfile: string }>(uninstallResult.stdout);
-    // The user record is kept empty, with its import marker (BR20.1).
+    // The user record is kept empty, with its import marker.
     expect(await readInstallRecord(envelope.data.lockfile)).toMatchObject({ bundles: {}, importedUserLockfileAt: expect.any(String) });
   });
 
@@ -246,7 +246,7 @@ describe('uninstall command', () => {
       expect(await exists(vscodePrompt())).toBe(onDisk);
     });
 
-    it('a plain uninstall of a bundle migrated from the old file removes its lone unknown entry and keeps its files (BR21.3)', async () => {
+    it('a plain uninstall of a bundle migrated from the old file removes its lone unknown entry and keeps its files', async () => {
       const oldFile = path.join(workspace, '.github', 'prompts', 'old.prompt.md');
       await writeFile(oldFile, '# Old\n');
       await writeOldLock({ 'old-only': '.github/prompts/old.prompt.md' });

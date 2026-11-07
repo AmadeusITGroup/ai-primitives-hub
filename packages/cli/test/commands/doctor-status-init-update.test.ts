@@ -153,7 +153,7 @@ describe('doctor/status/init/update commands', () => {
 
   describe('doctor diagnostics', () => {
     it('runs the full self-contained smoke test successfully', async () => {
-      // Old files of the caller's workspace and user level are never migrated by doctor (BR18.1).
+      // Old files of the caller's workspace and user level are never migrated by doctor.
       const oldFiles = [
         path.join(workspace, 'prompt-registry.lock.json'),
         resolveUserConfigPaths({ HOME: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config') }).userLockfile
@@ -987,7 +987,7 @@ profiles: []
     });
   });
 
-  describe('record migration runs only before a record write (BR18.1)', () => {
+  describe('record migration runs only before a record write', () => {
     const env = (): Record<string, string> => ({
       HOME: workspace,
       USERPROFILE: workspace,

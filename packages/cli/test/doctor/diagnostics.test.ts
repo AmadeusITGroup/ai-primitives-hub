@@ -187,7 +187,7 @@ describe('doctor diagnostics with older records in the repository', () => {
     await rm(scratch, { recursive: true, force: true });
   });
 
-  it('leaves the older repository records at the git root byte-identical and writes no new record (NFR4.26)', async () => {
+  it('leaves the older repository records at the git root byte-identical and writes no new record', async () => {
     // Inline bytes on purpose: an older writer's output (no trailing newline), so a rewrite by today's writeLockfile shows
     const oldLockfile = (bundleId: string): string => JSON.stringify({
       version: '2.0.0',

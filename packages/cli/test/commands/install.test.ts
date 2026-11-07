@@ -1478,7 +1478,7 @@ agents:
       expect(await exists(oldPath)).toBe(false);
     });
 
-    it('bare install in a repository with only prompt-registry.lock.json migrates it, then lists its bundles as needs reinstall (BR18.1)', async () => {
+    it('bare install in a repository with only prompt-registry.lock.json migrates it, then lists its bundles as needs reinstall', async () => {
       await rm(recordPath());
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
       await writeOldLockfile(oldPath, { 'old-only': { version: '0.1.0' } }, { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
@@ -1494,7 +1494,7 @@ agents:
       expect(await exists(oldPath)).toBe(false);
     });
 
-    it('bare install --dry-run with only prompt-registry.lock.json is refused and writes nothing (R-07)', async () => {
+    it('bare install --dry-run with only prompt-registry.lock.json is refused and writes nothing', async () => {
       await rm(recordPath());
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
       const oldBytes = await writeOldLockfile(oldPath, { 'old-only': { version: '0.1.0' } }, { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });

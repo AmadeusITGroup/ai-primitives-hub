@@ -93,10 +93,7 @@ export interface OldLockfileEntry {
 export const OLD_LOCKFILE_SOURCE = { id: 'old-source', type: 'local', url: '/old/source' };
 
 /**
- * Write an old 2.0.0 lockfile (a repository `prompt-registry.*.json` or the
- * CLI's old user lockfile) through app's `writeLockfile`, creating its folder.
- * Every entry is installed at `2026-10-01T10:00:00.000Z`; the files it lists
- * are not written (migration takes checksums from disk again).
+ * Write an old 2.0.0 lockfile, creating its folder; the files it lists are not written.
  * @param file - Absolute lockfile path.
  * @param bundles - Bundle id → entry.
  * @param source - The lockfile's one source; {@link OLD_LOCKFILE_SOURCE} by default.
@@ -140,9 +137,7 @@ export interface ProfileInstallOptions {
 }
 
 /**
- * A profile's RegistryStorage user install from before the user record: its
- * bundle cache, the synced user file (a symlink into the cache, or a copy)
- * and the RegistryStorage entry with scope `user` and source type `local`.
+ * A profile's RegistryStorage user install from before the user record: bundle cache, synced file and entry.
  * @param storage - The manager's RegistryStorage.
  * @param cacheDir - Absolute bundle cache folder (`globalStorage/bundles/<id>`).
  * @param options - Bundle, version, source, cache contents and the synced file.

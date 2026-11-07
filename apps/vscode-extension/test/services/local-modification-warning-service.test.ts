@@ -87,7 +87,7 @@ suite('LocalModificationWarningService', () => {
     });
   });
 
-  test('the repository listing and checkForModifications read an old lockfile without migrating or changing it (NFR4.26)', async () => {
+  test('the repository listing and checkForModifications read an old lockfile without migrating or changing it', async () => {
     await oldInstall();
     writeFile(FILE, '# edited\n');
     const oldFile = getLockfilePathForMode(root, 'commit');
