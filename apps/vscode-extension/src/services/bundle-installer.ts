@@ -472,12 +472,13 @@ export class BundleInstaller {
   }
 
   /**
-   * Remove a bundle's user-scope cache folder, if present.
+   * Remove a bundle's cache folder in extension storage, if present.
    * @param bundleId - Bundle id.
+   * @param skipPath - A folder never to remove: the installation's own path when it is the cache.
    */
-  private async removeBundleCache(bundleId: string): Promise<void> {
+  private async removeBundleCache(bundleId: string, skipPath?: string): Promise<void> {
     const bundleCachePath = this.getInstallDirectory(bundleId, 'user');
-    if (fs.existsSync(bundleCachePath)) {
+    if (bundleCachePath !== skipPath && fs.existsSync(bundleCachePath)) {
       await this.removeDirectory(bundleCachePath);
       this.logger.debug(`Removed bundle cache directory: ${bundleCachePath}`);
     }
@@ -1273,11 +1274,7 @@ export class BundleInstaller {
           this.logger.debug(`Skipping removal of .github directory: ${installed.installPath}`);
 
           // Remove the actual bundle cache from global storage instead
-          const bundleCachePath = this.getInstallDirectory(installed.bundleId, 'repository');
-          if (bundleCachePath && fs.existsSync(bundleCachePath) && bundleCachePath !== installed.installPath) {
-            await this.removeDirectory(bundleCachePath);
-            this.logger.debug(`Removed bundle cache directory: ${bundleCachePath}`);
-          }
+          await this.removeBundleCache(installed.bundleId, installed.installPath);
         } else {
           await this.removeDirectory(installed.installPath);
           this.logger.debug(`Removed directory: ${installed.installPath}`);
