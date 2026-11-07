@@ -114,6 +114,8 @@ interface PreparedRepositoryInstall {
   location: RecordLocation;
   /** Configured source the entry records. */
   source: RecordSourceInput;
+  /** Root-relative files of the replaced host entries modified or missing before the write. */
+  modified: ReadonlySet<string>;
 }
 
 /** An in-place repository update: the old entry, read before the write. */
@@ -201,15 +203,30 @@ export class BundleInstaller {
     const source = await this.records.buildSource(bundle.sourceId);
     try {
       const location = inPlace?.location ?? await this.records.prepareInstall(workspaceRoot, commitMode);
-      return { workspaceRoot, location, source };
+      return { workspaceRoot, location, source, modified: inPlace?.modified ?? await this.modifiedOfSameIdentity(workspaceRoot, bundle) };
     } catch (error) {
       this.rethrowRecordError(error);
     }
   }
 
   /**
+   * Files of the host entries the install replaces, any version of the bundle, modified or missing now.
+   * @param workspaceRoot - Workspace folder.
+   * @param bundle - Bundle to install.
+   */
+  private async modifiedOfSameIdentity(workspaceRoot: string, bundle: Bundle): Promise<Set<string>> {
+    const modified = new Set<string>();
+    for (const located of await this.records.findHostEntries(workspaceRoot, bundle.id, bundle.version)) {
+      for (const file of await findModifiedFiles(this.records.fs, located.location.root, located.entry.files)) {
+        modified.add(file);
+      }
+    }
+    return modified;
+  }
+
+  /**
    * Record the host tool's entry with the written files, retire the old
-   * `prompt-registry` entry, then delete superseded files except modified ones.
+   * `prompt-registry` entries, then delete superseded files except modified ones.
    * @param bundle - Installed bundle.
    * @param prepared - Result of {@link prepareRepositoryInstall}.
    * @param written - Absolute paths the writer wrote.
@@ -240,8 +257,9 @@ export class BundleInstaller {
         syncSiblings: (tool) => group.includes(tool)
       });
       warnings.push(...change.warnings);
-      if (inPlace !== undefined && inPlace.previousBundleId !== bundle.id && inPlace.location !== undefined) {
-        // The new version has another bundle id: uninstall the old id's host entry.
+      if (inPlace !== undefined && inPlace.previousBundleId !== bundle.id && inPlace.location !== undefined
+        && (await this.records.service.findEntries([inPlace.location], inPlace.previousBundleId, this.records.hostTool)).length > 0) {
+        // Another bundle, not another version of it: recordInstall left the old id's host entry.
         const removed = await this.records.service.uninstallEntry({
           location: inPlace.location, bundleId: inPlace.previousBundleId, tool: this.records.hostTool, keep: inPlace.modified
         });
@@ -251,11 +269,10 @@ export class BundleInstaller {
       this.rethrowRecordError(error, written, root);
     }
     this.reportOutOfDateSiblings(bundle.id, change.siblings);
-    await this.retireOldEntry(prepared.workspaceRoot, bundle.id, root);
-    const modified = inPlace?.modified ?? new Set<string>();
+    await this.retireOldEntries(prepared.workspaceRoot, bundle, root);
     const removal = await this.records.service.deleteSupersededAfterAll([{
       location: change.location,
-      deletedFiles: change.deletedFiles.filter((file) => !modified.has(file))
+      deletedFiles: change.deletedFiles.filter((file) => !prepared.modified.has(file))
     }]).catch((error: unknown) => this.rethrowRecordError(error, [], root));
     for (const warning of [...warnings, ...removal.warnings]) {
       this.logger.warn(`[BundleInstaller] ${warning}`);
@@ -264,15 +281,17 @@ export class BundleInstaller {
   }
 
   /**
-   * Retire the old `prompt-registry` entry of a bundle after the record was saved.
+   * Retire the old `prompt-registry` entries of any version of a bundle after the record was saved.
    * @param workspaceRoot - Workspace folder.
-   * @param bundleId - Bundle id.
+   * @param bundle - Installed bundle.
    * @param root - Record root, for "Open file".
    */
-  private async retireOldEntry(workspaceRoot: string, bundleId: string, root: string): Promise<void> {
+  private async retireOldEntries(workspaceRoot: string, bundle: Bundle, root: string): Promise<void> {
     try {
-      const retired = await this.records.retireOldEntry(workspaceRoot, bundleId);
-      retired?.warnings.forEach((warning) => this.logger.warn(`[BundleInstaller] ${warning}`));
+      for (const bundleId of await this.records.findOldBundleIds(workspaceRoot, bundle.id, bundle.version)) {
+        const retired = await this.records.retireOldEntry(workspaceRoot, bundleId);
+        retired?.warnings.forEach((warning) => this.logger.warn(`[BundleInstaller] ${warning}`));
+      }
     } catch (error) {
       this.rethrowRecordError(error, [], root);
     }
@@ -628,9 +647,9 @@ export class BundleInstaller {
     await this.records.buildSource(bundle.sourceId);
     let inPlace: RepositoryUpdateInPlace;
     try {
-      const located = await this.records.findHostEntry(workspaceRoot, installed.bundleId);
+      const located = await this.records.findHostEntry(workspaceRoot, installed.bundleId, installed.version);
       inPlace = {
-        previousBundleId: installed.bundleId,
+        previousBundleId: located?.bundleId ?? installed.bundleId,
         location: located?.location,
         modified: new Set(located === undefined ? [] : await findModifiedFiles(this.records.fs, located.location.root, located.entry.files))
       };

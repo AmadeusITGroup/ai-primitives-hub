@@ -22,6 +22,7 @@ import {
   orderConfiguredSources,
   readLockfile,
   RECORD_SOURCE_TYPES,
+  recordIdentityOf,
   type RecordSourceDescriptor,
   type RecordSourceInput,
   type RecordStore,
@@ -225,13 +226,36 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * The host tool's entry of a bundle, from the committed file when both hold it.
+   * The host tool's entries of a bundle: under its key, or under another key
+   * of the same identity, each identity taken with the entry's recorded version.
    * @param workspaceFolder - Absolute workspace folder path.
-   * @param bundleId - Bundle id.
+   * @param bundleId - Bundle id, or a bare identity when `version` is not given.
+   * @param version - Version `bundleId` carries, to find older or newer versioned keys.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
-  public async findHostEntry(workspaceFolder: string, bundleId: string): Promise<LocatedToolEntry | undefined> {
-    return (await this.service.findEntries(await this.locations(workspaceFolder), bundleId, this.hostTool))[0];
+  public async findHostEntries(workspaceFolder: string, bundleId: string, version?: string): Promise<LocatedToolEntry[]> {
+    const identity = version === undefined ? bundleId : recordIdentityOf(bundleId, version);
+    return (await this.service.listToolEntries(await this.locations(workspaceFolder))).filter((located) =>
+      located.tool === this.hostTool
+      && (located.bundleId === bundleId || recordIdentityOf(located.bundleId, located.entry.version) === identity));
+  }
+
+  /**
+   * The host tool's entry of a bundle, from the committed file when both hold
+   * it; without one under `bundleId`, the latest installed of the same identity.
+   * @param workspaceFolder - Absolute workspace folder path.
+   * @param bundleId - Bundle id, or a bare identity when `version` is not given.
+   * @param version - Version `bundleId` carries.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
+   */
+  public async findHostEntry(workspaceFolder: string, bundleId: string, version?: string): Promise<LocatedToolEntry | undefined> {
+    const found = await this.findHostEntries(workspaceFolder, bundleId, version);
+    const exact = found.find((located) => located.bundleId === bundleId);
+    if (exact !== undefined) {
+      return exact;
+    }
+    return found.reduce<LocatedToolEntry | undefined>((latest, located) =>
+      latest === undefined || Date.parse(located.entry.installedAt) > Date.parse(latest.entry.installedAt) ? located : latest, undefined);
   }
 
   /**
@@ -342,6 +366,26 @@ export class ExtensionRecordAdapter {
       }
     }
     return bundles;
+  }
+
+  /**
+   * Ids of a bundle's entries in the old `prompt-registry` lockfiles: under its
+   * key, or another key of the same identity at that entry's version.
+   * @param workspaceFolder - Absolute workspace folder path.
+   * @param bundleId - Bundle id.
+   * @param version - Version `bundleId` carries.
+   */
+  public async findOldBundleIds(workspaceFolder: string, bundleId: string, version: string): Promise<string[]> {
+    const identity = recordIdentityOf(bundleId, version);
+    const ids = new Set<string>();
+    for (const old of await this.readOldLockfiles(workspaceFolder)) {
+      for (const [id, entry] of Object.entries(old.lock?.bundles ?? {})) {
+        if (id === bundleId || recordIdentityOf(id, entry.version) === identity) {
+          ids.add(id);
+        }
+      }
+    }
+    return [...ids];
   }
 
   /**

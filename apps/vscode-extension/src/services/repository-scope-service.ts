@@ -21,6 +21,7 @@ import {
 } from 'node:util';
 import {
   FileTreeTargetWriter,
+  findModifiedFiles,
   KIND_TO_ROUTE_KEY,
   resolveLayout,
 } from '@ai-primitives-hub/app';
@@ -932,6 +933,7 @@ export class RepositoryScopeService implements IScopeService {
   /**
    * Switch the commit mode for a bundle: move the host entry to the other
    * record file and update `info/exclude` for paths no other entry lists.
+   * An older version there is replaced and its own unmodified files deleted.
    * @param bundleId - Bundle identifier
    * @param newMode - New commit mode
    * @throws {RegistryError} Any `RECORD.*` error.
@@ -948,12 +950,25 @@ export class RepositoryScopeService implements IScopeService {
         this.logger.debug(`[RepositoryScopeService] Bundle ${bundleId} already in ${newMode} mode`);
         return;
       }
-      const moved = await this.records.service.moveEntry({ location: located.location, bundleId, tool: this.records.hostTool });
-      moved.warnings.forEach((warning) => this.logger.warn(`[RepositoryScopeService] ${warning}`));
+      const root = located.location.root;
+      const replaced = (await this.records.findHostEntries(this.workspaceRoot, located.bundleId, located.entry.version))
+        .filter((other) => other.location.path !== located.location.path);
+      const modified = new Set(await findModifiedFiles(this.records.fs, root, replaced.flatMap((other) => other.entry.files)));
+      const moved = await this.records.service.moveEntry({ location: located.location, bundleId: located.bundleId, tool: this.records.hostTool });
+      const removal = await this.records.service.deleteSuperseded({
+        location: moved.to,
+        deletedFiles: moved.deletedFiles.filter((file) => !modified.has(file))
+      });
+      [...moved.warnings, ...removal.warnings].forEach((warning) => this.logger.warn(`[RepositoryScopeService] ${warning}`));
+      await this.afterFilesRemoved(
+        newMode === 'local-only',
+        removal.deleted.map((file) => this.fromRootRelative(root, file)),
+        [...moved.keptSharedFiles, ...moved.deletedFiles.filter((file) => modified.has(file))]
+      );
       // Paths the file the entry left still lists keep their exclude state.
       const otherMode = await this.records.listedPathsIn(moved.from);
       const paths = located.entry.files.map((file) => file.path).filter((file) => !otherMode.has(file))
-        .map((file) => this.fromRootRelative(located.location.root, file));
+        .map((file) => this.fromRootRelative(root, file));
       const forExclude = this.consolidateSkillPathsForGitExclude(paths);
       await (newMode === 'local-only' ? this.addToGitExclude(forExclude) : this.removeFromGitExclude(forExclude));
       this.logger.info(`[RepositoryScopeService] ✅ Switched ${bundleId} to ${newMode} mode`);
