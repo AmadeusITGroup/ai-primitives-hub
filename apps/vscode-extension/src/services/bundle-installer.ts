@@ -1315,7 +1315,7 @@ export class BundleInstaller {
       const resolvedSourceType = sourceType ?? installed.sourceType;
       const unknown = await this.findLoneUnknownEntry(installed);
       if (unknown !== undefined) {
-        // A host-tool install clears the migrated `unknown` entry and keeps its files (BR21.2, BR21.4).
+        // A host-tool install clears the migrated `unknown` entry and keeps its files.
         const updated = await this.installFromBuffer(
           bundle,
           bundleBuffer,

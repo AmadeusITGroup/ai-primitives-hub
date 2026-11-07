@@ -94,23 +94,23 @@ export interface ExtensionRecordAdapterOptions {
   userRecordPath?: string;
   /** Environment for the home folder and the CLI's old user lockfile; `process.env` by default. */
   env?: Record<string, string | undefined>;
-  /** This profile's RegistryStorage user installs, migrated at user level outside WSL (BR20.2); none without it. */
+  /** This profile's RegistryStorage user installs, migrated at user level outside WSL; none without it. */
   profileStore?: ProfileStorePort;
-  /** Where shown migration reports are remembered (BR22.2): the extension's `globalState`; in memory without it. */
+  /** Where shown migration reports are remembered: the extension's `globalState`; in memory without it. */
   memento?: Pick<vscode.Memento, 'get' | 'update'>;
 }
 
-/** This profile's RegistryStorage user installs, as user-level migration reads and retires them (BR20.2). */
+/** This profile's RegistryStorage user installs, as user-level migration reads and retires them. */
 export interface ProfileStorePort {
-  /** RegistryStorage installs with scope `user` (`RegistryStorage.getInstalledBundles('user')`). */
+  /** RegistryStorage installs with scope `user`. */
   getInstalledBundles(): Promise<InstalledBundle[]>;
-  /** Absolute user files the profile synced for a bundle (`UserScopeService.syncedTargetPaths`). */
+  /** Absolute user files the profile synced for a bundle. */
   syncedTargetPaths(bundleId: string): Promise<string[]>;
-  /** Removes the RegistryStorage install without touching its files (`RegistryStorage.removeInstallation`). */
+  /** Removes the RegistryStorage install without touching its files. */
   removeInstallation(bundleId: string): Promise<void>;
 }
 
-/** Prefix of the globalState key remembering a shown migration report (BR22.2). */
+/** Prefix of the globalState key remembering a shown migration report. */
 export const MIGRATION_SHOWN_KEY_PREFIX = 'aiPrimitivesHub.migrationShown';
 
 /** Prefix of the log line holding a migration report. */
@@ -133,11 +133,7 @@ export interface OldBundleEntry {
   entry: LockfileBundleEntry;
 }
 
-/**
- * Refusal of a move or commit-mode switch of a bundle whose only entry is `unknown`.
- * @param bundleId - Refused bundle.
- * @param action - Refused action.
- */
+// The files of a lone `unknown` entry cannot be moved for a tool nobody knows.
 const unknownToolError = (bundleId: string, action: CliManagedAction): RegistryError =>
   recordError('RECORD.CLI_MANAGED', {
     message: `${bundleId} was migrated and its tool is unknown; reinstall it first`,
@@ -145,18 +141,11 @@ const unknownToolError = (bundleId: string, action: CliManagedAction): RegistryE
     context: { bundleId, action, tool: UNKNOWN_TOOL_NAME }
   });
 
-/**
- * Whether a report records anything besides the user record's import marker.
- * @param report
- */
+// Whether a report records anything besides the user record's import marker.
 const hasMigrated = (report: MigrationReport): boolean =>
   [report.renamed, report.mergedFrom, report.needsReinstall, report.versionConflicts, report.droppedFiles, report.droppedEntries]
     .some((list) => list.length > 0);
 
-/**
- * The notification text of a migration report.
- * @param report - The report.
- */
 const migrationMessage = (report: MigrationReport): string => {
   const count = report.needsReinstall.length;
   if (count > 0) {
@@ -255,7 +244,7 @@ export class ExtensionRecordAdapter {
       && (located.bundleId === bundleId || recordIdentityOf(located.bundleId, located.entry.version) === identity));
   }
 
-  // Refuse a bundle whose entries in these files all belong to another tool; a lone `unknown` entry only for a move or switch.
+  // Refuse a bundle whose entries in these files all belong to another tool.
   private async assertHostToolIn(
     locations: readonly RecordLocation[],
     bundleId: string,
@@ -275,13 +264,7 @@ export class ExtensionRecordAdapter {
       this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined));
   }
 
-  /**
-   * Whether an action may run on a bundle with these entry tools.
-   * @param bundleId - Bundle the action targets.
-   * @param action - The action.
-   * @param tools - Tools of the bundle's entries at the level.
-   * @throws {RegistryError} The reinstall hint for a move or switch of a lone `unknown` entry.
-   */
+  // A lone `unknown` entry allows update and uninstall; a move or switch throws the reinstall hint.
   private isAllowed(bundleId: string, action: CliManagedAction, tools: readonly string[]): boolean {
     if (tools.length === 0 || tools.includes(this.hostTool)) {
       return true;
@@ -331,10 +314,7 @@ export class ExtensionRecordAdapter {
     return entries;
   }
 
-  /**
-   * Remove migrated profile installs from RegistryStorage, files untouched.
-   * @param bundleIds - Bundles to remove.
-   */
+  // Failures are logged and shown once; the next migration removes them.
   private async retireProfileInstalls(bundleIds: readonly string[]): Promise<void> {
     const failed: string[] = [];
     for (const bundleId of bundleIds) {
@@ -352,12 +332,7 @@ export class ExtensionRecordAdapter {
     }
   }
 
-  /**
-   * Run a job inside the queues of several record files, entered in the given
-   * order; callers always pass the committed file first, so nesting cannot deadlock.
-   * @param recordPaths - Record files the job changes, in a fixed order.
-   * @param work - The job.
-   */
+  // Callers always pass the committed file first, so the nested queues cannot deadlock.
   private serializeAll<T>(recordPaths: readonly string[], work: () => Promise<T>): Promise<T> {
     const [first, ...rest] = recordPaths;
     return first === undefined ? work() : this.serialize(first, () => this.serializeAll(rest, work));
@@ -716,8 +691,7 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * A bundle's `unknown` entry when it is the bundle's only entry at the level
-   * (BR21.4): a migrated bundle no tool has reinstalled yet.
+   * A bundle's `unknown` entry when it is the bundle's only entry at the level.
    * @param bundleId - Bundle id.
    * @param workspaceFolder - Absolute workspace folder path for the repository level; the user level without it.
    * @throws {RegistryError} Any `RECORD.*` error from loading.
@@ -728,26 +702,13 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Migrate the older records of a level into its 3.0.0 records before an
-   * action's first record change (W24; BR18.1, BR18.2). Called only at the
-   * write entry points, never from a lookup or a listing.
-   *
-   * - repository level: app's `migrateLevel` at the git root of `root`,
-   *   which renames and merges `prompt-registry.lock.json` and
-   *   `prompt-registry.local.lock.json` there;
-   * - user level, outside WSL: the same on the user record, importing the
-   *   CLI's old user lockfile once and this profile's RegistryStorage user
-   *   installs under the host tool (BR20.2); each of those is then removed from
-   *   RegistryStorage without touching its files. A failed removal is logged
-   *   and shown once; the next run removes it. In WSL nothing is migrated.
-   *
-   * The report is logged and shown once (see {@link showMigrationReport}).
-   * Runs in the queue of every record file it changes (committed, then
-   * local-only at repository level), after any earlier change of them.
+   * Migrate the older records of a level before a write action's first record
+   * change, in the queue of every file it changes. At user level (not in WSL)
+   * this profile's user installs are imported and then removed from RegistryStorage.
    * @param level - Level the action changes.
-   * @param root - Repository: a workspace folder or its git root. User: ignored (the home folder).
+   * @param root - Repository: a workspace folder or its git root. User: ignored.
    * @returns The report, or `undefined` when there was nothing to migrate.
-   * @throws {RegistryError} Any `RECORD.*` error from the migration, after it was shown once; nothing was written then.
+   * @throws {RegistryError} Any `RECORD.*` error from the migration, after it was shown once.
    */
   public async migrateBeforeWrite(level: RecordLevel, root: string): Promise<MigrationReport | undefined> {
     if (level === 'user' && !this.usesSharedUserRecord()) {
@@ -772,12 +733,10 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * Log a migration report and show it once (BR22.2, NFR5.4): one information
-   * notification per record path and `migratedAt`, remembered in
-   * `globalState`, with "Show details" opening the output channel. A report
-   * that only marks the user record as imported is logged without a notification.
+   * Log a migration report and show one notification per record path and
+   * `migratedAt`; a report that only sets the import marker is just logged.
    * @param report - The report.
-   * @param recordPath - Record file the report belongs to (the committed file at repository level).
+   * @param recordPath - Record file the report belongs to.
    */
   public showMigrationReport(report: MigrationReport, recordPath: string): void {
     this.logger.info(`${MIGRATION_LOG_PREFIX} (${recordPath}): ${JSON.stringify(report)}`);

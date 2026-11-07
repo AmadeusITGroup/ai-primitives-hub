@@ -84,8 +84,7 @@ export class BundleScopeCommands {
         return;
       }
 
-      // The user level's older records are migrated first (BR18.1); a migrated
-      // `unknown` entry cannot be moved and asks for a reinstall (BR21.4)
+      // A migrated `unknown` entry cannot be moved and asks for a reinstall
       await this.registryManager.prepareWrite(bundleId, 'user', 'move-to-repository');
 
       // Check if bundle is installed at user scope (RegistryStorage or the shared user record)
