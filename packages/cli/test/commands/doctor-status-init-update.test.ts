@@ -940,14 +940,10 @@ profiles: []
     it('status -o json lists one row per (bundle, tool) and old-file-only bundles with their old path', async () => {
       await installAt100([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], GITHUB_SOURCE);
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
-      await writeFile(oldPath, JSON.stringify({
-        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
-        bundles: {
-          'local-foo': { version: '0.9.0', sourceId: 's', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] },
-          'old-only': { version: '0.1.0', sourceId: 's', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] }
-        },
-        sources: { s: { type: 'local', url: bundleDir() } }
-      }));
+      await writeOldLockfile(oldPath, {
+        'local-foo': { version: '0.9.0', sourceId: 's' },
+        'old-only': { version: '0.1.0', sourceId: 's' }
+      }, { s: { type: 'local', url: bundleDir() } });
 
       const result = await runRecord(['status', '-o', 'json']);
 
