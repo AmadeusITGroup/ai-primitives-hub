@@ -5,7 +5,7 @@
  * The interactive "local modifications" warning dialog
  * (`checkLocalModificationsBeforeUpdate` in the original) stays
  * entirely in the extension — it drives VS Code warning dialogs and reads
- * the extension's install records, neither of which are portable — and is injected
+ * the install records, neither of which are portable — and is injected
  * here as the optional `checkLocalModifications` port, called at the
  * exact point in the sequence the original called it: after resolving
  * the current installation, before resolving the new bundle version.

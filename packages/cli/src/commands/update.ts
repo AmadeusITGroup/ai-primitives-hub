@@ -1,19 +1,9 @@
 /**
  * `update` command — checks installed bundles for newer versions and upgrades them.
  *
- * The install record (format 3.0.0) exists at repository level
- * (`ai-primitives-hub.lock.json` / `ai-primitives-hub.local.lock.json` at the
- * git root) and at user level (the shared `ai-primitives-hub.user.lock.json`),
- * keyed by bundle and tool. `update` selects one level (`--lockfile`, then
- * `--scope`, then the target's scope or the default rule) and updates every
- * (bundle, tool) entry there, each through the configured target mapped to
- * its tool; `--target` narrows the run to that target's tool (BR6.1, BR6.4).
- * With zero or several targets and no `--target`, the record alone decides
- * (BR23.3); when it holds no entry, `--target` is required (BR23.2).
- *
- * Bundles listed only in an older 2.0.0 file (`prompt-registry.*`, or the
- * CLI's old user lockfile) are updated with the code below, on that file,
- * through one resolved target (BR10.1).
+ * `update` selects one install record level and updates every (bundle, tool)
+ * entry there through the target mapped to its tool; `--target` narrows it to
+ * one tool. Bundles only an older 2.0.0 file lists are updated on that file.
  */
 import * as path from 'node:path';
 import {
@@ -271,10 +261,7 @@ export class UpdateCommand extends BaseUpdateCommand {
     await detectUpdateContext(opts, ctx);
 
     try {
-      // BR23.3: with zero or several targets and no --target, the record
-      // decides. Its level is chosen read-only first, so a run the record does
-      // not decide fails below before anything is migrated, written or fetched
-      // (NFR4.27).
+      // Without an inferred target the record decides; read-only first, so a failing run changes nothing.
       const input = { command: 'update', lockfile: this.lockfile, scope: opts.scope };
       const run: RecordUpdateBase = {
         ctx, fmt, http, tokens, overrides: opts, dryRun: this.dryRun, interactive: this.interactive, noHubSync: this.noHubSync
@@ -371,8 +358,7 @@ export class UpdateCommand extends BaseUpdateCommand {
 
 /**
  * Detect update context from the project environment (symmetric with install/uninstall).
- * Fills in `opts.lockfile` when it can be inferred; the target is inferred
- * later (`inferTargetName`, BR23.2).
+ * Fills in `opts.lockfile` when it can be inferred; the target is inferred later.
  * @param opts Update options (mutated in-place).
  * @param ctx CLI context.
  */
@@ -395,16 +381,11 @@ const remoteBundleIds = (lock: Lockfile, bundleIds: readonly string[]): string[]
 });
 
 /**
- * The record `update` acts on when no target is inferred (zero or several
- * configured, no `--target`; BR23.3). The level is chosen read-only first
- * (`--lockfile`, then `--scope`, then the default rule) and only its 3.0.0
- * entries decide; bundles that only an older store lists do not. When they
- * decide, a real run migrates the level before anything is fetched
- * ({@link migrateDecision}, BR18.1); a dry run keeps the read-only selection.
+ * The record `update` acts on with no inferred target, migrated unless `--dry-run`;
+ * `undefined` when it has no entries.
  * @param ctx CLI context.
  * @param input Command name and the typed `--lockfile` / `--scope`.
  * @param dryRun `true` for `--dry-run`.
- * @returns The decision to update, or `undefined` when the record does not decide (the caller then needs a target).
  * @throws {RegistryError} A `RECORD.*` error naming the file.
  */
 async function prepareRecordWithoutTarget(
@@ -420,13 +401,11 @@ async function prepareRecordWithoutTarget(
 type RecordUpdateBase = Omit<RecordUpdateRun, 'prepared' | 'explicit'> & { noHubSync: boolean };
 
 /**
- * Update from the record when its entries decide: sync the active hub unless
- * `--no-hub-sync`, then {@link updateFromRecord} (W5). One path for the run
- * with no inferred target (BR23.3) and the targeted one.
+ * Sync the active hub unless `--no-hub-sync`, then update from the record.
  * @param run Context, clients, overrides and flags of the update.
- * @param decision The selected record and its entries; none when the record does not decide.
- * @param explicit The target named by `--target`; only it narrows the plan to one tool (BR6.1).
- * @returns Exit code, or `undefined` when the selected record has no entry (the caller then uses the old store).
+ * @param decision The selected record and its entries, if any.
+ * @param explicit The target named by `--target`.
+ * @returns Exit code, or `undefined` when the record has no entry.
  */
 async function runRecordUpdate(
   run: RecordUpdateBase,
@@ -828,7 +807,7 @@ interface RecordUpdateRun {
   prepared: PreparedRecordSelection;
   /** The target named by `--target`; only it narrows the plan to one tool. */
   explicit?: Target;
-  /** `--scope` / `--commit-mode`, applied to the target inferred for old-file-only bundles (BR10.1). */
+  /** `--scope` / `--commit-mode` for the target inferred for old-file-only bundles. */
   overrides: TargetOverrides;
   dryRun: boolean;
   interactive: boolean;

@@ -3,8 +3,7 @@
  * `src/services/registry-manager.ts`
  * (`RegistryManager.listInstalledBundles`).
  *
- * Repository-scoped installs are tracked in the install record at the git
- * root (`ai-primitives-hub.lock.json` / `.local.lock.json`, read by the
+ * Repository-scoped installs are tracked in the install record (read by the
  * host's record listing), so this module only orchestrates *which* store(s) to query for
  * a given scope; the actual repository-bundle read, including resolving
  * the workspace root and tolerating a missing/unreadable lockfile, is a

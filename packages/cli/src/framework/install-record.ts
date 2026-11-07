@@ -401,11 +401,8 @@ export interface RecordedRepositoryUninstall {
 type PreparedUninstallParts = Omit<PreparedRepositoryUninstall, 'loneUnknown' | 'migration'> & { migration?: MigrationReport | undefined };
 
 /**
- * Finish a {@link PreparedRepositoryUninstall}: the bundles whose only entry
- * at the level is `unknown` (BR21.3) and the migration report, when one ran.
- * @param parts - Location, files, service, tool, entries and the level's extras.
- * @returns The prepared uninstall.
- * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+ * Add the lone `unknown` bundles and the migration report to an uninstall prepare.
+ * @param parts - What the prepare supplies.
  */
 const toPreparedUninstall = async (parts: PreparedUninstallParts): Promise<PreparedRepositoryUninstall> => {
   const { migration, ...rest } = parts;

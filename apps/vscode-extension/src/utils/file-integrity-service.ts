@@ -4,8 +4,8 @@
  * Provides shared utilities for file integrity operations including
  * checksum calculation and directory management.
  *
- * This service holds the file integrity operations BundleInstaller and the
- * repository scope service share.
+ * File integrity operations shared by BundleInstaller and the repository
+ * scope service.
  */
 
 import * as crypto from 'node:crypto';

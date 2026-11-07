@@ -9,9 +9,8 @@
  * the extension's own `Bundle`/`RegistrySource`/`BundleInstaller`-shaped
  * orchestration — the two are unrelated despite the similar name.
  *
- * Repository-scoped installs are tracked in the install record at the git
- * root, so, like `list-installed-bundles.ts`, this module
- * keeps that resolution as a caller-supplied, deliberately opaque port
+ * Repository-scoped installs are tracked in the install record, so, like
+ * `list-installed-bundles.ts`, this module keeps that resolution as a caller-supplied, deliberately opaque port
  * (`getRepositoryInstalledBundles`) rather than depending on it directly.
  * @module registry/uninstall-installed-bundle
  */

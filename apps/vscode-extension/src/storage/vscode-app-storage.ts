@@ -6,8 +6,7 @@
  * as-is (single root under `globalStorageUri`, unlike `infra`'s
  * `XdgAppStorage` which splits config/cache/data across three XDG
  * bases) — real users' data already lives here (ADR-0005 decision 3).
- * It implements the extension-only `ExtensionAppStorage`, so it also
- * returns the per-profile bundle-record folders `RegistryStorage` uses.
+ * It also returns the extension's per-profile record folders (`ExtensionAppStorage`).
  */
 
 import * as path from 'node:path';

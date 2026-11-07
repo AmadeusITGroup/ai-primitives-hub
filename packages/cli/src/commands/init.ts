@@ -15,11 +15,7 @@
  * hub selector alongside "Local directory" and "Skip for now". Non-interactive
  * mode (the `--yes` / CI path) is unaffected and fully at parity with the reference.
  *
- * `init` writes no install record. The record (format 3.0.0, keyed by bundle
- * and tool) exists at repository level (`ai-primitives-hub.lock.json` at the
- * git root) and at user level (the shared user record); the first install at
- * a level creates it. Until the first repository install, `status` and a bare
- * `install` in the repository use the user record (BR25.1).
+ * `init` writes no install record; the first install at a level creates it.
  */
 import * as path from 'node:path';
 import {
@@ -584,9 +580,7 @@ async function runInit(ctx: Context, opts: InitOptions): Promise<number> {
       describeTargetStep(targetName, targetType, result.file, result.created ?? false, updated)
     ];
 
-    // init creates no install record: the first install at a level creates
-    // it (ai-primitives-hub.lock.json at the git root, or the user record),
-    // and an existing record or older file is left as it is (BR25.1).
+    // No install record here: the first install at a level creates it.
 
     let hubId: string | null = null;
     let hubReused = false;

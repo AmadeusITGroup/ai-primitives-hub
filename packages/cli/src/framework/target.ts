@@ -84,17 +84,10 @@ export const findProjectLockfile = async (ctx: Context): Promise<string | null> 
 };
 
 /**
- * Resolve the older 2.0.0 lockfile path for a target's scope.
- *
- * This is not the current install record (format 3.0.0,
- * `ai-primitives-hub.lock.json` / the shared user record; see
- * `framework/install-record.ts`). It resolves the older files still used by
- * `profile activate`, workspace scope and an old-format `--lockfile`, and
- * read as migration sources: for `repository` scope one of
- * `prompt-registry.lock.json` (`commit`) or `prompt-registry.local.lock.json`
- * (`local-only`) under `target.rootPath` (falling back to `ctx.cwd()`); for
- * every other scope the CLI's old single-file user lockfile
- * (`resolveUserConfigPaths(env).userLockfile`), where `commitMode` is ignored.
+ * Resolve the older 2.0.0 lockfile path for a target's scope (not the install record).
+ * `repository` scope uses `prompt-registry.lock.json` or
+ * `prompt-registry.local.lock.json` under `target.rootPath` (else `ctx.cwd()`);
+ * every other scope the CLI's old user lockfile.
  * @param ctx CLI context.
  * @param target Target being installed into / uninstalled from.
  * @param commitMode Effective commit mode; only consulted for `repository` scope.
