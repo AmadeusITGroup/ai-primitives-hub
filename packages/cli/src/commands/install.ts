@@ -1282,10 +1282,6 @@ interface OldFileReplay {
   failures: { bundleId: string; reason: string }[];
 }
 
-/**
- * Text output of a record replay.
- * @param d Output data.
- */
 function renderRecordReplay(d: RecordReplayData): string {
   const lines = [
     `Replay: ${d.replayed.length}/${d.replayPlanned} entr${d.replayPlanned === 1 ? 'y' : 'ies'} installed.`,
