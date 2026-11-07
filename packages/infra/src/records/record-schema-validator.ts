@@ -1,10 +1,6 @@
 /**
- * Schema gate for install records (security layer 3, NFR1.1, BR1.9).
- *
- * Validates a record that already passed `parseRecord` (prototype-free, major
- * version 3) against the shared 3.0.0 schema from core with Ajv draft-07 and
- * `ajv-formats`. Any schema error becomes `RECORD.MALFORMED`; the detail names
- * the failing JSON pointers and rules, never the values found there.
+ * Schema check for parsed install records. Errors become `RECORD.MALFORMED`
+ * and name the failing JSON pointers, never the values.
  * @module records/record-schema-validator
  */
 import {
@@ -39,8 +35,7 @@ export class RecordSchemaValidator {
    * Check a parsed record against the schema.
    * @param record - Output of `parseRecord`.
    * @param file - Record file to name in the error, if any.
-   * @returns The same object, typed as an `InstallRecord`.
-   * @throws {RegistryError} `RECORD.MALFORMED` when the record does not match the schema.
+   * @throws {RegistryError} `RECORD.MALFORMED` when the record does not match.
    */
   public validate(record: UnvalidatedRecord, file?: string): InstallRecord {
     if (this.validateSchema(record)) {

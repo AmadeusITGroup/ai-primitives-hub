@@ -1,17 +1,6 @@
 /**
- * Source sanitizer for install records (NFR4.5, BR3.2; security-design "Secrets").
- *
- * A recorded `SourceRecord` carries only the fields contract C1 lists, copied
- * one by one into a prototype-free object, so a token, password or header on
- * the hub's source definition can never reach the record. The `url` is always
- * recorded (C1 requires it) but is cleaned first:
- * - standard URLs (`scheme://…`): the user name, the password and query
- *   parameters named like a token are removed;
- * - scp-style SSH URLs (`user@host:path`): kept as they are when the user is
- *   `git`; any other user part is removed, leaving `host:path`;
- * - absolute local paths (`C:\…`, `C:/…`, `/…`, `\\server\…`): kept as they are;
- * - anything else: everything up to and including the last `@` of the
- *   authority (before the first `/`, `?` or `#`) is removed.
+ * Source sanitizer for install records: only the known source fields are
+ * copied, and credentials are removed from the URL, so no secret reaches a record.
  * @module records/sanitize-source
  */
 import {
@@ -19,7 +8,7 @@ import {
   type SourceRecord,
 } from '@ai-primitives-hub/core';
 
-/** Optional C1 string fields copied from a source, in addition to `type` and `url`. */
+/** Optional string fields copied from a source, in addition to `type` and `url`. */
 const OPTIONAL_SOURCE_FIELDS = ['branch', 'collectionsPath', 'indexFile', 'authMode', 'credentialRef'] as const;
 
 /** Query parameter names that look like a credential. */
@@ -28,10 +17,7 @@ const TOKEN_PARAM_PATTERN = /token|^sig$|^signature$|^key$|^api[-_]?key$|secret|
 /** A `scheme://` prefix. */
 const SCHEME_PATTERN = /^[a-z][\d+.a-z-]*:\/\//i;
 
-/**
- * An absolute local path: a Windows drive letter (`C:\` or `C:/`), a POSIX
- * root (`/`), or a UNC path (`\\server\share`).
- */
+/** An absolute local path: drive letter, POSIX root or UNC. */
 const ABSOLUTE_LOCAL_PATH_PATTERN = /^(?:[a-z]:[/\\]|\/|\\\\)/i;
 
 /** scp-style SSH address: `user@host:path`, with no scheme. */
@@ -40,10 +26,6 @@ const SCP_PATTERN = /^([^\s/:@]+)@([^\s/:@]+):(.*)$/;
 /** The only scp-style user kept, because it is not a secret. */
 const SCP_PUBLIC_USER = 'git';
 
-/**
- * Clean a standard `scheme://` URL; `undefined` when it does not parse.
- * @param url - URL text.
- */
 const sanitizeStandardUrl = (url: string): string | undefined => {
   let parsed: URL;
   try {
@@ -82,9 +64,8 @@ const stripAuthorityUser = (url: string): string => {
 };
 
 /**
- * Remove credentials from a source URL before it is recorded (NFR4.5).
- * @param url - Source URL or path as configured.
- * @returns The URL without a user name, password or token-like query parameter.
+ * Remove the user name, password and token-like query parameters from a source URL; `git@` scp URLs are kept.
+ * @param url - Source URL or path.
  */
 export const sanitizeSourceUrl = (url: string): string => {
   // A local path has no authority: an `@` in it is part of a folder name.
@@ -103,11 +84,9 @@ export const sanitizeSourceUrl = (url: string): string => {
 };
 
 /**
- * Copy the C1 fields of a source into a prototype-free `SourceRecord`, with
- * its URL cleaned (BR3.2, NFR4.5). Any other field, such as a token, is dropped.
- * @param source - Source details the caller passes to `recordInstall`.
- * @returns The record-ready source.
- * @throws {RegistryError} `RECORD.MALFORMED` when `type` or `url` is missing or not a string.
+ * Copy the known fields of a source into a prototype-free `SourceRecord` with its URL cleaned.
+ * @param source - Source details passed to `recordInstall`.
+ * @throws {RegistryError} `RECORD.MALFORMED` when `type` or `url` is missing.
  */
 export const sanitizeSource = (source: Readonly<Record<string, unknown>>): SourceRecord => {
   const { type, url } = source;

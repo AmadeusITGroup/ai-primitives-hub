@@ -3,8 +3,7 @@
  *
  * `RepositoryExclusion` adapter that keeps the paths of a `local-only`
  * repository installation in a dedicated section of `.git/info/exclude`.
- * The text change is `addExcludeEntries` / `removeExcludeEntries` from core,
- * the same functions the install record store uses for its own entry.
+ * The text change is done by core's `addExcludeEntries` / `removeExcludeEntries`.
  * @module writers/git-info-exclude
  */
 import * as path from 'node:path';
@@ -26,12 +25,7 @@ export interface GitInfoExcludeOptions {
   fs: FileSystem;
   /** Workspace root (repository root); listed paths are relative to it. */
   workspaceRoot: string;
-  /**
-   * Absolute path of the `info/exclude` file to edit. Defaults to
-   * `<workspaceRoot>/.git/info/exclude`. Pass the file app's
-   * `resolveExcludeFile` found (it follows `gitdir:` and `commondir`), so a
-   * worktree's entries land in the same file as the install record's entry.
-   */
+  /** Absolute `info/exclude` file to edit; defaults to `<workspaceRoot>/.git/info/exclude`. */
   excludePath?: string;
 }
 

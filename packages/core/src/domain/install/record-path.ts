@@ -1,13 +1,7 @@
 /**
- * Layer A path checks for recorded paths (NFR4.1, BR1.5).
- *
- * Pure text checks on a recorded file `path`, with no filesystem access. They run
- * on every path read from a record and again on the realpath'd path relative
- * to the root (Layer B, `confinePath` in `app`). Both `/` and `\` count as
- * separators, so a path is judged the same way on every OS.
- *
- * {@link relativeInside} is the one "is this path below the root" check every
- * record reader and writer uses on absolute paths.
+ * Text-only checks for recorded paths. Both `/` and `\` count as separators,
+ * so a path is judged the same way on every OS; `confinePath` in `app` adds
+ * the filesystem check.
  * @module domain/install/record-path
  */
 import * as path from 'node:path';
@@ -39,9 +33,8 @@ const segmentProblem = (segment: string): string | undefined => {
 };
 
 /**
- * Find why a recorded path is not allowed.
- * @param recordedPath - Path as written in the record.
- * @returns The reason, or `undefined` when the path is allowed.
+ * Why a recorded path is not allowed, or `undefined` when it is.
+ * @param recordedPath - Path as recorded.
  */
 export const findRecordedPathProblem = (recordedPath: string): string | undefined => {
   if (typeof recordedPath !== 'string' || recordedPath === '') {
@@ -67,14 +60,8 @@ export const findRecordedPathProblem = (recordedPath: string): string | undefine
 
 /**
  * Check a recorded path and normalize it to forward slashes.
- *
- * Refuses an empty, absolute, UNC or drive-letter path; any empty, `.` or `..`
- * segment (which also refuses the root itself); a `.git` segment in any case;
- * a segment ending in a dot or a space; an 8.3 short name (`~` and a digit);
- * and a `:` in a segment (NTFS alternate data streams).
- * @param recordedPath - Path as written in the record, relative to the level root.
+ * @param recordedPath - Path as recorded.
  * @param file - Record file to name in the error, if any.
- * @returns The path with forward slashes.
  * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT` when the path is not allowed.
  */
 export const checkRecordedPath = (recordedPath: string, file?: string): string => {
@@ -95,15 +82,11 @@ export interface RelativeInsideOptions {
 }
 
 /**
- * Path of `candidate` relative to `root`, with forward slashes, when it sits
- * below `root` (NFR4.1). Path segments are compared, never a string prefix:
- * `..`, anything starting with `../` and a result on another drive are outside,
- * while a name such as `..notes` below the root is inside.
+ * Path of `candidate` relative to `root`, with forward slashes, or `undefined`
+ * when it is outside. Segments are compared, not string prefixes.
  * @param root - Absolute folder.
  * @param candidate - Absolute path.
  * @param options - Whether the root itself counts as inside.
- * @returns The relative path, or `undefined` for anything outside the root,
- * and for the root itself unless `allowRoot` is set.
  */
 export const relativeInside = (root: string, candidate: string, options: RelativeInsideOptions = {}): string | undefined => {
   const relative = path.relative(root, candidate);

@@ -1,15 +1,9 @@
 /**
- * Install record format 3.0.0 — shared types and constants (contract C1).
+ * Install record format 3.0.0: shared types and constants.
  *
- * One record file holds every bundle installed at one level, keyed by bundle
- * id and then by tool (target type), so the CLI and the extension read and
- * write the same file. These types are the single description both delivery
- * layers use (BR1.12); the matching JSON Schema ships beside them as
- * `public/schemas/install-record.schema.json`.
- *
- * Every map is an open object: fields this release does not know are kept and
- * written back unchanged (BR1.10). Records are held in prototype-free objects
- * (see `record-parse.ts`), so a hostile key can never reach `Object.prototype`.
+ * One record file holds every bundle installed at one level, keyed by bundle id
+ * and then by tool, so the CLI and the extension share it. The JSON Schema ships
+ * as `public/schemas/install-record.schema.json`. Unknown fields are kept.
  * @module domain/install/record-types
  */
 import * as path from 'node:path';
@@ -23,86 +17,76 @@ import type {
 /** Record format version written by this release. */
 export const RECORD_FORMAT_VERSION = '3.0.0';
 
-/** Major version this release reads and writes (BR1.8). */
+/** Major version this release reads and writes. */
 export const RECORD_FORMAT_MAJOR = 3;
 
-/** Canonical `$schema` URL written into every record (BR1.11). */
+/** `$schema` URL written into every record. */
 export const RECORD_SCHEMA_URL = 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json';
 
-/** Committed repository record, at the git root (BR2.2). */
+/** Committed repository record, at the git root. */
 export const RECORD_FILE_NAME = 'ai-primitives-hub.lock.json';
 
-/** Local-only repository record, at the git root and kept in `.git/info/exclude` (BR2.2, BR2.3). */
+/** Local-only repository record, at the git root and listed in `.git/info/exclude`. */
 export const LOCAL_RECORD_FILE_NAME = 'ai-primitives-hub.local.lock.json';
 
 /** Both repository record file names, committed first. */
 export const RECORD_FILE_NAMES = [RECORD_FILE_NAME, LOCAL_RECORD_FILE_NAME] as const;
 
-/** Largest record file accepted, in bytes (NFR1.3). Reads stop one byte past it. */
+/** Largest record file accepted, in bytes. */
 export const RECORD_MAX_BYTES = 10 * 1024 * 1024;
 
-/**
- * Keys refused at any depth of a record (NFR4.4): any of them could change an
- * object's prototype when a record is merged or copied.
- */
+/** Keys refused at any depth because they could change an object's prototype. */
 export const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Pattern every tool key and `sourceType` must match to be read (BR1.3). */
+/** Pattern every tool key and `sourceType` must match to be read. */
 export const RECORD_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 
-/** Tool key for entries whose tool could not be identified during migration (written from U5). */
+/** Tool key for migrated entries whose tool could not be identified. */
 export const UNKNOWN_TOOL_NAME = 'unknown';
 
-/** Level a record belongs to. U1 writes the repository level only. */
+/** Level a record belongs to. */
 export type RecordLevel = 'repository' | 'user';
 
 /**
- * Tool key of a {@link ToolEntry}: a target type, or `'unknown'` for migrated
- * entries that need a reinstall. Readers keep any key matching
- * {@link RECORD_NAME_PATTERN}, so values outside this union can appear on read.
+ * Tool key of a {@link ToolEntry}. Readers keep any key matching
+ * {@link RECORD_NAME_PATTERN}, so other values can appear on read.
  */
 export type RecordToolName = TargetType | typeof UNKNOWN_TOOL_NAME;
 
 /** One file a tool entry wrote. */
 export interface RecordedFile {
-  /** Path relative to the level root, forward slashes, never escaping the root (BR1.5). */
+  /** Path relative to the level root, with forward slashes. */
   path: string;
-  /** `sha256:` followed by 64 lowercase hex digits of the bytes on disk after writing (BR1.6). */
+  /** `sha256:` plus 64 lowercase hex digits of the bytes on disk. */
   checksum: string;
-  /** Unknown fields, kept unchanged (BR1.10). */
   [key: string]: unknown;
 }
 
 /** What one tool has installed for one bundle. */
 export interface ToolEntry {
-  /** Installed bundle version. */
   version: string;
   /** Key of the entry's source in {@link InstallRecord.sources}. */
   sourceId: string;
-  /** Source type; written only as a `SourceType` value (BR1.4). */
   sourceType: string;
-  /** ISO 8601 UTC time the entry was written (BR3.7). */
+  /** ISO 8601 UTC time the entry was written. */
   installedAt: string;
   /** Present, and `true`, only under the `'unknown'` tool key. */
   needsReinstall?: true;
   /** Files this entry owns, sorted by `path`. */
   files: RecordedFile[];
-  /** Unknown fields, kept unchanged (BR1.10). */
   [key: string]: unknown;
 }
 
-/** All tool entries for one bundle at one level. */
+/** All tool entries for one bundle at one level; never empty. */
 export interface BundleRecord {
-  /** Entries keyed by tool name; never empty (an empty bundle is removed). */
   tools: Record<string, ToolEntry>;
-  /** Unknown fields, kept unchanged (BR1.10). */
   [key: string]: unknown;
 }
 
 /** Where bundles came from. Same shape as format 2.0.0. */
 export interface SourceRecord {
   type: string;
-  /** Source URL with credentials removed before it is recorded (NFR4.5). */
+  /** Source URL with credentials removed. */
   url: string;
   branch?: string;
   collectionsPath?: string;
@@ -110,7 +94,6 @@ export interface SourceRecord {
   authMode?: string;
   /** A reference to a credential, never a secret value. */
   credentialRef?: string;
-  /** Unknown fields, kept unchanged (BR1.10). */
   [key: string]: unknown;
 }
 
@@ -122,15 +105,10 @@ export interface InstallRecord {
   generatedAt: string;
   /** `ai-primitives-hub-cli@<version>` or `ai-primitives-hub-extension@<version>`. */
   generatedBy: string;
-  /** Bundles keyed by bundle id. */
   bundles: Record<string, BundleRecord>;
-  /** Sources keyed by source id. */
   sources: Record<string, SourceRecord>;
-  /** Carried through unchanged. */
   hubs?: Record<string, unknown>;
-  /** Carried through unchanged. */
   profiles?: Record<string, unknown>;
-  /** Unknown fields, kept unchanged (BR1.10). */
   [key: string]: unknown;
 }
 
@@ -146,10 +124,8 @@ export interface RecordLocation {
 }
 
 /**
- * Both repository record locations at a root (BR2.2): the committed file,
- * then the local-only one.
- * @param root - Absolute repository root (the git root).
- * @returns The two locations, committed first, as {@link RECORD_FILE_NAMES} orders them.
+ * Both repository record locations at a root, committed first.
+ * @param root - Absolute git root.
  */
 export const repositoryLocations = (root: string): [RecordLocation, RecordLocation] => [
   { level: 'repository', root, path: path.join(root, RECORD_FILE_NAME), commitMode: 'commit' },
@@ -162,11 +138,11 @@ export interface RecordEntryKey {
   tool: string;
 }
 
-/** Outcome of a record update (contract C3). */
+/** Outcome of a record update. */
 export interface RecordChange {
   /** Entries added, replaced or moved. */
   changedEntries: RecordEntryKey[];
-  /** Root-relative paths the caller deletes after the save (BR3.4). */
+  /** Root-relative paths the caller deletes after the save. */
   deletedFiles: string[];
   /** Root-relative paths kept because another entry still lists them. */
   keptSharedFiles: string[];

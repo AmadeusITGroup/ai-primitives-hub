@@ -1,11 +1,6 @@
 /**
- * Node `fs/promises`-backed implementation of the `RecordFs` port.
- *
- * The only disk access install-record code uses (NFR1.3, NFR4.1, NFR7.1):
- * `lstat` that never follows a final symlink, capped chunked reads that ignore
- * the reported size, streamed SHA-256, exclusive create for temp files, and an
- * `unlink` that refuses folders. It never spawns a process (NFR4.7) and never
- * removes anything recursively.
+ * Node implementation of the `RecordFs` port. It never spawns a process and
+ * never removes anything recursively.
  * @module records/node-record-fs
  */
 import {
@@ -110,7 +105,7 @@ export class NodeRecordFs implements RecordFs {
 
   /** @inheritdoc */
   public async writeFile(path: string, contents: string): Promise<void> {
-    // `wx`: fail when the path exists, so a temp file is never reused. No mode: the umask applies (NFR7.2).
+    // `wx` fails when the path exists, so a temp file is never reused; the umask sets the mode.
     await writeFile(path, contents, { encoding: 'utf8', flag: 'wx' });
   }
 

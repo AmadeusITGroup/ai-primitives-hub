@@ -234,7 +234,7 @@ export class UninstallPipeline {
   /**
    * Execute uninstall for every bundle across both lockfiles.
    * @param options - Optional filter.
-   * @param options.exclude - Bundle ids to leave alone (e.g. ones already uninstalled from the install record).
+   * @param options.exclude - Bundle ids to leave alone.
    * @returns Array of uninstall results.
    */
   public async runAll(options: { exclude?: ReadonlySet<string> } = {}): Promise<UninstallResult[]> {

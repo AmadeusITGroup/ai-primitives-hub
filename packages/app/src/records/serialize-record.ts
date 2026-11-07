@@ -1,12 +1,6 @@
 /**
- * Canonical serialization of install records (BR1.11, FR1.6).
- *
- * The CLI and the extension both write records through this one function, so
- * the same content always gives the same bytes: keys sorted at every depth,
- * each tool entry's `files` sorted by `path`, two-space indentation,
- * a trailing newline, and `$schema` set to the canonical URL. The copy it
- * builds uses prototype-free objects only and refuses forbidden keys, so a
- * hostile key can neither pollute a prototype nor reach the file (NFR4.4).
+ * Canonical serialization of install records, shared by the CLI and the
+ * extension so the same content always gives the same bytes.
  * @module records/serialize-record
  */
 import {
@@ -53,9 +47,8 @@ const sortEntryFiles = (record: JsonObject): void => {
 };
 
 /**
- * Build the canonical, prototype-free copy of a record.
+ * Deep, prototype-free copy with sorted keys and files and the canonical `$schema`.
  * @param record - Record to copy; left unchanged.
- * @returns A deep copy with sorted keys and files and the canonical `$schema`.
  * @throws {RegistryError} `RECORD.MALFORMED` when a forbidden key appears at any depth.
  */
 export const canonicalizeRecord = (record: InstallRecord): InstallRecord => {
@@ -71,9 +64,8 @@ export const canonicalizeRecord = (record: InstallRecord): InstallRecord => {
 };
 
 /**
- * Serialize a record in the one canonical form both delivery layers write.
+ * Serialize a record canonically: sorted keys, two-space indentation, trailing newline.
  * @param record - Record to write.
- * @returns JSON text with sorted keys, two-space indentation and a trailing newline.
  * @throws {RegistryError} `RECORD.MALFORMED` when a forbidden key appears at any depth.
  */
 export const serializeRecord = (record: InstallRecord): string =>

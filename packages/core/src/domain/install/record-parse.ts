@@ -1,13 +1,7 @@
 /**
- * Prototype-free parsing and the version gate for install records
- * (security layer 2: NFR1.1, NFR1.2, NFR4.4; BR1.8, BR1.9, BR1.10).
- *
- * `JSON.parse` runs with a reviver that refuses `__proto__`, `constructor`
- * and `prototype` at any depth and rebuilds every object with
- * `Object.create(null)`, so a hostile record can never reach
- * `Object.prototype`. The major version is checked before the schema: only
- * major 3 is returned, for the schema gate (`RecordSchemaValidator` in
- * `infra`) to validate next. Unknown fields are kept.
+ * Prototype-free parsing and the version gate for install records. Forbidden
+ * keys are refused at any depth and every object gets a `null` prototype; the
+ * schema check runs afterwards in `infra`.
  * @module domain/install/record-parse
  */
 import {
@@ -74,16 +68,10 @@ const checkVersion = (version: unknown, file: string | undefined): void => {
 };
 
 /**
- * Parse the text of a new-named record file and apply the version gate.
- *
- * Only call this for `ai-primitives-hub.*` record files: a major version
- * below 3 under a new name is refused as unmigrated.
- * @param text - File contents, decoded as UTF-8.
+ * Parse an `ai-primitives-hub.*` record file and check its major version is 3.
+ * @param text - File contents.
  * @param file - Record file to name in errors, if any.
- * @returns The parsed record, with prototype-free objects throughout.
- * @throws {RegistryError} `RECORD.MALFORMED` for invalid JSON, a forbidden key at
- * any depth, a non-object top level, or a missing, non-string or non-semver
- * version; `RECORD.NEWER_FORMAT` above major 3; `RECORD.LEGACY_UNMIGRATED` below it.
+ * @throws {RegistryError} `RECORD.MALFORMED`, `RECORD.NEWER_FORMAT` or `RECORD.LEGACY_UNMIGRATED`.
  */
 export const parseRecord = (text: string, file?: string): UnvalidatedRecord => {
   const parsed = parseJson(text, file);

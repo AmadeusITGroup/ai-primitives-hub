@@ -1,11 +1,7 @@
 /**
- * RecordFs port — the only filesystem access install-record code uses.
- *
- * Separate from `FileSystem` because record handling needs `lstat`,
- * `realpath`, capped reads, streamed hashing, exclusive create and `rename`
- * for its file gate, path confinement and atomic writes (NFR1.3, NFR4.1,
- * NFR7.1). The Node implementation is `NodeRecordFs` in `infra`; it never
- * spawns a process (NFR4.7). Tests use an in-memory fake for error paths.
+ * RecordFs port: the only filesystem access install-record code uses. It is
+ * separate from `FileSystem` because records need `lstat`, `realpath`, capped
+ * reads, hashing and atomic renames. Implemented by `NodeRecordFs` in `infra`.
  * @module ports/record-fs
  */
 
@@ -21,25 +17,15 @@ export interface RecordFileStat {
 
 /** Filesystem operations for install records. All paths are absolute. */
 export interface RecordFs {
-  /**
-   * Stat a path without following a final symlink.
-   * @returns The stat, or `undefined` when nothing exists at the path.
-   */
+  /** Stat a path without following a final symlink; `undefined` when nothing exists. */
   lstat(path: string): Promise<RecordFileStat | undefined>;
   /** Resolve every symlink in a path. Rejects when the path does not exist. */
   realpath(path: string): Promise<string>;
-  /**
-   * Read at most `maxBytes` bytes, in chunks, stopping at the cap whatever size
-   * the file reports. Callers pass one byte more than they accept and refuse a
-   * result that long.
-   */
+  /** Read at most `maxBytes` bytes, whatever size the file reports. */
   readCapped(path: string, maxBytes: number): Promise<Uint8Array>;
   /** Streamed SHA-256 of a file's bytes, as `sha256:` plus 64 lowercase hex digits. */
   hashFile(path: string): Promise<string>;
-  /**
-   * Create a file exclusively and write UTF-8 text to it; rejects when the path
-   * already exists. No mode is set, so the process umask applies.
-   */
+  /** Create a file exclusively and write UTF-8 text; rejects when the path exists. */
   writeFile(path: string, contents: string): Promise<void>;
   /** Rename a file, replacing the destination atomically. */
   rename(from: string, to: string): Promise<void>;

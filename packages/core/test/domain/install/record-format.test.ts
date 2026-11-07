@@ -1,9 +1,4 @@
-/**
- * Contract tests for the 3.0.0 install record format (C1): the parse and
- * version gate (`parseRecord`), the recorded-path check (`checkRecordedPath`),
- * the path-inside check (`relativeInside`) and the record error text
- * (`describeRecordError`).
- */
+/** Contract tests for the 3.0.0 install record parser, path checks and error text. */
 import * as path from 'node:path';
 import {
   describe,
@@ -48,7 +43,7 @@ const recordText = (overrides: Record<string, unknown> = {}, bundles = `{"acme-t
 
 /**
  * Run `fn` and return the `RECORD.*` code it throws.
- * @param fn - Call expected to throw a record error.
+ * @param fn - Call expected to throw.
  */
 const codeOf = (fn: () => unknown): string => {
   try {

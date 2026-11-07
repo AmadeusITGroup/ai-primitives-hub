@@ -1,17 +1,7 @@
 /**
- * Install record service: record a tool's install of a bundle in the shared
- * record, and remove the files that install superseded (contract C3, U1 shape;
- * workflow W1 steps 6–13).
- *
- * `recordInstall` turns the writer's `written` list into recorded files
- * (git-root-relative, confined, checksummed from the bytes on disk, merged MCP
- * config files left out), replaces only `bundles.<id>.tools.<tool>`, records
- * the sanitized source, moves the entry out of the other repository file, and
- * saves the target file first, then the other one. It deletes nothing: the
- * superseded files come back in `RecordChange.deletedFiles`, and the caller
- * passes the change to `deleteSuperseded` after the save (BR3.4).
- *
- * Rules: BR1.2, BR1.4–BR1.7, BR3.1, BR3.2, BR3.4, BR3.6, BR3.7; NFR4.2, NFR4.5.
+ * Install record service: records a tool's install or uninstall of a bundle in
+ * the shared record. It deletes nothing itself; superseded files come back in
+ * `deletedFiles` for `deleteSuperseded` to remove after the save.
  * @module records/install-record-service
  */
 import * as path from 'node:path';
@@ -54,11 +44,7 @@ import {
   sanitizeSource,
 } from './sanitize-source';
 
-/**
- * Every `SourceType` value as a key; typing it as `Record<SourceType, true>`
- * makes the compiler reject a missing or extra value, so it stays in step
- * with the union in core.
- */
+/** Typed as `Record<SourceType, true>` so the compiler keeps it in step with the union. */
 const SOURCE_TYPE_KEYS: Readonly<Record<SourceType, true>> = {
   github: true,
   local: true,
@@ -72,16 +58,15 @@ const SOURCE_TYPE_KEYS: Readonly<Record<SourceType, true>> = {
   artifactory: true
 };
 
-/** Every `SourceType` value, the only `sourceType` a new entry may carry (BR1.4). */
+/** Every `SourceType` value, the only `sourceType` a new entry may carry. */
 export const RECORD_SOURCE_TYPES: readonly SourceType[] = Object.keys(SOURCE_TYPE_KEYS) as SourceType[];
 
-/** Source details passed to `recordInstall`: the C1 fields plus the key they are recorded under. */
+/** Source details passed to `recordInstall`, with the key they are recorded under. */
 export interface RecordSourceInput {
-  /** Key of the source in `sources` (BR3.2). */
   sourceId: string;
-  /** Source type; must equal `RecordInstallInput.sourceType` (BR3.7). */
+  /** Must equal `RecordInstallInput.sourceType`. */
   type: string;
-  /** Source URL; credentials are removed before it is recorded (NFR4.5). */
+  /** Credentials are removed before it is recorded. */
   url: string;
   branch?: string;
   collectionsPath?: string;
@@ -92,26 +77,20 @@ export interface RecordSourceInput {
   [key: string]: unknown;
 }
 
-/** U1 `recordInstall` input (functional-spec W1; amends C3). */
+/** Input of {@link InstallRecordService.recordInstall}. */
 export interface RecordInstallInput {
-  /** File the entry is recorded in, from `RecordStore.resolveRepository` and the commit mode. */
+  /** File the entry is recorded in. */
   location: RecordLocation;
-  /** Bundle id from the manifest. */
   bundleId: string;
-  /** Bundle version from the manifest. */
   version: string;
-  /** The target's type, never the user's target name (BR1.2). */
+  /** The target's type, never the user's target name. */
   tool: string;
-  /** The full source: `sourceId`, `type`, `url` and optional fields (BR3.2). */
   source: RecordSourceInput;
-  /** A `SourceType` value equal to `source.type` (BR1.4, BR3.7). */
+  /** A `SourceType` value equal to `source.type`. */
   sourceType: string;
-  /** The writer's `written` list, as absolute paths (BR1.7). */
+  /** The writer's `written` list, as absolute paths. */
   writtenPaths: readonly string[];
-  /**
-   * Absolute workspace root the writer installed into, where its merged MCP
-   * config files sit (BR1.7). Defaults to the record's root.
-   */
+  /** Workspace root the writer installed into, where merged MCP configs sit; defaults to the record's root. */
   workspaceRoot?: string;
 }
 
@@ -139,11 +118,7 @@ export interface InstallRecordServiceOptions {
   now?: () => Date;
 }
 
-/**
- * Root-relative paths of every repository-scope MCP config file in the
- * built-in layouts, e.g. `.vscode/mcp.json`. These files are merged, not
- * owned, so they are never recorded (BR1.7).
- */
+/** Repository-scope MCP config paths of the built-in layouts; merged, not owned, so never recorded. */
 const mergedMcpConfigPaths = (): string[] => {
   const prefix = WORKSPACE_ROOT_TOKEN;
   const paths = new Set<string>();
@@ -159,14 +134,10 @@ const mergedMcpConfigPaths = (): string[] => {
 const MERGED_MCP_CONFIG_PATHS = mergedMcpConfigPaths();
 
 /**
- * Whether a root-relative path is a merged MCP config file of the install's
- * workspace. The workspace root may sit below the git root, so the layout
- * path is taken relative to it. Only that exact path counts: a bundle file
- * with the same name elsewhere (e.g. a plugin's own `plugins/foo/.mcp.json`)
- * is owned by the bundle and is recorded.
- * @param relative - Path relative to the git root, forward slashes.
- * @param workspacePrefix - Workspace root relative to the git root, forward slashes; `''` when they are the same.
- * @returns Whether to leave the path out of the record.
+ * Whether a git-root-relative path is exactly a merged MCP config file of the
+ * install's workspace; a same-named bundle file elsewhere is still recorded.
+ * @param relative - Path relative to the git root.
+ * @param workspacePrefix - Workspace root relative to the git root; `''` when they are the same.
  */
 export const isMergedMcpConfigPath = (relative: string, workspacePrefix = ''): boolean =>
   MERGED_MCP_CONFIG_PATHS.some((mcpPath) => relative === (workspacePrefix === '' ? mcpPath : `${workspacePrefix}/${mcpPath}`));
@@ -177,10 +148,6 @@ const createBundle = (): BundleRecord => {
   return bundle;
 };
 
-/**
- * Every installed path listed by any entry of the given records.
- * @param records - Records to scan.
- */
 const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
   const listed = new Set<string>();
   for (const record of records) {
@@ -195,7 +162,7 @@ const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
   return listed;
 };
 
-/** Records installs in the shared install record (contract C3). */
+/** Records installs and uninstalls in the shared install record. */
 export class InstallRecordService {
   private readonly store: RecordStore;
   private readonly fs: RecordFs;
@@ -208,7 +175,7 @@ export class InstallRecordService {
   }
 
   /**
-   * Reject a tool, source type or key the record cannot hold (BR1.2, BR1.4, BR3.7).
+   * Reject a tool, source type or key the record cannot hold.
    * @param input - Install to record.
    */
   private validateInput(input: RecordInstallInput): void {
@@ -230,10 +197,6 @@ export class InstallRecordService {
     }
   }
 
-  /**
-   * The other repository file at the same root, if the location is a repository file.
-   * @param location - Target location.
-   */
   private otherLocation(location: RecordLocation): RecordLocation | undefined {
     if (location.level !== 'repository') {
       return undefined;
@@ -243,9 +206,7 @@ export class InstallRecordService {
   }
 
   /**
-   * An absolute written path as a path relative to the root, before confinement.
-   * Falls back to real paths when the root was given through a symlink (e.g.
-   * `/var` and `/private/var` on macOS).
+   * A written path relative to the root; falls back to real paths when the root is behind a symlink.
    * @param root - Level root.
    * @param written - Absolute path from the writer.
    */
@@ -269,8 +230,7 @@ export class InstallRecordService {
   }
 
   /**
-   * The workspace root relative to the record root, forward slashes; `''` when
-   * they are the same folder (also through a symlink) or the workspace is not below it.
+   * The workspace root relative to the record root; `''` when the same or not below it.
    * @param root - Level root.
    * @param workspaceRoot - Workspace root the writer installed into.
    */
@@ -286,10 +246,10 @@ export class InstallRecordService {
   }
 
   /**
-   * Recorded files for the writer's `written` list (BR1.5–BR1.7).
+   * Recorded files for the writer's `written` list: confined, checksummed, merged MCP configs left out.
    * @param root - Level root.
    * @param writtenPaths - Absolute paths from the writer.
-   * @param workspaceRoot - Workspace root the writer installed into; defaults to `root`.
+   * @param workspaceRoot - Workspace root the writer installed into.
    */
   private async toRecordedFiles(root: string, writtenPaths: readonly string[], workspaceRoot?: string): Promise<RecordedFile[]> {
     const workspacePrefix = await this.workspacePrefix(root, workspaceRoot);
@@ -308,11 +268,10 @@ export class InstallRecordService {
   }
 
   /**
-   * Remove an entry from a record, and its bundle when no tool is left (BR3.6).
+   * Remove an entry, and its bundle when no tool is left; returns the removed entry.
    * @param record - Record to change.
    * @param bundleId - Bundle id.
    * @param tool - Tool key.
-   * @returns The removed entry, if there was one.
    */
   private removeEntry(record: InstallRecord, bundleId: string, tool: string): ToolEntry | undefined {
     const bundle = Object.hasOwn(record.bundles, bundleId) ? record.bundles[bundleId] : undefined;
@@ -328,9 +287,9 @@ export class InstallRecordService {
   }
 
   /**
-   * Remove a source from a record when no entry in it uses the source any more.
+   * Remove a source when no entry in the record uses it any more.
    * @param record - Record to change.
-   * @param sourceId - Source key of the removed entry.
+   * @param sourceId - Source key.
    */
   private dropUnusedSource(record: InstallRecord, sourceId: string): void {
     if (!Object.hasOwn(record.sources, sourceId)) {
@@ -344,10 +303,9 @@ export class InstallRecordService {
   }
 
   /**
-   * Save a changed repository file, or remove it when it has no bundles left
-   * (BR3.6; uninstall of the last entry). Removing the local-only file also
-   * removes its line from `info/exclude` (BR2.3).
-   * @param other - The file, as loaded and changed.
+   * Save a changed repository file, or remove it when it has no bundles left.
+   * Removing the local-only file also removes its `info/exclude` line.
+   * @param other - The loaded, changed file.
    */
   private async saveOther(other: LoadedRecord): Promise<string[]> {
     if (Object.keys(other.record.bundles).length > 0) {
@@ -367,19 +325,11 @@ export class InstallRecordService {
   }
 
   /**
-   * Record that a tool installed a bundle (workflow W1 steps 6–12).
-   *
-   * Loads both repository files, replaces only `bundles.<bundleId>.tools.<tool>`
-   * in the target file, records the source, moves the entry out of the other
-   * file, and saves the target file first, then the other one if it changed.
-   * Deletes nothing.
-   * @param input - The U1 `recordInstall` input.
+   * Record that a tool installed a bundle, moving the entry out of the other
+   * repository file. Saves the target file first; deletes nothing.
+   * @param input - Install to record.
    * @returns The change, with the superseded files to delete after the save.
-   * @throws {RegistryError} `RECORD.UNKNOWN_TOOL` for a tool that is not a target
-   * type; `RECORD.MALFORMED` for a bad source type, a mismatch with `source.type`,
-   * or a source without a type or url; `RECORD.PATH_OUTSIDE_ROOT` for a written
-   * path outside the root; any `RECORD.*` error from loading or saving. The record
-   * on disk is unchanged when the target save fails.
+   * @throws {RegistryError} A `RECORD.*` error; the record is unchanged when the target save fails.
    */
   public async recordInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
     this.validateInput(input);
@@ -394,7 +344,6 @@ export class InstallRecordService {
     const moved = other === undefined ? undefined : this.removeEntry(other.record, bundleId, tool);
     previous.push(moved);
     if (other !== undefined && moved !== undefined) {
-      // The other file no longer needs the source when nothing else in it uses it.
       this.dropUnusedSource(other.record, moved.sourceId);
     }
 
@@ -436,23 +385,14 @@ export class InstallRecordService {
   }
 
   /**
-   * Record that a tool's install of a bundle was removed (repository-scope
-   * uninstall, FR4.1 U1 part, FR4.2).
-   *
-   * Loads both repository files and removes only `bundles.<bundleId>.tools.<tool>`
-   * from whichever of them holds it, and the bundle when no tool is left. A
-   * source no entry uses any more is dropped. The removed entry's files come
-   * back in `deletedFiles`, except any path another entry in either file still
-   * lists, which goes to `keptSharedFiles`. Each changed file is saved, or
-   * removed when it has no bundles left. Deletes no installed file: pass the
-   * result to {@link deleteSuperseded} after this returns.
-   * @param input - The file the caller resolved (either repository file), the bundle id and the tool.
-   * @param input.location - A repository record location; both files at its root are read.
+   * Record that a tool's install of a bundle was removed, from whichever
+   * repository file holds it. Paths another entry still lists go to
+   * `keptSharedFiles`. Deletes no installed file.
+   * @param input - Location, bundle id and tool.
+   * @param input.location - Either repository record location; both files at its root are read.
    * @param input.bundleId - Bundle id.
    * @param input.tool - The target's type.
-   * @returns The change: the file the entry was removed from, the files to delete and the shared files kept.
-   * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` when neither file has the
-   * entry (nothing is changed); any `RECORD.*` error from loading or saving.
+   * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` when neither file has the entry.
    */
   public async recordUninstall(input: { location: RecordLocation; bundleId: string; tool: string }): Promise<RecordInstallResult> {
     const { location, bundleId, tool } = input;
@@ -499,13 +439,9 @@ export class InstallRecordService {
   }
 
   /**
-   * Delete the superseded files of a saved change (W1 step 13, BR3.4, NFR4.2).
-   *
-   * Each path goes through the delete-time confinement check; only a regular
-   * file or a symlink (never followed) is removed. A folder, a refused path or
-   * a failed removal is a warning; the saved record is not changed.
-   * @param change - The change returned by {@link recordInstall}, after it was saved.
-   * @returns The removed paths and one warning per skipped path.
+   * Delete the files of a saved change. Only regular files and symlinks are
+   * removed; anything refused or failing becomes a warning.
+   * @param change - The saved change.
    */
   public async deleteSuperseded(change: Pick<RecordChange, 'deletedFiles' | 'location'>): Promise<DeleteSupersededResult> {
     const deleted: string[] = [];
