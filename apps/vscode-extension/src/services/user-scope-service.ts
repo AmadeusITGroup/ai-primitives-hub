@@ -92,11 +92,7 @@ export interface CopilotFile {
   transformedContent?: string;
 }
 
-/**
- * One item of a bundle's cached manifest as it sits in the user folders: a
- * skill folder, or a prompt, instructions, chat mode or agent target with
- * what is at its path now.
- */
+/** One item of a bundle's cached manifest: a skill folder, or a file target with what is at its path now. */
 type SyncedTarget =
   | { kind: 'skill'; name: string; dir: string }
   | { kind: 'file'; bundleFile: string; copilotFile: CopilotFile; existing: PathExistsResult };
@@ -576,10 +572,7 @@ export class UserScopeService implements IScopeService {
     fs.rmdirSync(dir);
   }
 
-  /**
-   * Every file under a folder; symlinks are listed, not followed.
-   * @param dir - Absolute folder.
-   */
+  // Symlinks are listed, not followed.
   private async listFiles(dir: string): Promise<string[]> {
     const files: string[] = [];
     for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -589,11 +582,7 @@ export class UserScopeService implements IScopeService {
     return files;
   }
 
-  /**
-   * Whether a regular target file still holds the bundle's content, line endings aside.
-   * @param bundleFile - Bundle-relative file, for the content transform.
-   * @param copilotFile - Source and target of the file.
-   */
+  // Whether a copied target still holds the bundle's content, line endings aside.
   private async isUnchangedCopy(bundleFile: string, copilotFile: CopilotFile): Promise<boolean> {
     try {
       if (!fs.existsSync(copilotFile.sourcePath)) {
@@ -608,12 +597,7 @@ export class UserScopeService implements IScopeService {
     }
   }
 
-  /**
-   * Walk a bundle's cached deployment manifest the way {@link syncBundle} wrote
-   * it, confined to the bundle cache; bad items are logged and skipped.
-   * @param bundleId - Bundle id.
-   * @returns The manifest's items; `undefined` when the bundle has no cached manifest.
-   */
+  // The cached manifest's items as syncBundle wrote them, confined to the bundle cache; bad items are logged and skipped.
   private async syncedTargets(bundleId: string): Promise<SyncedTarget[] | undefined> {
     const bundlesPath = path.join(this.context.globalStorageUri.fsPath, 'bundles');
     const bundlePath = await resolveExistingPathInside(bundlesPath, bundleId);
@@ -745,13 +729,8 @@ export class UserScopeService implements IScopeService {
   }
 
   /**
-   * The user-level files this profile synced for a bundle, from its cached
-   * manifest (BR20.2): the paths {@link unsyncBundle} would remove. A prompt,
-   * instructions, chat mode or agent counts when its target is a symlink or a
-   * copy matching the bundle's content; a skill counts with every file in its
-   * folder. A file the user changed or wrote is not listed, and a manifest
-   * item {@link syncedTargets} skips (a source outside the bundle cache, an
-   * invalid target id) gives no path.
+   * The user-level files this profile synced for a bundle: the paths
+   * {@link unsyncBundle} would remove; files the user changed are left out.
    * @param bundleId - Bundle id.
    * @returns Absolute paths; empty when the bundle has no cached manifest.
    */

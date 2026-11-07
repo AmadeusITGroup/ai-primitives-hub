@@ -1208,8 +1208,7 @@ export class RegistryManager {
       newSourceId,
       {
         listSources: () => this.storage.getSources(),
-        // Called once the replacement is resolved: the old prompt-registry files
-        // are migrated first, so the remap changes only the 3.0.0 records (BR18.1).
+        // Older files are migrated first, so the remap changes only the 3.0.0 records.
         remapLockfileSourceId: workspaceRoot
           ? async (oldId, newId, descriptor) => {
             await this.recordAdapter.migrateBeforeWrite('repository', workspaceRoot);
@@ -1585,7 +1584,6 @@ export class RegistryManager {
    * @param silent
    */
   public async installBundle(bundleId: string, options: InstallOptions, silent = false): Promise<InstalledBundle> {
-    // Older records of the level are migrated before the first record change (BR18.1).
     await this.migrateBeforeWrite(options.scope);
     // See uninstallBundle's identical, documented `as InstalledBundle` cast:
     // core's DeploymentManifest.mcpServers is intentionally looser than this
@@ -1775,7 +1773,6 @@ export class RegistryManager {
     // Guard the item updateRegistryBundle picks (storage first), so a user-scope install with the same id is never refused.
     const target = (await this.listInstalledBundles()).find((bundle) => bundle.bundleId === bundleId);
     if (target) {
-      // Older records of the item's level are migrated before the guard reads the record (BR18.1).
       await this.prepareWrite(bundleId, target.scope, 'update');
     }
     // A repository entry updates from the source an install would record.
@@ -2106,14 +2103,9 @@ export class RegistryManager {
    * stay here (presentation-only VS Code glue) — `onLog` forwards
    * `'info'`-level events to the progress notification in addition to
    * the `Logger`, matching the original checkpoint messages.
-   *
-   * A profile installs at user scope, and a local profile writes through
-   * `BundleInstaller.installFromBuffer` directly, so the user level's older
-   * records are migrated once here, before anything is deactivated or
-   * installed (BR18.1): no profile install writes the user record first, and
-   * the parallel installs start after the migration finished.
+   * The user level is migrated once here, before the parallel installs start.
    * @param profileId
-   * @throws {RegistryError} Any `RECORD.*` error from the migration, after it was shown once; nothing was changed then.
+   * @throws {RegistryError} Any `RECORD.*` error from the migration, after it was shown once.
    */
   public async activateProfile(profileId: string): Promise<void> {
     return await vscode.window.withProgress({
