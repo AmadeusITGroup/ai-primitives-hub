@@ -73,10 +73,8 @@ module.exports = {
   setupMocks,
   mockRelease,
   mockRepo,
-  // Every test gets its own XDG config folder, so the shared user record
-  // (`$XDG_CONFIG_HOME/ai-primitives-hub/ai-primitives-hub.user.lock.json`)
-  // written by user-scope installs never touches the real ~/.config and is
-  // never seen by another test.
+  // Each test gets its own XDG config folder, so the shared user record never
+  // touches the real ~/.config or leaks between tests.
   mochaHooks: {
     beforeEach() {
       xdgIsolation.saved = process.env.XDG_CONFIG_HOME;

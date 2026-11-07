@@ -141,7 +141,7 @@ const bundleZip = (): Buffer => {
 
 /**
  * The fixture bundle as the extension's configured local source lists it.
- * @param bundleDir - Fixture bundle folder (the CLI's `--from`).
+ * @param bundleDir - Fixture bundle folder.
  */
 const fixtureBundle = (bundleDir: string): Bundle =>
   testBundle({ id: BUNDLE_ID, name: 'Cross Delivery Bundle', version: '1.4.2', sourceId: `local-${path.basename(bundleDir)}` });
@@ -291,7 +291,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
   let tempRoot: string;
   let bundleDir: string;
   let home: string;
-  /** `USERPROFILE`, a folder other than `HOME`: nothing may be written under it (NFR4.17). */
+  /** `USERPROFILE`, a folder other than `HOME`: nothing may be written under it. */
   let userProfile: string;
   let cli: CliModules;
   let manager: RegistryManager;
@@ -310,7 +310,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
     ({ tempRoot, bundleDir } = createFixture());
     home = path.join(tempRoot, 'home');
     fs.mkdirSync(home, { recursive: true });
-    // A different USERPROFILE: both must use HOME as the one home (NFR4.17).
+    // A different USERPROFILE: both must use HOME as the one home.
     userProfile = path.join(tempRoot, 'profile');
     fs.mkdirSync(userProfile, { recursive: true });
     runCli = cliIn(cli, home, home, userProfile);

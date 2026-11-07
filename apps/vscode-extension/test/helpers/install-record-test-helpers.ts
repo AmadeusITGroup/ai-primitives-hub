@@ -222,10 +222,9 @@ export const writeInstallRecord = (root: string, fileName: string, spec: RecordS
 };
 
 /**
- * Set process environment variables for one test, e.g. a temp `HOME` so
- * user-scope installs never write the real home folder.
+ * Set process environment variables for one test, e.g. a temp `HOME`.
  * @param values - Variables to set.
- * @returns Restores the previous values (unset ones are removed again).
+ * @returns Restores the previous values.
  */
 export const overrideEnv = (values: Record<string, string>): (() => void) => {
   const saved = Object.entries(values).map(([key]) => [key, process.env[key]] as const);
@@ -244,7 +243,6 @@ export const overrideEnv = (values: Record<string, string>): (() => void) => {
 /**
  * A `Bundle` as a source lists it, with empty catalog fields unless given.
  * @param fields - Id and version, and any field to set.
- * @returns The bundle.
  */
 export const testBundle = (fields: Partial<Bundle> & Pick<Bundle, 'id' | 'version'>): Bundle => ({
   name: fields.id, description: '', author: '', sourceId: '',
@@ -257,7 +255,7 @@ export interface UserRecordManager {
   manager: RegistryManager;
   /** Its real `RegistryStorage`, in `globalStorage`. */
   storage: RegistryStorage;
-  /** `globalStorageUri`: `<tempRoot>/User/globalStorage/acme.extension`. */
+  /** `globalStorageUri`, under `tempRoot`. */
   globalStorage: string;
   /** The `vscode.window.showErrorMessage` stub. */
   showError: sinon.SinonStub;
@@ -266,16 +264,13 @@ export interface UserRecordManager {
 }
 
 /**
- * A fresh `RegistryManager` whose user installs go to a temp home: `env` is
- * set (e.g. `HOME`, `USERPROFILE`), the manager's `globalStorageUri` is
- * under `tempRoot` (so the user MCP config derived from it stays there), its
- * real `RegistryStorage` holds `source`, and the `vscode.window` messages are stubbed.
+ * A fresh `RegistryManager` whose user installs go to a temp home, with one
+ * configured source and stubbed `vscode.window` messages.
  * @param sandbox - Sinon sandbox owning the stubs.
- * @param options - The temp folder, the environment and the configured source.
+ * @param options - Setup options.
  * @param options.tempRoot - Temp folder; removed by `dispose`.
  * @param options.env - Environment variables to set until `dispose`.
  * @param options.source - The configured source.
- * @returns The manager, its storage and `dispose`.
  */
 export const setupUserRecordManager = async (
   sandbox: sinon.SinonSandbox,
@@ -307,8 +302,7 @@ export const setupUserRecordManager = async (
 };
 
 /**
- * Whether anything is at a path, a dangling symlink included (`fs.existsSync`
- * follows links, so it misses one).
+ * Whether anything is at a path, a dangling symlink included.
  * @param file - Absolute path.
  */
 export const isOnDisk = (file: string): boolean => fs.lstatSync(file, { throwIfNoEntry: false }) !== undefined;
