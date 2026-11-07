@@ -1,8 +1,4 @@
-/**
- * Helpers for tests that read 3.0.0 install records
- * (`ai-primitives-hub.lock.json` / `ai-primitives-hub.local.lock.json`)
- * from a real temp git root.
- */
+/** Helpers for tests that read install records from a real temp git root. */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -15,10 +11,7 @@ import {
   LockfileBuilder,
 } from './lockfile-test-helpers';
 
-/**
- * Record file names from core: `RECORD_FILE` is the committed record,
- * `LOCAL_RECORD_FILE` the local-only one.
- */
+/** Committed and local-only record file names. */
 export {
   LOCAL_RECORD_FILE_NAME as LOCAL_RECORD_FILE,
   RECORD_FILE_NAME as RECORD_FILE,
@@ -103,7 +96,6 @@ export const writeInstallRecord = (root: string, fileName: string, spec: RecordS
 /**
  * Snapshot every file under a folder (path → content), for "nothing changed on disk" checks.
  * @param root - Folder to snapshot.
- * @returns Map of root-relative paths to contents, in walk order.
  */
 export const snapshotTree = (root: string): Map<string, string> => {
   const snapshot = new Map<string, string>();

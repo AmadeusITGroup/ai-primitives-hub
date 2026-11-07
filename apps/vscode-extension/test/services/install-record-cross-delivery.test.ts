@@ -1,13 +1,6 @@
 /**
- * Cross-delivery test: CLI writes, extension lists (BR5.3, NFR2 — CLI → extension direction).
- *
- * Runs the real `ai-primitives-hub` CLI `target add` and `install` command
- * implementations (the built `@ai-primitives-hub/cli` package, loaded from
- * `packages/cli/dist`) against a real temp git folder, installing one local
- * fixture bundle (one prompt, one instruction) for `vscode` and `kiro` at
- * repository scope. The extension's `RegistryManager.listInstalledBundles`
- * then reads the same folder and must show the bundle with the recorded
- * version and repository scope. No network.
+ * Cross-delivery test: the built CLI installs a local bundle for vscode and
+ * kiro into a temp git folder, and the extension lists it. No network.
  */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
@@ -63,11 +56,7 @@ interface CliModules {
   commandClasses: unknown[];
 }
 
-/**
- * Load the built CLI command implementations from `packages/cli/dist`.
- * The extension has no package dependency on the CLI, so the test resolves
- * the monorepo package by walking up from this file.
- */
+/** Load the built CLI from `packages/cli/dist`; the extension has no package dependency on it. */
 const loadCli = (): CliModules => {
   let dir = __dirname;
   while (!fs.existsSync(path.join(dir, 'packages', 'cli', 'package.json'))) {

@@ -126,7 +126,6 @@ export class BundleUpdateCommands {
   }> {
     const successful: string[] = [];
     const failed: { bundleId: string; error: string }[] = [];
-    /** Bundles refused because the CLI installed them (BR5.6). */
     const skipped: string[] = [];
 
     await vscode.window.withProgress(
@@ -188,7 +187,7 @@ export class BundleUpdateCommands {
           return { bundleId: update.bundleId, bundleName, success: true };
         } catch (error) {
           if (isCliManagedError(error)) {
-            // Installed with the CLI: skipped, neither updated nor failed (BR5.6)
+            // Installed with the CLI: skipped, neither updated nor failed
             this.logger.warn(`Skipped updating ${update.bundleId}: ${error.message}`);
             skipped.push(update.bundleId);
             return { bundleId: update.bundleId, bundleName: update.bundleId, success: false, skipped: true };
@@ -433,7 +432,7 @@ export class BundleUpdateCommands {
           }
         );
       } catch (error) {
-        // A CLI-installed bundle: one warning, no success message (BR5.6)
+        // A CLI-installed bundle: one warning, no success message
         if (showCliManagedWarning(error)) {
           return false;
         }

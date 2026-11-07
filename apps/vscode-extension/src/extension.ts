@@ -1165,9 +1165,7 @@ export class PromptRegistryExtension {
   }
 
   /**
-   * Watch `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json`
-   * at the repository root and refresh the repository listing on any change (BR5.7).
-   * A failure to set up the watcher is logged and never blocks activation.
+   * Refresh the repository listing when an install record at the git root changes; never blocks activation.
    * @param workspaceRoot - Workspace folder the git-root walk starts from.
    */
   private async subscribeInstallRecordChanges(workspaceRoot: string): Promise<void> {
@@ -1206,7 +1204,7 @@ export class PromptRegistryExtension {
       // Subscribe to lockfile changes to refresh UI when lockfile is modified externally
       this.disposables.push(this.subscribeLockfileChanges(this.lockfileManager));
 
-      // Also watch the 3.0.0 install records the CLI writes at the git root (BR5.7)
+      // Also watch the install records the CLI writes at the git root
       await this.subscribeInstallRecordChanges(repositoryPath);
 
       // Initialize RepositoryActivationService for this workspace

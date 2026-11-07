@@ -1,10 +1,4 @@
-/**
- * Install record listing contract (BR5.1, BR5.2, BR5.4, BR5.5).
- *
- * Drives `RegistryManager.listInstalledBundles('repository')` against a real
- * temp git root; only `RegistryStorage`, `getWorkspaceRoot()` and the VS Code
- * notification API are stubbed.
- */
+/** Install record listing through `RegistryManager.listInstalledBundles('repository')` on a real temp git root. */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -63,7 +57,7 @@ suite('Install record listing (repository scope)', () => {
     cleanupTestWorkspace(root);
   });
 
-  test('the new record wins over the old lockfile for the same bundle id', async () => {
+  test('the install record wins over the old lockfile for the same bundle id', async () => {
     writeInstallRecord(root, RECORD_FILE, {
       shared: { vscode: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/shared.prompt.md' } }
     });
