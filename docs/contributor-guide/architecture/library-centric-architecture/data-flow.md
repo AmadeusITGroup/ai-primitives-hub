@@ -232,7 +232,7 @@ sequenceDiagram
     CLI-->>User: ✓ Installed to my-vscode (Record: level and path)
 ```
 
-Text version: the CLI loads the target, then selects and loads the install record for the target's level (migrating older `prompt-registry` files or the old user lockfile before the first change), resolves, downloads, extracts and validates the bundle, writes the files with the target's writer, records the tool's entry with checksums taken from disk, saves the record atomically, and deletes files the previous install wrote that the new one does not. `.ai-primitives-hub/target-state.json` is no longer read or written.
+Text version: the CLI loads the target and the install record for its level (migrating older files first), resolves and writes the bundle, records the tool's entry, saves the record atomically, and deletes files the new install no longer writes.
 
 ## 6. Profile Publish Flow
 

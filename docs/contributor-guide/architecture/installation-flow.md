@@ -103,7 +103,7 @@ Bundle files are copied to the target byte-for-byte and verified after every wri
 - **Post-write verification** — after each write, the installed file is re-read and compared against the bytes the writer intended to write (`verifyWrittenBytes` in `core`'s `domain/install/integrity`). A mismatch throws `FileIntegrityError` (`BUNDLE.INTEGRITY_MISMATCH`) instead of leaving a silently corrupted artifact.
 - **Executable bits** (issue #577) — extractors tag each file's bytes with the permission bits its source recorded, using `withFileMode` (`ExtractedFile.mode`, `rwxrwxrwx` only): `ZipBundleExtractor` from the zip entry's Unix mode, `readLocalBundle` from `FileSystem.stat`. Map copies keep the mode; a byte copy drops it, which means "default mode". Both writers (`FileTreeTargetWriter`, `RepositoryScopeWriter`) call `applyFileMode` (`core`'s `domain/install/file-mode`) after each verified write; it calls the optional `FileSystem.setExecutable`. `NodeFileSystem.setExecutable` adds execute where read is granted (or clears every execute bit for a non-executable entry), never adds write or special bits, and does nothing on Windows. It is best effort: a `chmod` rejected with `EPERM`, `ENOTSUP`, `EOPNOTSUPP` or `EINVAL` (vfat/exFAT mounts, files owned by another user) leaves the mode unchanged instead of failing the install; other errors still propagate. Archives that resolvers synthesize with `buildZip` (`skills`, `awesome-copilot`) record `0644` for every entry. Filesystems without `setExecutable` (in-memory test doubles, the VS Code extension's writer filesystem) keep today's behaviour. Install records store no mode.
 - **Upstream layers already verified** — zip entry CRC-32 is checked during extraction, and governed (`formatVersion: 1`) deployment manifests carry per-file `size` + `sha256` validated against the extracted bytes.
-- **Record checksums** — `InstallRecordService.recordInstall` hashes each written file as it is on disk after the write, so a transformed file's checksum matches what the local-modification check reads. The older 2.0.0 lockfile, still written by the CLI's workspace scope and `profile activate`, keeps `checksumFiles` over the extracted (archive) bytes.
+- **Record checksums** — `InstallRecordService.recordInstall` hashes each file as written on disk, so a transformed file matches the local-modification check. The older 2.0.0 lockfile hashes the extracted bytes.
 
 ## Scope Selection
 
@@ -180,13 +180,13 @@ For local-only mode, paths are added to `.git/info/exclude`. The repository-scop
 ai-primitives-hub.local.lock.json
 ```
 
-The local-only record (`ai-primitives-hub.local.lock.json`) is added to `.git/info/exclude` by `RecordStore.save` when it is created (`ensureExcluded`, `packages/app/src/records/git-root.ts`) and its line is removed when the file is deleted.
+The local-only record (`ai-primitives-hub.local.lock.json`) is added to `.git/info/exclude` when it is created and removed from it when it is deleted.
 
 This file is local to the user's machine and not committed to Git.
 
 ## Install Records
 
-Installs at repository and user level are recorded in format `3.0.0` install records, shared by the CLI and the extension ([ADR-0011](./adr/0011-ai-primitives-hub-install-records.md)). The types and file names are in `packages/core/src/domain/install/record-types.ts`, the JSON Schema in `packages/core/src/public/schemas/install-record.schema.json`.
+Repository and user installs are recorded in format `3.0.0` install records shared by the CLI and the extension ([ADR-0011](./adr/0011-ai-primitives-hub-install-records.md)). Types and file names are in `packages/core/src/domain/install/record-types.ts`, the schema in `packages/core/src/public/schemas/install-record.schema.json`.
 
 | Level | File | Paths relative to |
 |-------|------|-------------------|
@@ -194,22 +194,20 @@ Installs at repository and user level are recorded in format `3.0.0` install rec
 | Repository, local-only mode | `ai-primitives-hub.local.lock.json` at the git root (in `.git/info/exclude`) | git root |
 | User | `ai-primitives-hub.user.lock.json` in the user config folder (`AppStoragePaths.userRecord`) | home folder |
 
-Each bundle holds one entry per tool under `bundles.<id>.tools.<tool>` (version, `sourceId`, `sourceType`, `installedAt`, and the files it wrote with `sha256:` checksums). The commit mode is implied by the file an entry is in, and one bundle's tools can be split across the two repository files. Entries migrated from older files whose tool is not known use the tool `unknown` with `needsReinstall: true`. Unknown fields are kept on write.
-
-The CLI's workspace scope and `profile activate` still use the older 2.0.0 lockfile (`packages/app/src/stores/json-lockfile-store.ts`); otherwise it is kept for an old-format `--lockfile` and to read and migrate older files.
+Each bundle has one entry per tool under `bundles.<id>.tools.<tool>`, with its version, source and `sha256:` file checksums. The file an entry is in gives its commit mode. Migrated entries with no known tool use the tool `unknown`. The older 2.0.0 lockfile store (`packages/app/src/stores/json-lockfile-store.ts`) remains for migration, the CLI's workspace scope and `profile activate`.
 
 ### Components
 
 | Component | Location | Responsibility |
 |-----------|----------|----------------|
-| `RecordStore` | `packages/app/src/records/record-store.ts` | Locate, load (file gate, parse, schema, path confinement) and atomically save record files |
-| `InstallRecordService` | `packages/app/src/records/install-record-service.ts` | Record a tool's install, return superseded files to delete, list `status` rows, move entries between the repository files, remap source ids |
-| `selectRecord` | `packages/app/src/records/select-record.ts` | Choose the record a command acts on: `--lockfile`, `--scope`, the target's scope, else the default rule (repository record at the git root, else the user record) |
-| `migrateRecords` | `packages/app/src/records/record-migration.ts` | Move the older stores of a level into the record before its first change |
+| `RecordStore` | `packages/app/src/records/record-store.ts` | Load, validate and atomically save record files |
+| `InstallRecordService` | `packages/app/src/records/install-record-service.ts` | Record installs, superseded files, `status` rows, entry moves, source remaps |
+| `selectRecord` | `packages/app/src/records/select-record.ts` | Choose the record a command acts on |
+| `migrateRecords` | `packages/app/src/records/record-migration.ts` | Move a level's older files into the record |
 | `NodeRecordFs`, `RecordSchemaValidator` | `packages/infra/src/records/` | Disk access and schema validation |
-| CLI record wiring | `packages/cli/src/framework/install-record.ts` | CLI composition, migration before writes, the `Record:` output line |
-| `ExtensionRecordAdapter` | `apps/vscode-extension/src/services/extension-record-adapter.ts` | Extension composition: host tool, user record, migration before writes |
-| Install record listing | `apps/vscode-extension/src/services/install-record-listing.ts` | Repository and user items for the extension's views, merged with older files |
+| CLI record wiring | `packages/cli/src/framework/install-record.ts` | CLI composition and the `Record:` output line |
+| `ExtensionRecordAdapter` | `apps/vscode-extension/src/services/extension-record-adapter.ts` | Extension composition (host tool, user record) |
+| Install record listing | `apps/vscode-extension/src/services/install-record-listing.ts` | Repository and user items for the extension's views |
 
 ### Writing a Record
 
@@ -225,23 +223,21 @@ flowchart TD
     G --> H[Delete superseded files]
 ```
 
-Text version: the record is selected and loaded first, so a malformed or hostile file stops the command before anything is written; the level is migrated; the bundle files are written; `recordInstall` replaces only `bundles.<id>.tools.<tool>` and checksums the files on disk; the record is saved through a temp file created in the same folder and renamed over the target; files the previous install wrote and the new one does not are deleted after the save, keeping any file another entry still lists. A repository record whose last bundle is removed is deleted. Read-only commands (`status`, listings) never migrate.
+Text version: load the record (a bad file stops the command before any write), migrate the level, write the bundle files, record the tool's entry, save through a temp file and rename, then delete files the previous install wrote and the new one does not. A repository record with no bundles left is deleted.
 
 ### Migration
 
-Before the first change at a level, `migrateRecords` moves the older stores into the record (see [Migrating older records](../../reference/commands.md#migrating-older-records)):
+Before the first change at a level, `migrateRecords` moves the older files in, all or nothing (see [Migrating older records](../../reference/commands.md#migrating-older-records)):
 
-- Repository: `prompt-registry.lock.json` and `prompt-registry.local.lock.json` at the git root are merged into the record of the same mode, then deleted. Their entries go under `unknown`; paths are kept only when they are safe and the file exists.
-- User: the CLI's 2.0.0 user lockfile is imported once (marked by `importedUserLockfileAt`) and never changed; the extension passes the current profile's `RegistryStorage` user entries, which go under the editor's tool and are then removed from the profile.
-
-A migration loads everything first and either completes or writes nothing.
+- Repository: `prompt-registry.lock.json` and `prompt-registry.local.lock.json` at the git root are merged under `unknown` into the record of the same mode, then deleted.
+- User: the CLI's 2.0.0 user lockfile is imported once (`importedUserLockfileAt`); the extension moves the current profile's user entries under the editor's tool.
 
 ### Single Source of Truth
 
 The install record is the source of truth for repository and user installs:
 
-- `RegistryManager.listInstalledBundles` lists repository and user items from the records; bundles that only an older store lists are still shown until the first change migrates them
-- Workspace-scope installs, user-scope installs in a WSL remote window, and linked `local-skills` installs keep using `RegistryStorage`'s per-profile folders (`ExtensionStoragePaths`)
+- `RegistryManager.listInstalledBundles` lists items from the records, plus bundles only an older file lists until it is migrated
+- Workspace scope, user scope in a WSL remote window and linked `local-skills` installs keep using `RegistryStorage`
 - The extension changes only its own tool's entries; others are read-only (`RECORD.CLI_MANAGED`)
 
 ### File Existence Validation
@@ -250,7 +246,7 @@ When listing repository bundles, the extension validates that bundle files exist
 
 - If files are missing, the bundle is marked with `filesMissing: true`
 - The UI shows a warning indicator for bundles with missing files
-- Use the "Clean Up Stale Repository Bundles" command to remove stale entries; it migrates first and never offers `unknown` entries or entries that list no files
+- Use the "Clean Up Stale Repository Bundles" command to remove stale entries; it never offers `unknown` entries
 
 ### SourceId Generation
 
@@ -286,7 +282,7 @@ When syncing a hub, `loadHubSources` (in `@ai-primitives-hub/app`, `registry/loa
 Orphan handling depends on whether installed bundles reference the orphan:
 
 - **No consumers:** the orphan is removed via `HubSourceSync.removeSource`.
-- **Has consumers + `remapBundleSource` provided:** install record entries (`InstallRecordService.remapSource`, both repository files) and installation records are remapped to the replacement source (the new sourceId from the renamed URL), then the orphan is removed. This ensures bundles continue receiving updates from the new source seamlessly.
+- **Has consumers + `remapBundleSource` provided:** install record entries and installation records are remapped to the replacement source (the new sourceId from the renamed URL), then the orphan is removed. This ensures bundles continue receiving updates from the new source seamlessly.
 - **Has consumers + no `remapBundleSource`:** the orphan is kept alive with a warning, preventing bundles from becoming unmanaged.
 - **Any `addSource` failure this sync:** pruning is skipped entirely to avoid deleting an old source before its replacement lands.
 
@@ -305,11 +301,11 @@ The key is generated using `generateHubKey(url, branch?)`:
 - Take the first 12 characters
 - Append `-{branch}` if branch is not `main` or `master`
 
-The install record does not write `hubs`; a `hubs` map migrated from an older file is carried through unchanged, and the repository activation check still reads hubs from older files.
+The install record does not write `hubs`; a migrated `hubs` map is kept as is.
 
 ### Commit Mode Switching
 
-When switching a bundle between commit and local-only modes, `InstallRecordService.moveEntry` moves the editor's tool entry unchanged between the two repository files:
+When switching a bundle between commit and local-only modes, `InstallRecordService.moveEntry` moves the editor's tool entry between the two repository files:
 
 ```mermaid
 flowchart TD
@@ -327,15 +323,15 @@ flowchart TD
     K --> J
 ```
 
-Text version: the entry leaves one file and is added to the other with its version, source and files; the moved files' git-exclude lines are updated; a record file left with no bundles is deleted, and deleting the local-only file removes its `.git/info/exclude` line. A bundle whose only entry is `unknown` cannot be moved until it is reinstalled.
+Text version: the entry moves to the other file unchanged, the git-exclude lines are updated, and an emptied record file is deleted. A bundle whose only entry is `unknown` cannot be moved.
 
 ### Conflict Detection
 
-If the same bundle and tool appear in both repository files, or a record cannot be read, the extension's listing shows the problem once per file path and content and still lists the rest. Commands that change a record stop with a `RECORD.*` error naming the file and write nothing.
+A bundle and tool in both repository files, or an unreadable record, is reported once in the extension's listing. Commands that change a record stop with a `RECORD.*` error and write nothing.
 
 ## Repository Activation
 
-When a workspace with an install record (or an older `prompt-registry` lockfile) is opened, `RepositoryActivationService` checks for sources and hubs the records name but the user has not configured. Sources come from both record files and the older files, hubs from the older files only. This detection is **deferred until first-run setup is complete** to avoid confusing users with source configuration prompts before they've configured the extension.
+When a workspace with an install record (or an older `prompt-registry` lockfile) is opened, `RepositoryActivationService` checks for sources and hubs the records name but the user has not configured. This detection is **deferred until first-run setup is complete** to avoid confusing users with source configuration prompts before they've configured the extension.
 
 ### Setup Timing
 
@@ -372,7 +368,7 @@ flowchart TD
     G --> Z
 ```
 
-Text version: records are read on workspace open; if none is found, or the repository was declined before, nothing happens; otherwise sources and hubs that are not configured are counted and shown in one notification, naming any `credentialRef` without resolving it. A local source whose folder resolves outside the repository is skipped.
+Text version: on workspace open, unless the repository was declined before, the records are read and unconfigured sources and hubs are reported in one notification, naming any `credentialRef` without resolving it.
 
 ## AwesomeCopilot Flow
 

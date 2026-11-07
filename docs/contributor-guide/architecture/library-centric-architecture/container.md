@@ -137,7 +137,7 @@ Infrastructure adapters for external integrations:
 - **Harvester**: Bundle discovery from hub sources
 - **Search Engine**: BM25 full-text search with faceted filtering
 - **Storage**: Index store (JSON), blob cache, layout-config and hub/profile stores
-- **Install records**: `NodeRecordFs` and the `3.0.0` `RecordSchemaValidator` used by `app`'s `RecordStore`
+- **Install records**: `NodeRecordFs` and `RecordSchemaValidator`, used by `app`'s `RecordStore`
 - **AppStorage**: XDG Base Directory-compliant storage abstraction
 - **Template Engine**: Scaffolding templates for all primitive types
 - **Downloaders**: Asset downloading from GitHub releases

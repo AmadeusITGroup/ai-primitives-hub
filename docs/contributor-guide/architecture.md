@@ -160,9 +160,9 @@ and [Hub Schema](../reference/hub-schema.md) for field definitions.
 | Boundary | Current implementation |
 |---|---|
 | Source content | GitHub, Azure DevOps, URLs, local files, APM, skills, and Awesome Copilot adapters where supported by the relevant source model |
-| Shared application state | `AppStorage` port with the XDG-based infrastructure implementation, including the shared user install record (`ai-primitives-hub.user.lock.json`) |
-| Extension state | VS Code extension storage facades (`ExtensionAppStorage`, with the per-profile bundle-record folders) plus the install records |
-| Repository installation state | Install records `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json` at the git root (format `3.0.0`, one entry per bundle and tool; older `prompt-registry.*` files are migrated) |
+| Shared application state | `AppStorage` port with the XDG-based infrastructure implementation, including the user install record path |
+| Extension state | VS Code extension storage facades (`ExtensionAppStorage`) plus the install records |
+| Repository installation state | Install records `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json` at the git root (ADR-0011) |
 | Target files | Host- and scope-aware writers/layout resolution |
 | MCP state | Host configuration files plus managed-server tracking |
 

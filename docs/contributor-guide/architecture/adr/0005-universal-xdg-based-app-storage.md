@@ -1,6 +1,6 @@
 # ADR-0005: Universal, XDG-Based Application Storage Port
 
-**Status:** Accepted. Superseded in part by [ADR-0011](./0011-ai-primitives-hub-install-records.md) (installed-record paths)
+**Status:** Accepted. Installed-record paths superseded by [ADR-0011](./0011-ai-primitives-hub-install-records.md)
 
 ## Context
 
