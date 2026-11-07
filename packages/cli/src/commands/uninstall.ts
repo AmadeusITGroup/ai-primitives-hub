@@ -58,10 +58,8 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   Command,
-  type CommandDefinition,
   type Context,
   createLayoutLoader,
-  defineCommand,
   failWith,
   findProjectLockfile,
   formatOutput,
@@ -1112,52 +1110,3 @@ async function performAllUninstall(
   });
   return 0;
 }
-
-/**
- * Build the `uninstall` command.
- * @param opts - Command options.
- * @returns CommandDefinition wired to the framework adapter.
- */
-export const createUninstallCommand = (
-  opts: UninstallOptions = {}
-): CommandDefinition =>
-  defineCommand({
-    path: ['uninstall'],
-    description: 'Remove bundles from a configured target.',
-    category: 'Install & Manage',
-    run: async ({ ctx }: { ctx: Context }): Promise<number> => {
-      const fmt = opts.output ?? 'text';
-      const { bundle: noBundle, lockfile: noLockfile, all: noAll } = validateInputs(opts, { flags: ['bundle', 'lockfile', 'all'] });
-      if (noBundle && noLockfile && noAll) {
-        return failWith(ctx, fmt, 'uninstall', new RegistryError({
-          code: 'USAGE.MISSING_FLAG',
-          message: 'uninstall: provide <bundle-id>, --lockfile <path>, or --all',
-          hint: 'Examples:\n'
-            + '  ai-primitives-hub uninstall <bundle-id> --target my-vscode\n'
-            + '  ai-primitives-hub uninstall --lockfile ai-primitives-hub.lock.json\n'
-            + '  ai-primitives-hub uninstall --all --target my-vscode'
-        }));
-      }
-
-      try {
-        const targetName = await resolveTargetName(opts.target, 'uninstall', ctx, () => loadTargets(ctx));
-        const configuredTarget = await resolveTarget(targetName, 'uninstall', ctx, () => loadTargets(ctx));
-        const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
-
-        if (opts.all === true) {
-          return await performAllUninstall(opts, target, ctx, fmt);
-        }
-
-        if (opts.lockfile !== undefined && opts.lockfile.length > 0) {
-          return await performLockfileUninstall(opts, target, ctx, fmt);
-        }
-
-        return await performBundleUninstall(opts, target, ctx, fmt, opts.target !== undefined && opts.target.length > 0);
-      } catch (err) {
-        if (err instanceof RegistryError) {
-          return failWith(ctx, fmt, 'uninstall', err);
-        }
-        throw err;
-      }
-    }
-  });
