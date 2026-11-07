@@ -366,6 +366,8 @@ export const recordRepositoryInstall = async (
 export interface PreparedRepositoryUninstall {
   /** The file named by the commit mode; `recordUninstall` reads both files from its root. */
   location: RecordLocation;
+  /** Every record file of the level the uninstall reads. */
+  locations: readonly RecordLocation[];
   service: InstallRecordService;
   /** The target's type. */
   tool: string;
@@ -395,6 +397,25 @@ export interface RecordedRepositoryUninstall {
   warnings: string[];
 }
 
+/** What each uninstall prepare supplies; {@link toPreparedUninstall} adds the rest. */
+type PreparedUninstallParts = Omit<PreparedRepositoryUninstall, 'loneUnknown' | 'migration'> & { migration?: MigrationReport | undefined };
+
+/**
+ * Finish a {@link PreparedRepositoryUninstall}: the bundles whose only entry
+ * at the level is `unknown` (BR21.3) and the migration report, when one ran.
+ * @param parts - Location, files, service, tool, entries and the level's extras.
+ * @returns The prepared uninstall.
+ * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+ */
+const toPreparedUninstall = async (parts: PreparedUninstallParts): Promise<PreparedRepositoryUninstall> => {
+  const { migration, ...rest } = parts;
+  return {
+    ...rest,
+    loneUnknown: new Set((await parts.service.findLoneUnknown(parts.locations)).keys()),
+    ...(migration === undefined ? {} : { migration })
+  };
+};
+
 /**
  * Load, check and migrate the repository record files before anything is removed.
  * Bundles not in `entries` fall back to the old store.
@@ -416,15 +437,15 @@ export const prepareRepositoryUninstall = async (
     const { store, service, locations, location, exclusion } = await openRepositoryRecords(ctx, target, fs, options.locations);
     const given = options.locations !== undefined && options.locations.length > 0;
     const migration = options.dryRun === true || given ? undefined : await migrateLevel({ store, fs, targets: locations, env: ctx.env });
-    return {
+    return await toPreparedUninstall({
       location,
+      locations,
       service,
       tool: target.type,
       exclusion,
       entries: await service.entriesForTool(locations, target.type),
-      loneUnknown: new Set((await service.findLoneUnknown(locations)).keys()),
-      ...(migration === undefined ? {} : { migration })
-    };
+      migration
+    });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
@@ -484,16 +505,16 @@ export const prepareUserUninstall = async (
     // Once the old user lockfile was imported, the user level no longer reads it.
     const imported = record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
     const keepPaths = entries.size === 0 || imported ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, location.root);
-    return {
+    return await toPreparedUninstall({
       location,
+      locations: [location],
       service,
       tool: target.type,
       entries,
       keepPaths,
-      loneUnknown: new Set((await service.findLoneUnknown([location])).keys()),
       ignoresOldStore: imported,
-      ...(migration === undefined ? {} : { migration })
-    };
+      migration
+    });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
@@ -785,14 +806,14 @@ export const prepareUnknownUninstall = async (
   try {
     const location = await service.holdingLocation(selection.locations, bundleId, UNKNOWN_TOOL_NAME);
     return {
-      uninstall: {
+      uninstall: await toPreparedUninstall({
         location: location ?? selection.locations[0],
+        locations: selection.locations,
         service,
         tool: UNKNOWN_TOOL_NAME,
         entries: new Map(),
-        loneUnknown: new Set((await service.findLoneUnknown(selection.locations)).keys()),
-        ...(migration === undefined ? {} : { migration })
-      }
+        migration
+      })
     };
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
