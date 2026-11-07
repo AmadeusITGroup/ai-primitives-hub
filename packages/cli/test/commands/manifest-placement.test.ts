@@ -402,7 +402,6 @@ profiles:
     expect(deactivated.exitCode, deactivated.stdout).toBe(0);
     expect(await listFiles(kiroDir)).toEqual([]);
 
-    // Put the activated record back and replay it.
     await writeFile(userRecord, recordCopy);
     const replayed = await run(['install', '--lockfile', userRecord, '--target', 'kiro-ide', '-o', 'json']);
     expect(replayed.exitCode, replayed.stdout).toBe(0);

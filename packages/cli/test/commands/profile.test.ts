@@ -280,10 +280,7 @@ profiles:
     const userRecord = (): string => userRecordPath(workspaceEnv(workspace));
     const exists = (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
     const toolsOf = (record: InstallRecord, bundleId: string): string[] => Object.keys(record.bundles[bundleId]?.tools ?? {});
-    /**
-     * Write an older 2.0.0 `prompt-registry.lock.json`, as a profile activated before the record would have left it.
-     * @param bundles - Bundle id → its single installed file, relative to the project.
-     */
+    // An older 2.0.0 file, as a profile activated with an older release leaves it.
     const writeOldLock = (bundles: Record<string, string>): Promise<string> => writeOldLockfile(
       oldLockPath(),
       Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, { version: '1.0.0', files: [file], sourceId: 'local-foo-src' }])),
@@ -592,9 +589,7 @@ profiles:
   });
 
   it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('rolls the activation back when recording fails after the bundle is written', async () => {
-    // Make the folder of the user record read-only: the record loads (it does
-    // not exist yet), the bundle files are written and the activation state +
-    // hub flag are already saved (in sub-folders) when the record write fails.
+    // A read-only record folder: files and activation state are written before the record write fails.
     const userRecord = userRecordPath(env());
     const recordDir = path.dirname(userRecord);
     await mkdir(path.join(recordDir, 'hubs', 'profile-activations'), { recursive: true });
@@ -909,7 +904,7 @@ profiles:
     await rm(workspace, { recursive: true, force: true });
   });
 
-  it('records the same source as install for an Artifactory source configured without authMode (BR3.2, NFR4.11)', async () => {
+  it('records the same source as install for an Artifactory source configured without authMode', async () => {
     const activated = await run(['profile', 'activate', 'art', '--target', 'copilot', '-o', 'json']);
     expect(activated.exitCode, activated.stdout).toBe(0);
     const fromProfile = await recordedSource();
