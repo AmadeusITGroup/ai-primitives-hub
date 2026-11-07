@@ -362,11 +362,6 @@ function isRemoteSource(type: string): boolean {
   return type === 'github' || type === 'awesome-copilot' || type === 'skills' || type === 'artifactory';
 }
 
-/**
- * The bundles of a lockfile whose source can be looked up remotely.
- * @param lock Lockfile the bundles are in.
- * @param bundleIds Bundle ids to filter.
- */
 const remoteBundleIds = (lock: Lockfile, bundleIds: readonly string[]): string[] => bundleIds.filter((bundleId) => {
   const src = lock.sources[lock.bundles[bundleId].sourceId];
   return src !== undefined && isRemoteSource(src.type);
@@ -696,13 +691,6 @@ async function applyUpdate(
   await saveTargetState(ctx, target, lockKey, manifest.version);
 }
 
-/**
- * Download, extract and validate a candidate's new version.
- * @param candidate Update candidate, carrying the source it was looked up from.
- * @param http HTTP client.
- * @param tokens Fallback GitHub token provider.
- * @returns The download, its extracted files and the validated manifest.
- */
 async function downloadCandidate(
   candidate: UpdateCandidate,
   http: HttpClient,
@@ -725,13 +713,6 @@ async function downloadCandidate(
   return { dl, files, manifest };
 }
 
-/**
- * Record a bundle's new version in the target's last-installed state.
- * @param ctx CLI context.
- * @param target Target the bundle was written to.
- * @param bundleId Bundle id.
- * @param version New version.
- */
 async function saveTargetState(ctx: Context, target: Target, bundleId: string, version: string): Promise<void> {
   const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
   const existingState = await stateStore.load(target.name);
@@ -829,15 +810,6 @@ const lookupLockfile = (item: RecordPlanItem): Lockfile => ({
   sources: { [item.sourceId]: item.source }
 });
 
-/**
- * Write a downloaded bundle with a target's own writer.
- * @param ctx CLI context.
- * @param target Effective target.
- * @param files Extracted bundle files.
- * @param manifest Validated manifest.
- * @param exclusion The record's `info/exclude` section, for local-only files.
- * @returns The writer's `written` list.
- */
 async function writeForTarget(
   ctx: Context,
   target: Target,
@@ -925,10 +897,6 @@ async function applyRecordUpdate(
   return { version: manifest.version, changes, synced, outOfDate };
 }
 
-/**
- * Text output of the repository record update.
- * @param d Output data.
- */
 function renderRecordUpdateOutput(d: RecordUpdateData & { recordLine: string }): string {
   const lines: string[] = [];
   const updateLines = d.updates.map((u) => `  ${u.bundleId} (${u.tool}): ${u.from} → ${u.to}`);
