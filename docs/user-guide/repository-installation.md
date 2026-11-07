@@ -84,24 +84,18 @@ ai-primitives-hub.local.lock.json
 
 ## The Install Record
 
-Installs are recorded in install record files, shared by the VS Code extension and the CLI. At repository scope they sit at the git root:
+Repository installs are recorded at the git root, in files shared by the VS Code extension and the CLI:
 
 | File | Purpose | Git Tracking |
 |------|---------|--------------|
 | `ai-primitives-hub.lock.json` | Committed bundles | Tracked in Git |
 | `ai-primitives-hub.local.lock.json` | Local-only bundles | Excluded from Git |
 
-The local-only file is added to `.git/info/exclude` when it is created, so your personal installs are never committed. A record file is deleted when its last bundle is removed.
-
-The records:
-
-- Track installed bundles, their versions and the tool each was installed for
-- Record source information for reproducibility (never credentials)
-- Store a checksum of each installed file, used to detect local edits before an update
+The local-only file is added to `.git/info/exclude` when it is created. A record file is deleted when its last bundle is removed. The records keep each bundle's version, tool, source (never credentials) and file checksums, used to detect local edits before an update.
 
 ### Format 3.0.0
 
-Each bundle has one entry per tool (`vscode`, `vscode-insiders`, `kiro`, `windsurf`, …). Installing a bundle for a second tool, from the extension running in another editor or from the CLI, adds that tool's entry and keeps the first one. File paths are relative to the git root.
+Each bundle has one entry per tool (`vscode`, `kiro`, …), so installing it for a second tool, from another editor or the CLI, keeps the first. File paths are relative to the git root.
 
 ```json
 {
@@ -109,15 +103,6 @@ Each bundle has one entry per tool (`vscode`, `vscode-insiders`, `kiro`, `windsu
   "bundles": {
     "my-bundle": {
       "tools": {
-        "kiro": {
-          "files": [
-            { "checksum": "sha256:<64 hex digits>", "path": ".kiro/skills/my-skill/SKILL.md" }
-          ],
-          "installedAt": "2026-01-14T10:35:00.000Z",
-          "sourceId": "my-source",
-          "sourceType": "github",
-          "version": "1.2.0"
-        },
         "vscode": {
           "files": [
             { "checksum": "sha256:<64 hex digits>", "path": ".github/skills/my-skill/SKILL.md" }
@@ -130,7 +115,7 @@ Each bundle has one entry per tool (`vscode`, `vscode-insiders`, `kiro`, `windsu
       }
     }
   },
-  "generatedAt": "2026-01-14T10:35:00.000Z",
+  "generatedAt": "2026-01-14T10:30:00.000Z",
   "generatedBy": "ai-primitives-hub-cli@0.3.0",
   "level": "repository",
   "sources": {
@@ -140,19 +125,17 @@ Each bundle has one entry per tool (`vscode`, `vscode-insiders`, `kiro`, `windsu
 }
 ```
 
-The extension changes only the entries of the editor it runs in. Entries of other tools are shown as read-only, with the CLI command to change them.
+The extension changes only the entries of the editor it runs in; other tools' entries are read-only, with the CLI command to change them.
 
-**Commit `ai-primitives-hub.lock.json`** to version control so team members can see which bundles are installed and which sources they come from. Do not commit `ai-primitives-hub.local.lock.json`.
+**Commit `ai-primitives-hub.lock.json`**, not `ai-primitives-hub.local.lock.json`.
 
 ### User-level installs
 
-User Profile installs are recorded once per machine in `ai-primitives-hub.user.lock.json` in `~/.config/ai-primitives-hub/` (`$XDG_CONFIG_HOME/ai-primitives-hub/` when set), shared by the CLI and every VS Code profile. It uses the same format, with paths relative to your home folder. See [User install record](../reference/commands.md#user-install-record).
+User Profile installs go to one `ai-primitives-hub.user.lock.json` per machine in `~/.config/ai-primitives-hub/` (`$XDG_CONFIG_HOME/ai-primitives-hub/` when set), shared by the CLI and every VS Code profile, with paths relative to your home folder. See [User install record](../reference/commands.md#user-install-record).
 
 ### Older `prompt-registry` files
 
-Releases before 0.3.0 used `prompt-registry.lock.json` and `prompt-registry.local.lock.json`. They keep working: before the first install, update or uninstall in the repository, the extension or the CLI moves them into the new files at the git root and deletes them. Commit the new file and the deletion together.
-
-The older files do not say which tool a bundle was installed for, so migrated bundles are listed as needing a reinstall (tool `unknown`). Install or update them again to record them for your tool; their files are kept. See [Migrating older records](../reference/commands.md#migrating-older-records) and, for older releases and rollback, [Upgrading to 0.3.0: install records](../migration-guide.md#upgrading-to-030-install-records).
+Releases before 0.3.0 used `prompt-registry.lock.json` and `prompt-registry.local.lock.json`. Before the first install, update or uninstall in the repository, they are moved into the new files and deleted; commit both together. Migrated bundles are listed as needing a reinstall (tool `unknown`): install or update them to record them for your tool, keeping their files. See [Migrating older records](../reference/commands.md#migrating-older-records) and [Upgrading to 0.3.0](../migration-guide.md#upgrading-to-030-install-records).
 
 ## Moving Bundles Between Scopes
 
@@ -182,9 +165,9 @@ Moving a bundle preserves its files and version. The extension handles uninstall
 
 ### Joining a Repository with Bundles
 
-When you open a repository whose install record names sources or hubs you have not configured, a notification says how many are missing and names any credentials they need. Add them (for example with **Add Source** or by importing the hub) before installing the recorded bundles.
+When the install record names sources or hubs you have not configured, a notification says how many and which credentials they need. Add them (**Add Source**, or import the hub) before installing the recorded bundles.
 
-To restore the recorded bundles from the command line, run a bare `ai-primitives-hub install` in the repository: it reinstalls every recorded tool that has a configured target, at its recorded version (see [Repository install record](../reference/commands.md#repository-install-record)).
+To restore the recorded bundles from the command line, run a bare `ai-primitives-hub install` in the repository; it reinstalls each recorded tool that has a configured target, at its recorded version.
 
 ### Updating Repository Bundles
 
