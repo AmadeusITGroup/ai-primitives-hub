@@ -2106,7 +2106,14 @@ export class RegistryManager {
    * stay here (presentation-only VS Code glue) — `onLog` forwards
    * `'info'`-level events to the progress notification in addition to
    * the `Logger`, matching the original checkpoint messages.
+   *
+   * A profile installs at user scope, and a local profile writes through
+   * `BundleInstaller.installFromBuffer` directly, so the user level's older
+   * records are migrated once here, before anything is deactivated or
+   * installed (BR18.1): no profile install writes the user record first, and
+   * the parallel installs start after the migration finished.
    * @param profileId
+   * @throws {RegistryError} Any `RECORD.*` error from the migration, after it was shown once; nothing was changed then.
    */
   public async activateProfile(profileId: string): Promise<void> {
     return await vscode.window.withProgress({
@@ -2115,6 +2122,7 @@ export class RegistryManager {
       cancellable: false
     }, async (progress) => {
       progress.report({ message: 'Preparing...' });
+      await this.migrateBeforeWrite('user');
 
       const result = await activateRegistryProfile(
         {
