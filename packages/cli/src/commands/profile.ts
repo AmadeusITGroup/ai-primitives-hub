@@ -49,6 +49,8 @@ import {
   type RecordSourceInput,
   resolveUserConfigPaths,
   type TargetWriter,
+  toLockfileSourceEntry,
+  toRecordSource,
   upsertBundleEntry,
   upsertSource,
   writeBundleSafely,
@@ -424,27 +426,6 @@ type ActivateBundleOutcome =
   | { ok: false; reason: string };
 
 /**
- * The source a profile bundle is recorded with: the same fields
- * `install.ts`'s `performRemoteInstall` records for a hub source, so the
- * record's source trust gate sees the same source either way.
- * @param src Hub source the bundle comes from.
- * @returns The record source.
- */
-const recordSourceFor = (src: RegistrySource): RecordSourceInput => ({
-  sourceId: src.id,
-  type: src.type,
-  url: src.url,
-  ...(src.config?.collectionsPath ? { collectionsPath: src.config.collectionsPath } : {}),
-  ...(src.type === 'artifactory'
-    ? {
-      indexFile: typeof src.config?.indexFile === 'string' ? src.config.indexFile : undefined,
-      authMode: src.config?.authMode === 'bearer' ? 'bearer' : 'anonymous',
-      credentialRef: typeof src.config?.credentialRef === 'string' ? src.config.credentialRef : undefined
-    }
-    : (typeof src.config?.branch === 'string' ? { branch: src.config.branch } : {}))
-});
-
-/**
  * Fetch, validate, and write one profile bundle into one target,
  * mirroring `install.ts`'s `performRemoteInstall` but sourced from an
  * already-resolved `RegistrySource` (from `HubManager.listSources`)
@@ -473,15 +454,10 @@ async function activateBundleForTarget(
   if (!src) {
     return { ok: false, reason: `source "${bundleRef.source}" not found in hub` };
   }
-  const sourceEntry: LockfileSourceEntry = {
-    type: src.type,
-    url: src.url,
-    ...(src.config?.branch ? { branch: src.config.branch } : {}),
-    ...(src.config?.collectionsPath ? { collectionsPath: src.config.collectionsPath } : {}),
-    ...(typeof src.config?.indexFile === 'string' ? { indexFile: src.config.indexFile } : {}),
-    ...(src.config?.authMode === 'anonymous' || src.config?.authMode === 'bearer' ? { authMode: src.config.authMode } : {}),
-    ...(typeof src.config?.credentialRef === 'string' ? { credentialRef: src.config.credentialRef } : {})
-  };
+  // Same record source as `install`, so the source trust gate sees one source.
+  // The fetch entry keeps every recorded field, Artifactory's index file and auth included.
+  const source = toRecordSource(src, src.id);
+  const sourceEntry: LockfileSourceEntry = toLockfileSourceEntry(source);
   // `fetchFilesForSource` only reads `.version`/`.sourceId` off this
   // parameter — the rest are dummy values to satisfy `LockfileBundleEntry`'s
   // shape without fabricating a fake install history.
@@ -524,7 +500,7 @@ async function activateBundleForTarget(
     if (target.scope === 'repository') {
       entry.commitMode = target.commitMode ?? 'commit';
     }
-    return { ok: true, written: result.written, entry, sourceEntry, source: recordSourceFor(src) };
+    return { ok: true, written: result.written, entry, sourceEntry, source };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
