@@ -60,6 +60,7 @@ import {
 } from '../utils/path-safety';
 import {
   checkPathExists,
+  type PathExistsResult,
 } from '../utils/symlink-utils';
 import {
   IScopeService,
@@ -90,6 +91,15 @@ export interface CopilotFile {
   targetPath: string;
   transformedContent?: string;
 }
+
+/**
+ * One item of a bundle's cached manifest as it sits in the user folders: a
+ * skill folder, or a prompt, instructions, chat mode or agent target with
+ * what is at its path now.
+ */
+type SyncedTarget =
+  | { kind: 'skill'; name: string; dir: string }
+  | { kind: 'file'; bundleFile: string; copilotFile: CopilotFile; existing: PathExistsResult };
 
 /**
  * Service to sync bundle prompts to GitHub Copilot's native directories at user level.
@@ -599,6 +609,58 @@ export class UserScopeService implements IScopeService {
   }
 
   /**
+   * Walk a bundle's cached deployment manifest the way {@link syncBundle} wrote
+   * it, confined to the bundle cache; bad items are logged and skipped.
+   * @param bundleId - Bundle id.
+   * @returns The manifest's items; `undefined` when the bundle has no cached manifest.
+   */
+  private async syncedTargets(bundleId: string): Promise<SyncedTarget[] | undefined> {
+    const bundlesPath = path.join(this.context.globalStorageUri.fsPath, 'bundles');
+    const bundlePath = await resolveExistingPathInside(bundlesPath, bundleId);
+    if (!bundlePath || !(await fs.promises.stat(bundlePath)).isDirectory()) {
+      this.logger.warn(`No installed bundle found for bundle: ${bundleId}`);
+      return undefined;
+    }
+    const manifestPath = await resolveExistingPathInside(bundlePath, 'deployment-manifest.yml');
+    if (!manifestPath) {
+      this.logger.warn(`No manifest found for bundle: ${bundleId}, cannot determine its synced files`);
+      return undefined;
+    }
+    let manifest: DeploymentManifest | undefined;
+    try {
+      manifest = yaml.load(await readFile(manifestPath, 'utf8')) as DeploymentManifest | undefined;
+    } catch (error) {
+      this.logger.warn(`Could not read the manifest of bundle ${bundleId}: ${String(error)}`);
+      return undefined;
+    }
+    const targets: SyncedTarget[] = [];
+    for (const promptDef of manifest?.prompts ?? []) {
+      if (promptDef.type === 'skill') {
+        const skillName = getSkillName(promptDef.file);
+        if (skillName) {
+          targets.push({ kind: 'skill', name: skillName, dir: path.join(this.getCopilotSkillsDirectory('user'), skillName) });
+        }
+        continue;
+      }
+      const sourcePath = await resolveExistingPathInside(bundlePath, promptDef.file);
+      if (!sourcePath || !(await fs.promises.stat(sourcePath)).isFile()) {
+        this.logger.warn(`Skipping invalid prompt source of bundle ${bundleId}: ${promptDef.file}`);
+        continue;
+      }
+      let copilotFile: CopilotFile;
+      try {
+        copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
+      } catch (error) {
+        this.logger.warn(`Skipping prompt with invalid target ID of bundle ${bundleId}: ${promptDef.id} (${String(error)})`);
+        continue;
+      }
+      // checkPathExists sees broken symlinks too (fs.existsSync does not).
+      targets.push({ kind: 'file', bundleFile: promptDef.file, copilotFile, existing: await checkPathExists(copilotFile.targetPath) });
+    }
+    return targets;
+  }
+
+  /**
    * The user-level folders this service writes into, for the record's pre-write home check.
    * @param kinds - Primitive kinds; every routed kind by default.
    * @throws {Error} When an explicitly given kind has no route for the target.
@@ -687,32 +749,21 @@ export class UserScopeService implements IScopeService {
    * manifest (BR20.2): the paths {@link unsyncBundle} would remove. A prompt,
    * instructions, chat mode or agent counts when its target is a symlink or a
    * copy matching the bundle's content; a skill counts with every file in its
-   * folder. A file the user changed or wrote is not listed.
+   * folder. A file the user changed or wrote is not listed, and a manifest
+   * item {@link syncedTargets} skips (a source outside the bundle cache, an
+   * invalid target id) gives no path.
    * @param bundleId - Bundle id.
    * @returns Absolute paths; empty when the bundle has no cached manifest.
    */
   public async syncedTargetPaths(bundleId: string): Promise<string[]> {
-    const bundlePath = path.join(this.context.globalStorageUri.fsPath, 'bundles', bundleId);
-    const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
-    if (!fs.existsSync(manifestPath)) {
-      return [];
-    }
-    const manifest = yaml.load(await readFile(manifestPath, 'utf8')) as DeploymentManifest | undefined;
     const paths: string[] = [];
-    for (const promptDef of manifest?.prompts ?? []) {
-      if (promptDef.type === 'skill') {
-        const skillName = getSkillName(promptDef.file);
-        const skillDir = skillName ? path.join(this.getCopilotSkillsDirectory('user'), skillName) : undefined;
-        if (skillDir !== undefined && fs.existsSync(skillDir)) {
-          paths.push(...await this.listFiles(skillDir));
+    for (const target of await this.syncedTargets(bundleId) ?? []) {
+      if (target.kind === 'skill') {
+        if (fs.existsSync(target.dir)) {
+          paths.push(...await this.listFiles(target.dir));
         }
-        continue;
-      }
-      const sourcePath = path.join(bundlePath, promptDef.file);
-      const copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
-      const existing = await checkPathExists(copilotFile.targetPath);
-      if (existing.exists && (existing.isSymbolicLink || await this.isUnchangedCopy(promptDef.file, copilotFile))) {
-        paths.push(copilotFile.targetPath);
+      } else if (target.existing.exists && (target.existing.isSymbolicLink || await this.isUnchangedCopy(target.bundleFile, target.copilotFile))) {
+        paths.push(target.copilotFile.targetPath);
       }
     }
     return paths;
@@ -739,102 +790,55 @@ export class UserScopeService implements IScopeService {
         return;
       }
 
-      // Read the bundle's manifest to find which files were synced
-      const bundlesPath = path.join(this.context.globalStorageUri.fsPath, 'bundles');
-      const bundlePath = await resolveExistingPathInside(bundlesPath, bundleId);
-      if (!bundlePath || !(await fs.promises.stat(bundlePath)).isDirectory()) {
-        this.logger.warn(`No installed bundle found for bundle: ${bundleId}`);
+      // The bundle's cached manifest tells which files were synced.
+      const targets = await this.syncedTargets(bundleId);
+      if (targets === undefined) {
         return;
       }
-
-      const manifestPath = await resolveExistingPathInside(bundlePath, 'deployment-manifest.yml');
-      if (!manifestPath) {
-        this.logger.warn(`No manifest found for bundle: ${bundleId}, cannot determine files to remove`);
-        return;
-      }
-
-      const manifestContent = await readFile(manifestPath, 'utf8');
-      const manifest = yaml.load(manifestContent) as any;
-
-      if (!manifest.prompts || manifest.prompts.length === 0) {
+      if (targets.length === 0) {
         this.logger.debug(`Bundle ${bundleId} has no prompts to unsync`);
         return;
       }
 
       // Remove each synced file/skill
       let removedCount = 0;
-      for (const promptDef of manifest.prompts) {
-        // Handle skills differently - they are directories
-        if (promptDef.type === 'skill') {
-          const skillName = getSkillName(promptDef.file);
-          if (skillName && isKept(path.join(this.getCopilotSkillsDirectory('user'), skillName))) {
-            this.logger.debug(`Keeping skill listed by another record entry: ${skillName}`);
-          } else if (skillName) {
-            await this.unsyncSkill(skillName, 'user');
-            removedCount++;
-          }
-          continue;
-        }
-
-        const sourcePath = await resolveExistingPathInside(bundlePath, promptDef.file);
-        if (!sourcePath || !(await fs.promises.stat(sourcePath)).isFile()) {
-          this.logger.warn(`Skipping invalid prompt source while unsyncing bundle ${bundleId}: ${promptDef.file}`);
-          continue;
-        }
-
-        let copilotFile: CopilotFile;
-        try {
-          copilotFile = this.determineCopilotFileType(promptDef, sourcePath, bundleId);
-        } catch (error) {
-          this.logger.warn(`Skipping prompt with invalid target ID while unsyncing bundle ${bundleId}: ${promptDef.id} (${error})`);
-          continue;
-        }
-        if (isKept(copilotFile.targetPath)) {
-          this.logger.debug(`Keeping file listed by another record entry: ${path.basename(copilotFile.targetPath)}`);
-          continue;
-        }
-
-        // Use checkPathExists to detect broken symlinks (fs.existsSync returns false for broken symlinks)
-        const existingEntry = await checkPathExists(copilotFile.targetPath);
-
-        if (existingEntry.exists) {
-          // Only remove if it's a symlink (to avoid deleting user's custom files)
-          if (existingEntry.isSymbolicLink) {
-            await unlink(copilotFile.targetPath);
-            if (existingEntry.isBroken) {
-              this.logger.debug(`Removed broken symlink: ${path.basename(copilotFile.targetPath)}`);
-            } else {
-              this.logger.debug(`Removed: ${path.basename(copilotFile.targetPath)}`);
-            }
-            removedCount++;
+      for (const target of targets) {
+        // Skills are directories
+        if (target.kind === 'skill') {
+          if (isKept(target.dir)) {
+            this.logger.debug(`Keeping skill listed by another record entry: ${target.name}`);
           } else {
-            // In some environments (like WSL -> Windows), symlinks might fail and fall back to copy
-            // Check if file content matches source before deleting
-            try {
-              if (fs.existsSync(copilotFile.sourcePath)) {
-                this.logger.debug(`Target is a regular file, checking content before removal: ${path.basename(copilotFile.targetPath)}`);
-                const targetContent = await readFile(copilotFile.targetPath, 'utf8');
-                const sourceContent = await readFile(copilotFile.sourcePath, 'utf8');
-                const transformedContent = this.transformContent(promptDef.file, sourceContent);
-
-                // Normalize line endings (CRLF -> LF) for comparison
-                const normalizedTarget = targetContent.replace(/\r\n/g, '\n');
-                const normalizedSource = transformedContent.replace(/\r\n/g, '\n');
-
-                if (normalizedTarget === normalizedSource) {
-                  await unlink(copilotFile.targetPath);
-                  this.logger.debug(`Removed copied file: ${path.basename(copilotFile.targetPath)}`);
-                  removedCount++;
-                } else {
-                  this.logger.warn(`Skipping modified file: ${path.basename(copilotFile.targetPath)}`);
-                }
-              } else {
-                this.logger.warn(`Skipping non-symlink file (source not found): ${path.basename(copilotFile.targetPath)}`);
-              }
-            } catch (err) {
-              this.logger.warn(`Failed to compare/remove file ${path.basename(copilotFile.targetPath)}: ${err}`);
-            }
+            await this.unsyncSkill(target.name, 'user');
+            removedCount++;
           }
+          continue;
+        }
+
+        const { copilotFile, existing } = target;
+        const name = path.basename(copilotFile.targetPath);
+        if (isKept(copilotFile.targetPath)) {
+          this.logger.debug(`Keeping file listed by another record entry: ${name}`);
+          continue;
+        }
+        if (!existing.exists) {
+          continue;
+        }
+        // Only a symlink, or a copy still holding the bundle's content, is removed (never the user's own file).
+        if (existing.isSymbolicLink) {
+          await unlink(copilotFile.targetPath);
+          this.logger.debug(existing.isBroken ? `Removed broken symlink: ${name}` : `Removed: ${name}`);
+          removedCount++;
+        } else if (await this.isUnchangedCopy(target.bundleFile, copilotFile)) {
+          // In some environments (like WSL -> Windows), symlinks fail and fall back to a copy.
+          try {
+            await unlink(copilotFile.targetPath);
+            this.logger.debug(`Removed copied file: ${name}`);
+            removedCount++;
+          } catch (err) {
+            this.logger.warn(`Failed to remove file ${name}: ${String(err)}`);
+          }
+        } else {
+          this.logger.warn(`Skipping modified or unreadable file: ${name}`);
         }
       }
 

@@ -1049,10 +1049,13 @@ suite('older records (U5)', function () {
     await writeLockfile(abs(OLD_LOCKFILE), lock, nodeLockfileFs);
   };
 
-  /** This profile's 0.9.0 user install: its bundle cache, a symlink into it and the RegistryStorage entry. */
-  const recordProfileInstall = async (): Promise<void> => {
+  /**
+   * This profile's 0.9.0 user install: its bundle cache, a symlink into it and the RegistryStorage entry.
+   * @param cached - The bundle version in the cache; {@link V0} by default.
+   */
+  const recordProfileInstall = async (cached = V0): Promise<void> => {
     const cacheDir = path.join(globalStorage, 'bundles', BUNDLE_ID);
-    writeBundleDir(cacheDir, V0);
+    writeBundleDir(cacheDir, cached);
     fs.mkdirSync(path.dirname(userPath(USER_HELLO)), { recursive: true });
     fs.symlinkSync(path.join(cacheDir, 'prompts', 'hello.prompt.md'), userPath(USER_HELLO), 'file');
     await storage.recordInstallation({
@@ -1201,6 +1204,30 @@ suite('older records (U5)', function () {
       }
       assert.strictEqual(stored, undefined, 'removed from RegistryStorage');
     });
+  });
+
+  test('a cached profile manifest with an invalid prompt type or a source outside the bundle cache does not stop the migration; those items are skipped', async () => {
+    const outsideTarget = userPath('.copilot/prompts/outside.prompt.md');
+    await recordProfileInstall({
+      ...V0,
+      items: [
+        ...V0.items,
+        { id: 'bad-type', file: 'prompts/hello.prompt.md', type: 'not-a-kind' },
+        { id: 'outside', file: '../outside.prompt.md', type: 'prompt' }
+      ]
+    });
+    // A file next to the bundle cache, and a link to it where the outside item would sync.
+    const outsideSource = path.join(globalStorage, 'bundles', 'outside.prompt.md');
+    fs.writeFileSync(outsideSource, '# Outside\n');
+    fs.symlinkSync(outsideSource, outsideTarget, 'file');
+
+    await manager.installBundle(OTHER_ID, { scope: 'user' });
+
+    const record = readUserRecord();
+    assert.deepStrictEqual(Object.keys(record.bundles[OTHER_ID].tools), ['vscode'], 'the action ran');
+    assert.deepStrictEqual(record.bundles[BUNDLE_ID].tools.vscode.files.map((file: { path: string }) => file.path), [USER_HELLO]);
+    assert.strictEqual(await storage.getInstalledBundle(BUNDLE_ID, 'user'), undefined, 'removed from RegistryStorage');
+    assert.ok(isOnDisk(outsideTarget), 'the skipped item\'s file stays');
   });
 
   const loneUnknownCases: { action: string; run: () => Promise<void>; toolsAfter: string[]; message?: RegExp }[] = [
