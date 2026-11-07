@@ -1,12 +1,13 @@
 /**
- * Refusal for repository entries another tool owns. The extension changes only
- * its own tool's entries; it throws `RECORD.CLI_MANAGED`, never a silent
- * return, and callers show one warning.
+ * Refusal for record entries another tool owns, at repository and user level.
+ * The extension changes only its own tool's entries; it throws
+ * `RECORD.CLI_MANAGED`, never a silent return, and callers show one warning.
  * @module utils/cli-managed
  */
 import {
   isRecordError,
   recordError,
+  type RecordLevel,
   type RegistryError,
 } from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
@@ -27,21 +28,29 @@ const CLI_COMMANDS: Readonly<Record<CliManagedAction, string>> = {
  * @param bundleId - Refused bundle.
  * @param action - Refused action.
  * @param tool - Tool the bundle's entry belongs to.
+ * @param level - Record level; a user-level entry names "a <tool> user target".
  */
-export const cliManagedMessage = (bundleId: string, action: CliManagedAction, tool: string): string =>
-  `${bundleId} is installed for ${tool}; change it with the CLI: ai-primitives-hub ${CLI_COMMANDS[action]} ${bundleId} --target <a ${tool} target>`;
+export const cliManagedMessage = (bundleId: string, action: CliManagedAction, tool: string, level: RecordLevel = 'repository'): string =>
+  `${bundleId} is installed for ${tool}; change it with the CLI: ai-primitives-hub ${CLI_COMMANDS[action]} ${bundleId} `
+  + `--target <a ${tool}${level === 'user' ? ' user' : ''} target>`;
 
 /**
  * Build the `RECORD.CLI_MANAGED` refusal.
  * @param bundleId - Refused bundle.
  * @param action - Refused action.
  * @param tool - Tool the bundle's entry belongs to.
+ * @param level - Record level; a user-level refusal carries `level` in its context.
  */
-export const cliManagedError = (bundleId: string, action: CliManagedAction, tool: string): RegistryError =>
+export const cliManagedError = (
+  bundleId: string,
+  action: CliManagedAction,
+  tool: string,
+  level: RecordLevel = 'repository'
+): RegistryError =>
   recordError('RECORD.CLI_MANAGED', {
-    message: cliManagedMessage(bundleId, action, tool),
+    message: cliManagedMessage(bundleId, action, tool, level),
     hint: '',
-    context: { bundleId, action, tool }
+    context: { bundleId, action, tool, ...(level === 'user' ? { level } : {}) }
   });
 
 /**
