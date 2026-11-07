@@ -94,6 +94,11 @@ import {
   BundleIdentityMatcher,
 } from '../utils/bundle-identity-matcher';
 import {
+  findUserRecordBundle,
+  listUserRecordBundles,
+  type UserRecordReader,
+} from '../utils/bundle-scope-utils';
+import {
   type CliManagedAction,
   isCliManagedError,
   showCliManagedBatchWarning,
@@ -105,11 +110,6 @@ import {
 import {
   UpdateCancelledError,
 } from '../utils/error-handler';
-import {
-  findUserRecordBundle,
-  listUserRecordBundles,
-  type UserRecordReader,
-} from '../utils/bundle-scope-utils';
 import {
   Logger,
 } from '../utils/logger';

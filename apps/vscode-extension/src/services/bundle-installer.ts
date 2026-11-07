@@ -538,7 +538,6 @@ export class BundleInstaller {
     await this.removeBundleCache(bundleId);
   }
 
-
   /**
    * Tell the user about tools sharing the bundle's files that are now out of date.
    * @param bundleId - Bundle id.

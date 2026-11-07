@@ -48,9 +48,9 @@ import {
   addRepositoryTargets,
   initGitRoot,
   makeRun,
+  readInstallRecord,
   readRecord,
   recordPathIn,
-  readInstallRecord,
   userRecordPath,
 } from '../helpers/install-record-fixtures';
 

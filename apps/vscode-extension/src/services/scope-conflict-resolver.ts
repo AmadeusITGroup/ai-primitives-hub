@@ -62,6 +62,7 @@ export class ScopeConflictResolver {
   private readonly logger: Logger;
 
   /**
+   * Resolver over a storage, reading the shared user record with the given adapter.
    * @param storage - RegistryStorage holding user and workspace installs.
    * @param userRecord - Adapter and listing to read the shared user record with (RegistryManager's); a new adapter by default.
    */

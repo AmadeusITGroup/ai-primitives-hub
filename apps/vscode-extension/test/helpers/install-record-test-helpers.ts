@@ -262,7 +262,7 @@ export interface UserRecordManager {
   /** The `vscode.window.showErrorMessage` stub. */
   showError: sinon.SinonStub;
   /** Restore the sandbox and the environment, drop the manager and remove `tempRoot`. */
-  dispose(): void;
+  dispose: () => void;
 }
 
 /**
