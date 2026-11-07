@@ -1,11 +1,6 @@
 /**
- * Contract tests for target selection without `target-state.json`
- * (BR23.1–BR23.3, BR25.1; NFR4.27, NFR4.28, NFR4.30, NFR5.5).
- *
- * Every case runs the real commands against a temp git repository, a
- * separate home folder and a local bundle folder: targets are configured
- * with `target add`, records are written by real installs, and "unchanged"
- * means byte-identical files on disk.
+ * Contract tests for target selection without `target-state.json`, run with
+ * real commands in a temp git repository and home folder.
  */
 import {
   realpathSync,
@@ -106,7 +101,7 @@ describe('target selection without target-state.json', () => {
   const exists = (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
 
   /**
-   * Every file under a folder, by relative path, with its bytes as base64.
+   * Every file under a folder, by relative path, as base64.
    * @param dir Folder to read.
    */
   const tree = async (dir: string): Promise<Record<string, string>> => {
@@ -121,8 +116,7 @@ describe('target selection without target-state.json', () => {
   };
 
   /**
-   * Configure targets: `user` adds the user-scope copilot-cli target `copilot`;
-   * any other entry is a repository-scope target of that type.
+   * Configure targets: `copilot-cli` at user level, other types at repository scope.
    * @param targets Target name and type pairs.
    */
   const addTargets = async (targets: [string, string][]): Promise<void> => {
@@ -134,9 +128,9 @@ describe('target selection without target-state.json', () => {
   };
 
   /**
-   * Write a 2.0.0 `prompt-registry`-style lockfile from the local bundle.
+   * Write a 2.0.0 lockfile.
    * @param file Absolute path.
-   * @param bundles Bundle id → its single file, root-relative; empty for an empty lockfile.
+   * @param bundles Bundle id → its single root-relative file.
    */
   const writeOldLock = async (file: string, bundles: Record<string, string>): Promise<void> => {
     await writeOldLockfile(
@@ -161,12 +155,10 @@ describe('target selection without target-state.json', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  describe('two targets and no --target (NFR4.27)', () => {
+  describe('two targets and no --target', () => {
     beforeEach(async () => {
       await addTargets([['copilot', 'copilot-cli'], ['repo-kiro', 'kiro']]);
-      // A user record without the import marker, an old user lockfile, an
-      // empty older repository lockfile and an old target-state.json: a
-      // failing command must leave every one of them as it is.
+      // Older files a failing command must leave as they are.
       await ok(['install', 'local-foo', '--from', bundle, '--target', 'copilot', '-o', 'json']);
       const record = await readInstallRecord<Record<string, unknown>>(userRecord());
       delete record.importedUserLockfileAt;
@@ -200,7 +192,7 @@ describe('target selection without target-state.json', () => {
     });
   });
 
-  it('uses the only configured target when no --target is given (BR23.2)', async () => {
+  it('uses the only configured target when no --target is given', async () => {
     await addTargets([['copilot', 'copilot-cli']]);
 
     const result = await run(['install', 'local-foo', '--from', bundle, '-o', 'json']);
@@ -210,7 +202,7 @@ describe('target selection without target-state.json', () => {
     expect(await readFile(path.join(userTargetDir(), 'prompts', 'hello.prompt.md'), 'utf8')).toBe('# Hello Prompt\n');
   });
 
-  it.each([true, false])('install, update and uninstall never mention, change or create target-state.json (file present: %s; NFR4.28, NFR5.5)', async (present) => {
+  it.each([true, false])('install, update and uninstall never mention, change or create target-state.json (file present: %s)', async (present) => {
     await addTargets([['copilot', 'copilot-cli'], ['repo-kiro', 'kiro']]);
     if (present) {
       await mkdir(path.dirname(statePath()), { recursive: true });
@@ -230,7 +222,7 @@ describe('target selection without target-state.json', () => {
     expect(present ? await readFile(statePath(), 'utf8') : await exists(statePath())).toBe(present ? OLD_STATE_TEXT : false);
   });
 
-  describe('record-driven uninstall and update with two repository targets (BR23.3)', () => {
+  describe('record-driven uninstall and update with two repository targets', () => {
     const vscodePrompt = (): string => path.join(repo, '.github', 'prompts', 'hello.prompt.md');
 
     it('uninstalls a bundle recorded for one tool through the target mapped to it', async () => {
@@ -289,7 +281,7 @@ describe('target selection without target-state.json', () => {
       expect(await tree(root)).toEqual(before);
     });
 
-    it('update --dry-run --commit-mode local-only with one configured target checks the old-file-only bundles with that target (BR10.1, BR23.2)', async () => {
+    it('update --dry-run --commit-mode local-only with one configured target checks the old-file-only bundles with that target', async () => {
       await addTargets([['repo-vscode', 'vscode']]);
       await ok(['install', 'local-foo', '--from', bundle, '--target', 'repo-vscode', '-o', 'json']);
       await writeOldLock(oldRepoLock(), { 'old-only': '.github/prompts/old.prompt.md' });
@@ -303,7 +295,7 @@ describe('target selection without target-state.json', () => {
       expect(await tree(root)).toEqual(before);
     });
 
-    it('removes a lone unknown entry, keeps its files and names the record instead of a target (BR21.3)', async () => {
+    it('removes a lone unknown entry, keeps its files and names the record instead of a target', async () => {
       await addTargets([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]);
       const oldPrompt = path.join(repo, '.github', 'prompts', 'old.prompt.md');
       await mkdir(path.dirname(oldPrompt), { recursive: true });
@@ -322,7 +314,7 @@ describe('target selection without target-state.json', () => {
       expect(Object.keys((await readInstallRecord(repoRecord())).bundles)).toEqual(['local-foo']);
     });
 
-    it.each(['text', 'json'])('uninstall --dry-run (%s) of a lone unknown entry names the level and record, no target, and leaves an older file unmigrated (BR18.1, NFR4.30)', async (format) => {
+    it.each(['text', 'json'])('uninstall --dry-run (%s) of a lone unknown entry names the level and record, no target, and leaves an older file unmigrated', async (format) => {
       await addTargets([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]);
       const oldPrompt = path.join(repo, '.github', 'prompts', 'old.prompt.md');
       await mkdir(path.dirname(oldPrompt), { recursive: true });
@@ -330,7 +322,7 @@ describe('target selection without target-state.json', () => {
       await writeOldLock(oldRepoLock(), { 'old-only': '.github/prompts/old.prompt.md' });
       // The install migrates the old file: old-only becomes a lone unknown entry.
       await ok(['install', 'local-foo', '--from', bundle, '--target', 'repo-vscode', '-o', 'json']);
-      // An older release then writes the old file again, so a real run would migrate it first.
+      // An older release writes the old file again, so a real run would migrate it.
       await writeOldLock(oldRepoLock(), { 'old-later': '.github/prompts/later.prompt.md' });
       const before = await tree(root);
       const argv = ['uninstall', '--bundle', 'old-only', '--dry-run'];
@@ -350,7 +342,7 @@ describe('target selection without target-state.json', () => {
     });
   });
 
-  describe('the default rule picks the level for update and uninstall without --target (NFR4.30)', () => {
+  describe('the default rule picks the level for update and uninstall without --target', () => {
     beforeEach(async () => {
       await addTargets([['copilot', 'copilot-cli'], ['repo-kiro', 'kiro']]);
       await ok(['install', 'local-foo', '--from', bundle, '--target', 'copilot', '-o', 'json']);
@@ -428,7 +420,7 @@ describe('target selection without target-state.json', () => {
     });
   });
 
-  describe('init at repository scope (BR25.1, NFR4.28)', () => {
+  describe('init at repository scope', () => {
     const initRepo = ['init', '--target-name', 'repo-vscode', '--target-type', 'vscode', '--scope', 'repository', '--yes', '--skip-index', '-o', 'json'];
 
     it('creates no record, does not report a lockfile step, and status then uses the user record', async () => {

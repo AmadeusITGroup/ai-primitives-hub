@@ -121,7 +121,7 @@ describe('resolveTargetName', () => {
     expect(result).toBe('copilot');
   });
 
-  it('returns the only configured target when none is given (BR23.2)', async () => {
+  it('returns the only configured target when none is given', async () => {
     const ctx = createTestContext({ fs: new NodeFileSystem(), cwd: workspace });
     const result = await resolveTargetName(undefined, 'install', ctx, () => Promise.resolve([{ name: 'copilot' }]));
     expect(result).toBe('copilot');
@@ -132,7 +132,7 @@ describe('resolveTargetName', () => {
     { targets: [], stateFile: false, hint: 'target add', oldLine: false },
     { targets: ['copilot', 'kiro'], stateFile: false, hint: 'Multiple targets configured: copilot, kiro.', oldLine: false },
     { targets: ['copilot', 'kiro'], stateFile: true, hint: 'Multiple targets configured: copilot, kiro.', oldLine: true }
-  ])('throws USAGE.MISSING_FLAG for $targets.length targets (target-state.json present: $stateFile) without reading the file (NFR5.5, NFR4.28)', async ({ targets, stateFile, hint, oldLine }) => {
+  ])('throws USAGE.MISSING_FLAG for $targets.length targets (target-state.json present: $stateFile) without reading the file', async ({ targets, stateFile, hint, oldLine }) => {
     const statePath = path.join(workspace, '.ai-primitives-hub', 'target-state.json');
     const stateText = '{"targets":{"copilot":{"targetName":"copilot"}}}';
     if (stateFile) {

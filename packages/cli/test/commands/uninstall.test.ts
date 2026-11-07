@@ -180,7 +180,7 @@ describe('uninstall command', () => {
   describe('repository install record (ai-primitives-hub.lock.json)', () => {
     const oldLockPath = (): string => path.join(workspace, 'prompt-registry.lock.json');
     /**
-     * Write an old 2.0.0 `prompt-registry.lock.json` from the local bundle, as an install made before the record would have left it.
+     * Write an old 2.0.0 `prompt-registry.lock.json` for the local bundle.
      * @param bundles - Bundle id → its single prompt file, relative to the bundle.
      */
     const writeOldLock = async (bundles: Record<string, string>): Promise<void> => {
@@ -232,8 +232,7 @@ describe('uninstall command', () => {
       await writeFile(oldFile, '# Old\n');
       await writeOldLock({ 'old-only': '.github/prompts/old.prompt.md' });
 
-      // A bundle only the old file lists does not decide with several targets
-      // (BR23.3): a typed --target migrates the level first.
+      // A bundle only the old file lists does not decide with several targets: a typed --target migrates the level first.
       const migrate = await run(['uninstall', '--bundle', 'old-only', '--target', 'repo-kiro']);
       expect(migrate.exitCode, migrate.stdout).toBe(0);
       expect(migrate.stdout).toContain(`Migrated repository record:\n  merged ${oldLockPath()}\n  needs reinstall: old-only@1.0.0 (tool unknown)\n`);

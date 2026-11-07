@@ -1,8 +1,6 @@
 /**
- * Contract tests for the extension-only storage port (BR24.2, NFR1.7):
- * the per-profile bundle-record folders keep their names under the
- * extension's global storage, and records an earlier release wrote there
- * are read as before.
+ * Contract tests for the extension-only storage port: the per-profile record
+ * folders keep their names, and earlier records are read as before.
  */
 
 import * as assert from 'node:assert';
