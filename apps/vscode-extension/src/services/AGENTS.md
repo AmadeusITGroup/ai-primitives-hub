@@ -12,9 +12,9 @@ Services orchestrate VS Code workflows, separated from UI and commands. Under [A
 | `BundleInstaller` | Extraction, validation, installation |
 | `UserScopeService` | Syncs to Copilot directories (user/workspace scope) |
 | `RepositoryScopeService` | Syncs to `.github/` directories (repository scope) |
-| `ExtensionRecordAdapter` | Composes app's install record (`ai-primitives-hub.lock.json`, `.local.lock.json`, the user record) for the extension; migrates older `prompt-registry` files before writes |
+| `ExtensionRecordAdapter` | Shared install records (repository and user) for the extension |
 | `ScopeConflictResolver` | Prevents same bundle at both user and repository scope |
-| `RepositoryActivationService` | Reports unconfigured sources and hubs from the install records on workspace open |
+| `RepositoryActivationService` | Reports unconfigured record sources and hubs on workspace open |
 | `MigrationRegistry` | Tracks completed data migrations via `context.globalState` |
 | `LocalModificationWarningService` | Detects local file changes before updates |
 | `HubManager` | Hub configurations and profiles |

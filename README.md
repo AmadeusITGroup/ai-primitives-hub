@@ -82,7 +82,7 @@ The animation at the top of this page walks through each stage.
 | **Reviewed changes** | Adding a source or changing a profile is a pull request on the hub repository, with normal code-review protections. |
 | **Validation** | `hub validate` checks the schema, source and profile references, and bundle IDs, and can resolve every profile's bundles with `--check-sources`. Authors can validate collections in CI with the [validate-collections action](./github-actions/validate-collections/). |
 | **Lockfile scanner** *(coming soon)* | Hub pull requests will scan lockfiles and primitives before a source is approved. |
-| **Version pinning** | Profiles pin each bundle to a SemVer version, or use the floating selector `latest`, which is not a pin and can resolve to a newer release on a later sync or activation. Repository installs record versions and file checksums in `ai-primitives-hub.lock.json`, the install record shared by the CLI and the extension. |
+| **Version pinning** | Profiles pin each bundle to a SemVer version, or use the floating selector `latest`, which is not a pin and can resolve to a newer release on a later sync or activation. Repository installs record versions and file checksums in `ai-primitives-hub.lock.json`, shared by the CLI and the extension. |
 | **Usage tracking** | With `telemetry` configured in the hub, the VS Code extension reports bundle install, update, and uninstall events, plus profile and source events, to your Elastic Search, respecting each user's VS Code telemetry setting. |
 | **Controlled distribution** | `hub replicate` mirrors SHA-256-verified releases into Artifactory. See [Hub Replication](./docs/reference/hub-replication.md). |
 

@@ -407,7 +407,7 @@ flowchart TB
 | RecordStore | Load and atomically save install record files | `records/record-store.ts` |
 | InstallRecordService | Record installs, superseded files, `status` rows, entry moves | `records/install-record-service.ts` |
 | Record Migration | Move older 2.0.0 stores into the install record | `records/record-migration.ts` |
-| Older Lockfile Store | Read and update older 2.0.0 lockfiles (migration, workspace scope, `profile activate`) | `stores/json-lockfile-store.ts` |
+| Older Lockfile Store | Older 2.0.0 lockfiles (migration, workspace scope, `profile activate`) | `stores/json-lockfile-store.ts` |
 | Check Updates | Update checking orchestration | `update/check-updates.ts` |
 | Auto Update | Auto-update orchestration | `update/auto-update.ts` |
 
@@ -535,9 +535,9 @@ flowchart TB
 | RegistryManager | Coordinates adapters, storage, and installer | `src/services/registry-manager.ts` |
 | BundleInstaller | Download, extract, validate, and install bundles | `src/services/bundle-installer.ts` |
 | UserScopeService | User-scope primitive sync with layout and transforms | `src/services/user-scope-service.ts` |
-| ExtensionRecordAdapter | Shared install record for the extension (host tool, user record, migration before writes) | `src/services/extension-record-adapter.ts` |
+| ExtensionRecordAdapter | Shared install records for the extension | `src/services/extension-record-adapter.ts` |
 | HubStorage | Hub persistent storage | `src/storage/hub-storage.ts` |
-| RegistryStorage | VS Code globalStorage-based state, through `ExtensionAppStorage` (adds the per-profile bundle-record folders) | `src/storage/registry-storage.ts`, `src/storage/extension-app-storage.ts` |
+| RegistryStorage | VS Code globalStorage-based state, through `ExtensionAppStorage` | `src/storage/registry-storage.ts`, `src/storage/extension-app-storage.ts` |
 
 **Note**: The extension is being migrated onto `app`/`core`/`infra` through a strangler-fig approach (see [ADR-0001](../adr/0001-ports-and-adapters-for-cli-and-extension.md)); the `Services` layer is becoming thin delegators over the shared `app` use cases.
 

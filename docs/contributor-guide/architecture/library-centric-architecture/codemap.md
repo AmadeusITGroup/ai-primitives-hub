@@ -153,7 +153,7 @@ graph TD
 - `transform/` - Multi-target content transforms (`kiro-transformer`, windsurf/devin, claude-code)
 - `writers/` - Application-level writers
 - `records/` - Install records: `RecordStore`, `InstallRecordService`, `selectRecord`, `migrateRecords`
-- `stores/` - Application-level stores (the older 2.0.0 `json-lockfile-store`, kept for migration, workspace scope and `profile activate`)
+- `stores/` - Application-level stores, including the older 2.0.0 `json-lockfile-store`
 - `update/` - Update orchestration
 
 **Design Principle**: Application layer orchestrates infrastructure adapters for business use cases and exposes the public SDK surface.

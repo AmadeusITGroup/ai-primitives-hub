@@ -353,7 +353,7 @@ Better automated than it looks. `test/commands/hub-sync-commands.test.ts` and `t
 
 ## TP-11 — Repository Scope and Lockfile — **cannot be waived**
 
-The install record (`ai-primitives-hub.lock.json`, and `ai-primitives-hub.local.lock.json` for local-only installs) is the source of truth for repository scope, shared by the CLI and the extension. A regression corrupts state a whole team shares through Git.
+The install record (`ai-primitives-hub.lock.json`, plus `ai-primitives-hub.local.lock.json` for local-only installs), shared by the CLI and the extension, is the source of truth for repository scope. A regression corrupts state a whole team shares through Git.
 
 Run every row in both hosts. Repository scope resolves its destination from host detection, so this is where a detection regression does the most damage. This is the **best-automated** area in the document — which is why the manual focus is narrow and specific: real Git, real clone, real Kiro.
 
@@ -365,24 +365,24 @@ Run every row in both hosts. Repository scope resolves its destination from host
 | 11.4 | `Move to Repository (Commit)`, then `(Local Only)` from user scope | Files and record entry move together; `contextValue` updates | 🟢 `test/commands/bundle-scope-commands.test.ts` (`moveToRepository`: both modes, cancellation, not-installed and no-workspace errors) |
 | 11.5 | `Move to User` from each repository mode | Reverse move complete, no repository record residue | 🟢 `test/commands/bundle-scope-commands.test.ts` (`moveToUser`), `test/services/user-scope-service.unsync.test.ts` |
 | 11.6 | `Switch to Local Only`, then `Switch to Commit` | Mode flips in place without reinstalling | 🟢 `test/services/repository-scope-service.test.ts` |
-| ⭐ 11.7 | Commit the install record, clone fresh elsewhere, activate in the host it was created in, then in the **other host**, then with the CLI | Bundles restored from the record alone; a record written under one host or delivery is read correctly by the other | 🟡 `test/e2e/lockfile-source-of-truth.test.ts` covers listing from the record; `test/services/install-record-cross-delivery.test.ts` covers CLI ↔ extension reads and uninstalls. **A real clone, and cross-host reads, are manual** |
-| 11.8 | Inspect the install record after each operation | Valid, minimal, diff-friendly — no unrelated churn | 🟡 Shape covered by `packages/core/test/domain/install/record-format.test.ts` and `packages/app/test/records/install-record.test.ts`. **Diff noise is a human judgement** |
-| 11.9 | Open a repository whose `prompt-registry.lock.json` came from the **previous release** | Read as-is by read-only views; migrated into `ai-primitives-hub.lock.json` (entries under `unknown`) before the first change | 🟡 `packages/app/test/records/install-record.test.ts` (`record migration (U5)`), `test/services/extension-record-adapter.test.ts` (`older records (U5)`), and `test/e2e/lockfile-source-of-truth.test.ts` (`Lockfile Portability - SourceId Format`) for legacy ids. **What is missing is a lockfile captured from an actually shipped release** |
+| ⭐ 11.7 | Commit the install record, clone fresh elsewhere, activate in the host it was created in, then in the **other host**, then with the CLI | Bundles restored from the record alone, whichever host or delivery wrote it | 🟡 `test/e2e/lockfile-source-of-truth.test.ts`, `test/services/install-record-cross-delivery.test.ts` (CLI ↔ extension). **A real clone, and cross-host reads, are manual** |
+| 11.8 | Inspect the install record after each operation | Valid, minimal, diff-friendly — no unrelated churn | 🟡 Shape covered by `packages/core/test/domain/install/record-format.test.ts`, `packages/app/test/records/install-record.test.ts`. **Diff noise is a human judgement** |
+| 11.9 | Open a repository whose `prompt-registry.lock.json` came from the **previous release** | Listed as-is; migrated into `ai-primitives-hub.lock.json` (under `unknown`) before the first change | 🟡 `packages/app/test/records/install-record.test.ts`, `test/services/extension-record-adapter.test.ts`, and `test/e2e/lockfile-source-of-truth.test.ts` for legacy ids. **What is missing is a lockfile captured from an actually shipped release** |
 | 11.10 | Delete an upstream source, then `Clean Up Stale Repository Bundles` | Stale entry removed; valid entries untouched | 🟢 `test/commands/bundle-commands.cleanupStale.property.test.ts`, `test/services/scope-conflict-resolver.test.ts` |
 
 ### Coverage breakdown
 
-This is the most heavily automated area in the repository — the record store and service (`packages/app/test/records/install-record.test.ts`), the extension adapter (`test/services/extension-record-adapter.test.ts`) and the cross-delivery suite (`test/services/install-record-cross-delivery.test.ts`) run against a **real filesystem**. Read the unticked boxes as the whole point of running TP-11 by hand.
+This is the most heavily automated area in the repository — the record, adapter and cross-delivery suites run against a **real filesystem**. Read the unticked boxes as the whole point of running TP-11 by hand.
 
 **11.1 / 11.2 — install at repository scope, both modes**
 
-- [x] Record created with `$schema`, `version` `3.0.0`, `level`, `generatedAt`, `generatedBy`; byte-identical output whatever the key order *(real fs, mock vscode)*
-- [x] Each bundle records one entry per tool with version, `sourceId`, `sourceType`, `installedAt` and file checksums taken from disk; a second tool keeps the first tool's entry *(real fs)*
+- [x] Record created with `$schema`, `version` `3.0.0`, `level`, `generatedAt`, `generatedBy`, in a stable key order *(real fs, mock vscode)*
+- [x] One entry per tool with version, source, `installedAt` and on-disk checksums; a second tool keeps the first *(real fs)*
 - [x] `commitMode` deliberately **not** written into entries — it is implied by which file the entry lives in *(real fs)*
 - [x] Commit mode writes `ai-primitives-hub.lock.json`; local-only writes `ai-primitives-hub.local.lock.json` *(real fs)*
 - [x] The two record files stay separate; sources recorded without credentials *(real fs)*
-- [x] Local-only record added to `.git/info/exclude` on first local-only install and not duplicated on later ones, including a worktree's common exclude; its line removed when the file is deleted *(real fs)*
-- [x] Repository scope routes through `RepositoryScopeService`, and user scope records into the shared user record, not `RegistryStorage` (outside WSL) *(mock vscode)*
+- [x] Local-only record added to `.git/info/exclude` once (also in a worktree) and removed when the file is deleted *(real fs)*
+- [x] Repository scope routes through `RepositoryScopeService`; user scope records into the user record, not `RegistryStorage` (outside WSL) *(mock vscode)*
 - [x] Writer places prompts, instructions, agents and skills, and honours git-exclude only in local-only mode — `packages/infra/test/writers/repo-scope-writer.test.ts` *(fake port)*
 - [ ] Behaviour in a repository with an **unusual Git setup** (worktree, submodule, no `.git/info/`, pre-existing exclude section from another tool)
 
