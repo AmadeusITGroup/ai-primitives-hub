@@ -60,6 +60,7 @@ import {
 } from '../../src/framework';
 import {
   initGitRoot,
+  readInstallRecord,
   userRecordPath,
   writeLocalFooBundle,
   writeOldLockfile,
@@ -167,7 +168,7 @@ describe('target selection without target-state.json', () => {
       // empty older repository lockfile and an old target-state.json: a
       // failing command must leave every one of them as it is.
       await ok(['install', 'local-foo', '--from', bundle, '--target', 'copilot', '-o', 'json']);
-      const record = JSON.parse(await readFile(userRecord(), 'utf8')) as Record<string, unknown>;
+      const record = await readInstallRecord<Record<string, unknown>>(userRecord());
       delete record.importedUserLockfileAt;
       await writeFile(userRecord(), `${JSON.stringify(record, null, 2)}\n`);
       await writeOldLock(resolveUserConfigPaths(env()).userLockfile, { 'old-user': 'prompts/old.prompt.md' });
@@ -318,7 +319,7 @@ describe('target selection without target-state.json', () => {
       expect(data).toMatchObject({ level: 'repository', records: [repoRecord()], tool: 'unknown', kept: ['.github/prompts/old.prompt.md'] });
       expect(data).not.toHaveProperty('target');
       expect(await readFile(oldPrompt, 'utf8')).toBe('# Old\n');
-      expect(Object.keys((JSON.parse(await readFile(repoRecord(), 'utf8')) as { bundles: object }).bundles)).toEqual(['local-foo']);
+      expect(Object.keys((await readInstallRecord(repoRecord())).bundles)).toEqual(['local-foo']);
     });
 
     it.each(['text', 'json'])('uninstall --dry-run (%s) of a lone unknown entry names the level and record, no target, and leaves an older file unmigrated (BR18.1, NFR4.30)', async (format) => {
@@ -410,7 +411,7 @@ describe('target selection without target-state.json', () => {
       if (argv[0] === 'uninstall') {
         expect(await tree(repo)).toEqual(repoBaseline);
       } else {
-        const record = JSON.parse(await readFile(repoRecord(), 'utf8')) as { bundles: Record<string, { tools: object }> };
+        const record = await readInstallRecord(repoRecord());
         expect(Object.keys(record.bundles['local-foo'].tools)).toEqual(['kiro']);
       }
     });
