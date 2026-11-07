@@ -34,8 +34,7 @@ const readdir = promisify(fs.readdir);
 const unlink = promisify(fs.unlink);
 
 /**
- * Storage paths: the shared paths plus the extension's per-profile
- * bundle-record folders.
+ * Storage paths, with the extension's record folders
  */
 type StoragePaths = ExtensionStoragePaths;
 
@@ -85,11 +84,7 @@ export class RegistryStorage {
   /**
    * Create a RegistryStorage.
    * @param context - VS Code extension context.
-   * @param storage - The extension's storage port (`ExtensionAppStorage`:
-   *   the shared `AppStorage` plus the per-profile bundle-record folders).
-   *   Defaults to `VsCodeAppStorage`, backed by `context.globalStorageUri`/
-   *   `context.globalState` — the extension's existing, unchanged on-disk
-   *   layout. Injectable for tests.
+   * @param storage - Extension storage port; defaults to `VsCodeAppStorage` (the unchanged on-disk layout).
    */
   constructor(private readonly context: vscode.ExtensionContext, storage?: ExtensionAppStorage) {
     this.appStorage = storage ?? new VsCodeAppStorage(context);
@@ -168,9 +163,7 @@ export class RegistryStorage {
 
   /**
    * Get the list of supported scopes for querying installed bundles.
-   * Repository scope bundles are tracked in the install record at the git
-   * root (`ai-primitives-hub.lock.json`), not RegistryStorage.
-   * See: src/services/install-record-listing.ts for repository bundle queries
+   * Repository scope bundles are tracked in the install record, not RegistryStorage.
    * @param scope - Optional scope to filter by
    * @returns Array of supported scopes to query
    */
@@ -469,7 +462,6 @@ export class RegistryStorage {
    */
   public async removeInstallation(bundleId: string, scope: InstallationScope): Promise<void> {
     // Repository scope bundles are tracked in the install record, not RegistryStorage.
-    // See: src/services/extension-record-adapter.ts
     if (scope === 'repository') {
       return;
     }
@@ -524,7 +516,6 @@ export class RegistryStorage {
    */
   public async getInstalledBundle(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined> {
     // Repository scope bundles are tracked in the install record, not RegistryStorage.
-    // See: src/services/install-record-listing.ts for repository bundle queries
     if (scope === 'repository') {
       return undefined;
     }

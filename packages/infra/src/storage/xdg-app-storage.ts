@@ -4,8 +4,7 @@
  *
  * Splits the registry/bookkeeping directories across the three XDG Base
  * Directory roots, per their actual nature: `config.json` under
- * `XDG_CONFIG_HOME` together with the shared user install record
- * (`ai-primitives-hub.user.lock.json`), the bundle/source cache under
+ * `XDG_CONFIG_HOME` with the user install record, the bundle/source cache under
  * `XDG_CACHE_HOME`, and everything else (profiles, logs — genuine
  * persistent data, not cache or config) under `XDG_DATA_HOME`. Each
  * falls back to `~/.config`, `~/.cache`, `~/.local/share` respectively

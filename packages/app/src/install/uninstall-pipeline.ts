@@ -7,14 +7,10 @@
  * - Execute removals via target writer
  * - Update that file
  *
- * Handles only the older 2.0.0 repository files
- * (`prompt-registry.lock.json` for `commit` mode,
- * `prompt-registry.local.lock.json` for `local-only`), that is bundles
- * not in the install record (`ai-primitives-hub.*`, see
- * `records/install-record-service.ts` and `records/record-store.ts`).
- * Those files have no per-entry `target` field, so a bundle id is looked
- * up in both (the extension's install record service does the same for
- * its old lockfiles), and whichever file it's found in is the one updated.
+ * Handles only bundles in the older 2.0.0 repository files
+ * (`prompt-registry.lock.json`, `prompt-registry.local.lock.json`), not in
+ * the install record. Those files have no per-entry `target` field, so a
+ * bundle id is looked up in both and the file it's found in is updated.
  *
  * Known gap (matches the reference branch's own pipeline, not a
  * regression introduced here): per-file removal goes through the

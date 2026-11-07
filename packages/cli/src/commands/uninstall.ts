@@ -14,12 +14,8 @@
  * target tool's entries, and `uninstall <id>` without `--target` is refused
  * when the record lists the bundle for several tools.
  *
- * With zero or several configured targets and no `--target`,
- * `uninstall <id>` lets the record decide (BR23.3): the level comes from
- * `--scope` or the default rule, a bundle recorded for one tool goes through
- * the target mapped to that tool, and a lone `unknown` entry is removed
- * keeping its files. Every other mode needs `--target`, unless exactly one
- * target is configured (BR23.2).
+ * Without an inferred target, `uninstall <id>` lets the record decide the
+ * tool; every other mode needs `--target` unless one target is configured.
  *
  * Repository-scope targets otherwise delegate to `UninstallPipeline`
  * (`@ai-primitives-hub/app`), which already encapsulates the
@@ -119,8 +115,7 @@ export interface UninstallOptions {
 
 /**
  * Detect uninstall context from the project environment (symmetric with install).
- * Fills in `opts.lockfile` when it can be inferred; the target is inferred
- * later (`inferTargetName`, BR23.2).
+ * Fills in `opts.lockfile` when it can be inferred; the target is inferred later.
  * @param opts Uninstall options (mutated in-place).
  * @param ctx CLI context.
  */
@@ -159,30 +154,20 @@ function assertSingleTool(rows: readonly StatusRow[], bundleId: string): void {
 }
 
 /**
- * Whether `uninstall` removes one bundle: `<bundle-id>` given, without `--all`
- * or `--lockfile`.
+ * Whether `uninstall` removes one bundle (`<bundle-id>`, no `--all` or `--lockfile`).
  * @param opts Uninstall options.
- * @returns `true` in bundle mode.
  */
 const isBundleMode = (opts: UninstallOptions): boolean => opts.bundle !== undefined && opts.bundle.length > 0 && opts.all !== true
   && (opts.lockfile === undefined || opts.lockfile.length === 0);
 
 /**
- * `uninstall <bundle-id>` with no inferred target: zero or several targets
- * configured and no `--target` (BR23.3). The record, already selected
- * read-only (`--scope`, then the default rule) and refused for several tools
- * (BR7.1), decides:
- * - a lone `unknown` entry: removed with its files kept, through a
- *   target-free prepare that migrates the level first (BR21.3);
- * - one tool: uninstalled through the configured target mapped to it
- *   (BR6.4), with the mapping note in `warnings`; with no such target,
- *   `USAGE.MISSING_FLAG` and nothing removed.
- * Nothing is migrated or written before the record decides (NFR4.27).
+ * `uninstall <bundle-id>` with no inferred target: a lone `unknown` entry is
+ * removed keeping its files, else the bundle goes through the target mapped to its tool.
  * @param opts Uninstall options; `opts.bundle` is set.
  * @param ctx CLI context.
  * @param fmt Output format.
- * @param decision The read-only record decision, already checked for several tools.
- * @returns Exit code, or `undefined` when the record holds no entry for the bundle (the caller then needs a target, BR23.2).
+ * @param decision The read-only record decision.
+ * @returns Exit code, or `undefined` when the record has no entry for the bundle.
  * @throws {RegistryError} `USAGE.MISSING_FLAG`, or a `RECORD.*` error naming the file.
  */
 async function uninstallWithoutTarget(
@@ -203,7 +188,6 @@ async function uninstallWithoutTarget(
     if (tool === UNKNOWN_TOOL_NAME) {
       const prepared = await prepareUnknownUninstall(ctx, current, bundleId, { dryRun: opts.dryRun });
       if ('changed' in prepared) {
-        // The migrated record is refused for several tools too (BR7.1).
         assertSingleTool(prepared.changed.rows, bundleId);
         current = prepared.changed;
         continue;
@@ -297,8 +281,7 @@ export class UninstallCommand extends BaseUninstallCommand {
 
     const typedTarget = opts.target !== undefined && opts.target.length > 0;
     const bundleMode = isBundleMode(opts);
-    // Without --target, the record is selected read-only once: it is checked
-    // here and decides below when no target is inferred (BR23.3).
+    // Without --target the record is read once, read-only, and decides below.
     let decision: RecordDecision | undefined;
     try {
       // Checked before the target is inferred, so one configured target never picks one of several recorded tools.
@@ -546,9 +529,9 @@ async function findAllBundleEntries(
  * @param target Target the bundle is uninstalled from.
  * @param bundleId Bundle id.
  * @param files Paths that would be removed.
- * @param extra Notes and the record a real run would change; none for the old lockfile path.
- * @param extra.warnings Non-fatal notes to report, such as tool-to-target mapping notes (BR6.4).
- * @param extra.record The `level` / `records` fields and `Record:` line naming the file a real run would change (NFR4.30).
+ * @param extra Notes and the record a real run would change.
+ * @param extra.warnings Tool-to-target mapping notes.
+ * @param extra.record The record a real run would change.
  * @returns Exit code.
  */
 function renderBundleDryRun(
@@ -728,7 +711,7 @@ async function holdingRecordLocation(prepared: PreparedRepositoryUninstall, bund
  * @param prepared Both record files, loaded and checked.
  * @param bundleId Bundle to uninstall.
  * @param recordedFiles Its recorded root-relative paths, for the dry run.
- * @param notes Tool-to-target mapping notes, shown in `warnings` (BR6.4).
+ * @param notes Tool-to-target mapping notes, for `warnings`.
  * @returns Exit code.
  */
 async function performRecordBundleUninstall(
@@ -740,8 +723,7 @@ async function performRecordBundleUninstall(
 ): Promise<number> {
   const { opts, target, ctx, fmt } = run;
   if (opts.dryRun === true) {
-    // Name the file a real run would change (NFR4.30): the default rule may
-    // have picked the level, so the preview says which one.
+    // The default rule may have picked the level, so the preview names the file.
     const location = await holdingRecordLocation(prepared, bundleId);
     return renderBundleDryRun(ctx, fmt, target, bundleId, recordedFiles, {
       warnings: notes,

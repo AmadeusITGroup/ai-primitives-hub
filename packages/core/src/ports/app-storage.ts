@@ -7,10 +7,8 @@
  * tiny generic key/value slot for small persisted state (bundle update
  * preferences today) — so path *and* state resolution are both behind one
  * injectable seam instead of being resolved inline against
- * `vscode.ExtensionContext`. Repository-level install records live at the
- * git root and are not storage paths; the extension's own per-profile
- * bundle-record folders are declared by the extension
- * (`ExtensionStoragePaths`), not here (ADR-0011).
+ * `vscode.ExtensionContext`. The extension's per-profile record folders are
+ * declared by the extension (`ExtensionStoragePaths`), not here.
  *
  * Two implementations: the VS Code extension's own adapter, backed by
  * `context.globalStorageUri`/`context.globalState` (kept exactly as-is
