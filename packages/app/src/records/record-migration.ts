@@ -25,10 +25,10 @@ import * as path from 'node:path';
 import {
   type BundleRecord,
   compareVersions,
-  FORBIDDEN_KEYS,
   IMPORTED_USER_LOCKFILE_FIELD,
+  isJsonObject,
   isRecordError,
-  RECORD_MAX_BYTES,
+  parseJsonWithoutPrototypes,
   RECORD_NAME_PATTERN,
   type RecordedFile,
   recordError,
@@ -51,6 +51,9 @@ import type {
   LoadedRecord,
   RecordStore,
 } from './record-store';
+import {
+  readRecordText,
+} from './read-record-text';
 import {
   sanitizeSource,
 } from './sanitize-source';
@@ -155,65 +158,32 @@ const OLD_REPOSITORY_FILES = [
   { name: LOCAL_LOCKFILE_NAME, commitMode: 'local-only', origin: 'repository-local' }
 ] as const;
 
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
 const nonEmpty = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
-
-const toNullPrototype = (value: Record<string, unknown>): Record<string, unknown> => {
-  const copy = Object.create(null) as Record<string, unknown>;
-  for (const key of Object.keys(value)) {
-    copy[key] = value[key];
-  }
-  return copy;
-};
-
-/**
- * Prototype-free `JSON.parse`, as core's `parseRecord` but without its version gate.
- * @param text - File contents.
- * @param file - Old file to name in errors.
- */
-const parseWithoutPrototypes = (text: string, file: string): unknown => {
-  try {
-    return JSON.parse(text, (key: string, value: unknown) => {
-      if (FORBIDDEN_KEYS.has(key)) {
-        throw recordError('RECORD.MALFORMED', { file, detail: `forbidden key ${key}` });
-      }
-      return isObject(value) ? toNullPrototype(value) : value;
-    });
-  } catch (error) {
-    if (isRecordError(error)) {
-      throw error;
-    }
-    // The SyntaxError message can quote file contents, so it stays in `cause` only.
-    throw recordError('RECORD.MALFORMED', { file, detail: 'not valid JSON', cause: error });
-  }
-};
 
 /**
  * The first way a parsed old file misses the minimum 2.0.0 shape, if any.
  * @param value - Parsed file.
  */
 const findShapeProblem = (value: unknown): string | undefined => {
-  if (!isObject(value)) {
+  if (!isJsonObject(value)) {
     return 'top level is not an object';
   }
-  if (!isObject(value.bundles)) {
+  if (!isJsonObject(value.bundles)) {
     return 'bundles is not an object';
   }
-  const map = (['sources', 'hubs', 'profiles'] as const).find((key) => value[key] !== undefined && !isObject(value[key]));
+  const map = (['sources', 'hubs', 'profiles'] as const).find((key) => value[key] !== undefined && !isJsonObject(value[key]));
   if (map !== undefined) {
     return `${map} is not an object`;
   }
   for (const [bundleId, entry] of Object.entries(value.bundles)) {
     const name = `bundles.${JSON.stringify(bundleId)}`;
-    if (!isObject(entry) || nonEmpty(entry.version) === undefined || nonEmpty(entry.sourceId) === undefined) {
+    if (!isJsonObject(entry) || nonEmpty(entry.version) === undefined || nonEmpty(entry.sourceId) === undefined) {
       return `${name} has no version or sourceId`;
     }
     if (typeof entry.sourceType !== 'string' || !RECORD_NAME_PATTERN.test(entry.sourceType)) {
       return `${name}.sourceType is not a source type name`;
     }
-    if (!Array.isArray(entry.files) || !entry.files.every((file) => isObject(file) && typeof file.path === 'string')) {
+    if (!Array.isArray(entry.files) || !entry.files.every((file) => isJsonObject(file) && typeof file.path === 'string')) {
       return `${name}.files is not a list of files with a path`;
     }
   }
@@ -232,22 +202,7 @@ const findShapeProblem = (value: unknown): string | undefined => {
  * @throws {RegistryError} `RECORD.MALFORMED` naming the file for any failure.
  */
 export const readOldLockfile = async (fs: RecordFs, file: string): Promise<OldLockfile> => {
-  let bytes: Uint8Array;
-  try {
-    bytes = await fs.readCapped(file, RECORD_MAX_BYTES + 1);
-  } catch (error) {
-    throw recordError('RECORD.MALFORMED', { file, detail: 'the file could not be read', cause: error });
-  }
-  if (bytes.byteLength > RECORD_MAX_BYTES) {
-    throw recordError('RECORD.MALFORMED', { file, detail: 'record larger than 10 MB' });
-  }
-  let text: string;
-  try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch (error) {
-    throw recordError('RECORD.MALFORMED', { file, detail: 'not valid UTF-8', cause: error });
-  }
-  const parsed = parseWithoutPrototypes(text, file);
+  const parsed = parseJsonWithoutPrototypes(await readRecordText(fs, file, file), file);
   const problem = findShapeProblem(parsed);
   if (problem !== undefined) {
     throw recordError('RECORD.MALFORMED', { file, detail: problem });
