@@ -100,6 +100,9 @@ export const OLD_LOCKFILE_SOURCE = { id: 'old-source', type: 'local', url: '/old
  * @param file - Absolute lockfile path.
  * @param bundles - Bundle id → entry.
  * @param source - The lockfile's one source; {@link OLD_LOCKFILE_SOURCE} by default.
+ * @param source.id - Source id; every entry's `sourceId` unless it sets one.
+ * @param source.type - Source type; every entry's `sourceType` unless it sets one.
+ * @param source.url - Source URL.
  */
 export const writeOldLockfile = async (
   file: string,

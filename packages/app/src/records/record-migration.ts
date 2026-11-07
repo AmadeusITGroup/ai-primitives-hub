@@ -48,17 +48,17 @@ import {
 import {
   confinePath,
 } from './confine-path';
-import type {
-  LoadedRecord,
-  RecordStore,
-} from './record-store';
+import {
+  readRecordText,
+} from './read-record-text';
 import {
   hashRecordedFile,
   putToolEntry,
 } from './record-entry';
-import {
-  readRecordText,
-} from './read-record-text';
+import type {
+  LoadedRecord,
+  RecordStore,
+} from './record-store';
 import {
   sanitizeSource,
 } from './sanitize-source';
