@@ -23,11 +23,9 @@ import {
 export type RunInWorkspace = (argv: string[]) => Promise<Pick<RunCommandResult, 'exitCode' | 'stdout'>>;
 
 /**
- * The environment of a test workspace: home and XDG folders inside it, so a
- * test never reads or writes the real user configuration.
+ * A test workspace environment with home and XDG folders inside it, so the real user config is never touched.
  * @param workspace - Workspace folder.
  * @param extra - More variables.
- * @returns The environment.
  */
 export const workspaceEnv = (workspace: string, extra: Record<string, string> = {}): Record<string, string> => ({
   HOME: workspace,
@@ -38,11 +36,10 @@ export const workspaceEnv = (workspace: string, extra: Record<string, string> = 
 });
 
 /**
- * A runner for command lines in a workspace, on the real filesystem, with {@link workspaceEnv}.
- * @param workspace - Returns the workspace folder; read on every run, so a `beforeEach` can change it.
+ * A runner for command lines in a workspace, on the real filesystem.
+ * @param workspace - Returns the workspace folder; read on every run.
  * @param commandClasses - Commands to register.
  * @param env - More environment variables.
- * @returns The runner.
  */
 export const makeRun = (
   workspace: () => string,
@@ -67,8 +64,7 @@ const runOk = async (run: RunInWorkspace, argv: string[]): Promise<void> => {
 };
 
 /**
- * Add repository-scope targets on a workspace and, given a bundle folder,
- * install the bundle with each of them in order.
+ * Add repository-scope targets and, given a bundle folder, install it with each in order.
  * @param run - Runner with `target add` (and `install` when installing).
  * @param workspace - Workspace folder, the targets' root.
  * @param targets - Target name and type pairs.
@@ -102,10 +98,9 @@ export const initGitRoot = async (dir: string): Promise<void> => {
 };
 
 /**
- * Turn a git root into a linked worktree: `.git` becomes a file pointing at a
- * git dir under `main.git/worktrees/wt`, whose `commondir` holds `info/exclude`.
+ * Turn a git root into a linked worktree whose common git dir holds `info/exclude`.
  * @param dir - Git root made by {@link initGitRoot}.
- * @returns The common git dir; its `info/exclude` is the worktree's exclude file.
+ * @returns The common git dir.
  */
 export const makeGitWorktree = async (dir: string): Promise<string> => {
   const commonDir = path.join(dir, 'main.git');
@@ -120,7 +115,6 @@ export const makeGitWorktree = async (dir: string): Promise<string> => {
 /**
  * The lines of a common git dir's `info/exclude`.
  * @param commonDir - Common git dir from {@link makeGitWorktree}.
- * @returns The file's lines.
  */
 export const readExcludeLines = async (commonDir: string): Promise<string[]> =>
   (await readFile(path.join(commonDir, 'info', 'exclude'), 'utf8')).split('\n');

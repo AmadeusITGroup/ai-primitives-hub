@@ -132,16 +132,11 @@ const createRecordServices = (fs: RecordFs): InstallRecordServices =>
   createInstallRecordServices({ generatedBy: CLI_RECORD_GENERATED_BY, fs });
 
 /**
- * The `info/exclude` section at a git root, in the file app's
- * `resolveExcludeFile` finds (following `gitdir:` and `commondir` in a
- * worktree), so a writer's local-only entries and the local-only record's
- * entry share one file (NFR4.6).
- * @param ctx - CLI context; its filesystem edits the file.
- * @param fs - Record filesystem port, to find the file.
- * @param gitRoot - Git root (the record root); exclude patterns are relative to it.
- * @returns The exclusion, or `undefined` without a trusted git directory: the
- * writer then keeps its default, `<workspace>/.git/info/exclude`, and the
- * record store warns about it on save.
+ * The `info/exclude` section the record store uses at a git root, also in a worktree.
+ * @param ctx - CLI context.
+ * @param fs - Record filesystem port.
+ * @param gitRoot - Git root.
+ * @returns The exclusion, or `undefined` without a trusted git directory.
  */
 const recordExclusion = async (ctx: Context, fs: RecordFs, gitRoot: string): Promise<RepositoryExclusion | undefined> => {
   const excludeFile = await resolveExcludeFile(fs, gitRoot).catch(() => ({ warning: 'unreadable' }));
@@ -347,44 +342,31 @@ export const recordRepositoryUninstall = async (
   };
 };
 
-/** What a command was given that fixes the record level (BR6.1). */
+/** What a command was given that fixes the record level. */
 export interface RecordSelectionInput {
-  /** Command name, used as the prefix of a `RECORD.*` error message. */
+  /** Command name, the prefix of a `RECORD.*` error message. */
   command: string;
-  /** `--lockfile <path>` as typed (not a path found by an upward walk). */
+  /** `--lockfile <path>` as typed. */
   lockfile?: string;
-  /** `--scope`. */
   scope?: InstallationScope;
 }
 
 /** A selected record with the store and service to act on it. */
 export interface PreparedRecordSelection {
-  /** Level, root, loaded new record files and the old-store file (W4). */
   selection: RecordSelection;
-  /** Store the selected files were loaded with. */
   store: RecordStore;
-  /** Service to record, list and remove entries with. */
   service: InstallRecordService;
-  /** Filesystem port the store and service use. */
   fs: RecordFs;
-  /**
-   * `info/exclude` section at the selected repository record's root, for the
-   * writers of a replay or update, so their local-only entries go to the same
-   * file as the local-only record's (NFR4.6). Absent at user level and without
-   * a trusted git directory: the writer keeps its default.
-   */
+  /** `info/exclude` section at the repository record's root, for the writers; absent at user level. */
   exclusion?: RepositoryExclusion;
 }
 
 /**
- * Select the record a command acts on and load every selected file before
- * anything is written (W4; BR6.1, BR6.2, NFR4.8). The old `prompt-registry.*`
- * file is found with today's upward walk from the selection's start folder.
- * @param ctx - CLI context; `ctx.cwd()` is the current folder.
- * @param input - Command name and the `--lockfile` / `--scope` values the person typed.
- * @param target - Resolved target, when the command has one: its scope gives the level, its root the start folder.
- * @param fs - Filesystem port; `NodeRecordFs` unless a test passes one.
- * @returns The selection with the store and service that loaded it.
+ * Select the record a command acts on and load every selected file before anything is written.
+ * @param ctx - CLI context.
+ * @param input - Command name, `--lockfile` and `--scope`.
+ * @param target - Resolved target, when the command has one.
+ * @param fs - Filesystem port.
  * @throws {RegistryError} A `RECORD.*` error naming the command and the file; nothing was written.
  */
 export const prepareRecordSelection = async (
@@ -418,12 +400,8 @@ export const prepareRecordSelection = async (
 };
 
 /**
- * Configured sources by id for the source trust gate (NFR4.11): the active
- * hub's sources first, then detached (`default-local`) sources whose id the
- * active hub does not use. A hub that cannot be read contributes no source,
- * so its entries fall back to the record's copy without credentials.
+ * Configured sources by id for the source trust gate: the active hub's first, then detached sources.
  * @param ctx - CLI context.
- * @returns Configured sources keyed by id, in lookup order.
  */
 export const configuredSources = async (ctx: Context): Promise<Map<string, RegistrySource>> => {
   const manager = createHubManager({ ctx });
@@ -447,12 +425,9 @@ export const configuredSources = async (ctx: Context): Promise<Map<string, Regis
 const NO_TOKENS: TokenProvider = new StaticTokenProvider('');
 
 /**
- * The token provider for a planned entry's lookup and download: none for a
- * source the trust gate took from the record, so such a fetch runs without
- * credentials (NFR4.11).
+ * The token provider for a planned entry: none for a source taken from the record.
  * @param tokens - The command's token provider.
  * @param fromRecordOnly - `true` when no configured source has the entry's id.
- * @returns The provider to fetch with.
  */
 export const tokensForRecordSource = (tokens: TokenProvider, fromRecordOnly: boolean): TokenProvider =>
   fromRecordOnly ? NO_TOKENS : tokens;
@@ -461,26 +436,23 @@ export const tokensForRecordSource = (tokens: TokenProvider, fromRecordOnly: boo
 export interface PlannedRecordInstall {
   bundleId: string;
   tool: string;
-  /** The file that holds the entry (BR6.5). */
+  /** The file that holds the entry. */
   location: RecordLocation;
   sourceId: string;
   /** Source decided by the trust gate, in the legacy lockfile shape. */
   source: LockfileSourceEntry;
-  /** Source type to record for the entry. */
   sourceType: string;
 }
 
 /**
- * Re-record a planned entry after its target's writer wrote it (W5 step 5,
- * W6 step 3). Superseded files are not deleted here: see {@link finishRecordRun}.
- * @param service - Record service of the selection.
+ * Re-record a planned entry after its writer ran; {@link finishRecordRun} deletes superseded files.
+ * @param service - Record service.
  * @param item - The planned entry.
- * @param target - Effective target that wrote it; its root is the workspace root.
- * @param ctx - CLI context; `ctx.cwd()` is the fallback workspace root.
+ * @param target - Effective target that wrote it.
+ * @param ctx - CLI context.
  * @param version - Version written.
- * @param written - The writer's `written` list, absolute paths.
- * @param syncSiblings - Which sibling entries sharing the files to sync (BR8.3).
- * @returns The record change.
+ * @param written - The writer's `written` list.
+ * @param syncSiblings - Which sibling entries to sync.
  * @throws {RegistryError} A `RECORD.*` error naming the file.
  */
 export const recordPlannedInstall = (
@@ -504,9 +476,8 @@ export const recordPlannedInstall = (
 });
 
 /**
- * End a replay or update run: remove the superseded files only after every
- * save, keeping any file an entry of either file still lists (FR3.2, NFR4.9).
- * @param service - Record service of the selection.
+ * End a replay or update run: remove superseded files after every save, keeping still-listed ones.
+ * @param service - Record service.
  * @param changes - Every record change of the run.
  * @returns The warnings of the saves and of the removal.
  */
@@ -515,23 +486,19 @@ export const finishRecordRun = async (service: InstallRecordService, changes: re
   return [...changes.flatMap((change) => change.warnings), ...removal.warnings];
 };
 
-/** The selected level's old `prompt-registry.*` file and the bundles only it has (BR10.1). */
+/** The selected level's old `prompt-registry.*` file and the bundles only it has. */
 export interface OldFileOnlyBundles {
-  /** Absolute path of the old file. */
   lockPath: string;
-  /** The old file, read with today's code. */
   lock: Lockfile;
-  /** Ids of the old file's bundles the new record does not have, in file order; may be empty. */
+  /** Ids of the old file's bundles the record does not have, in file order. */
   bundleIds: string[];
 }
 
 /**
- * Read the selected level's old file and find the bundles the new record does
- * not have: today's code handles those, on that file, and the record wins for
- * the others (BR10.1; W5 step 6, W6 step 4, W8).
+ * The bundles only the old file has; the old code handles them, and the record wins for the others.
  * @param ctx - CLI context.
  * @param prepared - The command's record selection.
- * @returns The old file and its old-file-only bundles, or `undefined` when there is no readable old file.
+ * @returns `undefined` when there is no readable old file.
  */
 export const oldFileOnlyBundles = async (ctx: Context, prepared: PreparedRecordSelection): Promise<OldFileOnlyBundles | undefined> => {
   const lockPath = prepared.selection.oldLockfile;
@@ -547,7 +514,7 @@ export const oldFileOnlyBundles = async (ctx: Context, prepared: PreparedRecordS
 export interface OldFileTargetInput {
   /** Command name, for the target errors. */
   command: string;
-  /** The target to write with, already effective, when the command has one; it is used as is. */
+  /** Effective target to write with, used as is. */
   target?: Target;
   /** `--scope` / `--commit-mode` applied to an inferred target. */
   overrides?: TargetOverrides;
@@ -557,13 +524,11 @@ export interface OldFileTargetInput {
 export type OldFileOnlyPlan = OldFileOnlyBundles & ({ target: Target } | { reason: string });
 
 /**
- * The old-file-only bundles and the target that writes them, as today: the
- * given target, else the only configured target, else the last used one,
- * made effective with the overrides (BR10.1).
+ * The old-file-only bundles and their target: the given one, else the only configured one, else the last used one.
  * @param ctx - CLI context.
  * @param prepared - The command's record selection.
  * @param resolve - Command name, the given target and the overrides.
- * @returns The bundles and their target or the reason none was found, or `undefined` when no bundle is only in the old file.
+ * @returns `undefined` when no bundle is only in the old file.
  */
 export const prepareOldFileOnly = async (
   ctx: Context,
@@ -587,23 +552,18 @@ export const prepareOldFileOnly = async (
   }
 };
 
-/** The `level` and `records` fields every record command reports (BR6.3, NFR5.1). */
+/** The `level` and `records` fields every record command reports. */
 export interface RecordOutputFields {
-  /** Level of the selected record. */
   level: RecordLevel;
   /** Absolute paths of the record files the command read or wrote. */
   records: string[];
 }
 
 /**
- * The `level` and `records` JSON fields for a selection: the selected new
- * record files that exist (the first one when none exists yet), or the old
- * store file at user level and for an old-format `--lockfile`.
+ * The `level` and `records` JSON fields: the record files that exist, or the old file.
  * @param selection - The command's record selection.
- * @param fs - Filesystem port, for the existence checks.
- * @param oldFileRead - The old-store file, when the command also read it (`status`):
- * listed after the existing new files, and instead of a new file that does not exist yet.
- * @returns The output fields.
+ * @param fs - Filesystem port.
+ * @param oldFileRead - The old file, when the command also read it.
  */
 export const recordOutputFields = async (selection: RecordSelection, fs: RecordFs, oldFileRead?: string): Promise<RecordOutputFields> => {
   if (selection.locations.length === 0) {
@@ -622,9 +582,8 @@ export const recordOutputFields = async (selection: RecordSelection, fs: RecordF
 };
 
 /**
- * The `Record: <level> <path>` text line (BR6.3); several files are comma-separated.
- * @param fields - Output fields from {@link recordOutputFields}.
- * @returns The line, newline-terminated.
+ * The `Record: <level> <path>` text line; several files are comma-separated.
+ * @param fields - Output fields.
  */
 export const renderRecordLine = (fields: RecordOutputFields): string =>
   `Record: ${fields.level} ${fields.records.join(', ')}\n`;

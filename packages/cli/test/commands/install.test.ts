@@ -1319,7 +1319,7 @@ agents:
       });
     });
 
-    it('bare install also replays bundles only in the old prompt-registry file and writes nothing about them to the record (BR10.1)', async () => {
+    it('bare install also replays bundles only in the old prompt-registry file and writes nothing about them to the record', async () => {
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
       const oldDir = path.join(workspace, 'old-bundle');
       await mkdir(path.join(oldDir, 'prompts'), { recursive: true });

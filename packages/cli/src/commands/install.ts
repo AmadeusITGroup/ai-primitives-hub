@@ -482,8 +482,7 @@ export class InstallCommand extends BaseInstallCommand {
     try {
       recordReplay = await detectInstallContext(opts, ctx);
       if (recordReplay !== undefined) {
-        // A 3.0.0 record maps each tool to its own target (BR6.4); only a
-        // typed --target narrows the replay to that target.
+        // Each recorded tool maps to its own target; only a typed --target narrows the replay.
         let explicit: Target | undefined;
         if (typedTarget) {
           checkAllowTarget(opts.target as string, opts);
@@ -570,13 +569,10 @@ async function autoDetectHubSource(opts: InstallOptions, ctx: Context, userPaths
 /**
  * Detect install context from the project environment.
  * Fills in `opts.lockfile`, `opts.source`, `opts.interactive`, and `opts.target`
- * when they can be inferred without user input. `--lockfile` on a new record
- * file, or a bare `install` that finds a 3.0.0 record with entries, selects
- * that record for replay (W6 step 1; BR6.2): every selected file is loaded
- * and checked here, before anything is written (NFR4.8).
+ * when they can be inferred without user input.
  * @param opts Install options (mutated in-place).
  * @param ctx CLI context.
- * @returns The selected 3.0.0 record to replay, or `undefined` for today's modes.
+ * @returns The selected record to replay, or `undefined` for the other modes.
  * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was written.
  */
 async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise<PreparedRecordSelection | undefined> {
@@ -1251,7 +1247,6 @@ interface RecordReplayRun {
   ctx: Context;
   fmt: OutputFormat;
   opts: InstallOptions;
-  /** The selected 3.0.0 record, loaded and checked. */
   prepared: PreparedRecordSelection;
   /** The target named by `--target`; only it narrows the replay to one tool. */
   explicit?: Target;
@@ -1273,13 +1268,12 @@ interface RecordReplayData {
   skipped: ReplaySkip[];
   needsReinstall: { bundleId: string; version: string }[];
   failures: ReplaySkip[];
-  /** Bundles only in the old `prompt-registry.*` file, replayed with today's code (BR10.1). */
+  /** Bundles only in the old `prompt-registry.*` file, replayed with the old code. */
   oldFile?: OldFileReplay;
 }
 
 /** What {@link replayOldFileOnly} reports for the old `prompt-registry.*` file. */
 interface OldFileReplay {
-  /** Absolute path of the old file. */
   lockfile: string;
   /** Target the old-file bundles were replayed into; absent when none could be resolved. */
   target?: string;
@@ -1291,7 +1285,6 @@ interface OldFileReplay {
 /**
  * Text output of a record replay.
  * @param d Output data.
- * @returns The rendered text, ending with the `Record:` line.
  */
 function renderRecordReplay(d: RecordReplayData): string {
   const lines = [
@@ -1311,15 +1304,9 @@ function renderRecordReplay(d: RecordReplayData): string {
 }
 
 /**
- * Replay a 3.0.0 install record (W6; BR6.4, BR6.5, BR9.1, NFR4.10, NFR4.11):
- * each (bundle, tool) entry with a real tool is mapped to a configured
- * target, its source goes through the trust gate, the recorded version is
- * fetched and written with that target's writer, and the entry is
- * re-recorded in the file that holds it. Entries under `unknown` are listed
- * as needing a reinstall; unmapped or untrusted entries are skipped.
- * Superseded files are removed after every save.
+ * Reinstall every recorded entry at its recorded version with its mapped target, and record it again.
  * @param run Replay inputs.
- * @returns Exit code: 1 when a fetch or write failed, else 0.
+ * @returns Exit code.
  * @throws {RegistryError} A `RECORD.*` error naming the file.
  */
 async function performRecordReplay(run: RecordReplayRun): Promise<number> {
@@ -1335,9 +1322,9 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
   const http = opts.http ?? new NodeHttpClient();
   const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
   const cache = isGitHubAppAuthEnabled(ctx.env) ? createSourceAwareInstallDependencyCache(http, ctx) : undefined;
-  // Local-only files go to the record's info/exclude, also in a git worktree (NFR4.6).
+  // Local-only files go to the record's info/exclude, also in a git worktree.
   const writerFactory = createWriterFactory(ctx, opts, prepared.exclusion);
-  // Every entry is mapped and its source gated before any fetch (NFR4.10, NFR4.11).
+  // Every entry is mapped and its source gated before any fetch.
   const plan = await planRecordEntries({
     service,
     store,
@@ -1365,8 +1352,7 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
     const target = resolveEffectiveTarget(ctx, item.target);
     let written: string[] = [];
     try {
-      // Record entries carry per-file checksums and no archive checksum;
-      // recordInstall re-checksums the written files.
+      // No archive checksum in a record entry; recordInstall re-checksums the written files.
       const files = await fetchFilesForSource(
         source, bundleId, toLockfileBundleEntry(entry), http,
         tokensForRecordSource(tokens, item.fromRecordOnly), ctx, opts.verbose ?? false, item.fromRecordOnly ? undefined : cache
@@ -1397,7 +1383,7 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
 
   const warnings = [...plan.notes, ...await finishRecordRun(service, changes)];
 
-  // Bundles only in the old file replay as today; the record wins for the others (BR10.1, W6 step 4).
+  // Bundles only in the old file replay with the old code; the record wins for the others.
   data.oldFile = await replayOldFileOnly(run, { http, tokens, cache });
   warnings.push(
     ...data.skipped.map((s) => `${s.bundleId} (${s.tool}): ${s.reason}`),
@@ -1415,7 +1401,7 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
     warnings: warnings.length === 0 ? undefined : warnings,
     textRenderer: renderRecordReplay
   });
-  // Exit 1 when nothing at all could be processed: every planned entry was skipped (BR6.4).
+  // Exit 1 when every planned entry was skipped.
   const nothingProcessed = data.replayPlanned > 0 && data.replayed.length === 0 && data.failures.length === 0
     && (data.oldFile === undefined || data.oldFile.replayed.length === 0);
   const failed = data.failures.length > 0 || (data.oldFile?.failures.length ?? 0) > 0;
@@ -1423,10 +1409,7 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
 }
 
 /**
- * Replay the bundles that are only in the selected level's old
- * `prompt-registry.*` file with today's code, on that file, writing nothing
- * about them into the new record (BR10.1; W6 step 4). They go to the
- * `--target` target, else the only configured target, else the last used one, as today.
+ * Replay the bundles only the old `prompt-registry.*` file has, with the old code and on that file.
  * @param run Replay inputs.
  * @param fetch HTTP client, token provider and source-aware dependency cache.
  * @param fetch.http HTTP client.
