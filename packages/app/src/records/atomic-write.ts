@@ -1,10 +1,5 @@
 /**
- * Atomic text writes through the `RecordFs` port (BR4.1, NFR7.1).
- *
- * The text goes to a temp file created exclusively beside the target, which
- * is then renamed over it, so a reader sees the old file or the new one and
- * never a partial write. The record files and `info/exclude` are both written
- * this way.
+ * Atomic text writes through the `RecordFs` port: temp file beside the target, then rename.
  * @module records/atomic-write
  */
 import {
@@ -16,12 +11,10 @@ import type {
 } from '@ai-primitives-hub/core';
 
 /**
- * Replace `target` with `text` atomically. The temp file is removed when the
- * write or the rename fails.
+ * Replace `target` with `text` atomically; on failure `target` is unchanged.
  * @param fs - Filesystem port.
- * @param target - File to replace or create; its folder must exist.
- * @param text - New contents, UTF-8.
- * @throws {Error} The filesystem error from the write or the rename; `target` is unchanged.
+ * @param target - File to replace; its folder must exist.
+ * @param text - New contents.
  */
 export const writeFileAtomically = async (fs: RecordFs, target: string, text: string): Promise<void> => {
   const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);

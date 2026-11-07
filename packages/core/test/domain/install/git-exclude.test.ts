@@ -1,9 +1,4 @@
-/**
- * Contract tests for the hub's `info/exclude` section text
- * (`addExcludeEntries`, `removeExcludeEntries`), shared by the
- * repository-scope writer and the install record store. The exact bytes of
- * the writer's cases are pinned in infra's git-info-exclude tests.
- */
+/** Contract tests for the hub's `info/exclude` section text. */
 import {
   describe,
   expect,

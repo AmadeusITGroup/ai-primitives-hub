@@ -1,10 +1,4 @@
-/**
- * Contract tests for the repository install record (C2 store, C3 service).
- *
- * Everything runs through the public `RecordStore` and `InstallRecordService`
- * on a real temp git folder, with the real `NodeRecordFs` and
- * `RecordSchemaValidator` from infra.
- */
+/** Contract tests for the repository install record store and service on a real temp git folder. */
 import {
   execFileSync,
 } from 'node:child_process';
@@ -94,12 +88,12 @@ describe('repository install record', () => {
   };
 
   /**
-   * Write a valid 3.0.0 record with one vscode entry and optional extra fields.
+   * Write a valid 3.0.0 record with one vscode entry and optional unknown fields.
    * @param location - Record file.
-   * @param files - Recorded paths of the vscode entry.
-   * @param extra - Unknown fields to add at the top and entry level.
-   * @param extra.top
-   * @param extra.entry
+   * @param files - Recorded paths of the entry.
+   * @param extra - Unknown fields to add.
+   * @param extra.top - At the top level.
+   * @param extra.entry - In the entry.
    */
   const writeRecord = (location: RecordLocation, files: string[], extra: { top?: object; entry?: object } = {}): void => {
     fs.writeFileSync(location.path, JSON.stringify({

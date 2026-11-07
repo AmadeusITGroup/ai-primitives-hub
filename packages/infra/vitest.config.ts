@@ -2,14 +2,7 @@ import {
   defineConfig,
 } from 'vitest/config';
 
-/**
- * Vitest configuration for `@ai-primitives-hub/infra`.
- *
- * Test discovery keeps the Vitest defaults the package used before this file
- * existed. The only addition is the coverage gate for the install-record code
- * (format 3.0.0): `test:coverage` fails when line coverage of these files drops
- * below 80%.
- */
+/** Vitest defaults plus an 80% line-coverage gate on the install-record code. */
 export default defineConfig({
   test: {
     coverage: {

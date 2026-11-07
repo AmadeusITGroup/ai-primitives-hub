@@ -64,8 +64,7 @@ describe('NodeRecordFs.readCapped', () => {
 });
 
 describe('NodeRecordFs', () => {
-  // Kept so the 80% line gate holds with the two contract tests above: the
-  // atomic-write lifecycle the record store runs, on a real folder.
+  // Covers the record store's atomic-write lifecycle on a real folder.
   it('creates exclusively, renames over, hashes and removes a record file, refusing a folder', async () => {
     const [dir, cleanup] = createTempDir('node-record-fs-');
     try {

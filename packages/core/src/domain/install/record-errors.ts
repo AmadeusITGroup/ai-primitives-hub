@@ -1,11 +1,7 @@
 /**
- * Install record error codes (contract C6) and the `recordError` helper.
- *
- * Record failures are ordinary `RegistryError`s in the `RECORD` namespace —
- * no new error class — so the CLI reports them through its usual handled-error
- * path (exit code 1) and the extension shows them like any other domain error
- * (BR4.2). The file path and detail travel in `context`, which reaches JSON
- * output. Messages never include file contents.
+ * Install record error codes and helpers. Record failures are plain
+ * `RegistryError`s in the `RECORD` namespace; the file and detail travel in
+ * `context`. Messages never include file contents.
  * @module domain/install/record-errors
  */
 import {
@@ -67,9 +63,8 @@ const DEFAULT_HINTS: Readonly<Record<RecordErrorCode, string>> = {
 
 /**
  * Build a `RegistryError` for a record failure.
- * @param code - Stable `RECORD.*` code.
- * @param details - File, detail, hint and optional overrides.
- * @returns The error, ready to throw.
+ * @param code - `RECORD.*` code.
+ * @param details - File, detail, hint and overrides.
  */
 export const recordError = (code: RecordErrorCode, details: RecordErrorDetails = {}): RegistryError => {
   const context: Record<string, unknown> = {};
@@ -92,20 +87,17 @@ export const recordError = (code: RecordErrorCode, details: RecordErrorDetails =
 };
 
 /**
- * Whether a value is a record error, optionally with a given code.
+ * Whether a value is a record error.
  * @param value - Anything thrown.
  * @param code - Code to match; any `RECORD.*` code when omitted.
- * @returns Whether `value` is a matching `RegistryError`.
  */
 export const isRecordError = (value: unknown, code?: RecordErrorCode): value is RegistryError =>
   value instanceof RegistryError
   && (code === undefined ? (RECORD_ERROR_CODES as readonly string[]).includes(value.code) : value.code === code);
 
 /**
- * The typed `file` and `detail` a record error carries in its context, the
- * reverse of {@link recordError}.
+ * The `file` and `detail` a record error carries in its context.
  * @param error - A record error.
- * @returns The string fields that are present.
  */
 export const recordErrorDetails = (error: RegistryError): { file?: string; detail?: string } => ({
   ...(typeof error.context?.file === 'string' ? { file: error.context.file } : {}),
@@ -113,12 +105,9 @@ export const recordErrorDetails = (error: RegistryError): { file?: string; detai
 });
 
 /**
- * User text for a record error: its message, then ` File: <file>.` and
- * ` Reason: <detail>.` when known (BR4.2). Both delivery layers show record
- * errors this way.
+ * User text for a record error: the message plus ` File: <file>.` and ` Reason: <detail>.` when known.
  * @param error - A record error.
  * @param fileLabel - File to name instead of the one in the error's context.
- * @returns The message with the file and the reason appended.
  */
 export const describeRecordError = (error: RegistryError, fileLabel?: string): string => {
   const { file, detail } = recordErrorDetails(error);

@@ -1,15 +1,7 @@
 /**
- * Layer B path confinement for recorded paths (NFR4.1, NFR4.2, BR1.5).
- *
- * Layer A (`checkRecordedPath` in core) judges the text of a path. Layer B
- * resolves symlinks through `RecordFs`: the root and the nearest existing
- * ancestor folder of the path are realpath'd, the candidate is rebuilt from
- * the real ancestor, and it must sit under the real root and pass Layer A
- * again relative to it. That catches a symlinked parent that leaves the root,
- * or one that resolves into `.git`.
- *
- * The leaf itself is never followed: a recorded file may be a symlink, and it
- * is the link, not its target, that the record owns (a delete unlinks it).
+ * Filesystem confinement for recorded paths: symlinked parent folders must not
+ * leave the root or enter `.git`. The leaf is never followed, since the record
+ * owns a link, not its target.
  * @module records/confine-path
  */
 import * as path from 'node:path';
@@ -38,13 +30,6 @@ const realRootOf = async (fs: RecordFs, root: string, file: string | undefined):
   }
 };
 
-/**
- * Realpath of the nearest existing ancestor of `segments` under `root`, and
- * the segments below it that do not exist yet.
- * @param fs - Filesystem port.
- * @param root - Level root, as given.
- * @param segments - Folder segments below the root.
- */
 const resolveNearestAncestor = async (
   fs: RecordFs,
   root: string,
@@ -58,15 +43,13 @@ const resolveNearestAncestor = async (
 };
 
 /**
- * Check a recorded path with Layer A, then Layer B against the disk.
+ * Check a recorded path's text, then its resolved folders against the disk.
  * @param fs - Filesystem port.
- * @param root - Absolute level root (the git root at repository level).
- * @param recordedPath - Path relative to the root, as recorded.
- * @param file - Record file to name in the error, if any.
+ * @param root - Absolute level root.
+ * @param recordedPath - Path as recorded.
+ * @param file - Record file to name in the error.
  * @returns The path with forward slashes, relative to the root.
- * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT` when the text is refused, a
- * folder on the way does not resolve, or the resolved path leaves the root or
- * enters `.git`.
+ * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT` when the path is refused.
  */
 export const confinePath = async (fs: RecordFs, root: string, recordedPath: string, file?: string): Promise<string> => {
   const relative = checkRecordedPath(recordedPath, file);
@@ -96,16 +79,10 @@ export const confinePath = async (fs: RecordFs, root: string, recordedPath: stri
 };
 
 /**
- * Check a recorded path just before deleting it (NFR4.2).
- *
- * Runs Layer A on the text, requires the realpath of the parent folder to be
- * inside the root (with Layer A on the result), then `lstat`s the leaf without
- * following it. Only a regular file or a symlink may be removed; a folder or
- * anything else is skipped. This never throws for a refused path.
+ * Check a recorded path just before deleting it; never throws for a refused path.
  * @param fs - Filesystem port.
  * @param root - Absolute level root.
- * @param recordedPath - Path relative to the root, as recorded.
- * @returns What the caller may do with the path.
+ * @param recordedPath - Path as recorded.
  */
 export const resolveDeleteTarget = async (fs: RecordFs, root: string, recordedPath: string): Promise<DeleteTarget> => {
   const textProblem = findRecordedPathProblem(recordedPath);

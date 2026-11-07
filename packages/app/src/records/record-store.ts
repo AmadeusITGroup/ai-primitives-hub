@@ -1,22 +1,10 @@
 /**
- * Install record store: locate, load and atomically save record files
- * (contract C2; BR1.5, BR1.9, BR2.1–BR2.3, BR4.1; NFR1.3, NFR4.1, NFR7.1).
+ * Install record store: locate, load and atomically save record files.
  *
- * `load` runs the four security layers in order and stops at the first
- * failure with a `RECORD.*` error:
- * 1. file gate — a regular file, or a symlink to a regular file inside the
- *    root; read capped at 10 MB + 1 byte;
- * 2. `parseRecord` — prototype-free JSON and the version gate;
- * 3. the schema validator (`RecordSchemaValidator` from infra);
- * 4. every recorded file `path` through Layer A and Layer B (`confinePath`), then
- *    every tool entry's `sourceId` must be a key of `sources`.
- *
- * `save` refuses to write a location unless its last `load` succeeded, so a
- * rejected file is never overwritten (BR1.9). It writes a temp file created
- * exclusively in the same folder and renames it over the target (BR4.1); a
- * record that is an allowed symlink keeps its link and has its target
- * replaced. The repository root is the git root (BR2.1), not `AppStorage`,
- * which governs per-user roots only.
+ * `load` checks the file type and size, parses, validates the schema, then
+ * confines every recorded path. `save` only writes a location whose last load
+ * succeeded, so a rejected file is never overwritten. The repository root is
+ * the git root, not `AppStorage`.
  * @module records/record-store
  */
 import * as path from 'node:path';
@@ -53,16 +41,11 @@ import {
 
 /** Schema gate the store runs after `parseRecord`; `RecordSchemaValidator` in infra implements it. */
 export interface RecordValidator {
-  /**
-   * @param record - Output of `parseRecord`.
-   * @param file - Record file to name in the error.
-   * @returns The record, typed.
-   * @throws {RegistryError} `RECORD.MALFORMED` when the record does not match the schema.
-   */
+  /** @throws {RegistryError} `RECORD.MALFORMED` when the record does not match the schema. */
   validate(record: UnvalidatedRecord, file?: string): InstallRecord;
 }
 
-/** A loaded record (contract C2). */
+/** A loaded record. */
 export interface LoadedRecord {
   location: RecordLocation;
   /** Parsed and validated record, with prototype-free objects; empty when the file is missing. */
@@ -92,11 +75,10 @@ export interface RecordStoreOptions {
 const LARGE_RECORD_HINT = 'The record is larger than 10 MB. Fix or remove the file, then run the command again.';
 
 /**
- * Build an empty record for a level.
+ * Build an empty, prototype-free record for a level.
  * @param level - Record level.
  * @param generatedBy - Writer stamp.
- * @param now - Time to stamp as `generatedAt`.
- * @returns A record with no bundles and no sources, prototype-free.
+ * @param now - Time stamped as `generatedAt`.
  */
 export const createEmptyRecord = (level: RecordLevel, generatedBy: string, now: Date): InstallRecord => {
   const record = Object.create(null) as InstallRecord;
@@ -135,10 +117,9 @@ export class RecordStore {
   }
 
   /**
-   * File gate (NFR1.3).
+   * The path to read: a regular file, or a symlink to one inside the root; `undefined` when missing.
    * @param location - Record location.
    * @param file - Record file to name in errors.
-   * @returns The path to read, or `undefined` when nothing is there.
    */
   private async gateRecordFile(location: RecordLocation, file: string): Promise<string | undefined> {
     const stat = await this.fs.lstat(location.path);
@@ -196,9 +177,9 @@ export class RecordStore {
   }
 
   /**
-   * Layers A and B on every recorded path (BR1.5); one failure stops the load.
+   * Confine every recorded path; one failure stops the load.
    * @param location - Record location.
-   * @param record - Record being checked or written.
+   * @param record - Record to check.
    * @param file - Record file to name in errors.
    */
   private async checkPaths(location: RecordLocation, record: InstallRecord, file: string): Promise<void> {
@@ -212,8 +193,8 @@ export class RecordStore {
   }
 
   /**
-   * Every tool entry's `sourceId` must be a key of `sources` (C1).
-   * @param record - Record being checked or written.
+   * Every tool entry's `sourceId` must be a key of `sources`.
+   * @param record - Record to check.
    * @param file - Record file to name in errors.
    */
   private checkSourceIds(record: InstallRecord, file: string): void {
@@ -232,7 +213,7 @@ export class RecordStore {
   /**
    * Prototype-free shallow copy with the writer fields set.
    * @param location - Record location.
-   * @param record - Record being checked or written.
+   * @param record - Record to write.
    */
   private stamp(location: RecordLocation, record: InstallRecord): InstallRecord {
     const stamped = nullPrototypeCopy(record);
@@ -250,7 +231,7 @@ export class RecordStore {
   }
 
   /**
-   * Temp file created exclusively beside the target, then renamed over it (BR4.1, NFR7.1).
+   * Write atomically; an allowed symlink keeps its link and has its target replaced.
    * @param location - Record location.
    * @param text - Serialized record.
    * @param file - Record file to name in errors.
@@ -270,10 +251,9 @@ export class RecordStore {
   }
 
   /**
-   * Both repository record locations for a start folder (BR2.1, BR2.2).
+   * Both repository record locations at the git root above `start` (or `start` itself), committed first.
    * @param input - Where the git-root walk starts.
-   * @param input.start - The target's root path, or the current folder.
-   * @returns The committed location, then the local-only one, at the git root (or `start` without one).
+   * @param input.start - Target root, or the current folder.
    */
   public async resolveRepository(input: { start: string }): Promise<[RecordLocation, RecordLocation]> {
     const root = await resolveRepositoryRoot(this.fs, input.start);
@@ -281,11 +261,9 @@ export class RecordStore {
   }
 
   /**
-   * Load and check a record file (workflow W3). A missing file gives an empty record.
-   * @param location - Where the record lives.
-   * @returns The loaded record.
-   * @throws {RegistryError} `RECORD.MALFORMED`, `RECORD.NEWER_FORMAT`,
-   * `RECORD.LEGACY_UNMIGRATED` or `RECORD.PATH_OUTSIDE_ROOT`; the file is left untouched.
+   * Load and check a record file. A missing file gives an empty record.
+   * @param location - Record location.
+   * @throws {RegistryError} A `RECORD.*` error; the file is left untouched.
    */
   public async load(location: RecordLocation): Promise<LoadedRecord> {
     this.loadedPaths.delete(location.path);
@@ -306,14 +284,10 @@ export class RecordStore {
   }
 
   /**
-   * Write a record atomically (BR4.1). Stamps `version`, `level`,
-   * `generatedAt` and `generatedBy`, validates, and serializes canonically.
-   * @param location - Where the record lives; must have been loaded successfully first.
+   * Stamp, validate and atomically write a record whose location was loaded first.
+   * @param location - Record location.
    * @param record - Record to write; left unchanged.
-   * @returns Warnings for the caller to log.
-   * @throws {RegistryError} `RECORD.MALFORMED` when the location's last load
-   * failed or never happened, or the record does not match the schema;
-   * `RECORD.WRITE_FAILED` when the write or rename fails (the previous file is intact).
+   * @throws {RegistryError} `RECORD.MALFORMED` or `RECORD.WRITE_FAILED`; the previous file is intact.
    */
   public async save(location: RecordLocation, record: InstallRecord): Promise<RecordSaveResult> {
     const file = this.labelOf(location);

@@ -1,13 +1,7 @@
 /**
- * Repository root detection and the local-only `info/exclude` entry
- * (BR2.1, BR2.3, NFR4.6, NFR4.7).
- *
- * Everything goes through `RecordFs`: no `git` subprocess, no shell. The root
- * is the nearest folder, from the start folder upward, holding an entry named
- * `.git` (a folder, or a file as in worktrees and submodules). The git
- * directory behind a `.git` file is only trusted when it looks like one (it
- * holds `HEAD`, or `commondir` for a worktree), so a crafted `gitdir:` cannot
- * make the hub write into an arbitrary folder.
+ * Repository root detection and the local-only `info/exclude` entry, through
+ * `RecordFs` only (no `git` process). A `gitdir:` target is trusted only when
+ * it holds `HEAD` or `commondir`, so a crafted `.git` file cannot redirect writes.
  * @module records/git-root
  */
 import * as path from 'node:path';
@@ -37,10 +31,9 @@ export interface ExcludeResult {
 }
 
 /**
- * Find the nearest folder, from `start` upward (inclusive), that holds `.git`.
+ * Nearest folder from `start` upward that holds `.git`, or `undefined`.
  * @param fs - Filesystem port.
- * @param start - Folder to start from; resolved to an absolute path.
- * @returns The folder, or `undefined` when no ancestor holds `.git`.
+ * @param start - Folder to start from.
  */
 export const findGitRoot = async (fs: RecordFs, start: string): Promise<string | undefined> => {
   const dotGit = await findAncestorFile(fs, path.resolve(start), ['.git']);
@@ -48,10 +41,9 @@ export const findGitRoot = async (fs: RecordFs, start: string): Promise<string |
 };
 
 /**
- * Repository root for a start folder (BR2.1): the git root, or the start folder itself when there is none.
+ * Repository root for a start folder: the git root, or the start folder itself when there is none.
  * @param fs - Filesystem port.
- * @param start - Target root path, or the current folder.
- * @returns Absolute repository root.
+ * @param start - Folder to start from.
  */
 export const resolveRepositoryRoot = async (fs: RecordFs, start: string): Promise<string> =>
   (await findGitRoot(fs, start)) ?? path.resolve(start);
@@ -64,11 +56,6 @@ const readSmallText = async (fs: RecordFs, file: string): Promise<string | undef
   return new TextDecoder('utf-8').decode(bytes);
 };
 
-/**
- * Kind of the entry at `file`, following symlinks.
- * @param fs - Filesystem port.
- * @param file - Path to inspect.
- */
 const followedKind = async (fs: RecordFs, file: string): Promise<string | undefined> => {
   const stat = await fs.lstat(file);
   if (stat?.kind !== 'symlink') {
@@ -88,10 +75,9 @@ const gitDirFromFile = async (fs: RecordFs, dotGit: string): Promise<string | un
 };
 
 /**
- * Folder that holds `info/exclude` for a repository root (NFR4.6).
+ * Common git directory for a repository root, or a warning when none can be trusted.
  * @param fs - Filesystem port.
- * @param root - Repository root holding `.git`.
- * @returns The common git directory, or a warning when none can be trusted.
+ * @param root - Repository root.
  */
 export const resolveExcludeDir = async (fs: RecordFs, root: string): Promise<{ dir: string } | { warning: string }> => {
   const dotGit = path.join(root, '.git');
@@ -123,13 +109,9 @@ export const resolveExcludeDir = async (fs: RecordFs, root: string): Promise<{ d
 };
 
 /**
- * The `info/exclude` file for a repository root (NFR4.6): `info/exclude` in
- * the folder {@link resolveExcludeDir} trusts. Every writer of the hub's
- * section uses this file, so a worktree's entries all land in the common git
- * directory.
+ * The `info/exclude` file for a repository root, in the common git directory, or a warning.
  * @param fs - Filesystem port.
- * @param root - Repository root holding `.git`.
- * @returns The absolute file path (it may not exist yet), or a warning when no git directory can be trusted.
+ * @param root - Repository root.
  */
 export const resolveExcludeFile = async (fs: RecordFs, root: string): Promise<{ file: string } | { warning: string }> => {
   const resolved = await resolveExcludeDir(fs, root);
@@ -137,15 +119,10 @@ export const resolveExcludeFile = async (fs: RecordFs, root: string): Promise<{ 
 };
 
 /**
- * Add `name` to the repository's `info/exclude` under
- * `GIT_EXCLUDE_SECTION_HEADER`, once (BR2.3). The text change is
- * `addExcludeEntries` from core, shared with the repository-scope writer.
- *
- * Failures never throw: the record is still written and the caller logs the warning.
+ * Add `name` to the hub's section of `info/exclude`. Never throws; failures come back as a warning.
  * @param fs - Filesystem port.
- * @param root - Repository root holding `.git`.
- * @param name - File name to exclude, relative to the root.
- * @returns What happened.
+ * @param root - Repository root.
+ * @param name - Root-relative file name.
  */
 export const ensureExcluded = async (fs: RecordFs, root: string, name: string): Promise<ExcludeResult> => {
   let excludePath: string | undefined;
@@ -186,16 +163,10 @@ export interface RemoveExcludedResult {
 }
 
 /**
- * Remove `name` from the repository's `info/exclude`, the reverse of {@link ensureExcluded} (BR2.3).
- *
- * The text change is `removeExcludeEntries` from core: only lines below
- * `GIT_EXCLUDE_SECTION_HEADER` that are `name` or `/name` go; the header
- * (even when its section is now empty) and every other line stay as they
- * are. Failures never throw: the caller logs the warning.
+ * Remove `name` from the hub's section of `info/exclude`. Never throws; failures come back as a warning.
  * @param fs - Filesystem port.
- * @param root - Repository root holding `.git`.
- * @param name - File name to remove, relative to the root.
- * @returns What happened.
+ * @param root - Repository root.
+ * @param name - Root-relative file name.
  */
 export const removeExcluded = async (fs: RecordFs, root: string, name: string): Promise<RemoveExcludedResult> => {
   let excludePath: string | undefined;

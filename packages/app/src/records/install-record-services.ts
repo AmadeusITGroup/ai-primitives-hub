@@ -1,10 +1,5 @@
 /**
- * Composition of the install record services (contracts C2, C3).
- *
- * Every delivery layer reads and writes records through the same pieces: a
- * `RecordStore` on `NodeRecordFs` with the 3.0.0 `RecordSchemaValidator`, and
- * an `InstallRecordService` on that store. This builds them once, stamped
- * with the caller's `generatedBy`.
+ * Builds the record store and install record service every delivery layer uses.
  * @module records/install-record-services
  */
 import type {
@@ -41,8 +36,7 @@ export interface InstallRecordServices {
 
 /**
  * Build a record store and an install record service on one filesystem port.
- * @param options - Writer stamp and an optional filesystem port.
- * @returns The port, the store and the service.
+ * @param options - Writer stamp and optional filesystem port.
  */
 export const createInstallRecordServices = (options: InstallRecordServicesOptions): InstallRecordServices => {
   const fs = options.fs ?? new NodeRecordFs();
