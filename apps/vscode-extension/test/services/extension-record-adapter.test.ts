@@ -77,6 +77,7 @@ import {
   setupUserRecordManager,
   snapshotTree,
   testBundle,
+  writeInstallRecord,
   writeOldEntry,
   writeOldLockfile,
 } from '../helpers/install-record-test-helpers';
@@ -378,6 +379,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
   suite('one version per bundle and tool', () => {
     const COLL = 'acme-tools-coll';
     const OLD_ONLY = '.github/prompts/old.prompt.md';
+    const LEGACY = '.github/prompts/legacy.prompt.md';
 
     /**
      * A version of the versioned-id bundle: the shared prompt and one prompt of its own.
@@ -449,14 +451,44 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
       assert.ok(showError.notCalled, String(showError.firstCall?.args[0]));
     });
 
-    test('installing another version retires the old prompt-registry entry of the old version and its unmodified file', async () => {
-      await writeOldEntry(root, `${COLL}-1.0.0`, { files: { '.github/prompts/legacy.prompt.md': 'old content' } });
+    test('installing another version replaces the migrated unknown entry of an old prompt-registry version and keeps its file', async () => {
+      await writeOldEntry(root, `${COLL}-1.0.0`, { files: { [LEGACY]: 'old content' } });
+      await manager.getRecordAdapter().migrateBeforeWrite('repository', root);
 
       await installVersion(versionOf('2.0.0', 'new'));
 
-      assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the emptied old file is removed');
-      assert.ok(!fs.existsSync(abs('.github/prompts/legacy.prompt.md')), 'the old file is deleted');
+      assert.deepStrictEqual(entriesIn(RECORD_FILE), [`${COLL}-2.0.0 vscode 2.0.0`]);
+      assert.strictEqual(read(LEGACY), 'old content');
       assert.deepStrictEqual(await listedVersions(), [`${COLL}-2.0.0 2.0.0`]);
+    });
+
+    test('update over a lone unknown entry of an older versioned id leaves one vscode entry and keeps the unknown entry\'s file', async () => {
+      await writeOldEntry(root, `${COLL}-1.0.0`, { files: { [LEGACY]: 'old content' } });
+      await manager.getRecordAdapter().migrateBeforeWrite('repository', root);
+      const installed = (await manager.listInstalledBundles('repository')).find((item) => item.bundleId === `${COLL}-1.0.0`);
+      assert.ok(installed);
+      const next = versionOf('2.0.0', 'new');
+
+      await installer.update(installed, { ...bundleOf(next.version), id: `${COLL}-2.0.0` }, zipOf(next, `${COLL}-2.0.0`), 'github');
+
+      assert.deepStrictEqual(entriesIn(RECORD_FILE), [`${COLL}-2.0.0 vscode 2.0.0`]);
+      assert.strictEqual(read(LEGACY), 'old content');
+      assert.deepStrictEqual(await listedVersions(), [`${COLL}-2.0.0 2.0.0`]);
+    });
+
+    test('a leftover unknown entry of an older versioned id next to kiro\'s newer version is refused as kiro\'s and stays', async () => {
+      writeInstallRecord(root, RECORD_FILE, {
+        [`${COLL}-1.0.0`]: { unknown: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: LEGACY } },
+        [`${COLL}-2.0.0`]: { kiro: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.kiro/steering/coll.md' } }
+      });
+      const record = readRecord();
+      record.bundles[`${COLL}-1.0.0`].tools.unknown.needsReinstall = true;
+      fs.writeFileSync(abs(RECORD_FILE), JSON.stringify(record));
+
+      await assert.rejects(manager.uninstallBundle(`${COLL}-1.0.0`, 'repository'), { code: 'RECORD.CLI_MANAGED', context: { bundleId: `${COLL}-1.0.0`, action: 'uninstall', tool: 'kiro' } });
+
+      assert.deepStrictEqual(entriesIn(RECORD_FILE), [`${COLL}-1.0.0 unknown 1.0.0`, `${COLL}-2.0.0 kiro 2.0.0`]);
+      assert.ok(fs.existsSync(abs(LEGACY)), 'the unknown entry\'s file stays');
     });
 
     test('commit-mode switch replaces an older version held under its own key in the target file', async () => {

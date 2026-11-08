@@ -251,11 +251,18 @@ export class ExtensionRecordAdapter {
     action: CliManagedAction,
     level: RecordLevel
   ): Promise<void> {
-    const tools = (await this.entriesIn(locations, bundleId)).map((located) => located.tool);
-    if (this.isAllowed(bundleId, action, tools)) {
+    const all = await this.allEntriesIn(locations);
+    const own = all.filter((located) => located.bundleId === bundleId);
+    const identities = new Set(own.map((located) => recordIdentityOf(bundleId, located.entry.version)));
+    const sameIdentity = all.filter((located) => identities.has(recordIdentityOf(located.bundleId, located.entry.version)));
+    const tools = own.map((located) => located.tool);
+    const identityTools = sameIdentity.map((located) => located.tool);
+    if (this.isAllowed(bundleId, action, tools, identityTools)) {
       return;
     }
-    throw cliManagedError(bundleId, action, tools.toSorted()[0], level);
+    // A leftover `unknown` entry belongs to the tool holding another version.
+    const known = (list: readonly string[]): string | undefined => list.toSorted().find((tool) => tool !== UNKNOWN_TOOL_NAME);
+    throw cliManagedError(bundleId, action, known(tools) ?? known(identityTools) ?? tools.toSorted()[0], level);
   }
 
   // An I/O error other than "missing" is logged and counts as present.
@@ -264,12 +271,12 @@ export class ExtensionRecordAdapter {
       this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined));
   }
 
-  // A lone `unknown` entry allows update and uninstall; a move or switch throws the reinstall hint.
-  private isAllowed(bundleId: string, action: CliManagedAction, tools: readonly string[]): boolean {
+  // A lone `unknown` entry, alone among its identity's entries, allows update and uninstall; a move or switch throws the reinstall hint.
+  private isAllowed(bundleId: string, action: CliManagedAction, tools: readonly string[], identityTools: readonly string[]): boolean {
     if (tools.length === 0 || tools.includes(this.hostTool)) {
       return true;
     }
-    if (isLoneUnknown(tools)) {
+    if (isLoneUnknown(identityTools)) {
       if (action === 'update' || action === 'uninstall') {
         return true;
       }
