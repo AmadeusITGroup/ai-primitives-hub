@@ -9,10 +9,14 @@
 
 import * as path from 'node:path';
 import {
+  recordIdentityOf,
+} from '@ai-primitives-hub/app';
+import {
   ExtensionRecordAdapter,
 } from '../services/extension-record-adapter';
 import {
   InstallRecordListing,
+  type UserRecordItems,
 } from '../services/install-record-listing';
 import {
   RegistryStorage,
@@ -51,15 +55,17 @@ export interface UserRecordReader {
   listing?: InstallRecordListing;
 }
 
+const noUserRecordItems = (): UserRecordItems => ({ items: [], hostBundleIds: new Set(), hostKeys: new Map() });
+
 /**
- * User-scope items of the shared user record and its host-tool bundle ids;
+ * User-scope items of the shared user record and its host-tool keys;
  * none in WSL or when the record cannot be read.
  * @param reader - Adapter, storage and listing to read with.
  */
-export const listUserRecordBundles = async (reader: UserRecordReader): Promise<{ items: InstalledBundle[]; hostBundleIds: Set<string> }> => {
+export const listUserRecordBundles = async (reader: UserRecordReader): Promise<UserRecordItems> => {
   const { adapter, storage } = reader;
   if (!adapter.usesSharedUserRecord()) {
-    return { items: [], hostBundleIds: new Set() };
+    return noUserRecordItems();
   }
   try {
     const listing = reader.listing ?? new InstallRecordListing({ fs: adapter.fs, store: adapter.store });
@@ -70,19 +76,33 @@ export const listUserRecordBundles = async (reader: UserRecordReader): Promise<{
     );
   } catch (error) {
     Logger.getInstance().warn('Failed to query user bundles from the user record:', error instanceof Error ? error : undefined);
-    return { items: [], hostBundleIds: new Set() };
+    return noUserRecordItems();
   }
 };
 
 /**
- * The shared user record's item for a bundle when it holds the host tool's
- * entry; `undefined` in WSL or when the record cannot be read.
+ * Whether a user-scope item is the same bundle as a host-tool key of the user
+ * record, at any version; the record's item then wins over it.
+ * @param listed - Result of {@link listUserRecordBundles}.
+ * @param bundle - Item from elsewhere, e.g. RegistryStorage.
+ */
+export const isInUserRecord = (listed: UserRecordItems, bundle: Pick<InstalledBundle, 'bundleId' | 'version'>): boolean =>
+  listed.hostKeys.has(bundle.bundleId) || new Set(listed.hostKeys.values()).has(recordIdentityOf(bundle.bundleId, bundle.version));
+
+/**
+ * The shared user record's host-tool item of a bundle: under its key, or the
+ * one listed for the same identity; `undefined` in WSL or when the record cannot be read.
  * @param reader - Adapter, storage and listing to read with.
  * @param bundleId - Bundle id.
+ * @param version - Version `bundleId` carries; without it, a key of the user record or a bare identity.
  */
-export const findUserRecordBundle = async (reader: UserRecordReader, bundleId: string): Promise<InstalledBundle | undefined> => {
-  const { items, hostBundleIds } = await listUserRecordBundles(reader);
-  return hostBundleIds.has(bundleId) ? items.find((bundle) => bundle.bundleId === bundleId) : undefined;
+export const findUserRecordBundle = async (reader: UserRecordReader, bundleId: string, version?: string): Promise<InstalledBundle | undefined> => {
+  const { items, hostBundleIds, hostKeys } = await listUserRecordBundles(reader);
+  if (hostBundleIds.has(bundleId)) {
+    return items.find((bundle) => bundle.bundleId === bundleId);
+  }
+  const identity = hostKeys.get(bundleId) ?? (version === undefined ? bundleId : recordIdentityOf(bundleId, version));
+  return items.find((bundle) => hostBundleIds.has(bundle.bundleId) && hostKeys.get(bundle.bundleId) === identity);
 };
 
 /**
