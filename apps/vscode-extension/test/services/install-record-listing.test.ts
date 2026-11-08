@@ -14,6 +14,7 @@ import {
   createMockContext,
   initGitRoot,
   LOCAL_RECORD_FILE,
+  type OldLockfileEntry,
   RECORD_FILE,
   type RecordSpec,
   writeInstallRecord,
@@ -68,11 +69,11 @@ suite('Install record listing (repository scope)', () => {
     assert.ok(showWarning.notCalled);
   });
 
-  const versionCases: { name: string; record: RecordSpec; old?: Record<string, string>; expected: { bundleId: string; version: string }[] }[] = [
+  const versionCases: { name: string; record: RecordSpec; old?: Record<string, OldLockfileEntry>; expected: { bundleId: string; version: string }[] }[] = [
     {
       name: 'an old lockfile holding 1.0.0 next to a record holding 2.0.0 of a versioned id lists the record\'s',
       record: { 'acme-tools-coll-2.0.0': { vscode: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/coll.prompt.md' } } },
-      old: { 'acme-tools-coll-1.0.0': '1.0.0' },
+      old: { 'acme-tools-coll-1.0.0': { version: '1.0.0' } },
       expected: [{ bundleId: 'acme-tools-coll-2.0.0', version: '2.0.0' }]
     },
     {
@@ -97,7 +98,7 @@ suite('Install record listing (repository scope)', () => {
     test(name, async () => {
       writeInstallRecord(root, RECORD_FILE, record);
       if (old !== undefined) {
-        writeOldLockfile(root, 'prompt-registry.lock.json', old);
+        await writeOldLockfile(path.join(root, 'prompt-registry.lock.json'), old);
       }
 
       const items = await list();
