@@ -1174,16 +1174,19 @@ agents:
       await expect(readFile(vscodePrompt(), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
-    it('keeps one entry when a versioned bundle id is upgraded for the same target', async () => {
-      for (const version of ['1.0.0', '2.0.0']) {
+    it.each([
+      { target: 'repo-vscode', tool: 'vscode', read: () => readRecord(workspace) },
+      { target: 'copilot', tool: 'copilot-cli', read: () => readInstallRecord(userRecordPath(workspaceEnv(workspace))) }
+    ])('keeps one entry when a versioned bundle id is upgraded and downgraded for $target', async ({ target, tool, read }) => {
+      for (const version of ['1.0.0', '2.0.0', '1.0.0']) {
         await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: `acme-tools-coll-${version}`, version }));
-        const result = await run(['install', '--from', bundleDir, '--target', 'repo-vscode', '-o', 'json']);
+        const result = await run(['install', '--from', bundleDir, '--target', target, '-o', 'json']);
         expect(result.exitCode, result.stdout).toBe(0);
-      }
 
-      const { bundles } = await readRecord(workspace);
-      expect(Object.keys(bundles)).toEqual(['acme-tools-coll-2.0.0']);
-      expect(bundles['acme-tools-coll-2.0.0'].tools.vscode.version).toBe('2.0.0');
+        const { bundles } = await read();
+        expect(Object.entries(bundles).map(([key, bundle]) => `${key} ${Object.keys(bundle.tools).join(',')} ${bundle.tools[tool]?.version}`))
+          .toEqual([`acme-tools-coll-${version} ${tool} ${version}`]);
+      }
     });
 
     it('lists the local-only record and its installed files in one info/exclude in a git worktree', async () => {
