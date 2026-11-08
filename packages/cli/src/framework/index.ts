@@ -115,6 +115,7 @@ export {
   finishRecordRun,
   migrateDecision,
   oldFileOnlyBundles,
+  otherKeysOfIdentity,
   prepareOldFileOnly,
   prepareRecordDecision,
   prepareRecordForTarget,

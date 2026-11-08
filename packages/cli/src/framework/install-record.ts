@@ -555,6 +555,24 @@ export const prepareUninstallForTarget = async (
 };
 
 /**
+ * The tool's other keys of the bundle's identity, such as an older versioned key a merge left next to it.
+ * @param prepared - The level's record files, loaded and checked.
+ * @param bundleId - Recorded key being uninstalled.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+export const otherKeysOfIdentity = async (prepared: PreparedRepositoryUninstall, bundleId: string): Promise<string[]> => {
+  const rows = (await prepared.service.listEntries(prepared.locations)).filter((row) => row.tool === prepared.tool);
+  const own = rows.find((row) => row.bundleId === bundleId);
+  if (own === undefined) {
+    return [];
+  }
+  const identity = recordIdentityOf(bundleId, own.version);
+  return [...new Set(rows
+    .filter((row) => row.bundleId !== bundleId && recordIdentityOf(row.bundleId, row.version) === identity)
+    .map((row) => row.bundleId))];
+};
+
+/**
  * Remove one bundle's entry for the target's type, then delete its files except
  * those another entry lists or that changed since the install (each kept with a warning).
  * @param prepared - From {@link prepareRepositoryUninstall}.

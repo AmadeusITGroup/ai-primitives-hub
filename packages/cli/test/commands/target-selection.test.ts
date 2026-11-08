@@ -54,6 +54,10 @@ import {
   runCommand,
 } from '../../src/framework';
 import {
+  createLegacyReleaseArchive,
+  writeReleaseArchive,
+} from '../fixtures/release-archives';
+import {
   initGitRoot,
   readInstallRecord,
   userRecordPath,
@@ -264,6 +268,44 @@ describe('target selection without target-state.json', () => {
       expect(envelope.data.target).toBe('vscode-a');
       expect(envelope.warnings).toContain('several vscode targets match; using vscode-a');
       expect(await exists(vscodePrompt())).toBe(false);
+    });
+
+    it.each([
+      ['without --target', []],
+      ['with --target', ['--target', 'repo-vscode']],
+      ['as a dry run', ['--dry-run']]
+    ])('uninstall of the listed versioned id %s also takes the older key of it the record still holds for that tool', async (name, extra) => {
+      await addTargets([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]);
+      const versioned = path.join(home, 'versioned');
+      const install = async (version: string, target: string): Promise<void> => {
+        await writeReleaseArchive(versioned, createLegacyReleaseArchive({ id: `acme-tools-coll-${version}`, version }));
+        await ok(['install', '--from', versioned, '--target', target, '-o', 'json']);
+      };
+      await install('1.0.0', 'repo-kiro');
+      await install('1.0.0', 'repo-vscode');
+      const older = (await readInstallRecord(repoRecord())).bundles['acme-tools-coll-1.0.0'].tools.vscode;
+      await install('2.0.0', 'repo-vscode');
+      // A merge brings vscode's older key back next to the newer one, with a file of its own.
+      const oldPrompt = path.join(repo, '.github', 'prompts', 'old.prompt.md');
+      await writeFile(oldPrompt, '# Hello Prompt\n');
+      older.files = older.files.map((file) => ({ ...file, path: '.github/prompts/old.prompt.md' }));
+      const record = await readInstallRecord(repoRecord());
+      record.bundles['acme-tools-coll-1.0.0'].tools.vscode = older;
+      await writeFile(repoRecord(), `${JSON.stringify(record, null, 2)}\n`);
+
+      const result = await run(['uninstall', '--bundle', 'acme-tools-coll-2.0.0', ...extra, '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const after = await readInstallRecord(repoRecord());
+      if (name === 'as a dry run') {
+        expect(json<{ files: string[] }>(result.stdout).data.files).toEqual(['.github/prompts/hello.prompt.md', '.github/prompts/old.prompt.md']);
+        expect(after).toEqual(record);
+        return;
+      }
+      expect(Object.entries(after.bundles).map(([key, entry]) => `${key} ${Object.keys(entry.tools).join(',')}`))
+        .toEqual(['acme-tools-coll-1.0.0 kiro']);
+      expect(await exists(vscodePrompt())).toBe(false);
+      expect(await exists(oldPrompt)).toBe(false);
     });
 
     it('update --dry-run reports old-file-only bundles as per-bundle failures and checks the recorded ones', async () => {

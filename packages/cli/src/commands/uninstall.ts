@@ -62,6 +62,7 @@ import {
   loadTargets,
   lockfilePathForTarget,
   Option,
+  otherKeysOfIdentity,
   type OutputFormat,
   type PreparedRecordSelection,
   type PreparedRepositoryUninstall,
@@ -722,21 +723,32 @@ async function performRecordBundleUninstall(
   notes: readonly string[] = []
 ): Promise<number> {
   const { opts, target, ctx, fmt } = run;
+  // The tool keeps one entry per bundle, so an older key of the same bundle goes too.
+  const others = await otherKeysOfIdentity(prepared, bundleId);
   if (opts.dryRun === true) {
     // The default rule may have picked the level, so the preview names the file.
     const location = await holdingRecordLocation(prepared, bundleId);
-    return renderBundleDryRun(ctx, fmt, target, bundleId, recordedFiles, {
+    const files = [...new Set([...recordedFiles, ...others.flatMap((key) => prepared.entries.get(key) ?? [])])];
+    return renderBundleDryRun(ctx, fmt, target, bundleId, files, {
       warnings: notes,
       record: { level: location.level, records: [location.path] }
     });
   }
 
+  const removed: string[] = [];
+  const warnings = [...notes];
+  for (const key of others) {
+    const older = await recordRepositoryUninstall(prepared, key);
+    removed.push(...older.removed);
+    warnings.push(...older.warnings);
+  }
   const recorded = await recordRepositoryUninstall(prepared, bundleId);
-  const warnings = [...notes, ...recorded.warnings];
+  removed.push(...recorded.removed);
+  warnings.push(...recorded.warnings);
 
   return renderBundleUninstalled(ctx, fmt, target, {
     bundleId,
-    removed: recorded.removed,
+    removed,
     lockfile: recorded.lockfile,
     warnings,
     record: { level: prepared.location.level, records: [recorded.lockfile] },
