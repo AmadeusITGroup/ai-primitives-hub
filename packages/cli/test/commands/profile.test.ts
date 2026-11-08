@@ -392,6 +392,39 @@ profiles:
       expect(await exists(path.join(targetDir, 'prompts', 'hello.prompt.md'))).toBe(false);
       expect(await exists(path.join(otherDir, 'prompts', 'hello.prompt.md'))).toBe(false);
     });
+
+    it('keeps one entry per bundle and tool when a profile pins another version of a versioned id', async () => {
+      const keys = async (): Promise<string[]> => Object.entries((await readInstallRecord(recordPath())).bundles)
+        .map(([key, bundle]) => `${key} ${Object.keys(bundle.tools).join(',')} ${bundle.tools.vscode?.version}`);
+      // The profile pins acme-tools-coll-<version>, served by the local source.
+      const pin = async (version: string): Promise<void> => {
+        await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: `acme-tools-coll-${version}`, version }));
+        const hub = await readFile(hubConfigFile, 'utf8');
+        await writeFile(hubConfigFile, hub.replace(/- id: \S+\n {8}version: \S+/, `- id: acme-tools-coll-${version}\n        version: ${version}`));
+        expect((await run(['hub', 'sync', 'test-hub', '-o', 'json'])).exitCode).toBe(0);
+      };
+      const runInstall = makeRun(() => workspace, [...COMMAND_CLASSES, InstallCommand]);
+      await pin('1.0.0');
+      const installed = await runInstall(['install', '--from', bundleDir, '--target', 'repo', '-o', 'json']);
+      expect(installed.exitCode, installed.stdout).toBe(0);
+      await pin('2.0.0');
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json']);
+
+      expect(activated.exitCode, activated.stdout).toBe(0);
+      expect(await keys()).toEqual(['acme-tools-coll-2.0.0 vscode 2.0.0']);
+
+      // An install of another version replaces the profile's entry, and deactivate still removes it.
+      await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: 'acme-tools-coll-3.0.0', version: '3.0.0' }));
+      expect((await runInstall(['install', '--from', bundleDir, '--target', 'repo', '-o', 'json'])).exitCode).toBe(0);
+      expect(await keys()).toEqual(['acme-tools-coll-3.0.0 vscode 3.0.0']);
+
+      const deactivated = await run(['profile', 'deactivate', '-o', 'json']);
+
+      expect(deactivated.exitCode, deactivated.stdout).toBe(0);
+      expect(await exists(repoPrompt())).toBe(false);
+      expect(await exists(recordPath())).toBe(false);
+    });
   });
 });
 

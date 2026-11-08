@@ -38,6 +38,7 @@ import {
   type MigrationReport,
   type ProfileLifecycleDeps,
   readLockfile,
+  recordIdentityOf,
   type RecordSourceInput,
   resolveUserConfigPaths,
   type TargetWriter,
@@ -504,17 +505,24 @@ export interface ProfileDeactivationReport {
   warnings: string[];
 }
 
+/** A bundle a profile synced, with the version it was synced at when known. */
+interface ProfileSyncedBundle {
+  id: string;
+  version?: string;
+}
+
 /**
  * Remove a profile's bundles from one repository or user target through the record uninstall path.
+ * A bundle is matched by its id or, at any version of a versioned id, by its identity.
  * A bundle whose only entry is `unknown` is kept and reported, since its tool is not known.
  * @param ctx - CLI context
- * @param bundleIds - bundles the profile synced
+ * @param bundles - bundles the profile synced
  * @param target - effective repository or user target
  * @param report - report to fill in
  */
 async function deactivateRecordTarget(
   ctx: Context,
-  bundleIds: readonly string[],
+  bundles: readonly ProfileSyncedBundle[],
   target: Target,
   report: ProfileDeactivationReport
 ): Promise<void> {
@@ -525,15 +533,23 @@ async function deactivateRecordTarget(
   if (prepared.migration !== undefined) {
     report.migrations.push(prepared.migration);
   }
+  const rows = (await prepared.service.listEntries(prepared.locations)).filter((row) => row.tool === prepared.tool);
+  const removed = new Set<string>();
   const files = new Set<string>();
-  for (const bundleId of new Set(bundleIds)) {
-    if (prepared.entries.has(bundleId)) {
-      const recorded = await recordRepositoryUninstall(prepared, bundleId);
+  for (const bundle of bundles) {
+    const identity = bundle.version === undefined ? bundle.id : recordIdentityOf(bundle.id, bundle.version);
+    const keys = [...new Set(rows
+      .filter((row) => row.bundleId === bundle.id || recordIdentityOf(row.bundleId, row.version) === identity)
+      .map((row) => row.bundleId))];
+    for (const key of keys.filter((candidate) => !removed.has(candidate))) {
+      const recorded = await recordRepositoryUninstall(prepared, key);
+      removed.add(key);
       files.add(recorded.lockfile);
       report.warnings.push(...recorded.warnings);
-    } else if (prepared.loneUnknown?.has(bundleId) === true
-      && !report.unknown.some((kept) => kept.bundleId === bundleId && kept.lockfile === prepared.location.path)) {
-      report.unknown.push({ bundleId, target: target.name, lockfile: prepared.location.path });
+    }
+    if (keys.length === 0 && prepared.loneUnknown?.has(bundle.id) === true
+      && !report.unknown.some((kept) => kept.bundleId === bundle.id && kept.lockfile === prepared.location.path)) {
+      report.unknown.push({ bundleId: bundle.id, target: target.name, lockfile: prepared.location.path });
     }
   }
   for (const file of files) {
@@ -550,11 +566,15 @@ async function deactivateRecordTarget(
  */
 async function deactivateProfileBundles(ctx: Context, state: ProfileActivationState, targets: Target[]): Promise<ProfileDeactivationReport> {
   const report: ProfileDeactivationReport = { records: [], migrations: [], unknown: [], warnings: [] };
+  const syncedBundles = [...new Set(state.syncedBundles)].map((id): ProfileSyncedBundle => {
+    const version = state.syncedBundleVersions?.[id];
+    return version === undefined ? { id } : { id, version };
+  });
   for (const configuredTarget of targets) {
     const target = resolveEffectiveTarget(ctx, configuredTarget);
     if (usesInstallRecord(target)) {
       try {
-        await deactivateRecordTarget(ctx, state.syncedBundles, target, report);
+        await deactivateRecordTarget(ctx, syncedBundles, target, report);
       } catch (error) {
         report.warnings.push(`${target.name}: ${errorMessage(toProfileRecordError('profile deactivate', error))}`);
       }
