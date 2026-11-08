@@ -52,6 +52,9 @@ import type {
   RepositoryCommitMode,
 } from '../../src/types/registry';
 import {
+  findUserRecordBundle,
+} from '../../src/utils/bundle-scope-utils';
+import {
   Logger,
 } from '../../src/utils/logger';
 import {
@@ -924,6 +927,31 @@ suite('user record', function () {
       assert.ok(showError.notCalled, String(showError.firstCall?.args[0]));
     });
 
+    test('an older RegistryStorage item next to a newer user record entry lists as one item, the record\'s', async () => {
+      await storeProfileInstall('1.0.0');
+      const adapter = manager.getRecordAdapter();
+      fs.writeFileSync(ownFile('new'), '# new 2.0.0\n');
+      await adapter.service.recordInstall({
+        location: adapter.userLocation(), bundleId: idOf('2.0.0'), version: '2.0.0', tool: adapter.hostTool,
+        source: { sourceId: localSource.id, type: 'local', url: localSource.url }, sourceType: 'local',
+        writtenPaths: [ownFile('new')], workspaceRoot: home, syncSiblings: false
+      });
+
+      assert.deepStrictEqual(await listedVersions(), [`${idOf('2.0.0')} 2.0.0`]);
+      assert.strictEqual((await findUserRecordBundle({ adapter, storage }, idOf('1.0.0'), '1.0.0'))?.bundleId, idOf('2.0.0'));
+    });
+
+    test('a user record holding two versions of the bundle for vscode lists the latest installed', async () => {
+      await installVersion(versionOf('2.0.0', 'new'));
+      // An older key next to it, as after a hand edit or a copy from another machine.
+      const record = readUserRecord();
+      record.bundles[idOf('1.0.0')] = { tools: { vscode: { ...record.bundles[idOf('2.0.0')].tools.vscode, version: '1.0.0', installedAt: '2026-01-01T00:00:00.000Z' } } };
+      fs.writeFileSync(userRecordPath(), JSON.stringify(record, null, 2));
+
+      assert.deepStrictEqual(await listedVersions(), [`${idOf('2.0.0')} 2.0.0`]);
+      assert.strictEqual((await findUserRecordBundle({ adapter: manager.getRecordAdapter(), storage }, idOf('1.0.0')))?.bundleId, idOf('2.0.0'));
+    });
+
     test('installing another version retires this profile\'s RegistryStorage item of the old version and its own file', async () => {
       await storeProfileInstall('1.0.0');
 
@@ -933,6 +961,27 @@ suite('user record', function () {
       assert.ok(!isOnDisk(ownFile('old')), 'the old version\'s own file is removed');
       assert.strictEqual(fs.readFileSync(userPath(USER_HELLO), 'utf8'), '# Hello 2.0.0\n', 'the path both write stays');
       assert.deepStrictEqual(await listedVersions(), [`${idOf('2.0.0')} 2.0.0`]);
+    });
+
+    test('deactivating a profile uninstalls a later version of its bundle from the user record', async () => {
+      const v1 = versionOf('1.0.0', 'old');
+      const dir = path.join(localSource.url, idOf('1.0.0'));
+      writeBundleDir(dir, v1, idOf('1.0.0'));
+      await storage.cacheSourceBundles(localSource.id, [{
+        ...bundleAt('1.0.0'), manifestUrl: pathToFileURL(path.join(dir, 'deployment-manifest.yml')).href, downloadUrl: pathToFileURL(dir).href
+      }]);
+      await storage.addProfile({
+        id: 'team', name: 'Team', description: '', icon: '', active: false, createdAt: '', updatedAt: '',
+        bundles: [{ id: idOf('1.0.0'), version: '1.0.0', sourceId: localSource.id, required: true }]
+      });
+      await manager.activateProfile('team');
+      await installVersion(versionOf('2.0.0', 'new'));
+      assert.deepStrictEqual(userEntries(), [`${idOf('2.0.0')} vscode 2.0.0`]);
+
+      await manager.deactivateProfile('team');
+
+      assert.deepStrictEqual(userEntries(), []);
+      assert.ok(!isOnDisk(ownFile('new')) && !isOnDisk(userPath(USER_HELLO)), 'its files are removed');
     });
   });
 });

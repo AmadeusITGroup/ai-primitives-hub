@@ -85,6 +85,15 @@ interface LocatedEntry {
   location: RecordLocation;
 }
 
+/** The user record's listing items. */
+export interface UserRecordItems {
+  items: InstalledBundle[];
+  /** Keys listed from the host tool's entry. */
+  hostBundleIds: Set<string>;
+  /** Identity of every host tool key, listed or replaced by a later install of the bundle. */
+  hostKeys: Map<string, string>;
+}
+
 /** The record's listing items, and the identity of every entry for the old-file merge. */
 interface RecordItems {
   items: Map<string, InstalledBundle>;
@@ -285,7 +294,9 @@ export class InstallRecordListing {
 
   /**
    * List the shared user record's bundles as user-scope items, one per bundle,
-   * from the host tool's entry when there is one. A `RECORD.*` error gives no items.
+   * from the host tool's entry when there is one. The host tool lists one
+   * version of a bundle, its latest install across the versioned keys. A
+   * `RECORD.*` error gives no items.
    * @param location - The user record location.
    * @param hostTool - The tool the extension records under.
    * @param installPathFor - The extension's bundle cache folder of a bundle id.
@@ -294,24 +305,40 @@ export class InstallRecordListing {
     location: RecordLocation,
     hostTool: string,
     installPathFor: (bundleId: string) => string
-  ): Promise<{ items: InstalledBundle[]; hostBundleIds: Set<string> }> {
+  ): Promise<UserRecordItems> {
+    const candidates: LocatedEntry[] = [];
+    for (const [bundleId, bundle] of await this.loadBundles(location)) {
+      candidates.push(...Object.entries(bundle.tools).map(([tool, entry]) => ({ bundleId, tool, entry, location })));
+    }
+    const byIdentity = new Map<string, LocatedEntry[]>();
+    const hostKeys = new Map<string, string>();
+    for (const candidate of candidates) {
+      const identity = recordIdentityOf(candidate.bundleId, candidate.entry.version);
+      if (candidate.tool === hostTool) {
+        hostKeys.set(candidate.bundleId, identity);
+      }
+      const key = JSON.stringify([identity, candidate.tool]);
+      byIdentity.set(key, [...(byIdentity.get(key) ?? []), candidate]);
+    }
+    const listed = new Set([...byIdentity.values()].map((group) => latestEntry(group)));
     const items: InstalledBundle[] = [];
     const hostBundleIds = new Set<string>();
-    for (const [bundleId, bundle] of await this.loadBundles(location)) {
-      const host = Object.hasOwn(bundle.tools, hostTool) ? bundle.tools[hostTool] : undefined;
+    for (const bundleId of new Set(candidates.map((candidate) => candidate.bundleId))) {
+      const own = candidates.filter((candidate) => candidate.bundleId === bundleId && listed.has(candidate));
+      const host = own.find((candidate) => candidate.tool === hostTool);
+      const chosen = host ?? latestEntry(own);
+      if (chosen === undefined) {
+        continue;
+      }
       if (host !== undefined) {
         hostBundleIds.add(bundleId);
       }
-      const entry = host ?? latestEntry(Object.entries(bundle.tools).map(([tool, candidate]) => ({ bundleId, tool, entry: candidate, location })))?.entry;
-      if (entry === undefined) {
-        continue;
-      }
-      const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(entry), {
-        installPath: installPathFor(bundleId), filesMissing: await this.filesMissing(location.root, entry)
+      const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(chosen.entry), {
+        installPath: installPathFor(bundleId), filesMissing: await this.filesMissing(location.root, chosen.entry)
       });
       items.push({ ...item, scope: 'user', commitMode: undefined, recordOrigin: 'install-record' });
     }
-    return { items, hostBundleIds };
+    return { items, hostBundleIds, hostKeys };
   }
 }
 

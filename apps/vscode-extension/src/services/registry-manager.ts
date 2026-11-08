@@ -25,6 +25,7 @@ import {
   listAllProfiles,
   listInstalledBundles as listInstalledBundlesCore,
   listLocalProfiles as listLocalProfilesCore,
+  recordIdentityOf,
   reuseCachedSourceReadmes,
   searchRegistryBundles,
   uninstallInstalledBundle,
@@ -95,6 +96,7 @@ import {
 } from '../utils/bundle-identity-matcher';
 import {
   findUserRecordBundle,
+  isInUserRecord,
   listUserRecordBundles,
   type UserRecordReader,
 } from '../utils/bundle-scope-utils';
@@ -136,6 +138,7 @@ import {
 } from './hub-manager';
 import {
   InstallRecordListing,
+  type UserRecordItems,
 } from './install-record-listing';
 import {
   LocalModificationWarningService,
@@ -146,6 +149,12 @@ import {
 import {
   VersionConsolidator,
 } from './version-consolidator';
+
+/** A bundle a profile names, with its version when known. */
+interface ProfileBundleRef {
+  id: string;
+  version?: string;
+}
 
 /**
  * Results from auto-update operations
@@ -352,18 +361,18 @@ export class RegistryManager {
   }
 
   // None in WSL or when the record cannot be read.
-  private listUserRecordBundles(): Promise<{ items: InstalledBundle[]; hostBundleIds: Set<string> }> {
+  private listUserRecordBundles(): Promise<UserRecordItems> {
     return listUserRecordBundles(this.userRecordReader());
   }
 
-  // At user scope this adds the user record's bundles, except in WSL.
+  // At user scope this adds the user record's bundles, except in WSL; the record wins over a stored item of any version.
   private async listStoredBundles(scope?: InstallationScope): Promise<InstalledBundle[]> {
     const stored = await this.storage.getInstalledBundles(scope);
     if (scope !== undefined && scope !== 'user') {
       return stored;
     }
-    const { items, hostBundleIds } = await this.listUserRecordBundles();
-    return [...stored.filter((bundle) => bundle.scope !== 'user' || !hostBundleIds.has(bundle.bundleId)), ...items];
+    const listed = await this.listUserRecordBundles();
+    return [...stored.filter((bundle) => bundle.scope !== 'user' || !isInUserRecord(listed, bundle)), ...listed.items];
   }
 
   // Falls back to the user record's host-tool item at user scope.
@@ -381,7 +390,7 @@ export class RegistryManager {
   }
 
   // `undefined` when the profile is not a hub profile.
-  private async getHubProfileBundleIds(profileId: string): Promise<string[] | undefined> {
+  private async getHubProfileBundles(profileId: string): Promise<ProfileBundleRef[] | undefined> {
     if (!this.hubManager) {
       return undefined;
     }
@@ -390,22 +399,26 @@ export class RegistryManager {
       return undefined;
     }
     const state = await this.hubManager.getActiveProfile(hubProfile.hubId);
-    return state?.profileId === profileId ? state.syncedBundles : (hubProfile.bundles ?? []).map((bundle) => bundle.id);
+    return state?.profileId === profileId
+      ? state.syncedBundles.map((id) => ({ id, version: state.syncedBundleVersions?.[id] }))
+      : (hubProfile.bundles ?? []).map((bundle) => ({ id: bundle.id, version: bundle.version }));
   }
 
-  // Adds the host tool's user record items of the profile's bundles: the record has no profile key.
-  private async listProfileInstalls(profileId: string, hubBundleIds?: string[]): Promise<InstalledBundle[]> {
+  // Adds the host tool's user record items of the profile's bundles, any version: the record has no profile key.
+  private async listProfileInstalls(profileId: string, hubBundles?: ProfileBundleRef[]): Promise<InstalledBundle[]> {
     const stored = await this.storage.getInstalledBundles();
-    const bundleIds = hubBundleIds
-      ?? (await this.storage.getProfiles()).find((candidate) => candidate.id === profileId)?.bundles?.map((bundle) => bundle.id)
+    const bundles: ProfileBundleRef[] = hubBundles
+      ?? (await this.storage.getProfiles()).find((candidate) => candidate.id === profileId)?.bundles?.map((bundle) => ({ id: bundle.id, version: bundle.version }))
       ?? [];
-    if (bundleIds.length === 0 || !this.recordAdapter.usesSharedUserRecord()) {
+    if (bundles.length === 0 || !this.recordAdapter.usesSharedUserRecord()) {
       return stored;
     }
-    const profileBundleIds = new Set(bundleIds);
+    // A profile names a bundle by id, or by a versioned id at its version.
+    const profileIds = new Set(bundles.flatMap(({ id, version }) => version === undefined ? [id] : [id, recordIdentityOf(id, version)]));
     const attributed = new Set(stored.filter((bundle) => bundle.profileId === profileId).map((bundle) => bundle.bundleId));
-    const { items, hostBundleIds } = await this.listUserRecordBundles();
-    const owned = items.filter((item) => hostBundleIds.has(item.bundleId) && profileBundleIds.has(item.bundleId) && !attributed.has(item.bundleId));
+    const { items, hostBundleIds, hostKeys } = await this.listUserRecordBundles();
+    const owned = items.filter((item) => hostBundleIds.has(item.bundleId) && !attributed.has(item.bundleId)
+      && (profileIds.has(item.bundleId) || profileIds.has(hostKeys.get(item.bundleId) ?? item.bundleId)));
     return [...stored, ...owned.map((item) => ({ ...item, profileId }))];
   }
 
@@ -2108,12 +2121,12 @@ export class RegistryManager {
    */
   public async deactivateProfile(profileId: string): Promise<void> {
     // The hub deactivation below deletes the activation state before the installs are listed.
-    const hubBundleIds = await this.getHubProfileBundleIds(profileId);
+    const hubBundles = await this.getHubProfileBundles(profileId);
     await deactivateRegistryProfile(
       {
         getProfiles: () => this.storage.getProfiles(),
         updateProfile: (id, updates) => this.storage.updateProfile(id, updates),
-        getInstalledBundles: () => this.listProfileInstalls(profileId, hubBundleIds),
+        getInstalledBundles: () => this.listProfileInstalls(profileId, hubBundles),
         uninstallBundles: (bundleIds) => this.uninstallBundles(bundleIds),
         hub: this.hubManager && {
           listActiveHubProfiles: () => this.hubManager!.listActiveHubProfiles(),
