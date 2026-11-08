@@ -121,6 +121,7 @@ User-scope installs are recorded in one file per machine, shared by the CLI and 
 - A target folder outside your home folder, or a tool folder symlinked outside it, is refused with `RECORD.PATH_OUTSIDE_ROOT` before anything is written.
 - The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is only read: bundles only it lists are still updated and uninstalled from it, and files it still lists are kept.
 - Uninstall keeps files you edited after the install, with a warning. An extension link into its bundle cache that still points at the installed content counts as unchanged.
+- As at repository scope, installing, updating or downgrading a bundle leaves each tool one version of it in this file, also for a bundle id that ends with its version; `update` records it under the new version's id. In the extension, the old version's bundle cache and an older per-profile install of the bundle are removed too, and the user view lists one item per bundle.
 - In the extension, older per-profile installs are still listed; the profile entry is removed when you reinstall, update or uninstall the bundle. Other tools' entries are read-only (`RECORD.CLI_MANAGED`).
 - In a WSL remote window, and for `local-skills` skills linked to their source folder, the extension keeps recording per profile.
 - The CLI and the extension each read `XDG_CONFIG_HOME` from their own environment. A VS Code started from the Dock or Start menu does not see a value set only in your shell, so set it system-wide or not at all. The extension logs the path it uses.
