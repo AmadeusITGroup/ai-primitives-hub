@@ -95,7 +95,7 @@ The local-only file is added to `.git/info/exclude` when it is created. A record
 
 ### Format 3.0.0
 
-Each bundle has one entry per tool (`vscode`, `kiro`, …), so installing it for a second tool, from another editor or the CLI, keeps the first. File paths are relative to the git root.
+Each bundle has one entry per tool (`vscode`, `kiro`, …), so installing it for a second tool, from another editor or the CLI, keeps the first. Installing another version replaces the previous one for that tool. File paths are relative to the git root.
 
 ```json
 {
