@@ -491,13 +491,13 @@ export class InstallRecordService {
     }
   }
 
-  // Removes the source only the `unknown` entry used; `true` when there was one.
-  private clearUnknown(record: InstallRecord, bundleId: string): boolean {
-    const removed = this.removeEntry(record, bundleId, UNKNOWN_TOOL_NAME);
-    if (removed !== undefined) {
-      this.dropUnusedSource(record, removed.sourceId);
+  // Clears the `unknown` entries of the same identity and the sources only they used; `true` when there was one.
+  private clearUnknown(record: InstallRecord, bundleId: string, identity: string): boolean {
+    const removed = this.removeSameIdentity(record, bundleId, identity, UNKNOWN_TOOL_NAME);
+    for (const entry of removed) {
+      this.dropUnusedSource(record, entry.sourceId);
     }
-    return removed !== undefined;
+    return removed.length > 0;
   }
 
   /**
@@ -687,9 +687,9 @@ export class InstallRecordService {
       (stillListed.has(oldPath) ? keptSharedFiles : deletedFiles).push(oldPath);
     }
 
-    // A reinstall clears the bundle's `unknown` entry; its files are only no longer listed.
-    const clearedOther = other !== undefined && this.clearUnknown(other.record, bundleId);
-    this.clearUnknown(target.record, bundleId);
+    // A reinstall clears the bundle's `unknown` entries of any version; their files are only no longer listed.
+    const clearedOther = other !== undefined && this.clearUnknown(other.record, bundleId, identity);
+    this.clearUnknown(target.record, bundleId, identity);
 
     const warnings = [...(await this.store.save(location, target.record)).warnings];
     if (other !== undefined && (moved.length > 0 || clearedOther || sync.changed.has(other))) {
@@ -806,37 +806,47 @@ export class InstallRecordService {
   }
 
   /**
-   * Bundles whose only entry across the given record files is `unknown`, with that entry.
+   * Bundles whose only entries across the given record files, under any key
+   * of the same identity, are `unknown`, each with its entry.
    * @param locations - Record files of one level, committed first.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async findLoneUnknown(locations: readonly RecordLocation[]): Promise<Map<string, LocatedToolEntry>> {
-    const byBundle = new Map<string, LocatedToolEntry[]>();
+    const byIdentity = new Map<string, LocatedToolEntry[]>();
     for (const located of await this.listToolEntries(locations)) {
-      byBundle.set(located.bundleId, [...(byBundle.get(located.bundleId) ?? []), located]);
+      const identity = recordIdentityOf(located.bundleId, located.entry.version);
+      byIdentity.set(identity, [...(byIdentity.get(identity) ?? []), located]);
     }
-    return new Map([...byBundle]
-      .filter(([, entries]) => isLoneUnknown(entries.map((located) => located.tool)))
-      .map(([bundleId, [located]]) => [bundleId, located]));
+    return new Map([...byIdentity.values()]
+      .filter((entries) => isLoneUnknown(entries.map((located) => located.tool)))
+      .flatMap((entries) => entries.map((located): [string, LocatedToolEntry] => [located.bundleId, located])));
   }
 
   /**
-   * Remove a bundle's `unknown` entry and keep every file it lists, since no tool is known to own them.
+   * Remove a bundle's `unknown` entry, and those of the same identity under
+   * other keys, keeping every file they list, since no tool is known to own them.
    * @param location - A record file of the level.
    * @param bundleId - Bundle id.
    * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` when no file has the entry, or another `RECORD.*` error.
    */
   public async removeUnknownEntry(location: RecordLocation, bundleId: string): Promise<UninstallEntryResult> {
     const other = otherRepositoryLocation(location);
-    const keep = new Set<string>();
+    const files = other === undefined ? [location] : [location, other];
+    const unknown: LocatedToolEntry[] = [];
     // Each file on its own: an interrupted move can leave two copies with different files.
-    for (const file of other === undefined ? [location] : [location, other]) {
-      for (const { entry } of await this.findEntries([file], bundleId, UNKNOWN_TOOL_NAME)) {
-        entry.files.forEach((recorded) => keep.add(recorded.path));
-      }
+    for (const file of files) {
+      unknown.push(...(await this.locateEntries([file], undefined, UNKNOWN_TOOL_NAME)));
     }
+    const identities = new Set(unknown.filter((located) => located.bundleId === bundleId)
+      .map((located) => recordIdentityOf(bundleId, located.entry.version)));
+    const sameIdentity = unknown.filter((located) => identities.has(recordIdentityOf(located.bundleId, located.entry.version)));
+    const keep = new Set(sameIdentity.flatMap((located) => located.entry.files.map((recorded) => recorded.path)));
     const result = await this.uninstallEntry({ location, bundleId, tool: UNKNOWN_TOOL_NAME, keep });
-    return { ...result, kept: result.kept.toSorted(compareCodeUnits) };
+    const warnings = [...result.warnings];
+    for (const otherKey of new Set(sameIdentity.map((located) => located.bundleId).filter((key) => key !== bundleId))) {
+      warnings.push(...(await this.recordUninstall({ location, bundleId: otherKey, tool: UNKNOWN_TOOL_NAME })).warnings);
+    }
+    return { ...result, kept: [...new Set([...result.kept, ...keep])].toSorted(compareCodeUnits), warnings };
   }
 
   /**

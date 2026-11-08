@@ -1381,5 +1381,119 @@ describe('repository install record', () => {
       expect(fs.existsSync(localOnly.path)).toBe(false);
       expect(fs.existsSync(path.join(root, '.github', 'prompts', 'a.prompt.md'))).toBe(true);
     });
+
+    describe('one version per bundle and tool', () => {
+      const COLL = 'acme-tools-coll';
+      const entries = (location: RecordLocation): string[] => (fs.existsSync(location.path) ? Object.entries(read(location).bundles) : [])
+        .flatMap(([key, bundle]) => Object.entries(bundle.tools).map(([tool, entry]) => `${key} ${tool} ${entry.version}`))
+        .toSorted();
+      const installVersion = (tool: string, version: string, files: string[], overrides: Partial<RecordInstallInput> = {}): ReturnType<typeof install> =>
+        install(tool, files, { bundleId: `${COLL}-${version}`, version, ...overrides });
+      const profile = (version: string): MigratedEntry => ({
+        bundleId: `${COLL}-${version}`, tool: 'vscode', version, sourceId: 'acme-github', sourceType: 'github', files: [], from: 'profile-registry-storage'
+      });
+
+      it.each([
+        ['the committed file', async (): Promise<void> => {
+          await writeOld(oldCommitted(), { [`${COLL}-1.0.0`]: { version: '1.0.0' }, [`${COLL}-2.0.0`]: { version: '2.0.0' } });
+        }, (): RecordLocation => committed],
+        ['both old files', async (): Promise<void> => {
+          await writeOld(oldCommitted(), { [`${COLL}-1.0.0`]: { version: '1.0.0' } });
+          await writeOld(oldLocal(), { [`${COLL}-2.0.0`]: { version: '2.0.0' } });
+        }, (): RecordLocation => localOnly]
+      ])('two versions of a versioned id in %s migrate to one entry, the higher version', async (_label, writeOldFiles, holder) => {
+        await writeOldFiles();
+
+        const report = await migrateRepository();
+
+        expect([...entries(committed), ...entries(localOnly)].filter((row) => row.startsWith(COLL))).toEqual([`${COLL}-2.0.0 unknown 2.0.0`]);
+        expect(entries(holder())).toEqual([`${COLL}-2.0.0 unknown 2.0.0`]);
+        expect(report?.versionConflicts).toEqual([{ bundleId: `${COLL}-1.0.0`, kept: '2.0.0', dropped: '1.0.0' }]);
+        expect(report?.needsReinstall).toEqual([{ bundleId: `${COLL}-2.0.0`, version: '2.0.0' }]);
+      });
+
+      it('an old file\'s older version of a recorded versioned id is dropped; the record\'s entry stays the only one', async () => {
+        await installVersion('vscode', '2.0.0', ['docs/a.md']);
+        await writeOld(oldCommitted(), { [`${COLL}-1.0.0`]: { version: '1.0.0' } });
+
+        const report = await migrateRepository();
+
+        expect(entries(committed)).toEqual([`${COLL}-2.0.0 vscode 2.0.0`]);
+        expect(report).toMatchObject({
+          needsReinstall: [],
+          droppedEntries: [{ bundleId: `${COLL}-1.0.0`, version: '1.0.0', sourceId: 'acme-github', reason: 'already recorded' }]
+        });
+      });
+
+      it('recordInstall of another version clears a lone unknown entry of the old versioned id and keeps its files', async () => {
+        write('docs/legacy.md');
+        await writeOld(oldCommitted(), { [`${COLL}-1.0.0`]: { version: '1.0.0', files: ['docs/legacy.md'] } });
+        await migrateRepository();
+
+        const change = await installVersion('vscode', '2.0.0', ['docs/a.md']);
+        await service.deleteSuperseded(change);
+
+        expect(entries(committed)).toEqual([`${COLL}-2.0.0 vscode 2.0.0`]);
+        expect({ deletedFiles: change.deletedFiles, keptSharedFiles: change.keptSharedFiles }).toEqual({ deletedFiles: [], keptSharedFiles: [] });
+        expect(fs.existsSync(path.join(root, 'docs', 'legacy.md'))).toBe(true);
+      });
+
+      it.each([
+        ['two unknown versions are one lone bundle; removing one removes both and keeps their files', ['unknown', 'unknown'], [`${COLL}-1.0.0`, `${COLL}-2.0.0`]],
+        ['an unknown version is not lone when another tool has another version', ['unknown', 'kiro'], []]
+      ])('findLoneUnknown and removeUnknownEntry go by identity: %s', async (_label, tools, lone) => {
+        write('docs/one.md', 'docs/two.md');
+        const entry = (tool: string, version: string, file: string): object => ({
+          version, sourceId: 'acme-github', sourceType: 'github', installedAt: INSTALLED_AT,
+          files: [{ path: file, checksum: `sha256:${'0'.repeat(64)}` }],
+          ...(tool === 'unknown' ? { needsReinstall: true } : {})
+        });
+        fs.writeFileSync(committed.path, JSON.stringify({
+          $schema: 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json',
+          version: '3.0.0', level: 'repository', generatedAt: INSTALLED_AT, generatedBy: 'ai-primitives-hub-cli@0.3.0',
+          bundles: {
+            [`${COLL}-1.0.0`]: { tools: { [tools[0]]: entry(tools[0], '1.0.0', 'docs/one.md') } },
+            [`${COLL}-2.0.0`]: { tools: { [tools[1]]: entry(tools[1], '2.0.0', 'docs/two.md') } }
+          },
+          sources: SOURCES
+        }));
+
+        const found = await service.findLoneUnknown([committed, localOnly]);
+
+        expect([...found.keys()].toSorted()).toEqual(lone);
+        if (lone.length > 0) {
+          const result = await service.removeUnknownEntry(committed, `${COLL}-2.0.0`);
+          expect(result).toMatchObject({ deleted: [], kept: ['docs/one.md', 'docs/two.md'] });
+          expect(fs.existsSync(committed.path)).toBe(false);
+          expect([fs.existsSync(path.join(root, 'docs', 'one.md')), fs.existsSync(path.join(root, 'docs', 'two.md'))]).toEqual([true, true]);
+        }
+      });
+
+      it.each([
+        ['two profile versions', [], [profile('1.0.0'), profile('2.0.0')], [`${COLL}-2.0.0 vscode 2.0.0`],
+          { versionConflicts: [{ bundleId: `${COLL}-1.0.0`, kept: '2.0.0', dropped: '1.0.0' }] }],
+        ['a recorded vscode version and an older profile one', ['2.0.0'], [profile('1.0.0')], [`${COLL}-2.0.0 vscode 2.0.0`],
+          { droppedEntries: [{ bundleId: `${COLL}-1.0.0`, version: '1.0.0', sourceId: 'acme-github', reason: 'already recorded' }] }],
+        ['a lone unknown version and a newer profile one', ['unknown-1.0.0'], [profile('2.0.0')], [`${COLL}-2.0.0 vscode 2.0.0`],
+          { versionConflicts: [{ bundleId: `${COLL}-2.0.0`, kept: '2.0.0', dropped: '1.0.0' }] }]
+      ])('user migration of %s leaves one vscode entry', async (_label, recorded, profileEntries, expected, reported) => {
+        for (const version of recorded) {
+          if (version.startsWith('unknown-')) {
+            await writeOld(userLockfile, { [`${COLL}-${version.slice('unknown-'.length)}`]: { version: version.slice('unknown-'.length) } });
+            await migrateUser();
+            continue;
+          }
+          const file = path.join(home, '.copilot', 'prompts', 'a.prompt.md');
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, 'a\n');
+          await installVersion('vscode', version, [], { location: user, writtenPaths: [file] });
+        }
+
+        const report = await migrateUser({ profileEntries });
+
+        expect(entries(user)).toEqual(expected);
+        expect(report).toMatchObject(reported);
+      });
+    });
   });
 });
