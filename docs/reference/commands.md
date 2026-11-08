@@ -100,6 +100,7 @@ At repository scope, `install` records the bundle in a format `3.0.0` install re
 
 - `ai-primitives-hub.lock.json` (commit mode) or `ai-primitives-hub.local.lock.json` (local-only, added to `.git/info/exclude`).
 - Each bundle has one entry per tool, so installing it for `vscode` and `kiro` keeps both. `-o json` reports the file in `data.lockfile`.
+- Installing another version of a bundle replaces the previous one for that tool.
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
 - An older `prompt-registry.lock.json` or `prompt-registry.local.lock.json` at the git root is migrated into the new record before the first change; see [Migrating older records](#migrating-older-records). User-scope installs use the [user install record](#user-install-record).
 
