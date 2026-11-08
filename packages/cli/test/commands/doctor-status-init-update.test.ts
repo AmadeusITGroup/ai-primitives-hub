@@ -76,8 +76,10 @@ import {
   makeGitWorktree,
   makeRun,
   readExcludeLines,
+  readInstallRecord,
   readRecord,
   recordPathIn,
+  userRecordPath,
   workspaceEnv,
   writeRecord,
 } from '../helpers/install-record-fixtures';
@@ -758,6 +760,33 @@ profiles: []
 
       expect(result.exitCode, result.stdout).toBe(0);
       expect(await readFile(recordPath(), 'utf8')).toBe(record);
+    });
+
+    it('a user-scope update moves a versioned bundle id to the new version\'s key in the user record', async () => {
+      for (const [filePath, text] of bundleFiles('1.0.0')) {
+        await mkdir(path.dirname(path.join(bundleDir(), filePath)), { recursive: true });
+        await writeFile(path.join(bundleDir(), filePath), text);
+      }
+      expect((await runRecord(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', path.join(workspace, 'target'), '-o', 'json'])).exitCode).toBe(0);
+      expect((await runRecord(['install', 'local-foo', '--from', bundleDir(), '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      const userRecord = userRecordPath(workspaceEnv(workspace));
+      const versioned = (version: string): string => `acme-org-local-foo-local-foo-${version}`;
+      const record = await readInstallRecord<RecordJson>(userRecord);
+      record.sources = { remote: GITHUB_SOURCE };
+      const entry = { ...record.bundles['local-foo'].tools['copilot-cli'], sourceId: 'remote', sourceType: 'github' };
+      record.bundles = { [versioned('1.0.0')]: { tools: { 'copilot-cli': entry } } };
+      await writeFile(userRecord, JSON.stringify(record, null, 2) + '\n');
+      const extra = entry.files.map((file) => path.join(workspace, ...file.path.split('/'))).find((file) => file.endsWith('extra.prompt.md'));
+      expect(extra !== undefined && await access(extra).then(() => true, () => false)).toBe(true);
+
+      const result = await runRecord(['update', '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<UpdateData>(result.stdout).data.updates).toEqual([{ bundleId: versioned('1.0.0'), tool: 'copilot-cli', from: '1.0.0', to: '2.0.0' }]);
+      const updated = await readInstallRecord<RecordJson>(userRecord);
+      expect(Object.entries(updated.bundles).map(([key, bundle]) => `${key} ${Object.keys(bundle.tools).join(',')} ${bundle.tools['copilot-cli']?.version}`))
+        .toEqual([`${versioned('2.0.0')} copilot-cli 2.0.0`]);
+      expect(await access(extra ?? '').then(() => true, () => false)).toBe(false);
     });
 
     it('a repository-scope update leaves the user lockfile byte-identical', async () => {
