@@ -44,6 +44,9 @@ import {
   hashRecordedFile,
   putToolEntry,
 } from './record-entry';
+import {
+  recordIdentityOf,
+} from './record-identity';
 import type {
   LoadedRecord,
   RecordStore,
@@ -210,8 +213,34 @@ const higherFirst = (left: string, right: string): number => {
   }
 };
 
-const holdsBundle = (loaded: readonly LoadedRecord[], bundleId: string): boolean =>
-  loaded.some((file) => Object.hasOwn(file.record.bundles, bundleId));
+const identityOf = (entry: MigratedEntry): string => recordIdentityOf(entry.bundleId, entry.version);
+
+// Entries of the same identity under any key and, when given, for one tool only.
+const entriesOfIdentity = (
+  loaded: readonly LoadedRecord[],
+  identity: string,
+  tool?: string
+): { file: LoadedRecord; bundleId: string; tool: string; version: string }[] =>
+  loaded.flatMap((file) => Object.entries(file.record.bundles).flatMap(([bundleId, bundle]) =>
+    Object.entries(bundle.tools)
+      .filter(([name, entry]) => (tool === undefined || name === tool) && recordIdentityOf(bundleId, entry.version) === identity)
+      .map(([name, entry]) => ({ file, bundleId, tool: name, version: entry.version }))));
+
+const holdsIdentity = (loaded: readonly LoadedRecord[], identity: string): boolean => entriesOfIdentity(loaded, identity).length > 0;
+
+/**
+ * The entries of one identity each, the higher version first in each list;
+ * a version that cannot be compared keeps the order given.
+ * @param entries - Entries in the order given.
+ */
+const groupByIdentity = <T extends { entry: MigratedEntry }>(entries: readonly T[]): T[][] => {
+  const groups = new Map<string, T[]>();
+  for (const item of entries) {
+    const identity = identityOf(item.entry);
+    groups.set(identity, [...(groups.get(identity) ?? []), item]);
+  }
+  return [...groups.values()].map((group) => group.toSorted((left, right) => higherFirst(left.entry.version, right.entry.version)));
+};
 
 const dropEntry = (report: MigrationReport, entry: MigratedEntry): void => {
   report.droppedEntries.push({ bundleId: entry.bundleId, version: entry.version, sourceId: entry.sourceId, reason: ALREADY_RECORDED });
@@ -315,25 +344,22 @@ const carryMaps = (run: MigrationRun, old: OldFile): void => {
   }
 };
 
-// A bundle in both old files keeps its higher version, the committed one on a tie.
+// One entry per identity: the record's wins, otherwise the higher version in the old files, the committed one on a tie.
 const planRepository = async (run: MigrationRun, oldFiles: readonly OldFile[]): Promise<void> => {
-  const candidates = new Map<string, { entry: MigratedEntry; target: LoadedRecord }[]>();
+  const candidates: { entry: MigratedEntry; target: LoadedRecord }[] = [];
   for (const old of oldFiles) {
     carryMaps(run, old);
     for (const bundleId of Object.keys(old.lock.bundles)) {
-      const list = candidates.get(bundleId) ?? [];
-      list.push({ entry: fromOldEntry(old, bundleId), target: old.target });
-      candidates.set(bundleId, list);
+      candidates.push({ entry: fromOldEntry(old, bundleId), target: old.target });
     }
   }
-  for (const [bundleId, list] of candidates) {
-    if (holdsBundle(run.loaded, bundleId)) {
-      list.forEach(({ entry }) => dropEntry(run.report, entry));
+  for (const [kept, ...others] of groupByIdentity(candidates)) {
+    if (holdsIdentity(run.loaded, identityOf(kept.entry))) {
+      [kept, ...others].forEach(({ entry }) => dropEntry(run.report, entry));
       continue;
     }
-    const [kept, ...others] = list.toSorted((left, right) => higherFirst(left.entry.version, right.entry.version));
     for (const other of others) {
-      run.report.versionConflicts.push({ bundleId, kept: kept.entry.version, dropped: other.entry.version });
+      run.report.versionConflicts.push({ bundleId: other.entry.bundleId, kept: kept.entry.version, dropped: other.entry.version });
     }
     await addEntry(run, kept.target, kept.entry);
   }
@@ -346,39 +372,74 @@ const planRepository = async (run: MigrationRun, oldFiles: readonly OldFile[]): 
   }
 };
 
-// Profile entries first, replacing a lone `unknown` entry; then old user lockfile bundles nothing holds yet; then the marker.
+// Remove the `unknown` entries found; returns the source ids they used.
+const removeUnknown = (target: LoadedRecord, found: readonly { bundleId: string }[]): string[] => {
+  const { bundles } = target.record;
+  return found.map(({ bundleId }) => {
+    const { sourceId } = bundles[bundleId].tools[UNKNOWN_TOOL_NAME];
+    delete bundles[bundleId].tools[UNKNOWN_TOOL_NAME];
+    if (Object.keys(bundles[bundleId].tools).length === 0) {
+      delete bundles[bundleId];
+    }
+    return sourceId;
+  });
+};
+
+const dropUnusedSources = (target: LoadedRecord, sourceIds: readonly string[]): void => {
+  const { record } = target;
+  for (const sourceId of sourceIds) {
+    if (!Object.values(record.bundles).some((bundle) => Object.values(bundle.tools).some((entry) => entry.sourceId === sourceId))) {
+      delete record.sources[sourceId];
+    }
+  }
+};
+
+// One entry per identity and tool. Profile entries first, the higher version of
+// each identity, replacing a lone `unknown` one; then old user lockfile bundles
+// nothing holds yet, the higher version of each identity; then the marker.
 const planUser = async (run: MigrationRun, target: LoadedRecord, old: OldFile | undefined): Promise<void> => {
   const profileEntries = run.input.profileEntries ?? [];
   const recordedProfile = new Map<string, string>();
-  for (const entry of profileEntries) {
-    const tools = Object.hasOwn(target.record.bundles, entry.bundleId) ? target.record.bundles[entry.bundleId].tools : undefined;
-    if (tools !== undefined && Object.hasOwn(tools, entry.tool)) {
-      dropEntry(run.report, entry);
+  for (const [kept, ...others] of groupByIdentity(profileEntries.map((entry) => ({ entry })))) {
+    const { entry } = kept;
+    const identity = identityOf(entry);
+    if (entriesOfIdentity([target], identity, entry.tool).length > 0) {
+      [kept, ...others].forEach((item) => dropEntry(run.report, item.entry));
       continue;
     }
-    if (tools !== undefined && isLoneUnknown(Object.keys(tools))) {
-      const replaced = tools[UNKNOWN_TOOL_NAME].version;
-      delete tools[UNKNOWN_TOOL_NAME];
+    for (const other of others) {
+      run.report.versionConflicts.push({ bundleId: other.entry.bundleId, kept: entry.version, dropped: other.entry.version });
+    }
+    const held = entriesOfIdentity([target], identity);
+    const replacedSources = held.length > 0 && isLoneUnknown(held.map((found) => found.tool)) ? removeUnknown(target, held) : [];
+    for (const replaced of new Set(replacedSources.length === 0 ? [] : held.map((found) => found.version))) {
       if (replaced !== entry.version) {
         run.report.versionConflicts.push({ bundleId: entry.bundleId, kept: entry.version, dropped: replaced });
       }
     }
     await addEntry(run, target, entry);
-    recordedProfile.set(entry.bundleId, entry.version);
+    dropUnusedSources(target, replacedSources);
+    recordedProfile.set(identity, entry.version);
   }
   if (profileEntries.length > 0) {
     run.report.mergedFrom.push(PROFILE_STORE_NAME);
   }
   if (old !== undefined) {
-    for (const bundleId of Object.keys(old.lock.bundles)) {
-      const entry = fromOldEntry(old, bundleId);
-      const kept = recordedProfile.get(bundleId);
-      if (kept !== undefined && kept !== entry.version) {
-        run.report.versionConflicts.push({ bundleId, kept, dropped: entry.version });
-      } else if (holdsBundle(run.loaded, bundleId)) {
-        dropEntry(run.report, entry);
-      } else {
-        await addEntry(run, target, entry);
+    const oldEntries = Object.keys(old.lock.bundles).map((bundleId) => ({ entry: fromOldEntry(old, bundleId) }));
+    for (const group of groupByIdentity(oldEntries)) {
+      const identity = identityOf(group[0].entry);
+      const kept = recordedProfile.get(identity);
+      const held = holdsIdentity(run.loaded, identity);
+      for (const [index, { entry }] of group.entries()) {
+        if (kept !== undefined && kept !== entry.version) {
+          run.report.versionConflicts.push({ bundleId: entry.bundleId, kept, dropped: entry.version });
+        } else if (held) {
+          dropEntry(run.report, entry);
+        } else if (index === 0) {
+          await addEntry(run, target, entry);
+        } else {
+          run.report.versionConflicts.push({ bundleId: entry.bundleId, kept: group[0].entry.version, dropped: entry.version });
+        }
       }
     }
     run.report.mergedFrom.push(old.path);
