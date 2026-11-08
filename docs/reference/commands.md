@@ -103,7 +103,7 @@ At repository scope, `install` records the bundle in a format `3.0.0` install re
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
 - An older `prompt-registry.lock.json` or `prompt-registry.local.lock.json` at the git root is migrated into the new record before the first change; see [Migrating older records](#migrating-older-records). User-scope installs use the [user install record](#user-install-record).
 
-`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. A bundle only an older `prompt-registry.lock.json` lists is migrated first, then uninstalled from the new record.
+`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. It also removes an older key of the same bundle that the record still holds for that tool, for example after a merge. A bundle only an older `prompt-registry.lock.json` lists is migrated first, then uninstalled from the new record.
 
 Commands that use the record end their text output with `Record: <level> <path>`; their `-o json` data adds `level` and `records`.
 
