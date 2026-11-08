@@ -830,4 +830,109 @@ suite('user record', function () {
     assert.ok(!fs.existsSync(userRecordPath()), 'no user record');
     assert.strictEqual(info.getCalls().filter((call) => String(call.args[0]).includes(WSL_LOG)).length, 1);
   });
+
+  suite('one version per bundle and tool', () => {
+    const COLL = 'acme-tools-coll';
+    const idOf = (version: string): string => `${COLL}-${version}`;
+    const ownFile = (own: string): string => userPath(`.copilot/prompts/${own}.prompt.md`);
+
+    /**
+     * A version of the versioned-id bundle: the shared prompt and one prompt of its own.
+     * @param version - Bundle version.
+     * @param own - Name of the prompt only this version writes.
+     */
+    const versionOf = (version: string, own: string): BundleVersion => ({
+      version,
+      files: { 'prompts/hello.prompt.md': `# Hello ${version}\n`, [`prompts/${own}.prompt.md`]: `# ${own} ${version}\n` },
+      items: [{ id: 'hello', file: 'prompts/hello.prompt.md', type: 'prompt' }, { id: own, file: `prompts/${own}.prompt.md`, type: 'prompt' }]
+    });
+
+    const bundleAt = (version: string): Bundle => ({ ...v1Bundle(), id: idOf(version), version });
+
+    const installVersion = (version: BundleVersion): Promise<InstalledBundle> =>
+      manager.getBundleInstaller().installFromBuffer(bundleAt(version.version), zipOf(version, idOf(version.version)), { scope: 'user' }, 'local');
+
+    /** `<key> <tool> <version>` for every entry of the user record, sorted. */
+    const userEntries = (): string[] => Object.entries(readUserRecord()?.bundles ?? {})
+      .flatMap(([key, bundle]: [string, any]) => Object.entries(bundle.tools).map(([tool, entry]: [string, any]) => `${key} ${tool} ${entry.version}`))
+      .toSorted();
+
+    const listedVersions = async (): Promise<string[]> => (await manager.listInstalledBundles('user'))
+      .filter((item) => item.bundleId.startsWith(COLL))
+      .map((item) => `${item.bundleId} ${item.version}`);
+
+    const cacheOf = (version: string): string => path.join(globalStorage, 'bundles', idOf(version));
+
+    /**
+     * Record a profile's own install of a version in RegistryStorage, with its bundle cache and links into it.
+     * @param version - Bundle version, writing `old.prompt.md` of its own.
+     * @param profileId - Profile the install belongs to.
+     */
+    const storeProfileInstall = async (version: string, profileId?: string): Promise<void> => {
+      const bundle = versionOf(version, 'old');
+      writeBundleDir(cacheOf(version), bundle, idOf(version));
+      for (const file of Object.keys(bundle.files)) {
+        fs.mkdirSync(path.dirname(userPath(`.copilot/${file}`)), { recursive: true });
+        fs.symlinkSync(path.join(cacheOf(version), file), userPath(`.copilot/${file}`), 'file');
+      }
+      await storage.recordInstallation({
+        bundleId: idOf(version), version, installedAt: '2026-10-01T10:00:00.000Z', scope: 'user', installPath: cacheOf(version),
+        manifest: {} as InstalledBundle['manifest'], sourceId: localSource.id, sourceType: 'local', profileId
+      });
+    };
+
+    test('install 1.0.0, upgrade to 2.0.0 and downgrade back: one vscode entry, one listed item, no file or cache only the old version had', async () => {
+      for (const [step, own, gone] of [['1.0.0', 'old', undefined], ['2.0.0', 'new', 'old'], ['1.0.0', 'old', 'new']] as const) {
+        const previous = gone === undefined ? undefined : (step === '2.0.0' ? '1.0.0' : '2.0.0');
+
+        await installVersion(versionOf(step, own));
+
+        assert.deepStrictEqual(userEntries(), [`${idOf(step)} vscode ${step}`], step);
+        assert.deepStrictEqual(await listedVersions(), [`${idOf(step)} ${step}`], step);
+        assert.strictEqual(fs.readFileSync(userPath(USER_HELLO), 'utf8'), `# Hello ${step}\n`, step);
+        if (gone !== undefined && previous !== undefined) {
+          assert.ok(!isOnDisk(ownFile(gone)), `${step}: the old version's own file is deleted`);
+          assert.ok(!fs.existsSync(cacheOf(previous)), `${step}: the old version's bundle cache is removed`);
+        }
+      }
+      assert.ok(showError.notCalled, String(showError.firstCall?.args[0]));
+    });
+
+    test('installing another version keeps a file the user replaced that only the old version wrote', async () => {
+      await installVersion(versionOf('1.0.0', 'old'));
+      // The user replaces the link into the bundle cache with a file of their own.
+      fs.rmSync(ownFile('old'));
+      fs.writeFileSync(ownFile('old'), 'My own prompt.\n');
+
+      await installVersion(versionOf('2.0.0', 'new'));
+
+      assert.strictEqual(fs.readFileSync(ownFile('old'), 'utf8'), 'My own prompt.\n');
+      assert.deepStrictEqual(userEntries(), [`${idOf('2.0.0')} vscode 2.0.0`]);
+    });
+
+    test('update in place to the next versioned id leaves one vscode entry, deletes the old version\'s own file and shows no error', async () => {
+      await installVersion(versionOf('1.0.0', 'old'));
+      const installed = (await manager.listInstalledBundles('user')).find((item) => item.bundleId === idOf('1.0.0'));
+      assert.ok(installed);
+      const next = versionOf('2.0.0', 'new');
+
+      await manager.getBundleInstaller().update(installed, bundleAt('2.0.0'), zipOf(next, idOf('2.0.0')), 'local');
+
+      assert.deepStrictEqual(userEntries(), [`${idOf('2.0.0')} vscode 2.0.0`]);
+      assert.ok(!isOnDisk(ownFile('old')), 'the old version\'s own file is deleted');
+      assert.ok(!fs.existsSync(cacheOf('1.0.0')), 'the old version\'s bundle cache is removed');
+      assert.ok(showError.notCalled, String(showError.firstCall?.args[0]));
+    });
+
+    test('installing another version retires this profile\'s RegistryStorage item of the old version and its own file', async () => {
+      await storeProfileInstall('1.0.0');
+
+      await installVersion(versionOf('2.0.0', 'new'));
+
+      assert.strictEqual(await storage.getInstalledBundle(idOf('1.0.0'), 'user'), undefined, 'the RegistryStorage item is retired');
+      assert.ok(!isOnDisk(ownFile('old')), 'the old version\'s own file is removed');
+      assert.strictEqual(fs.readFileSync(userPath(USER_HELLO), 'utf8'), '# Hello 2.0.0\n', 'the path both write stays');
+      assert.deepStrictEqual(await listedVersions(), [`${idOf('2.0.0')} 2.0.0`]);
+    });
+  });
 });

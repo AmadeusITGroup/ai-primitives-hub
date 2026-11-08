@@ -121,6 +121,16 @@ export interface RetiredOldEntry {
 
 const toSlashes = (recordedPath: string): string => recordedPath.replaceAll('\\', '/');
 
+/**
+ * The entry under `bundleId`, first in file order; otherwise the latest installed.
+ * @param found - Entries of one bundle identity.
+ * @param bundleId - Key asked for.
+ */
+const preferredEntry = (found: readonly LocatedToolEntry[], bundleId: string): LocatedToolEntry | undefined =>
+  found.find((located) => located.bundleId === bundleId)
+  ?? found.reduce<LocatedToolEntry | undefined>((latest, located) =>
+    latest === undefined || Date.parse(located.entry.installedAt) > Date.parse(latest.entry.installedAt) ? located : latest, undefined);
+
 /** `LockfileFs` over `RecordFs`, writing atomically. */
 class RecordLockfileFs implements LockfileFs {
   public constructor(private readonly fs: RecordFs) {}
@@ -177,6 +187,14 @@ export class ExtensionRecordAdapter {
 
   private allEntriesIn(locations: readonly RecordLocation[]): Promise<LocatedToolEntry[]> {
     return this.service.listToolEntries(locations);
+  }
+
+  // The host tool's entries under the key, or under another key of the same identity at that entry's version.
+  private async hostEntriesIn(locations: readonly RecordLocation[], bundleId: string, version?: string): Promise<LocatedToolEntry[]> {
+    const identity = version === undefined ? bundleId : recordIdentityOf(bundleId, version);
+    return (await this.allEntriesIn(locations)).filter((located) =>
+      located.tool === this.hostTool
+      && (located.bundleId === bundleId || recordIdentityOf(located.bundleId, located.entry.version) === identity));
   }
 
   // Refuse a bundle whose entries in these files all belong to another tool.
@@ -292,10 +310,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findHostEntries(workspaceFolder: string, bundleId: string, version?: string): Promise<LocatedToolEntry[]> {
-    const identity = version === undefined ? bundleId : recordIdentityOf(bundleId, version);
-    return (await this.allEntriesIn(await this.locations(workspaceFolder))).filter((located) =>
-      located.tool === this.hostTool
-      && (located.bundleId === bundleId || recordIdentityOf(located.bundleId, located.entry.version) === identity));
+    return this.hostEntriesIn(await this.locations(workspaceFolder), bundleId, version);
   }
 
   /**
@@ -307,13 +322,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findHostEntry(workspaceFolder: string, bundleId: string, version?: string): Promise<LocatedToolEntry | undefined> {
-    const found = await this.findHostEntries(workspaceFolder, bundleId, version);
-    const exact = found.find((located) => located.bundleId === bundleId);
-    if (exact !== undefined) {
-      return exact;
-    }
-    return found.reduce<LocatedToolEntry | undefined>((latest, located) =>
-      latest === undefined || Date.parse(located.entry.installedAt) > Date.parse(latest.entry.installedAt) ? located : latest, undefined);
+    return preferredEntry(await this.findHostEntries(workspaceFolder, bundleId, version), bundleId);
   }
 
   /**
@@ -395,11 +404,26 @@ export class ExtensionRecordAdapter {
   }
 
   /**
-   * The host tool's entry of a bundle in the user record.
+   * The host tool's user record entries of a bundle: under its key, or with `version`
+   * under another key of the same identity, each taken at the entry's recorded version.
    * @param bundleId - Bundle id.
+   * @param version - Version `bundleId` carries; without it only the key matches.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
-  public async findUserHostEntry(bundleId: string): Promise<LocatedToolEntry | undefined> {
-    return (await this.entriesIn([this.userLocation()], bundleId, this.hostTool))[0];
+  public async findUserHostEntries(bundleId: string, version?: string): Promise<LocatedToolEntry[]> {
+    const locations = [this.userLocation()];
+    return version === undefined ? this.entriesIn(locations, bundleId, this.hostTool) : this.hostEntriesIn(locations, bundleId, version);
+  }
+
+  /**
+   * The host tool's entry of a bundle in the user record: under its key, or
+   * with `version` the latest installed of the same identity.
+   * @param bundleId - Bundle id.
+   * @param version - Version `bundleId` carries; without it only the key matches.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
+   */
+  public async findUserHostEntry(bundleId: string, version?: string): Promise<LocatedToolEntry | undefined> {
+    return preferredEntry(await this.findUserHostEntries(bundleId, version), bundleId);
   }
 
   /** Every tool entry of every bundle in the user record. */

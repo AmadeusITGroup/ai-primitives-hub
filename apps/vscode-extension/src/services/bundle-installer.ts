@@ -23,6 +23,7 @@ import {
   InstallPipeline,
   InstallPipelineError,
   type LocatedToolEntry,
+  recordIdentityOf,
   type RecordInstallResult,
   type RecordSourceInput,
   type SiblingSync,
@@ -137,11 +138,13 @@ interface PreparedUserInstall {
   location: RecordLocation;
   /** Configured source the entry records. */
   source: RecordSourceInput;
-  /** Bundle id of the host entry being replaced, when the user record has one. */
+  /** Bundle id of the installed version an update replaces, when the user record has its host entry. */
   previousBundleId?: string;
-  /** Home-relative paths of that entry that were modified or missing before the write. */
+  /** Home-relative paths of the replaced host entries that were modified or missing before the write. */
   modified: ReadonlySet<string>;
-  /** Ids whose profile installation the install replaces. */
+  /** Ids of the replaced host entries, any version of the bundle. */
+  replacedBundleIds: string[];
+  /** Ids whose profile installation the install replaces, any version of the bundle. */
   profileEntryIds: string[];
 }
 
@@ -387,19 +390,27 @@ export class BundleInstaller {
     const source = await this.records.buildSource(bundle.sourceId);
     try {
       const location = await this.records.prepareUserInstall(this.copilotSync.userFolders());
-      const located = await this.records.findUserHostEntry(previousBundleId ?? bundle.id);
-      const profileEntryIds: string[] = [];
-      for (const id of new Set([bundle.id, previousBundleId ?? bundle.id])) {
-        if ((await this.storage.getInstalledBundle(id, 'user')) !== undefined) {
-          profileEntryIds.push(id);
-        }
+      // Every host entry the install replaces: any version of the bundle, and the installed id of an update.
+      const replaced = await this.records.findUserHostEntries(bundle.id, bundle.version);
+      if (previousBundleId !== undefined && !replaced.some((located) => located.bundleId === previousBundleId)) {
+        replaced.push(...await this.records.findUserHostEntries(previousBundleId));
       }
+      const modified = new Set<string>();
+      for (const located of replaced) {
+        (await this.modifiedFilesOf(located)).forEach((file) => modified.add(file));
+      }
+      const identity = recordIdentityOf(bundle.id, bundle.version);
+      const profileEntryIds = (await this.storage.getInstalledBundles('user'))
+        .filter((stored) => stored.bundleId === bundle.id || stored.bundleId === previousBundleId
+          || recordIdentityOf(stored.bundleId, stored.version) === identity)
+        .map((stored) => stored.bundleId);
       return {
         location,
         source,
-        previousBundleId: located === undefined ? undefined : (previousBundleId ?? bundle.id),
-        modified: await this.modifiedFilesOf(located),
-        profileEntryIds
+        previousBundleId: replaced.some((located) => located.bundleId === previousBundleId) ? previousBundleId : undefined,
+        modified,
+        replacedBundleIds: [...new Set(replaced.map((located) => located.bundleId))],
+        profileEntryIds: [...new Set(profileEntryIds)]
       };
     } catch (error) {
       this.rethrowRecordError(error);
@@ -427,11 +438,14 @@ export class BundleInstaller {
       modified: prepared.modified
     }));
     this.logWarnings(warnings);
-    if (prepared.previousBundleId !== undefined && prepared.previousBundleId !== bundle.id) {
-      await this.removeBundleCache(prepared.previousBundleId);
-    }
     for (const id of prepared.profileEntryIds) {
       await this.retireProfileEntry(id, root);
+    }
+    // The profile's unsync reads its bundle cache, so the old versions' caches go last.
+    for (const id of new Set([...prepared.replacedBundleIds, ...prepared.profileEntryIds])) {
+      if (id !== bundle.id) {
+        await this.removeBundleCache(id);
+      }
     }
     this.logger.debug(`Recorded ${bundle.id} for ${this.records.hostTool} in ${prepared.location.path}`);
   }
