@@ -236,6 +236,22 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.deepStrictEqual(readRecord().sources[SOURCE.id], { type: 'github', url: SOURCE.url, branch: 'main' });
   });
 
+  test('install from a hub source records its hubId and the hub import reference from the HubManager', async () => {
+    ((manager as any).storage.getSources as sinon.SinonStub).resolves([{ ...SOURCE, hubId: 'acme-hub' }]);
+    (manager as any).hubManager = {
+      getActiveHubId: () => Promise.resolve('acme-hub'),
+      getHub: (hubId: string) => Promise.resolve(hubId === 'acme-hub'
+        ? { id: hubId, config: { metadata: { name: 'Acme Hub' } }, reference: { type: 'github', location: 'acme/hub', ref: 'main', credentialRef: 'HUB_TOKEN' } }
+        : null)
+    };
+
+    await install(V1);
+
+    const record = readRecord();
+    assert.deepStrictEqual(record.sources[SOURCE.id], { type: 'github', url: SOURCE.url, hubId: 'acme-hub' });
+    assert.deepStrictEqual(record.hubs, { 'acme-hub': { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' } });
+  });
+
   const refusedInstalls: { name: string; arrange: () => void; sourceId?: string; expected: RegExp | { code: string }; errorShown: boolean }[] = [
     { name: 'an unconfigured source id', arrange: () => undefined, sourceId: 'not-configured', expected: /source not-configured is not configured/, errorShown: false },
     {
