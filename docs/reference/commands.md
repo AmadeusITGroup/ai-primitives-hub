@@ -114,6 +114,8 @@ Commands that use the record end their text output with `Record: <level> <path>`
 - `status` lists one row per bundle and tool; `-o json` replaces `lockfile` with `level`, `records` and `entries`. Bundles only in `prompt-registry.lock.json` are still shown, unless the record has the same bundle at another version.
 - A recorded source is used only through the matching configured source (the active hub's first, then `source add`), with its URL and credentials. Otherwise the recorded copy is used without its `credentialRef`, and a `local` folder outside the repository is skipped. This also applies to `update --dry-run`.
 
+A source that came from a shared hub records its hub id as `hubId`, and the record's top-level `hubs` map holds that hub's import reference: `name`, `type`, `location`, and `ref` or `configFile` when it has one, never a credential. Sources added with `source add` and hubs that are only a local path on this machine get no `hubId`. A `hubs` entry is dropped when no recorded source names it any more, which also drops `hubs` entries an older file carried over. Replay and update prefer the configured source from the recorded hub when several configured sources have the same id. `status -o json` entries include `hubId`, and the text output shows `hub <id>` on the entry line.
+
 The VS Code extension uses the same record, under the tool of the editor it runs in (`vscode`, `vscode-insiders`, `kiro` or `windsurf`):
 
 - It installs, updates, uninstalls, moves and switches the commit mode of its own tool's entries only. Other tools' entries are listed read-only; changing one shows `RECORD.CLI_MANAGED` with the CLI command to use.
