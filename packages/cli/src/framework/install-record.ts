@@ -19,6 +19,8 @@ import {
   type MigrationReport,
   orderConfiguredSources,
   readLockfile,
+  type RecordHubInput,
+  recordHubsOf,
   recordIdentityOf,
   type RecordInstallInput,
   type RecordInstallResult,
@@ -32,6 +34,7 @@ import {
   selectRecord,
   type StatusRow,
   type TargetLayout,
+  toRecordHub,
 } from '@ai-primitives-hub/app';
 import {
   describeRecordError,
@@ -128,6 +131,8 @@ export interface RepositoryInstallToRecord {
   /** The target's type. */
   tool: string;
   source: RecordSourceInput;
+  /** The hub named by `source.hubId`. */
+  hub?: RecordHubInput;
   /** The writer's `written` list, absolute paths. */
   writtenPaths: readonly string[];
 }
@@ -347,6 +352,7 @@ export const recordRepositoryInstall = async (
       version: install.version,
       tool: install.tool,
       source: install.source,
+      ...(install.hub === undefined ? {} : { hub: install.hub }),
       sourceType: install.source.type,
       writtenPaths: install.writtenPaths,
       workspaceRoot: prepared.workspaceRoot
@@ -840,12 +846,49 @@ export const prepareUnknownUninstall = async (
  * order. A hub that cannot be read contributes no source.
  * @param ctx - CLI context.
  */
-export const configuredSources = async (ctx: Context): Promise<Map<string, RegistrySource>> => {
+export const configuredSources = async (ctx: Context): Promise<Map<string, RegistrySource>> =>
+  (await configuredRecordSources(ctx)).configured;
+
+/** Configured sources and hubs for a record replay or update. */
+export interface ConfiguredRecordSources {
+  /** Configured sources by id, in `orderConfiguredSources` order. */
+  configured: Map<string, RegistrySource>;
+  /** Every configured source, of any hub. */
+  candidates: RegistrySource[];
+  /** Shareable configured hubs by id. */
+  hubs: Map<string, RecordHubInput>;
+}
+
+/**
+ * Configured sources by id, every configured source and the shareable hubs.
+ * A hub that cannot be read contributes no source.
+ * @param ctx - CLI context.
+ */
+export const configuredRecordSources = async (ctx: Context): Promise<ConfiguredRecordSources> => {
   const manager = createHubManager({ ctx });
   // No readable active hub pointer: no source counts as the active hub's.
   const activeHubId = await manager.getActiveHubId().catch(() => null);
-  const ordered = orderConfiguredSources(await manager.listSourcesAcrossAllHubs(), activeHubId);
-  return new Map(ordered.map((source) => [source.id, source]));
+  const candidates = await manager.listSourcesAcrossAllHubs();
+  const ordered = orderConfiguredSources(candidates, activeHubId);
+  return {
+    configured: new Map(ordered.map((source) => [source.id, source])),
+    candidates,
+    hubs: recordHubsOf(await manager.listHubs())
+  };
+};
+
+/**
+ * The shareable hub a configured source came from, from the CLI hub store.
+ * @param ctx - CLI context.
+ * @param source - Configured source.
+ */
+export const recordHubOf = async (ctx: Context, source: RegistrySource | undefined): Promise<RecordHubInput | undefined> => {
+  const hubId = source?.hubId;
+  if (hubId === undefined) {
+    return undefined;
+  }
+  const hub = await createHubManager({ ctx }).getHub(hubId);
+  return hub === null ? undefined : toRecordHub(hubId, hub.config.metadata.name, hub.reference);
 };
 
 /** Token provider that never returns a token. */
@@ -869,6 +912,10 @@ export interface PlannedRecordInstall {
   /** Source decided by the trust gate, in the legacy lockfile shape. */
   source: LockfileSourceEntry;
   sourceType: string;
+  /** The source's recorded hub id. */
+  hubId?: string;
+  /** The hub named by `hubId`, from the configured hubs. */
+  hub?: RecordHubInput;
 }
 
 /**
@@ -895,7 +942,8 @@ export const recordPlannedInstall = (
   bundleId: item.bundleId,
   version,
   tool: item.tool,
-  source: { sourceId: item.sourceId, ...item.source },
+  source: { sourceId: item.sourceId, ...item.source, ...(item.hubId === undefined ? {} : { hubId: item.hubId }) },
+  ...(item.hub === undefined ? {} : { hub: item.hub }),
   sourceType: item.sourceType,
   writtenPaths: written,
   // User level: home is the workspace root, as the user-scope install records it.
