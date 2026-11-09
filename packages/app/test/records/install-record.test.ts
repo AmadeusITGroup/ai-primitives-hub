@@ -493,6 +493,7 @@ describe('repository install record', () => {
     it('drops the hubs entry with the last source that names it', async () => {
       await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
       await install('vscode', ['.github/prompts/b.prompt.md'], { bundleId: 'other-bundle', source: { sourceId: 'plain', type: 'github', url: 'https://github.com/acme/plain' } });
+      expect(Object.keys(read(committed).hubs ?? {})).toEqual(['acme-hub']);
 
       await service.recordUninstall({ location: committed, bundleId: BUNDLE, tool: 'vscode' });
 
@@ -517,10 +518,13 @@ describe('repository install record', () => {
       expect(read(committed).hubs).toEqual({ 'acme-hub': { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' } });
     });
 
-    it('drops a hubId no hub entry backs', async () => {
-      await install('vscode', ['.github/prompts/a.prompt.md'], { source: hubSource });
+    it('drops a hubId no hub entry backs and keeps one that has an entry', async () => {
+      await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
 
-      expect(read(committed).sources['acme-github'].hubId).toBeUndefined();
+      await install('vscode', ['.github/prompts/b.prompt.md'], { bundleId: 'other-bundle', source: { ...hubSource, sourceId: 'other', hubId: 'unknown-hub' } });
+
+      const { sources } = read(committed);
+      expect([sources['acme-github'].hubId, sources.other.hubId]).toEqual(['acme-hub', undefined]);
     });
 
     it('moves the hub with an entry to the other repository file', async () => {
