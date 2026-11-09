@@ -11,6 +11,7 @@ import {
   compareCodeUnits,
   FORBIDDEN_KEYS,
   type InstallRecord,
+  isJsonObject,
   otherRepositoryLocation,
   type RecordChange,
   type RecordedFile,
@@ -48,6 +49,11 @@ import {
   hashRecordedFile,
   putToolEntry,
 } from './record-entry';
+import {
+  hubEntryOf,
+  type RecordHubInput,
+  toRecordHub,
+} from './record-hub';
 import {
   recordIdentityOf,
 } from './record-identity';
@@ -101,6 +107,8 @@ export interface RecordInstallInput {
   /** The target's type, never the user's target name. */
   tool: string;
   source: RecordSourceInput;
+  /** The hub named by `source.hubId`, recorded under `hubs`; a hub that is not shareable is ignored. */
+  hub?: RecordHubInput;
   /** A `SourceType` value equal to `source.type`. */
   sourceType: string;
   /** The writer's `written` list, as absolute paths. */
@@ -143,6 +151,8 @@ export interface StatusRow {
   record: string;
   /** `true` for an entry under the `unknown` tool that must be reinstalled. */
   needsReinstall: boolean;
+  /** The shared hub the entry's source came from, when recorded. */
+  hubId?: string;
 }
 
 /** One tool entry of a bundle, with the record file holding it. */
@@ -223,8 +233,10 @@ export interface RemapSourceInput {
   root: string;
   from: string;
   to: string;
-  /** Fields recorded under `sources.<to>`. */
+  /** Fields recorded under `sources.<to>`; a missing `hubId` keeps the one recorded for `from`. */
   descriptor: RecordSourceDescriptor;
+  /** The hub named by the source's `hubId`, recorded under `hubs`. */
+  hub?: RecordHubInput;
 }
 
 /** Outcome of {@link InstallRecordService.remapSource}. */
@@ -307,11 +319,80 @@ const isSameSource = (left: SourceRecord, right: SourceRecord): boolean => {
   return [...keys].every((key) => left[key] === right[key]);
 };
 
-const remapInRecord = (record: InstallRecord, from: string, to: string, source: SourceRecord): boolean => {
+/**
+ * The record's `hubs` entry for a hub id, when it is an object.
+ * @param record - Record to read.
+ * @param hubId - Hub id.
+ */
+const hubEntryIn = (record: InstallRecord | undefined, hubId: string): Record<string, unknown> | undefined => {
+  const hubs = record?.hubs;
+  if (!isJsonObject(hubs) || !Object.hasOwn(hubs, hubId)) {
+    return undefined;
+  }
+  const entry = hubs[hubId];
+  return isJsonObject(entry) ? entry : undefined;
+};
+
+/**
+ * Record the hub a source names: the given hub, else the entry already in the
+ * record or in `fallback`. A `hubId` with no hub entry is removed from the source.
+ * @param record - Record to change.
+ * @param source - The recorded source; its `hubId` may be removed.
+ * @param hub - The source's hub, already checked by `toRecordHub`.
+ * @param fallback - Another record that may hold the entry.
+ * @returns Whether `hubs` changed.
+ */
+const attachHub = (record: InstallRecord, source: SourceRecord, hub: RecordHubInput | undefined, fallback?: InstallRecord): boolean => {
+  const { hubId } = source;
+  if (hubId === undefined) {
+    return false;
+  }
+  const current = hubEntryIn(record, hubId);
+  const entry = hub?.id === hubId ? hubEntryOf(hub) : current ?? hubEntryIn(fallback, hubId);
+  if (entry === undefined) {
+    delete source.hubId;
+    return false;
+  }
+  if (current !== undefined && isSameSource(current as SourceRecord, entry as SourceRecord)) {
+    return false;
+  }
+  if (!isJsonObject(record.hubs)) {
+    record.hubs = Object.create(null) as Record<string, unknown>;
+  }
+  (record.hubs)[hubId] = Object.assign(Object.create(null) as Record<string, unknown>, entry);
+  return true;
+};
+
+/**
+ * Drop every `hubs` entry no recorded source names, and `hubs` itself once empty.
+ * @param record - Record to change.
+ */
+const dropUnusedHubs = (record: InstallRecord): void => {
+  const { hubs } = record;
+  if (!isJsonObject(hubs)) {
+    return;
+  }
+  const used = new Set(Object.values(record.sources).map((source) => source.hubId));
+  for (const hubId of Object.keys(hubs)) {
+    if (!used.has(hubId)) {
+      delete hubs[hubId];
+    }
+  }
+  if (Object.keys(hubs).length === 0) {
+    delete record.hubs;
+  }
+};
+
+const remapInRecord = (record: InstallRecord, from: string, to: string, descriptor: SourceRecord, hub: RecordHubInput | undefined): boolean => {
   if (!Object.hasOwn(record.sources, from)) {
     return false;
   }
-  let changed = false;
+  const source: SourceRecord = Object.assign(Object.create(null) as SourceRecord, descriptor);
+  const recordedHubId = record.sources[from].hubId;
+  if (source.hubId === undefined && typeof recordedHubId === 'string') {
+    source.hubId = recordedHubId;
+  }
+  let changed = attachHub(record, source, hub);
   for (const bundle of Object.values(record.bundles)) {
     for (const entry of Object.values(bundle.tools)) {
       if (entry.sourceId !== from && entry.sourceId !== to) {
@@ -501,13 +582,23 @@ export class InstallRecordService {
   }
 
   /**
+   * Save a record file, without the `hubs` entries no source names.
+   * @param location - Record file.
+   * @param record - Its content.
+   */
+  private save(location: RecordLocation, record: InstallRecord): ReturnType<RecordStore['save']> {
+    dropUnusedHubs(record);
+    return this.store.save(location, record);
+  }
+
+  /**
    * Save a changed record file, or remove a repository file with no bundles left.
    * An empty user record is kept so its import marker survives.
    * @param other - The loaded, changed file.
    */
   private async saveOther(other: LoadedRecord): Promise<string[]> {
     if (other.location.level !== 'repository' || Object.keys(other.record.bundles).length > 0) {
-      return (await this.store.save(other.location, other.record)).warnings;
+      return (await this.save(other.location, other.record)).warnings;
     }
     const name = path.basename(other.location.path);
     try {
@@ -661,6 +752,8 @@ export class InstallRecordService {
       files: written
     });
     target.record.sources[input.source.sourceId] = source;
+    const hub = input.hub === undefined ? undefined : toRecordHub(input.hub.id, input.hub.name, input.hub);
+    attachHub(target.record, source, hub, other?.record);
 
     const loaded = other === undefined ? [target] : [target, other];
     const sync = input.syncSiblings === false
@@ -691,7 +784,7 @@ export class InstallRecordService {
     const clearedOther = other !== undefined && this.clearUnknown(other.record, bundleId, identity);
     this.clearUnknown(target.record, bundleId, identity);
 
-    const warnings = [...(await this.store.save(location, target.record)).warnings];
+    const warnings = [...(await this.save(location, target.record)).warnings];
     if (other !== undefined && (moved.length > 0 || clearedOther || sync.changed.has(other))) {
       warnings.push(...(await this.saveOther(other)));
     }
@@ -880,11 +973,12 @@ export class InstallRecordService {
       });
     }
     // The store's load checked that the source exists.
-    const source = from.record.sources[entry.sourceId];
+    const source: SourceRecord = Object.assign(Object.create(null) as SourceRecord, from.record.sources[entry.sourceId]);
     this.dropUnusedSource(from.record, entry.sourceId);
     const replaced = this.removeSameIdentity(to.record, bundleId, recordIdentityOf(bundleId, entry.version), tool);
     putToolEntry(to.record, bundleId, tool, entry);
     to.record.sources[entry.sourceId] = source;
+    attachHub(to.record, source, undefined, from.record);
     for (const prior of replaced) {
       this.dropUnusedSource(to.record, prior.sourceId);
     }
@@ -899,7 +993,7 @@ export class InstallRecordService {
       }
     }
 
-    const saved = await this.store.save(targetLocation, to.record);
+    const saved = await this.save(targetLocation, to.record);
     const warnings = [...saved.warnings, ...(await this.saveOther(from))];
     return {
       from: location,
@@ -932,10 +1026,11 @@ export class InstallRecordService {
     const committedFile = await this.store.load(committedLocation);
     const loaded = [committedFile, await this.store.load(localOnlyLocation)];
 
-    const changed = loaded.filter((file) => remapInRecord(file.record, from, to, source));
+    const hub = input.hub === undefined ? undefined : toRecordHub(input.hub.id, input.hub.name, input.hub);
+    const changed = loaded.filter((file) => remapInRecord(file.record, from, to, source, hub));
     const warnings: string[] = [];
     for (const file of changed) {
-      warnings.push(...(await this.store.save(file.location, file.record)).warnings);
+      warnings.push(...(await this.save(file.location, file.record)).warnings);
     }
     return { changed: changed.map((file) => file.location), warnings };
   }
@@ -947,14 +1042,23 @@ export class InstallRecordService {
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async listEntries(locations: readonly RecordLocation[]): Promise<StatusRow[]> {
-    const rows: StatusRow[] = (await this.listToolEntries(locations)).map(({ location, bundleId, tool, entry }) => ({
-      bundleId,
-      tool,
-      level: location.level,
-      version: entry.version,
-      record: location.path,
-      needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true
-    }));
+    const sources = new Map<string, InstallRecord['sources']>();
+    for (const location of locations) {
+      sources.set(location.path, (await this.store.load(location)).record.sources);
+    }
+    const rows: StatusRow[] = (await this.listToolEntries(locations)).map(({ location, bundleId, tool, entry }) => {
+      const recorded = sources.get(location.path);
+      const hubId = recorded !== undefined && Object.hasOwn(recorded, entry.sourceId) ? recorded[entry.sourceId].hubId : undefined;
+      return {
+        bundleId,
+        tool,
+        level: location.level,
+        version: entry.version,
+        record: location.path,
+        needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true,
+        ...(typeof hubId === 'string' && hubId !== '' ? { hubId } : {})
+      };
+    });
     return rows.toSorted((left, right) =>
       compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool) || compareCodeUnits(left.record, right.record));
   }
