@@ -1,22 +1,26 @@
 import {
+  createHash,
+} from 'node:crypto';
+import {
+  dump as dumpYaml,
+} from 'js-yaml';
+import {
   describe,
   expect,
   it,
 } from 'vitest';
 import {
   getInstallableBundleFiles,
+  isReleaseDeploymentManifest,
   ManifestValidationError,
   validateManifest,
 } from '../../../src/domain/collection/manifest-validator';
-import type {
-  ExtractedFiles,
-} from '../../../src/ports/bundle-extractor';
 import {
   createGovernedReleaseArchive,
   createLegacyReleaseArchive,
 } from '../../fixtures/release-archives';
 
-const filesWith = (yaml: string): ExtractedFiles => new Map([
+const filesWith = (yaml: string): Map<string, Uint8Array> => new Map([
   ['deployment-manifest.yml', new TextEncoder().encode(yaml)]
 ]);
 
@@ -143,6 +147,175 @@ describe('validateManifest', () => {
 
     expect(manifest.formatVersion).toBeUndefined();
     expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([...files.keys()]);
+  });
+
+  it('accepts a companion APM manifest as root metadata, not target content', () => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes('name: example\nversion: 1.0.0\n'));
+    files.set('.apm/instructions/rules.instructions.md', bytes('# Rules'));
+    files.set('nested/apm.yml', bytes('not companion metadata'));
+
+    const manifest = validateManifest(files, {});
+
+    expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([
+      'deployment-manifest.yml',
+      '.apm/instructions/rules.instructions.md',
+      'nested/apm.yml'
+    ]);
+  });
+
+  it.each([undefined, null, 'auto', [], ['.apm/instructions/rules.instructions.md']].map((includes) => ({ includes })))('accepts supported APM includes value $includes', ({ includes }) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes })));
+    files.set('.apm/instructions/rules.instructions.md', bytes('# Rules'));
+
+    expect(validateManifest(files, {}).id).toBe('example');
+  });
+
+  it.each(['.apm/skills/sample', '.apm/skills/sample/', './.apm/skills/sample', '.apm\\skills\\sample'])('accepts existing APM include directory %s', (selection) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes: [selection] })));
+    files.set('.apm/skills/sample/SKILL.md', bytes('# Skill'));
+
+    expect(validateManifest(files, {}).id).toBe('example');
+  });
+
+  it.each(['.apm/instructions/missing.instructions.md', '.apm/skills/sample', '../.apm/skills/sample-other'])('rejects APM include selections without matching archive content: %s', (selection) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes: [selection] })));
+    files.set('.apm/skills/sample-other/SKILL.md', bytes('# Sibling skill'));
+
+    expect(() => validateManifest(files, {})).toThrowError(expect.objectContaining({
+      code: 'BUNDLE.MANIFEST_INVALID',
+      message: expect.stringContaining('apm.yml includes[0]')
+    }));
+  });
+
+  it.each(['invalid', 123, true, {}, ['.apm/instructions/rules.instructions.md', 123]].map((includes) => ({ includes })))('rejects unsupported APM includes value $includes', ({ includes }) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(dumpYaml({ name: 'example', version: '1.0.0', includes })));
+
+    expect(() => validateManifest(files, {})).toThrowError(expect.objectContaining({
+      code: 'BUNDLE.MANIFEST_INVALID',
+      message: expect.stringContaining('apm.yml includes')
+    }));
+  });
+
+  it('uses the root copy of a primitive when its APM mirror is also present', () => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('agents/shared.agent.md', bytes('root copy'));
+    files.set('.apm/agents/shared.agent.md', bytes('APM mirror'));
+    files.set('.apm/agents/apm-only.agent.md', bytes('APM-only file'));
+
+    const manifest = validateManifest(files, {});
+
+    expect([...getInstallableBundleFiles(files, manifest).keys()]).toEqual([
+      'deployment-manifest.yml',
+      'agents/shared.agent.md',
+      '.apm/agents/apm-only.agent.md'
+    ]);
+  });
+
+  it('retains explicitly selected APM skill files and resources when root copies exist', () => {
+    const files = filesWith(dumpYaml({
+      id: 'example',
+      version: '1.0.0',
+      name: 'Example',
+      skills: [{ id: 'sample', file: '.apm/skills/sample/SKILL.md', type: 'skill' }]
+    }));
+    files.set('skills/sample/SKILL.md', bytes('Root skill'));
+    files.set('.apm/skills/sample/SKILL.md', bytes('Selected skill'));
+    files.set('skills/sample/references/rules.md', bytes('Root rules'));
+    files.set('.apm/skills/sample/references/rules.md', bytes('Selected rules'));
+
+    const installable = getInstallableBundleFiles(files, validateManifest(files, {}));
+
+    expect(installable.get('.apm/skills/sample/SKILL.md')).toEqual(bytes('Selected skill'));
+    expect(installable.get('.apm/skills/sample/references/rules.md')).toEqual(bytes('Selected rules'));
+  });
+
+  it('does not silently drop a legacy primitive that claims the companion metadata path', () => {
+    const files = filesWith([
+      'id: example',
+      'version: 1.0.0',
+      'name: Example',
+      'prompts:',
+      '  - id: invalid',
+      '    file: apm.yml',
+      '    type: instructions'
+    ].join('\n'));
+    files.set('apm.yml', bytes('name: example\nversion: 1.0.0\n'));
+
+    expect(() => validateManifest(files, {})).toThrowError(
+      expect.objectContaining({ code: 'BUNDLE.MANIFEST_INVALID' })
+    );
+  });
+
+  it.each([
+    '[]',
+    'name: [invalid\n',
+    'name: example\n',
+    'name: other\nversion: 1.0.0\n',
+    'name: example\nversion: 2.0.0\n'
+  ])('rejects invalid or inconsistent companion APM metadata: %s', (apmYaml) => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes(apmYaml));
+
+    expect(() => validateManifest(files, {})).toThrowError(
+      expect.objectContaining({ code: 'BUNDLE.MANIFEST_INVALID' })
+    );
+  });
+
+  it('identifies apm.yml as the source of invalid companion YAML', () => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes('name: [invalid\n'));
+
+    expect(() => validateManifest(files, {})).toThrowError(
+      expect.objectContaining({
+        code: 'BUNDLE.MANIFEST_INVALID',
+        message: expect.stringMatching(/^apm\.yml is not valid YAML:/)
+      })
+    );
+  });
+
+  it('identifies apm.yml as the source of inconsistent companion metadata', () => {
+    const files = filesWith('id: example\nversion: 1.0.0\nname: Example\n');
+    files.set('apm.yml', bytes('name: other\nversion: 1.0.0\n'));
+
+    expect(() => validateManifest(files, {})).toThrowError(
+      expect.objectContaining({
+        code: 'BUNDLE.MANIFEST_INVALID',
+        message: 'apm.yml must declare name "example" and version "1.0.0"'
+      })
+    );
+  });
+
+  it.each(['metadata', 'installable', 'ignored'] as const)('requires the governed companion to have metadata role, not %s', (role) => {
+    const files = createGovernedReleaseArchive();
+    const manifest = validateManifest(files, {});
+    if (!isReleaseDeploymentManifest(manifest)) {
+      throw new Error('Expected governed fixture');
+    }
+    const content = bytes('name: governed-bundle\nversion: 1.0.0\n');
+    files.set('apm.yml', content);
+    files.set('deployment-manifest.yml', bytes(dumpYaml({
+      ...manifest,
+      files: [...manifest.files, {
+        path: 'apm.yml',
+        role,
+        size: content.byteLength,
+        sha256: `sha256:${createHash('sha256').update(content).digest('hex')}`
+      }]
+    })));
+
+    if (role === 'metadata') {
+      const validated = validateManifest(files, {});
+      expect(getInstallableBundleFiles(files, validated).has('apm.yml')).toBe(false);
+    } else {
+      expect(() => validateManifest(files, {})).toThrowError(
+        expect.objectContaining({ code: 'BUNDLE.MANIFEST_INVALID' })
+      );
+    }
   });
 
   it('validates a fully governed release and exposes only installable files', () => {

@@ -6,7 +6,16 @@ import {
 import {
   isWithinSourceRoot,
   normalizeSourceRoot,
+  resolveRepositoryMetadataUrl,
 } from './published-object-url';
+
+function bearerHeaders(env: Record<string, string | undefined>, envName: string): Readonly<Record<string, string>> {
+  const token = env[envName];
+  if (!token) {
+    throw new RegistryError({ code: 'ARTIFACTORY.CREDENTIAL_MISSING', message: `Credential ${envName} is not available.` });
+  }
+  return { Authorization: `Bearer ${token}` };
+}
 
 export class AnonymousCredentialProvider implements HttpCredentialProvider {
   public async headersFor(url: string, context: SourceRequestContext): Promise<Readonly<Record<string, string>>> {
@@ -25,10 +34,19 @@ export class ArtifactoryEnvCredentialProvider implements HttpCredentialProvider 
     if (!isWithinSourceRoot(root, new URL(url)) || context.trustedOrigin !== root.origin) {
       throw new RegistryError({ code: 'ARTIFACTORY.PATH_ESCAPE', message: 'Credential request is outside the trusted source root.' });
     }
-    const token = this.env[this.envName];
-    if (!token) {
-      throw new RegistryError({ code: 'ARTIFACTORY.CREDENTIAL_MISSING', message: `Credential ${this.envName} is not available.` });
+    return bearerHeaders(this.env, this.envName);
+  }
+}
+
+/** Authorize only the selected repository's metadata endpoint, not its siblings. */
+export class ArtifactoryRepositoryCredentialProvider implements HttpCredentialProvider {
+  public constructor(private readonly env: Record<string, string | undefined>, private readonly envName: string, private readonly sourceRoot: string) {}
+  public async headersFor(url: string, context: SourceRequestContext): Promise<Readonly<Record<string, string>>> {
+    const expected = resolveRepositoryMetadataUrl(this.sourceRoot).url;
+    if (url !== expected.href || context.trustedOrigin !== expected.origin
+      || context.trustedPathPrefix !== expected.pathname) {
+      throw new RegistryError({ code: 'ARTIFACTORY.PATH_ESCAPE', message: 'Credential request is outside the selected repository metadata endpoint.' });
     }
-    return { Authorization: `Bearer ${token}` };
+    return bearerHeaders(this.env, this.envName);
   }
 }

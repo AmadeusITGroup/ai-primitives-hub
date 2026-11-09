@@ -5,11 +5,14 @@ import {
 import type {
   HttpClient,
   HttpRequest,
+  ReplicationArchivePreparer,
   ReplicationCandidate,
   ReplicationPublisherPort,
+  ReplicationRepositoryInspector,
   ReplicationSourcePort,
 } from '@ai-primitives-hub/core';
 import {
+  RegistryError,
   validateArtifactorySourceIndex,
 } from '@ai-primitives-hub/core';
 import {
@@ -42,6 +45,9 @@ const sourceFor = (candidates: ReplicationCandidate[]): ReplicationSourcePort =>
   listReleaseCandidates: vi.fn(() => Promise.resolve({ candidates, warnings: [] })),
   downloadArchive: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3])))
 });
+const agentPackagesInspector: ReplicationRepositoryInspector = {
+  inspect: () => Promise.resolve({ key: 'root', packageType: 'agentpackages', rclass: 'local' })
+};
 
 describe('replicateHub', () => {
   it('stops before publishing pointers when an immutable catalog generation is unverified', async () => {
@@ -211,6 +217,228 @@ describe('replicateHub', () => {
     ]);
     expect(result.hubConfig.sources[0].url).toBe('https://artifactory.invalid/root/sources/replicated');
     expect(result.index.bundles[0].manifest.path).toBe('bundles/owner-repo-bundle/1.0.0/deployment-manifest.yml');
+  });
+
+  it('uses the temporary APM layout, preserves logical IDs, and publishes hash-pinned hub metadata', async () => {
+    const preparedBytes = new Uint8Array([9, 8, 7]);
+    const prepareArchive: ReplicationArchivePreparer = {
+      prepare: vi.fn(() => Promise.resolve({
+        bytes: preparedBytes,
+        packageName: 'bundle',
+        translated: true,
+        warnings: ['APM dependency translation warning']
+      }))
+    };
+    const published = new Map<string, Uint8Array>();
+    const publishedPaths: string[] = [];
+    const publisher: ReplicationPublisherPort = {
+      publish: vi.fn((path: string, bytes: Uint8Array) => {
+        published.set(path, bytes);
+        publishedPaths.push(path);
+        return Promise.resolve('uploaded' as const);
+      })
+    };
+    const targetRoot = 'https://artifactory.invalid/aph-replica-apm';
+    const inspector: ReplicationRepositoryInspector = {
+      inspect: vi.fn(() => Promise.resolve({ key: 'aph-replica-apm', packageType: 'agentpackages', rclass: 'local' }))
+    };
+    const result = await replicateHub({
+      sourceHub: 'owner/hub',
+      sourceRef: 'main',
+      targetRoot,
+      mode: 'latest',
+      publish: true,
+      apmTransition: true
+    }, sourceFor([c]), publisher, prepareArchive, inspector);
+
+    expect(inspector.inspect).toHaveBeenCalledExactlyOnceWith(targetRoot);
+    expect(result.targetRepository).toEqual({ key: 'aph-replica-apm', packageType: 'agentpackages', rclass: 'local' });
+    expect(prepareArchive.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ bundleId: c.bundleId }),
+      new Uint8Array([1, 2, 3])
+    );
+    expect(publishedPaths.slice(0, 2)).toEqual([
+      `__CONFIG__/manifests/${c.bundleId}/${c.version}/deployment-manifest.yml`,
+      `owner/bundle/bundle-${c.version}.zip`
+    ]);
+    expect(published.get(`owner/bundle/bundle-${c.version}.zip`)).toEqual(preparedBytes);
+    expect(result.index.bundles[0].id).toBe(c.bundleId);
+    expect(result.index.bundles[0].archive.path).toBe(`owner/bundle/bundle-${c.version}.zip`);
+    expect(result.index.bundles[0].manifest.path).toBe(`__CONFIG__/manifests/${c.bundleId}/${c.version}/deployment-manifest.yml`);
+    expect(result.hubConfig.sources[0].url).toBe(targetRoot);
+    const indexFile = result.hubConfig.sources[0].config.indexFile as string;
+    expect(indexFile).toMatch(/^__CONFIG__\/indexes\/[a-f0-9]{64}-index-v1\.json$/);
+    expect(publishedPaths).toEqual([
+      `__CONFIG__/manifests/${c.bundleId}/${c.version}/deployment-manifest.yml`,
+      `owner/bundle/bundle-${c.version}.zip`,
+      indexFile,
+      '__CONFIG__/index-v1.json',
+      expect.stringMatching(/^__CONFIG__\/hub-config\/[a-f0-9]{64}-hub-config\.yml$/),
+      '__CONFIG__/hub-config.yml'
+    ]);
+    const hubBytes = published.get('__CONFIG__/hub-config.yml');
+    expect(published.get(publishedPaths[4])).toEqual(hubBytes);
+    expect(result.warnings).not.toContain('TEMPORARY APM TRANSITION: non-APM release archives may be rewritten before publication. This does not promote the immutable release asset byte-for-byte; remove this flag when all authors publish APM-ready assets.');
+    expect(result.warnings).toContain(`Temporarily translated ${c.bundleId}@${c.version} to the dual-manifest APM layout; the uploaded ZIP differs from the immutable GitHub release asset.`);
+    expect(result.warnings).toContain('APM dependency translation warning');
+  });
+
+  it('rejects transition mode without reviewed publication before reading the hub', async () => {
+    const source = sourceFor([c]);
+    await expect(replicateHub({
+      sourceHub: 'owner/hub',
+      sourceRef: 'main',
+      targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest',
+      apmTransition: true
+    }, source)).rejects.toThrow(/--apm-transition requires publication/);
+    expect(source.getHubConfig).not.toHaveBeenCalled();
+  });
+
+  it.each(['generic', 'unavailable', 'missing-inspector'])('rejects %s repository inspection before reading sources or publishing', async (kind) => {
+    const source = sourceFor([c]);
+    const publisher: ReplicationPublisherPort = { publish: vi.fn() };
+    const preparer: ReplicationArchivePreparer = { prepare: vi.fn() };
+    const inspector: ReplicationRepositoryInspector | undefined = kind === 'missing-inspector'
+      ? undefined
+      : {
+        inspect: vi.fn(() => kind === 'generic'
+          ? Promise.resolve({ key: 'root', packageType: 'generic', rclass: 'local' })
+          : Promise.reject(new Error('Repository metadata unavailable')))
+      };
+    await expect(replicateHub({
+      sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest', publish: true, apmTransition: true
+    }, source, publisher, preparer, inspector)).rejects.toThrow(/Agent Packages repository|metadata unavailable|packageType inspection/);
+    expect(source.getHubConfig).not.toHaveBeenCalled();
+    expect(source.downloadArchive).not.toHaveBeenCalled();
+    expect(preparer.prepare).not.toHaveBeenCalled();
+    expect(publisher.publish).not.toHaveBeenCalled();
+  });
+
+  it('does not inspect repository metadata during ordinary replication', async () => {
+    const inspector: ReplicationRepositoryInspector = { inspect: vi.fn() };
+    const publisher: ReplicationPublisherPort = { publish: vi.fn(() => Promise.resolve('uploaded' as const)) };
+    const result = await replicateHub({
+      sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest', publish: true
+    }, sourceFor([c]), publisher, undefined, inspector);
+    expect(inspector.inspect).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('targetRepository');
+  });
+
+  it.each(['AgentPackages', 'AGENTPACKAGES'])('accepts case-insensitive packageType %s from an SDK inspector', async (packageType) => {
+    const inspector: ReplicationRepositoryInspector = {
+      inspect: () => Promise.resolve({ key: 'root', packageType, rclass: 'local' })
+    };
+    const publisher: ReplicationPublisherPort = { publish: vi.fn(() => Promise.resolve('uploaded' as const)) };
+    const preparer: ReplicationArchivePreparer = {
+      prepare: () => Promise.resolve({ bytes: new Uint8Array([1, 2, 3]), packageName: 'bundle', translated: false, warnings: [] })
+    };
+    const result = await replicateHub({
+      sourceHub: 'owner/hub', sourceRef: 'main', targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest', publish: true, apmTransition: true
+    }, sourceFor([c]), publisher, preparer, inspector);
+    expect(result.index.bundles).toHaveLength(1);
+    expect(publisher.publish).toHaveBeenCalled();
+  });
+
+  it('shares an identical Agent Packages artifact across distinct Hub IDs', async () => {
+    const duplicate = { ...c, repo: 'owner/other-repo', bundleId: 'owner-other-repo-bundle' };
+    const archiveBytes = new Uint8Array([9, 8, 7]);
+    const prepareArchive: ReplicationArchivePreparer = {
+      prepare: vi.fn(() => Promise.resolve({
+        bytes: archiveBytes,
+        packageName: 'bundle',
+        translated: false,
+        warnings: []
+      }))
+    };
+    const publishedPaths: string[] = [];
+    const publisher: ReplicationPublisherPort = {
+      publish: vi.fn((path: string) => {
+        publishedPaths.push(path);
+        return Promise.resolve('uploaded' as const);
+      })
+    };
+    const result = await replicateHub({
+      sourceHub: 'owner/hub',
+      sourceRef: 'main',
+      targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest',
+      publish: true,
+      apmTransition: true
+    }, sourceFor([c, duplicate]), publisher, prepareArchive, agentPackagesInspector);
+
+    expect(result.index.bundles).toHaveLength(2);
+    expect(result.index.bundles.map((entry) => entry.archive.path)).toEqual([
+      'owner/bundle/bundle-1.0.0.zip',
+      'owner/bundle/bundle-1.0.0.zip'
+    ]);
+    expect(publishedPaths.filter((path) => path === 'owner/bundle/bundle-1.0.0.zip')).toHaveLength(1);
+    expect(result.warnings.some((warning) =>
+      warning.startsWith('Shared identical Agent Packages artifact owner/bundle@1.0.0')
+      && warning.includes('owner-repo-bundle')
+      && warning.includes('owner-other-repo-bundle')
+      && warning.endsWith('both Hub IDs reference the same ZIP.')
+    )).toBe(true);
+  });
+
+  it('rejects different contents for a shared Agent Packages coordinate before publishing', async () => {
+    const duplicate = { ...c, repo: 'owner/other-repo', bundleId: 'owner-other-repo-bundle' };
+    const prepareArchive: ReplicationArchivePreparer = {
+      prepare: vi.fn((candidate: ReplicationCandidate) => Promise.resolve({
+        bytes: new TextEncoder().encode(candidate.repo),
+        packageName: 'bundle',
+        translated: true,
+        warnings: []
+      }))
+    };
+    const publisher: ReplicationPublisherPort = {
+      publish: vi.fn(() => Promise.resolve('uploaded' as const))
+    };
+
+    await expect(replicateHub({
+      sourceHub: 'owner/hub',
+      sourceRef: 'main',
+      targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest',
+      publish: true,
+      apmTransition: true
+    }, sourceFor([c, duplicate]), publisher, prepareArchive, agentPackagesInspector)).rejects.toThrow(/different release content; no artifacts were published/);
+    expect(publisher.publish).not.toHaveBeenCalled();
+  });
+
+  it('skips unsupported APM releases with warnings and excludes dependent profiles', async () => {
+    const prepareArchive: ReplicationArchivePreparer = {
+      prepare: vi.fn(() => Promise.reject(new RegistryError({
+        code: 'BUNDLE.APM_UNSUPPORTED_CONTENT',
+        message: 'No supported primitives are declared.'
+      })))
+    };
+    const publishedPaths: string[] = [];
+    const publisher: ReplicationPublisherPort = {
+      publish: vi.fn((path: string) => {
+        publishedPaths.push(path);
+        return Promise.resolve('uploaded' as const);
+      })
+    };
+    const result = await replicateHub({
+      sourceHub: 'owner/hub',
+      sourceRef: 'main',
+      targetRoot: 'https://artifactory.invalid/root',
+      mode: 'latest',
+      publish: true,
+      apmTransition: true
+    }, sourceFor([c]), publisher, prepareArchive, agentPackagesInspector);
+
+    expect(result.index.bundles).toEqual([]);
+    expect(result.hubConfig.profiles).toEqual([]);
+    expect(publishedPaths).not.toContain('owner/bundle/bundle-1.0.0.zip');
+    expect(result.warnings.some((warning) =>
+      warning.includes(`Skipped ${c.bundleId}@${c.version}: No supported primitives are declared.`)
+    )).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes('Excluded profile "p"'))).toBe(true);
   });
 
   it.each(['deployment-manifest.yml', '.zip'])('omits an unverified %s bundle and excludes profiles that reference it', async (suffix) => {
